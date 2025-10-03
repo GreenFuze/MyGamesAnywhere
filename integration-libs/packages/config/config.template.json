@@ -1,0 +1,15 @@
+{
+  "steam": {
+    "apiKey": "",
+    "username": ""
+  },
+  "googleDrive": {
+    "clientId": "",
+    "clientSecret": "",
+    "redirectUri": "http://localhost:3000/oauth/callback"
+  },
+  "igdb": {
+    "clientId": "",
+    "clientSecret": ""
+  }
+}

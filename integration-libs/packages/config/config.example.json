@@ -1,0 +1,21 @@
+{
+  "_comment_steam": "Get API key from: https://steamcommunity.com/dev/apikey",
+  "_comment_username": "Your Steam username (e.g., greenfuze)",
+  "steam": {
+    "apiKey": "A1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6",
+    "username": "greenfuze"
+  },
+
+  "_comment_googleDrive": "Get credentials from: https://console.cloud.google.com/",
+  "googleDrive": {
+    "clientId": "123456789-abc.apps.googleusercontent.com",
+    "clientSecret": "GOCSPX-abc123def456",
+    "redirectUri": "http://localhost:3000/oauth/callback"
+  },
+
+  "_comment_igdb": "Get Twitch credentials from: https://dev.twitch.tv/console/apps",
+  "igdb": {
+    "clientId": "abc123def456",
+    "clientSecret": "xyz789uvw012"
+  }
+}

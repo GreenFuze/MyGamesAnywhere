@@ -1,0 +1,33 @@
+{
+  "name": "@mygamesanywhere/config",
+  "version": "0.1.0",
+  "description": "Centralized configuration manager for all MyGamesAnywhere integrations",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "config",
+    "configuration",
+    "settings"
+  ],
+  "author": "MyGamesAnywhere Team",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.6",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

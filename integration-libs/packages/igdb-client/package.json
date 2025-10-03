@@ -1,0 +1,37 @@
+{
+  "name": "@mygamesanywhere/igdb-client",
+  "version": "0.1.0",
+  "description": "IGDB (Internet Game Database) client for MyGamesAnywhere - game metadata and cover art",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src tests --ext .ts",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "igdb",
+    "game-metadata",
+    "twitch",
+    "game-database",
+    "covers"
+  ],
+  "author": "MyGamesAnywhere Team",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.6",
+    "@vitest/coverage-v8": "^2.1.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
