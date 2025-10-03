@@ -55,28 +55,51 @@ This document outlines the planned development phases for MyGamesAnywhere.
 
 ### Deliverables
 
-**Four Standalone TypeScript Packages:**
+**Five Standalone TypeScript Packages:**
 
-1. **@mygamesanywhere/steam-scanner**
+1. **@mygamesanywhere/steam-scanner** ✅
    - Detect Steam installation
    - Parse libraryfolders.vdf and .acf files
    - Extract installed game information
-   - Unit tests with real Steam data
+   - Steam Web API integration (username-based auth)
+   - Steam Client integration (install/uninstall/launch)
+   - 88 unit tests with real Steam data
 
-2. **@mygamesanywhere/gdrive-client**
+2. **@mygamesanywhere/gdrive-client** ✅
    - OAuth 2.0 authentication flow
    - List files in folders
    - Download files with progress
-   - Unit tests with mocked APIs
+   - 41 unit tests with mocked APIs
 
-3. **@mygamesanywhere/igdb-client**
+3. **@mygamesanywhere/igdb-client** (placeholder)
    - Twitch OAuth (required for IGDB)
    - Search games by title
    - Fetch detailed metadata
    - Rate limiting (4 req/sec)
    - Unit tests with mocked APIs
 
-4. **@mygamesanywhere/native-launcher**
+4. **@mygamesanywhere/generic-repository** ✅ (Phase 1 complete)
+   - Scan local/cloud directories for games
+   - Detect installers (.exe, .msi, .pkg, .deb, .rpm)
+   - Detect portable games (game directories with executables)
+   - Detect ROMs (NES, SNES, GB, PlayStation, etc.)
+   - Detect archives (single & multi-part: .zip, .rar, .7z, .part1, .z01, etc.)
+   - Detect emulator-required games (DOSBox, ScummVM)
+   - Cross-platform support (Windows, Linux, macOS, Android, iOS)
+   - Repository adapters (Local filesystem, cloud storage ready)
+   - Smart executable detection (main game .exe vs config/uninstaller)
+   - Phase 1: Core scanning & detection
+   - Phase 2: Archive extraction (planned)
+   - Phase 3: Installation management (planned)
+   - Phase 4: Metadata fetching & save sync (planned)
+
+5. **@mygamesanywhere/config** ✅
+   - Centralized configuration for all integrations
+   - Single `~/.mygamesanywhere/config.json` file
+   - Environment variable overrides
+   - Type-safe with Zod validation
+
+6. **@mygamesanywhere/native-launcher** (planned)
    - Platform detection (Windows, macOS, Linux)
    - Launch executables
    - Monitor running processes
@@ -99,23 +122,31 @@ This document outlines the planned development phases for MyGamesAnywhere.
 
 ### Week-by-Week
 
-**Week 1:** Steam Scanner
-**Week 2:** Steam Polish + Google Drive Auth
-**Week 3:** Google Drive Client
-**Week 4:** IGDB Client
-**Week 5:** Native Launcher
-**Week 6:** Integration & Documentation
+**Week 1:** Steam Scanner ✅
+**Week 2:** Steam Polish + Google Drive Client ✅
+**Week 3:** Generic Repository Scanner (Phase 1) ✅
+**Week 4:** IGDB Client (planned)
+**Week 5:** Native Launcher (planned)
+**Week 6:** Integration & Documentation (planned)
 
 ### Success Criteria
 
-- [ ] All 4 packages build without errors
-- [ ] All unit tests pass (85%+ coverage)
-- [ ] Steam scanner finds games on real Steam installation
-- [ ] Google Drive OAuth flow works end-to-end
+- [x] Steam scanner package builds without errors
+- [x] Steam scanner has 88 passing tests
+- [x] Steam scanner finds games on real Steam installation
+- [x] Steam Web API integration with username-based auth
+- [x] Steam Client can install/uninstall/launch games
+- [x] Google Drive OAuth flow works end-to-end
+- [x] Google Drive client has 41 passing tests
+- [x] Generic repository scanner builds without errors
+- [x] Generic repository detects all 6+ game types
+- [x] Multi-part archive detection works
+- [x] Cross-platform file classification (Windows/Linux/macOS)
+- [x] Centralized config package with type-safe validation
 - [ ] IGDB client searches and fetches metadata
 - [ ] Native Launcher launches and monitors processes
-- [ ] Each package has README with examples
-- [ ] All error cases handled gracefully
+- [x] Each package has README with examples
+- [x] All error cases handled gracefully
 
 ---
 

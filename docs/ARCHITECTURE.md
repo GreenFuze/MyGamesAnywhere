@@ -312,11 +312,16 @@ interface Plugin {
    - Steam (scan installed + metadata + launch)
    - Epic Games Store
    - GOG Galaxy
-   - Local folders
+   - **Generic Repository Scanner** (local/cloud directories with mixed game formats)
+     - Installers (.exe, .msi, .pkg, .deb, .rpm)
+     - Portable games (ready-to-run directories)
+     - ROMs (NES, SNES, PlayStation, etc.)
+     - Archives (single & multi-part: .zip, .rar, .7z, .part1, .z01)
+     - Emulator-required games (DOSBox, ScummVM)
+     - Cross-platform detection (Windows/Linux/macOS/Android/iOS)
    - Google Drive (scan + download)
    - OneDrive
    - Network shares
-   - ROMs
 
 2. **Metadata Plugins** - Game information
    - IGDB (primary)
