@@ -112,7 +112,6 @@ MyGamesAnywhere is open-source software. You can review exactly how your data is
 
 Questions about privacy?
 - GitHub Issues: https://github.com/GreenFuze/MyGamesAnywhere/issues
-- Email: [Your Contact Email]
 
 ## Summary
 
