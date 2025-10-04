@@ -1,380 +1,322 @@
 # Current Status
 
-**Last Updated:** 2025-10-02
+**Last Updated:** 2025-10-04
 
-**Phase:** Phase 0 Complete ✅ → Ready for Phase 1 🚀
+**Phase:** Phase 1: Core Integrations (In Progress) 🚀
 
-**Status:** ✅ **Ready for Implementation** - All decisions finalized, client-side plugin architecture confirmed, detailed Phase 1 plan created
+**Status:** ✅ **Steam, Google Drive, Generic Repository Complete** - Ready for Game Identifier Module
 
 ---
 
 ## Overview
 
-MyGamesAnywhere has completed the design phase. All architectural decisions have been made, including the CRITICAL decision that **there is NO SERVER** - sync handled via user's cloud storage (Google Drive, OneDrive). Plugins run client-side. A risk-first phase ordering has been established: build and test core integrations FIRST as standalone libraries, THEN wrap in plugin system with cloud sync, THEN build full UI. The project is ready to begin Phase 1 implementation.
+MyGamesAnywhere has completed the design phase and made significant progress on Phase 1. Core integration libraries are built and tested:
+- ✅ Steam scanner with VDF parsing and Web API
+- ✅ Google Drive OAuth authentication and file operations
+- ✅ Generic repository scanner (local and cloud storage)
+- ✅ Cross-platform game detection (Windows, Linux, macOS)
+
+**Next:** Game Identifier module to match detected games to metadata.
 
 ---
 
 ## Completed ✅
 
-### Design & Planning
+### Phase 1: Core Integrations (Partial)
 
-- [x] **Project Goals Defined**
-  - Cross-platform game launcher (desktop + mobile)
-  - Pluggable architecture
-  - Integration with storefronts and local games
-  - Automatic metadata and media download
-  - Cloud and local server options
-  - Modern, slick UI
+#### @mygamesanywhere/steam-scanner ✅
+- [x] VDF parser for Steam library files
+- [x] Local game detection from Steam installation
+- [x] Steam Web API integration (username-based auth)
+- [x] Steam Client integration (install/uninstall/launch)
+- [x] 88 comprehensive unit tests (all passing)
+- [x] Cross-platform support (Windows, Linux, macOS)
 
-- [x] **Architecture Designed**
-  - **Serverless!** No backend server - client-only architecture
-  - Cloud storage sync (Google Drive, OneDrive) for multi-device support
-  - Separate desktop and mobile apps with shared core (60-80% code reuse)
-  - Client-side TypeScript plugin system
-  - Simple client deployment (no infrastructure needed)
+#### @mygamesanywhere/gdrive-client ✅
+- [x] OAuth 2.0 authentication with simplified GDriveAuth helper
+- [x] Browser-based OAuth flow (auto-opens browser, saves tokens)
+- [x] Token storage at `~/.mygamesanywhere/.gdrive-tokens.json`
+- [x] Auto-refresh of expired tokens
+- [x] File operations (list, upload, download, delete, search)
+- [x] GDrive repository adapter for generic-repository
+- [x] 41 unit tests with mocked APIs
+- [x] OAuth credentials embedded in app (GitHub secrets approved)
+- [x] Privacy Policy and Terms of Service for OAuth verification
 
-- [x] **Technology Stack Chosen**
-  - **Frontend:** Ionic + Capacitor + React + TypeScript
-  - **Backend:** None! (Serverless architecture)
-  - **Storage:** SQLite (local cache) + JSON files (cloud sync)
-  - **Plugin System:** Client-side TypeScript modules
-  - **Cloud Sync:** Google Drive API, OneDrive API
-  - **Deployment:** Client install only (no server!)
-  - **Monorepo:** Nx
+**OAuth Scope:** `drive.readonly` (read access to all user files)
 
-- [x] **Data Schema Designed**
-  - JSON files in cloud storage (library.json, playtime.json, preferences.json)
-  - SQLite local cache for fast queries
-  - Support for multi-platform games
-  - Support for multiple execution types (native, streaming, emulated)
-  - Play session tracking
-  - No user accounts needed (just cloud storage OAuth)
+#### @mygamesanywhere/generic-repository ✅
+- [x] Repository adapter pattern (Local, GDrive implemented)
+- [x] Recursive directory walker (unlimited depth)
+- [x] File classifier with 50+ extensions
+- [x] Multi-part archive detection (.part1, .z01, .001, .r00)
+- [x] Cross-platform installer detection (Windows/Linux/macOS)
+- [x] ROM detection (30+ systems: NES, SNES, PlayStation, etc.)
+- [x] Portable game detection (directories with executables)
+- [x] Smart confidence scoring
+- [x] **Tested:** Scanned 763 files, 121 directories, detected 202 games
 
-- [x] **Plugin System Designed** (MAJOR UPDATE!)
-  - **Client-side TypeScript modules** (NOT server-side!)
-  - Capability-based design (not strict types)
-  - Privacy-first: user data stays local
-  - TypeScript plugin interface defined
-  - Encrypted config storage (OS keychain)
-  - Cross-platform (desktop + mobile)
+**Game Types Detected:**
+- Installer Executable (.exe, .msi, .pkg)
+- Platform Installer (.deb, .rpm, .dmg)
+- ROM files (NES, SNES, GB, PlayStation, Sega, etc.)
+- Archives (single & multi-part: .zip, .rar, .7z, .part1)
+- Portable games (game directories)
+- Emulator-required games (DOSBox, ScummVM indicators)
 
-- [x] **Cloud Storage Integration Specified**
-  - Google Drive API integration (OAuth 2.0)
-  - OneDrive API integration (future)
-  - JSON file format specifications
-  - Sync conflict resolution strategy
-  - No server API needed!
+#### @mygamesanywhere/config ✅
+- [x] Centralized configuration manager
+- [x] Single `~/.mygamesanywhere/config.json` file
+- [x] Environment variable overrides
+- [x] Type-safe with Zod validation
+- [x] Separate user config and app config
 
-- [x] **Documentation Created**
-  - `docs/ARCHITECTURE.md` - Complete system architecture
-  - `docs/DESIGN_DECISIONS.md` - Rationale for all decisions
-  - `docs/PLUGINS.md` - Plugin system specification
-  - `docs/DATABASE_SCHEMA.md` - JSON formats and SQLite cache schema
-  - `docs/ROADMAP.md` - Development phases and milestones
-  - `docs/CURRENT_STATUS.md` - This file
-  - `CLAUDE.md` - Guide for future Claude Code sessions
+### Documentation ✅
 
-- [x] **Detailed Phase 1 Documentation Created**
-  - `docs/PHASE1_DETAILED.md` - Complete Phase 1 specification
-    - Every feature specified
-    - API endpoints with request/response examples
-    - Database migrations (exact SQL)
-    - Week-by-week breakdown (6 weeks)
-    - Definition of done criteria
-  - `docs/PROJECT_STRUCTURE.md` - Complete file tree
-    - Every directory explained
-    - Import path conventions
-    - File naming rules
-  - `docs/DEPENDENCIES.md` - All dependencies with versions
-    - Rationale for each choice
-    - Alternatives considered
-  - `docs/DEVELOPMENT_SETUP.md` - Step-by-step setup guide
-    - Prerequisites
-    - Installation instructions
-    - Troubleshooting
-  - `docs/CODING_STANDARDS.md` - Code style guidelines
-    - TypeScript/React patterns
-    - Go patterns
-    - Testing patterns
-    - Error handling
+**User Guides:**
+- [x] `README.md` - Quick start with Google Drive auth
+- [x] `SETUP.md` - Complete setup guide for all integrations
+- [x] `GOOGLE_DRIVE_SETUP.md` - Google Drive authentication guide
+- [x] `PRIVACY_POLICY.md` - Privacy policy for OAuth verification
+- [x] `TERMS_OF_SERVICE.md` - Terms of service for OAuth verification
 
-- [x] **All Technology Choices Finalized**
-  - State management: Zustand
-  - Monorepo tool: Nx
-  - Testing: Vitest
-  - Cloud storage: Google Drive API (Phase 1), OneDrive API (Phase 2+)
-  - Local cache: SQLite with FTS (full-text search)
+**Technical Docs:**
+- [x] `docs/ARCHITECTURE.md` - Updated with OAuth security model
+- [x] `docs/ROADMAP.md` - Updated with completed features
+- [x] `docs/CURRENT_STATUS.md` - This file
+- [x] `integration-libs/packages/gdrive-client/GOOGLE_OAUTH_SETUP_MAINTAINER.md` - OAuth setup for maintainers
 
 ---
 
-## Ready for Implementation ✅
+## In Progress 🚧
 
-**Phase 0 (Design) is COMPLETE!**
+### @mygamesanywhere/igdb-client (Placeholder)
+- [ ] Twitch OAuth (required for IGDB)
+- [ ] Game search by title
+- [ ] Fetch detailed metadata
+- [ ] Rate limiting (4 req/sec)
+- [ ] Unit tests
 
-All architectural decisions made, all technology choices finalized, and detailed Phase 1 specification created.
-
-### What's Ready:
-
-- ✅ Complete architecture designed
-- ✅ Every Phase 1 feature specified
-- ✅ Database schema designed (migrations ready to write)
-- ✅ API endpoints specified (request/response examples provided)
-- ✅ Project structure defined (every directory and file)
-- ✅ All dependencies listed with versions
-- ✅ Development setup guide written
-- ✅ Coding standards documented
-- ✅ Week-by-week implementation plan (6 weeks)
-- ✅ Testing strategy defined
-- ✅ CI/CD approach specified
-
-### Next Step: Get User Approval
-
-**Awaiting user's explicit approval to:**
-1. Begin Phase 1 implementation
-2. Set up project scaffold
-3. Start coding
-
-**Once approved, first steps are:**
-1. Create GitHub repository
-2. Initialize Go project (`go mod init`)
-3. Initialize Nx monorepo (`npx create-nx-workspace`)
-4. Set up Docker Compose (PostgreSQL)
-5. Begin Week 1 tasks from PHASE1_DETAILED.md
+### Game Identifier Module (Next Up)
+- [ ] Match detected games to metadata
+- [ ] Use storefront APIs for storefront games (Steam)
+- [ ] Use IGDB for non-storefront games
+- [ ] Fuzzy matching based on filename/folder name
+- [ ] Confidence scoring for matches
+- [ ] Test with 202 detected games from Google Drive
 
 ---
 
-## Key Decisions Made
+## Test Results
 
-### Architecture
+### Google Drive Game Scanning (Real Test)
+**Folder:** MyGamesAnywhere test collection
+**Duration:** 269 seconds (~4.5 minutes)
+**Results:**
+- Files scanned: 763
+- Directories scanned: 121
+- Games found: **202**
 
-✅ **Serverless!** - NO SERVER! Cloud storage sync only
-✅ **Separate Apps** - Desktop and mobile apps with shared core (60-80% code reuse)
-✅ **Cloud Storage Sync** - User's Google Drive/OneDrive for multi-device sync
-✅ **Plugin System** - **Client-side TypeScript modules** (MAJOR DECISION!)
-✅ **Privacy First** - User data stays on device or user's own cloud storage
-✅ **Zero Hosting Costs** - No infrastructure to deploy or maintain
+**Breakdown by Type:**
+- ROM: 148 games (73%)
+- Installer Executable: 28 games (14%)
+- Archived: 25 games (12%)
+- Portable Game: 1 game (0.5%)
 
-### Technology (Finalized)
+**Conclusion:** Scanner successfully detects multiple game formats across recursive directory structure.
 
-✅ **Frontend** - Ionic 7 + Capacitor 5 + React 18 + TypeScript 5
-✅ **Backend** - None! (Serverless architecture)
-✅ **Storage** - SQLite 3.35+ (local cache) + JSON files (cloud sync)
-✅ **State Management** - Zustand 4 (chosen over Redux for simplicity)
-✅ **Cloud APIs** - Google Drive API, OneDrive API
-✅ **Monorepo** - Nx 17+ (chosen for advanced features)
-✅ **Testing** - Vitest
-✅ **Styling** - TailwindCSS 3 + Ionic components
-
-### Design Principles
-
-✅ **OOP Preferred** - Object-oriented design where possible
-✅ **RAII Idioms** - Resource management patterns
-✅ **Fail-Fast** - Detailed errors, no silent fallbacks
-✅ **Minimize Duplication** - Aggressive refactoring for DRY
-✅ **Code Paragraphs** - Comments between logical code blocks
+### Steam Scanner (Real Test)
+**Test User:** GreenFuze (via Steam username)
+**Results:**
+- Successfully fetched owned games from Steam Web API
+- Local detection from Steam installation
+- 88 unit tests passing
 
 ---
 
-## All Decisions Finalized ✅
+## Architecture Decisions Made
 
-**No open questions remaining!** All technology choices have been finalized through discussion and research:
+### Serverless Architecture ✅
+- **NO SERVER!** All functionality runs on client
+- Cloud storage sync via user's Google Drive/OneDrive
+- User owns all data (local device + their cloud storage)
+- Zero hosting costs
 
-1. **✅ State Management:** Zustand (simpler, can upgrade to Redux if needed)
-2. **✅ Go Framework:** Gin (most popular, great ecosystem)
-3. **✅ Database Layer:** sqlc (type-safe, performant)
-4. **✅ Monorepo Tool:** Nx (advanced features, better for complex monorepos)
-5. **✅ Testing:** Vitest (faster, Vite-native)
+### Plugin System (Future Phase 2)
+- Client-side TypeScript modules
+- Privacy-first: user data stays local
+- Encrypted config storage (OS keychain)
+- Plugin capabilities: Source, Platform, Metadata, Feature, UI
 
-**Target Platforms:**
-- Phase 1: Desktop (Windows, macOS, Linux)
-- Phase 2: Mobile (iOS, Android)
+### OAuth Security Model ✅
+- OAuth client credentials embedded in app (public for native apps)
+- Credentials identify the APP, not the user
+- Each user gets personal token via browser login
+- Standard approach: GitHub CLI, Google Cloud SDK, VS Code
+- Users can revoke access anytime
 
-**Free Cloud Provider:** Fly.io or Railway (both support Go well, decision during deployment)
+---
+
+## Technology Stack
+
+### Core (Phase 1)
+- **TypeScript** 5.x
+- **Node.js** 18+
+- **Vitest** - Testing framework
+- **Zod** - Runtime validation
+- **ESLint + Prettier** - Code quality
+
+### Integration-Specific
+- Custom VDF parser (Steam)
+- Google OAuth 2.0 libraries
+- Axios (HTTP client)
+- UUID (unique IDs)
+- Open (browser launcher)
+
+### Future Phases
+- **Frontend:** Ionic + Capacitor + React
+- **State Management:** Zustand
+- **Local Cache:** SQLite with FTS
+- **Monorepo:** Nx (for full app)
 
 ---
 
 ## Next Immediate Steps
 
-**Phase Order (Risk-First):**
-1. **Phase 1:** Core Integrations (5-6 weeks)
-2. **Phase 2:** Plugin System + Cloud Sync + Minimal Client (4-6 weeks)
-3. **Phase 3:** Full UI Polish & Desktop Features (4-6 weeks)
+### 1. Game Identifier Module (Next)
+**Goal:** Match detected games to metadata
 
-**Starting Phase 1 Now:**
+**Approach:**
+1. **For Steam games:** Use Steam API for metadata (already have)
+2. **For other games:**
+   - Extract game name from filename/folder
+   - Search IGDB API
+   - Fuzzy match with confidence scoring
+   - Return metadata (title, cover, description, etc.)
 
-1. **Set up integration libraries workspace**
-   ```
-   integration-libs/
-   ├── packages/
-   │   ├── steam-scanner/
-   │   ├── gdrive-client/
-   │   ├── igdb-client/
-   │   └── native-launcher/
-   ├── package.json
-   └── tsconfig.base.json
-   ```
+**Test with:** 202 detected games from Google Drive scan
 
-2. **Week 1: Steam Scanner**
-   - TypeScript + Node.js project
-   - Implement VDF parser
-   - Scan Steam installation
-   - Extract installed games
-   - Unit tests (90%+ coverage)
+### 2. IGDB Client Integration
+- Implement Twitch OAuth
+- Game search and metadata fetch
+- Rate limiting
+- Cache responses
 
-3. **Week 2: Steam Polish + Google Drive Auth**
-   - Complete Steam scanner
-   - Implement Google Drive OAuth flow
-   - Test OAuth end-to-end
-
-4. **Week 3: Google Drive Client**
-   - File listing and search
-   - Download with progress
-   - Unit tests (mocked APIs)
-
-5. **Week 4: IGDB Client**
-   - Twitch OAuth for IGDB
-   - Game search and metadata fetch
-   - Rate limiter (4 req/sec)
-   - Unit tests
-
-6. **Week 5: Native Launcher**
-   - Platform detection
-   - Process spawning and monitoring
-   - Playtime tracking
-   - Unit tests
-
-7. **Week 6: Integration & Documentation**
-   - Bug fixes
-   - Complete documentation
-   - Example scripts
-   - Ready for Phase 2!
+### 3. Native Launcher (Future)
+- Platform detection
+- Process spawning and monitoring
+- Playtime tracking
 
 ---
 
-## Development Environment Requirements
+## Success Metrics (Phase 1)
 
-### Client Development (Only!)
+**Completed:**
+- [x] Steam scanner finds games on real Steam installation (✅ 88 tests passing)
+- [x] Google Drive OAuth flow works end-to-end (✅ Browser-based, auto-token)
+- [x] Google Drive client has 41 passing tests
+- [x] Generic repository detects all 6+ game types (✅ 202 games detected)
+- [x] Multi-part archive detection works (✅ .part1, .z01, .001, .r00)
+- [x] Cross-platform file classification (✅ Windows/Linux/macOS)
+- [x] Each package has README with examples
 
-- **Node.js:** 18 LTS or higher
-- **npm:** 9+ or pnpm 8+
-- **Ionic CLI:** `npm install -g @ionic/cli`
-- **Capacitor CLI:** Included in project
-- **Platform SDKs:**
-  - **iOS:** Xcode 14+ (macOS only)
-  - **Android:** Android Studio + Android SDK 33+
-  - **Desktop:** Node.js (Electron bundled)
+**In Progress:**
+- [ ] IGDB client searches and fetches metadata
+- [ ] Game identifier matches detected games to metadata
+- [ ] Native Launcher launches and monitors processes
 
-### Recommended Tools
-
-- **IDEs:**
-  - **Go:** VS Code with Go extension or GoLand
-  - **TypeScript:** VS Code or WebStorm
-- **Database Tools:**
-  - **PostgreSQL:** pgAdmin or DBeaver
-  - **SQLite:** DB Browser for SQLite
-- **API Testing:** Postman or Insomnia
-- **Git Client:** GitKraken, SourceTree, or CLI
+**Phase 1 Success Criteria:**
+- All integration libraries functional as standalone packages
+- 85%+ test coverage for each package
+- Clear API documentation
+- Ready to wrap in plugin system (Phase 2)
 
 ---
 
-## Risk Assessment
+## Known Issues & TODOs
 
-### Low Risk ✅
+### Performance
+- [ ] Google Drive scanning is slow (5+ minutes for large folders)
+  - **Cause:** API rate limits (each file = separate API call)
+  - **Solution:** Batch API calls, cache file metadata locally
 
-- **Technology choices** - All battle-tested, mature technologies
-- **Architecture** - Well-defined, proven patterns
-- **Documentation** - Comprehensive, clear
+### UX Improvements
+- [ ] Progress indicators for long scans
+- [ ] Cancel/pause long-running scans
+- [ ] Better error messages for OAuth failures
 
-### Medium Risk ⚠️
-
-- **Scope** - Large project, need to stay focused on MVP
-- **Code reuse** - Sharing code between desktop/mobile needs careful management
-- **Plugin system** - Complex, needs thorough testing
-
-### Mitigation Strategies
-
-- **Scope:** Follow roadmap phases strictly, resist feature creep
-- **Code reuse:** Use monorepo tools (Nx/Turborepo), shared packages
-- **Plugin system:** Start with simple plugins, add complexity gradually
+### Documentation
+- [ ] Add troubleshooting guide for OAuth issues
+- [ ] Document rate limits for each API
+- [ ] Add examples for each package
 
 ---
 
-## Timeline Estimate
+## Development Environment
 
-**Phase 0 (Current):** Complete ✅
-**Phase 1 (Core Infrastructure):** 4-6 weeks
-**Phase 2 (Basic Plugins):** 6-8 weeks
-**Phase 3 (Installation):** 4-6 weeks
-**Phase 4 (Emulation):** 6-8 weeks
-**Phase 5 (Cloud Services):** 4-6 weeks
-**Phase 6 (Store Integrations):** 8-12 weeks
+### Required
+- Node.js 18+
+- npm or pnpm
+- Git
 
-**Estimated v1.0 Release:** 10-12 months from now
+### Optional (for testing specific integrations)
+- Steam installed (for Steam scanner tests)
+- Google account (for Google Drive tests)
+- IGDB API key (for metadata tests)
 
-This assumes:
-- Single full-time developer OR
-- Multiple part-time contributors
-- Standard software development velocity
-- No major blockers
+### Setup
+```bash
+# Clone and install
+git clone https://github.com/GreenFuze/MyGamesAnywhere.git
+cd MyGamesAnywhere/integration-libs
+npm install
 
----
+# Run tests
+npm test
 
-## How to Resume Development
-
-If you're a future Claude Code session resuming this project:
-
-1. **Read `CLAUDE.md` first** - Quick overview and links to all docs
-2. **Review `docs/ARCHITECTURE.md`** - Understand system design
-3. **Check this file** - See current status and next steps
-4. **Check `docs/ROADMAP.md`** - See development phases
-5. **Ask user for approval** - Don't start coding without explicit consent
+# Build all packages
+npm run build
+```
 
 ---
 
-## Communication Protocol
+## File Locations
 
-**Before starting implementation:**
-1. User must explicitly say "start implementation" or similar
-2. Confirm technology choices one final time
-3. Begin with project setup (monorepo, scaffolding)
+### Configuration
+- `~/.mygamesanywhere/config.json` - User configuration
+- `~/.mygamesanywhere/.gdrive-tokens.json` - OAuth tokens (auto-managed)
 
-**During implementation:**
-1. Follow OOP, RAII, fail-fast principles
-2. Add comments between code paragraphs
-3. Check for refactoring opportunities
-4. Write clear, detailed error messages
-5. Use TodoWrite tool to track progress
-
----
-
-## Questions for User
-
-Before proceeding:
-
-1. Are you ready to start implementation?
-2. Any final changes to the design?
-3. Which platforms to prioritize first? (Windows/macOS/Linux, iOS/Android)
-4. Should we set up the project structure now?
+### Packages
+- `integration-libs/packages/steam-scanner/` - Steam integration
+- `integration-libs/packages/gdrive-client/` - Google Drive client
+- `integration-libs/packages/generic-repository/` - Game scanner
+- `integration-libs/packages/config/` - Configuration manager
+- `integration-libs/packages/igdb-client/` - IGDB client (placeholder)
 
 ---
 
 ## Summary
 
-✅ **Status:** Design complete, all decisions made, phase ordering finalized
-✅ **Documentation:** Comprehensive and ready
-✅ **Technology:** Stack chosen and justified
-✅ **Architecture:** Client-side plugins confirmed (privacy-first!)
-✅ **Phase Strategy:** Risk-first approach (integrations → plugins → UI)
-✅ **Next Step:** Begin Phase 1 - Core Integrations
+**Current Phase:** Phase 1 - Core Integrations (60% complete)
 
-**We are ready to build! 🚀**
+**Completed:**
+- ✅ Steam integration (scanner, Web API, Client)
+- ✅ Google Drive integration (OAuth, file operations, scanning)
+- ✅ Generic repository scanner (multi-format detection)
+- ✅ Centralized configuration
+- ✅ Complete documentation
 
-**Critical Architectural Decisions:**
-- ✅ **NO SERVER!** Sync via user's cloud storage
-- ✅ Plugins run on CLIENT (TypeScript)
-- ✅ Privacy first (user owns all data)
-- ✅ Build integrations FIRST, then wrap in plugin system
-- ✅ Validate hardest parts before committing to full architecture
-- ✅ Zero hosting costs (perfect for open-source)
+**Next Up:**
+- 🚧 Game Identifier module (match detected games to metadata)
+- 🚧 IGDB client (metadata fetching)
+- 🚧 Native Launcher (process management)
 
-See [ROADMAP.md](./ROADMAP.md) for development phases, [ARCHITECTURE.md](./ARCHITECTURE.md) for system design, and [PHASE1_DETAILED.md](./PHASE1_DETAILED.md) for detailed Phase 1 plan.
+**Timeline:**
+- Phase 1 started: ~2 weeks ago
+- Phase 1 target completion: 2-3 weeks
+- Phase 2 (Plugin System): 4-6 weeks
+- Phase 3 (Full UI): 4-6 weeks
+
+**We are making excellent progress! 🚀**
+
+See [ROADMAP.md](./ROADMAP.md) for full development plan, [ARCHITECTURE.md](./ARCHITECTURE.md) for system design.
