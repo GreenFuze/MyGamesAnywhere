@@ -1,0 +1,47 @@
+{
+  "name": "mygamesanywhere-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "MyGamesAnywhere Desktop Application",
+  "main": "dist-electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build && electron-builder",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@mygamesanywhere/plugin-custom-storefront-source": "file:../integration-libs/packages/plugins/custom-storefront-source",
+    "@mygamesanywhere/plugin-launchbox-identifier": "file:../integration-libs/packages/plugins/launchbox-identifier",
+    "@mygamesanywhere/plugin-steam-source": "file:../integration-libs/packages/plugins/steam-source",
+    "@mygamesanywhere/plugin-system": "file:../integration-libs/packages/core/plugin-system",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.9.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "@types/node": "^24.6.0",
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.4",
+    "autoprefixer": "^10.4.21",
+    "electron": "^38.2.1",
+    "electron-builder": "^26.0.12",
+    "eslint": "^9.36.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.22",
+    "framer-motion": "^12.23.22",
+    "globals": "^16.4.0",
+    "lucide-react": "^0.544.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.45.0",
+    "vite": "^7.1.7",
+    "vite-plugin-electron": "^0.29.0",
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "zustand": "^5.0.8"
+  }
+}

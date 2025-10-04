@@ -1,0 +1,24 @@
+{
+  "name": "@mygamesanywhere/plugin-custom-storefront-source",
+  "version": "0.1.0",
+  "description": "Custom Storefront source plugin for MyGamesAnywhere",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@mygamesanywhere/platform-google": "*",
+    "@mygamesanywhere/generic-repository": "*",
+    "@mygamesanywhere/plugin-system": "*"
+  },
+  "keywords": [
+    "mygamesanywhere",
+    "plugin",
+    "custom-storefront"
+  ],
+  "author": "GreenFuze",
+  "license": "MIT"
+}

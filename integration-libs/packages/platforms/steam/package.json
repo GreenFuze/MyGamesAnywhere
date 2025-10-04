@@ -1,0 +1,38 @@
+{
+  "name": "@mygamesanywhere/platform-steam",
+  "version": "0.1.0",
+  "description": "Steam platform API client - detects installed Steam games and parses VDF files",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:steam-api": "npm run build && npx tsx test-steam-api.ts",
+    "lint": "eslint src tests --ext .ts",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "steam",
+    "vdf",
+    "parser",
+    "game-library",
+    "scanner"
+  ],
+  "author": "MyGamesAnywhere Team",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.6",
+    "@vitest/coverage-v8": "^2.1.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

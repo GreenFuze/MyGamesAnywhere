@@ -1,0 +1,43 @@
+{
+  "name": "@mygamesanywhere/platform-launchbox",
+  "version": "0.1.0",
+  "description": "LaunchBox platform API - game metadata database with 100,000+ games",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:launchbox": "npm run build && npx tsx test-launchbox.ts",
+    "test:gdrive": "npm run build && npx tsx test-gdrive-games.ts",
+    "lint": "eslint src tests --ext .ts",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "game-metadata",
+    "game-identification",
+    "launchbox",
+    "igdb",
+    "fuzzy-matching"
+  ],
+  "author": "MyGamesAnywhere Team",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "fuse.js": "^7.0.0",
+    "xml-stream": "^0.4.5",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^20.17.6",
+    "@vitest/coverage-v8": "^2.1.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

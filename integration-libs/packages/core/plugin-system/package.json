@@ -1,0 +1,19 @@
+{
+  "name": "@mygamesanywhere/plugin-system",
+  "version": "0.1.0",
+  "description": "Core plugin architecture for MyGamesAnywhere",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "mygamesanywhere",
+    "plugin",
+    "architecture"
+  ],
+  "author": "GreenFuze",
+  "license": "MIT"
+}

@@ -2,120 +2,141 @@
 
 **Last Updated:** 2025-10-04
 
-**Phase:** Phase 1: Core Integrations (In Progress) 🚀
+**Phase:** Phase 3: Desktop UI (Starting) 🚀
 
-**Status:** ✅ **Steam, Google Drive, Generic Repository Complete** - Ready for Game Identifier Module
+**Status:** ✅ **Phase 2 Complete: Plugin System** - Ready for Desktop UI Implementation
 
 ---
 
 ## Overview
 
-MyGamesAnywhere has completed the design phase and made significant progress on Phase 1. Core integration libraries are built and tested:
-- ✅ Steam scanner with VDF parsing and Web API
-- ✅ Google Drive OAuth authentication and file operations
-- ✅ Generic repository scanner (local and cloud storage)
-- ✅ Cross-platform game detection (Windows, Linux, macOS)
+MyGamesAnywhere has completed Phases 1 & 2 with a fully functional plugin system that supports multi-source games:
+- ✅ **Phase 1**: Core integrations (Steam, Google Drive, LaunchBox, Generic Repository)
+- ✅ **Phase 2**: Plugin architecture with multi-source game support
+- 🚧 **Phase 3**: Desktop UI with setup wizard (Starting Now)
 
-**Next:** Game Identifier module to match detected games to metadata.
+**Next:** Build desktop application with gamers-style UI and first-run setup wizard.
 
 ---
 
 ## Completed ✅
 
-### Phase 1: Core Integrations (Partial)
+### Phase 2: Plugin System ✅ (NEW!)
 
-#### @mygamesanywhere/steam-scanner ✅
-- [x] VDF parser for Steam library files
-- [x] Local game detection from Steam installation
-- [x] Steam Web API integration (username-based auth)
-- [x] Steam Client integration (install/uninstall/launch)
-- [x] 88 comprehensive unit tests (all passing)
-- [x] Cross-platform support (Windows, Linux, macOS)
+#### @mygamesanywhere/plugin-system ✅
+- [x] Plugin type system (SOURCE, IDENTIFIER, STORAGE)
+- [x] Plugin registry with type-safe discovery
+- [x] Unified game model for multi-source games
+- [x] Game matching strategies (exact, normalized, fuzzy, external ID)
+- [x] Automatic game merging across sources
+- [x] Multi-identifier support (LaunchBox, IGDB, Steam API)
+- [x] Manual merge/split operations
+- [x] Complete TypeScript types and interfaces
 
-#### @mygamesanywhere/gdrive-client ✅
-- [x] OAuth 2.0 authentication with simplified GDriveAuth helper
-- [x] Browser-based OAuth flow (auto-opens browser, saves tokens)
-- [x] Token storage at `~/.mygamesanywhere/.gdrive-tokens.json`
-- [x] Auto-refresh of expired tokens
-- [x] File operations (list, upload, download, delete, search)
-- [x] GDrive repository adapter for generic-repository
-- [x] 41 unit tests with mocked APIs
-- [x] OAuth credentials embedded in app (GitHub secrets approved)
-- [x] Privacy Policy and Terms of Service for OAuth verification
+**Key Feature:** Same game detected in Steam, Xbox, and locally = **1 unified entry with 3 sources**
 
-**OAuth Scope:** `drive.readonly` (read access to all user files)
+#### Source Plugins ✅
+- [x] **Steam Source** (`@mygamesanywhere/plugin-steam-source`)
+  - Local Steam library scanning
+  - Steam Web API integration (owned games)
+  - Launch/install/uninstall operations
+  - Playtime and last played tracking
 
-#### @mygamesanywhere/generic-repository ✅
-- [x] Repository adapter pattern (Local, GDrive implemented)
-- [x] Recursive directory walker (unlimited depth)
-- [x] File classifier with 50+ extensions
-- [x] Multi-part archive detection (.part1, .z01, .001, .r00)
-- [x] Cross-platform installer detection (Windows/Linux/macOS)
-- [x] ROM detection (30+ systems: NES, SNES, PlayStation, etc.)
-- [x] Portable game detection (directories with executables)
-- [x] Smart confidence scoring
-- [x] **Tested:** Scanned 763 files, 121 directories, detected 202 games
+- [x] **Custom Storefront Source** (`@mygamesanywhere/plugin-custom-storefront-source`)
+  - Google Drive scanning
+  - Smart file classification (installers, ROMs, archives)
+  - Multi-part archive detection
+  - Platform detection from file types
 
-**Game Types Detected:**
-- Installer Executable (.exe, .msi, .pkg)
-- Platform Installer (.deb, .rpm, .dmg)
-- ROM files (NES, SNES, GB, PlayStation, Sega, etc.)
-- Archives (single & multi-part: .zip, .rar, .7z, .part1)
-- Portable games (game directories)
-- Emulator-required games (DOSBox, ScummVM indicators)
+#### Identifier Plugins ✅
+- [x] **LaunchBox Identifier** (`@mygamesanywhere/plugin-launchbox-identifier`)
+  - 126,000 games metadata database
+  - Intelligent filename parsing (GOG patterns, versions, regions)
+  - Fuzzy matching with Fuse.js
+  - 55% accuracy on test dataset (6/11 identified)
+  - Auto-downloads metadata on first use (~450MB)
 
-#### @mygamesanywhere/config ✅
-- [x] Centralized configuration manager
-- [x] Single `~/.mygamesanywhere/config.json` file
-- [x] Environment variable overrides
-- [x] Type-safe with Zod validation
-- [x] Separate user config and app config
+#### Documentation ✅
+- [x] `integration-libs/PLUGIN-SYSTEM.md` - Complete plugin system documentation
+- [x] `integration-libs/demo-plugin-system.ts` - Comprehensive demo script
+- [x] Plugin architecture diagrams
+- [x] Usage examples and API documentation
 
-### Documentation ✅
-
-**User Guides:**
-- [x] `README.md` - Quick start with Google Drive auth
-- [x] `SETUP.md` - Complete setup guide for all integrations
-- [x] `GOOGLE_DRIVE_SETUP.md` - Google Drive authentication guide
-- [x] `PRIVACY_POLICY.md` - Privacy policy for OAuth verification
-- [x] `TERMS_OF_SERVICE.md` - Terms of service for OAuth verification
-
-**Technical Docs:**
-- [x] `docs/ARCHITECTURE.md` - Updated with OAuth security model
-- [x] `docs/ROADMAP.md` - Updated with completed features
-- [x] `docs/CURRENT_STATUS.md` - This file
-- [x] `integration-libs/packages/gdrive-client/GOOGLE_OAUTH_SETUP_MAINTAINER.md` - OAuth setup for maintainers
+**Demo Script:** `npm run demo:plugins` shows complete workflow with multi-source games
 
 ---
 
-## In Progress 🚧
+### Phase 1: Core Integrations ✅
 
-### @mygamesanywhere/igdb-client (Placeholder)
-- [ ] Twitch OAuth (required for IGDB)
-- [ ] Game search by title
-- [ ] Fetch detailed metadata
-- [ ] Rate limiting (4 req/sec)
-- [ ] Unit tests
+#### Integration Libraries (Reorganized)
 
-### Game Identifier Module (Next Up)
-- [ ] Match detected games to metadata
-- [ ] Use storefront APIs for storefront games (Steam)
-- [ ] Use IGDB for non-storefront games
-- [ ] Fuzzy matching based on filename/folder name
-- [ ] Confidence scoring for matches
-- [ ] Test with 202 detected games from Google Drive
+**Platforms** (Low-level API clients):
+- ✅ `@mygamesanywhere/platform-steam` - Steam API, VDF parsing, Client integration
+- ✅ `@mygamesanywhere/platform-google` - Google Drive OAuth & file operations
+- ✅ `@mygamesanywhere/platform-launchbox` - LaunchBox DB, downloader, XML parser
+- ✅ `@mygamesanywhere/platform-igdb` - IGDB API (placeholder)
+
+**Sources** (High-level game detection):
+- ✅ `@mygamesanywhere/generic-repository` - Generic game scanner (202 games detected)
+- ✅ `@mygamesanywhere/game-identifier` - Name extraction & fuzzy matching
+
+**Core**:
+- ✅ `@mygamesanywhere/config` - Centralized configuration
+- ✅ `@mygamesanywhere/plugin-system` - Plugin architecture
+
+**Package Organization:**
+```
+integration-libs/packages/
+├── core/           # Core utilities (config, plugin-system)
+├── platforms/      # Low-level API clients
+├── sources/        # High-level game sources
+└── plugins/        # Plugin implementations
+```
 
 ---
 
 ## Test Results
 
-### Google Drive Game Scanning (Real Test)
-**Folder:** MyGamesAnywhere test collection
+### Plugin System Demo
+**Tested:** Steam source + LaunchBox identifier
+**Results:**
+- Successfully initialized 2 plugins
+- Scanned Steam library (local games)
+- Automatic game merging (same game from multiple sources)
+- Game identification with LaunchBox
+- Multi-source detection working correctly
+
+### LaunchBox Identifier Accuracy (11 test files)
+**Accuracy:** 55% (6/11 correctly identified)
+
+**Successfully Identified:**
+- "Alone in the Dark 3" → 90% confidence ✅
+- "LEGO Batman: The Videogame" → 67% confidence ✅
+- "Pikuniku" → 90% confidence ✅
+- "Sonic Mega Collection Plus" → 90% confidence ✅
+- "God of War" → 90% confidence ✅
+- "HangMan.exe" → 59% (false positive: matched "Cognition Episode 1") ⚠️
+
+**Failed to Identify:**
+- "AD&D - Eye of the Beholder" (not in LaunchBox DB)
+- "Devil May Cry - HD Collection" (not in LaunchBox DB)
+- "Ratchet and Clank: Rift Apart" (not in LaunchBox DB - too new)
+- "GO.BAT" (too generic, needs directory context)
+- Multi-part .bin file (needs Phase 2 grouping)
+
+**Improvements Implemented:**
+- ✅ GOG pattern removal (version numbers, IDs, language codes)
+- ✅ Platform detection fix (.exe → Windows, not DOS)
+- ✅ Improved version pattern matching (v1.922.0.0)
+- ✅ Trailing number removal (Dark 3 1 0 → Dark 3)
+- ✅ Debug logging for extraction process
+
+### Google Drive Scanner
 **Duration:** 269 seconds (~4.5 minutes)
 **Results:**
 - Files scanned: 763
 - Directories scanned: 121
-- Games found: **202**
+- Games detected: **202**
 
 **Breakdown by Type:**
 - ROM: 148 games (73%)
@@ -123,14 +144,13 @@ MyGamesAnywhere has completed the design phase and made significant progress on 
 - Archived: 25 games (12%)
 - Portable Game: 1 game (0.5%)
 
-**Conclusion:** Scanner successfully detects multiple game formats across recursive directory structure.
-
-### Steam Scanner (Real Test)
-**Test User:** GreenFuze (via Steam username)
+### Steam Scanner
+**Test User:** GreenFuze
 **Results:**
-- Successfully fetched owned games from Steam Web API
-- Local detection from Steam installation
-- 88 unit tests passing
+- ✅ Local library scanning
+- ✅ Steam Web API integration
+- ✅ Username-based authentication
+- ✅ 88 unit tests passing
 
 ---
 
@@ -142,11 +162,31 @@ MyGamesAnywhere has completed the design phase and made significant progress on 
 - User owns all data (local device + their cloud storage)
 - Zero hosting costs
 
-### Plugin System (Future Phase 2)
-- Client-side TypeScript modules
-- Privacy-first: user data stays local
-- Encrypted config storage (OS keychain)
-- Plugin capabilities: Source, Platform, Metadata, Feature, UI
+### Plugin System ✅ (NEW!)
+- **Multi-Source Support**: Same game across Steam, Xbox, local = 1 unified entry
+- **Multi-Identifier Support**: Multiple metadata sources per game
+- **Game Matching**: Fuzzy title matching, external ID matching, manual overrides
+- **Type-Safe**: Full TypeScript with strict typing
+- **Extensible**: Easy to add new sources/identifiers
+
+**Example Multi-Source Game:**
+```typescript
+{
+  id: "unified-123",
+  title: "God of War",
+  sources: [
+    { sourceId: "steam-source", gameId: "steam-local-582010" },
+    { sourceId: "epic-source", gameId: "epic-godofwar" },
+    { sourceId: "custom-storefront", gameId: "custom-godofwar.zip" }
+  ],
+  identifications: [
+    { identifierId: "launchbox", confidence: 0.90 },
+    { identifierId: "igdb", confidence: 0.95 }
+  ],
+  isInstalled: true,  // Installed in Steam
+  totalPlaytime: 4200 // Sum from all sources
+}
+```
 
 ### OAuth Security Model ✅
 - OAuth client credentials embedded in app (public for native apps)
@@ -159,7 +199,7 @@ MyGamesAnywhere has completed the design phase and made significant progress on 
 
 ## Technology Stack
 
-### Core (Phase 1)
+### Core
 - **TypeScript** 5.x
 - **Node.js** 18+
 - **Vitest** - Testing framework
@@ -169,86 +209,164 @@ MyGamesAnywhere has completed the design phase and made significant progress on 
 ### Integration-Specific
 - Custom VDF parser (Steam)
 - Google OAuth 2.0 libraries
-- Axios (HTTP client)
-- UUID (unique IDs)
-- Open (browser launcher)
+- SQLite with FTS5 (LaunchBox database)
+- Fuse.js (fuzzy matching)
+- xml-stream (LaunchBox XML parsing)
+- Levenshtein distance (string similarity)
 
-### Future Phases
-- **Frontend:** Ionic + Capacitor + React
-- **State Management:** Zustand
-- **Local Cache:** SQLite with FTS
-- **Monorepo:** Nx (for full app)
+### Phase 3 (Desktop UI) - Starting Now
+- **Electron** - Desktop application framework
+- **React** - UI framework
+- **Tailwind CSS** - Styling (gamers theme)
+- **Zustand** - State management
+- **Framer Motion** - Animations
+- **React Router** - Navigation
+
+---
+
+## In Progress 🚧
+
+### Phase 3: Desktop UI (Starting)
+
+**Goal:** Build runnable desktop app with cool gamers-style UX
+
+**Features:**
+1. **Setup Wizard** (First-Run or Re-Run)
+   - Welcome screen with gamer aesthetics
+   - Steam integration setup
+   - Google Drive integration setup
+   - Custom folder selection
+   - Initial scan for all games
+   - Progress indicators
+
+2. **Game Library UI**
+   - Grid/list view of all games
+   - Cover art from best identifier
+   - Multi-source badges (Steam + Xbox + Local)
+   - Filter by source, platform, installed status
+   - Search and sort
+   - Launch game from any source
+
+3. **Game Details**
+   - Full metadata from identifiers
+   - All sources listed
+   - Playtime across sources
+   - Manual metadata editing
+   - Manual source merging/splitting
+
+4. **Settings**
+   - Re-run setup wizard
+   - Configure sources and identifiers
+   - Scan options
+   - UI preferences
+
+**Design Goals:**
+- Dark theme with neon accents (gamer vibe)
+- Smooth animations
+- Fast and responsive
+- Simple, intuitive UX
+- Cool but not overwhelming
 
 ---
 
 ## Next Immediate Steps
 
-### 1. Game Identifier Module (Next)
-**Goal:** Match detected games to metadata
+### 1. Initialize Electron App (Partially Complete)
+**Goal:** Create basic Electron app structure with React
 
-**Approach:**
-1. **For Steam games:** Use Steam API for metadata (already have)
-2. **For other games:**
-   - Extract game name from filename/folder
-   - Search IGDB API
-   - Fuzzy match with confidence scoring
-   - Return metadata (title, cover, description, etc.)
+**Tasks:**
+- [x] Create `desktop-app/` directory
+- [x] Initialize Electron + React + TypeScript (Vite)
+- [x] Install all dependencies (Electron, Tailwind, Framer Motion, Zustand, React Router)
+- [x] Link plugin packages to desktop app
+- [ ] Configure Vite for Electron builds (see NEXT_STEPS.md)
+- [ ] Initialize Tailwind CSS with gamer theme (see NEXT_STEPS.md)
+- [ ] Create Electron main process (see NEXT_STEPS.md)
+- [ ] Create basic window with frameless design
 
-**Test with:** 202 detected games from Google Drive scan
+**IMPORTANT:** See `../NEXT_STEPS.md` for detailed continuation instructions!
 
-### 2. IGDB Client Integration
-- Implement Twitch OAuth
-- Game search and metadata fetch
-- Rate limiting
-- Cache responses
+### 2. Build Setup Wizard (Next)
+**Goal:** First-run wizard for integrations
 
-### 3. Native Launcher (Future)
-- Platform detection
-- Process spawning and monitoring
-- Playtime tracking
+**Screens:**
+1. Welcome (animated logo, "Let's find your games!")
+2. Steam Setup (detect installation, optional Web API key)
+3. Google Drive Setup (OAuth flow, folder selection)
+4. Custom Folders (add local game folders)
+5. Initial Scan (progress bar, game count)
+6. Complete (show games found, launch library)
+
+### 3. Create Game Library UI
+**Goal:** Display unified games with multi-source support
+
+**Features:**
+- Grid view with cover art
+- Source badges
+- Quick launch
+- Filter/search
+- Sort options
+
+### 4. Integrate Plugin System
+**Goal:** Connect UI to plugin system
+
+**Tasks:**
+- Load plugins from config
+- Scan all sources
+- Build unified game library
+- Display in UI
+- Enable launch operations
 
 ---
 
-## Success Metrics (Phase 1)
+## Success Metrics
 
-**Completed:**
-- [x] Steam scanner finds games on real Steam installation (✅ 88 tests passing)
-- [x] Google Drive OAuth flow works end-to-end (✅ Browser-based, auto-token)
-- [x] Google Drive client has 41 passing tests
-- [x] Generic repository detects all 6+ game types (✅ 202 games detected)
-- [x] Multi-part archive detection works (✅ .part1, .z01, .001, .r00)
-- [x] Cross-platform file classification (✅ Windows/Linux/macOS)
-- [x] Each package has README with examples
+### Phase 1 ✅
+- [x] Steam scanner finds games on real Steam installation
+- [x] Google Drive OAuth flow works end-to-end
+- [x] Generic repository detects 6+ game types
+- [x] Multi-part archive detection works
+- [x] Cross-platform file classification
+- [x] Game identifier with LaunchBox database
+- [x] Fuzzy matching with confidence scoring
 
-**In Progress:**
-- [ ] IGDB client searches and fetches metadata
-- [ ] Game identifier matches detected games to metadata
-- [ ] Native Launcher launches and monitors processes
+### Phase 2 ✅
+- [x] Plugin system architecture complete
+- [x] Multi-source game support implemented
+- [x] 3 plugins created (2 sources, 1 identifier)
+- [x] All plugins build successfully
+- [x] Demo script shows complete workflow
+- [x] Documentation complete
 
-**Phase 1 Success Criteria:**
-- All integration libraries functional as standalone packages
-- 85%+ test coverage for each package
-- Clear API documentation
-- Ready to wrap in plugin system (Phase 2)
+### Phase 3 (In Progress) 🚧
+- [ ] Electron app runs on Windows/Mac/Linux
+- [ ] Setup wizard completes all integrations
+- [ ] Game library displays unified games
+- [ ] Launch games from UI
+- [ ] Multi-source badges visible
+- [ ] Performance: < 2s to load library
+- [ ] UX: Cool gamer aesthetic
 
 ---
 
 ## Known Issues & TODOs
 
+### Phase 2 Polish (Future)
+- [ ] IGDB identifier plugin
+- [ ] Additional source plugins (Epic, GOG, Xbox)
+- [ ] Directory context for identifier (helps with "GO.BAT")
+- [ ] Multi-part installer grouping
+- [ ] Improve identifier accuracy (target: 70%+)
+
 ### Performance
 - [ ] Google Drive scanning is slow (5+ minutes for large folders)
-  - **Cause:** API rate limits (each file = separate API call)
-  - **Solution:** Batch API calls, cache file metadata locally
+  - **Cause:** API rate limits
+  - **Solution:** Batch API calls, cache file metadata
 
 ### UX Improvements
 - [ ] Progress indicators for long scans
 - [ ] Cancel/pause long-running scans
-- [ ] Better error messages for OAuth failures
-
-### Documentation
-- [ ] Add troubleshooting guide for OAuth issues
-- [ ] Document rate limits for each API
-- [ ] Add examples for each package
+- [ ] Better error messages
 
 ---
 
@@ -259,10 +377,10 @@ MyGamesAnywhere has completed the design phase and made significant progress on 
 - npm or pnpm
 - Git
 
-### Optional (for testing specific integrations)
-- Steam installed (for Steam scanner tests)
-- Google account (for Google Drive tests)
-- IGDB API key (for metadata tests)
+### Optional (for testing integrations)
+- Steam installed
+- Google account
+- Test game files
 
 ### Setup
 ```bash
@@ -271,11 +389,16 @@ git clone https://github.com/GreenFuze/MyGamesAnywhere.git
 cd MyGamesAnywhere/integration-libs
 npm install
 
-# Run tests
-npm test
-
 # Build all packages
 npm run build
+
+# Run plugin demo
+npm run demo:plugins
+
+# (Phase 3) Run desktop app
+cd ../desktop-app
+npm install
+npm run dev
 ```
 
 ---
@@ -285,38 +408,40 @@ npm run build
 ### Configuration
 - `~/.mygamesanywhere/config.json` - User configuration
 - `~/.mygamesanywhere/.gdrive-tokens.json` - OAuth tokens (auto-managed)
+- `~/.mygamesanywhere/metadata/launchbox/launchbox.db` - LaunchBox metadata
 
-### Packages
-- `integration-libs/packages/steam-scanner/` - Steam integration
-- `integration-libs/packages/gdrive-client/` - Google Drive client
-- `integration-libs/packages/generic-repository/` - Game scanner
-- `integration-libs/packages/config/` - Configuration manager
-- `integration-libs/packages/igdb-client/` - IGDB client (placeholder)
+### Source Code
+- `integration-libs/` - All integration packages
+- `integration-libs/packages/core/plugin-system/` - Plugin architecture
+- `integration-libs/packages/plugins/` - Plugin implementations
+- `desktop-app/` - Electron desktop application (Phase 3)
 
 ---
 
 ## Summary
 
-**Current Phase:** Phase 1 - Core Integrations (60% complete)
+**Current Phase:** Phase 3 - Desktop UI (Starting)
 
 **Completed:**
-- ✅ Steam integration (scanner, Web API, Client)
-- ✅ Google Drive integration (OAuth, file operations, scanning)
-- ✅ Generic repository scanner (multi-format detection)
-- ✅ Centralized configuration
-- ✅ Complete documentation
+- ✅ Phase 1: Core Integrations (100%)
+- ✅ Phase 2: Plugin System (100%)
+  - Multi-source game support
+  - 3 plugins implemented and tested
+  - Complete documentation
 
 **Next Up:**
-- 🚧 Game Identifier module (match detected games to metadata)
-- 🚧 IGDB client (metadata fetching)
-- 🚧 Native Launcher (process management)
+- 🚧 Phase 3: Desktop UI
+  - Electron app initialization
+  - Setup wizard (first-run experience)
+  - Game library UI (grid view with cover art)
+  - Integration with plugin system
 
 **Timeline:**
-- Phase 1 started: ~2 weeks ago
-- Phase 1 target completion: 2-3 weeks
-- Phase 2 (Plugin System): 4-6 weeks
-- Phase 3 (Full UI): 4-6 weeks
+- Phase 1: ~2 weeks (Complete ✅)
+- Phase 2: ~1 week (Complete ✅)
+- Phase 3 target: 2-3 weeks
+- Beta release: 4-6 weeks
 
-**We are making excellent progress! 🚀**
+**We have a solid foundation! Time to build something users can actually run! 🎮**
 
-See [ROADMAP.md](./ROADMAP.md) for full development plan, [ARCHITECTURE.md](./ARCHITECTURE.md) for system design.
+See [ROADMAP.md](./ROADMAP.md) for full development plan, [ARCHITECTURE.md](./ARCHITECTURE.md) for system design, and [PLUGIN-SYSTEM.md](../integration-libs/PLUGIN-SYSTEM.md) for plugin documentation.

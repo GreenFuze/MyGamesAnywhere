@@ -4,6 +4,25 @@
 
 Manage your entire game library from multiple sources (Steam, local folders, cloud storage) in one unified interface. All data syncs via your own cloud storage - no third-party servers required!
 
+---
+
+## 📋 **For Developers/Contributors - Start Here!**
+
+**Current Status:** Phase 3 - Desktop UI (20% Complete)
+
+**To Continue Development:**
+1. **Start with:** [`CURSOR_GUIDE.md`](./CURSOR_GUIDE.md) ← **Critical context for AI assistants**
+2. **Then read:** [`NEXT_STEPS.md`](./NEXT_STEPS.md) ← Step-by-step with all code
+3. **Check status:** [`docs/CURRENT_STATUS.md`](./docs/CURRENT_STATUS.md) ← Project progress
+4. **Session recap:** [`SESSION_SUMMARY_2025-10-04.md`](./SESSION_SUMMARY_2025-10-04.md) ← What was done
+
+**Quick Links:**
+- 🎯 [Continuation Guide](./CONTINUATION_GUIDE.md) - Quick start
+- 📚 [Plugin System Docs](./integration-libs/PLUGIN-SYSTEM.md) - Architecture
+- 🚀 [Roadmap](./docs/ROADMAP.md) - Development plan
+
+---
+
 ## 🌟 Features
 
 - **Multi-Source Game Library**

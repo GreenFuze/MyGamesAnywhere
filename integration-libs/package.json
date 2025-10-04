@@ -4,13 +4,18 @@
   "private": true,
   "description": "Core integration libraries for MyGamesAnywhere",
   "workspaces": [
-    "packages/*"
+    "packages/core/*",
+    "packages/platforms/*",
+    "packages/sources/custom-storefront/modules/*",
+    "packages/storage/*",
+    "packages/plugins/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
     "lint": "npm run lint --workspaces",
-    "type-check": "npm run type-check --workspaces"
+    "type-check": "npm run type-check --workspaces",
+    "demo:plugins": "npx tsx demo-plugin-system.ts"
   },
   "devDependencies": {
     "@types/node": "^20.17.6",
@@ -20,6 +25,7 @@
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.2.1",
     "prettier": "^3.3.3",
+    "tsx": "^4.7.0",
     "typescript": "^5.7.2",
     "vitest": "^2.1.5"
   },

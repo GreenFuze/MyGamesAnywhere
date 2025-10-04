@@ -1,0 +1,58 @@
+# AI Context File
+# This file provides context for AI assistants working on this project
+
+## Project: MyGamesAnywhere
+Desktop game launcher with multi-source library management
+
+## Current Phase: 3 (Desktop UI)
+Phase 1: ✅ Complete - Core integrations
+Phase 2: ✅ Complete - Plugin system  
+Phase 3: 🚧 20% - Desktop UI (Electron app initialized, needs UI screens)
+
+## Key Concepts
+1. **Multi-Source Games**: Same game across Steam/Xbox/Local = ONE unified entry with multiple sources
+2. **Plugin Architecture**: Extensible system for sources (Steam, GDrive) and identifiers (LaunchBox, IGDB)
+3. **Serverless**: No backend, uses user's cloud storage for sync
+
+## Tech Stack
+- Integration: TypeScript, Node.js, SQLite
+- Desktop: Electron 38, React 19, Tailwind 4, Zustand, Framer Motion
+- Build: Vite, npm workspaces
+
+## Start Here for Continuation
+1. START_HERE.md - Navigation guide
+2. CURSOR_GUIDE.md - Critical context for AI (pitfalls, patterns, gotchas)
+3. NEXT_STEPS.md - Step-by-step with all code
+4. docs/CURRENT_STATUS.md - Project status
+
+## Package Structure
+- integration-libs/ - Plugin system and implementations
+  - packages/core/plugin-system/ - Plugin architecture
+  - packages/plugins/ - 3 working plugins
+- desktop-app/ - Electron app (20% complete)
+
+## What Works
+- Plugin system: npm run demo:plugins (in integration-libs/)
+- Steam scanning
+- Google Drive scanning
+- Game identification (LaunchBox)
+- Multi-source game merging
+
+## What's Needed
+- Tailwind CSS init
+- Electron main process
+- Vite Electron config
+- Setup wizard UI (6 screens)
+- Game library UI (grid with multi-source badges)
+
+## Important Files
+- integration-libs/demo-plugin-system.ts - Working example
+- desktop-app/package.json - All deps installed
+- NEXT_STEPS.md - Complete implementation guide
+
+## Commands
+cd integration-libs && npm run demo:plugins  # Test plugins
+cd desktop-app && npm run dev  # Start app (fails until Electron configured)
+
+## Next Task
+Follow NEXT_STEPS.md step 1: Initialize Tailwind CSS with gamer theme

@@ -1,0 +1,23 @@
+{
+  "name": "@mygamesanywhere/plugin-steam-source",
+  "version": "0.1.0",
+  "description": "Steam source plugin for MyGamesAnywhere",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@mygamesanywhere/platform-steam": "*",
+    "@mygamesanywhere/plugin-system": "*"
+  },
+  "keywords": [
+    "mygamesanywhere",
+    "plugin",
+    "steam"
+  ],
+  "author": "GreenFuze",
+  "license": "MIT"
+}
