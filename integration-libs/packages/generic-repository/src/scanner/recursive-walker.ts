@@ -69,14 +69,14 @@ export class RecursiveWalker {
       return;
     }
 
-    // Check if path exists
-    const exists = await this.adapter.exists(path);
-    if (!exists) {
+    // Get file info (this also checks if exists)
+    let fileInfo;
+    try {
+      fileInfo = await this.adapter.getFileInfo(path);
+    } catch (error) {
+      // File doesn't exist or error getting info, skip
       return;
     }
-
-    // Get file info
-    const fileInfo = await this.adapter.getFileInfo(path);
 
     // Skip hidden files if configured
     if (!this.config.includeHidden && this.isHidden(fileInfo.name)) {

@@ -66,9 +66,13 @@ This document outlines the planned development phases for MyGamesAnywhere.
    - 88 unit tests with real Steam data
 
 2. **@mygamesanywhere/gdrive-client** ✅
-   - OAuth 2.0 authentication flow
-   - List files in folders
-   - Download files with progress
+   - OAuth 2.0 authentication flow with GDriveAuth helper
+   - Simplified authentication (browser-based, automatic token management)
+   - Token storage in `~/.mygamesanywhere/.gdrive-tokens.json`
+   - Auto-refresh of expired tokens
+   - List, upload, download, delete files and folders
+   - Search and query capabilities
+   - GDrive repository adapter for generic-repository integration
    - 41 unit tests with mocked APIs
 
 3. **@mygamesanywhere/igdb-client** (placeholder)
@@ -138,6 +142,11 @@ This document outlines the planned development phases for MyGamesAnywhere.
 - [x] Steam Client can install/uninstall/launch games
 - [x] Google Drive OAuth flow works end-to-end
 - [x] Google Drive client has 41 passing tests
+- [x] GDriveAuth helper provides simplified authentication
+- [x] Browser-based OAuth with automatic token management
+- [x] Token storage in ~/.mygamesanywhere directory
+- [x] GDrive repository adapter integrates with generic-repository scanner
+- [x] Can scan Google Drive folders for games
 - [x] Generic repository scanner builds without errors
 - [x] Generic repository detects all 6+ game types
 - [x] Multi-part archive detection works

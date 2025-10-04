@@ -45,13 +45,20 @@ cp integration-libs/packages/config/config.example.json ~/.mygamesanywhere/confi
 
 #### Google Drive (Required for cloud sync)
 
-1. Visit: https://console.cloud.google.com/
-2. Create a new project
-3. Enable "Google Drive API"
-4. Create OAuth 2.0 credentials:
-   - Application type: Web application
-   - Authorized redirect URI: `http://localhost:3000/oauth/callback`
-5. Copy Client ID and Client Secret
+**No manual setup required!** OAuth credentials are built into the app.
+
+Simply authenticate when you first use Google Drive:
+```bash
+cd integration-libs/packages/gdrive-client
+npm run test:auth
+```
+
+This will:
+1. Open your browser to Google login
+2. You authorize MyGamesAnywhere
+3. Token saved automatically
+
+See [GOOGLE_DRIVE_SETUP.md](./GOOGLE_DRIVE_SETUP.md) for detailed guide
 
 #### IGDB (Required for game metadata)
 

@@ -9,6 +9,7 @@ export * from './types.js';
 // Storage adapters
 export { BaseRepositoryAdapter } from './storage/repository-adapter.js';
 export { LocalRepository } from './storage/local-repository.js';
+export { GDriveRepository } from './storage/gdrive-repository.js';
 
 // Scanner components
 export { RepositoryScanner } from './scanner/repository-scanner.js';

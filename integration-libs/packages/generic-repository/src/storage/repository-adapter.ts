@@ -55,7 +55,8 @@ export abstract class BaseRepositoryAdapter implements RepositoryAdapter {
   /**
    * Get file extension (lowercase, without dot)
    */
-  protected getExtension(path: string): string {
+  protected getExtension(path: string | undefined): string {
+    if (!path) return '';
     const match = path.match(/\.([^.]+)$/);
     return match ? match[1].toLowerCase() : '';
   }

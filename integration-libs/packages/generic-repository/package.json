@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:scan-gdrive": "npm run build && npx tsx test-scan-gdrive.ts",
     "lint": "eslint src tests --ext .ts",
     "type-check": "tsc --noEmit"
   },
@@ -24,6 +25,7 @@
   "author": "MyGamesAnywhere Team",
   "license": "GPL-3.0",
   "dependencies": {
+    "@mygamesanywhere/gdrive-client": "^0.1.0",
     "uuid": "^11.0.3",
     "zod": "^3.22.4"
   },

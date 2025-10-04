@@ -23,8 +23,7 @@ export class OAuth2Client {
   private static readonly AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
   private static readonly TOKEN_URL = 'https://oauth2.googleapis.com/token';
   private static readonly DEFAULT_SCOPES = [
-    'https://www.googleapis.com/auth/drive.file',
-    'https://www.googleapis.com/auth/drive.appdata',
+    'https://www.googleapis.com/auth/drive.readonly',  // Read access to all files
   ];
 
   private config: OAuth2Config;

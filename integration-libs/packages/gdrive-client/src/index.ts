@@ -9,6 +9,9 @@
 export { DriveClient } from './drive-client.js';
 export { OAuth2Client } from './oauth-client.js';
 
+// Authentication helper (simplified OAuth flow)
+export { GDriveAuth, authenticateGDrive } from './gdrive-auth.js';
+
 // Token storage implementations
 export { FileTokenStorage, MemoryTokenStorage } from './token-storage.js';
 

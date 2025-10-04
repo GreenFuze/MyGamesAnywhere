@@ -115,16 +115,18 @@ Desktop ←→ Cloud Storage ←→ Mobile
 
 1. User clicks "Connect Google Drive"
 2. **Google Drive plugin runs ON CLIENT**
-3. Plugin initiates OAuth flow (browser popup)
-4. User authorizes access to their Drive
-5. **OAuth token stored on client** (encrypted in OS keychain)
-6. Plugin scans user's Drive for game files
-7. **Client writes to local cache**
-8. **Client syncs to cloud storage** (`.mygamesanywhere/library.json`)
-9. When user installs app on another device:
-   - User re-authorizes Google Drive on new device (one-time)
-   - App syncs library from cloud storage
-   - User sees all games from all sources!
+3. Plugin initiates OAuth flow using GDriveAuth helper
+4. Browser opens automatically to Google's login page
+5. User logs in and authorizes MyGamesAnywhere access
+6. **OAuth tokens stored on client** at `~/.mygamesanywhere/.gdrive-tokens.json`
+7. Tokens auto-refresh when expired (refresh token persists)
+8. Plugin scans user's Drive for game files
+9. **Client writes to local cache**
+10. **Client syncs to cloud storage** (`.mygamesanywhere/library.json`)
+11. When user installs app on another device:
+    - User re-authorizes Google Drive on new device (one-time browser login)
+    - App syncs library from cloud storage
+    - User sees all games from all sources!
 
 **No server! Just client ↔ cloud storage ↔ client**
 
@@ -641,10 +643,26 @@ MyGamesAnywhere/
 
 ### Cloud Storage Security
 - User's cloud storage accessed via OAuth 2.0
-- OAuth tokens encrypted in OS keychain
+- OAuth tokens stored at `~/.mygamesanywhere/.gdrive-tokens.json`
+- Tokens auto-refresh using refresh_token
 - Cloud storage provider handles HTTPS/TLS
 - Data in cloud storage is JSON (readable by user if needed)
 - Optional: Encrypt sensitive data before uploading
+
+### OAuth Credentials (Desktop/CLI Apps)
+**OAuth Client ID/Secret:**
+- Embedded in application code (standard practice for native apps)
+- Identifies the MyGamesAnywhere app to Google
+- NOT user-specific (same for all users)
+- Considered "public" per OAuth 2.0 spec for native applications
+- Used by GitHub CLI, Google Cloud SDK, VS Code, etc.
+
+**Security Model:**
+- OAuth client credentials identify the APP, not the USER
+- Each user gets their own token by logging in
+- User consent required for each authorization
+- Tokens are user-specific and revocable
+- Users can revoke access anytime in Google account settings
 
 ### Privacy
 - **NO THIRD-PARTY SERVERS!**

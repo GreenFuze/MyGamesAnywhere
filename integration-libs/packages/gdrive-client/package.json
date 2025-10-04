@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:auth": "npm run build && npx tsx test-auth.ts",
     "lint": "eslint src tests --ext .ts",
     "type-check": "tsc --noEmit"
   },
@@ -22,6 +23,8 @@
   "author": "MyGamesAnywhere Team",
   "license": "GPL-3.0",
   "dependencies": {
+    "@mygamesanywhere/config": "^0.1.0",
+    "open": "^10.0.3",
     "zod": "^3.22.4"
   },
   "devDependencies": {

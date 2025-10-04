@@ -20,14 +20,41 @@ npm install @mygamesanywhere/gdrive-client
 
 ## Prerequisites
 
-Before using this library, you need to:
+For end users: **None!** Just run `npm run test:auth` and log in with Google.
 
-1. Create a Google Cloud Project at [Google Cloud Console](https://console.cloud.google.com/)
-2. Enable the Google Drive API
-3. Create OAuth 2.0 credentials (Client ID and Client Secret)
-4. Configure authorized redirect URIs
+For project maintainers: See [`GOOGLE_OAUTH_SETUP_MAINTAINER.md`](./GOOGLE_OAUTH_SETUP_MAINTAINER.md) to set up OAuth credentials.
 
-## Quick Start
+## Quick Start (Simplified Authentication)
+
+The easiest way to authenticate is using the `GDriveAuth` helper:
+
+```typescript
+import { authenticateGDrive, DriveClient } from '@mygamesanywhere/gdrive-client';
+
+// Authenticate with Google Drive (opens browser)
+const auth = await authenticateGDrive();
+
+// Create client
+const client = new DriveClient({
+  oauth: { clientId: '', clientSecret: '', redirectUri: '' },
+  tokenStorage: auth.getTokenStorage(),
+});
+(client as any).oauth = auth.getOAuthClient();
+
+// Use the client
+const files = await client.listFiles();
+console.log(`Found ${files.files.length} files`);
+```
+
+**That's it!** The helper:
+- Uses pre-configured OAuth credentials (set by project maintainer)
+- Opens browser for Google login
+- Saves tokens to `~/.mygamesanywhere/.gdrive-tokens.json`
+- Auto-refreshes tokens when needed
+
+## Quick Start (Manual OAuth Flow)
+
+For advanced usage, you can manage OAuth manually:
 
 ```typescript
 import { DriveClient, FileTokenStorage } from '@mygamesanywhere/gdrive-client';
