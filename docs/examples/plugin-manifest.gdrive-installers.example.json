@@ -1,0 +1,31 @@
+{
+  "apiVersion": 1,
+  "pluginId": "com.mygamesanywhere.source.gdriveInstallers",
+  "name": "Google Drive Installers Source",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "capabilities": [
+    "source.scan"
+  ],
+  "permissions": {
+    "drive": {
+      "readMetadata": true,
+      "downloadFiles": false
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "folderIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "folderIds"
+    ],
+    "additionalProperties": false
+  }
+}
