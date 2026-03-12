@@ -1,0 +1,184 @@
+package scan
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+)
+
+// InventoryService runs the simplified scan pipeline and persists games + game files.
+type InventoryService struct {
+	fs         core.FileSystem
+	gameRepo   core.GameRepository
+	logger     core.Logger
+}
+
+// NewInventoryService returns a new InventoryService. All deps must be non-nil.
+func NewInventoryService(fs core.FileSystem, gameRepo core.GameRepository, logger core.Logger) (*InventoryService, error) {
+	if fs == nil {
+		return nil, ErrFileSystemRequired
+	}
+	if gameRepo == nil {
+		return nil, &ValidationError{Msg: "game repository is required"}
+	}
+	if logger == nil {
+		return nil, &ValidationError{Msg: "logger is required"}
+	}
+	return &InventoryService{
+		fs:       fs,
+		gameRepo: gameRepo,
+		logger:   logger,
+	}, nil
+}
+
+// RunInventory runs the pipeline: scan -> kinds -> packages -> classify -> bind addons -> persist.
+// Game IDs for scan-sourced games use prefix "scan:". Returns a summary string.
+func (s *InventoryService) RunInventory(ctx context.Context, rootPath string, _ string) (string, error) {
+	if rootPath == "" {
+		return "", &ValidationError{Msg: "root_path is required"}
+	}
+	scanner, err := NewInventoryScanner(s.fs)
+	if err != nil {
+		return "", fmt.Errorf("inventory scanner: %w", err)
+	}
+	artifacts, err := scanner.Scan(ctx, rootPath)
+	if err != nil {
+		return "", fmt.Errorf("inventory scan: %w", err)
+	}
+	DetectArtifactKinds(artifacts)
+
+	packages := AssemblePackages(artifacts)
+	games := GamesFromPackages(packages, artifacts)
+
+	packageByID := make(map[string]*core.Package)
+	for _, p := range packages {
+		if p != nil {
+			packageByID[p.PackageID] = p
+		}
+	}
+	artifactByID := make(map[string]*core.Artifact)
+	for _, a := range artifacts {
+		if a != nil {
+			artifactByID[a.ArtifactID] = a
+		}
+	}
+
+	for _, g := range games {
+		if g == nil {
+			continue
+		}
+		pkg := packageByID[g.ID]
+		var pathHints *core.PathHints
+		if pkg != nil {
+			if root := artifactByID[pkg.RootArtifactID]; root != nil && root.PathHint != nil {
+				pathHints = root.PathHint
+			}
+		}
+		DetectPlatform(g, pkg, artifacts, pathHints)
+		g.Confidence = "strong"
+		g.Status = "found"
+	}
+
+	BindAddonsToBase(games, packages, artifacts)
+
+	// Prefix IDs for persistence (scan-sourced games)
+	for _, g := range games {
+		if g != nil && g.ID != "" {
+			g.ID = "scan:" + g.ID
+			if g.ParentGameID != "" {
+				g.ParentGameID = "scan:" + g.ParentGameID
+			}
+		}
+	}
+
+	files := buildGameFiles(games, packages, artifactByID)
+	keepGameIDs := make([]string, 0, len(games))
+	for _, g := range games {
+		if g != nil && g.ID != "" {
+			keepGameIDs = append(keepGameIDs, g.ID)
+		}
+	}
+	if err := s.gameRepo.UpsertGames(ctx, games, files); err != nil {
+		return "", fmt.Errorf("upsert games: %w", err)
+	}
+	if err := s.gameRepo.MarkScanGamesNotFoundExcept(ctx, keepGameIDs); err != nil {
+		return "", fmt.Errorf("mark scan games not found except: %w", err)
+	}
+
+	s.logger.Info("Inventory scan completed", "root_path", rootPath, "package_count", len(packages), "game_count", len(games))
+	return fmt.Sprintf("ok:%d/%d", len(packages), len(games)), nil
+}
+
+func buildGameFiles(games []*core.Game, packages []*core.Package, artifactByID map[string]*core.Artifact) []*core.GameFile {
+	var out []*core.GameFile
+	gameIDs := make(map[string]bool)
+	for _, g := range games {
+		if g != nil && g.ID != "" {
+			gameIDs[g.ID] = true
+		}
+	}
+	for _, p := range packages {
+		if p == nil {
+			continue
+		}
+		gameID := "scan:" + p.PackageID
+		if !gameIDs[gameID] {
+			continue
+		}
+		root := artifactByID[p.RootArtifactID]
+		if root != nil {
+			role := core.GameFileRoleRoot
+			kind := artifactKindToFileKind(root.Kind)
+			out = append(out, &core.GameFile{
+				GameID:   gameID,
+				Path:     root.Path,
+				FileName: root.Name,
+				Role:     role,
+				FileKind: kind,
+				Size:     root.Size,
+				IsDir:    root.IsDir,
+			})
+		}
+		requiredSet := make(map[string]bool)
+		for _, id := range p.RequiredMemberArtifactIDs {
+			requiredSet[id] = true
+		}
+		for _, aid := range p.MemberArtifactIDs {
+			if aid == p.RootArtifactID {
+				continue
+			}
+			a := artifactByID[aid]
+			if a == nil {
+				continue
+			}
+			role := core.GameFileRoleOptional
+			if requiredSet[aid] {
+				role = core.GameFileRoleRequired
+			}
+			out = append(out, &core.GameFile{
+				GameID:   gameID,
+				Path:     a.Path,
+				FileName: a.Name,
+				Role:     role,
+				FileKind: artifactKindToFileKind(a.Kind),
+				Size:     a.Size,
+				IsDir:    a.IsDir,
+			})
+		}
+	}
+	return out
+}
+
+func artifactKindToFileKind(k core.ArtifactKind) string {
+	switch k {
+	case core.ArtifactKindWindowsExecutable, core.ArtifactKindDOSExecutable, core.ArtifactKindScriptLauncher:
+		return "executable"
+	case core.ArtifactKindArchive:
+		return "archive"
+	case core.ArtifactKindDiscImage, core.ArtifactKindDiscDescriptor, core.ArtifactKindDiscTrack:
+		return "disc_media"
+	default:
+		return "data"
+	}
+}

@@ -1,0 +1,62 @@
+package scan
+
+import (
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+)
+
+// DetectArtifactKinds sets Kind on each artifact by extension only (Phase B). No header inspection.
+// Directories receive ArtifactKindUnknown. Modifies artifacts in place; nil slice is a no-op.
+func DetectArtifactKinds(artifacts []*core.Artifact) {
+	if artifacts == nil {
+		return
+	}
+	for _, a := range artifacts {
+		if a == nil {
+			continue
+		}
+		if a.IsDir {
+			a.Kind = core.ArtifactKindUnknown
+			continue
+		}
+		a.Kind = extensionToKind(a.Extension)
+	}
+}
+
+// extensionToKind returns the artifact kind for a lowercase extension (e.g. ".exe").
+// Single map for all extensions; unknown extension returns ArtifactKindUnknown.
+func extensionToKind(ext string) core.ArtifactKind {
+	if kind, ok := extensionKindMap[ext]; ok {
+		return kind
+	}
+	return core.ArtifactKindUnknown
+}
+
+// extensionKindMap maps lowercase extension to ArtifactKind. One source of truth for Phase B.
+var extensionKindMap = map[string]core.ArtifactKind{
+	".exe": core.ArtifactKindWindowsExecutable,
+	".com": core.ArtifactKindDOSExecutable,
+	".bat": core.ArtifactKindScriptLauncher,
+	".zip": core.ArtifactKindArchive,
+	".7z":  core.ArtifactKindArchive,
+	".rar": core.ArtifactKindArchive,
+	".iso": core.ArtifactKindDiscImage,
+	".cue": core.ArtifactKindDiscDescriptor,
+	".bin": core.ArtifactKindDiscTrack,
+	".img": core.ArtifactKindDiscImage,
+	".ccd": core.ArtifactKindDiscDescriptor,
+	".sub": core.ArtifactKindDiscTrack,
+	".mdf": core.ArtifactKindDiscImage,
+	".mds": core.ArtifactKindDiscDescriptor,
+	".chd": core.ArtifactKindDiscImage,
+	".sfo": core.ArtifactKindGameData,
+	".sfb": core.ArtifactKindGameData,
+	".png": core.ArtifactKindImageAsset,
+	".pdf": core.ArtifactKindManualOrDocument,
+	".mp3": core.ArtifactKindAudioMedia,
+	".ogg": core.ArtifactKindAudioMedia,
+	".voc": core.ArtifactKindAudioMedia,
+	".cmf": core.ArtifactKindAudioMedia,
+	".drv": core.ArtifactKindGameData,
+	".def": core.ArtifactKindGameData,
+	".dat": core.ArtifactKindGameData,
+}

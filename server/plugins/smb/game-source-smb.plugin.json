@@ -1,0 +1,17 @@
+{
+  "plugin_id": "game-source-smb",
+  "plugin_version": "1.0.0",
+  "api_major": 1,
+  "capabilities": ["source"],
+  "provides": ["source.library.list"],
+  "exec": "smb.exe",
+  "default_timeout_ms": 60000,
+  "max_concurrency": 2,
+  "config": {
+    "host": { "type": "string", "required": true },
+    "share": { "type": "string", "required": true },
+    "username": { "type": "string", "required": true },
+    "password": { "type": "string", "required": true, "x-secret": true },
+    "path": { "type": "string", "default": "" }
+  }
+}

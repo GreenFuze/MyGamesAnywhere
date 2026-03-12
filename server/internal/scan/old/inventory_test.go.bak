@@ -1,0 +1,134 @@
+package scan
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/fs/local"
+)
+
+func TestNewInventoryScanner_nilFS_failFast(t *testing.T) {
+	_, err := NewInventoryScanner(nil)
+	if err == nil {
+		t.Fatal("expected error when FileSystem is nil")
+	}
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Errorf("expected ValidationError, got %T", err)
+	}
+}
+
+func TestNewInventoryScanner_success(t *testing.T) {
+	fs := local.NewLocalFileSystem()
+	sc, err := NewInventoryScanner(fs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc == nil {
+		t.Fatal("scanner should not be nil")
+	}
+}
+
+func TestInventoryScanner_Scan_emptyRoot_failFast(t *testing.T) {
+	fs := local.NewLocalFileSystem()
+	sc, _ := NewInventoryScanner(fs)
+	ctx := context.Background()
+	_, err := sc.Scan(ctx, "")
+	if err == nil {
+		t.Fatal("expected error for empty root")
+	}
+}
+
+func TestInventoryScanner_Scan_success(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.Mkdir(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.exe"), []byte("a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "b.bin"), []byte("bb"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	fs := local.NewLocalFileSystem()
+	sc, err := NewInventoryScanner(fs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	artifacts, err := sc.Scan(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) < 4 {
+		t.Errorf("expected at least 4 artifacts, got %d", len(artifacts))
+	}
+
+	byPath := make(map[string]*core.Artifact)
+	for _, a := range artifacts {
+		byPath[a.Path] = a
+	}
+
+	aExe := byPath[filepath.Join(dir, "a.exe")]
+	if aExe == nil {
+		t.Fatal("a.exe artifact not found")
+	}
+	if aExe.Name != "a.exe" {
+		t.Errorf("Name = %q", aExe.Name)
+	}
+	if aExe.Extension != ".exe" {
+		t.Errorf("Extension = %q", aExe.Extension)
+	}
+	if !aExe.IsFile {
+		t.Error("expected IsFile true")
+	}
+	if aExe.Size != 1 {
+		t.Errorf("Size = %d", aExe.Size)
+	}
+	if aExe.ParentPath != dir {
+		t.Errorf("ParentPath = %q", aExe.ParentPath)
+	}
+	if aExe.ArtifactID == "" {
+		t.Error("ArtifactID should be set")
+	}
+	// Siblings of dir: at least "a.exe" and "sub"
+	if len(aExe.SiblingNames) < 2 {
+		t.Errorf("expected at least 2 siblings for a.exe, got %v", aExe.SiblingNames)
+	}
+}
+
+func TestInventoryScanner_Scan_deterministicArtifactID(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "same.exe"), []byte("x"), 0644)
+
+	fs := local.NewLocalFileSystem()
+	sc, _ := NewInventoryScanner(fs)
+	ctx := context.Background()
+	a1, _ := sc.Scan(ctx, dir)
+	a2, _ := sc.Scan(ctx, dir)
+	if len(a1) == 0 || len(a2) == 0 {
+		t.Fatal("expected artifacts")
+	}
+	var id1, id2 string
+	for _, a := range a1 {
+		if a.Name == "same.exe" {
+			id1 = a.ArtifactID
+			break
+		}
+	}
+	for _, a := range a2 {
+		if a.Name == "same.exe" {
+			id2 = a.ArtifactID
+			break
+		}
+	}
+	if id1 != id2 {
+		t.Errorf("artifact IDs must be deterministic: %q vs %q", id1, id2)
+	}
+}

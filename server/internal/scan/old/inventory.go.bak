@@ -1,0 +1,116 @@
+package scan
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"path/filepath"
+	"strings"
+
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+)
+
+// InventoryScanner collects cheap metadata (path, name, extension, size, mtime, parent, path_tokens, sibling names)
+// from a FileSystem. Fail-fast: nil fs or invalid root yields an error.
+type InventoryScanner struct {
+	fs core.FileSystem
+}
+
+// NewInventoryScanner returns a new InventoryScanner that uses the given FileSystem.
+func NewInventoryScanner(fs core.FileSystem) (*InventoryScanner, error) {
+	if fs == nil {
+		return nil, ErrFileSystemRequired
+	}
+	return &InventoryScanner{fs: fs}, nil
+}
+
+// ErrFileSystemRequired is returned when FileSystem is nil.
+var ErrFileSystemRequired = &ValidationError{Msg: "filesystem is required"}
+
+// ValidationError indicates an invalid input (fail-fast).
+type ValidationError struct {
+	Msg string
+}
+
+func (e *ValidationError) Error() string {
+	return e.Msg
+}
+
+// Scan runs the inventory: lists entries from fs under root and returns Artifacts with metadata.
+// Root must be valid for the underlying FileSystem (e.g. absolute and existing for local FS).
+func (s *InventoryScanner) Scan(ctx context.Context, root string) ([]*core.Artifact, error) {
+	if root == "" {
+		return nil, &ValidationError{Msg: "root path is required"}
+	}
+	entries, err := s.fs.List(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	return entriesToArtifacts(entries), nil
+}
+
+// artifactID returns a deterministic ID for an artifact path.
+func artifactID(path string) string {
+	h := sha256.Sum256([]byte(filepath.Clean(path)))
+	return hex.EncodeToString(h[:16])
+}
+
+// pathTokens splits path into tokens (e.g. "C:\\Roms\\PS2\\Game" -> ["C:", "Roms", "PS2", "Game"]).
+func pathTokens(path string) []string {
+	clean := filepath.Clean(path)
+	vol := filepath.VolumeName(clean)
+	rest := clean
+	if vol != "" {
+		rest = strings.TrimPrefix(clean, vol)
+		rest = strings.TrimPrefix(rest, string(filepath.Separator))
+	}
+	if rest == "" {
+		if vol != "" {
+			return []string{vol}
+		}
+		return []string{}
+	}
+	parts := strings.Split(rest, string(filepath.Separator))
+	if vol != "" {
+		return append([]string{vol}, parts...)
+	}
+	return parts
+}
+
+func entriesToArtifacts(entries []core.FileEntry) []*core.Artifact {
+	if len(entries) == 0 {
+		return nil
+	}
+	// Group by parent path to compute sibling names
+	byParent := make(map[string][]string)
+	for _, e := range entries {
+		parent := filepath.Dir(e.Path)
+		byParent[parent] = append(byParent[parent], e.Name)
+	}
+
+	artifacts := make([]*core.Artifact, 0, len(entries))
+	for _, e := range entries {
+		parent := filepath.Dir(e.Path)
+		siblings := byParent[parent]
+		ext := ""
+		if !e.IsDir {
+			ext = strings.ToLower(filepath.Ext(e.Name))
+		}
+		artifacts = append(artifacts, &core.Artifact{
+			ArtifactID:   artifactID(e.Path),
+			Path:         e.Path,
+			Name:         e.Name,
+			Extension:    ext,
+			IsFile:       !e.IsDir,
+			IsDir:        e.IsDir,
+			Size:         e.Size,
+			Mtime:        e.ModTime,
+			ParentPath:   parent,
+			PathTokens:   pathTokens(e.Path),
+			SiblingNames: siblings,
+			PathHint:     e.PathHint,
+			ScanState:    "",
+		})
+	}
+	return artifacts
+}

@@ -1,0 +1,62 @@
+package scan
+
+import (
+	"archive/zip"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+)
+
+func TestListArchiveMembers(t *testing.T) {
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "test.zip")
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := zip.NewWriter(f)
+	_, _ = w.Create("setup.exe")
+	_, _ = w.Create("data.dat")
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	names, err := ListArchiveMembers(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) < 2 {
+		t.Errorf("expected at least 2 members, got %v", names)
+	}
+}
+
+func TestClassifyArchiveByMembers_installer(t *testing.T) {
+	r := ClassifyArchiveByMembers([]string{"setup.exe", "data.bin"})
+	if r != core.OperationalRoleInstaller {
+		t.Errorf("expected installer, got %s", r)
+	}
+}
+
+func TestClassifyArchiveByMembers_portableGame(t *testing.T) {
+	r := ClassifyArchiveByMembers([]string{"game.exe", "game.dll", "data.pak"})
+	if r != core.OperationalRolePortableGame {
+		t.Errorf("expected portable_game, got %s", r)
+	}
+}
+
+func TestClassifyArchiveByMembers_rom(t *testing.T) {
+	r := ClassifyArchiveByMembers([]string{"rom.nes"})
+	if r != core.OperationalRoleEmulatorRom {
+		t.Errorf("expected emulator_rom, got %s", r)
+	}
+}
+
+func TestClassifyArchiveByMembers_empty(t *testing.T) {
+	r := ClassifyArchiveByMembers(nil)
+	if r != core.OperationalRoleUnknown {
+		t.Errorf("expected unknown, got %s", r)
+	}
+}

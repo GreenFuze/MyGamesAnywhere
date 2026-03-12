@@ -1,0 +1,104 @@
+package scan
+
+import (
+	"path/filepath"
+	"regexp"
+	"strings"
+)
+
+// RawTitleFromName derives a raw title from an artifact name: strip extension, lowercase, replace _ and . with space.
+// Used by Phase D (addon detection) and Phase I (full normalization).
+func RawTitleFromName(name string) string {
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	base = strings.ToLower(base)
+	base = strings.ReplaceAll(base, "_", " ")
+	base = strings.ReplaceAll(base, ".", " ")
+	return strings.TrimSpace(collapseSpaces(base))
+}
+
+// NormalizeTitleResult holds the result of NormalizeTitle.
+type NormalizeTitleResult struct {
+	Normalized    string
+	BaseTitle     string
+	AddonMarkers  []string
+	VersionTokens []string
+	TitleVariants []string
+}
+
+// NormalizeTitle extracts and normalizes title components (Phase I).
+// Returns normalized title, base title (addon/version stripped), addon markers, version tokens, title variants.
+func NormalizeTitle(raw string) NormalizeTitleResult {
+	var addonMarkers, versionTokens []string
+	s := strings.ToLower(strings.TrimSpace(raw))
+	s = strings.ReplaceAll(s, "_", " ")
+	s = strings.ReplaceAll(s, ".", " ")
+	s = collapseSpaces(s)
+	if s == "" {
+		return NormalizeTitleResult{}
+	}
+
+	// Extract addon markers (order: longer phrases first)
+	addonPhrases := []string{"season pass", "character pack", "bundle pack", "level pack", "expansion", "bonus content", "soundtrack", "artbook", "patch", "update", "dlc"}
+	for _, phrase := range addonPhrases {
+		if strings.Contains(s, phrase) {
+			addonMarkers = append(addonMarkers, phrase)
+			s = strings.ReplaceAll(s, phrase, " ")
+		}
+	}
+	s = collapseSpaces(s)
+
+	// Extract version/build tokens
+	versionPatterns := []string{"v1", "v2", "v3", "v1.0", "v2.0", "build ", "ver ", "version "}
+	for _, p := range versionPatterns {
+		if idx := strings.Index(s, p); idx >= 0 {
+			tok := extractTokenAt(s, idx)
+			if tok != "" {
+				versionTokens = append(versionTokens, tok)
+				s = strings.Replace(s, tok, " ", 1)
+			}
+		}
+	}
+	s = collapseSpaces(s)
+
+	// Strip region/language in brackets/parens: (EU), [USA], (EN)
+	regionRe := regexp.MustCompile(`\s*[(\[]\s*(eu|usa|us|uk|jp|ja|en|de|fr|deutsch|english)[\s)\]]*`)
+	s = regionRe.ReplaceAllString(s, " ")
+	s = collapseSpaces(s)
+
+	// Strip disc/track markers: disc 1, (1), cd1, etc.
+	discRe := regexp.MustCompile(`\s*(disc|cd|dvd)\s*\d*\s*`)
+	s = discRe.ReplaceAllString(s, " ")
+	s = collapseSpaces(s)
+
+	// Edition markers: GOTY, etc. - keep in normalized but optional for base
+	baseTitle := strings.TrimSpace(s)
+	normalized := baseTitle
+	if len(addonMarkers) > 0 || len(versionTokens) > 0 {
+		normalized = baseTitle
+	}
+
+	titleVariants := []string{normalized}
+	if normalized != baseTitle {
+		titleVariants = append(titleVariants, baseTitle)
+	}
+
+	return NormalizeTitleResult{
+		Normalized:    normalized,
+		BaseTitle:     baseTitle,
+		AddonMarkers:  addonMarkers,
+		VersionTokens: versionTokens,
+		TitleVariants: titleVariants,
+	}
+}
+
+func collapseSpaces(s string) string {
+	return strings.TrimSpace(regexp.MustCompile(`\s+`).ReplaceAllString(s, " "))
+}
+
+func extractTokenAt(s string, start int) string {
+	end := start
+	for end < len(s) && (s[end] == ' ' || (s[end] >= 'a' && s[end] <= 'z') || (s[end] >= '0' && s[end] <= '9') || s[end] == '.') {
+		end++
+	}
+	return strings.TrimSpace(s[start:end])
+}

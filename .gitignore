@@ -1,0 +1,48 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/server/server
+/server/server.exe
+*.test
+*.out
+coverage.html
+coverage.out
+vendor/
+
+# SQLite and local DBs
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Local config and secrets (track config.json.example)
+config.json
+server/config.json
+server/bin/config.json
+
+# IDE and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (if used)
+node_modules/
+.pnpm-store/
+
+# Build and temp
+/bin/
+/tmp/
+*.log
+*.tmp
+
+# Cursor / agent (optional; remove if you want to track plans)
+.cursor/

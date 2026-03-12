@@ -1,0 +1,184 @@
+openapi: 3.0.3
+info:
+  title: MyGamesAnywhere Server API
+  description: Public HTTP API for the MyGamesAnywhere desktop app server.
+  version: 1.0.0
+paths:
+
+  /api/config/{key}:
+    post:
+      summary: Set config value
+      description: Upserts a configuration value by key (e.g. google_drive_creds).
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: 'JSON: { "value": "string" }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Value set
+        400:
+          description: Invalid body
+        500:
+          description: Internal server error
+
+  /api/games:
+    delete:
+      summary: Delete all games
+      description: Removes all games and their files from the database. Use before a full rescan to start fresh.
+      responses:
+        200:
+          description: All games deleted
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+    get:
+      summary: List games
+      description: Returns the current inventory of games with title, platform, kind, files, and optional parent_game_id for addons.
+      responses:
+        200:
+          description: JSON list of games with files
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
+  /api/games/{id}:
+    get:
+      summary: Get game by ID
+      description: Returns a single game by its canonical game ID.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Game object
+        400:
+          description: Error response
+        404:
+          description: Game not found
+        500:
+          description: Internal server error
+
+  /api/integrations:
+    get:
+      summary: List integrations
+      description: Returns all configured integrations (plugin instances) with id, plugin_id, label, integration_type, config.
+      responses:
+        200:
+          description: Array of integrations
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+    post:
+      summary: Create integration
+      description: Creates a new integration (plugin instance). Validates config against plugin schema and plugin.check_config before persisting.
+      requestBody:
+        description: 'JSON: { "plugin_id": "string", "label": "string", "integration_type": "source"|"metadata"|..., "config": {} }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: Integration created (body is the integration)
+        400:
+          description: Validation error (missing/invalid plugin_id, label, integration_type, or config)
+        500:
+          description: Internal server error
+
+  /api/integrations/status:
+    get:
+      summary: Integration status
+      description: Returns status for each integration (ok, error, unavailable) by calling plugin.check_config.
+      responses:
+        200:
+          description: Array of { integration_id, plugin_id, label, status, message }
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
+  /api/plugins:
+    get:
+      summary: List plugins
+      description: Returns the list of discovered plugins with ID, version, and capabilities.
+      responses:
+        200:
+          description: Array of plugin descriptors
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
+  /api/plugins/{plugin_id}:
+    get:
+      summary: Get plugin by ID
+      description: Returns a single plugin's descriptor including config schema.
+      parameters:
+        - name: plugin_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Plugin info
+        400:
+          description: plugin_id required
+        404:
+          description: Plugin not found
+        500:
+          description: Internal server error
+
+  /api/scan:
+    get:
+      summary: Run full scan
+      description: 'Same as POST /api/scan with no body: runs discovery across all game source integrations (source.library.list) and, for integrations with root_path in config, runs the local inventory pipeline.'
+      responses:
+        202:
+          description: Scan completed
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+    post:
+      summary: Run scan
+      description: 'Runs discovery: calls each source plugin (source.library.list) and, for integrations with root_path in config, runs the local inventory pipeline. Optional body limits which sources to scan.'
+      requestBody:
+        description: 'Optional JSON: { "game_sources": ["integration-id-1", ...] }. Omitted or empty = scan all sources.'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: Scan completed
+        400:
+          description: Invalid JSON body
+        500:
+          description: Internal server error
+
+  /health:
+    get:
+      summary: Health check
+      description: Returns 200 OK if the server is running. No body.
+      responses:
+        200:
+          description: Server is healthy
+        400:
+          description: Error response
+        500:
+          description: Error response

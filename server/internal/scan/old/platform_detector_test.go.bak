@@ -1,0 +1,41 @@
+package scan
+
+import (
+	"testing"
+
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+)
+
+func TestDetectPlatform_pathHint(t *testing.T) {
+	game := &core.Game{}
+	h := &core.PathHints{Platform: "ps2"}
+	DetectPlatform(game, nil, nil, h)
+	if game.Platform != core.PlatformPS2 {
+		t.Errorf("expected ps2 from path hint, got %s", game.Platform)
+	}
+}
+
+func TestDetectPlatform_titleGBA(t *testing.T) {
+	game := &core.Game{Title: "some game (gba)"}
+	DetectPlatform(game, nil, nil, nil)
+	if game.Platform != core.PlatformGBA {
+		t.Errorf("expected gba from title, got %s", game.Platform)
+	}
+}
+
+func TestDetectPlatform_dosPackage(t *testing.T) {
+	game := &core.Game{}
+	pkg := &core.Package{PackageKind: core.PackageKindDOSGameDirectory}
+	DetectPlatform(game, pkg, nil, nil)
+	if game.Platform != core.PlatformMSDOS {
+		t.Errorf("expected ms_dos from package kind, got %s", game.Platform)
+	}
+}
+
+func TestDetectPlatform_unknown(t *testing.T) {
+	game := &core.Game{Title: "unknown game"}
+	DetectPlatform(game, nil, nil, nil)
+	if game.Platform != core.PlatformUnknown {
+		t.Errorf("expected unknown, got %s", game.Platform)
+	}
+}
