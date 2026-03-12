@@ -92,8 +92,18 @@ func main() {
 			} else {
 				resp.Result = map[string]any{"status": "ok"}
 			}
-		case "source.library.list":
-			resp.Result = map[string]any{"games": []any{}}
+		case "source.filesystem.list":
+			var config DriveConfig
+			if err := json.Unmarshal(req.Params, &config); err != nil {
+				resp.Error = &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+				break
+			}
+			files, err := listFiles(config)
+			if err != nil {
+				resp.Error = &Error{Code: "SCAN_FAILED", Message: err.Error()}
+			} else {
+				resp.Result = map[string]any{"files": files}
+			}
 		case "storage.backup":
 			var params StorageParams
 			if err := json.Unmarshal(req.Params, &params); err != nil {
@@ -132,6 +142,70 @@ func main() {
 		binary.Write(os.Stdout, binary.BigEndian, uint32(len(respPayload)))
 		os.Stdout.Write(respPayload)
 	}
+}
+
+// listFiles recursively lists all files and folders under the configured
+// Drive folder, returning a flat listing for the scanner pipeline.
+func listFiles(config DriveConfig) ([]map[string]any, error) {
+	srv, err := newDriveService(config)
+	if err != nil {
+		return nil, fmt.Errorf("drive auth: %w", err)
+	}
+
+	type folderItem struct {
+		id   string
+		path string
+	}
+
+	var files []map[string]any
+	queue := []folderItem{{id: config.FolderID, path: ""}}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		query := fmt.Sprintf("'%s' in parents and trashed = false", current.id)
+		pageToken := ""
+		for {
+			call := srv.Files.List().Q(query).
+				Fields("nextPageToken, files(id, name, mimeType, size)").
+				PageSize(1000)
+			if pageToken != "" {
+				call = call.PageToken(pageToken)
+			}
+
+			result, err := call.Do()
+			if err != nil {
+				return nil, fmt.Errorf("list folder %q: %w", current.path, err)
+			}
+
+			for _, f := range result.Files {
+				isDir := f.MimeType == "application/vnd.google-apps.folder"
+				entryPath := f.Name
+				if current.path != "" {
+					entryPath = current.path + "/" + f.Name
+				}
+
+				files = append(files, map[string]any{
+					"path":   entryPath,
+					"name":   f.Name,
+					"is_dir": isDir,
+					"size":   f.Size,
+				})
+
+				if isDir {
+					queue = append(queue, folderItem{id: f.Id, path: entryPath})
+				}
+			}
+
+			pageToken = result.NextPageToken
+			if pageToken == "" {
+				break
+			}
+		}
+	}
+
+	return files, nil
 }
 
 const backupFileName = "mga_backup.db"

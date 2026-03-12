@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/hirochachacha/go-smb2"
 )
@@ -83,17 +82,17 @@ func main() {
 					"path":     map[string]any{"type": "string", "default": ""},
 				},
 			}
-		case "source.library.list":
+		case "source.filesystem.list":
 			var config SMBConfig
 			if err := json.Unmarshal(req.Params, &config); err != nil {
 				resp.Error = &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 				break
 			}
-			games, err := listGames(config)
+			files, err := listFiles(config)
 			if err != nil {
 				resp.Error = &Error{Code: "SCAN_FAILED", Message: err.Error()}
 			} else {
-				resp.Result = map[string]any{"games": games}
+				resp.Result = map[string]any{"files": files}
 			}
 		case "plugin.check_config":
 			var config SMBConfig
@@ -153,7 +152,9 @@ func checkConfig(config SMBConfig) error {
 	return nil
 }
 
-func listGames(config SMBConfig) ([]any, error) {
+// listFiles walks the entire SMB share and returns every file and directory
+// as a flat listing. No filtering — the scanner handles classification.
+func listFiles(config SMBConfig) ([]map[string]any, error) {
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:445", config.Host))
 	if err != nil {
 		return nil, err
@@ -179,47 +180,36 @@ func listGames(config SMBConfig) ([]any, error) {
 	}
 	defer remotefs.Umount()
 
-	games := []any{}
 	searchPath := config.Path
 	if searchPath == "" {
 		searchPath = "."
 	}
 
-	// Walk the remote share (remotefs.DirFS returns an fs.FS rooted at searchPath).
+	var files []map[string]any
 	rootFS := remotefs.DirFS(searchPath)
 	err = fs.WalkDir(rootFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // Skip errors (e.g. permission)
-		}
-		if d.IsDir() {
 			return nil
 		}
-		ext := strings.ToLower(filepath.Ext(path))
-		if !isGameOrInstallerExt(ext) {
+		if path == "." {
 			return nil
 		}
-		games = append(games, map[string]any{
-			"source_game_key": path,
-			"display_name":    strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
-			"provider_ids":    map[string]any{},
-			"source_payload":  map[string]any{"path": path},
-		})
+		entry := map[string]any{
+			"path":   filepath.ToSlash(path),
+			"name":   d.Name(),
+			"is_dir": d.IsDir(),
+		}
+		if !d.IsDir() {
+			if info, err := d.Info(); err == nil {
+				entry["size"] = info.Size()
+			}
+		}
+		files = append(files, entry)
 		return nil
 	})
-
-	return games, nil
-}
-
-// isGameOrInstallerExt returns true for common game/installer file extensions.
-func isGameOrInstallerExt(ext string) bool {
-	switch ext {
-	case ".exe", ".com", ".bat":
-		return true
-	case ".iso", ".cue", ".bin", ".img", ".ccd", ".chd", ".mdf", ".mds":
-		return true
-	case ".zip", ".7z", ".rar":
-		return true
-	default:
-		return false
+	if err != nil {
+		return nil, err
 	}
+
+	return files, nil
 }

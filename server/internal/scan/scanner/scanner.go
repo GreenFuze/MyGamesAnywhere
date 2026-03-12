@@ -1,4 +1,4 @@
-package scan
+package scanner
 
 import (
 	"context"
@@ -29,42 +29,50 @@ type AnnotatedFile struct {
 	core.FileEntry
 	Kind      FileKind
 	Extension string
-	Dir       string // parent directory (relative)
-	Depth     int    // nesting depth (0 = root-level entry)
+	Dir       string            // parent directory (relative)
+	Depth     int               // nesting depth (0 = root-level entry)
+	Role      core.GameFileRole // assigned during role assignment step
 }
 
-// GameScanner classifies games from a filesystem-style game source.
-type GameScanner struct {
+// Scanner classifies games from a filesystem-style game source.
+// It is stateless and pure: given a flat file listing, it returns
+// classified game groups. It knows nothing about the database,
+// metadata plugins, or previous scans.
+type Scanner struct {
 	logger           core.Logger
 	grouper          *FileGrouper
 	platformDetector *PlatformDetector
 	classifier       *GroupClassifier
+	roleAssigner     *RoleAssigner
 }
 
-func NewGameScanner(logger core.Logger) *GameScanner {
-	return &GameScanner{
+func New(logger core.Logger) *Scanner {
+	return &Scanner{
 		logger:           logger,
 		grouper:          NewFileGrouper(),
 		platformDetector: NewPlatformDetector(),
 		classifier:       NewGroupClassifier(),
+		roleAssigner:     NewRoleAssigner(),
 	}
 }
 
 // ScanFiles takes a flat file listing from a filesystem source plugin
-// and returns classified games with their files.
-// Step 1: annotate each entry with kind, extension, depth.
-// Step 2: group files into game candidates.
-// Step 3: detect platform for each group.
-// Step 4: classify each group (self_contained, packed, extras, unknown).
-// Step 5 (game file mapping) is TODO.
-func (s *GameScanner) ScanFiles(ctx context.Context, files []core.FileEntry) ([]*core.Game, []*core.GameFile, error) {
+// and returns classified game groups.
+//
+// Pipeline:
+//  1. Annotate each entry with kind, extension, depth.
+//  2. Group files into game candidates.
+//  3. Detect platform for each group.
+//  4. Classify each group (self_contained, packed, extras, unknown).
+//  5. Assign file roles (root, required, optional) within each group.
+func (s *Scanner) ScanFiles(ctx context.Context, files []core.FileEntry) ([]GameGroup, error) {
 	annotated := annotateFiles(files)
 	groups := s.grouper.Group(annotated)
 	s.platformDetector.DetectAll(groups)
 	s.classifier.ClassifyAll(groups)
+	s.roleAssigner.AssignAll(groups)
 	s.logger.Info("ScanFiles pipeline complete", "files", len(files), "groups", len(groups))
-	_ = groups // next steps will consume groups
-	return nil, nil, nil
+	return groups, nil
 }
 
 // annotateFiles enriches raw file entries with kind, extension, directory, and depth.
