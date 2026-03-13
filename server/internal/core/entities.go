@@ -18,14 +18,6 @@ type Session struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// GameEntry is a single game returned by a game source provider (e.g. plugin source.library.list).
-type GameEntry struct {
-	SourceGameKey string         `json:"source_game_key"`
-	DisplayName   string         `json:"display_name"`
-	ProviderIDs   map[string]any `json:"provider_ids"`
-	SourcePayload any            `json:"source_payload"`
-}
-
 type Integration struct {
 	ID              string    `json:"id"`
 	PluginID        string    `json:"plugin_id"`
@@ -91,6 +83,13 @@ const (
 	GameKindUnknown   GameKind = "unknown"
 )
 
+// ExternalID links a game to an entry in an external metadata database.
+type ExternalID struct {
+	Source     string // plugin ID that provided this match
+	ExternalID string // the ID in that external system
+	URL        string // optional deep link
+}
+
 // Game is the persisted game entity.
 type Game struct {
 	ID            string
@@ -101,9 +100,10 @@ type Game struct {
 	GroupKind     GroupKind
 	RootPath      string
 	IntegrationID string
-	Confidence    string
 	Status        string
 	LastSeenAt    *time.Time
+	Files         []GameFile
+	ExternalIDs   []ExternalID
 }
 
 // GameFileRole is the role of a file within a game package.

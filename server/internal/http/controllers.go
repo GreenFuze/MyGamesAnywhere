@@ -8,6 +8,7 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -19,15 +20,22 @@ type ListGamesResponse struct {
 
 // GameSummary is one game in the list response.
 type GameSummary struct {
-	ID            string         `json:"id"`
-	Title         string         `json:"title"`
-	Platform      string         `json:"platform"`
-	Kind          string         `json:"kind"`
-	ParentGameID  string         `json:"parent_game_id,omitempty"`
-	GroupKind     string         `json:"group_kind"`
-	RootPath      string         `json:"root_path,omitempty"`
-	Confidence    string         `json:"confidence,omitempty"`
-	Files         []GameFileDTO  `json:"files,omitempty"`
+	ID           string           `json:"id"`
+	Title        string           `json:"title"`
+	Platform     string           `json:"platform"`
+	Kind         string           `json:"kind"`
+	ParentGameID string           `json:"parent_game_id,omitempty"`
+	GroupKind    string           `json:"group_kind"`
+	RootPath     string           `json:"root_path,omitempty"`
+	Files        []GameFileDTO    `json:"files,omitempty"`
+	ExternalIDs  []ExternalIDDTO  `json:"external_ids,omitempty"`
+}
+
+// ExternalIDDTO is a reference to an external metadata database.
+type ExternalIDDTO struct {
+	Source     string `json:"source"`
+	ExternalID string `json:"external_id"`
+	URL        string `json:"url,omitempty"`
 }
 
 // GameFileDTO is a file belonging to a game.
@@ -105,14 +113,13 @@ func (c *GameController) DeleteAll(w http.ResponseWriter, r *http.Request) {
 
 func gameToSummary(g *core.Game, files []*core.GameFile) GameSummary {
 	s := GameSummary{
-		ID:          g.ID,
-		Title:       g.Title,
-		Platform:    string(g.Platform),
-		Kind:        string(g.Kind),
+		ID:           g.ID,
+		Title:        g.Title,
+		Platform:     string(g.Platform),
+		Kind:         string(g.Kind),
 		ParentGameID: g.ParentGameID,
-		GroupKind:   string(g.GroupKind),
-		RootPath:    g.RootPath,
-		Confidence:  g.Confidence,
+		GroupKind:    string(g.GroupKind),
+		RootPath:     g.RootPath,
 	}
 	for _, f := range files {
 		if f != nil {
@@ -124,20 +131,33 @@ func gameToSummary(g *core.Game, files []*core.GameFile) GameSummary {
 			})
 		}
 	}
+	for _, eid := range g.ExternalIDs {
+		s.ExternalIDs = append(s.ExternalIDs, ExternalIDDTO{
+			Source:     eid.Source,
+			ExternalID: eid.ExternalID,
+			URL:        eid.URL,
+		})
+	}
 	return s
 }
 
 type DiscoveryController struct {
-	scanSvc plugins.ScanService
-	logger  core.Logger
+	orchestrator *scan.Orchestrator
+	logger       core.Logger
 }
 
-func NewDiscoveryController(scanSvc plugins.ScanService, logger core.Logger) *DiscoveryController {
-	return &DiscoveryController{scanSvc: scanSvc, logger: logger}
+func NewDiscoveryController(orchestrator *scan.Orchestrator, logger core.Logger) *DiscoveryController {
+	return &DiscoveryController{orchestrator: orchestrator, logger: logger}
 }
 
 type ScanRequest struct {
 	GameSources []string `json:"game_sources"`
+}
+
+// ScanResultDTO is the response for POST /api/scan.
+type ScanResultDTO struct {
+	Status string        `json:"status"`
+	Games  []GameSummary `json:"games"`
 }
 
 func (c *DiscoveryController) Scan(w http.ResponseWriter, r *http.Request) {
@@ -152,12 +172,26 @@ func (c *DiscoveryController) Scan(w http.ResponseWriter, r *http.Request) {
 	if len(body.GameSources) > 0 {
 		integrationIDs = body.GameSources
 	}
-	if err := c.scanSvc.RunScan(r.Context(), integrationIDs); err != nil {
+	games, err := c.orchestrator.RunScan(r.Context(), integrationIDs)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{"status": "scan completed"})
+
+	summaries := make([]GameSummary, 0, len(games))
+	for _, g := range games {
+		files := make([]*core.GameFile, 0, len(g.Files))
+		for i := range g.Files {
+			files = append(files, &g.Files[i])
+		}
+		summaries = append(summaries, gameToSummary(g, files))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(ScanResultDTO{
+		Status: "scan completed",
+		Games:  summaries,
+	})
 }
 
 type ConfigController struct {

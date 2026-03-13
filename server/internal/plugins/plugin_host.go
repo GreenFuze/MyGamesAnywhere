@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync"
+	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
@@ -78,6 +80,7 @@ type pluginHost struct {
 	config         core.Configuration
 	processManager ProcessManager
 	plugins        map[string]*core.Plugin
+	mu             sync.Mutex
 	clients        map[string]IpcClient
 }
 
@@ -172,6 +175,9 @@ func (h *pluginHost) Call(ctx context.Context, pluginID string, method string, p
 }
 
 func (h *pluginHost) getClient(ctx context.Context, pluginID string) (IpcClient, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if client, ok := h.clients[pluginID]; ok {
 		return client, nil
 	}
@@ -181,8 +187,6 @@ func (h *pluginHost) getClient(ctx context.Context, pluginID string) (IpcClient,
 		return nil, fmt.Errorf("plugin not found: %s", pluginID)
 	}
 
-	// Spawn with Background so the process outlives the request that triggered spawn.
-	// Otherwise the first request (e.g. Create integration) would cancel ctx on return and kill the plugin.
 	execPath := filepath.Join(plugin.Path, plugin.Manifest.Exec)
 	process, err := h.processManager.Spawn(context.Background(), execPath, nil, plugin.Path)
 	if err != nil {
@@ -190,13 +194,29 @@ func (h *pluginHost) getClient(ctx context.Context, pluginID string) (IpcClient,
 	}
 
 	client := NewIpcClient(process, h.logger, pluginID)
-	h.clients[pluginID] = client
 
-	// Optional: call plugin.init or similar
+	initTimeout := time.Duration(plugin.Manifest.DefaultTimeout) * time.Millisecond
+	if initTimeout <= 0 {
+		initTimeout = 30 * time.Second
+	}
+	initCtx, cancel := context.WithTimeout(context.Background(), initTimeout)
+	defer cancel()
+
+	var initResult json.RawMessage
+	if err := client.Call(initCtx, "plugin.init", map[string]any{}, &initResult); err != nil {
+		h.logger.Warn("plugin.init failed, continuing anyway", "plugin_id", pluginID, "error", err)
+	} else {
+		h.logger.Info("plugin.init completed", "plugin_id", pluginID)
+	}
+
+	h.clients[pluginID] = client
 	return client, nil
 }
 
 func (h *pluginHost) Close() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	var lastErr error
 	for id, client := range h.clients {
 		h.logger.Info("Closing plugin client", "plugin_id", id)

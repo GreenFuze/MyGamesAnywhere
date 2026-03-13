@@ -36,8 +36,8 @@ func (r *gameRepository) UpsertGames(ctx context.Context, games []*core.Game, fi
 		} else {
 			lastSeen = &now
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO games (id, title, platform, kind, parent_game_id, package_kind, root_path, integration_id, confidence, status, last_seen_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		_, err := tx.ExecContext(ctx, `INSERT INTO games (id, title, platform, kind, parent_game_id, package_kind, root_path, integration_id, status, last_seen_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				title = excluded.title,
 				platform = excluded.platform,
@@ -46,11 +46,10 @@ func (r *gameRepository) UpsertGames(ctx context.Context, games []*core.Game, fi
 				package_kind = excluded.package_kind,
 				root_path = excluded.root_path,
 				integration_id = excluded.integration_id,
-				confidence = excluded.confidence,
 				status = 'found',
 				last_seen_at = excluded.last_seen_at`,
 			g.ID, nullEmptyStr(g.Title), string(g.Platform), string(g.Kind), nullEmptyStr(g.ParentGameID), string(g.GroupKind),
-			nullEmptyStr(g.RootPath), nullEmptyStr(g.IntegrationID), nullEmptyStr(g.Confidence), g.Status, *lastSeen)
+			nullEmptyStr(g.RootPath), nullEmptyStr(g.IntegrationID), g.Status, *lastSeen)
 		if err != nil {
 			return err
 		}
@@ -156,7 +155,7 @@ func (r *gameRepository) DeleteAllGames(ctx context.Context) error {
 }
 
 func (r *gameRepository) GetGames(ctx context.Context) ([]*core.Game, error) {
-	rows, err := r.db.GetDB().QueryContext(ctx, `SELECT id, title, platform, kind, parent_game_id, package_kind, root_path, integration_id, confidence, status, last_seen_at FROM games WHERE status = 'found'`)
+	rows, err := r.db.GetDB().QueryContext(ctx, `SELECT id, title, platform, kind, parent_game_id, package_kind, root_path, integration_id, status, last_seen_at FROM games WHERE status = 'found'`)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +172,7 @@ func (r *gameRepository) GetGames(ctx context.Context) ([]*core.Game, error) {
 }
 
 func (r *gameRepository) GetGameByID(ctx context.Context, gameID string) (*core.Game, error) {
-	row := r.db.GetDB().QueryRowContext(ctx, `SELECT id, title, platform, kind, parent_game_id, package_kind, root_path, integration_id, confidence, status, last_seen_at FROM games WHERE id = ?`, gameID)
+	row := r.db.GetDB().QueryRowContext(ctx, `SELECT id, title, platform, kind, parent_game_id, package_kind, root_path, integration_id, status, last_seen_at FROM games WHERE id = ?`, gameID)
 	g, err := scanGameRow(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -210,9 +209,9 @@ func (r *gameRepository) GetGameFiles(ctx context.Context, gameID string) ([]*co
 func scanGame(rows *sql.Rows) (*core.Game, error) {
 	var g core.Game
 	var lastSeen *int64
-	var title, parentGameID, rootPath, integrationID, confidence sql.NullString
+	var title, parentGameID, rootPath, integrationID sql.NullString
 	var platformStr, kindStr, groupKindStr string
-	err := rows.Scan(&g.ID, &title, &platformStr, &kindStr, &parentGameID, &groupKindStr, &rootPath, &integrationID, &confidence, &g.Status, &lastSeen)
+	err := rows.Scan(&g.ID, &title, &platformStr, &kindStr, &parentGameID, &groupKindStr, &rootPath, &integrationID, &g.Status, &lastSeen)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +222,6 @@ func scanGame(rows *sql.Rows) (*core.Game, error) {
 	g.GroupKind = core.GroupKind(groupKindStr)
 	g.RootPath = rootPath.String
 	g.IntegrationID = integrationID.String
-	g.Confidence = confidence.String
 	if lastSeen != nil {
 		t := time.Unix(*lastSeen, 0)
 		g.LastSeenAt = &t
@@ -240,9 +238,9 @@ func scanGame(rows *sql.Rows) (*core.Game, error) {
 func scanGameRow(row *sql.Row) (*core.Game, error) {
 	var g core.Game
 	var lastSeen *int64
-	var title, parentGameID, rootPath, integrationID, confidence sql.NullString
+	var title, parentGameID, rootPath, integrationID sql.NullString
 	var platformStr, kindStr, groupKindStr string
-	err := row.Scan(&g.ID, &title, &platformStr, &kindStr, &parentGameID, &groupKindStr, &rootPath, &integrationID, &confidence, &g.Status, &lastSeen)
+	err := row.Scan(&g.ID, &title, &platformStr, &kindStr, &parentGameID, &groupKindStr, &rootPath, &integrationID, &g.Status, &lastSeen)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +251,6 @@ func scanGameRow(row *sql.Row) (*core.Game, error) {
 	g.GroupKind = core.GroupKind(groupKindStr)
 	g.RootPath = rootPath.String
 	g.IntegrationID = integrationID.String
-	g.Confidence = confidence.String
 	if lastSeen != nil {
 		t := time.Unix(*lastSeen, 0)
 		g.LastSeenAt = &t

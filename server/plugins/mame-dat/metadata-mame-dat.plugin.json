@@ -1,0 +1,10 @@
+{
+  "plugin_id": "metadata-mame-dat",
+  "plugin_version": "1.0.0",
+  "api_major": 1,
+  "capabilities": ["metadata"],
+  "provides": ["metadata.game.lookup"],
+  "exec": "mame-dat.exe",
+  "default_timeout_ms": 300000,
+  "max_concurrency": 1
+}

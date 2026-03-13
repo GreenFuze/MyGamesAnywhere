@@ -53,11 +53,6 @@ type GameRepository interface {
 	GetGameFiles(ctx context.Context, gameID string) ([]*GameFile, error)
 }
 
-// GameSourceProvider lists games from a source (e.g. SMB share, Drive folder).
-type GameSourceProvider interface {
-	ListGames(ctx context.Context, config map[string]any) ([]GameEntry, error)
-}
-
 // SettingsSyncProvider backs up and restores server state to/from remote storage.
 type SettingsSyncProvider interface {
 	Backup(ctx context.Context, config map[string]any) error

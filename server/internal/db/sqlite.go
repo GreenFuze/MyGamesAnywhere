@@ -78,7 +78,6 @@ func (s *sqliteDatabase) Migrate() error {
 			package_kind TEXT NOT NULL,
 			root_path TEXT,
 			integration_id TEXT,
-			confidence TEXT,
 			status TEXT NOT NULL DEFAULT 'found',
 			last_seen_at INTEGER
 		);`,

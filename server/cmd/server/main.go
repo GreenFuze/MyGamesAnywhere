@@ -12,6 +12,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/http"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/logger"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
 )
 
 func main() {
@@ -39,11 +40,10 @@ func main() {
 	pluginHost := plugins.NewPluginHost(logSvc, configSvc, processManager)
 	syncSvc := plugins.NewPluginSyncProvider(pluginHost, integrationRepo, dbSvc, configSvc, logSvc)
 
-	pluginPersistence := plugins.NewPluginGamePersistenceService(gameRepo, logSvc)
-	scanSvc := plugins.NewScanService(pluginHost, integrationRepo, pluginPersistence, logSvc)
+	orchestrator := scan.NewOrchestrator(pluginHost, pluginHost, integrationRepo, logSvc)
 
 	gameCtrl := http.NewGameController(gameRepo, logSvc)
-	discoCtrl := http.NewDiscoveryController(scanSvc, logSvc)
+	discoCtrl := http.NewDiscoveryController(orchestrator, logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, logSvc)
 
