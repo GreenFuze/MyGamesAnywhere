@@ -88,14 +88,19 @@ var rateLimiter = time.NewTicker(333 * time.Millisecond)
 // --- Title normalization (shared logic) ---
 
 var (
-	versionSuffixRE = regexp.MustCompile(`[\s._]+v?\d+(\.\d+)+([\s._]+[a-z]{2,3})*\s*$`)
-	nonAlphaNumRE   = regexp.MustCompile(`[^a-z0-9\s]+`)
-	multiSpaceRE    = regexp.MustCompile(`\s{2,}`)
+	trailingParensRE = regexp.MustCompile(`[\s_]*\([^)]*\)\s*$`)
+	setupPrefixRE    = regexp.MustCompile(`^setup[_\s]`)
+	versionSuffixRE  = regexp.MustCompile(`[\s._]+v?\d+(\.\d+)+([\s._]+[a-z]{2,3})*\s*$`)
+	nonAlphaNumRE    = regexp.MustCompile(`[^a-z0-9\s]+`)
+	multiSpaceRE     = regexp.MustCompile(`\s{2,}`)
 )
 
 func normalizeTitle(s string) string {
 	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, "_ ", " ")
+	for trailingParensRE.MatchString(s) {
+		s = trailingParensRE.ReplaceAllString(s, "")
+	}
+	s = setupPrefixRE.ReplaceAllString(s, "")
 	s = versionSuffixRE.ReplaceAllString(s, "")
 	s = nonAlphaNumRE.ReplaceAllString(s, " ")
 	s = multiSpaceRE.ReplaceAllString(s, " ")

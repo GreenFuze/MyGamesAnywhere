@@ -136,10 +136,14 @@ func (h *pluginHost) Discover(ctx context.Context) error {
 				h.logger.Warn("Failed to unmarshal plugin manifest", "path", manifestPath, "error", err)
 				continue
 			}
-			if _, exists := h.plugins[manifest.ID]; exists {
-				h.logger.Warn("Duplicate plugin id, skipping", "id", manifest.ID, "path", manifestPath)
-				continue
-			}
+		if manifest.Enabled != nil && !*manifest.Enabled {
+			h.logger.Info("Plugin disabled by manifest", "id", manifest.ID, "path", manifestPath)
+			continue
+		}
+		if _, exists := h.plugins[manifest.ID]; exists {
+			h.logger.Warn("Duplicate plugin id, skipping", "id", manifest.ID, "path", manifestPath)
+			continue
+		}
 			// Plugin ID convention: lowercase, hyphenated; no reverse-DNS (no dots). E.g. game-source-smb, sync-settings-google-drive.
 			if !validPluginID(manifest.ID) {
 				h.logger.Warn("Invalid plugin id (use lowercase hyphenated, e.g. game-source-smb), skipping", "id", manifest.ID, "path", manifestPath)

@@ -80,15 +80,19 @@ func (idx *launchBoxIndex) lookupNormalized(platform, title string) *gameEntry {
 // --- Title normalization & token matching ---
 
 var (
-	// Matches trailing version patterns, optionally followed by short lang codes: "1.0", "v0.29.0", "1.0 cs", "1.6 en fr"
-	versionSuffixRE = regexp.MustCompile(`[\s._]+v?\d+(\.\d+)+([\s._]+[a-z]{2,3})*\s*$`)
-	nonAlphaNumRE   = regexp.MustCompile(`[^a-z0-9\s]+`)
-	multiSpaceRE    = regexp.MustCompile(`\s{2,}`)
+	trailingParensRE = regexp.MustCompile(`[\s_]*\([^)]*\)\s*$`)
+	setupPrefixRE    = regexp.MustCompile(`^setup[_\s]`)
+	versionSuffixRE  = regexp.MustCompile(`[\s._]+v?\d+(\.\d+)+([\s._]+[a-z]{2,3})*\s*$`)
+	nonAlphaNumRE    = regexp.MustCompile(`[^a-z0-9\s]+`)
+	multiSpaceRE     = regexp.MustCompile(`\s{2,}`)
 )
 
 func normalizeTitle(s string) string {
 	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, "_ ", " ")
+	for trailingParensRE.MatchString(s) {
+		s = trailingParensRE.ReplaceAllString(s, "")
+	}
+	s = setupPrefixRE.ReplaceAllString(s, "")
 	s = versionSuffixRE.ReplaceAllString(s, "")
 	s = nonAlphaNumRE.ReplaceAllString(s, " ")
 	s = multiSpaceRE.ReplaceAllString(s, " ")

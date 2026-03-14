@@ -11,6 +11,7 @@ type PluginManifest struct {
 	DefaultTimeout int            `json:"default_timeout_ms"`
 	MaxConcurrency int            `json:"max_concurrency"`
 	ConfigSchema   map[string]any `json:"config"`
+	Enabled        *bool          `json:"enabled,omitempty"` // nil or true = enabled; false = skip
 }
 
 type Plugin struct {

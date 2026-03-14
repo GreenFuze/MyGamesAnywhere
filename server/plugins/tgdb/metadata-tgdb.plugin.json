@@ -2,6 +2,7 @@
   "plugin_id": "metadata-tgdb",
   "plugin_version": "1.0.0",
   "api_major": 1,
+  "enabled": false,
   "capabilities": ["metadata"],
   "provides": ["metadata.game.lookup"],
   "exec": "tgdb.exe",

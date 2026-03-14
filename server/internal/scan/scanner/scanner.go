@@ -71,8 +71,26 @@ func (s *Scanner) ScanFiles(ctx context.Context, files []core.FileEntry) ([]Game
 	s.platformDetector.DetectAll(groups)
 	s.classifier.ClassifyAll(groups)
 	s.roleAssigner.AssignAll(groups)
-	s.logger.Info("ScanFiles pipeline complete", "files", len(files), "groups", len(groups))
+
+	before := len(groups)
+	groups = filterPlayable(groups)
+
+	s.logger.Info("ScanFiles pipeline complete",
+		"files", len(files), "groups_raw", before,
+		"groups_dropped", before-len(groups), "groups", len(groups))
 	return groups, nil
+}
+
+// filterPlayable removes groups classified as extras (manuals,
+// soundtracks, screenshots) since they contain no game artifacts.
+func filterPlayable(groups []GameGroup) []GameGroup {
+	out := groups[:0]
+	for _, g := range groups {
+		if g.GroupKind != core.GroupKindExtras {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 // annotateFiles enriches raw file entries with kind, extension, directory, and depth.
