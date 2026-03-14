@@ -1,0 +1,13 @@
+{
+  "plugin_id": "metadata-rawg",
+  "plugin_version": "1.0.0",
+  "api_major": 1,
+  "capabilities": ["metadata"],
+  "provides": ["metadata.game.lookup"],
+  "exec": "rawg.exe",
+  "default_timeout_ms": 30000,
+  "max_concurrency": 1,
+  "config": {
+    "api_key": { "type": "string", "required": true }
+  }
+}
