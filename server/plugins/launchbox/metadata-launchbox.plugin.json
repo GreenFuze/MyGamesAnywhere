@@ -1,0 +1,10 @@
+{
+  "plugin_id": "metadata-launchbox",
+  "plugin_version": "1.0.0",
+  "api_major": 1,
+  "capabilities": ["metadata"],
+  "provides": ["metadata.game.lookup"],
+  "exec": "launchbox.exe",
+  "default_timeout_ms": 600000,
+  "max_concurrency": 1
+}

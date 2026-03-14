@@ -1,0 +1,14 @@
+{
+  "plugin_id": "metadata-igdb",
+  "plugin_version": "1.0.0",
+  "api_major": 1,
+  "capabilities": ["metadata"],
+  "provides": ["metadata.game.lookup"],
+  "exec": "igdb.exe",
+  "default_timeout_ms": 30000,
+  "max_concurrency": 1,
+  "config": {
+    "client_id": { "type": "string", "required": true },
+    "client_secret": { "type": "string", "required": true }
+  }
+}

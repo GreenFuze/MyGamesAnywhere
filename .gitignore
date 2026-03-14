@@ -18,10 +18,12 @@ vendor/
 *.db-wal
 *.db-shm
 
-# Local config and secrets (track config.json.example)
+# Local config and secrets (track config.json.example, not config.json)
 config.json
 server/config.json
 server/bin/config.json
+server/bin/plugins/*/config.json
+server/plugins/*/config.json
 
 # IDE and editors
 .idea/
