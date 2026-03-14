@@ -395,11 +395,7 @@ func handleLookup(params lookupParams) (any, *Error) {
 
 	var results []lookupResult
 	for _, q := range params.Games {
-		name := q.Title
-		if q.RootPath != "" {
-			name = filepath.Base(q.RootPath)
-		}
-		name = strings.TrimSuffix(name, filepath.Ext(name))
+		name := strings.TrimSuffix(q.Title, filepath.Ext(q.Title))
 
 		m := dat.lookup(name)
 		if m == nil {

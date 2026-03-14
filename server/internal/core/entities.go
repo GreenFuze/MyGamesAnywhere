@@ -90,20 +90,36 @@ type ExternalID struct {
 	URL        string // optional deep link
 }
 
+// ResolverMatch stores one metadata resolver's raw match for a game.
+// Every match from every resolver is preserved so we can audit decisions
+// and recompute the unified view later.
+type ResolverMatch struct {
+	PluginID     string `json:"plugin_id"`
+	Title        string `json:"title,omitempty"`
+	Platform     string `json:"platform,omitempty"`
+	Kind         string `json:"kind,omitempty"`
+	ParentGameID string `json:"parent_game_id,omitempty"`
+	ExternalID   string `json:"external_id"`
+	URL          string `json:"url,omitempty"`
+	Outvoted     bool   `json:"outvoted,omitempty"`
+}
+
 // Game is the persisted game entity.
 type Game struct {
-	ID            string
-	Title         string
-	Platform      Platform
-	Kind          GameKind
-	ParentGameID  string
-	GroupKind     GroupKind
-	RootPath      string
-	IntegrationID string
-	Status        string
-	LastSeenAt    *time.Time
-	Files         []GameFile
-	ExternalIDs   []ExternalID
+	ID              string
+	Title           string
+	RawTitle        string // original title from the scanner, before enrichment
+	Platform        Platform
+	Kind            GameKind
+	ParentGameID    string
+	GroupKind       GroupKind
+	RootPath        string
+	IntegrationID   string
+	Status          string
+	LastSeenAt      *time.Time
+	Files           []GameFile
+	ExternalIDs     []ExternalID
+	ResolverMatches []ResolverMatch
 }
 
 // GameFileRole is the role of a file within a game package.

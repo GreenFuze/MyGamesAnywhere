@@ -697,11 +697,7 @@ func matchGame(idx *launchBoxIndex, q gameQuery) *lookupResult {
 		lbPlatforms = []string{q.Platform}
 	}
 
-	filename := q.Title
-	if q.RootPath != "" {
-		filename = filepath.Base(q.RootPath)
-		filename = strings.TrimSuffix(filename, filepath.Ext(filename))
-	}
+	filename := strings.TrimSuffix(q.Title, filepath.Ext(q.Title))
 
 	// Strategy 1: file-based matching (ROM filename → game name → metadata).
 	for _, lbp := range lbPlatforms {

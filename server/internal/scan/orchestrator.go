@@ -175,6 +175,7 @@ func buildGames(integrationID string, groups []scanner.GameGroup) []*core.Game {
 		games = append(games, &core.Game{
 			ID:            gameID,
 			Title:         g.Name,
+			RawTitle:      g.Name,
 			Platform:      g.Platform,
 			Kind:          core.GameKindBaseGame,
 			GroupKind:     g.GroupKind,

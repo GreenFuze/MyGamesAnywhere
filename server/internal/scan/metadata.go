@@ -3,6 +3,9 @@ package scan
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"sort"
+	"strings"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
@@ -10,6 +13,7 @@ import (
 const metadataGameLookupMethod = "metadata.game.lookup"
 
 // MetadataSource identifies a metadata plugin and its config.
+// Sources are ordered by priority: index 0 is highest priority.
 type MetadataSource struct {
 	PluginID string
 	Config   map[string]any
@@ -43,12 +47,14 @@ type metadataMatch struct {
 	URL          string `json:"url,omitempty"`
 }
 
-// MetadataResolver calls metadata plugins in order and enriches games.
+// MetadataResolver coordinates metadata enrichment across plugins using
+// a three-phase approach:
 //
-// Enrichment rules:
-//   - All matches always append their ExternalID.
-//   - First match (across all plugins) sets Title, Platform, Kind, ParentGameID.
-//   - Subsequent matches only fill fields that are still at defaults.
+//	Phase 1 (Identify): Run all resolvers on raw scan data, collect matches.
+//	Phase 2 (Consensus): Group matches by normalized title, majority vote
+//	                      picks the canonical title, priority breaks ties.
+//	Phase 3 (Fill):      Re-query resolvers that missed or were outvoted
+//	                      using the consensus canonical title.
 type MetadataResolver struct {
 	caller PluginCaller
 	logger core.Logger
@@ -58,31 +64,49 @@ func NewMetadataResolver(caller PluginCaller, logger core.Logger) *MetadataResol
 	return &MetadataResolver{caller: caller, logger: logger}
 }
 
-// Enrich calls each metadata source in order and enriches games in-place.
+// Enrich runs the three-phase enrichment pipeline on the provided games.
 func (r *MetadataResolver) Enrich(ctx context.Context, games []*core.Game, sources []MetadataSource) {
 	if len(games) == 0 || len(sources) == 0 {
 		return
 	}
 
-	// Track which games have had their title set by a metadata plugin.
-	// Title is special: the scanner always provides a raw title, so we
-	// need to know whether a metadata plugin has already replaced it.
-	titleEnriched := make(map[int]bool, len(games))
+	r.logger.Info("metadata: starting enrichment", "games", len(games), "sources", len(sources))
 
+	// Phase 1: call every resolver with raw scan titles.
+	r.identify(ctx, games, sources)
+
+	// Phase 2: consensus vote + compute unified fields.
+	r.consensus(games, sources)
+
+	// Phase 3: re-query missed/outvoted resolvers with the consensus title.
+	r.fill(ctx, games, sources)
+
+	r.logSummary(games)
+}
+
+// ── Phase 1: Identify ───────────────────────────────────────────────
+
+func (r *MetadataResolver) identify(ctx context.Context, games []*core.Game, sources []MetadataSource) {
 	for _, src := range sources {
-		matched := r.callPlugin(ctx, src, games, titleEnriched)
-		r.logger.Info("metadata enrichment", "plugin", src.PluginID, "matched", matched, "total", len(games))
+		matched := r.callPluginIdentify(ctx, src, games)
+		r.logger.Info("metadata phase 1", "plugin", src.PluginID, "matched", matched, "total", len(games))
 	}
 }
 
-func (r *MetadataResolver) callPlugin(ctx context.Context, src MetadataSource, games []*core.Game, titleEnriched map[int]bool) int {
-	req := buildLookupRequest(games)
-	if len(req.Games) == 0 {
-		return 0
+func (r *MetadataResolver) callPluginIdentify(ctx context.Context, src MetadataSource, games []*core.Game) int {
+	queries := make([]metadataGameQuery, len(games))
+	for i, g := range games {
+		queries[i] = metadataGameQuery{
+			Index:     i,
+			Title:     g.RawTitle,
+			Platform:  string(g.Platform),
+			RootPath:  g.RootPath,
+			GroupKind: string(g.GroupKind),
+		}
 	}
 
 	params := map[string]any{
-		"games":  req.Games,
+		"games":  queries,
 		"config": src.Config,
 	}
 
@@ -92,48 +116,115 @@ func (r *MetadataResolver) callPlugin(ctx context.Context, src MetadataSource, g
 		return 0
 	}
 
-	return applyResults(games, resp.Results, src.PluginID, titleEnriched)
-}
-
-func buildLookupRequest(games []*core.Game) metadataLookupRequest {
-	queries := make([]metadataGameQuery, 0, len(games))
-	for i, g := range games {
-		queries = append(queries, metadataGameQuery{
-			Index:     i,
-			Title:     g.Title,
-			Platform:  string(g.Platform),
-			RootPath:  g.RootPath,
-			GroupKind: string(g.GroupKind),
-		})
-	}
-	return metadataLookupRequest{Games: queries}
-}
-
-func applyResults(games []*core.Game, results []metadataMatch, pluginID string, titleEnriched map[int]bool) int {
 	matched := 0
-	for _, m := range results {
+	for _, m := range resp.Results {
 		if m.Index < 0 || m.Index >= len(games) {
 			continue
 		}
-		g := games[m.Index]
 		matched++
+		games[m.Index].ResolverMatches = append(games[m.Index].ResolverMatches, core.ResolverMatch{
+			PluginID:     src.PluginID,
+			Title:        m.Title,
+			Platform:     m.Platform,
+			Kind:         m.Kind,
+			ParentGameID: m.ParentGameID,
+			ExternalID:   m.ExternalID,
+			URL:          m.URL,
+		})
+	}
+	return matched
+}
 
-		// Always append the external ID.
-		if m.ExternalID != "" {
-			g.ExternalIDs = append(g.ExternalIDs, core.ExternalID{
-				Source:     pluginID,
-				ExternalID: m.ExternalID,
-				URL:        m.URL,
-			})
+// ── Phase 2: Consensus ──────────────────────────────────────────────
+
+func (r *MetadataResolver) consensus(games []*core.Game, sources []MetadataSource) {
+	identified, unidentified := 0, 0
+	for _, g := range games {
+		if len(g.ResolverMatches) == 0 {
+			g.Status = "unidentified"
+			unidentified++
+			continue
 		}
 
-		// First match sets title; subsequent matches leave it alone.
-		if m.Title != "" && !titleEnriched[m.Index] {
+		runConsensus(g, sources)
+		identified++
+	}
+	r.logger.Info("metadata phase 2", "identified", identified, "unidentified", unidentified)
+}
+
+// runConsensus groups a game's resolver matches by normalized title,
+// picks the majority group (priority breaks ties), marks losers as
+// outvoted, and applies the winning fields to the game.
+func runConsensus(g *core.Game, sources []MetadataSource) {
+	groups := map[string][]int{}
+	for i, m := range g.ResolverMatches {
+		key := normalizeForConsensus(m.Title)
+		groups[key] = append(groups[key], i)
+	}
+
+	winnerKey := pickWinner(groups, g.ResolverMatches, sources)
+
+	for i, m := range g.ResolverMatches {
+		key := normalizeForConsensus(m.Title)
+		if key != winnerKey {
+			g.ResolverMatches[i].Outvoted = true
+		}
+	}
+
+	applyUnifiedFields(g, sources)
+	g.Status = "identified"
+}
+
+// pickWinner returns the normalized-title key with the most votes.
+// Ties are broken by the highest-priority resolver in each group.
+func pickWinner(groups map[string][]int, matches []core.ResolverMatch, sources []MetadataSource) string {
+	var winnerKey string
+	winnerVotes := -1
+	winnerBestPriority := len(sources) + 1
+
+	for key, indices := range groups {
+		votes := len(indices)
+		bestPri := len(sources) + 1
+		for _, idx := range indices {
+			if pri := sourcePriority(matches[idx].PluginID, sources); pri < bestPri {
+				bestPri = pri
+			}
+		}
+		if votes > winnerVotes || (votes == winnerVotes && bestPri < winnerBestPriority) {
+			winnerKey = key
+			winnerVotes = votes
+			winnerBestPriority = bestPri
+		}
+	}
+	return winnerKey
+}
+
+// applyUnifiedFields sets the game's Title, Platform, Kind, ParentGameID,
+// and ExternalIDs from the non-outvoted resolver matches, respecting
+// source priority order.
+func applyUnifiedFields(g *core.Game, sources []MetadataSource) {
+	type ranked struct {
+		match    core.ResolverMatch
+		priority int
+	}
+	var winners []ranked
+	for _, m := range g.ResolverMatches {
+		if m.Outvoted {
+			continue
+		}
+		winners = append(winners, ranked{m, sourcePriority(m.PluginID, sources)})
+	}
+	sort.Slice(winners, func(i, j int) bool {
+		return winners[i].priority < winners[j].priority
+	})
+
+	titleSet := false
+	for _, w := range winners {
+		m := w.match
+		if m.Title != "" && !titleSet {
 			g.Title = m.Title
-			titleEnriched[m.Index] = true
+			titleSet = true
 		}
-
-		// Fill remaining fields only if still at defaults.
 		if m.Platform != "" && g.Platform == core.PlatformUnknown {
 			g.Platform = core.Platform(m.Platform)
 		}
@@ -144,5 +235,140 @@ func applyResults(games []*core.Game, results []metadataMatch, pluginID string, 
 			g.ParentGameID = m.ParentGameID
 		}
 	}
-	return matched
+
+	g.ExternalIDs = nil
+	for _, m := range g.ResolverMatches {
+		if m.Outvoted || m.ExternalID == "" {
+			continue
+		}
+		g.ExternalIDs = append(g.ExternalIDs, core.ExternalID{
+			Source:     m.PluginID,
+			ExternalID: m.ExternalID,
+			URL:        m.URL,
+		})
+	}
+}
+
+func sourcePriority(pluginID string, sources []MetadataSource) int {
+	for i, s := range sources {
+		if s.PluginID == pluginID {
+			return i
+		}
+	}
+	return len(sources)
+}
+
+// ── Phase 3: Fill ───────────────────────────────────────────────────
+
+func (r *MetadataResolver) fill(ctx context.Context, games []*core.Game, sources []MetadataSource) {
+	for _, src := range sources {
+		type fillEntry struct {
+			gameIdx int
+		}
+		var entries []fillEntry
+
+		for i, g := range games {
+			if g.Status != "identified" {
+				continue
+			}
+			if hasGoodMatch(g, src.PluginID) {
+				continue
+			}
+			entries = append(entries, fillEntry{gameIdx: i})
+		}
+
+		if len(entries) == 0 {
+			continue
+		}
+
+		queries := make([]metadataGameQuery, len(entries))
+		for j, e := range entries {
+			g := games[e.gameIdx]
+			queries[j] = metadataGameQuery{
+				Index:     j,
+				Title:     g.Title,
+				Platform:  string(g.Platform),
+				RootPath:  g.RootPath,
+				GroupKind: string(g.GroupKind),
+			}
+		}
+
+		params := map[string]any{
+			"games":  queries,
+			"config": src.Config,
+		}
+
+		var resp metadataLookupResponse
+		if err := r.caller.Call(ctx, src.PluginID, metadataGameLookupMethod, params, &resp); err != nil {
+			r.logger.Error("metadata fill call failed", fmt.Errorf("%s: %w", src.PluginID, err))
+			continue
+		}
+
+		filled := 0
+		for _, m := range resp.Results {
+			if m.Index < 0 || m.Index >= len(entries) {
+				continue
+			}
+			g := games[entries[m.Index].gameIdx]
+			filled++
+
+			g.ResolverMatches = append(g.ResolverMatches, core.ResolverMatch{
+				PluginID:   src.PluginID,
+				Title:      m.Title,
+				Platform:   m.Platform,
+				Kind:       m.Kind,
+				ExternalID: m.ExternalID,
+				URL:        m.URL,
+			})
+			if m.ExternalID != "" {
+				g.ExternalIDs = append(g.ExternalIDs, core.ExternalID{
+					Source:     src.PluginID,
+					ExternalID: m.ExternalID,
+					URL:        m.URL,
+				})
+			}
+		}
+		r.logger.Info("metadata phase 3", "plugin", src.PluginID, "filled", filled, "candidates", len(entries))
+	}
+}
+
+func hasGoodMatch(g *core.Game, pluginID string) bool {
+	for _, m := range g.ResolverMatches {
+		if m.PluginID == pluginID && !m.Outvoted {
+			return true
+		}
+	}
+	return false
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+var (
+	consensusNonAlphaNum = regexp.MustCompile(`[^a-z0-9\s]+`)
+	consensusMultiSpace  = regexp.MustCompile(`\s{2,}`)
+)
+
+func normalizeForConsensus(s string) string {
+	s = strings.ToLower(s)
+	s = consensusNonAlphaNum.ReplaceAllString(s, " ")
+	s = consensusMultiSpace.ReplaceAllString(s, " ")
+	return strings.TrimSpace(s)
+}
+
+func (r *MetadataResolver) logSummary(games []*core.Game) {
+	identified, unidentified := 0, 0
+	totalExtIDs := 0
+	for _, g := range games {
+		if g.Status == "identified" {
+			identified++
+		} else {
+			unidentified++
+		}
+		totalExtIDs += len(g.ExternalIDs)
+	}
+	r.logger.Info("metadata: enrichment complete",
+		"identified", identified,
+		"unidentified", unidentified,
+		"total_external_ids", totalExtIDs,
+	)
 }
