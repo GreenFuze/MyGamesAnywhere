@@ -50,29 +50,66 @@ type gameQuery struct {
 }
 
 type lookupResult struct {
-	Index      int    `json:"index"`
-	Title      string `json:"title,omitempty"`
-	Platform   string `json:"platform,omitempty"`
-	ExternalID string `json:"external_id"`
-	URL        string `json:"url,omitempty"`
+	Index          int      `json:"index"`
+	Title          string   `json:"title,omitempty"`
+	Platform       string   `json:"platform,omitempty"`
+	ExternalID     string   `json:"external_id"`
+	URL            string   `json:"url,omitempty"`
+	Description    string   `json:"description,omitempty"`
+	ReleaseDate    string   `json:"release_date,omitempty"`
+	Genres         []string `json:"genres,omitempty"`
+	Developer      string   `json:"developer,omitempty"`
+	Publisher      string   `json:"publisher,omitempty"`
+	CoverURL       string   `json:"cover_url,omitempty"`
+	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
+	VideoURLs      []string `json:"video_urls,omitempty"`
+	Rating         float64  `json:"rating,omitempty"`
+	MaxPlayers     int      `json:"max_players,omitempty"`
 }
 
 // IGDB API types.
 
 type igdbGame struct {
-	ID               int          `json:"id"`
-	Name             string       `json:"name"`
-	Slug             string       `json:"slug"`
-	Summary          string       `json:"summary"`
-	FirstReleaseDate int64        `json:"first_release_date"`
-	Platforms        []int        `json:"platforms"`
-	Genres           []igdbNamed  `json:"genres"`
-	URL              string       `json:"url"`
+	ID                int               `json:"id"`
+	Name              string            `json:"name"`
+	Slug              string            `json:"slug"`
+	Summary           string            `json:"summary"`
+	FirstReleaseDate  int64             `json:"first_release_date"`
+	Platforms         []int             `json:"platforms"`
+	Genres            []igdbNamed       `json:"genres"`
+	URL               string            `json:"url"`
+	AggregatedRating  float64           `json:"aggregated_rating"`
+	Cover             *igdbImage        `json:"cover"`
+	Screenshots       []igdbImage       `json:"screenshots"`
+	Videos            []igdbVideo       `json:"videos"`
+	InvolvedCompanies []igdbInvolved    `json:"involved_companies"`
+	GameModes         []igdbNamed       `json:"game_modes"`
+	MultiplayerModes  []igdbMultiplayer `json:"multiplayer_modes"`
 }
 
 type igdbNamed struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
+}
+
+type igdbImage struct {
+	ImageID string `json:"image_id"`
+}
+
+type igdbVideo struct {
+	VideoID string `json:"video_id"`
+	Name    string `json:"name"`
+}
+
+type igdbInvolved struct {
+	Company   igdbNamed `json:"company"`
+	Developer bool      `json:"developer"`
+	Publisher bool      `json:"publisher"`
+}
+
+type igdbMultiplayer struct {
+	OnlineMax  int `json:"onlinemax"`
+	OfflineMax int `json:"offlinemax"`
 }
 
 type twitchTokenResponse struct {
@@ -301,7 +338,7 @@ func igdbQuery(endpoint, query string) ([]byte, error) {
 	return body, nil
 }
 
-const igdbFields = "name,slug,url,first_release_date,platforms,genres.name"
+const igdbFields = "name,slug,url,summary,first_release_date,platforms,genres.name,aggregated_rating,cover.image_id,screenshots.image_id,videos.video_id,videos.name,involved_companies.company.name,involved_companies.developer,involved_companies.publisher,game_modes.name,multiplayer_modes.onlinemax,multiplayer_modes.offlinemax"
 
 // buildSearchQueries returns an ordered list of IGDB queries to try,
 // from most specific to least specific.
@@ -449,12 +486,62 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 		igdbURL = fmt.Sprintf("https://www.igdb.com/games/%s", overallBest.Slug)
 	}
 
-	return &lookupResult{
-		Index:      q.Index,
-		Title:      overallBest.Name,
-		ExternalID: fmt.Sprintf("%d", overallBest.ID),
-		URL:        igdbURL,
-	}, nil
+	r := &lookupResult{
+		Index:       q.Index,
+		Title:       overallBest.Name,
+		ExternalID:  fmt.Sprintf("%d", overallBest.ID),
+		URL:         igdbURL,
+		Description: overallBest.Summary,
+		Rating:      overallBest.AggregatedRating,
+	}
+
+	if overallBest.FirstReleaseDate > 0 {
+		r.ReleaseDate = time.Unix(overallBest.FirstReleaseDate, 0).UTC().Format("2006-01-02")
+	}
+
+	for _, g := range overallBest.Genres {
+		r.Genres = append(r.Genres, g.Name)
+	}
+
+	for _, ic := range overallBest.InvolvedCompanies {
+		if ic.Developer && r.Developer == "" {
+			r.Developer = ic.Company.Name
+		}
+		if ic.Publisher && r.Publisher == "" {
+			r.Publisher = ic.Company.Name
+		}
+	}
+
+	if overallBest.Cover != nil && overallBest.Cover.ImageID != "" {
+		r.CoverURL = fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_cover_big/%s.jpg", overallBest.Cover.ImageID)
+	}
+	for _, ss := range overallBest.Screenshots {
+		if ss.ImageID != "" {
+			r.ScreenshotURLs = append(r.ScreenshotURLs, fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_screenshot_big/%s.jpg", ss.ImageID))
+		}
+	}
+	for _, v := range overallBest.Videos {
+		if v.VideoID != "" {
+			r.VideoURLs = append(r.VideoURLs, fmt.Sprintf("https://www.youtube.com/watch?v=%s", v.VideoID))
+		}
+	}
+
+	maxP := 0
+	for _, mm := range overallBest.MultiplayerModes {
+		if mm.OnlineMax > maxP {
+			maxP = mm.OnlineMax
+		}
+		if mm.OfflineMax > maxP {
+			maxP = mm.OfflineMax
+		}
+	}
+	if maxP > 0 {
+		r.MaxPlayers = maxP
+	} else if len(overallBest.GameModes) == 1 && overallBest.GameModes[0].Name == "Single player" {
+		r.MaxPlayers = 1
+	}
+
+	return r, nil
 }
 
 func scoreCandidate(normalizedQuery string, queryTokens map[string]bool, g *igdbGame) float64 {

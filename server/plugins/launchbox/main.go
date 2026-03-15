@@ -51,6 +51,16 @@ type gameEntry struct {
 	Developer  string `json:"d,omitempty"`
 	Publisher  string `json:"u,omitempty"`
 	Genres     string `json:"g,omitempty"`
+	Overview   string `json:"o,omitempty"`
+	MaxPlayers string `json:"m,omitempty"`
+	VideoURL   string `json:"v,omitempty"`
+	Rating     string `json:"r,omitempty"`
+}
+
+type gameImage struct {
+	DatabaseID int    `json:"i"`
+	FileName   string `json:"f"`
+	Type       string `json:"t"`
 }
 
 type tokenedGame struct {
@@ -63,6 +73,7 @@ type launchBoxIndex struct {
 	games      map[string]*gameEntry    // "lower(platform)\tlower(name)" → entry
 	normalized map[string]*gameEntry    // "lower(platform)\tnormalized(name)" → entry
 	byPlatform map[string][]tokenedGame // lower(LB platform) → games with precomputed tokens
+	images     map[int][]gameImage      // DatabaseID → images
 }
 
 func (idx *launchBoxIndex) lookupFile(platform, filename string) *fileEntry {
@@ -225,11 +236,21 @@ type gameQuery struct {
 }
 
 type lookupResult struct {
-	Index      int    `json:"index"`
-	Title      string `json:"title,omitempty"`
-	Platform   string `json:"platform,omitempty"`
-	ExternalID string `json:"external_id"`
-	URL        string `json:"url,omitempty"`
+	Index          int      `json:"index"`
+	Title          string   `json:"title,omitempty"`
+	Platform       string   `json:"platform,omitempty"`
+	ExternalID     string   `json:"external_id"`
+	URL            string   `json:"url,omitempty"`
+	Description    string   `json:"description,omitempty"`
+	ReleaseDate    string   `json:"release_date,omitempty"`
+	Genres         []string `json:"genres,omitempty"`
+	Developer      string   `json:"developer,omitempty"`
+	Publisher      string   `json:"publisher,omitempty"`
+	CoverURL       string   `json:"cover_url,omitempty"`
+	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
+	VideoURLs      []string `json:"video_urls,omitempty"`
+	Rating         float64  `json:"rating,omitempty"`
+	MaxPlayers     int      `json:"max_players,omitempty"`
 }
 
 // Platform mapping: our platform enum → LaunchBox platform name(s).
@@ -248,10 +269,11 @@ var platformMap = map[string][]string{
 }
 
 const (
-	dataDir         = "data"
-	filesIndexFile  = "data/files-index.json"
-	gamesIndexFile  = "data/games-index.json"
-	timestampFile   = "data/.downloaded_at"
+	dataDir          = "data"
+	filesIndexFile   = "data/files-index.json"
+	gamesIndexFile   = "data/games-index.json"
+	imagesIndexFile  = "data/images-index.json"
+	timestampFile    = "data/.downloaded_at"
 	metadataZipURL  = "https://gamesdb.launchbox-app.com/Metadata.zip"
 	httpTimeout     = 10 * time.Minute
 	maxAge          = 30 * 24 * time.Hour
@@ -342,6 +364,7 @@ func downloadAndBuildIndex() error {
 
 	var filesEntries []fileEntry
 	var gamesEntries []gameEntry
+	var imageEntries []gameImage
 
 	for _, f := range zr.File {
 		name := strings.ToLower(filepath.Base(f.Name))
@@ -366,12 +389,13 @@ func downloadAndBuildIndex() error {
 
 		case "metadata.xml":
 			log.Printf("parsing %s (%d bytes)", f.Name, f.UncompressedSize64)
-			entries, err := parseMetadataXML(f)
+			games, images, err := parseMetadataXML(f)
 			if err != nil {
 				return fmt.Errorf("parse Metadata.xml: %w", err)
 			}
-			gamesEntries = entries
-			log.Printf("parsed %d game entries", len(entries))
+			gamesEntries = games
+			imageEntries = images
+			log.Printf("parsed %d game entries, %d image entries", len(games), len(images))
 		}
 	}
 
@@ -392,6 +416,15 @@ func downloadAndBuildIndex() error {
 		return fmt.Errorf("write games index: %w", err)
 	}
 	log.Printf("wrote games index: %d bytes", len(data))
+
+	data, err = json.Marshal(imageEntries)
+	if err != nil {
+		return fmt.Errorf("marshal images index: %w", err)
+	}
+	if err := os.WriteFile(imagesIndexFile, data, 0o644); err != nil {
+		return fmt.Errorf("write images index: %w", err)
+	}
+	log.Printf("wrote images index: %d bytes", len(data))
 
 	if err := os.WriteFile(timestampFile, []byte(time.Now().UTC().Format(time.RFC3339)), 0o644); err != nil {
 		return fmt.Errorf("write timestamp: %w", err)
@@ -518,18 +551,19 @@ func parseMameElement(dec *xml.Decoder) fileEntry {
 	return fileEntry{Platform: "Arcade", FileName: fileName, GameName: name}
 }
 
-func parseMetadataXML(zf *zip.File) ([]gameEntry, error) {
+func parseMetadataXML(zf *zip.File) ([]gameEntry, []gameImage, error) {
 	rc, err := zf.Open()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rc.Close()
 	return streamParseMetadata(rc)
 }
 
-func streamParseMetadata(r io.Reader) ([]gameEntry, error) {
+func streamParseMetadata(r io.Reader) ([]gameEntry, []gameImage, error) {
 	dec := xml.NewDecoder(r)
-	var entries []gameEntry
+	var games []gameEntry
+	var images []gameImage
 
 	for {
 		tok, err := dec.Token()
@@ -537,18 +571,53 @@ func streamParseMetadata(r io.Reader) ([]gameEntry, error) {
 			break
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		se, ok := tok.(xml.StartElement)
-		if !ok || se.Name.Local != "Game" {
+		if !ok {
 			continue
 		}
-		e := parseGameElement(dec)
-		if e.Name != "" && e.Platform != "" && e.DatabaseID != 0 {
-			entries = append(entries, e)
+		switch se.Name.Local {
+		case "Game":
+			e := parseGameElement(dec)
+			if e.Name != "" && e.Platform != "" && e.DatabaseID != 0 {
+				games = append(games, e)
+			}
+		case "GameImage":
+			img := parseGameImageElement(dec)
+			if img.DatabaseID != 0 && img.FileName != "" {
+				images = append(images, img)
+			}
 		}
 	}
-	return entries, nil
+	return games, images, nil
+}
+
+func parseGameImageElement(dec *xml.Decoder) gameImage {
+	var img gameImage
+	depth := 1
+	for depth > 0 {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			depth++
+			switch t.Name.Local {
+			case "DatabaseID":
+				text := readText(dec, &depth)
+				fmt.Sscanf(text, "%d", &img.DatabaseID)
+			case "FileName":
+				img.FileName = readText(dec, &depth)
+			case "Type":
+				img.Type = readText(dec, &depth)
+			}
+		case xml.EndElement:
+			depth--
+		}
+	}
+	return img
 }
 
 func parseGameElement(dec *xml.Decoder) gameEntry {
@@ -578,6 +647,14 @@ func parseGameElement(dec *xml.Decoder) gameEntry {
 				e.Publisher = readText(dec, &depth)
 			case "Genres":
 				e.Genres = readText(dec, &depth)
+			case "Overview":
+				e.Overview = readText(dec, &depth)
+			case "MaxPlayers":
+				e.MaxPlayers = readText(dec, &depth)
+			case "VideoURL":
+				e.VideoURL = readText(dec, &depth)
+			case "CommunityRating":
+				e.Rating = readText(dec, &depth)
 			}
 		case xml.EndElement:
 			depth--
@@ -626,11 +703,17 @@ func loadIndex() (*launchBoxIndex, error) {
 		return nil, fmt.Errorf("unmarshal games index: %w", err)
 	}
 
+	var imgEntries []gameImage
+	if imgData, err := os.ReadFile(imagesIndexFile); err == nil {
+		json.Unmarshal(imgData, &imgEntries)
+	}
+
 	idx := &launchBoxIndex{
 		files:      make(map[string]*fileEntry, len(fileEntries)),
 		games:      make(map[string]*gameEntry, len(gameEntries)),
 		normalized: make(map[string]*gameEntry, len(gameEntries)),
 		byPlatform: make(map[string][]tokenedGame),
+		images:     make(map[int][]gameImage),
 	}
 
 	for i := range fileEntries {
@@ -659,9 +742,13 @@ func loadIndex() (*launchBoxIndex, error) {
 			idx.byPlatform[lp] = append(idx.byPlatform[lp], tokenedGame{tokens: tokens, game: e})
 		}
 	}
+	for i := range imgEntries {
+		img := imgEntries[i]
+		idx.images[img.DatabaseID] = append(idx.images[img.DatabaseID], img)
+	}
 
-	log.Printf("loaded index: %d file mappings, %d game entries, %d normalized, %d platforms with token index",
-		len(idx.files), len(idx.games), len(idx.normalized), len(idx.byPlatform))
+	log.Printf("loaded index: %d file mappings, %d game entries, %d normalized, %d platforms with token index, %d images",
+		len(idx.files), len(idx.games), len(idx.normalized), len(idx.byPlatform), len(imgEntries))
 	return idx, nil
 }
 
@@ -711,7 +798,7 @@ func matchGame(idx *launchBoxIndex, q gameQuery) *lookupResult {
 		}
 		ge := idx.lookupGame(fe.Platform, fe.GameName)
 		if ge != nil {
-			return buildResult(q.Index, ge)
+			return buildResult(q.Index, ge, idx)
 		}
 		return &lookupResult{
 			Index:      q.Index,
@@ -724,7 +811,7 @@ func matchGame(idx *launchBoxIndex, q gameQuery) *lookupResult {
 	for _, lbp := range lbPlatforms {
 		ge := idx.lookupGame(lbp, q.Title)
 		if ge != nil {
-			return buildResult(q.Index, ge)
+			return buildResult(q.Index, ge, idx)
 		}
 	}
 
@@ -733,7 +820,7 @@ func matchGame(idx *launchBoxIndex, q gameQuery) *lookupResult {
 	for _, lbp := range lbPlatforms {
 		lp := strings.ToLower(lbp)
 		if ge := idx.normalized[lp+"\t"+normTitle]; ge != nil {
-			return buildResult(q.Index, ge)
+			return buildResult(q.Index, ge, idx)
 		}
 	}
 
@@ -742,7 +829,7 @@ func matchGame(idx *launchBoxIndex, q gameQuery) *lookupResult {
 		for _, lbp := range lbPlatforms {
 			lp := strings.ToLower(lbp)
 			if ge := idx.normalized[lp+"\t"+variant]; ge != nil {
-				return buildResult(q.Index, ge)
+				return buildResult(q.Index, ge, idx)
 			}
 		}
 	}
@@ -753,7 +840,7 @@ func matchGame(idx *launchBoxIndex, q gameQuery) *lookupResult {
 		for _, lbp := range lbPlatforms {
 			candidates := idx.byPlatform[strings.ToLower(lbp)]
 			if ge := bestTokenMatch(queryTokens, candidates); ge != nil {
-				return buildResult(q.Index, ge)
+				return buildResult(q.Index, ge, idx)
 			}
 		}
 	}
@@ -761,13 +848,58 @@ func matchGame(idx *launchBoxIndex, q gameQuery) *lookupResult {
 	return nil
 }
 
-func buildResult(index int, ge *gameEntry) *lookupResult {
-	return &lookupResult{
+func buildResult(index int, ge *gameEntry, idx *launchBoxIndex) *lookupResult {
+	r := &lookupResult{
 		Index:      index,
 		Title:      ge.Name,
 		ExternalID: fmt.Sprintf("%d", ge.DatabaseID),
 		URL:        fmt.Sprintf("https://gamesdb.launchbox-app.com/games/details/%d", ge.DatabaseID),
+		Description: ge.Overview,
+		Developer:   ge.Developer,
+		Publisher:   ge.Publisher,
 	}
+
+	if ge.Year != "" {
+		r.ReleaseDate = ge.Year
+	}
+	if ge.Genres != "" {
+		for _, g := range strings.Split(ge.Genres, ";") {
+			g = strings.TrimSpace(g)
+			if g != "" {
+				r.Genres = append(r.Genres, g)
+			}
+		}
+	}
+	if ge.MaxPlayers != "" {
+		var mp int
+		fmt.Sscanf(ge.MaxPlayers, "%d", &mp)
+		r.MaxPlayers = mp
+	}
+	if ge.Rating != "" {
+		var rating float64
+		fmt.Sscanf(ge.Rating, "%f", &rating)
+		if rating > 0 {
+			r.Rating = rating * 20
+		}
+	}
+	if ge.VideoURL != "" {
+		r.VideoURLs = append(r.VideoURLs, ge.VideoURL)
+	}
+
+	const lbImageBase = "https://images.launchbox-app.com/"
+	for _, img := range idx.images[ge.DatabaseID] {
+		imgURL := lbImageBase + img.FileName
+		switch img.Type {
+		case "Box - Front", "Box - Front - Reconstructed":
+			if r.CoverURL == "" {
+				r.CoverURL = imgURL
+			}
+		case "Screenshot - Gameplay", "Screenshot - Game Title":
+			r.ScreenshotURLs = append(r.ScreenshotURLs, imgURL)
+		}
+	}
+
+	return r
 }
 
 // --- Main ---

@@ -1,0 +1,11 @@
+{
+  "plugin_id": "game-source-epic",
+  "plugin_version": "1.0.0",
+  "api_major": 1,
+  "capabilities": ["source"],
+  "provides": ["source.games.list"],
+  "exec": "epic-source.exe",
+  "default_timeout_ms": 180000,
+  "max_concurrency": 1,
+  "config": {}
+}

@@ -41,6 +41,9 @@ type indexEntry struct {
 	Description  string `json:"description"`
 	Year         string `json:"year,omitempty"`
 	Manufacturer string `json:"manufacturer,omitempty"`
+	Players      int    `json:"players,omitempty"`
+	DriverStatus string `json:"driver_status,omitempty"`
+	DisplayType  string `json:"display_type,omitempty"`
 }
 
 type mameLookup struct {
@@ -67,11 +70,21 @@ type gameQuery struct {
 }
 
 type lookupResult struct {
-	Index      int    `json:"index"`
-	Title      string `json:"title,omitempty"`
-	Platform   string `json:"platform,omitempty"`
-	ExternalID string `json:"external_id"`
-	URL        string `json:"url,omitempty"`
+	Index          int      `json:"index"`
+	Title          string   `json:"title,omitempty"`
+	Platform       string   `json:"platform,omitempty"`
+	ExternalID     string   `json:"external_id"`
+	URL            string   `json:"url,omitempty"`
+	Description    string   `json:"description,omitempty"`
+	ReleaseDate    string   `json:"release_date,omitempty"`
+	Genres         []string `json:"genres,omitempty"`
+	Developer      string   `json:"developer,omitempty"`
+	Publisher      string   `json:"publisher,omitempty"`
+	CoverURL       string   `json:"cover_url,omitempty"`
+	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
+	VideoURLs      []string `json:"video_urls,omitempty"`
+	Rating         float64  `json:"rating,omitempty"`
+	MaxPlayers     int      `json:"max_players,omitempty"`
 }
 
 // GitHub API types (subset).
@@ -324,6 +337,24 @@ func parseMachineElement(dec *xml.Decoder, start xml.StartElement) indexEntry {
 				entry.Year = readElementText(dec, &depth)
 			case "manufacturer":
 				entry.Manufacturer = readElementText(dec, &depth)
+			case "input":
+				for _, attr := range t.Attr {
+					if attr.Name.Local == "players" {
+						fmt.Sscanf(attr.Value, "%d", &entry.Players)
+					}
+				}
+			case "driver":
+				for _, attr := range t.Attr {
+					if attr.Name.Local == "status" {
+						entry.DriverStatus = attr.Value
+					}
+				}
+			case "display":
+				for _, attr := range t.Attr {
+					if attr.Name.Local == "type" {
+						entry.DisplayType = attr.Value
+					}
+				}
 			}
 		case xml.EndElement:
 			depth--
@@ -408,6 +439,9 @@ func handleLookup(params lookupParams) (any, *Error) {
 			Platform:   "arcade",
 			ExternalID: m.Name,
 			URL:        "https://www.arcade-museum.com/Machine/" + m.Name,
+			ReleaseDate: m.Year,
+			Publisher:   m.Manufacturer,
+			MaxPlayers:  m.Players,
 		}
 		results = append(results, r)
 	}

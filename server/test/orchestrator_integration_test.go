@@ -283,6 +283,82 @@ func TestOrchestrator_FullPipeline(t *testing.T) {
 		t.Logf("  [%s] %q (platform: %s, kind: %s)", g.GroupKind, g.RawTitle, g.Platform, g.Kind)
 	})
 
+	// ── Enrichment coverage ──
+
+	hasDesc, hasDate, hasGenres := 0, 0, 0
+	hasDev, hasPub, hasCover := 0, 0, 0
+	hasScreens, hasVideos, hasRating := 0, 0, 0
+	hasPlayers := 0
+
+	for _, g := range games {
+		if g.Status != "identified" {
+			continue
+		}
+		if g.Description != "" {
+			hasDesc++
+		}
+		if g.ReleaseDate != "" {
+			hasDate++
+		}
+		if len(g.Genres) > 0 {
+			hasGenres++
+		}
+		if g.Developer != "" {
+			hasDev++
+		}
+		if g.Publisher != "" {
+			hasPub++
+		}
+		if g.CoverURL != "" {
+			hasCover++
+		}
+		if len(g.ScreenshotURLs) > 0 {
+			hasScreens++
+		}
+		if len(g.VideoURLs) > 0 {
+			hasVideos++
+		}
+		if g.Rating > 0 {
+			hasRating++
+		}
+		if g.MaxPlayers > 0 {
+			hasPlayers++
+		}
+	}
+
+	t.Logf("\nEnrichment coverage (of %d identified games):", identified)
+	t.Logf("  Description:  %d (%.0f%%)", hasDesc, pct(hasDesc, identified))
+	t.Logf("  ReleaseDate:  %d (%.0f%%)", hasDate, pct(hasDate, identified))
+	t.Logf("  Genres:       %d (%.0f%%)", hasGenres, pct(hasGenres, identified))
+	t.Logf("  Developer:    %d (%.0f%%)", hasDev, pct(hasDev, identified))
+	t.Logf("  Publisher:    %d (%.0f%%)", hasPub, pct(hasPub, identified))
+	t.Logf("  CoverURL:     %d (%.0f%%)", hasCover, pct(hasCover, identified))
+	t.Logf("  Screenshots:  %d (%.0f%%)", hasScreens, pct(hasScreens, identified))
+	t.Logf("  VideoURLs:    %d (%.0f%%)", hasVideos, pct(hasVideos, identified))
+	t.Logf("  Rating:       %d (%.0f%%)", hasRating, pct(hasRating, identified))
+	t.Logf("  MaxPlayers:   %d (%.0f%%)", hasPlayers, pct(hasPlayers, identified))
+
+	t.Logf("\nSample enriched games (first 5 identified with description):")
+	shown := 0
+	for _, g := range games {
+		if g.Status != "identified" || g.Description == "" || shown >= 5 {
+			continue
+		}
+		shown++
+		desc := g.Description
+		if len(desc) > 120 {
+			desc = desc[:120] + "..."
+		}
+		t.Logf("  %q", g.Title)
+		t.Logf("    desc:     %s", desc)
+		t.Logf("    release:  %s", g.ReleaseDate)
+		t.Logf("    genres:   %v", g.Genres)
+		t.Logf("    dev/pub:  %s / %s", g.Developer, g.Publisher)
+		t.Logf("    cover:    %s", g.CoverURL)
+		t.Logf("    screens:  %d, videos: %d", len(g.ScreenshotURLs), len(g.VideoURLs))
+		t.Logf("    rating:   %.1f, players: %d", g.Rating, g.MaxPlayers)
+	}
+
 	// ── Assertions (loose, just sanity checks) ──
 
 	if len(games) == 0 {

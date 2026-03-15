@@ -12,7 +12,10 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan/scanner"
 )
 
-const sourceFilesystemListMethod = "source.filesystem.list"
+const (
+	sourceFilesystemListMethod = "source.filesystem.list"
+	sourceGamesListMethod      = "source.games.list"
+)
 
 // PluginCaller is the subset of PluginHost that the orchestrator needs.
 type PluginCaller interface {
@@ -81,9 +84,6 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			o.logger.Warn("orchestrator: plugin not found", "integration_id", integ.ID, "plugin_id", integ.PluginID)
 			continue
 		}
-		if !pluginProvides(plugin, sourceFilesystemListMethod) {
-			continue
-		}
 
 		config, err := parseConfig(integ.ConfigJSON)
 		if err != nil {
@@ -91,21 +91,31 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			continue
 		}
 
-		files, err := o.fetchFiles(ctx, integ.PluginID, config)
-		if err != nil {
-			return nil, fmt.Errorf("fetch files from integration %q: %w", integ.ID, err)
+		switch {
+		case pluginProvides(plugin, sourceFilesystemListMethod):
+			files, err := o.fetchFiles(ctx, integ.PluginID, config)
+			if err != nil {
+				return nil, fmt.Errorf("fetch files from integration %q: %w", integ.ID, err)
+			}
+			o.logger.Info("orchestrator: fetched files", "integration_id", integ.ID, "count", len(files))
+
+			groups, err := o.scanner.ScanFiles(ctx, files)
+			if err != nil {
+				return nil, fmt.Errorf("scan files for integration %q: %w", integ.ID, err)
+			}
+
+			games := buildGames(integ.ID, groups)
+			o.logger.Info("orchestrator: built games", "integration_id", integ.ID, "games", len(games))
+			allGames = append(allGames, games...)
+
+		case pluginProvides(plugin, sourceGamesListMethod):
+			games, err := o.fetchGames(ctx, integ.ID, integ.PluginID, config)
+			if err != nil {
+				return nil, fmt.Errorf("fetch games from integration %q: %w", integ.ID, err)
+			}
+			o.logger.Info("orchestrator: fetched storefront games", "integration_id", integ.ID, "count", len(games))
+			allGames = append(allGames, games...)
 		}
-		o.logger.Info("orchestrator: fetched files", "integration_id", integ.ID, "count", len(files))
-
-		groups, err := o.scanner.ScanFiles(ctx, files)
-		if err != nil {
-			return nil, fmt.Errorf("scan files for integration %q: %w", integ.ID, err)
-		}
-
-		games := buildGames(integ.ID, groups)
-		o.logger.Info("orchestrator: built games", "integration_id", integ.ID, "games", len(games))
-
-		allGames = append(allGames, games...)
 	}
 
 	// Metadata enrichment: find all metadata plugin integrations and enrich.
@@ -148,6 +158,89 @@ func (o *Orchestrator) fetchFiles(ctx context.Context, pluginID string, config m
 		})
 	}
 	return entries, nil
+}
+
+// fetchGames calls source.games.list on a storefront plugin and converts
+// the result directly into core.Game entities. Storefront games arrive
+// pre-identified with title, platform, and external IDs, so they skip
+// the file scanner entirely.
+func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID string, config map[string]any) ([]*core.Game, error) {
+	var result struct {
+		Games []struct {
+			ExternalID     string   `json:"external_id"`
+			Title          string   `json:"title"`
+			Platform       string   `json:"platform,omitempty"`
+			URL            string   `json:"url,omitempty"`
+			Description    string   `json:"description,omitempty"`
+			ReleaseDate    string   `json:"release_date,omitempty"`
+			Genres         []string `json:"genres,omitempty"`
+			Developer      string   `json:"developer,omitempty"`
+			Publisher      string   `json:"publisher,omitempty"`
+			CoverURL       string   `json:"cover_url,omitempty"`
+			ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
+			VideoURLs      []string `json:"video_urls,omitempty"`
+			PlaytimeMinutes int     `json:"playtime_minutes,omitempty"`
+		} `json:"games"`
+	}
+	if err := o.pluginCaller.Call(ctx, pluginID, sourceGamesListMethod, config, &result); err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	games := make([]*core.Game, 0, len(result.Games))
+	for _, sg := range result.Games {
+		if sg.Title == "" || sg.ExternalID == "" {
+			continue
+		}
+
+		gameID := deterministicID(integrationID, pluginID, sg.ExternalID)
+		platform := core.Platform("windows_pc")
+		if sg.Platform != "" {
+			platform = core.Platform(sg.Platform)
+		}
+
+		g := &core.Game{
+			ID:            gameID,
+			Title:         sg.Title,
+			RawTitle:      sg.Title,
+			Platform:      platform,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			IntegrationID: integrationID,
+			Status:        "identified",
+			LastSeenAt:    &now,
+			ExternalIDs: []core.ExternalID{{
+				Source:     pluginID,
+				ExternalID: sg.ExternalID,
+				URL:        sg.URL,
+			}},
+			ResolverMatches: []core.ResolverMatch{{
+				PluginID:       pluginID,
+				Title:          sg.Title,
+				Platform:       string(platform),
+				ExternalID:     sg.ExternalID,
+				URL:            sg.URL,
+				Description:    sg.Description,
+				ReleaseDate:    sg.ReleaseDate,
+				Genres:         sg.Genres,
+				Developer:      sg.Developer,
+				Publisher:      sg.Publisher,
+				CoverURL:       sg.CoverURL,
+				ScreenshotURLs: sg.ScreenshotURLs,
+				VideoURLs:      sg.VideoURLs,
+			}},
+			Description:    sg.Description,
+			ReleaseDate:    sg.ReleaseDate,
+			Genres:         sg.Genres,
+			Developer:      sg.Developer,
+			Publisher:      sg.Publisher,
+			CoverURL:       sg.CoverURL,
+			ScreenshotURLs: sg.ScreenshotURLs,
+			VideoURLs:      sg.VideoURLs,
+		}
+		games = append(games, g)
+	}
+	return games, nil
 }
 
 // buildGames converts scanner GameGroups into core.Game entities.

@@ -49,11 +49,21 @@ type gameQuery struct {
 }
 
 type lookupResult struct {
-	Index      int    `json:"index"`
-	Title      string `json:"title,omitempty"`
-	Platform   string `json:"platform,omitempty"`
-	ExternalID string `json:"external_id"`
-	URL        string `json:"url,omitempty"`
+	Index          int      `json:"index"`
+	Title          string   `json:"title,omitempty"`
+	Platform       string   `json:"platform,omitempty"`
+	ExternalID     string   `json:"external_id"`
+	URL            string   `json:"url,omitempty"`
+	Description    string   `json:"description,omitempty"`
+	ReleaseDate    string   `json:"release_date,omitempty"`
+	Genres         []string `json:"genres,omitempty"`
+	Developer      string   `json:"developer,omitempty"`
+	Publisher      string   `json:"publisher,omitempty"`
+	CoverURL       string   `json:"cover_url,omitempty"`
+	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
+	VideoURLs      []string `json:"video_urls,omitempty"`
+	Rating         float64  `json:"rating,omitempty"`
+	MaxPlayers     int      `json:"max_players,omitempty"`
 }
 
 // Steam API types.
@@ -63,6 +73,52 @@ type steamSearchResult struct {
 	Name  string `json:"name"`
 	Icon  string `json:"icon"`
 	Logo  string `json:"logo"`
+}
+
+type steamAppDetailWrapper struct {
+	Success bool            `json:"success"`
+	Data    steamAppDetails `json:"data"`
+}
+
+type steamAppDetails struct {
+	Name             string            `json:"name"`
+	ShortDescription string            `json:"short_description"`
+	HeaderImage      string            `json:"header_image"`
+	Developers       []string          `json:"developers"`
+	Publishers       []string          `json:"publishers"`
+	Metacritic       *steamMetacritic  `json:"metacritic"`
+	Genres           []steamGenre      `json:"genres"`
+	Screenshots      []steamScreenshot `json:"screenshots"`
+	Movies           []steamMovie      `json:"movies"`
+	ReleaseDate      steamReleaseDate  `json:"release_date"`
+	Categories       []steamCategory   `json:"categories"`
+}
+
+type steamMetacritic struct {
+	Score int `json:"score"`
+}
+
+type steamGenre struct {
+	Description string `json:"description"`
+}
+
+type steamScreenshot struct {
+	PathFull string `json:"path_full"`
+}
+
+type steamMovie struct {
+	Webm struct {
+		Max string `json:"max"`
+	} `json:"webm"`
+}
+
+type steamReleaseDate struct {
+	Date string `json:"date"`
+}
+
+type steamCategory struct {
+	ID          int    `json:"id"`
+	Description string `json:"description"`
 }
 
 // Steam is PC-only; only these platforms make sense.
@@ -157,6 +213,40 @@ func steamSearch(title string) ([]steamSearchResult, error) {
 	return results, nil
 }
 
+const detailURL = "https://store.steampowered.com/api/appdetails"
+
+func steamAppDetail(appID string) (*steamAppDetails, error) {
+	<-rateLimiter.C
+
+	reqURL := fmt.Sprintf("%s?appids=%s&l=english", detailURL, appID)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(reqURL)
+	if err != nil {
+		return nil, fmt.Errorf("Steam detail request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("Steam detail status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	var wrapper map[string]steamAppDetailWrapper
+	if err := json.Unmarshal(body, &wrapper); err != nil {
+		return nil, fmt.Errorf("decode Steam detail: %w", err)
+	}
+
+	entry, ok := wrapper[appID]
+	if !ok || !entry.Success {
+		return nil, fmt.Errorf("no data for appid %s", appID)
+	}
+	return &entry.Data, nil
+}
+
 // --- Init ---
 
 func handleInit() (any, *Error) {
@@ -224,12 +314,53 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 		return nil, nil
 	}
 
-	return &lookupResult{
+	r := &lookupResult{
 		Index:      q.Index,
 		Title:      best.Name,
 		ExternalID: best.AppID,
 		URL:        fmt.Sprintf("https://store.steampowered.com/app/%s", best.AppID),
-	}, nil
+	}
+
+	detail, err := steamAppDetail(best.AppID)
+	if err != nil {
+		log.Printf("Steam detail fetch for %s: %v (continuing with search data)", best.AppID, err)
+		return r, nil
+	}
+
+	r.Description = detail.ShortDescription
+	r.CoverURL = detail.HeaderImage
+	r.ReleaseDate = detail.ReleaseDate.Date
+	if len(detail.Developers) > 0 {
+		r.Developer = detail.Developers[0]
+	}
+	if len(detail.Publishers) > 0 {
+		r.Publisher = detail.Publishers[0]
+	}
+	if detail.Metacritic != nil && detail.Metacritic.Score > 0 {
+		r.Rating = float64(detail.Metacritic.Score)
+	}
+	for _, g := range detail.Genres {
+		r.Genres = append(r.Genres, g.Description)
+	}
+	for _, ss := range detail.Screenshots {
+		if ss.PathFull != "" {
+			r.ScreenshotURLs = append(r.ScreenshotURLs, ss.PathFull)
+		}
+	}
+	for _, mv := range detail.Movies {
+		if mv.Webm.Max != "" {
+			r.VideoURLs = append(r.VideoURLs, mv.Webm.Max)
+		}
+	}
+
+	for _, cat := range detail.Categories {
+		if cat.ID == 1 {
+			r.MaxPlayers = 2
+			break
+		}
+	}
+
+	return r, nil
 }
 
 func scoreCandidate(normalizedQuery string, queryTokens map[string]bool, candidateName string) float64 {

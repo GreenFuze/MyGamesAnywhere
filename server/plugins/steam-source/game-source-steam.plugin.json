@@ -1,0 +1,15 @@
+{
+  "plugin_id": "game-source-steam",
+  "plugin_version": "1.0.0",
+  "api_major": 1,
+  "capabilities": ["source"],
+  "provides": ["source.games.list"],
+  "exec": "steam-source.exe",
+  "default_timeout_ms": 120000,
+  "max_concurrency": 1,
+  "config": {
+    "api_key": { "type": "string", "required": true, "x-secret": true },
+    "steam_id": { "type": "string", "required": false },
+    "vanity_url": { "type": "string", "required": false }
+  }
+}

@@ -96,7 +96,7 @@ func TestStreamParseMetadata(t *testing.T) {
   </Game>
 </LaunchBox>`
 
-	entries, err := streamParseMetadata(strings.NewReader(sample))
+	entries, _, err := streamParseMetadata(strings.NewReader(sample))
 	if err != nil {
 		t.Fatalf("streamParseMetadata: %v", err)
 	}
@@ -119,6 +119,7 @@ func TestMatchGame_FileBasedLookup(t *testing.T) {
 		games: map[string]*gameEntry{
 			"arcade\tdonkey kong": {DatabaseID: 88, Name: "Donkey Kong", Platform: "Arcade", Year: "1981"},
 		},
+		images: map[int][]gameImage{},
 	}
 
 	q := gameQuery{Index: 0, Title: "dkong", Platform: "arcade", RootPath: "Mame/dkong.zip"}
@@ -140,6 +141,7 @@ func TestMatchGame_TitleBasedLookup(t *testing.T) {
 		games: map[string]*gameEntry{
 			"ms-dos\tduke nukem 3d": {DatabaseID: 3791, Name: "Duke Nukem 3D", Platform: "MS-DOS", Year: "1996"},
 		},
+		images: map[int][]gameImage{},
 	}
 
 	q := gameQuery{Index: 0, Title: "Duke Nukem 3D", Platform: "ms_dos"}
@@ -157,8 +159,9 @@ func TestMatchGame_TitleBasedLookup(t *testing.T) {
 
 func TestMatchGame_NoMatch(t *testing.T) {
 	idx := &launchBoxIndex{
-		files: map[string]*fileEntry{},
-		games: map[string]*gameEntry{},
+		files:  map[string]*fileEntry{},
+		games:  map[string]*gameEntry{},
+		images: map[int][]gameImage{},
 	}
 
 	q := gameQuery{Index: 0, Title: "Unknown Game", Platform: "windows_pc"}
@@ -204,6 +207,7 @@ func TestMatchGame_NumeralVariation(t *testing.T) {
 			"ms-dos\tdiscworld": {DatabaseID: 888, Name: "Discworld", Platform: "MS-DOS"},
 		},
 		byPlatform: map[string][]tokenedGame{},
+		images:     map[int][]gameImage{},
 	}
 
 	q1 := gameQuery{Index: 0, Title: "Inca 2", Platform: "scummvm"}
@@ -231,6 +235,7 @@ func TestMatchGame_ScummVMFallback(t *testing.T) {
 		games: map[string]*gameEntry{
 			"ms-dos\tday of the tentacle": {DatabaseID: 500, Name: "Day of the Tentacle", Platform: "MS-DOS"},
 		},
+		images: map[int][]gameImage{},
 	}
 
 	q := gameQuery{Index: 0, Title: "Day of the Tentacle", Platform: "scummvm"}

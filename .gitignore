@@ -25,6 +25,14 @@ server/bin/config.json
 server/bin/plugins/*/config.json
 server/plugins/*/config.json
 
+# OAuth tokens (Xbox, Epic, etc.)
+tokens.json
+server/plugins/*/tokens.json
+server/bin/plugins/*/tokens.json
+
+# Integration config files with credentials
+*-integration.json
+
 # IDE and editors
 .idea/
 .vscode/

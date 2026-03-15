@@ -45,6 +45,17 @@ type metadataMatch struct {
 	ParentGameID string `json:"parent_game_id,omitempty"`
 	ExternalID   string `json:"external_id"`
 	URL          string `json:"url,omitempty"`
+
+	Description    string   `json:"description,omitempty"`
+	ReleaseDate    string   `json:"release_date,omitempty"`
+	Genres         []string `json:"genres,omitempty"`
+	Developer      string   `json:"developer,omitempty"`
+	Publisher      string   `json:"publisher,omitempty"`
+	CoverURL       string   `json:"cover_url,omitempty"`
+	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
+	VideoURLs      []string `json:"video_urls,omitempty"`
+	Rating         float64  `json:"rating,omitempty"`
+	MaxPlayers     int      `json:"max_players,omitempty"`
 }
 
 // MetadataResolver coordinates metadata enrichment across plugins using
@@ -122,15 +133,7 @@ func (r *MetadataResolver) callPluginIdentify(ctx context.Context, src MetadataS
 			continue
 		}
 		matched++
-		games[m.Index].ResolverMatches = append(games[m.Index].ResolverMatches, core.ResolverMatch{
-			PluginID:     src.PluginID,
-			Title:        m.Title,
-			Platform:     m.Platform,
-			Kind:         m.Kind,
-			ParentGameID: m.ParentGameID,
-			ExternalID:   m.ExternalID,
-			URL:          m.URL,
-		})
+		games[m.Index].ResolverMatches = append(games[m.Index].ResolverMatches, matchToResolver(src.PluginID, m))
 	}
 	return matched
 }
@@ -234,6 +237,36 @@ func applyUnifiedFields(g *core.Game, sources []MetadataSource) {
 		if m.ParentGameID != "" && g.ParentGameID == "" {
 			g.ParentGameID = m.ParentGameID
 		}
+		if m.Description != "" && g.Description == "" {
+			g.Description = m.Description
+		}
+		if m.ReleaseDate != "" && g.ReleaseDate == "" {
+			g.ReleaseDate = m.ReleaseDate
+		}
+		if len(m.Genres) > 0 && len(g.Genres) == 0 {
+			g.Genres = m.Genres
+		}
+		if m.Developer != "" && g.Developer == "" {
+			g.Developer = m.Developer
+		}
+		if m.Publisher != "" && g.Publisher == "" {
+			g.Publisher = m.Publisher
+		}
+		if m.CoverURL != "" && g.CoverURL == "" {
+			g.CoverURL = m.CoverURL
+		}
+		if len(m.ScreenshotURLs) > 0 && len(g.ScreenshotURLs) == 0 {
+			g.ScreenshotURLs = m.ScreenshotURLs
+		}
+		if len(m.VideoURLs) > 0 && len(g.VideoURLs) == 0 {
+			g.VideoURLs = m.VideoURLs
+		}
+		if m.Rating > 0 && g.Rating == 0 {
+			g.Rating = m.Rating
+		}
+		if m.MaxPlayers > 0 && g.MaxPlayers == 0 {
+			g.MaxPlayers = m.MaxPlayers
+		}
 	}
 
 	g.ExternalIDs = nil
@@ -312,14 +345,7 @@ func (r *MetadataResolver) fill(ctx context.Context, games []*core.Game, sources
 			g := games[entries[m.Index].gameIdx]
 			filled++
 
-			g.ResolverMatches = append(g.ResolverMatches, core.ResolverMatch{
-				PluginID:   src.PluginID,
-				Title:      m.Title,
-				Platform:   m.Platform,
-				Kind:       m.Kind,
-				ExternalID: m.ExternalID,
-				URL:        m.URL,
-			})
+			g.ResolverMatches = append(g.ResolverMatches, matchToResolver(src.PluginID, m))
 			if m.ExternalID != "" {
 				g.ExternalIDs = append(g.ExternalIDs, core.ExternalID{
 					Source:     src.PluginID,
@@ -339,6 +365,30 @@ func hasGoodMatch(g *core.Game, pluginID string) bool {
 		}
 	}
 	return false
+}
+
+// ── Match mapping ───────────────────────────────────────────────────
+
+func matchToResolver(pluginID string, m metadataMatch) core.ResolverMatch {
+	return core.ResolverMatch{
+		PluginID:       pluginID,
+		Title:          m.Title,
+		Platform:       m.Platform,
+		Kind:           m.Kind,
+		ParentGameID:   m.ParentGameID,
+		ExternalID:     m.ExternalID,
+		URL:            m.URL,
+		Description:    m.Description,
+		ReleaseDate:    m.ReleaseDate,
+		Genres:         m.Genres,
+		Developer:      m.Developer,
+		Publisher:      m.Publisher,
+		CoverURL:       m.CoverURL,
+		ScreenshotURLs: m.ScreenshotURLs,
+		VideoURLs:      m.VideoURLs,
+		Rating:         m.Rating,
+		MaxPlayers:     m.MaxPlayers,
+	}
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────

@@ -102,6 +102,17 @@ type ResolverMatch struct {
 	ExternalID   string `json:"external_id"`
 	URL          string `json:"url,omitempty"`
 	Outvoted     bool   `json:"outvoted,omitempty"`
+
+	Description    string   `json:"description,omitempty"`
+	ReleaseDate    string   `json:"release_date,omitempty"`
+	Genres         []string `json:"genres,omitempty"`
+	Developer      string   `json:"developer,omitempty"`
+	Publisher      string   `json:"publisher,omitempty"`
+	CoverURL       string   `json:"cover_url,omitempty"`
+	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
+	VideoURLs      []string `json:"video_urls,omitempty"`
+	Rating         float64  `json:"rating,omitempty"`
+	MaxPlayers     int      `json:"max_players,omitempty"`
 }
 
 // Game is the persisted game entity.
@@ -120,6 +131,18 @@ type Game struct {
 	Files           []GameFile
 	ExternalIDs     []ExternalID
 	ResolverMatches []ResolverMatch
+
+	// Unified metadata: derived from the highest-priority non-outvoted resolver.
+	Description    string
+	ReleaseDate    string
+	Genres         []string
+	Developer      string
+	Publisher      string
+	CoverURL       string
+	ScreenshotURLs []string
+	VideoURLs      []string
+	Rating         float64
+	MaxPlayers     int
 }
 
 // GameFileRole is the role of a file within a game package.

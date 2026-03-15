@@ -49,11 +49,21 @@ type gameQuery struct {
 }
 
 type lookupResult struct {
-	Index      int    `json:"index"`
-	Title      string `json:"title,omitempty"`
-	Platform   string `json:"platform,omitempty"`
-	ExternalID string `json:"external_id"`
-	URL        string `json:"url,omitempty"`
+	Index          int      `json:"index"`
+	Title          string   `json:"title,omitempty"`
+	Platform       string   `json:"platform,omitempty"`
+	ExternalID     string   `json:"external_id"`
+	URL            string   `json:"url,omitempty"`
+	Description    string   `json:"description,omitempty"`
+	ReleaseDate    string   `json:"release_date,omitempty"`
+	Genres         []string `json:"genres,omitempty"`
+	Developer      string   `json:"developer,omitempty"`
+	Publisher      string   `json:"publisher,omitempty"`
+	CoverURL       string   `json:"cover_url,omitempty"`
+	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
+	VideoURLs      []string `json:"video_urls,omitempty"`
+	Rating         float64  `json:"rating,omitempty"`
+	MaxPlayers     int      `json:"max_players,omitempty"`
 }
 
 // RAWG API types.
@@ -64,10 +74,15 @@ type rawgSearchResponse struct {
 }
 
 type rawgGame struct {
-	ID        int            `json:"id"`
-	Slug      string         `json:"slug"`
-	Name      string         `json:"name"`
-	Platforms []rawgPlatform `json:"platforms"`
+	ID              int              `json:"id"`
+	Slug            string           `json:"slug"`
+	Name            string           `json:"name"`
+	Platforms       []rawgPlatform   `json:"platforms"`
+	Released        string           `json:"released"`
+	BackgroundImage string           `json:"background_image"`
+	Metacritic      int              `json:"metacritic"`
+	Genres          []rawgNamed      `json:"genres"`
+	Screenshots     []rawgScreenshot `json:"short_screenshots"`
 }
 
 type rawgPlatform struct {
@@ -78,6 +93,21 @@ type rawgPlatformInfo struct {
 	ID   int    `json:"id"`
 	Slug string `json:"slug"`
 	Name string `json:"name"`
+}
+
+type rawgNamed struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+type rawgScreenshot struct {
+	Image string `json:"image"`
+}
+
+type rawgGameDetail struct {
+	Description      string      `json:"description_raw"`
+	Developers       []rawgNamed `json:"developers"`
+	Publishers       []rawgNamed `json:"publishers"`
 }
 
 // Config for credentials.
@@ -230,6 +260,28 @@ func rawgSearch(title string, platformID int, exact bool) ([]rawgGame, error) {
 	return result.Results, nil
 }
 
+func rawgGameDetail_fetch(gameID int) (*rawgGameDetail, error) {
+	<-rateLimiter.C
+
+	reqURL := fmt.Sprintf("%s/games/%d?key=%s", rawgBaseURL, gameID, apiKey)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(reqURL)
+	if err != nil {
+		return nil, fmt.Errorf("RAWG detail request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("RAWG detail status %d", resp.StatusCode)
+	}
+
+	var detail rawgGameDetail
+	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+		return nil, fmt.Errorf("decode RAWG detail: %w", err)
+	}
+	return &detail, nil
+}
+
 // buildSearchQueries returns an ordered list of (platformID, exact) pairs to try.
 type searchPass struct {
 	platformID int
@@ -347,12 +399,41 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 		return nil, nil
 	}
 
-	return &lookupResult{
+	r := &lookupResult{
 		Index:      q.Index,
 		Title:      overallBest.Name,
 		ExternalID: fmt.Sprintf("%d", overallBest.ID),
 		URL:        fmt.Sprintf("https://rawg.io/games/%s", overallBest.Slug),
-	}, nil
+	}
+
+	r.ReleaseDate = overallBest.Released
+	r.CoverURL = overallBest.BackgroundImage
+	if overallBest.Metacritic > 0 {
+		r.Rating = float64(overallBest.Metacritic)
+	}
+	for _, g := range overallBest.Genres {
+		r.Genres = append(r.Genres, g.Name)
+	}
+	for _, ss := range overallBest.Screenshots {
+		if ss.Image != "" {
+			r.ScreenshotURLs = append(r.ScreenshotURLs, ss.Image)
+		}
+	}
+
+	detail, err := rawgGameDetail_fetch(overallBest.ID)
+	if err != nil {
+		log.Printf("RAWG detail fetch for %d: %v (continuing with search data)", overallBest.ID, err)
+	} else {
+		r.Description = detail.Description
+		if len(detail.Developers) > 0 {
+			r.Developer = detail.Developers[0].Name
+		}
+		if len(detail.Publishers) > 0 {
+			r.Publisher = detail.Publishers[0].Name
+		}
+	}
+
+	return r, nil
 }
 
 // --- Main ---

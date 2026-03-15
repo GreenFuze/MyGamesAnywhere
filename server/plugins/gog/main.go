@@ -49,11 +49,21 @@ type gameQuery struct {
 }
 
 type lookupResult struct {
-	Index      int    `json:"index"`
-	Title      string `json:"title,omitempty"`
-	Platform   string `json:"platform,omitempty"`
-	ExternalID string `json:"external_id"`
-	URL        string `json:"url,omitempty"`
+	Index          int      `json:"index"`
+	Title          string   `json:"title,omitempty"`
+	Platform       string   `json:"platform,omitempty"`
+	ExternalID     string   `json:"external_id"`
+	URL            string   `json:"url,omitempty"`
+	Description    string   `json:"description,omitempty"`
+	ReleaseDate    string   `json:"release_date,omitempty"`
+	Genres         []string `json:"genres,omitempty"`
+	Developer      string   `json:"developer,omitempty"`
+	Publisher      string   `json:"publisher,omitempty"`
+	CoverURL       string   `json:"cover_url,omitempty"`
+	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
+	VideoURLs      []string `json:"video_urls,omitempty"`
+	Rating         float64  `json:"rating,omitempty"`
+	MaxPlayers     int      `json:"max_players,omitempty"`
 }
 
 // GOG catalog API types.
@@ -71,6 +81,34 @@ type gogProduct struct {
 	Developers       []string `json:"developers"`
 	Publishers       []string `json:"publishers"`
 	OperatingSystems []string `json:"operatingSystems"`
+	CoverVertical    string   `json:"coverVertical"`
+	ReleaseDate      string   `json:"releaseDate"`
+	Genres           []gogTag `json:"genres"`
+}
+
+type gogTag struct {
+	Name string `json:"name"`
+}
+
+// GOG product detail API types.
+
+type gogProductDetail struct {
+	Description *gogDescription   `json:"description"`
+	Screenshots []gogScreenshot   `json:"screenshots"`
+	Videos      []gogVideo        `json:"videos"`
+}
+
+type gogDescription struct {
+	Full string `json:"full"`
+	Lead string `json:"lead"`
+}
+
+type gogScreenshot struct {
+	URL string `json:"url"`
+}
+
+type gogVideo struct {
+	VideoURL string `json:"video_url"`
 }
 
 // GOG is PC-only; only these platforms make sense.
@@ -173,6 +211,30 @@ func gogSearch(title string) ([]gogProduct, error) {
 		return nil, fmt.Errorf("decode GOG response: %w", err)
 	}
 	return result.Products, nil
+}
+
+const gogDetailURL = "https://api.gog.com/products"
+
+func gogFetchDetail(productID string) (*gogProductDetail, error) {
+	<-rateLimiter.C
+
+	reqURL := fmt.Sprintf("%s/%s?expand=description,screenshots,videos&locale=en_US", gogDetailURL, productID)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(reqURL)
+	if err != nil {
+		return nil, fmt.Errorf("GOG detail request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GOG detail status %d", resp.StatusCode)
+	}
+
+	var detail gogProductDetail
+	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+		return nil, fmt.Errorf("decode GOG detail: %w", err)
+	}
+	return &detail, nil
 }
 
 // --- Init ---
@@ -280,12 +342,57 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 }
 
 func buildResult(index int, p *gogProduct) *lookupResult {
-	return &lookupResult{
+	r := &lookupResult{
 		Index:      index,
 		Title:      p.Title,
 		ExternalID: p.ID,
 		URL:        fmt.Sprintf("https://www.gog.com/en/game/%s", p.Slug),
 	}
+
+	if len(p.Developers) > 0 {
+		r.Developer = p.Developers[0]
+	}
+	if len(p.Publishers) > 0 {
+		r.Publisher = p.Publishers[0]
+	}
+	if p.CoverVertical != "" {
+		r.CoverURL = p.CoverVertical
+	}
+	if p.ReleaseDate != "" {
+		r.ReleaseDate = p.ReleaseDate
+	}
+	for _, g := range p.Genres {
+		r.Genres = append(r.Genres, g.Name)
+	}
+
+	detail, err := gogFetchDetail(p.ID)
+	if err != nil {
+		log.Printf("GOG detail fetch for %s: %v (continuing with catalog data)", p.ID, err)
+		return r
+	}
+	if detail.Description != nil {
+		if detail.Description.Lead != "" {
+			r.Description = detail.Description.Lead
+		} else if detail.Description.Full != "" {
+			r.Description = detail.Description.Full
+		}
+	}
+	for _, ss := range detail.Screenshots {
+		if ss.URL != "" {
+			u := ss.URL
+			if strings.HasPrefix(u, "//") {
+				u = "https:" + u
+			}
+			r.ScreenshotURLs = append(r.ScreenshotURLs, u)
+		}
+	}
+	for _, v := range detail.Videos {
+		if v.VideoURL != "" {
+			r.VideoURLs = append(r.VideoURLs, v.VideoURL)
+		}
+	}
+
+	return r
 }
 
 func scoreCandidate(normalizedQuery string, queryTokens map[string]bool, candidateName string) float64 {

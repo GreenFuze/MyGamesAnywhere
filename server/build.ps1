@@ -34,13 +34,34 @@ Get-ChildItem -Path $pluginsSrc -Directory | ForEach-Object {
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
     Write-Host "Building plugin: $name..." -ForegroundColor Cyan
-    Push-Location $RootDir
-    try {
-        go build -o (Join-Path $outDir "$name$ext") "./plugins/$name"
-        if ($LASTEXITCODE -ne 0) { throw "plugin build failed: $name" }
-    } finally { Pop-Location }
+
+    $pluginGoMod = Join-Path $srcDir "go.mod"
+    if (Test-Path $pluginGoMod) {
+        # Standalone module: build from the plugin's own directory.
+        Push-Location $srcDir
+        try {
+            go build -o (Join-Path $outDir "$name$ext") .
+            if ($LASTEXITCODE -ne 0) { throw "plugin build failed: $name" }
+        } finally { Pop-Location }
+    } else {
+        # Sub-package of the server module: build from the server root.
+        Push-Location $RootDir
+        try {
+            go build -o (Join-Path $outDir "$name$ext") "./plugins/$name"
+            if ($LASTEXITCODE -ne 0) { throw "plugin build failed: $name" }
+        } finally { Pop-Location }
+    }
 
     Copy-Item (Join-Path $srcDir "*.plugin.json") -Destination $outDir -Force
+
+    # Copy config.json if present (plugin-local config, e.g. API keys).
+    $configSrcFile = Join-Path $srcDir "config.json"
+    if (Test-Path $configSrcFile) {
+        $configDstFile = Join-Path $outDir "config.json"
+        if (-not (Test-Path $configDstFile)) {
+            Copy-Item $configSrcFile -Destination $configDstFile
+        }
+    }
 }
 
 # --- OpenAPI spec ---
