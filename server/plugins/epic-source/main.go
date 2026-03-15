@@ -428,19 +428,25 @@ type mainGameRef struct {
 
 // --------------- Output types ---------------
 
+type mediaItem struct {
+	Type     string `json:"type"`
+	URL      string `json:"url"`
+	Width    int    `json:"width,omitempty"`
+	Height   int    `json:"height,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+}
+
 type gameEntry struct {
-	ExternalID     string   `json:"external_id"`
-	Title          string   `json:"title"`
-	Platform       string   `json:"platform,omitempty"`
-	URL            string   `json:"url,omitempty"`
-	Description    string   `json:"description,omitempty"`
-	ReleaseDate    string   `json:"release_date,omitempty"`
-	Genres         []string `json:"genres,omitempty"`
-	Developer      string   `json:"developer,omitempty"`
-	Publisher      string   `json:"publisher,omitempty"`
-	CoverURL       string   `json:"cover_url,omitempty"`
-	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
-	VideoURLs      []string `json:"video_urls,omitempty"`
+	ExternalID  string      `json:"external_id"`
+	Title       string      `json:"title"`
+	Platform    string      `json:"platform,omitempty"`
+	URL         string      `json:"url,omitempty"`
+	Description string      `json:"description,omitempty"`
+	ReleaseDate string      `json:"release_date,omitempty"`
+	Genres      []string    `json:"genres,omitempty"`
+	Developer   string      `json:"developer,omitempty"`
+	Publisher   string      `json:"publisher,omitempty"`
+	Media       []mediaItem `json:"media,omitempty"`
 }
 
 // --------------- Fetch library ---------------
@@ -521,25 +527,30 @@ func catalogToGameEntry(rec libraryRecord, item *catalogItem) *gameEntry {
 		}
 	}
 
+	hasCover := false
 	for _, img := range item.KeyImages {
 		switch img.Type {
-		case "DieselStoreFrontWide", "OfferImageWide", "DieselGameBoxTall", "Thumbnail":
-			if entry.CoverURL == "" {
-				entry.CoverURL = img.URL
-			}
-		case "DieselStoreFrontTall", "OfferImageTall", "CodeRedemption_340x440":
-			if entry.CoverURL == "" {
-				entry.CoverURL = img.URL
-			}
+		case "DieselStoreFrontWide", "OfferImageWide":
+			entry.Media = append(entry.Media, mediaItem{Type: "background", URL: img.URL})
+		case "DieselGameBoxTall", "OfferImageTall", "CodeRedemption_340x440":
+			entry.Media = append(entry.Media, mediaItem{Type: "cover", URL: img.URL})
+			hasCover = true
+		case "DieselStoreFrontTall":
+			entry.Media = append(entry.Media, mediaItem{Type: "cover", URL: img.URL})
+			hasCover = true
+		case "Thumbnail":
+			entry.Media = append(entry.Media, mediaItem{Type: "icon", URL: img.URL})
 		case "Screenshot":
-			entry.ScreenshotURLs = append(entry.ScreenshotURLs, img.URL)
+			entry.Media = append(entry.Media, mediaItem{Type: "screenshot", URL: img.URL})
+		case "ProductLogo":
+			entry.Media = append(entry.Media, mediaItem{Type: "logo", URL: img.URL})
 		}
 	}
 
-	if entry.CoverURL == "" {
+	if !hasCover {
 		for _, img := range item.KeyImages {
 			if img.URL != "" {
-				entry.CoverURL = img.URL
+				entry.Media = append(entry.Media, mediaItem{Type: "cover", URL: img.URL})
 				break
 			}
 		}

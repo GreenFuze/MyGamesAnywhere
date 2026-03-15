@@ -49,22 +49,28 @@ type gameQuery struct {
 	GroupKind string `json:"group_kind"`
 }
 
+type mediaItem struct {
+	Type     string `json:"type"`
+	URL      string `json:"url"`
+	Width    int    `json:"width,omitempty"`
+	Height   int    `json:"height,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+}
+
 type lookupResult struct {
-	Index          int      `json:"index"`
-	Title          string   `json:"title,omitempty"`
-	Platform       string   `json:"platform,omitempty"`
-	ExternalID     string   `json:"external_id"`
-	URL            string   `json:"url,omitempty"`
-	Description    string   `json:"description,omitempty"`
-	ReleaseDate    string   `json:"release_date,omitempty"`
-	Genres         []string `json:"genres,omitempty"`
-	Developer      string   `json:"developer,omitempty"`
-	Publisher      string   `json:"publisher,omitempty"`
-	CoverURL       string   `json:"cover_url,omitempty"`
-	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
-	VideoURLs      []string `json:"video_urls,omitempty"`
-	Rating         float64  `json:"rating,omitempty"`
-	MaxPlayers     int      `json:"max_players,omitempty"`
+	Index       int         `json:"index"`
+	Title       string      `json:"title,omitempty"`
+	Platform    string      `json:"platform,omitempty"`
+	ExternalID  string      `json:"external_id"`
+	URL         string      `json:"url,omitempty"`
+	Description string      `json:"description,omitempty"`
+	ReleaseDate string      `json:"release_date,omitempty"`
+	Genres      []string    `json:"genres,omitempty"`
+	Developer   string      `json:"developer,omitempty"`
+	Publisher   string      `json:"publisher,omitempty"`
+	Media       []mediaItem `json:"media,omitempty"`
+	Rating      float64     `json:"rating,omitempty"`
+	MaxPlayers  int         `json:"max_players,omitempty"`
 }
 
 // IGDB API types.
@@ -81,6 +87,7 @@ type igdbGame struct {
 	AggregatedRating  float64           `json:"aggregated_rating"`
 	Cover             *igdbImage        `json:"cover"`
 	Screenshots       []igdbImage       `json:"screenshots"`
+	Artworks          []igdbImage       `json:"artworks"`
 	Videos            []igdbVideo       `json:"videos"`
 	InvolvedCompanies []igdbInvolved    `json:"involved_companies"`
 	GameModes         []igdbNamed       `json:"game_modes"`
@@ -338,7 +345,7 @@ func igdbQuery(endpoint, query string) ([]byte, error) {
 	return body, nil
 }
 
-const igdbFields = "name,slug,url,summary,first_release_date,platforms,genres.name,aggregated_rating,cover.image_id,screenshots.image_id,videos.video_id,videos.name,involved_companies.company.name,involved_companies.developer,involved_companies.publisher,game_modes.name,multiplayer_modes.onlinemax,multiplayer_modes.offlinemax"
+const igdbFields = "name,slug,url,summary,first_release_date,platforms,genres.name,aggregated_rating,cover.image_id,screenshots.image_id,artworks.image_id,videos.video_id,videos.name,involved_companies.company.name,involved_companies.developer,involved_companies.publisher,game_modes.name,multiplayer_modes.onlinemax,multiplayer_modes.offlinemax"
 
 // buildSearchQueries returns an ordered list of IGDB queries to try,
 // from most specific to least specific.
@@ -513,16 +520,33 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 	}
 
 	if overallBest.Cover != nil && overallBest.Cover.ImageID != "" {
-		r.CoverURL = fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_cover_big/%s.jpg", overallBest.Cover.ImageID)
+		r.Media = append(r.Media, mediaItem{
+			Type: "cover",
+			URL:  fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_cover_big/%s.jpg", overallBest.Cover.ImageID),
+		})
 	}
 	for _, ss := range overallBest.Screenshots {
 		if ss.ImageID != "" {
-			r.ScreenshotURLs = append(r.ScreenshotURLs, fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_screenshot_big/%s.jpg", ss.ImageID))
+			r.Media = append(r.Media, mediaItem{
+				Type: "screenshot",
+				URL:  fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_screenshot_big/%s.jpg", ss.ImageID),
+			})
+		}
+	}
+	for _, aw := range overallBest.Artworks {
+		if aw.ImageID != "" {
+			r.Media = append(r.Media, mediaItem{
+				Type: "artwork",
+				URL:  fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_screenshot_big/%s.jpg", aw.ImageID),
+			})
 		}
 	}
 	for _, v := range overallBest.Videos {
 		if v.VideoID != "" {
-			r.VideoURLs = append(r.VideoURLs, fmt.Sprintf("https://www.youtube.com/watch?v=%s", v.VideoID))
+			r.Media = append(r.Media, mediaItem{
+				Type: "video",
+				URL:  fmt.Sprintf("https://www.youtube.com/watch?v=%s", v.VideoID),
+			})
 		}
 	}
 

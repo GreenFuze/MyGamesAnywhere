@@ -111,9 +111,7 @@ func TestSteamSourcePlugin(t *testing.T) {
 	withRelease := 0
 	withGenres := 0
 	withDev := 0
-	withCover := 0
-	withScreenshots := 0
-	withVideos := 0
+	withMedia := 0
 
 	for _, g := range result.Games {
 		if g.Description != "" {
@@ -128,14 +126,8 @@ func TestSteamSourcePlugin(t *testing.T) {
 		if g.Developer != "" {
 			withDev++
 		}
-		if g.CoverURL != "" {
-			withCover++
-		}
-		if len(g.ScreenshotURLs) > 0 {
-			withScreenshots++
-		}
-		if len(g.VideoURLs) > 0 {
-			withVideos++
+		if len(g.Media) > 0 {
+			withMedia++
 		}
 	}
 
@@ -144,9 +136,7 @@ func TestSteamSourcePlugin(t *testing.T) {
 	t.Logf("  ReleaseDate:  %d/%d (%.0f%%)", withRelease, len(result.Games), pct(withRelease, len(result.Games)))
 	t.Logf("  Genres:       %d/%d (%.0f%%)", withGenres, len(result.Games), pct(withGenres, len(result.Games)))
 	t.Logf("  Developer:    %d/%d (%.0f%%)", withDev, len(result.Games), pct(withDev, len(result.Games)))
-	t.Logf("  CoverURL:     %d/%d (%.0f%%)", withCover, len(result.Games), pct(withCover, len(result.Games)))
-	t.Logf("  Screenshots:  %d/%d (%.0f%%)", withScreenshots, len(result.Games), pct(withScreenshots, len(result.Games)))
-	t.Logf("  Videos:       %d/%d (%.0f%%)", withVideos, len(result.Games), pct(withVideos, len(result.Games)))
+	t.Logf("  Media:        %d/%d (%.0f%%)", withMedia, len(result.Games), pct(withMedia, len(result.Games)))
 
 	t.Logf("\nSample games (first 10):")
 	count := 10
@@ -158,8 +148,8 @@ func TestSteamSourcePlugin(t *testing.T) {
 		t.Logf("  [%d] %s (appid=%s)", i+1, g.Title, g.ExternalID)
 		t.Logf("      Developer: %s | Publisher: %s", g.Developer, g.Publisher)
 		t.Logf("      Genres: %v | Release: %s", g.Genres, g.ReleaseDate)
-		t.Logf("      Playtime: %d min | Screenshots: %d | Videos: %d",
-			g.PlaytimeMinutes, len(g.ScreenshotURLs), len(g.VideoURLs))
+		t.Logf("      Playtime: %d min | Media items: %d",
+			g.PlaytimeMinutes, len(g.Media))
 	}
 
 	if len(result.Games) == 0 {

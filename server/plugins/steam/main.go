@@ -48,22 +48,28 @@ type gameQuery struct {
 	GroupKind string `json:"group_kind"`
 }
 
+type mediaItem struct {
+	Type     string `json:"type"`
+	URL      string `json:"url"`
+	Width    int    `json:"width,omitempty"`
+	Height   int    `json:"height,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+}
+
 type lookupResult struct {
-	Index          int      `json:"index"`
-	Title          string   `json:"title,omitempty"`
-	Platform       string   `json:"platform,omitempty"`
-	ExternalID     string   `json:"external_id"`
-	URL            string   `json:"url,omitempty"`
-	Description    string   `json:"description,omitempty"`
-	ReleaseDate    string   `json:"release_date,omitempty"`
-	Genres         []string `json:"genres,omitempty"`
-	Developer      string   `json:"developer,omitempty"`
-	Publisher      string   `json:"publisher,omitempty"`
-	CoverURL       string   `json:"cover_url,omitempty"`
-	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
-	VideoURLs      []string `json:"video_urls,omitempty"`
-	Rating         float64  `json:"rating,omitempty"`
-	MaxPlayers     int      `json:"max_players,omitempty"`
+	Index       int         `json:"index"`
+	Title       string      `json:"title,omitempty"`
+	Platform    string      `json:"platform,omitempty"`
+	ExternalID  string      `json:"external_id"`
+	URL         string      `json:"url,omitempty"`
+	Description string      `json:"description,omitempty"`
+	ReleaseDate string      `json:"release_date,omitempty"`
+	Genres      []string    `json:"genres,omitempty"`
+	Developer   string      `json:"developer,omitempty"`
+	Publisher   string      `json:"publisher,omitempty"`
+	Media       []mediaItem `json:"media,omitempty"`
+	Rating      float64     `json:"rating,omitempty"`
+	MaxPlayers  int         `json:"max_players,omitempty"`
 }
 
 // Steam API types.
@@ -328,7 +334,9 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 	}
 
 	r.Description = detail.ShortDescription
-	r.CoverURL = detail.HeaderImage
+	if detail.HeaderImage != "" {
+		r.Media = append(r.Media, mediaItem{Type: "cover", URL: detail.HeaderImage})
+	}
 	r.ReleaseDate = detail.ReleaseDate.Date
 	if len(detail.Developers) > 0 {
 		r.Developer = detail.Developers[0]
@@ -344,12 +352,12 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 	}
 	for _, ss := range detail.Screenshots {
 		if ss.PathFull != "" {
-			r.ScreenshotURLs = append(r.ScreenshotURLs, ss.PathFull)
+			r.Media = append(r.Media, mediaItem{Type: "screenshot", URL: ss.PathFull})
 		}
 	}
 	for _, mv := range detail.Movies {
 		if mv.Webm.Max != "" {
-			r.VideoURLs = append(r.VideoURLs, mv.Webm.Max)
+			r.Media = append(r.Media, mediaItem{Type: "video", URL: mv.Webm.Max})
 		}
 	}
 

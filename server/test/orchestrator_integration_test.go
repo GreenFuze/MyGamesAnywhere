@@ -286,9 +286,9 @@ func TestOrchestrator_FullPipeline(t *testing.T) {
 	// ── Enrichment coverage ──
 
 	hasDesc, hasDate, hasGenres := 0, 0, 0
-	hasDev, hasPub, hasCover := 0, 0, 0
-	hasScreens, hasVideos, hasRating := 0, 0, 0
-	hasPlayers := 0
+	hasDev, hasPub, hasMedia := 0, 0, 0
+	hasRating, hasPlayers := 0, 0
+	totalMediaItems := 0
 
 	for _, g := range games {
 		if g.Status != "identified" {
@@ -309,14 +309,9 @@ func TestOrchestrator_FullPipeline(t *testing.T) {
 		if g.Publisher != "" {
 			hasPub++
 		}
-		if g.CoverURL != "" {
-			hasCover++
-		}
-		if len(g.ScreenshotURLs) > 0 {
-			hasScreens++
-		}
-		if len(g.VideoURLs) > 0 {
-			hasVideos++
+		if len(g.Media) > 0 {
+			hasMedia++
+			totalMediaItems += len(g.Media)
 		}
 		if g.Rating > 0 {
 			hasRating++
@@ -332,9 +327,7 @@ func TestOrchestrator_FullPipeline(t *testing.T) {
 	t.Logf("  Genres:       %d (%.0f%%)", hasGenres, pct(hasGenres, identified))
 	t.Logf("  Developer:    %d (%.0f%%)", hasDev, pct(hasDev, identified))
 	t.Logf("  Publisher:    %d (%.0f%%)", hasPub, pct(hasPub, identified))
-	t.Logf("  CoverURL:     %d (%.0f%%)", hasCover, pct(hasCover, identified))
-	t.Logf("  Screenshots:  %d (%.0f%%)", hasScreens, pct(hasScreens, identified))
-	t.Logf("  VideoURLs:    %d (%.0f%%)", hasVideos, pct(hasVideos, identified))
+	t.Logf("  Media:        %d (%.0f%%), total items: %d", hasMedia, pct(hasMedia, identified), totalMediaItems)
 	t.Logf("  Rating:       %d (%.0f%%)", hasRating, pct(hasRating, identified))
 	t.Logf("  MaxPlayers:   %d (%.0f%%)", hasPlayers, pct(hasPlayers, identified))
 
@@ -349,13 +342,16 @@ func TestOrchestrator_FullPipeline(t *testing.T) {
 		if len(desc) > 120 {
 			desc = desc[:120] + "..."
 		}
+		mediaCounts := map[string]int{}
+		for _, m := range g.Media {
+			mediaCounts[string(m.Type)]++
+		}
 		t.Logf("  %q", g.Title)
 		t.Logf("    desc:     %s", desc)
 		t.Logf("    release:  %s", g.ReleaseDate)
 		t.Logf("    genres:   %v", g.Genres)
 		t.Logf("    dev/pub:  %s / %s", g.Developer, g.Publisher)
-		t.Logf("    cover:    %s", g.CoverURL)
-		t.Logf("    screens:  %d, videos: %d", len(g.ScreenshotURLs), len(g.VideoURLs))
+		t.Logf("    media:    %d items %v", len(g.Media), mediaCounts)
 		t.Logf("    rating:   %.1f, players: %d", g.Rating, g.MaxPlayers)
 	}
 

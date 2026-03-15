@@ -235,22 +235,28 @@ type gameQuery struct {
 	GroupKind string `json:"group_kind"`
 }
 
+type mediaItemIPC struct {
+	Type     string `json:"type"`
+	URL      string `json:"url"`
+	Width    int    `json:"width,omitempty"`
+	Height   int    `json:"height,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+}
+
 type lookupResult struct {
-	Index          int      `json:"index"`
-	Title          string   `json:"title,omitempty"`
-	Platform       string   `json:"platform,omitempty"`
-	ExternalID     string   `json:"external_id"`
-	URL            string   `json:"url,omitempty"`
-	Description    string   `json:"description,omitempty"`
-	ReleaseDate    string   `json:"release_date,omitempty"`
-	Genres         []string `json:"genres,omitempty"`
-	Developer      string   `json:"developer,omitempty"`
-	Publisher      string   `json:"publisher,omitempty"`
-	CoverURL       string   `json:"cover_url,omitempty"`
-	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
-	VideoURLs      []string `json:"video_urls,omitempty"`
-	Rating         float64  `json:"rating,omitempty"`
-	MaxPlayers     int      `json:"max_players,omitempty"`
+	Index       int            `json:"index"`
+	Title       string         `json:"title,omitempty"`
+	Platform    string         `json:"platform,omitempty"`
+	ExternalID  string         `json:"external_id"`
+	URL         string         `json:"url,omitempty"`
+	Description string         `json:"description,omitempty"`
+	ReleaseDate string         `json:"release_date,omitempty"`
+	Genres      []string       `json:"genres,omitempty"`
+	Developer   string         `json:"developer,omitempty"`
+	Publisher   string         `json:"publisher,omitempty"`
+	Media       []mediaItemIPC `json:"media,omitempty"`
+	Rating      float64        `json:"rating,omitempty"`
+	MaxPlayers  int            `json:"max_players,omitempty"`
 }
 
 // Platform mapping: our platform enum → LaunchBox platform name(s).
@@ -883,7 +889,7 @@ func buildResult(index int, ge *gameEntry, idx *launchBoxIndex) *lookupResult {
 		}
 	}
 	if ge.VideoURL != "" {
-		r.VideoURLs = append(r.VideoURLs, ge.VideoURL)
+		r.Media = append(r.Media, mediaItemIPC{Type: "video", URL: ge.VideoURL})
 	}
 
 	const lbImageBase = "https://images.launchbox-app.com/"
@@ -891,11 +897,21 @@ func buildResult(index int, ge *gameEntry, idx *launchBoxIndex) *lookupResult {
 		imgURL := lbImageBase + img.FileName
 		switch img.Type {
 		case "Box - Front", "Box - Front - Reconstructed":
-			if r.CoverURL == "" {
-				r.CoverURL = imgURL
-			}
-		case "Screenshot - Gameplay", "Screenshot - Game Title":
-			r.ScreenshotURLs = append(r.ScreenshotURLs, imgURL)
+			r.Media = append(r.Media, mediaItemIPC{Type: "cover", URL: imgURL})
+		case "Box - Back", "Box - Back - Reconstructed":
+			r.Media = append(r.Media, mediaItemIPC{Type: "box_back", URL: imgURL})
+		case "Screenshot - Gameplay", "Screenshot - Game Title", "Screenshot - Game Select", "Screenshot - Game Over":
+			r.Media = append(r.Media, mediaItemIPC{Type: "screenshot", URL: imgURL})
+		case "Clear Logo":
+			r.Media = append(r.Media, mediaItemIPC{Type: "logo", URL: imgURL})
+		case "Banner":
+			r.Media = append(r.Media, mediaItemIPC{Type: "banner", URL: imgURL})
+		case "Fanart - Background":
+			r.Media = append(r.Media, mediaItemIPC{Type: "background", URL: imgURL})
+		case "Arcade - Cabinet", "Arcade - Cabinet Left", "Arcade - Cabinet Right":
+			r.Media = append(r.Media, mediaItemIPC{Type: "cabinet", URL: imgURL})
+		case "Arcade - Marquee":
+			r.Media = append(r.Media, mediaItemIPC{Type: "marquee", URL: imgURL})
 		}
 	}
 

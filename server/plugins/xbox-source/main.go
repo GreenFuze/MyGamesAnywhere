@@ -538,20 +538,26 @@ type titleDetail struct {
 
 // --------------- Output types ---------------
 
+type mediaItem struct {
+	Type     string `json:"type"`
+	URL      string `json:"url"`
+	Width    int    `json:"width,omitempty"`
+	Height   int    `json:"height,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+}
+
 type gameEntry struct {
-	ExternalID      string   `json:"external_id"`
-	Title           string   `json:"title"`
-	Platform        string   `json:"platform,omitempty"`
-	URL             string   `json:"url,omitempty"`
-	Description     string   `json:"description,omitempty"`
-	ReleaseDate     string   `json:"release_date,omitempty"`
-	Genres          []string `json:"genres,omitempty"`
-	Developer       string   `json:"developer,omitempty"`
-	Publisher       string   `json:"publisher,omitempty"`
-	CoverURL        string   `json:"cover_url,omitempty"`
-	ScreenshotURLs  []string `json:"screenshot_urls,omitempty"`
-	VideoURLs       []string `json:"video_urls,omitempty"`
-	IsGamePass      bool     `json:"is_game_pass,omitempty"`
+	ExternalID  string      `json:"external_id"`
+	Title       string      `json:"title"`
+	Platform    string      `json:"platform,omitempty"`
+	URL         string      `json:"url,omitempty"`
+	Description string      `json:"description,omitempty"`
+	ReleaseDate string      `json:"release_date,omitempty"`
+	Genres      []string    `json:"genres,omitempty"`
+	Developer   string      `json:"developer,omitempty"`
+	Publisher   string      `json:"publisher,omitempty"`
+	Media       []mediaItem `json:"media,omitempty"`
+	IsGamePass  bool        `json:"is_game_pass,omitempty"`
 }
 
 // --------------- Fetch title history ---------------
@@ -589,7 +595,10 @@ func titleToGameEntry(t title) *gameEntry {
 	entry := &gameEntry{
 		ExternalID: t.TitleID,
 		Title:      t.Name,
-		CoverURL:   t.DisplayImage,
+	}
+
+	if t.DisplayImage != "" {
+		entry.Media = append(entry.Media, mediaItem{Type: "cover", URL: t.DisplayImage})
 	}
 
 	platform := detectPlatform(t.Devices)
@@ -615,12 +624,14 @@ func titleToGameEntry(t title) *gameEntry {
 
 	for _, img := range t.Images {
 		switch img.Type {
-		case "BoxArt", "Poster", "BrandedKeyArt", "SuperHeroArt":
-			if entry.CoverURL == "" || img.Type == "BoxArt" {
-				entry.CoverURL = img.URL
-			}
+		case "BoxArt":
+			entry.Media = append(entry.Media, mediaItem{Type: "cover", URL: img.URL})
+		case "Poster", "BrandedKeyArt", "SuperHeroArt":
+			entry.Media = append(entry.Media, mediaItem{Type: "artwork", URL: img.URL})
 		case "Screenshot":
-			entry.ScreenshotURLs = append(entry.ScreenshotURLs, img.URL)
+			entry.Media = append(entry.Media, mediaItem{Type: "screenshot", URL: img.URL})
+		case "Logo":
+			entry.Media = append(entry.Media, mediaItem{Type: "logo", URL: img.URL})
 		}
 	}
 

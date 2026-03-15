@@ -165,21 +165,26 @@ func (o *Orchestrator) fetchFiles(ctx context.Context, pluginID string, config m
 // pre-identified with title, platform, and external IDs, so they skip
 // the file scanner entirely.
 func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID string, config map[string]any) ([]*core.Game, error) {
+	type ipcMedia struct {
+		Type     string `json:"type"`
+		URL      string `json:"url"`
+		Width    int    `json:"width,omitempty"`
+		Height   int    `json:"height,omitempty"`
+		MimeType string `json:"mime_type,omitempty"`
+	}
 	var result struct {
 		Games []struct {
-			ExternalID     string   `json:"external_id"`
-			Title          string   `json:"title"`
-			Platform       string   `json:"platform,omitempty"`
-			URL            string   `json:"url,omitempty"`
-			Description    string   `json:"description,omitempty"`
-			ReleaseDate    string   `json:"release_date,omitempty"`
-			Genres         []string `json:"genres,omitempty"`
-			Developer      string   `json:"developer,omitempty"`
-			Publisher      string   `json:"publisher,omitempty"`
-			CoverURL       string   `json:"cover_url,omitempty"`
-			ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
-			VideoURLs      []string `json:"video_urls,omitempty"`
-			PlaytimeMinutes int     `json:"playtime_minutes,omitempty"`
+			ExternalID      string     `json:"external_id"`
+			Title           string     `json:"title"`
+			Platform        string     `json:"platform,omitempty"`
+			URL             string     `json:"url,omitempty"`
+			Description     string     `json:"description,omitempty"`
+			ReleaseDate     string     `json:"release_date,omitempty"`
+			Genres          []string   `json:"genres,omitempty"`
+			Developer       string     `json:"developer,omitempty"`
+			Publisher       string     `json:"publisher,omitempty"`
+			Media           []ipcMedia `json:"media,omitempty"`
+			PlaytimeMinutes int        `json:"playtime_minutes,omitempty"`
 		} `json:"games"`
 	}
 	if err := o.pluginCaller.Call(ctx, pluginID, sourceGamesListMethod, config, &result); err != nil {
@@ -199,6 +204,18 @@ func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID s
 			platform = core.Platform(sg.Platform)
 		}
 
+		media := make([]core.MediaItem, 0, len(sg.Media))
+		for _, mi := range sg.Media {
+			media = append(media, core.MediaItem{
+				Type:     core.MediaType(mi.Type),
+				URL:      mi.URL,
+				Width:    mi.Width,
+				Height:   mi.Height,
+				MimeType: mi.MimeType,
+				Source:   pluginID,
+			})
+		}
+
 		g := &core.Game{
 			ID:            gameID,
 			Title:         sg.Title,
@@ -215,28 +232,24 @@ func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID s
 				URL:        sg.URL,
 			}},
 			ResolverMatches: []core.ResolverMatch{{
-				PluginID:       pluginID,
-				Title:          sg.Title,
-				Platform:       string(platform),
-				ExternalID:     sg.ExternalID,
-				URL:            sg.URL,
-				Description:    sg.Description,
-				ReleaseDate:    sg.ReleaseDate,
-				Genres:         sg.Genres,
-				Developer:      sg.Developer,
-				Publisher:      sg.Publisher,
-				CoverURL:       sg.CoverURL,
-				ScreenshotURLs: sg.ScreenshotURLs,
-				VideoURLs:      sg.VideoURLs,
+				PluginID:    pluginID,
+				Title:       sg.Title,
+				Platform:    string(platform),
+				ExternalID:  sg.ExternalID,
+				URL:         sg.URL,
+				Description: sg.Description,
+				ReleaseDate: sg.ReleaseDate,
+				Genres:      sg.Genres,
+				Developer:   sg.Developer,
+				Publisher:   sg.Publisher,
+				Media:       media,
 			}},
-			Description:    sg.Description,
-			ReleaseDate:    sg.ReleaseDate,
-			Genres:         sg.Genres,
-			Developer:      sg.Developer,
-			Publisher:      sg.Publisher,
-			CoverURL:       sg.CoverURL,
-			ScreenshotURLs: sg.ScreenshotURLs,
-			VideoURLs:      sg.VideoURLs,
+			Description: sg.Description,
+			ReleaseDate: sg.ReleaseDate,
+			Genres:      sg.Genres,
+			Developer:   sg.Developer,
+			Publisher:   sg.Publisher,
+			Media:       media,
 		}
 		games = append(games, g)
 	}

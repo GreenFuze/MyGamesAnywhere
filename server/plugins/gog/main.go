@@ -48,22 +48,28 @@ type gameQuery struct {
 	GroupKind string `json:"group_kind"`
 }
 
+type mediaItem struct {
+	Type     string `json:"type"`
+	URL      string `json:"url"`
+	Width    int    `json:"width,omitempty"`
+	Height   int    `json:"height,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+}
+
 type lookupResult struct {
-	Index          int      `json:"index"`
-	Title          string   `json:"title,omitempty"`
-	Platform       string   `json:"platform,omitempty"`
-	ExternalID     string   `json:"external_id"`
-	URL            string   `json:"url,omitempty"`
-	Description    string   `json:"description,omitempty"`
-	ReleaseDate    string   `json:"release_date,omitempty"`
-	Genres         []string `json:"genres,omitempty"`
-	Developer      string   `json:"developer,omitempty"`
-	Publisher      string   `json:"publisher,omitempty"`
-	CoverURL       string   `json:"cover_url,omitempty"`
-	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
-	VideoURLs      []string `json:"video_urls,omitempty"`
-	Rating         float64  `json:"rating,omitempty"`
-	MaxPlayers     int      `json:"max_players,omitempty"`
+	Index       int         `json:"index"`
+	Title       string      `json:"title,omitempty"`
+	Platform    string      `json:"platform,omitempty"`
+	ExternalID  string      `json:"external_id"`
+	URL         string      `json:"url,omitempty"`
+	Description string      `json:"description,omitempty"`
+	ReleaseDate string      `json:"release_date,omitempty"`
+	Genres      []string    `json:"genres,omitempty"`
+	Developer   string      `json:"developer,omitempty"`
+	Publisher   string      `json:"publisher,omitempty"`
+	Media       []mediaItem `json:"media,omitempty"`
+	Rating      float64     `json:"rating,omitempty"`
+	MaxPlayers  int         `json:"max_players,omitempty"`
 }
 
 // GOG catalog API types.
@@ -356,7 +362,7 @@ func buildResult(index int, p *gogProduct) *lookupResult {
 		r.Publisher = p.Publishers[0]
 	}
 	if p.CoverVertical != "" {
-		r.CoverURL = p.CoverVertical
+		r.Media = append(r.Media, mediaItem{Type: "cover", URL: p.CoverVertical})
 	}
 	if p.ReleaseDate != "" {
 		r.ReleaseDate = p.ReleaseDate
@@ -383,12 +389,12 @@ func buildResult(index int, p *gogProduct) *lookupResult {
 			if strings.HasPrefix(u, "//") {
 				u = "https:" + u
 			}
-			r.ScreenshotURLs = append(r.ScreenshotURLs, u)
+			r.Media = append(r.Media, mediaItem{Type: "screenshot", URL: u})
 		}
 	}
 	for _, v := range detail.Videos {
 		if v.VideoURL != "" {
-			r.VideoURLs = append(r.VideoURLs, v.VideoURL)
+			r.Media = append(r.Media, mediaItem{Type: "video", URL: v.VideoURL})
 		}
 	}
 

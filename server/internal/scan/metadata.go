@@ -37,6 +37,14 @@ type metadataLookupResponse struct {
 	Results []metadataMatch `json:"results"`
 }
 
+type ipcMediaItem struct {
+	Type     string `json:"type"`
+	URL      string `json:"url"`
+	Width    int    `json:"width,omitempty"`
+	Height   int    `json:"height,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+}
+
 type metadataMatch struct {
 	Index        int    `json:"index"`
 	Title        string `json:"title,omitempty"`
@@ -46,16 +54,14 @@ type metadataMatch struct {
 	ExternalID   string `json:"external_id"`
 	URL          string `json:"url,omitempty"`
 
-	Description    string   `json:"description,omitempty"`
-	ReleaseDate    string   `json:"release_date,omitempty"`
-	Genres         []string `json:"genres,omitempty"`
-	Developer      string   `json:"developer,omitempty"`
-	Publisher      string   `json:"publisher,omitempty"`
-	CoverURL       string   `json:"cover_url,omitempty"`
-	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
-	VideoURLs      []string `json:"video_urls,omitempty"`
-	Rating         float64  `json:"rating,omitempty"`
-	MaxPlayers     int      `json:"max_players,omitempty"`
+	Description string         `json:"description,omitempty"`
+	ReleaseDate string         `json:"release_date,omitempty"`
+	Genres      []string       `json:"genres,omitempty"`
+	Developer   string         `json:"developer,omitempty"`
+	Publisher   string         `json:"publisher,omitempty"`
+	Media       []ipcMediaItem `json:"media,omitempty"`
+	Rating      float64        `json:"rating,omitempty"`
+	MaxPlayers  int            `json:"max_players,omitempty"`
 }
 
 // MetadataResolver coordinates metadata enrichment across plugins using
@@ -252,15 +258,7 @@ func applyUnifiedFields(g *core.Game, sources []MetadataSource) {
 		if m.Publisher != "" && g.Publisher == "" {
 			g.Publisher = m.Publisher
 		}
-		if m.CoverURL != "" && g.CoverURL == "" {
-			g.CoverURL = m.CoverURL
-		}
-		if len(m.ScreenshotURLs) > 0 && len(g.ScreenshotURLs) == 0 {
-			g.ScreenshotURLs = m.ScreenshotURLs
-		}
-		if len(m.VideoURLs) > 0 && len(g.VideoURLs) == 0 {
-			g.VideoURLs = m.VideoURLs
-		}
+		g.Media = append(g.Media, m.Media...)
 		if m.Rating > 0 && g.Rating == 0 {
 			g.Rating = m.Rating
 		}
@@ -370,24 +368,33 @@ func hasGoodMatch(g *core.Game, pluginID string) bool {
 // ── Match mapping ───────────────────────────────────────────────────
 
 func matchToResolver(pluginID string, m metadataMatch) core.ResolverMatch {
+	media := make([]core.MediaItem, 0, len(m.Media))
+	for _, mi := range m.Media {
+		media = append(media, core.MediaItem{
+			Type:     core.MediaType(mi.Type),
+			URL:      mi.URL,
+			Width:    mi.Width,
+			Height:   mi.Height,
+			MimeType: mi.MimeType,
+			Source:   pluginID,
+		})
+	}
 	return core.ResolverMatch{
-		PluginID:       pluginID,
-		Title:          m.Title,
-		Platform:       m.Platform,
-		Kind:           m.Kind,
-		ParentGameID:   m.ParentGameID,
-		ExternalID:     m.ExternalID,
-		URL:            m.URL,
-		Description:    m.Description,
-		ReleaseDate:    m.ReleaseDate,
-		Genres:         m.Genres,
-		Developer:      m.Developer,
-		Publisher:      m.Publisher,
-		CoverURL:       m.CoverURL,
-		ScreenshotURLs: m.ScreenshotURLs,
-		VideoURLs:      m.VideoURLs,
-		Rating:         m.Rating,
-		MaxPlayers:     m.MaxPlayers,
+		PluginID:     pluginID,
+		Title:        m.Title,
+		Platform:     m.Platform,
+		Kind:         m.Kind,
+		ParentGameID: m.ParentGameID,
+		ExternalID:   m.ExternalID,
+		URL:          m.URL,
+		Description:  m.Description,
+		ReleaseDate:  m.ReleaseDate,
+		Genres:       m.Genres,
+		Developer:    m.Developer,
+		Publisher:    m.Publisher,
+		Media:        media,
+		Rating:       m.Rating,
+		MaxPlayers:   m.MaxPlayers,
 	}
 }
 

@@ -106,8 +106,7 @@ func TestEpicSourcePlugin(t *testing.T) {
 	withDesc := 0
 	withGenres := 0
 	withDev := 0
-	withCover := 0
-	withScreenshots := 0
+	withMedia := 0
 
 	for _, g := range result.Games {
 		if g.Description != "" {
@@ -119,11 +118,8 @@ func TestEpicSourcePlugin(t *testing.T) {
 		if g.Developer != "" {
 			withDev++
 		}
-		if g.CoverURL != "" {
-			withCover++
-		}
-		if len(g.ScreenshotURLs) > 0 {
-			withScreenshots++
+		if len(g.Media) > 0 {
+			withMedia++
 		}
 	}
 
@@ -131,8 +127,7 @@ func TestEpicSourcePlugin(t *testing.T) {
 	t.Logf("  Description:  %d/%d (%.0f%%)", withDesc, len(result.Games), pct(withDesc, len(result.Games)))
 	t.Logf("  Genres:       %d/%d (%.0f%%)", withGenres, len(result.Games), pct(withGenres, len(result.Games)))
 	t.Logf("  Developer:    %d/%d (%.0f%%)", withDev, len(result.Games), pct(withDev, len(result.Games)))
-	t.Logf("  CoverURL:     %d/%d (%.0f%%)", withCover, len(result.Games), pct(withCover, len(result.Games)))
-	t.Logf("  Screenshots:  %d/%d (%.0f%%)", withScreenshots, len(result.Games), pct(withScreenshots, len(result.Games)))
+	t.Logf("  Media:        %d/%d (%.0f%%)", withMedia, len(result.Games), pct(withMedia, len(result.Games)))
 
 	t.Logf("\nSample games (first 10):")
 	count := 10
@@ -144,7 +139,7 @@ func TestEpicSourcePlugin(t *testing.T) {
 		t.Logf("  [%d] %s (id=%s)", i+1, g.Title, g.ExternalID)
 		t.Logf("      Developer: %s", g.Developer)
 		t.Logf("      Genres: %v", g.Genres)
-		t.Logf("      Screenshots: %d | Cover: %v", len(g.ScreenshotURLs), g.CoverURL != "")
+		t.Logf("      Media items: %d", len(g.Media))
 	}
 
 	if len(result.Games) == 0 {

@@ -119,20 +119,26 @@ type releaseDateInfo struct {
 
 // --- Output types ---
 
+type mediaItem struct {
+	Type     string `json:"type"`
+	URL      string `json:"url"`
+	Width    int    `json:"width,omitempty"`
+	Height   int    `json:"height,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+}
+
 type gameEntry struct {
-	ExternalID      string   `json:"external_id"`
-	Title           string   `json:"title"`
-	Platform        string   `json:"platform,omitempty"`
-	URL             string   `json:"url,omitempty"`
-	Description     string   `json:"description,omitempty"`
-	ReleaseDate     string   `json:"release_date,omitempty"`
-	Genres          []string `json:"genres,omitempty"`
-	Developer       string   `json:"developer,omitempty"`
-	Publisher       string   `json:"publisher,omitempty"`
-	CoverURL        string   `json:"cover_url,omitempty"`
-	ScreenshotURLs  []string `json:"screenshot_urls,omitempty"`
-	VideoURLs       []string `json:"video_urls,omitempty"`
-	PlaytimeMinutes int      `json:"playtime_minutes,omitempty"`
+	ExternalID      string      `json:"external_id"`
+	Title           string      `json:"title"`
+	Platform        string      `json:"platform,omitempty"`
+	URL             string      `json:"url,omitempty"`
+	Description     string      `json:"description,omitempty"`
+	ReleaseDate     string      `json:"release_date,omitempty"`
+	Genres          []string    `json:"genres,omitempty"`
+	Developer       string      `json:"developer,omitempty"`
+	Publisher       string      `json:"publisher,omitempty"`
+	Media           []mediaItem `json:"media,omitempty"`
+	PlaytimeMinutes int         `json:"playtime_minutes,omitempty"`
 }
 
 // --- Config loading ---
@@ -306,7 +312,10 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 		}
 
 		if og.ImgIconURL != "" {
-			entry.CoverURL = fmt.Sprintf("https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/%d/%s.jpg", og.AppID, og.ImgIconURL)
+			entry.Media = append(entry.Media, mediaItem{
+				Type: "icon",
+				URL:  fmt.Sprintf("https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/%d/%s.jpg", og.AppID, og.ImgIconURL),
+			})
 		}
 
 		detail, err := fetchAppDetails(og.AppID)
@@ -319,7 +328,7 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 			entry.Description = detail.ShortDescription
 			entry.ReleaseDate = detail.ReleaseDate.Date
 			if detail.HeaderImage != "" {
-				entry.CoverURL = detail.HeaderImage
+				entry.Media = append(entry.Media, mediaItem{Type: "cover", URL: detail.HeaderImage})
 			}
 			if len(detail.Developers) > 0 {
 				entry.Developer = detail.Developers[0]
@@ -327,20 +336,17 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 			if len(detail.Publishers) > 0 {
 				entry.Publisher = detail.Publishers[0]
 			}
-			if detail.Metacritic != nil && detail.Metacritic.Score > 0 {
-				// Store as-is; not mapped to gameEntry (no rating field), but we set genres/screenshots
-			}
 			for _, g := range detail.Genres {
 				entry.Genres = append(entry.Genres, g.Description)
 			}
 			for _, ss := range detail.Screenshots {
 				if ss.PathFull != "" {
-					entry.ScreenshotURLs = append(entry.ScreenshotURLs, ss.PathFull)
+					entry.Media = append(entry.Media, mediaItem{Type: "screenshot", URL: ss.PathFull})
 				}
 			}
 			for _, mv := range detail.Movies {
 				if mv.Webm.Max != "" {
-					entry.VideoURLs = append(entry.VideoURLs, mv.Webm.Max)
+					entry.Media = append(entry.Media, mediaItem{Type: "video", URL: mv.Webm.Max})
 				}
 			}
 		}

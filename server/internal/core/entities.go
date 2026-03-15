@@ -90,6 +90,38 @@ type ExternalID struct {
 	URL        string // optional deep link
 }
 
+// MediaType identifies the kind of media asset.
+type MediaType string
+
+const (
+	MediaTypeCover      MediaType = "cover"
+	MediaTypeScreenshot MediaType = "screenshot"
+	MediaTypeArtwork    MediaType = "artwork"
+	MediaTypeLogo       MediaType = "logo"
+	MediaTypeVideo      MediaType = "video"
+	MediaTypeBackground MediaType = "background"
+	MediaTypeIcon       MediaType = "icon"
+	MediaTypeCabinet    MediaType = "cabinet"
+	MediaTypeMarquee    MediaType = "marquee"
+	MediaTypeBanner     MediaType = "banner"
+	MediaTypeBoxBack    MediaType = "box_back"
+	MediaTypeBoxSide    MediaType = "box_side"
+)
+
+// MediaItem holds metadata for a single media asset.
+// URL is always populated by resolvers/sources; LocalPath and Hash are
+// filled later by a background downloader that caches media on disk.
+type MediaItem struct {
+	Type      MediaType `json:"type"`
+	URL       string    `json:"url"`
+	LocalPath string    `json:"local_path,omitempty"`
+	Hash      string    `json:"hash,omitempty"`
+	Width     int       `json:"width,omitempty"`
+	Height    int       `json:"height,omitempty"`
+	MimeType  string    `json:"mime_type,omitempty"`
+	Source    string    `json:"source,omitempty"`
+}
+
 // ResolverMatch stores one metadata resolver's raw match for a game.
 // Every match from every resolver is preserved so we can audit decisions
 // and recompute the unified view later.
@@ -103,16 +135,14 @@ type ResolverMatch struct {
 	URL          string `json:"url,omitempty"`
 	Outvoted     bool   `json:"outvoted,omitempty"`
 
-	Description    string   `json:"description,omitempty"`
-	ReleaseDate    string   `json:"release_date,omitempty"`
-	Genres         []string `json:"genres,omitempty"`
-	Developer      string   `json:"developer,omitempty"`
-	Publisher      string   `json:"publisher,omitempty"`
-	CoverURL       string   `json:"cover_url,omitempty"`
-	ScreenshotURLs []string `json:"screenshot_urls,omitempty"`
-	VideoURLs      []string `json:"video_urls,omitempty"`
-	Rating         float64  `json:"rating,omitempty"`
-	MaxPlayers     int      `json:"max_players,omitempty"`
+	Description string      `json:"description,omitempty"`
+	ReleaseDate string      `json:"release_date,omitempty"`
+	Genres      []string    `json:"genres,omitempty"`
+	Developer   string      `json:"developer,omitempty"`
+	Publisher   string      `json:"publisher,omitempty"`
+	Media       []MediaItem `json:"media,omitempty"`
+	Rating      float64     `json:"rating,omitempty"`
+	MaxPlayers  int         `json:"max_players,omitempty"`
 }
 
 // Game is the persisted game entity.
@@ -133,16 +163,14 @@ type Game struct {
 	ResolverMatches []ResolverMatch
 
 	// Unified metadata: derived from the highest-priority non-outvoted resolver.
-	Description    string
-	ReleaseDate    string
-	Genres         []string
-	Developer      string
-	Publisher      string
-	CoverURL       string
-	ScreenshotURLs []string
-	VideoURLs      []string
-	Rating         float64
-	MaxPlayers     int
+	Description string
+	ReleaseDate string
+	Genres      []string
+	Developer   string
+	Publisher   string
+	Media       []MediaItem
+	Rating      float64
+	MaxPlayers  int
 }
 
 // GameFileRole is the role of a file within a game package.
