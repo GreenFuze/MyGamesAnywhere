@@ -1,14 +1,13 @@
 {
   "plugin_id": "sync-settings-google-drive",
-  "plugin_version": "1.0.0",
+  "plugin_version": "2.0.0",
   "api_major": 1,
   "capabilities": ["storage"],
   "provides": ["storage.backup", "storage.restore"],
   "exec": "drive.exe",
-  "default_timeout_ms": 30000,
-  "max_concurrency": 2,
+  "default_timeout_ms": 600000,
+  "max_concurrency": 1,
   "config": {
-    "credentials_json": { "type": "string", "required": true, "x-secret": true },
-    "folder_id": { "type": "string", "required": true }
+    "backup_folder_id": { "type": "string", "default": "" }
   }
 }
