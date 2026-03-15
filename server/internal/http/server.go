@@ -17,7 +17,8 @@ type httpServer struct {
 	gameCtrl        *GameController
 	discoCtrl       *DiscoveryController
 	configCtrl      *ConfigController
-	pluginCtrl *PluginController
+	pluginCtrl      *PluginController
+	achievementCtrl *AchievementController
 }
 
 func NewHttpServer(
@@ -27,6 +28,7 @@ func NewHttpServer(
 	discoCtrl *DiscoveryController,
 	configCtrl *ConfigController,
 	pluginCtrl *PluginController,
+	achievementCtrl *AchievementController,
 ) core.Server {
 	return &httpServer{
 		logger:          logger,
@@ -34,7 +36,8 @@ func NewHttpServer(
 		gameCtrl:        gameCtrl,
 		discoCtrl:       discoCtrl,
 		configCtrl:      configCtrl,
-		pluginCtrl: pluginCtrl,
+		pluginCtrl:      pluginCtrl,
+		achievementCtrl: achievementCtrl,
 	}
 }
 
@@ -48,7 +51,8 @@ func (h *httpServer) Start(ctx context.Context) error {
 		GameCtrl:        h.gameCtrl,
 		DiscoCtrl:       h.discoCtrl,
 		ConfigCtrl:      h.configCtrl,
-		PluginCtrl: h.pluginCtrl,
+		PluginCtrl:      h.pluginCtrl,
+		AchievementCtrl: h.achievementCtrl,
 	}, 60*time.Second)
 
 	h.server = &http.Server{

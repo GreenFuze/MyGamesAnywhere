@@ -117,6 +117,50 @@ type releaseDateInfo struct {
 	Date string `json:"date"`
 }
 
+// --- Steam achievement API types ---
+
+type playerAchievementsResponse struct {
+	PlayerStats struct {
+		SteamID  string            `json:"steamID"`
+		GameName string            `json:"gameName"`
+		Achievements []playerAchievement `json:"achievements"`
+	} `json:"playerstats"`
+}
+
+type playerAchievement struct {
+	APIName    string `json:"apiname"`
+	Achieved   int    `json:"achieved"`
+	UnlockTime int64  `json:"unlocktime"`
+}
+
+type schemaResponse struct {
+	Game struct {
+		GameName string `json:"gameName"`
+		Stats    struct {
+			Achievements []schemaAchievement `json:"achievements"`
+		} `json:"availableGameStats"`
+	} `json:"game"`
+}
+
+type schemaAchievement struct {
+	Name         string `json:"name"`
+	DisplayName  string `json:"displayName"`
+	Description  string `json:"description"`
+	Icon         string `json:"icon"`
+	IconGray     string `json:"icongray"`
+}
+
+type globalAchievementResponse struct {
+	AchievementPercentages struct {
+		Achievements []globalAchievement `json:"achievements"`
+	} `json:"achievementpercentages"`
+}
+
+type globalAchievement struct {
+	Name    string  `json:"name"`
+	Percent float64 `json:"percent"`
+}
+
 // --- Output types ---
 
 type mediaItem struct {
@@ -361,6 +405,173 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 	return map[string]any{"games": games}, nil
 }
 
+// --- Achievement fetching ---
+
+func fetchPlayerAchievements(apiKey, steamID string, appID int) (*playerAchievementsResponse, error) {
+	url := fmt.Sprintf("%s/ISteamUserStats/GetPlayerAchievements/v1/?key=%s&steamid=%s&appid=%d&l=english",
+		steamAPIBase, apiKey, steamID, appID)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("player achievements request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("player achievements: status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result playerAchievementsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode player achievements: %w", err)
+	}
+	return &result, nil
+}
+
+func fetchAchievementSchema(apiKey string, appID int) (*schemaResponse, error) {
+	url := fmt.Sprintf("%s/ISteamUserStats/GetSchemaForGame/v2/?key=%s&appid=%d&l=english",
+		steamAPIBase, apiKey, appID)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("achievement schema request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("achievement schema: status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result schemaResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode achievement schema: %w", err)
+	}
+	return &result, nil
+}
+
+func fetchGlobalAchievements(appID int) (map[string]float64, error) {
+	url := fmt.Sprintf("%s/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=%d",
+		steamAPIBase, appID)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("global achievements request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, nil // not all games support global stats
+	}
+
+	var result globalAchievementResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, nil
+	}
+
+	out := make(map[string]float64, len(result.AchievementPercentages.Achievements))
+	for _, a := range result.AchievementPercentages.Achievements {
+		out[a.Name] = a.Percent
+	}
+	return out, nil
+}
+
+type achievementEntry struct {
+	ExternalID   string  `json:"external_id"`
+	Title        string  `json:"title"`
+	Description  string  `json:"description"`
+	LockedIcon   string  `json:"locked_icon,omitempty"`
+	UnlockedIcon string  `json:"unlocked_icon,omitempty"`
+	Rarity       float64 `json:"rarity,omitempty"`
+	Unlocked     bool    `json:"unlocked"`
+	UnlockedAt   int64   `json:"unlocked_at,omitempty"`
+}
+
+func handleAchievementsGet(params json.RawMessage) (any, *Error) {
+	var p struct {
+		ExternalGameID string `json:"external_game_id"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	if p.ExternalGameID == "" {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id required"}
+	}
+	if cfg.APIKey == "" || cfg.SteamID == "" {
+		return nil, &Error{Code: "NOT_CONFIGURED", Message: "steam source not configured"}
+	}
+
+	var appID int
+	if _, err := fmt.Sscanf(p.ExternalGameID, "%d", &appID); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id must be a numeric Steam app ID"}
+	}
+
+	schema, err := fetchAchievementSchema(cfg.APIKey, appID)
+	if err != nil {
+		return nil, &Error{Code: "API_ERROR", Message: fmt.Sprintf("schema: %v", err)}
+	}
+	if len(schema.Game.Stats.Achievements) == 0 {
+		return map[string]any{
+			"source":           "steam",
+			"external_game_id": p.ExternalGameID,
+			"total_count":      0,
+			"unlocked_count":   0,
+			"achievements":     []any{},
+		}, nil
+	}
+
+	schemaMap := make(map[string]schemaAchievement, len(schema.Game.Stats.Achievements))
+	for _, sa := range schema.Game.Stats.Achievements {
+		schemaMap[sa.Name] = sa
+	}
+
+	playerResp, err := fetchPlayerAchievements(cfg.APIKey, cfg.SteamID, appID)
+	if err != nil {
+		log.Printf("player achievements unavailable for %d: %v", appID, err)
+	}
+
+	playerMap := make(map[string]playerAchievement)
+	if playerResp != nil {
+		for _, pa := range playerResp.PlayerStats.Achievements {
+			playerMap[pa.APIName] = pa
+		}
+	}
+
+	globalRarity, _ := fetchGlobalAchievements(appID)
+
+	achievements := make([]achievementEntry, 0, len(schema.Game.Stats.Achievements))
+	unlocked := 0
+	for _, sa := range schema.Game.Stats.Achievements {
+		entry := achievementEntry{
+			ExternalID:   sa.Name,
+			Title:        sa.DisplayName,
+			Description:  sa.Description,
+			LockedIcon:   sa.IconGray,
+			UnlockedIcon: sa.Icon,
+		}
+		if r, ok := globalRarity[sa.Name]; ok {
+			entry.Rarity = r
+		}
+		if pa, ok := playerMap[sa.Name]; ok && pa.Achieved == 1 {
+			entry.Unlocked = true
+			entry.UnlockedAt = pa.UnlockTime
+			unlocked++
+		}
+		achievements = append(achievements, entry)
+	}
+
+	log.Printf("achievements for appid %d: %d/%d unlocked", appID, unlocked, len(achievements))
+
+	return map[string]any{
+		"source":           "steam",
+		"external_game_id": p.ExternalGameID,
+		"total_count":      len(achievements),
+		"unlocked_count":   unlocked,
+		"achievements":     achievements,
+	}, nil
+}
+
 // --- Main ---
 
 func main() {
@@ -403,7 +614,7 @@ func main() {
 			resp.Result = map[string]any{
 				"plugin_id":      "game-source-steam",
 				"plugin_version": "1.0.0",
-				"capabilities":   []string{"source"},
+				"capabilities":   []string{"source", "achievements"},
 			}
 
 		case "plugin.check_config":
@@ -443,6 +654,14 @@ func main() {
 
 		case "source.games.list":
 			result, errObj := handleGamesList(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "achievements.game.get":
+			result, errObj := handleAchievementsGet(req.Params)
 			if errObj != nil {
 				resp.Error = errObj
 			} else {

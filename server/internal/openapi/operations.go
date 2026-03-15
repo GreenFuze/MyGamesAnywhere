@@ -46,6 +46,13 @@ func Operations() []OperationDoc {
 			ResponseDocs:  map[string]string{"200": "Game object", "404": "Game not found", "500": "Internal server error"},
 		},
 		{
+			Method:       "GET",
+			Path:         "/api/games/{id}/achievements",
+			Summary:      "Get achievements for a game",
+			Description:  "Fetches achievements on-demand from all achievement-capable plugins that have an external ID match for this game. Returns an array of achievement sets, one per source (steam, xbox, retroachievements).",
+			ResponseDocs: map[string]string{"200": "Array of achievement sets", "400": "id required", "404": "Game not found", "500": "Internal server error"},
+		},
+		{
 			Method:         "POST",
 			Path:           "/api/scan",
 			Summary:        "Run scan",

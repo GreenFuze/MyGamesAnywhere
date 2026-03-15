@@ -1,0 +1,14 @@
+{
+  "plugin_id": "retroachievements",
+  "plugin_version": "1.0.0",
+  "api_major": 1,
+  "capabilities": ["metadata", "achievements"],
+  "provides": ["metadata.game.lookup", "achievements.game.get"],
+  "exec": "retroachievements.exe",
+  "default_timeout_ms": 60000,
+  "max_concurrency": 1,
+  "config": {
+    "api_key": { "type": "string", "required": true, "x-secret": true },
+    "username": { "type": "string", "required": true, "description": "RetroAchievements username (for API auth and progress tracking)" }
+  }
+}

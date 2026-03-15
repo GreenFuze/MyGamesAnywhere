@@ -173,6 +173,32 @@ type Game struct {
 	MaxPlayers  int
 }
 
+// AchievementSet groups all achievements for a game from a single source.
+type AchievementSet struct {
+	GameID         string        `json:"game_id"`
+	Source         string        `json:"source"`          // e.g. "steam", "xbox", "retroachievements"
+	ExternalGameID string        `json:"external_game_id"` // ID in the source system
+	TotalCount     int           `json:"total_count"`
+	UnlockedCount  int           `json:"unlocked_count"`
+	TotalPoints    int           `json:"total_points,omitempty"`
+	EarnedPoints   int           `json:"earned_points,omitempty"`
+	Achievements   []Achievement `json:"achievements"`
+	FetchedAt      time.Time     `json:"fetched_at"`
+}
+
+// Achievement is a single achievement definition with optional user progress.
+type Achievement struct {
+	ExternalID  string    `json:"external_id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	LockedIcon  string    `json:"locked_icon,omitempty"`
+	UnlockedIcon string   `json:"unlocked_icon,omitempty"`
+	Points      int       `json:"points,omitempty"`
+	Rarity      float64   `json:"rarity,omitempty"` // percentage of players who earned it
+	Unlocked    bool      `json:"unlocked"`
+	UnlockedAt  time.Time `json:"unlocked_at,omitempty"`
+}
+
 // GameFileRole is the role of a file within a game package.
 type GameFileRole string
 

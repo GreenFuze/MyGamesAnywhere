@@ -14,7 +14,8 @@ type RouteBuilder struct {
 	GameCtrl        *GameController
 	DiscoCtrl       *DiscoveryController
 	ConfigCtrl      *ConfigController
-	PluginCtrl *PluginController
+	PluginCtrl      *PluginController
+	AchievementCtrl *AchievementController
 }
 
 func noopHandler() http.HandlerFunc {
@@ -43,6 +44,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration) chi.Router {
 			r.Get("/games", b.GameCtrl.ListGames)
 			r.Delete("/games", b.GameCtrl.DeleteAll)
 			r.Get("/games/{id}", b.GameCtrl.Get)
+			r.Get("/games/{id}/achievements", b.AchievementCtrl.GetAchievements)
 			r.Get("/scan", b.DiscoCtrl.Scan)
 			r.Post("/scan", b.DiscoCtrl.Scan)
 			r.Get("/plugins", b.PluginCtrl.ListPlugins)
@@ -55,6 +57,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration) chi.Router {
 			r.Get("/games", noopHandler())
 			r.Delete("/games", noopHandler())
 			r.Get("/games/{id}", noopHandler())
+			r.Get("/games/{id}/achievements", noopHandler())
 			r.Get("/scan", noopHandler())
 			r.Post("/scan", noopHandler())
 			r.Get("/plugins", noopHandler())

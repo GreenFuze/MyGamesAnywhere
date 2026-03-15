@@ -536,6 +536,58 @@ type titleDetail struct {
 	ShortDescription string   `json:"shortDescription"`
 }
 
+// --------------- Xbox Achievements API types ---------------
+
+type xboxAchievementsResponse struct {
+	Achievements []xboxAchievement `json:"achievements"`
+	PagingInfo   struct {
+		ContinuationToken *string `json:"continuationToken"`
+		TotalRecords      int     `json:"totalRecords"`
+	} `json:"pagingInfo"`
+}
+
+type xboxAchievement struct {
+	ID                string                 `json:"id"`
+	Name              string                 `json:"name"`
+	Description       string                 `json:"description"`
+	LockedDescription string                 `json:"lockedDescription"`
+	IsSecret          bool                   `json:"isSecret"`
+	Rarity            *xboxAchievementRarity `json:"rarity"`
+	Rewards           []xboxReward           `json:"rewards"`
+	Progression       *xboxProgression       `json:"progression"`
+	MediaAssets       []xboxMediaAsset       `json:"mediaAssets"`
+}
+
+type xboxAchievementRarity struct {
+	CurrentCategory   string  `json:"currentCategory"`
+	CurrentPercentage float64 `json:"currentPercentage"`
+}
+
+type xboxReward struct {
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Value       string `json:"value"`
+	ValueType   string `json:"valueType"`
+}
+
+type xboxProgression struct {
+	Requirements []xboxRequirement `json:"requirements"`
+	TimeUnlocked string            `json:"timeUnlocked"`
+}
+
+type xboxRequirement struct {
+	ID          string `json:"id"`
+	Current     string `json:"current"`
+	Target      string `json:"target"`
+}
+
+type xboxMediaAsset struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	URL  string `json:"url"`
+}
+
 // --------------- Output types ---------------
 
 type mediaItem struct {
@@ -657,6 +709,130 @@ func detectPlatform(devices []string) string {
 	return "xbox"
 }
 
+// --------------- Xbox Achievements fetch ---------------
+
+func fetchXboxAchievements(ctx context.Context, titleID string) ([]xboxAchievement, error) {
+	tokenMu.Lock()
+	xuid := tokens.XUID
+	tokenMu.Unlock()
+
+	if xuid == "" {
+		return nil, fmt.Errorf("no XUID available")
+	}
+
+	apiURL := fmt.Sprintf(
+		"https://achievements.xboxlive.com/users/xuid(%s)/achievements?titleId=%s&maxItems=1000",
+		xuid, titleID,
+	)
+
+	body, err := xboxAPIGet(ctx, apiURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var result xboxAchievementsResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("decode xbox achievements: %w", err)
+	}
+	return result.Achievements, nil
+}
+
+type achievementEntry struct {
+	ExternalID   string  `json:"external_id"`
+	Title        string  `json:"title"`
+	Description  string  `json:"description"`
+	LockedIcon   string  `json:"locked_icon,omitempty"`
+	UnlockedIcon string  `json:"unlocked_icon,omitempty"`
+	Points       int     `json:"points,omitempty"`
+	Rarity       float64 `json:"rarity,omitempty"`
+	Unlocked     bool    `json:"unlocked"`
+	UnlockedAt   string  `json:"unlocked_at,omitempty"`
+}
+
+func handleAchievementsGet(params json.RawMessage) (any, *Error) {
+	var p struct {
+		ExternalGameID string `json:"external_game_id"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	if p.ExternalGameID == "" {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id required"}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := ensureAuthenticated(ctx); err != nil {
+		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
+	}
+
+	xboxAchs, err := fetchXboxAchievements(ctx, p.ExternalGameID)
+	if err != nil {
+		return nil, &Error{Code: "API_ERROR", Message: err.Error()}
+	}
+
+	achievements := make([]achievementEntry, 0, len(xboxAchs))
+	unlocked := 0
+	totalPoints := 0
+	earnedPoints := 0
+
+	for _, xa := range xboxAchs {
+		entry := achievementEntry{
+			ExternalID:  xa.ID,
+			Title:       xa.Name,
+			Description: xa.Description,
+		}
+
+		for _, ma := range xa.MediaAssets {
+			if ma.Type == "Icon" && ma.URL != "" {
+				entry.UnlockedIcon = ma.URL
+				break
+			}
+		}
+
+		if xa.Rarity != nil {
+			entry.Rarity = xa.Rarity.CurrentPercentage
+		}
+
+		points := 0
+		for _, rw := range xa.Rewards {
+			if rw.ValueType == "Int" && rw.Type == "Gamerscore" {
+				fmt.Sscanf(rw.Value, "%d", &points)
+			}
+		}
+		entry.Points = points
+		totalPoints += points
+
+		isUnlocked := false
+		if xa.Progression != nil && xa.Progression.TimeUnlocked != "" &&
+			xa.Progression.TimeUnlocked != "0001-01-01T00:00:00Z" {
+			isUnlocked = true
+			entry.UnlockedAt = xa.Progression.TimeUnlocked
+		}
+		entry.Unlocked = isUnlocked
+		if isUnlocked {
+			unlocked++
+			earnedPoints += points
+		}
+
+		achievements = append(achievements, entry)
+	}
+
+	log.Printf("achievements for Xbox title %s: %d/%d unlocked, %d/%d gamerscore",
+		p.ExternalGameID, unlocked, len(achievements), earnedPoints, totalPoints)
+
+	return map[string]any{
+		"source":           "xbox",
+		"external_game_id": p.ExternalGameID,
+		"total_count":      len(achievements),
+		"unlocked_count":   unlocked,
+		"total_points":     totalPoints,
+		"earned_points":    earnedPoints,
+		"achievements":     achievements,
+	}, nil
+}
+
 // --------------- IPC handlers ---------------
 
 func handleInit() (any, *Error) {
@@ -767,6 +943,14 @@ func main() {
 
 		case "source.games.list":
 			result, errObj := handleGamesList(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "achievements.game.get":
+			result, errObj := handleAchievementsGet(req.Params)
 			if errObj != nil {
 				resp.Error = errObj
 			} else {

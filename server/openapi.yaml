@@ -71,6 +71,26 @@ paths:
         500:
           description: Internal server error
 
+  /api/games/{id}/achievements:
+    get:
+      summary: Get achievements for a game
+      description: Fetches achievements on-demand from all achievement-capable plugins that have an external ID match for this game. Returns an array of achievement sets, one per source (steam, xbox, retroachievements).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Array of achievement sets
+        400:
+          description: id required
+        404:
+          description: Game not found
+        500:
+          description: Internal server error
+
   /api/integrations:
     get:
       summary: List integrations

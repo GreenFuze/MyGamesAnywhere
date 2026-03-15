@@ -46,8 +46,9 @@ func main() {
 	discoCtrl := http.NewDiscoveryController(orchestrator, logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, logSvc)
+	achievementCtrl := http.NewAchievementController(gameRepo, pluginHost, logSvc)
 
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, discoCtrl, configCtrl, pluginCtrl)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, discoCtrl, configCtrl, pluginCtrl, achievementCtrl)
 
 	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost, syncSvc)
 

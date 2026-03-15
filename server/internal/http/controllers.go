@@ -3,6 +3,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -410,4 +411,147 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(integration)
+}
+
+// AchievementController serves GET /api/games/{id}/achievements.
+type AchievementController struct {
+	gameRepo   core.GameRepository
+	pluginHost plugins.PluginHost
+	logger     core.Logger
+}
+
+func NewAchievementController(gameRepo core.GameRepository, pluginHost plugins.PluginHost, logger core.Logger) *AchievementController {
+	return &AchievementController{gameRepo: gameRepo, pluginHost: pluginHost, logger: logger}
+}
+
+type AchievementDTO struct {
+	ExternalID   string  `json:"external_id"`
+	Title        string  `json:"title"`
+	Description  string  `json:"description"`
+	LockedIcon   string  `json:"locked_icon,omitempty"`
+	UnlockedIcon string  `json:"unlocked_icon,omitempty"`
+	Points       int     `json:"points,omitempty"`
+	Rarity       float64 `json:"rarity,omitempty"`
+	Unlocked     bool    `json:"unlocked"`
+	UnlockedAt   string  `json:"unlocked_at,omitempty"`
+}
+
+type AchievementSetDTO struct {
+	Source         string           `json:"source"`
+	ExternalGameID string          `json:"external_game_id"`
+	TotalCount     int             `json:"total_count"`
+	UnlockedCount  int             `json:"unlocked_count"`
+	TotalPoints    int             `json:"total_points,omitempty"`
+	EarnedPoints   int             `json:"earned_points,omitempty"`
+	Achievements   []AchievementDTO `json:"achievements"`
+}
+
+// GetAchievements fetches achievements on-demand from all capable plugins.
+func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.Request) {
+	gameID := chi.URLParam(r, "id")
+	if gameID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	game, err := c.gameRepo.GetGameByID(ctx, gameID)
+	if err != nil {
+		c.logger.Error("get game for achievements", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if game == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	achPlugins := c.pluginHost.GetPluginIDsProviding("achievements.game.get")
+	if len(achPlugins) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]any{})
+		return
+	}
+
+	externalBySource := make(map[string]string) // plugin_id -> external_id
+	for _, eid := range game.ExternalIDs {
+		externalBySource[eid.Source] = eid.ExternalID
+	}
+	// Also check resolver matches for additional external IDs.
+	for _, rm := range game.ResolverMatches {
+		if rm.ExternalID != "" && !rm.Outvoted {
+			if _, exists := externalBySource[rm.PluginID]; !exists {
+				externalBySource[rm.PluginID] = rm.ExternalID
+			}
+		}
+	}
+
+	var sets []AchievementSetDTO
+	for _, pluginID := range achPlugins {
+		extID, ok := externalBySource[pluginID]
+		if !ok {
+			continue
+		}
+
+		var result struct {
+			Source         string `json:"source"`
+			ExternalGameID string `json:"external_game_id"`
+			TotalCount     int    `json:"total_count"`
+			UnlockedCount  int    `json:"unlocked_count"`
+			TotalPoints    int    `json:"total_points"`
+			EarnedPoints   int    `json:"earned_points"`
+			Achievements   []struct {
+				ExternalID   string  `json:"external_id"`
+				Title        string  `json:"title"`
+				Description  string  `json:"description"`
+				LockedIcon   string  `json:"locked_icon"`
+				UnlockedIcon string  `json:"unlocked_icon"`
+				Points       int     `json:"points"`
+				Rarity       float64 `json:"rarity"`
+				Unlocked     bool    `json:"unlocked"`
+				UnlockedAt   any     `json:"unlocked_at"`
+			} `json:"achievements"`
+		}
+
+		params := map[string]any{"external_game_id": extID}
+		if err := c.pluginHost.Call(ctx, pluginID, "achievements.game.get", params, &result); err != nil {
+			c.logger.Error("achievements.game.get failed", err, "plugin_id", pluginID, "game_id", gameID)
+			continue
+		}
+
+		dto := AchievementSetDTO{
+			Source:         result.Source,
+			ExternalGameID: result.ExternalGameID,
+			TotalCount:     result.TotalCount,
+			UnlockedCount:  result.UnlockedCount,
+			TotalPoints:    result.TotalPoints,
+			EarnedPoints:   result.EarnedPoints,
+		}
+		for _, a := range result.Achievements {
+			unlockedAt := ""
+			switch v := a.UnlockedAt.(type) {
+			case string:
+				unlockedAt = v
+			case float64:
+				if v > 0 {
+					unlockedAt = fmt.Sprintf("%d", int64(v))
+				}
+			}
+			dto.Achievements = append(dto.Achievements, AchievementDTO{
+				ExternalID:   a.ExternalID,
+				Title:        a.Title,
+				Description:  a.Description,
+				LockedIcon:   a.LockedIcon,
+				UnlockedIcon: a.UnlockedIcon,
+				Points:       a.Points,
+				Rarity:       a.Rarity,
+				Unlocked:     a.Unlocked,
+				UnlockedAt:   unlockedAt,
+			})
+		}
+		sets = append(sets, dto)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(sets)
 }
