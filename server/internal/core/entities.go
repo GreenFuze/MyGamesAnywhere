@@ -122,6 +122,14 @@ type MediaItem struct {
 	Source    string    `json:"source,omitempty"`
 }
 
+// CompletionTime holds "how long to beat" estimates in hours.
+type CompletionTime struct {
+	MainStory     float64 `json:"main_story,omitempty"`
+	MainExtra     float64 `json:"main_extra,omitempty"`
+	Completionist float64 `json:"completionist,omitempty"`
+	Source        string  `json:"source,omitempty"`
+}
+
 // ResolverMatch stores one metadata resolver's raw match for a game.
 // Every match from every resolver is preserved so we can audit decisions
 // and recompute the unified view later.
@@ -135,14 +143,15 @@ type ResolverMatch struct {
 	URL          string `json:"url,omitempty"`
 	Outvoted     bool   `json:"outvoted,omitempty"`
 
-	Description string      `json:"description,omitempty"`
-	ReleaseDate string      `json:"release_date,omitempty"`
-	Genres      []string    `json:"genres,omitempty"`
-	Developer   string      `json:"developer,omitempty"`
-	Publisher   string      `json:"publisher,omitempty"`
-	Media       []MediaItem `json:"media,omitempty"`
-	Rating      float64     `json:"rating,omitempty"`
-	MaxPlayers  int         `json:"max_players,omitempty"`
+	Description    string          `json:"description,omitempty"`
+	ReleaseDate    string          `json:"release_date,omitempty"`
+	Genres         []string        `json:"genres,omitempty"`
+	Developer      string          `json:"developer,omitempty"`
+	Publisher      string          `json:"publisher,omitempty"`
+	Media          []MediaItem     `json:"media,omitempty"`
+	Rating         float64         `json:"rating,omitempty"`
+	MaxPlayers     int             `json:"max_players,omitempty"`
+	CompletionTime *CompletionTime `json:"completion_time,omitempty"`
 }
 
 // Game is the persisted game entity.
@@ -163,14 +172,15 @@ type Game struct {
 	ResolverMatches []ResolverMatch
 
 	// Unified metadata: derived from the highest-priority non-outvoted resolver.
-	Description string
-	ReleaseDate string
-	Genres      []string
-	Developer   string
-	Publisher   string
-	Media       []MediaItem
-	Rating      float64
-	MaxPlayers  int
+	Description    string
+	ReleaseDate    string
+	Genres         []string
+	Developer      string
+	Publisher      string
+	Media          []MediaItem
+	Rating         float64
+	MaxPlayers     int
+	CompletionTime *CompletionTime
 }
 
 // AchievementSet groups all achievements for a game from a single source.

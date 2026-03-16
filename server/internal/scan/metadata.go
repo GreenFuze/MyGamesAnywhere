@@ -45,6 +45,12 @@ type ipcMediaItem struct {
 	MimeType string `json:"mime_type,omitempty"`
 }
 
+type ipcCompletionTime struct {
+	MainStory     float64 `json:"main_story,omitempty"`
+	MainExtra     float64 `json:"main_extra,omitempty"`
+	Completionist float64 `json:"completionist,omitempty"`
+}
+
 type metadataMatch struct {
 	Index        int    `json:"index"`
 	Title        string `json:"title,omitempty"`
@@ -54,14 +60,15 @@ type metadataMatch struct {
 	ExternalID   string `json:"external_id"`
 	URL          string `json:"url,omitempty"`
 
-	Description string         `json:"description,omitempty"`
-	ReleaseDate string         `json:"release_date,omitempty"`
-	Genres      []string       `json:"genres,omitempty"`
-	Developer   string         `json:"developer,omitempty"`
-	Publisher   string         `json:"publisher,omitempty"`
-	Media       []ipcMediaItem `json:"media,omitempty"`
-	Rating      float64        `json:"rating,omitempty"`
-	MaxPlayers  int            `json:"max_players,omitempty"`
+	Description    string              `json:"description,omitempty"`
+	ReleaseDate    string              `json:"release_date,omitempty"`
+	Genres         []string            `json:"genres,omitempty"`
+	Developer      string              `json:"developer,omitempty"`
+	Publisher      string              `json:"publisher,omitempty"`
+	Media          []ipcMediaItem      `json:"media,omitempty"`
+	Rating         float64             `json:"rating,omitempty"`
+	MaxPlayers     int                 `json:"max_players,omitempty"`
+	CompletionTime *ipcCompletionTime  `json:"completion_time,omitempty"`
 }
 
 // MetadataResolver coordinates metadata enrichment across plugins using
@@ -265,6 +272,9 @@ func applyUnifiedFields(g *core.Game, sources []MetadataSource) {
 		if m.MaxPlayers > 0 && g.MaxPlayers == 0 {
 			g.MaxPlayers = m.MaxPlayers
 		}
+		if m.CompletionTime != nil && g.CompletionTime == nil {
+			g.CompletionTime = m.CompletionTime
+		}
 	}
 
 	g.ExternalIDs = nil
@@ -379,7 +389,7 @@ func matchToResolver(pluginID string, m metadataMatch) core.ResolverMatch {
 			Source:   pluginID,
 		})
 	}
-	return core.ResolverMatch{
+	rm := core.ResolverMatch{
 		PluginID:     pluginID,
 		Title:        m.Title,
 		Platform:     m.Platform,
@@ -396,6 +406,15 @@ func matchToResolver(pluginID string, m metadataMatch) core.ResolverMatch {
 		Rating:       m.Rating,
 		MaxPlayers:   m.MaxPlayers,
 	}
+	if m.CompletionTime != nil {
+		rm.CompletionTime = &core.CompletionTime{
+			MainStory:     m.CompletionTime.MainStory,
+			MainExtra:     m.CompletionTime.MainExtra,
+			Completionist: m.CompletionTime.Completionist,
+			Source:        pluginID,
+		}
+	}
+	return rm
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────

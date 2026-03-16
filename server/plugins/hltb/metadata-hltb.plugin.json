@@ -1,0 +1,11 @@
+{
+  "plugin_id": "metadata-hltb",
+  "plugin_version": "1.0.0",
+  "api_major": 1,
+  "capabilities": ["metadata"],
+  "provides": ["metadata.game.lookup"],
+  "exec": "hltb.exe",
+  "default_timeout_ms": 120000,
+  "max_concurrency": 1,
+  "config": {}
+}
