@@ -69,6 +69,8 @@ func main() {
 		resp.ID = req.ID
 
 		switch req.Method {
+		case "plugin.init":
+			resp.Result = map[string]any{"status": "ok"}
 		case "plugin.info":
 			resp.Result = map[string]any{
 				"plugin_id":      "game-source-smb",
