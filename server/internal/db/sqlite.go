@@ -3,6 +3,8 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	_ "modernc.org/sqlite"
@@ -28,6 +30,16 @@ func (s *sqliteDatabase) Connect() error {
 	dbPath := s.config.Get("DB_PATH")
 	s.logger.Info("Connecting to database", "path", dbPath)
 
+	// Ensure the parent directory exists (SQLite creates the file but not directories).
+	if dbPath != ":memory:" {
+		dir := filepath.Dir(dbPath)
+		if dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return fmt.Errorf("create database directory %s: %w", dir, err)
+			}
+		}
+	}
+
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open sqlite database: %w", err)
@@ -35,6 +47,15 @@ func (s *sqliteDatabase) Connect() error {
 
 	if err := db.Ping(); err != nil {
 		return fmt.Errorf("failed to ping sqlite database: %w", err)
+	}
+
+	// Enable WAL mode for better concurrent read/write performance.
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		s.logger.Warn("could not enable WAL mode", "error", err)
+	}
+	// Enforce foreign key constraints.
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		s.logger.Warn("could not enable foreign keys", "error", err)
 	}
 
 	s.db = db
@@ -51,10 +72,10 @@ func (s *sqliteDatabase) Close() error {
 	return nil
 }
 
-func (s *sqliteDatabase) Migrate() error {
-	s.logger.Info("Running migrations...")
+func (s *sqliteDatabase) EnsureSchema() error {
+	s.logger.Info("Ensuring database schema...")
 
-	creates := []string{
+	statements := []string{
 		`CREATE TABLE IF NOT EXISTS settings (
 			key TEXT PRIMARY KEY,
 			value TEXT,
@@ -165,45 +186,12 @@ func (s *sqliteDatabase) Migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_ach_set ON achievements(set_id);`,
 	}
 
-	// Drop legacy tables that have been replaced.
-	legacyDrops := []string{
-		`DROP TABLE IF EXISTS game_files_old;`,
-	}
-	for _, q := range legacyDrops {
-		s.db.Exec(q)
-	}
-
-	for _, q := range creates {
+	for _, q := range statements {
 		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("migration failed: %w", err)
+			return fmt.Errorf("schema creation failed: %w", err)
 		}
 	}
-
-	// Migrate legacy 'games' table to 'source_games' if it still exists.
-	s.migrateLegacyGames()
-
 	return nil
-}
-
-func (s *sqliteDatabase) migrateLegacyGames() {
-	var count int
-	err := s.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='games'").Scan(&count)
-	if err != nil || count == 0 {
-		return
-	}
-	s.logger.Info("Migrating legacy 'games' table to 'source_games'...")
-
-	s.db.Exec(`INSERT OR IGNORE INTO source_games (id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, root_path, status, last_seen_at, created_at)
-		SELECT id, COALESCE(integration_id,''), '', id, COALESCE(title,''), platform, kind, package_kind, root_path, status, last_seen_at, last_seen_at
-		FROM games`)
-
-	// Migrate game_files if they reference old game IDs.
-	s.db.Exec(`INSERT OR IGNORE INTO game_files (source_game_id, path, file_name, role, file_kind, size, is_dir)
-		SELECT game_id, path, file_name, role, file_kind, size, is_dir
-		FROM game_files WHERE game_id IN (SELECT id FROM games)`)
-
-	s.db.Exec(`ALTER TABLE games RENAME TO games_legacy`)
-	s.logger.Info("Legacy migration complete. Old table renamed to 'games_legacy'.")
 }
 
 func (s *sqliteDatabase) GetDB() *sql.DB {

@@ -71,8 +71,8 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 
-	if err := a.db.Migrate(); err != nil {
-		return fmt.Errorf("database migration failed: %w", err)
+	if err := a.db.EnsureSchema(); err != nil {
+		return fmt.Errorf("database schema creation failed: %w", err)
 	}
 
 	if a.authSvc != nil {

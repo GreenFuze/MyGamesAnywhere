@@ -4,34 +4,41 @@
 *.dll
 *.so
 *.dylib
-/server/server
-/server/server.exe
 *.test
 *.out
 coverage.html
 coverage.out
 vendor/
 
+# Build output — server/bin/ is produced by build.ps1
+server/bin/
+
 # SQLite and local DBs
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
 
 # Local config and secrets (track config.json.example, not config.json)
 config.json
-server/config.json
-server/bin/config.json
-server/bin/plugins/*/config.json
 server/plugins/*/config.json
 
 # OAuth tokens (Xbox, Epic, etc.)
 tokens.json
 server/plugins/*/tokens.json
-server/bin/plugins/*/tokens.json
 
 # Integration config files with credentials
 *-integration.json
+
+# Temp / generated output
+*.log
+*.tmp
+server/integrations_dump.json
+server/scan_smb_result.json
 
 # IDE and editors
 .idea/
@@ -48,11 +55,5 @@ Thumbs.db
 node_modules/
 .pnpm-store/
 
-# Build and temp
-/bin/
-/tmp/
-*.log
-*.tmp
-
-# Cursor / agent (optional; remove if you want to track plans)
+# Cursor / agent
 .cursor/

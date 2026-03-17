@@ -94,17 +94,19 @@ func main() {
 			} else {
 				resp.Result = map[string]any{"files": files}
 			}
-		case "plugin.check_config":
-			var config SMBConfig
-			if err := json.Unmarshal(req.Params, &config); err != nil {
-				resp.Error = &Error{Code: "INVALID_PARAMS", Message: err.Error()}
-				break
-			}
-			if err := checkConfig(config); err != nil {
-				resp.Result = map[string]any{"status": "error", "message": err.Error()}
-			} else {
-				resp.Result = map[string]any{"status": "ok"}
-			}
+	case "plugin.check_config":
+		var params struct {
+			Config SMBConfig `json:"config"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			resp.Error = &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+			break
+		}
+		if err := checkConfig(params.Config); err != nil {
+			resp.Result = map[string]any{"status": "error", "message": err.Error()}
+		} else {
+			resp.Result = map[string]any{"status": "ok"}
+		}
 		default:
 			resp.Error = &Error{Code: "NOT_SUPPORTED", Message: "Method not supported"}
 		}
@@ -176,7 +178,7 @@ func listFiles(config SMBConfig) ([]map[string]any, error) {
 
 	remotefs, err := s.Mount(config.Share)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("mount share %q: %w", config.Share, err)
 	}
 	defer remotefs.Umount()
 
@@ -185,10 +187,18 @@ func listFiles(config SMBConfig) ([]map[string]any, error) {
 		searchPath = "."
 	}
 
+	// Verify we can actually read the root directory.
+	entries, err := remotefs.ReadDir(searchPath)
+	if err != nil {
+		return nil, fmt.Errorf("readdir %q: %w", searchPath, err)
+	}
+	log.Printf("SMB readdir %q: %d top-level entries", searchPath, len(entries))
+
 	var files []map[string]any
 	rootFS := remotefs.DirFS(searchPath)
 	err = fs.WalkDir(rootFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			log.Printf("walk error at %q: %v", path, err)
 			return nil
 		}
 		if path == "." {

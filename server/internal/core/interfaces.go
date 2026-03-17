@@ -25,7 +25,7 @@ type Configuration interface {
 type Database interface {
 	Connect() error
 	Close() error
-	Migrate() error
+	EnsureSchema() error
 	GetDB() *sql.DB
 }
 

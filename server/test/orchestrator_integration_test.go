@@ -159,8 +159,8 @@ func TestOrchestrator_FullPipeline(t *testing.T) {
 		t.Fatalf("connect db: %v", err)
 	}
 	defer testDB.Close()
-	if err := testDB.Migrate(); err != nil {
-		t.Fatalf("migrate db: %v", err)
+	if err := testDB.EnsureSchema(); err != nil {
+		t.Fatalf("ensure schema: %v", err)
 	}
 	gameStore := db.NewGameStore(testDB, log)
 

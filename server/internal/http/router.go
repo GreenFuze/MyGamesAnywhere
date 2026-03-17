@@ -29,9 +29,6 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration) chi.Router {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	if middlewareTimeout > 0 {
-		r.Use(middleware.Timeout(middlewareTimeout))
-	}
 
 	if b != nil {
 		r.Get("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) })
@@ -39,33 +36,41 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration) chi.Router {
 		r.Get("/health", noopHandler())
 	}
 
-	r.Route("/api", func(r chi.Router) {
+	r.Route("/api", func(api chi.Router) {
 		if b != nil {
-			r.Get("/games", b.GameCtrl.ListGames)
-			r.Delete("/games", b.GameCtrl.DeleteAll)
-			r.Get("/games/{id}", b.GameCtrl.Get)
-			r.Get("/games/{id}/achievements", b.AchievementCtrl.GetAchievements)
-			r.Get("/scan", b.DiscoCtrl.Scan)
-			r.Post("/scan", b.DiscoCtrl.Scan)
-			r.Get("/plugins", b.PluginCtrl.ListPlugins)
-			r.Get("/plugins/{plugin_id}", b.PluginCtrl.GetPluginByID)
-			r.Post("/config/{key}", b.ConfigCtrl.Set)
-			r.Get("/integrations", b.PluginCtrl.List)
-			r.Get("/integrations/status", b.PluginCtrl.Status)
-			r.Post("/integrations", b.PluginCtrl.Create)
+			// Routes with standard middleware timeout.
+			api.Group(func(r chi.Router) {
+				if middlewareTimeout > 0 {
+					r.Use(middleware.Timeout(middlewareTimeout))
+				}
+				r.Get("/games", b.GameCtrl.ListGames)
+				r.Delete("/games", b.GameCtrl.DeleteAll)
+				r.Get("/games/{id}", b.GameCtrl.Get)
+				r.Get("/games/{id}/achievements", b.AchievementCtrl.GetAchievements)
+				r.Get("/plugins", b.PluginCtrl.ListPlugins)
+				r.Get("/plugins/{plugin_id}", b.PluginCtrl.GetPluginByID)
+				r.Post("/config/{key}", b.ConfigCtrl.Set)
+				r.Get("/integrations", b.PluginCtrl.List)
+				r.Get("/integrations/status", b.PluginCtrl.Status)
+				r.Post("/integrations", b.PluginCtrl.Create)
+			})
+
+			// Scan can take many minutes; no middleware timeout.
+			api.Get("/scan", b.DiscoCtrl.Scan)
+			api.Post("/scan", b.DiscoCtrl.Scan)
 		} else {
-			r.Get("/games", noopHandler())
-			r.Delete("/games", noopHandler())
-			r.Get("/games/{id}", noopHandler())
-			r.Get("/games/{id}/achievements", noopHandler())
-			r.Get("/scan", noopHandler())
-			r.Post("/scan", noopHandler())
-			r.Get("/plugins", noopHandler())
-			r.Get("/plugins/{plugin_id}", noopHandler())
-			r.Post("/config/{key}", noopHandler())
-			r.Get("/integrations", noopHandler())
-			r.Get("/integrations/status", noopHandler())
-			r.Post("/integrations", noopHandler())
+			api.Get("/games", noopHandler())
+			api.Delete("/games", noopHandler())
+			api.Get("/games/{id}", noopHandler())
+			api.Get("/games/{id}/achievements", noopHandler())
+			api.Get("/scan", noopHandler())
+			api.Post("/scan", noopHandler())
+			api.Get("/plugins", noopHandler())
+			api.Get("/plugins/{plugin_id}", noopHandler())
+			api.Post("/config/{key}", noopHandler())
+			api.Get("/integrations", noopHandler())
+			api.Get("/integrations/status", noopHandler())
+			api.Post("/integrations", noopHandler())
 		}
 	})
 	return r

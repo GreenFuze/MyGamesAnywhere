@@ -2,6 +2,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -180,7 +181,12 @@ func (c *DiscoveryController) Scan(w http.ResponseWriter, r *http.Request) {
 	if len(body.GameSources) > 0 {
 		integrationIDs = body.GameSources
 	}
-	canonical, err := c.orchestrator.RunScan(r.Context(), integrationIDs)
+	// Detach from the HTTP request timeout — scans can take many minutes
+	// due to metadata enrichment across multiple resolvers.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	canonical, err := c.orchestrator.RunScan(ctx, integrationIDs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -316,7 +322,7 @@ func (c *PluginController) Status(w http.ResponseWriter, r *http.Request) {
 			Status  string `json:"status"`
 			Message string `json:"message"`
 		}
-		callErr := c.pluginHost.Call(r.Context(), integration.PluginID, "plugin.check_config", configMap, &checkResult)
+		callErr := c.pluginHost.Call(r.Context(), integration.PluginID, "plugin.check_config", map[string]any{"config": configMap}, &checkResult)
 		status := "ok"
 		message := checkResult.Message
 		if callErr != nil {
@@ -378,11 +384,12 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	checkParams := map[string]any{"config": configMap}
 	var checkResult struct {
 		Status  string `json:"status"`
 		Message string `json:"message"`
 	}
-	if err := c.pluginHost.Call(r.Context(), body.PluginID, "plugin.check_config", configMap, &checkResult); err != nil {
+	if err := c.pluginHost.Call(r.Context(), body.PluginID, "plugin.check_config", checkParams, &checkResult); err != nil {
 		http.Error(w, "plugin validation failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
