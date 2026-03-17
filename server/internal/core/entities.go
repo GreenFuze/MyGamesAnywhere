@@ -1,6 +1,9 @@
 package core
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type User struct {
 	ID           string    `json:"id"`
@@ -207,6 +210,96 @@ type Achievement struct {
 	Rarity      float64   `json:"rarity,omitempty"` // percentage of players who earned it
 	Unlocked    bool      `json:"unlocked"`
 	UnlockedAt  time.Time `json:"unlocked_at,omitempty"`
+}
+
+// SourceGame is a game record from a single source integration.
+// "Dark Souls from Steam" and "Dark Souls from GOG" are separate SourceGames.
+type SourceGame struct {
+	ID            string
+	IntegrationID string
+	PluginID      string
+	ExternalID    string // ID in the source system (steam appid, root path hash, etc.)
+	RawTitle      string
+	Platform      Platform
+	Kind          GameKind
+	GroupKind     GroupKind
+	RootPath      string
+	URL           string
+	Status        string // "found", "not_found"
+	LastSeenAt    *time.Time
+	CreatedAt     time.Time
+
+	Files           []GameFile
+	ResolverMatches []ResolverMatch
+	Media           []MediaRef
+}
+
+// MediaAsset is a globally deduplicated media file.
+type MediaAsset struct {
+	ID        int
+	URL       string
+	LocalPath string
+	Hash      string
+	Width     int
+	Height    int
+	MimeType  string
+}
+
+// MediaRef links a source game to a media asset.
+type MediaRef struct {
+	AssetID int // FK to MediaAsset.ID (0 if not yet persisted)
+	Type    MediaType
+	URL     string // carried for convenience; canonical URL is in MediaAsset
+	Source  string // plugin_id that provided it
+	Width   int
+	Height  int
+}
+
+// CanonicalGame is the merged view of one logical game, computed from
+// one or more SourceGames that share external IDs.
+type CanonicalGame struct {
+	ID          string // canonical_id from the link table
+	SourceGames []*SourceGame
+
+	// Unified fields (computed, not persisted).
+	Title          string
+	Platform       Platform
+	Kind           GameKind
+	Description    string
+	ReleaseDate    string
+	Genres         []string
+	Developer      string
+	Publisher      string
+	Rating         float64
+	MaxPlayers     int
+	CompletionTime *CompletionTime
+	Media          []MediaRef
+	ExternalIDs    []ExternalID
+}
+
+// ScanBatch holds everything produced by one scan cycle, validated in memory
+// before being written to the DB in a single transaction.
+type ScanBatch struct {
+	IntegrationID   string
+	SourceGames     []*SourceGame
+	ResolverMatches map[string][]ResolverMatch // keyed by source_game.ID
+	MediaItems      map[string][]MediaRef      // keyed by source_game.ID
+}
+
+// Validate checks the batch for internal consistency.
+func (b *ScanBatch) Validate() error {
+	if b.IntegrationID == "" {
+		return fmt.Errorf("integration_id is required")
+	}
+	for _, sg := range b.SourceGames {
+		if sg.ID == "" {
+			return fmt.Errorf("source game has empty ID")
+		}
+		if sg.RawTitle == "" {
+			return fmt.Errorf("source game %q has empty raw_title", sg.ID)
+		}
+	}
+	return nil
 }
 
 // GameFileRole is the role of a file within a game package.

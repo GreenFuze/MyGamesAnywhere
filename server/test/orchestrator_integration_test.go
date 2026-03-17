@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/logger"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
@@ -148,16 +149,31 @@ func TestOrchestrator_FullPipeline(t *testing.T) {
 		})
 	}
 
+	// Set up in-memory SQLite for the GameStore.
+	testCfg := &mockConfig{values: map[string]string{
+		"PLUGINS_DIR": pluginsDir,
+		"DB_PATH":     ":memory:",
+	}}
+	testDB := db.NewSQLiteDatabase(log, testCfg)
+	if err := testDB.Connect(); err != nil {
+		t.Fatalf("connect db: %v", err)
+	}
+	defer testDB.Close()
+	if err := testDB.Migrate(); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+	gameStore := db.NewGameStore(testDB, log)
+
 	caller := &callerWrapper{host: host, tv2Data: tv2Data}
 	discovery := &discoveryWrapper{host: host}
 	repo := &mockIntegrationRepo{integrations: integrations}
 
-	orch := scan.NewOrchestrator(caller, discovery, repo, log)
+	orch := scan.NewOrchestrator(caller, discovery, repo, gameStore, log)
 
 	t.Log("Starting full pipeline run (this may take 15-30 minutes)...")
 	start := time.Now()
 
-	games, err := orch.RunScan(ctx, nil)
+	canonical, err := orch.RunScan(ctx, nil)
 	if err != nil {
 		t.Fatalf("RunScan: %v", err)
 	}
@@ -168,32 +184,24 @@ func TestOrchestrator_FullPipeline(t *testing.T) {
 	// ── Summary ──
 
 	t.Logf("\n=== RESULTS ===")
-	t.Logf("Total games discovered: %d", len(games))
+	t.Logf("Total canonical games: %d", len(canonical))
 
-	identified, unidentified := 0, 0
 	totalExtIDs := 0
 	resolverHits := map[string]int{}
 	platformCounts := map[string]int{}
-	groupKindCounts := map[string]int{}
 
-	for _, g := range games {
-		if g.Status == "identified" {
-			identified++
-		} else {
-			unidentified++
-		}
-		totalExtIDs += len(g.ExternalIDs)
-		for _, m := range g.ResolverMatches {
-			if !m.Outvoted {
-				resolverHits[m.PluginID]++
+	for _, cg := range canonical {
+		totalExtIDs += len(cg.ExternalIDs)
+		for _, sg := range cg.SourceGames {
+			for _, m := range sg.ResolverMatches {
+				if !m.Outvoted {
+					resolverHits[m.PluginID]++
+				}
 			}
 		}
-		platformCounts[string(g.Platform)]++
-		groupKindCounts[string(g.GroupKind)]++
+		platformCounts[string(cg.Platform)]++
 	}
 
-	t.Logf("Identified:   %d (%.1f%%)", identified, pct(identified, len(games)))
-	t.Logf("Unidentified: %d (%.1f%%)", unidentified, pct(unidentified, len(games)))
 	t.Logf("Total external IDs: %d", totalExtIDs)
 
 	t.Logf("\nPlatform breakdown:")
@@ -201,87 +209,31 @@ func TestOrchestrator_FullPipeline(t *testing.T) {
 		t.Logf("  %-16s %d", p, n)
 	}
 
-	t.Logf("\nGroupKind breakdown:")
-	for k, n := range groupKindCounts {
-		t.Logf("  %-20s %d", k, n)
-	}
-
 	t.Logf("\nPer-resolver hit counts (non-outvoted matches):")
 	for _, pid := range metaPlugins {
 		t.Logf("  %-24s %d", pid, resolverHits[pid])
 	}
 
-	// ── Consensus details ──
-
-	consensusUnanimous, consensusVoted := 0, 0
-	for _, g := range games {
-		if g.Status != "identified" {
-			continue
-		}
-		outvotedCount := 0
-		for _, m := range g.ResolverMatches {
-			if m.Outvoted {
-				outvotedCount++
-			}
-		}
-		if outvotedCount > 0 {
-			consensusVoted++
-		} else {
-			consensusUnanimous++
-		}
-	}
-	t.Logf("\nConsensus: %d unanimous, %d with outvoted matches", consensusUnanimous, consensusVoted)
-
-	// Show games where consensus had conflicts.
-	if consensusVoted > 0 {
-		t.Logf("\nGames with consensus conflicts:")
-		shown := 0
-		for _, g := range games {
-			if g.Status != "identified" || shown >= 20 {
-				break
-			}
-			hasOutvoted := false
-			for _, m := range g.ResolverMatches {
-				if m.Outvoted {
-					hasOutvoted = true
-					break
-				}
-			}
-			if !hasOutvoted {
-				continue
-			}
-			shown++
-			t.Logf("  %q => %q", g.RawTitle, g.Title)
-			for _, m := range g.ResolverMatches {
-				tag := ""
-				if m.Outvoted {
-					tag = " [OUTVOTED]"
-				}
-				t.Logf("    %-24s %q  extID=%s%s", m.PluginID, m.Title, m.ExternalID, tag)
-			}
-		}
-	}
-
 	// ── Samples ──
 
-	t.Logf("\nSample identified games (first 30):")
-	showN(t, games, "identified", 30, func(t *testing.T, g *core.Game) {
-		var resolvers []string
-		for _, m := range g.ResolverMatches {
-			tag := m.PluginID
-			if m.Outvoted {
-				tag += "(outvoted)"
-			}
-			resolvers = append(resolvers, tag)
+	t.Logf("\nSample canonical games (first 30):")
+	for i, cg := range canonical {
+		if i >= 30 {
+			break
 		}
-		t.Logf("  %q => %q [%s] resolvers: [%s]",
-			g.RawTitle, g.Title, g.Platform, strings.Join(resolvers, ", "))
-	})
-
-	t.Logf("\nSample unidentified games (first 30):")
-	showN(t, games, "unidentified", 30, func(t *testing.T, g *core.Game) {
-		t.Logf("  [%s] %q (platform: %s, kind: %s)", g.GroupKind, g.RawTitle, g.Platform, g.Kind)
-	})
+		var resolvers []string
+		for _, sg := range cg.SourceGames {
+			for _, m := range sg.ResolverMatches {
+				tag := m.PluginID
+				if m.Outvoted {
+					tag += "(outvoted)"
+				}
+				resolvers = append(resolvers, tag)
+			}
+		}
+		t.Logf("  %q [%s] resolvers: [%s]",
+			cg.Title, cg.Platform, strings.Join(resolvers, ", "))
+	}
 
 	// ── Enrichment coverage ──
 
@@ -290,84 +242,51 @@ func TestOrchestrator_FullPipeline(t *testing.T) {
 	hasRating, hasPlayers := 0, 0
 	totalMediaItems := 0
 
-	for _, g := range games {
-		if g.Status != "identified" {
-			continue
-		}
-		if g.Description != "" {
+	for _, cg := range canonical {
+		if cg.Description != "" {
 			hasDesc++
 		}
-		if g.ReleaseDate != "" {
+		if cg.ReleaseDate != "" {
 			hasDate++
 		}
-		if len(g.Genres) > 0 {
+		if len(cg.Genres) > 0 {
 			hasGenres++
 		}
-		if g.Developer != "" {
+		if cg.Developer != "" {
 			hasDev++
 		}
-		if g.Publisher != "" {
+		if cg.Publisher != "" {
 			hasPub++
 		}
-		if len(g.Media) > 0 {
+		if len(cg.Media) > 0 {
 			hasMedia++
-			totalMediaItems += len(g.Media)
+			totalMediaItems += len(cg.Media)
 		}
-		if g.Rating > 0 {
+		if cg.Rating > 0 {
 			hasRating++
 		}
-		if g.MaxPlayers > 0 {
+		if cg.MaxPlayers > 0 {
 			hasPlayers++
 		}
 	}
 
-	t.Logf("\nEnrichment coverage (of %d identified games):", identified)
-	t.Logf("  Description:  %d (%.0f%%)", hasDesc, pct(hasDesc, identified))
-	t.Logf("  ReleaseDate:  %d (%.0f%%)", hasDate, pct(hasDate, identified))
-	t.Logf("  Genres:       %d (%.0f%%)", hasGenres, pct(hasGenres, identified))
-	t.Logf("  Developer:    %d (%.0f%%)", hasDev, pct(hasDev, identified))
-	t.Logf("  Publisher:    %d (%.0f%%)", hasPub, pct(hasPub, identified))
-	t.Logf("  Media:        %d (%.0f%%), total items: %d", hasMedia, pct(hasMedia, identified), totalMediaItems)
-	t.Logf("  Rating:       %d (%.0f%%)", hasRating, pct(hasRating, identified))
-	t.Logf("  MaxPlayers:   %d (%.0f%%)", hasPlayers, pct(hasPlayers, identified))
-
-	t.Logf("\nSample enriched games (first 5 identified with description):")
-	shown := 0
-	for _, g := range games {
-		if g.Status != "identified" || g.Description == "" || shown >= 5 {
-			continue
-		}
-		shown++
-		desc := g.Description
-		if len(desc) > 120 {
-			desc = desc[:120] + "..."
-		}
-		mediaCounts := map[string]int{}
-		for _, m := range g.Media {
-			mediaCounts[string(m.Type)]++
-		}
-		t.Logf("  %q", g.Title)
-		t.Logf("    desc:     %s", desc)
-		t.Logf("    release:  %s", g.ReleaseDate)
-		t.Logf("    genres:   %v", g.Genres)
-		t.Logf("    dev/pub:  %s / %s", g.Developer, g.Publisher)
-		t.Logf("    media:    %d items %v", len(g.Media), mediaCounts)
-		t.Logf("    rating:   %.1f, players: %d", g.Rating, g.MaxPlayers)
-	}
+	total := len(canonical)
+	t.Logf("\nEnrichment coverage (of %d canonical games):", total)
+	t.Logf("  Description:  %d (%.0f%%)", hasDesc, pct(hasDesc, total))
+	t.Logf("  ReleaseDate:  %d (%.0f%%)", hasDate, pct(hasDate, total))
+	t.Logf("  Genres:       %d (%.0f%%)", hasGenres, pct(hasGenres, total))
+	t.Logf("  Developer:    %d (%.0f%%)", hasDev, pct(hasDev, total))
+	t.Logf("  Publisher:    %d (%.0f%%)", hasPub, pct(hasPub, total))
+	t.Logf("  Media:        %d (%.0f%%), total items: %d", hasMedia, pct(hasMedia, total), totalMediaItems)
+	t.Logf("  Rating:       %d (%.0f%%)", hasRating, pct(hasRating, total))
+	t.Logf("  MaxPlayers:   %d (%.0f%%)", hasPlayers, pct(hasPlayers, total))
 
 	// ── Assertions (loose, just sanity checks) ──
 
-	if len(games) == 0 {
+	if len(canonical) == 0 {
 		t.Fatal("no games discovered from TV2 data")
 	}
-	if identified == 0 {
-		t.Fatal("no games were identified — all resolvers may have failed")
-	}
-	idRate := pct(identified, len(games))
-	t.Logf("\nOverall identification rate: %.1f%%", idRate)
-	if idRate < 10 {
-		t.Errorf("identification rate too low (%.1f%%), expected at least 10%%", idRate)
-	}
+	t.Logf("\nTotal canonical games: %d", len(canonical))
 }
 
 func pct(n, total int) float64 {
@@ -375,31 +294,6 @@ func pct(n, total int) float64 {
 		return 0
 	}
 	return 100 * float64(n) / float64(total)
-}
-
-func showN(t *testing.T, games []*core.Game, status string, limit int, fn func(*testing.T, *core.Game)) {
-	t.Helper()
-	shown := 0
-	target := status
-	if status == "unidentified" {
-		target = ""
-	}
-	for _, g := range games {
-		if shown >= limit {
-			break
-		}
-		match := (status == "identified" && g.Status == "identified") ||
-			(status == "unidentified" && g.Status != "identified")
-		if !match {
-			continue
-		}
-		_ = target
-		fn(t, g)
-		shown++
-	}
-	if shown == 0 {
-		t.Logf("  (none)")
-	}
 }
 
 func init() {

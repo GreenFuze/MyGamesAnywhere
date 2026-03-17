@@ -49,36 +49,35 @@ type GameFileDTO struct {
 
 // GameController serves GET /api/games (list) and GET /api/games/{id} (single game).
 type GameController struct {
-	gameRepo core.GameRepository
-	logger   core.Logger
+	gameStore core.GameStore
+	logger    core.Logger
 }
 
-func NewGameController(gameRepo core.GameRepository, logger core.Logger) *GameController {
-	return &GameController{gameRepo: gameRepo, logger: logger}
+func NewGameController(gameStore core.GameStore, logger core.Logger) *GameController {
+	return &GameController{gameStore: gameStore, logger: logger}
 }
 
-// ListGames returns all games (GET /api/games).
+// ListGames returns all canonical games (GET /api/games).
 func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	games, err := c.gameRepo.GetGames(ctx)
+	games, err := c.gameStore.GetCanonicalGames(ctx)
 	if err != nil {
 		c.logger.Error("get games", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	summaries := make([]GameSummary, 0, len(games))
-	for _, g := range games {
-		if g == nil {
+	for _, cg := range games {
+		if cg == nil {
 			continue
 		}
-		files, _ := c.gameRepo.GetGameFiles(ctx, g.ID)
-		summaries = append(summaries, gameToSummary(g, files))
+		summaries = append(summaries, canonicalToSummary(cg))
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(ListGamesResponse{Games: summaries})
 }
 
-// Get returns one game by ID (GET /api/games/{id}). 404 if not found.
+// Get returns one canonical game by ID (GET /api/games/{id}). 404 if not found.
 func (c *GameController) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -86,7 +85,7 @@ func (c *GameController) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	game, err := c.gameRepo.GetGameByID(ctx, id)
+	game, err := c.gameStore.GetCanonicalGameByID(ctx, id)
 	if err != nil {
 		c.logger.Error("get game", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -96,14 +95,13 @@ func (c *GameController) Get(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	files, _ := c.gameRepo.GetGameFiles(ctx, id)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(gameToSummary(game, files))
+	json.NewEncoder(w).Encode(canonicalToSummary(game))
 }
 
 // DeleteAll removes all games and their files (DELETE /api/games).
 func (c *GameController) DeleteAll(w http.ResponseWriter, r *http.Request) {
-	if err := c.gameRepo.DeleteAllGames(r.Context()); err != nil {
+	if err := c.gameStore.DeleteAllGames(r.Context()); err != nil {
 		c.logger.Error("delete all games", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -112,18 +110,27 @@ func (c *GameController) DeleteAll(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "all games deleted"})
 }
 
-func gameToSummary(g *core.Game, files []*core.GameFile) GameSummary {
+func canonicalToSummary(cg *core.CanonicalGame) GameSummary {
 	s := GameSummary{
-		ID:           g.ID,
-		Title:        g.Title,
-		Platform:     string(g.Platform),
-		Kind:         string(g.Kind),
-		ParentGameID: g.ParentGameID,
-		GroupKind:    string(g.GroupKind),
-		RootPath:     g.RootPath,
+		ID:        cg.ID,
+		Title:     cg.Title,
+		Platform:  string(cg.Platform),
+		Kind:      string(cg.Kind),
+		GroupKind: "",
 	}
-	for _, f := range files {
-		if f != nil {
+
+	// Collect files from all source games.
+	for _, sg := range cg.SourceGames {
+		if sg.Status != "found" {
+			continue
+		}
+		if s.GroupKind == "" {
+			s.GroupKind = string(sg.GroupKind)
+		}
+		if s.RootPath == "" {
+			s.RootPath = sg.RootPath
+		}
+		for _, f := range sg.Files {
 			s.Files = append(s.Files, GameFileDTO{
 				Path:     f.Path,
 				Role:     string(f.Role),
@@ -132,7 +139,7 @@ func gameToSummary(g *core.Game, files []*core.GameFile) GameSummary {
 			})
 		}
 	}
-	for _, eid := range g.ExternalIDs {
+	for _, eid := range cg.ExternalIDs {
 		s.ExternalIDs = append(s.ExternalIDs, ExternalIDDTO{
 			Source:     eid.Source,
 			ExternalID: eid.ExternalID,
@@ -173,19 +180,15 @@ func (c *DiscoveryController) Scan(w http.ResponseWriter, r *http.Request) {
 	if len(body.GameSources) > 0 {
 		integrationIDs = body.GameSources
 	}
-	games, err := c.orchestrator.RunScan(r.Context(), integrationIDs)
+	canonical, err := c.orchestrator.RunScan(r.Context(), integrationIDs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	summaries := make([]GameSummary, 0, len(games))
-	for _, g := range games {
-		files := make([]*core.GameFile, 0, len(g.Files))
-		for i := range g.Files {
-			files = append(files, &g.Files[i])
-		}
-		summaries = append(summaries, gameToSummary(g, files))
+	summaries := make([]GameSummary, 0, len(canonical))
+	for _, cg := range canonical {
+		summaries = append(summaries, canonicalToSummary(cg))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -415,13 +418,13 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 
 // AchievementController serves GET /api/games/{id}/achievements.
 type AchievementController struct {
-	gameRepo   core.GameRepository
+	gameStore  core.GameStore
 	pluginHost plugins.PluginHost
 	logger     core.Logger
 }
 
-func NewAchievementController(gameRepo core.GameRepository, pluginHost plugins.PluginHost, logger core.Logger) *AchievementController {
-	return &AchievementController{gameRepo: gameRepo, pluginHost: pluginHost, logger: logger}
+func NewAchievementController(gameStore core.GameStore, pluginHost plugins.PluginHost, logger core.Logger) *AchievementController {
+	return &AchievementController{gameStore: gameStore, pluginHost: pluginHost, logger: logger}
 }
 
 type AchievementDTO struct {
@@ -455,7 +458,7 @@ func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.R
 	}
 
 	ctx := r.Context()
-	game, err := c.gameRepo.GetGameByID(ctx, gameID)
+	game, err := c.gameStore.GetCanonicalGameByID(ctx, gameID)
 	if err != nil {
 		c.logger.Error("get game for achievements", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -476,14 +479,6 @@ func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.R
 	externalBySource := make(map[string]string) // plugin_id -> external_id
 	for _, eid := range game.ExternalIDs {
 		externalBySource[eid.Source] = eid.ExternalID
-	}
-	// Also check resolver matches for additional external IDs.
-	for _, rm := range game.ResolverMatches {
-		if rm.ExternalID != "" && !rm.Outvoted {
-			if _, exists := externalBySource[rm.PluginID]; !exists {
-				externalBySource[rm.PluginID] = rm.ExternalID
-			}
-		}
 	}
 
 	var sets []AchievementSetDTO

@@ -34,19 +34,19 @@ func main() {
 
 	settingRepo := db.NewSettingRepository(dbSvc)
 	integrationRepo := db.NewIntegrationRepository(dbSvc)
-	gameRepo := db.NewGameRepository(dbSvc)
+	gameStore := db.NewGameStore(dbSvc, logSvc)
 
 	processManager := plugins.NewProcessManager()
 	pluginHost := plugins.NewPluginHost(logSvc, configSvc, processManager)
 	syncSvc := plugins.NewPluginSyncProvider(pluginHost, integrationRepo, dbSvc, configSvc, logSvc)
 
-	orchestrator := scan.NewOrchestrator(pluginHost, pluginHost, integrationRepo, logSvc)
+	orchestrator := scan.NewOrchestrator(pluginHost, pluginHost, integrationRepo, gameStore, logSvc)
 
-	gameCtrl := http.NewGameController(gameRepo, logSvc)
+	gameCtrl := http.NewGameController(gameStore, logSvc)
 	discoCtrl := http.NewDiscoveryController(orchestrator, logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, logSvc)
-	achievementCtrl := http.NewAchievementController(gameRepo, pluginHost, logSvc)
+	achievementCtrl := http.NewAchievementController(gameStore, pluginHost, logSvc)
 
 	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, discoCtrl, configCtrl, pluginCtrl, achievementCtrl)
 

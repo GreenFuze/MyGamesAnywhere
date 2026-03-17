@@ -30,13 +30,13 @@ type PluginDiscovery interface {
 }
 
 // Orchestrator coordinates a game scan: it fetches files from each
-// source plugin, runs the scanner pipeline, and converts the results
-// into core.Game entities. No database interaction — results are
-// returned in-memory for the caller to inspect or persist.
+// source plugin, runs the scanner pipeline, enriches with metadata,
+// and persists results via GameStore.
 type Orchestrator struct {
 	pluginCaller     PluginCaller
 	pluginDiscovery  PluginDiscovery
 	integrationRepo  core.IntegrationRepository
+	gameStore        core.GameStore
 	scanner          *scanner.Scanner
 	metadataResolver *MetadataResolver
 	logger           core.Logger
@@ -46,20 +46,23 @@ func NewOrchestrator(
 	caller PluginCaller,
 	discovery PluginDiscovery,
 	integrationRepo core.IntegrationRepository,
+	gameStore core.GameStore,
 	logger core.Logger,
 ) *Orchestrator {
 	return &Orchestrator{
 		pluginCaller:     caller,
 		pluginDiscovery:  discovery,
 		integrationRepo:  integrationRepo,
+		gameStore:        gameStore,
 		scanner:          scanner.New(logger),
 		metadataResolver: NewMetadataResolver(caller, logger),
 		logger:           logger,
 	}
 }
 
-// RunScan scans all (or selected) integrations and returns the discovered games.
-func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]*core.Game, error) {
+// RunScan scans all (or selected) integrations, enriches metadata,
+// persists via GameStore, and returns the canonical game views.
+func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]*core.CanonicalGame, error) {
 	o.logger.Info("orchestrator: starting scan", "requested", len(integrationIDs))
 
 	integrations, err := o.integrationRepo.List(ctx)
@@ -73,7 +76,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 	}
 	filterActive := len(filter) > 0
 
-	var allGames []*core.Game
+	metaSources := o.findMetadataSources(integrations)
 
 	for _, integ := range integrations {
 		if filterActive && !filter[integ.ID] {
@@ -91,6 +94,8 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			continue
 		}
 
+		var games []*core.Game
+
 		switch {
 		case pluginProvides(plugin, sourceFilesystemListMethod):
 			files, err := o.fetchFiles(ctx, integ.PluginID, config)
@@ -104,28 +109,42 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 				return nil, fmt.Errorf("scan files for integration %q: %w", integ.ID, err)
 			}
 
-			games := buildGames(integ.ID, groups)
+			games = buildGames(integ.ID, integ.PluginID, groups)
 			o.logger.Info("orchestrator: built games", "integration_id", integ.ID, "games", len(games))
-			allGames = append(allGames, games...)
 
 		case pluginProvides(plugin, sourceGamesListMethod):
-			games, err := o.fetchGames(ctx, integ.ID, integ.PluginID, config)
+			games, err = o.fetchGames(ctx, integ.ID, integ.PluginID, config)
 			if err != nil {
 				return nil, fmt.Errorf("fetch games from integration %q: %w", integ.ID, err)
 			}
 			o.logger.Info("orchestrator: fetched storefront games", "integration_id", integ.ID, "count", len(games))
-			allGames = append(allGames, games...)
 		}
+
+		if len(games) == 0 {
+			continue
+		}
+
+		// Metadata enrichment per-integration.
+		if len(metaSources) > 0 {
+			o.metadataResolver.Enrich(ctx, games, metaSources)
+		}
+
+		// Convert enriched games → ScanBatch and persist.
+		batch := gamesToScanBatch(integ.ID, integ.PluginID, games)
+		if err := o.gameStore.PersistScanResults(ctx, batch); err != nil {
+			return nil, fmt.Errorf("persist scan results for integration %q: %w", integ.ID, err)
+		}
+		o.logger.Info("orchestrator: persisted", "integration_id", integ.ID, "source_games", len(batch.SourceGames))
 	}
 
-	// Metadata enrichment: find all metadata plugin integrations and enrich.
-	metaSources := o.findMetadataSources(integrations)
-	if len(metaSources) > 0 {
-		o.metadataResolver.Enrich(ctx, allGames, metaSources)
+	// Return the canonical game views.
+	result, err := o.gameStore.GetCanonicalGames(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get canonical games: %w", err)
 	}
 
-	o.logger.Info("orchestrator: scan complete", "total_games", len(allGames))
-	return allGames, nil
+	o.logger.Info("orchestrator: scan complete", "canonical_games", len(result))
+	return result, nil
 }
 
 // fetchFiles calls source.filesystem.list on the plugin and parses the response.
@@ -258,7 +277,7 @@ func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID s
 
 // buildGames converts scanner GameGroups into core.Game entities.
 // Each group becomes one Game; files carry over with their roles.
-func buildGames(integrationID string, groups []scanner.GameGroup) []*core.Game {
+func buildGames(integrationID, pluginID string, groups []scanner.GameGroup) []*core.Game {
 	now := time.Now()
 	games := make([]*core.Game, 0, len(groups))
 
@@ -293,6 +312,74 @@ func buildGames(integrationID string, groups []scanner.GameGroup) []*core.Game {
 		})
 	}
 	return games
+}
+
+// gamesToScanBatch converts the in-memory enriched Game list into a ScanBatch
+// ready for persistence. Each Game becomes a SourceGame; resolver matches
+// and media are split out into their own maps.
+func gamesToScanBatch(integrationID, pluginID string, games []*core.Game) *core.ScanBatch {
+	batch := &core.ScanBatch{
+		IntegrationID:   integrationID,
+		SourceGames:     make([]*core.SourceGame, 0, len(games)),
+		ResolverMatches: make(map[string][]core.ResolverMatch),
+		MediaItems:      make(map[string][]core.MediaRef),
+	}
+
+	for _, g := range games {
+		extID := g.ID
+		if len(g.ExternalIDs) > 0 {
+			extID = g.ExternalIDs[0].ExternalID
+		}
+
+		sg := &core.SourceGame{
+			ID:            g.ID,
+			IntegrationID: integrationID,
+			PluginID:      pluginID,
+			ExternalID:    extID,
+			RawTitle:      g.RawTitle,
+			Platform:      g.Platform,
+			Kind:          g.Kind,
+			GroupKind:     g.GroupKind,
+			RootPath:      g.RootPath,
+			Status:        g.Status,
+			LastSeenAt:    g.LastSeenAt,
+			Files:         g.Files,
+		}
+		batch.SourceGames = append(batch.SourceGames, sg)
+
+		if len(g.ResolverMatches) > 0 {
+			batch.ResolverMatches[g.ID] = g.ResolverMatches
+		}
+
+		// Collect media from all resolver matches + game-level media.
+		var refs []core.MediaRef
+		seen := map[string]bool{}
+		addMedia := func(mi core.MediaItem) {
+			if mi.URL == "" || seen[mi.URL] {
+				return
+			}
+			seen[mi.URL] = true
+			refs = append(refs, core.MediaRef{
+				Type:   mi.Type,
+				URL:    mi.URL,
+				Source: mi.Source,
+				Width:  mi.Width,
+				Height: mi.Height,
+			})
+		}
+		for _, mi := range g.Media {
+			addMedia(mi)
+		}
+		for _, m := range g.ResolverMatches {
+			for _, mi := range m.Media {
+				addMedia(mi)
+			}
+		}
+		if len(refs) > 0 {
+			batch.MediaItems[g.ID] = refs
+		}
+	}
+	return batch
 }
 
 func deterministicID(integrationID, rootDir, name string) string {
