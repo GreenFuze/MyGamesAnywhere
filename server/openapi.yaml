@@ -191,6 +191,44 @@ paths:
         500:
           description: Internal server error
 
+  /api/sync/key:
+    delete:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/sync/pull:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/sync/push:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/sync/status:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /health:
     get:
       summary: Health check

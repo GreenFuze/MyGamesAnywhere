@@ -1,534 +1,285 @@
-# Roadmap: Deterministic local game / installer classification and identification
+# MyGamesAnywhere — Roadmap
 
-This roadmap breaks down the plan into milestones and tasks. Implementation is in **Go** (structs + validation). Pipeline runs when the server **scan API** is called. Persistence uses **new SQLite tables**. A **FileSystem abstraction** supports local, SMB, Drive, etc. List-games API will support a parameter to include **non-detected** games for later manual review.
+## Completed
 
-**Progress:** Milestones 1–8 complete (inventory scan through list-games with non-detected filter). Next: Phase S "Later" items (evidence traces, manual review queue) and backend design M8 (admin + hardening).
+### Server Core
+- [x] Plugin architecture (IPC, length-prefixed JSON over stdin/stdout)
+- [x] Game source plugins: SMB, Steam, Xbox, Epic, Google Drive
+- [x] Metadata resolver plugins: IGDB, RAWG, Steam, GOG, LaunchBox, MAME DAT, HLTB, RetroAchievements, TGDB (disabled)
+- [x] 3-phase metadata orchestrator (Identify → Consensus → Fill)
+- [x] Scanner pipeline (file detection, platform detection, title normalization, role classification, grouping)
+- [x] Achievement support (Steam, Xbox, RetroAchievements — on-demand)
+- [x] MediaItem model (URL, type, source — download deferred)
+- [x] CompletionTime model (HLTB integration)
+- [x] Database schema (SQLite, WAL mode, foreign keys)
+- [x] GameStore persistence layer (transactional writes, canonical game views, soft deletes, move detection)
+- [x] REST API (games, integrations, plugins, scan, achievements, config)
+- [x] System tray (Windows)
+- [x] Build system (build.ps1 — server + all plugins)
 
----
-
-## Goals
-
-- [ ] Detect whether local filesystem objects represent:
-  - a game
-  - a game installer
-  - installer payload files
-  - emulator ROM / media
-  - extracted game directory
-  - extras / manuals / media / noise
-  - unknown
-- [ ] Group files into one package
-- [ ] Group base game + addon / DLC / patch / expansion into one game, not separate games
-- [ ] Represent installation as an ordered list of installation units
-- [ ] Derive normalized title, platform, emulator family, and release candidates
-- [ ] Bind to zero or more external game databases (via plugins)
-- [ ] Produce one internal canonical game ID, while allowing multiple releases and multiple sources
-
----
-
-## Core principles
-
-- Prefer deterministic signals over heuristics
-- Do not classify a single file directly into a canonical game
-- Keep these layers separate:
-  - Artifact
-  - Package
-  - InstallationUnit
-  - Release
-  - CanonicalGame
-  - ExternalBinding
-- `unknown` and `ambiguous` are valid outcomes
-- No external match does not mean unknown
-- Addon/DLC/patch/expansion are installation units attached to a base game
-- Path and filesystem structure are useful signals, not required for correctness
-
-**Final rule:** Model installation as one canonical game; one or more releases; each release has an ordered installation sequence; each sequence contains base game first, then addon/DLC/patch/expansion units. This keeps addon/DLC grouped correctly without losing their identity or install order.
+### Bugs Fixed
+- [x] HTTP middleware timeout killing long scans (detached context + exempt scan route)
+- [x] SMB plugin.check_config not unwrapping `{"config": ...}` wrapper
+- [x] SMB Guest credentials → permission denied (switched to real credentials)
+- [x] SMB plugin missing plugin.init handler
+- [x] Plugin controller not wrapping config for check_config IPC calls
 
 ---
 
-## High-level model
+## Phase 0 — Backend Prep
 
-### Artifact
-A concrete filesystem object.
+### Settings Sync
+- [x] JSON export format for sync payload (integrations, user settings, game overrides — NOT source games/metadata)
+- [x] Encrypt secrets in sync payload
+- [x] `POST /api/sync/push` — export local state → Google Drive (`My Drive/Games/mga_sync/`)
+- [x] `POST /api/sync/pull` — download remote state → merge into local DB
+- [x] Versioned backups on Drive (timestamped files + `latest.json` pointer)
+- [x] Merge logic: add missing, update older, never delete
+- [x] Google Drive sync plugin: `sync.push` / `sync.pull` IPC methods
 
-Examples: file, directory, archive file, cue file, bin file, iso file.
+### Server-Sent Events
+- [ ] `GET /api/events` SSE endpoint
+- [ ] Scan progress events (started, per-integration progress, completed, error)
+- [ ] Notification events (integration status changes, errors)
 
-Fields: `artifact_id`, `path`, `name`, `extension`, `is_file`, `is_dir`, `size`, `mtime`, `parent_path`, `path_tokens`, `sibling_names`, `scan_state`
+### Static File Serving
+- [ ] `go:embed` frontend dist into server binary
+- [ ] Serve `/*` (excluding `/api/*`) from embedded SPA
+- [ ] SPA fallback: all non-file routes return `index.html`
 
-### Package
-A set of artifacts that belong together operationally.
+### Tray Icon
+- [ ] Add "Open Web Frontend" menu item → opens `http://localhost:{port}` in default browser
 
-Examples: `setup_game.exe` + `setup_game-1.bin` + `setup_game-2.bin`; `game.cue` + `track1.bin` + `track2.bin`; one DOS game directory; one PS3 extracted game directory; one MAME ZIP; one portable ZIP archive.
+### API Enhancements
+- [ ] Duplicate integration prevention (`POST /api/integrations` rejects same plugin_id + same config)
+- [ ] `GET /api/games/{id}` — full detail response with metadata_json, media, external IDs
+- [ ] `GET /api/games/{id}/play` — stream game file from source (for emulator playback)
+- [ ] `GET /api/stats` — library statistics (counts by platform, genre, source, metadata coverage)
+- [ ] Frontend preferences: `GET/POST /api/config/frontend` (theme, view mode, sidebar state)
 
-Fields: `package_id`, `root_artifact_id`, `package_kind`, `member_artifact_ids`, `required_member_artifact_ids`, `optional_member_artifact_ids`, `evidence`, `confidence`
-
-### InstallationUnit
-A package that can participate in an installation sequence.
-
-Examples: base game installer, DLC installer, season pass installer, expansion installer, patch installer, already-installed portable game directory, extracted console game directory, emulator ROM set.
-
-Fields: `installation_unit_id`, `package_id`, `unit_kind`, `install_role`, `base_game_key_candidate`, `addon_kind`, `install_order_hint`, `depends_on_installation_unit_ids`, `evidence`, `confidence`
-
-`unit_kind` examples: `base_game`, `addon`, `dlc`, `expansion`, `patch`, `portable_game`, `disc_media`, `rom_media`, `extras`, `unknown`
-
-### Release
-A specific releasable representation of a game.
-
-Examples: one GOG offline installer release, one PS2 disc image release, one MAME ROM release, one DOS unpacked release.
-
-Fields: `release_id`, `canonical_title_candidate`, `title_variants`, `platform`, `emulator_family`, `release_type`, `region`, `languages`, `version_tokens`, `installation_unit_ids`, `installation_sequence`, `authoritative_ids`, `external_bindings`, `confidence_local`
-
-### CanonicalGame
-The abstract game identity.
-
-Fields: `game_id`, `preferred_title`, `title_aliases`, `platform_families`, `release_ids`, `external_bindings`, `confidence_canonical`
-
-### ExternalBinding
-Fields: `source`, `external_id`, `external_url`, `bound_level` (release or canonical_game), `match_method`, `evidence`, `confidence`, `last_verified_at`
+### xCloud Catalog
+- [ ] Extend Xbox source/metadata plugin to detect xCloud availability
+- [ ] Store `xcloud_available` flag and `xcloud_url` per game
+- [ ] xCloud badge in game data
 
 ---
 
-## Milestones
+## Phase 1 — Frontend Scaffold
 
-### Milestone 1 — FileSystem abstraction and inventory scan
+### Project Setup
+- [ ] Initialize Vite + React + TypeScript in `server/frontend/`
+- [ ] Tailwind CSS + PostCSS configuration
+- [ ] shadcn/ui component foundation (headless, accessible, owned)
+- [ ] React Router (client-side routing)
+- [ ] TanStack Query (API data fetching + caching)
+- [ ] Auto-generated API client from `openapi.yaml`
+- [ ] Vite dev proxy to Go server (`localhost:8900`)
+- [ ] Add `server/frontend/node_modules/` and `server/frontend/dist/` to `.gitignore`
 
-**Scope:** FileSystem abstraction + Phase A (inventory scan).
+### Shell & Layout
+- [ ] App shell: sidebar + topbar + main content area
+- [ ] Sidebar navigation (Library, Playable, Settings, About)
+- [ ] Topbar: search bar (Ctrl+K), theme toggle, notification bell
+- [ ] Responsive breakpoints (desktop, tablet, mobile)
+- [ ] Loading states and error boundaries
 
-- [x] Define `FileSystem` interface (List, Stat, optional path hints: library zone, platform hint, role hint)
-- [x] Implement local filesystem adapter for the interface
-- [x] Implement inventory scanner: collect path, name, extension, is_file/is_dir, size, mtime, parent_path, path_tokens, sibling names
-- [x] Add optional path hints (library zone, platform hint, role hint) when available from adapter
-- [x] Add SQLite schema: tables for scan runs and raw inventory (e.g. `scan_runs`, `artifacts`)
-- [x] Wire inventory scan into scan API path (no package/classification yet)
+### Theme Engine
+- [ ] `MgaTheme` TypeScript interface (colors, typography, shape, elevation, card, layout, motion, effects, badge, scrollbar)
+- [ ] Theme context provider
+- [ ] CSS custom property injection from theme object
+- [ ] Theme persistence via `/api/config/frontend`
+- [ ] Theme selector component with live preview
+- [ ] `prefers-reduced-motion` and `prefers-color-scheme` respect
 
-**Out of scope:** Artifact kind detection, package assembly.
+### All 11 Themes
+- [ ] **Midnight** — default dark, charcoal + blue accent, clean professional
+- [ ] **Daylight** — classic light, white canvas + soft shadows, airy modern
+- [ ] **Deep Blue** — blue-gray + teal highlights, rounded cards, PC gamer feel
+- [ ] **Obsidian** — true black + vivid green, frosted glass, console-premium
+- [ ] **Curator** — purple-slate + warm gold, compact density, power user
+- [ ] **Big Screen** — deep navy + electric blue glow, oversized cards, TV/gamepad friendly
+- [ ] **Retro Terminal** — phosphor green/amber, monospace font, pixel-art sensibility, no gimmicky overlays
+- [ ] **Synthwave** — purple gradient + hot pink/cyan, neon glow, gradient accents, bold
+- [ ] **Cinema** — pure black + warm gold, ultra-high contrast, minimal chrome, OLED-perfect
+- [ ] **Frost** — Nord palette, arctic blue-gray, muted aurora accents, calm sophisticated
+- [ ] **Neon Arcade** — 80s arcade, bright neon palette, chunky display font, uppercase, pixel grid pattern
 
----
-
-### Milestone 2 — Artifact kind detection by extension
-
-**Scope:** Phase B.
-
-- [x] Define enums and Go structs for artifact kinds (executable-like, archive-like, disc/media-like, data/asset-like, unknown)
-- [x] Implement artifact kind detection by extension only (no header parsing)
-- [x] Map extensions to kinds: .exe/.com/.bat, .zip/.7z/.rar, .iso/.cue/.bin/.img/.ccd/.sub/.mdf/.mds/.chd, .sfo/.png/.pdf/.mp3, etc.
-- [x] Persist or pass artifact kind on each artifact to next stage
-- [x] Add/update SQLite schema if persisting artifact kinds
-- [x] Refactor/dedup/over-engineering pass (see Code health section)
-
-**Depends on:** Milestone 1.
-
----
-
-### Milestone 3 — Package assembly
-
-**Scope:** Phase C.
-
-- [x] Define Package struct and package_kind enum (multipart_installer, optical_disc_set, optical_disc_image, portable_game_directory, dos_game_directory, extracted_console_game_directory, archive_candidate, extras_collection, etc.)
-- [x] Implement Rule C1: multipart installer (stem.exe + stem-1.bin, stem-2.bin, …)
-- [x] Implement Rule C2: cue/bin optical disc package
-- [x] Implement Rule C3: single ISO package
-- [x] Implement Rule C4: portable native game directory
-- [x] Implement Rule C5: DOS game directory
-- [x] Implement Rule C6: extracted console game directory (e.g. PS3_GAME, PARAM.SFO)
-- [x] Implement Rule C7: archive as package root (archive_candidate)
-- [x] Implement Rule C8: MAME-style / ROM-style single archive
-- [x] Implement Rule C9: extras collection directory
-- [x] Add SQLite tables for packages and package membership (e.g. `packages`, `package_artifacts`)
-- [x] Wire package assembly into scan flow after artifact kind detection
-- [x] Refactor/dedup/over-engineering pass (see Code health section)
-
-**Depends on:** Milestone 2.
+### Logo & Branding
+- [ ] MGA logo design (used as favicon, loading screen, tray icon, about page)
+- [ ] Tray icon update with logo
 
 ---
 
-### Milestone 4 — Installation units and addon binding
+## Phase 2 — Game Library
 
-**Scope:** Phases D, E, F.
+### Library Views
+- [ ] Grid view (cover art cards with metadata badges)
+- [ ] List view (compact table with sortable columns)
+- [ ] View mode toggle (persisted in preferences)
 
-- [x] Define InstallationUnit struct and enums (unit_kind, install_role: base_game, addon, dlc, expansion, patch, portable_game, disc_media, rom_media, extras, unknown)
-- [x] Implement InstallationUnit detection (Rule D1–D4): base-game vs addon vs extras vs unknown
-- [x] Implement base-game binding for addons (Phase E): title containment, shared stem/family, sibling proximity, path hints
-- [x] Implement installation sequence model (Phase F): ordered list of units per release; base before addons
-- [x] Add SQLite tables: `installation_units`, `installation_sequences` (or equivalent)
-- [x] Wire units and sequences into scan flow after package assembly
-- [x] Refactor/dedup/over-engineering pass (see Code health section)
+### Game Cards
+- [ ] Cover art with lazy loading and placeholder
+- [ ] Platform icon badge (Steam, GBA, PS1, Arcade, ScummVM, DOS, etc.)
+- [ ] Source badge (which integration found it)
+- [ ] Achievement progress ring (if available)
+- [ ] HLTB time estimate badge
+- [ ] Metadata confidence indicator (number of resolvers matched)
+- [ ] "Playable" badge (browser-emulatable platforms)
+- [ ] "xCloud" badge (cloud-playable Xbox games)
+- [ ] Play button on playable games vs. "View" on others
 
-**Depends on:** Milestone 3.
+### Search & Filtering
+- [ ] Full-text search with fuzzy matching
+- [ ] Keyboard shortcut (Ctrl+K) to focus search
+- [ ] Filter sidebar: platform, genre, year range, developer/publisher, source, playable-only
+- [ ] Sort by: title, release date, recently added, HLTB time, platform
 
----
-
-### Milestone 5 — Role, platform, title, and local release ID
-
-**Scope:** Phases G, H, I, J (conditional), K.
-
-- [x] Implement role classifier (Phase G): installer, installer_payload, emulator_rom, disc_media, extracted_console_game, portable_game, extras, noise, unknown
-- [x] Implement platform detector (Phase H): windows_pc, ms_dos, arcade, gba, ps1, ps2, ps3, psp, xbox_360, scummvm, unknown (using package structure, title, path hints, layout)
-- [x] Implement title normalization (Phase I): region/language/version/disc/addon markers; normalized_title, base_title_candidate, title_variants
-- [x] Implement archive member listing (Phase J): list members only for unresolved archives; resolve portable vs installer vs ROM vs extras
-- [x] Implement local release descriptor and synthetic release_id (Phase K); DLC units do not create their own canonical game
-- [x] Add SQLite tables: `releases`, link installation_units to releases
-- [x] Wire into scan flow; persist Release and InstallationUnit
-
-**Depends on:** Milestone 4.
-
----
-
-### Milestone 6 — Canonical game, relationships, confidence, output schema
-
-**Scope:** Phases N, O, P, Q, R.
-
-- [x] Implement canonical game merge (Phase N): merge releases into one canonical game when evidence agrees; addons/DLC/patch stay attached to base
-- [x] Implement relationships graph (Phase O): store edges (contains, requires, payload_of, addon_for, patch_for, expansion_for, manual_for, etc.)
-- [x] Implement confidence model (Phase P): local vs external; levels (certain, strong, moderate, weak, unknown)
-- [x] Implement evidence precedence (Phase Q): explicit package relations first, then addon/base title, siblings, dir structure, path hints, archive listing, external catalog, general metadata, manual review
-- [x] Define and expose output schema (Phase R): release and installation unit fields as specified in plan
-- [x] Add SQLite tables: `canonical_games`, `releases.canonical_game_id`, `relationships` (evidence on relationship/entity; no dedicated evidence table in M6)
-- [x] Expose API shape for list games consistent with output schema
-- [x] Refactor/dedup/over-engineering pass (see Code health section)
-
-**Depends on:** Milestone 5.
+### Library Sections
+- [ ] **All Games** — complete library
+- [ ] **Playable** — filtered to browser-emulatable platforms
+- [ ] **xCloud** — Xbox Game Pass cloud-playable games
 
 ---
 
-### Milestone 7 — External binding: authoritative catalog + metadata plugins
+## Phase 3 — Game Detail Page
 
-**Scope:** Phases L and M. **New plugin type: external DB (metadata).**
+### Metadata Display
+- [ ] Full-bleed hero banner (cover art, blurred background)
+- [ ] Description, release date, developer, publisher, genres, rating
+- [ ] In-context attribution: source logos next to data they provided (IGDB logo next to description, etc.)
 
-- [x] **Contracts:** Define new plugin category/capability (e.g. `metadata` or `external_binding`) in contracts/schemas
-- [x] **Contracts:** Define request/response for metadata plugins: input = release/canonical candidate (title, platform, installation units, etc.); output = list of ExternalBindings (source, external_id, external_url, confidence, etc.)
-- [x] **Plugin loader:** Support discovering and loading plugins by category (e.g. list “metadata” plugins); extend manifest/schema so plugins can declare metadata capability
-- [x] Implement authoritative catalog binding (Phase L): Redump, No-Intro, MAME/software-list where package type supports it (ROM, cue/bin, iso) — MVP: built-in stub returning no bindings; pipeline ready for future DAT/API
-- [x] **Scan flow:** After local pipeline produces Release/CanonicalGame, call each metadata plugin with release/canonical candidate; persist returned ExternalBindings to SQLite; do not override strong local evidence
-- [x] Add SQLite table(s) for ExternalBinding and wire to releases/canonical_games
-- [x] Document in spec/roadmap: external DB is an additional plugin category; server invokes it during scan/binding step
+### Media Gallery
+- [ ] Screenshot viewer (lightbox)
+- [ ] Video embeds (if available)
+- [ ] Media source attribution
 
-**Depends on:** Milestone 6.
+### External Links
+- [ ] IGDB, RAWG, Steam Store, GOG, LaunchBox links with service favicons/logos
 
----
+### Achievements
+- [ ] Achievement list with icons, descriptions, progress
+- [ ] Source attribution (RetroAchievements logo, Steam logo, Xbox logo)
+- [ ] Overall progress bar
 
-### Milestone 8 — List non-detected games and (later) manual review
+### Completion Times
+- [ ] HLTB main story / completionist / combined display
+- [ ] HLTB logo attribution
 
-**Scope:** List-games parameter; evidence traces; optional manual review queue later.
-
-- [x] Add list-games API parameter to include non-detected games (e.g. `include_non_detected=true` or `detection_status=unknown`)
-- [x] Ensure non-detected items (unknown install_role or low confidence) are queryable and surfaced for future manual review
-- [ ] (Later) Implement explanation/evidence traces in API responses
-- [ ] (Later) Implement manual review queue (mark as game/installer/noise, bind to canonical game, override classification)
-
-**Depends on:** Milestone 6 (parameter can be added earlier if needed).
-
----
-
-## Code health and quality gates
-
-**When:** After Milestones 2, 4, and 6 (and optionally after 3 and 5 if duplication or complexity appears).
-
-- **Refactor:** Extract shared logic (e.g. extension sets, rule loops), keep interfaces small, single responsibility per type. No new behavior; tests must still pass.
-- **Deduplication:** Look for repeated patterns (extension maps, similar rule logic across C1–C9 or D1–D4). Prefer one extension→kind map, one rule runner, or small shared helpers instead of copy-paste.
-- **Over-engineering check:** Before adding a new abstraction, table, or optional feature: (1) Is it required for the current milestone or an immediate next step? (2) Can we ship the milestone with a simpler design and refactor later? If "not required now" or "yes, we can simplify", do not add it yet.
+### Play
+- [ ] "Play in Browser" button for supported platforms
+- [ ] "Play on xCloud" button → opens xCloud URL
+- [ ] Source info: file paths, integration details, resolver match data
 
 ---
 
-## Phase and milestone naming
+## Phase 4 — Settings & Admin
 
-**Phases** use the format `Phase [Letter]. [Short name]`: letter A through S (S = implementation-order checklist), short name lowercase and descriptive. Use when referring to the pipeline spec (e.g. "Phase C", "Phase E").
+### Integrations
+- [ ] List active integrations with status indicators
+- [ ] Add new integration (plugin selector, config form, test connection)
+- [ ] Remove integration
+- [ ] Edit integration config
 
-**Milestones** use the format `Milestone [Number] — [Short title]`: number 1 through 8, title concise and implementation-oriented. Use when planning work, checkboxes, and "Depends on" (e.g. "Milestone 2", "Milestone 4").
+### Plugins
+- [ ] Discovered plugins list with version, capabilities, enabled/disabled status
 
-**Cross-references:** In milestone **Scope**, reference phases (e.g. `**Scope:** Phase A` or `Phases D, E, F`). In task bullets, add `(Phase X)` or `(Phases X, Y)` where it helps.
+### Scanning
+- [ ] Trigger full scan button
+- [ ] Trigger per-integration scan
+- [ ] Scan progress display (driven by SSE)
+- [ ] Last scan results summary
 
-| Phase(s) | Milestone | Description |
-|----------|-----------|-------------|
-| A | 1 | FileSystem abstraction and inventory scan |
-| B | 2 | Artifact kind detection by extension |
-| C | 3 | Package assembly |
-| D, E, F | 4 | Installation units and addon binding |
-| G, H, I, J, K | 5 | Role, platform, title, local release ID |
-| N, O, P, Q, R | 6 | Canonical game, relationships, confidence, output schema |
-| L, M | 7 | External binding (authoritative + metadata plugins) |
-| — | 8 | List non-detected games and manual review (later) |
+### Sync
+- [ ] Push to Google Drive button with confirmation dialog
+- [ ] Pull from Google Drive with merge preview
+- [ ] Backup history browser (timestamped snapshots)
+- [ ] "Last synced" indicator
 
-Phase S is the recommended implementation-order checklist; it aligns with milestones 1–8 and the Phases (detailed) section.
-
----
-
-## Phases (detailed)
-
-### Phase A. Inventory scan
-
-Collect only cheap metadata: path, extension, file/dir, size, mtime, parent path, sibling names.
-
-Also collect optional path hints: library zone, platform hint from path, role hint from path.
-
-Important: these are hints only; the rest of the pipeline must still work if these hints are missing or misleading.
+### Theme Selector
+- [ ] Visual theme previews (thumbnails or live mini-preview)
+- [ ] One-click theme switching with instant feedback
 
 ---
 
-### Phase B. Artifact kind detection by extension
+## Phase 5 — Real-Time Updates
 
-Do not inspect headers in normal flow. Detect coarse artifact kinds by extension only.
-
-**Executable-like**  
-Extensions: `.exe`, `.com`, `.bat`  
-Kinds: `windows_executable`, `dos_executable`, `script_launcher`
-
-**Archive-like**  
-Extensions: `.zip`, `.7z`, `.rar`  
-Kind: `archive`
-
-**Disc / media-like**  
-Extensions: `.iso`, `.cue`, `.bin`, `.img`, `.ccd`, `.sub`, `.mdf`, `.mds`, `.chd`  
-Kinds: `disc_image`, `disc_descriptor`, `disc_track`
-
-**Data / asset-like**  
-Examples: `.sfo`, `.sfb`, `.png`, `.pdf`, `.mp3`, `.ogg`, `.voc`, `.cmf`, `.drv`, `.def`, `.dat`  
-Kinds: `game_data`, `manual_or_document`, `image_asset`, `audio_media`
-
-**Unknown**  
-Anything else becomes `unknown_artifact`
-
-This phase detects only artifact kind. It does not decide whether something is a game, installer, or addon.
+- [ ] SSE client integration (auto-reconnect, event parsing)
+- [ ] Scan progress bar (global, in topbar or toast)
+- [ ] Toast notification system (non-blocking)
+- [ ] Notification types: scan complete, scan error, integration status change, sync complete
 
 ---
 
-### Phase C. Package assembly
+## Phase 6 — In-Browser Emulation
 
-Assemble packages using deterministic relationships.
+### Emulator Engines
+- [ ] EmulatorJS integration (NES, SNES, GBA, N64, PS1, Genesis, Arcade/MAME)
+- [ ] js-dos integration (MS-DOS games)
+- [ ] ScummVM WASM integration (point-and-click adventures)
 
-- **Rule C1. Multipart installer package:** If there is `stem.exe` and sibling files `stem-1.bin`, `stem-2.bin`, ... then create one package with `package_kind = multipart_installer`. The `.exe` is the package root; the `.bin` files are required members.
-- **Rule C2. Cue/bin optical disc package:** If a `.cue` exists, create one package rooted at the `.cue` and attach referenced or matching sibling `.bin` files. Package kind: `optical_disc_set`.
-- **Rule C3. Single ISO package:** If there is one `.iso`, package root is the `.iso`. Package kind: `optical_disc_image`.
-- **Rule C4. Portable native game directory:** If a directory contains one or more executable-like files plus asset/data files and the content appears self-contained, classify the directory as one package: `portable_game_directory`.
-- **Rule C5. DOS game directory:** If a directory contains `.exe`, `.com`, or `.bat` plus DOS-era data/config assets, classify the entire directory as one package: `dos_game_directory`.
-- **Rule C6. Extracted console game directory:** If a directory contains a known extracted-layout signature (e.g. `PS3_GAME`, `PS3_DISC.SFB`, `PARAM.SFO`), classify the whole directory as one package: `extracted_console_game_directory`.
-- **Rule C7. Archive package:** A `.zip` or `.7z` starts as a package root: `archive_candidate`. Its role is resolved later by member listing.
-- **Rule C8. MAME-style or ROM-style single archive:** If a single archive appears to be the whole game payload and no multipart companion files exist, treat it as a standalone package root.
-- **Rule C9. Extras collection:** Directories containing only manuals, images, soundtracks, save files, themes, or unrelated media: `extras_collection`.
+### Player UI
+- [ ] Fullscreen mode
+- [ ] Save states
+- [ ] Controller mapping / keyboard overlay
+- [ ] Exit back to library
 
----
+### ROM Streaming
+- [ ] `GET /api/games/{id}/play` serves game files from source (SMB, Drive, etc.)
+- [ ] Platform-to-emulator-core mapping
 
-### Phase D. InstallationUnit detection
-
-Convert packages into installable units.
-
-**Possible install roles:** `base_game`, `addon`, `dlc`, `expansion`, `patch`, `portable_game`, `disc_media`, `rom_media`, `extras`, `unknown`.
-
-- **Rule D1. Base-game indicators:** Normal title; installer without addon markers; portable game directory; disc package; ROM package; extracted console package → `install_role = base_game`.
-- **Rule D2. Addon/DLC indicators:** From normalized title: dlc, season pass, character pack, bundle pack, level pack, expansion, bonus content, soundtrack, artbook, update, patch → `install_role = addon` or `dlc` or `patch`; do not create a separate CanonicalGame; store as InstallationUnit attached to the base game candidate.
-- **Rule D3. Extras indicators:** Manuals, music, wallpapers, theme files, saves → `install_role = extras`.
-- **Rule D4. Unknown:** If not enough deterministic evidence exists → `install_role = unknown`.
+### xCloud
+- [ ] xCloud launch (iframe or external link to `xbox.com/play/launch/{titleId}`)
+- [ ] Evaluate Better xCloud enhancements (open source)
 
 ---
 
-### Phase E. Base-game binding for addon / DLC / patch
+## Phase 7 — Polish & Advanced Features
 
-This phase is required so addons do not become separate games.
+### Animations & Motion
+- [ ] Page transition animations
+- [ ] Staggered grid item entrance
+- [ ] Smooth filter/sort transitions
+- [ ] Skeleton loading states
 
-**Goal:** Bind each addon-like installation unit to one base-game candidate.
+### Gamepad Navigation
+- [ ] Navigate entire UI with controller
+- [ ] Focus management, visual focus indicators
+- [ ] Optimized for Big Screen theme
 
-**Evidence sources in priority order:**
+### Dashboard / Stats
+- [ ] Games by platform (chart)
+- [ ] Games by decade
+- [ ] Top genres
+- [ ] Metadata coverage (% with descriptions, cover art, achievements)
+- [ ] Recent scan activity
 
-1. Explicit title containment — e.g. `lego batman 3 beyond gotham season pass` → base candidate `lego batman 3 beyond gotham`
-2. Shared package family or shared stem — same vendor/store naming family; same version/build family if meaningful
-3. Sibling proximity — addon installer is stored near base installer; addon and base use similar naming patterns
-4. Path/library hints — useful, but not required
-5. External database reconciliation — if local base-game candidate is ambiguous
+### Collections
+- [ ] User-created groupings ("Couch co-op", "Childhood favorites")
+- [ ] "What should I play?" random picker (factors in HLTB and mood)
 
-**Output:** Each addon-like unit gets `base_game_key_candidate`, `depends_on_installation_unit_ids`, `install_order_hint`.
+### About Page
+- [ ] MGA version, build date, author credits
+- [ ] "Powered By" grid with logos and one-liner descriptions for all services:
+  IGDB, RAWG, Steam, GOG, LaunchBox, MAME, HowLongToBeat, RetroAchievements,
+  TheGamesDB, EmulatorJS/RetroArch, js-dos/DOSBox, ScummVM, Xbox/xCloud,
+  Epic Games, Google Drive
+- [ ] "View Open Source Licenses" link
+- [ ] In-context attribution throughout the app (service logos next to their data)
 
-Important: addon/DLC/patch units remain visible; they are just not promoted to separate canonical games.
-
----
-
-### Phase F. Installation sequence model
-
-Represent each game release as an ordered list of installation units.
-
-**Why:** This solves base installer + DLC; base installer + patch; multiple expansions; base portable game + extras; disc 1 / disc 2 style ordered media if needed later.
-
-**Model:** Each Release contains `installation_sequence: list[InstallationSequenceItem]`. Each item: `installation_unit_id`, `sequence_index`, `sequence_role`, `is_required`, `depends_on`, `notes`.
-
-**Typical examples:**
-
-- Base game only: 1. base game installer
-- Base game + DLC: 1. base game installer, 2. season pass, 3. character pack, 4. level pack
-- Base game + patch: 1. base game installer, 2. patch 1, 3. patch 2
-- Portable game directory: 1. portable game directory
-- Optical disc media: 1. disc package
-
-**Rules:** Base game must appear before addon/DLC/patch; addon/DLC/patch must reference a base unit; sequence order is part of the release model, not the canonical game model.
-
----
-
-### Phase G. Role classification
-
-Classify each package / installation unit into one operational role.
-
-Possible roles: `portable_game`, `installer`, `installer_payload`, `emulator_rom`, `disc_media`, `extracted_console_game`, `extras`, `noise`, `unknown`.
-
-**Examples:** multipart installer → `installer`; `.bin` payload sibling in installer package → `installer_payload`; MAME ZIP → `emulator_rom`; PS1 cue/bin → `disc_media`; PS2 ISO → `disc_media`; PS3 extracted layout → `extracted_console_game`; DOS self-contained directory → `portable_game`; manual PDF → `extras`; stray MP3 in ROM folder → `noise` or `extras`.
+### Additional Ideas
+- [ ] Keyboard shortcuts (Vim-style navigation, quick actions)
+- [ ] Import/export library (JSON/CSV)
+- [ ] Game comparison view (side-by-side metadata)
+- [ ] Timeline view (library by release year)
+- [ ] Responsive mobile/tablet design
 
 ---
 
-### Phase H. Platform detection
+## Known Issues / Deferred
 
-Detect platform independently from role.
-
-**Possible evidence sources:** package structure, title conventions, path hints, known extracted layout, later external binding.
-
-**Possible outputs:** `windows_pc`, `ms_dos`, `arcade`, `gba`, `ps1`, `ps2`, `ps3`, `psp`, `xbox_360`, `scummvm`, `unknown`.
-
-Important: path can help a lot; but platform detection must still work when path is absent.
-
----
-
-### Phase I. Title normalization
-
-Build a normalization pipeline that preserves meaning and removes junk.
-
-**Extract and store separately:** region tags, language tags, version/build tokens, bitness, disc/track markers, edition markers, addon markers, patch markers.
-
-**Normalize:** lowercase; replace `_` and `.` separators with spaces when appropriate; collapse repeated spaces; normalize punctuation; preserve sequel numbers and Roman numerals; preserve important expansion/addon terms separately.
-
-**Produce:** `raw_title_candidate`, `normalized_title`, `base_title_candidate`, `title_variants`, `addon_markers`, `version_tokens`.
-
-Important: if title includes addon markers, derive both `normalized_title` and `base_title_candidate`.
-
----
-
-### Phase J. Archive member listing
-
-This is the first deeper phase. Use it only for archives whose role is unresolved. Do not fully extract; list member names only.
-
-**Goals:** Resolve: portable game archive, installer archive, ROM archive, extras archive, unknown archive.
-
-**Rules:** If archive contains:
-- one top-level game directory with `.exe` + assets → `portable_game_archive`
-- installer-like names such as `setup.exe`, `install.exe`, `unins*` → `installer_archive`
-- ROM-like payload members → `rom_archive`
-- mostly manuals/media → `extras_archive`
-- unclear mixed content → `unknown_archive`
-
----
-
-### Phase K. Local release identification
-
-Create an internal release identity before public database lookup.
-
-**Release descriptor** — Build from: normalized title, base title candidate, platform, release type, installation sequence, addon composition, region, languages, version/build tokens, package membership.
-
-**Internal release ID** — Use: authoritative release ID if available; otherwise synthetic deterministic hash of normalized release descriptor.
-
-Important: a DLC unit does not create its own canonical game; but it may still have its own installation unit identity and release-local identity.
-
----
-
-### Phase L. External authoritative catalog binding
-
-Use strongest release-oriented sources first when applicable: Redump, No-Intro, MAME / software-list matching. These help at the release/media level.
-
-Use them when the package type supports it: ROM archives, cue/bin, iso, known emulator/media formats.
-
-Absence of a match does not invalidate local classification.
-
----
-
-### Phase M. External general game database binding
-
-Implemented as **metadata plugin** category. After local release and game candidate are stable, query public game metadata sources: IGDB, TheGamesDB, LaunchBox metadata index, Games Database, optional UI/media databases later.
-
-**Search inputs:** base title candidate, normalized title, platform, year if available, edition markers, addon markers.
-
-**Binding rules:** store multiple bindings; require platform agreement unless platform is unknown; prefer exact or alias title agreement; do not let one fuzzy match override strong local evidence; addon/DLC units may bind at release level or as child content, but still roll into the base game.
-
----
-
-### Phase N. Canonical game merge
-
-Merge releases into one internal canonical game only when enough evidence agrees.
-
-**Merge-safe cases:** same base title; same platform family; same authoritative identity; same strong external agreement.
-
-**Do not auto-merge:** sequel with previous game; remaster with original; compilation with single title; soundtrack/manual with game; addon/DLC as standalone game.
-
-**Rule:** addon/DLC/patch/expansion are attached to the canonical base game; they are not separate canonical games.
-
----
-
-### Phase O. Relationships graph
-
-Store explicit edges: `contains`, `requires`, `payload_of`, `disc_of_set`, `addon_for`, `dlc_for`, `patch_for`, `expansion_for`, `manual_for`, `extra_for`, `depends_on`.
-
-**Examples:** installer `.exe` → `requires` `.bin`; `.cue` → `contains` track `.bin`; season pass installer → `addon_for` base game; patch installer → `patch_for` base game; manual PDF → `manual_for` game.
-
----
-
-### Phase P. Confidence model
-
-Keep separate confidence values.
-
-**Local confidence** — Confidence in: package grouping, installation-unit role, addon/base relationship, platform, title normalization.
-
-**External confidence** — Confidence in: external binding, canonical merge.
-
-Possible values: `certain`, `strong`, `moderate`, `weak`, `unknown`.
-
----
-
-### Phase Q. Evidence precedence
-
-Use this order of truth:
-
-1. explicit package relationships
-2. addon/base title relationship
-3. sibling files
-4. directory structure
-5. path/library hints
-6. archive member listing
-7. authoritative external catalog match
-8. general external metadata
-9. manual review
-
-Important: filesystem/path is strong evidence, not mandatory truth.
-
----
-
-### Phase R. Output schema
-
-Each resolved release should contain: `release_id`, `canonical_game_id`, `preferred_title`, `base_title_candidate`, `platform`, `emulator_family`, `release_type`, `installation_sequence`, `package_ids`, `installation_unit_ids`, `relationships`, `external_bindings`, `confidence_local`, `confidence_external`, `evidence`
-
-Each installation unit should contain: `installation_unit_id`, `package_id`, `install_role`, `base_game_key_candidate`, `addon_kind`, `install_order_hint`, `depends_on_installation_unit_ids`, `evidence`, `confidence`
-
----
-
-### Phase S. Recommended implementation order (Go)
-
-- [x] Define enums and Go structs (not Pydantic)
-- [x] Implement inventory scanner (Phase A)
-- [x] Implement artifact kind detection by extension (Phase B)
-- [x] Implement package assembly rules (Phase C)
-- [x] Implement installation-unit detection (Phase D)
-- [x] Implement addon/DLC/patch detection and base-game binding (Phases D, E)
-- [x] Implement installation sequence model (Phase F)
-- [x] Implement role classifier (Phase G)
-- [x] Implement platform detector (Phase H)
-- [x] Implement title normalization (Phase I)
-- [x] Implement relationships graph (Phase O)
-- [x] Implement archive member listing (Phase J)
-- [x] Implement local release descriptor and synthetic release ID (Phase K)
-- [x] Implement authoritative catalog binding (Phase L)
-- [x] Implement general external DB binding as metadata plugins (Phase M)
-- [x] Implement canonical merge layer (Phase N)
-- [x] Implement confidence and evidence precedence (Phases P, Q)
-- [ ] Implement explanation/evidence traces
-- [ ] Implement manual review queue
-
----
-
-## Non-goals (first version)
-
-- No file-header parsing in normal flow
-- No full hashing of huge remote files in first pass
-- No deep archive extraction unless role cannot be resolved otherwise
-- No automatic trust in one public metadata source
-- No promotion of addon/DLC into standalone canonical games
+- [ ] HLTB API returning 404 (endpoint may have changed — needs investigation)
+- [ ] RetroAchievements integration needs username in config
+- [ ] Duplicate integration prevention not yet implemented
+- [ ] TGDB disabled due to low API quota
+- [ ] Media download background worker (MediaItems have URLs but no local files yet)
+- [ ] Schema migration strategy (deferred until after first release)

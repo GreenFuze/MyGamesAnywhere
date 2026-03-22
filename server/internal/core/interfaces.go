@@ -32,10 +32,12 @@ type Database interface {
 type SettingRepository interface {
 	Upsert(ctx context.Context, setting *Setting) error
 	Get(ctx context.Context, key string) (*Setting, error)
+	List(ctx context.Context) ([]*Setting, error)
 }
 
 type IntegrationRepository interface {
 	Create(ctx context.Context, integration *Integration) error
+	Update(ctx context.Context, integration *Integration) error
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context) ([]*Integration, error)
 	GetByID(ctx context.Context, id string) (*Integration, error)
@@ -83,10 +85,21 @@ type GameStore interface {
 	GetExternalIDsForCanonical(ctx context.Context, canonicalID string) ([]ExternalID, error)
 }
 
-// SettingsSyncProvider backs up and restores server state to/from remote storage.
-type SettingsSyncProvider interface {
-	Backup(ctx context.Context, config map[string]any) error
-	Restore(ctx context.Context, config map[string]any) error
+// SyncService handles push/pull settings synchronisation to a remote store.
+type SyncService interface {
+	Push(ctx context.Context, passphrase string) (*PushResult, error)
+	Pull(ctx context.Context, passphrase string) (*PullResult, error)
+	Status(ctx context.Context) (*SyncStatus, error)
+	StoreKey(passphrase string) error
+	ClearKey() error
+}
+
+// KeyStore persists the sync encryption key using OS-level protection.
+type KeyStore interface {
+	Store(passphrase string) error
+	Load() (string, error)
+	Clear() error
+	HasKey() bool
 }
 
 // Server defines the interface for the HTTP server.

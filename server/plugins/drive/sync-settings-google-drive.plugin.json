@@ -2,12 +2,13 @@
   "plugin_id": "sync-settings-google-drive",
   "plugin_version": "2.0.0",
   "api_major": 1,
-  "capabilities": ["storage"],
-  "provides": ["storage.backup", "storage.restore"],
+  "capabilities": ["sync"],
+  "provides": ["sync.push", "sync.pull"],
   "exec": "drive.exe",
   "default_timeout_ms": 600000,
   "max_concurrency": 1,
   "config": {
-    "backup_folder_id": { "type": "string", "default": "" }
+    "sync_path": { "type": "string", "default": "Games/mga_sync" },
+    "max_versions": { "type": "number", "default": 10 }
   }
 }

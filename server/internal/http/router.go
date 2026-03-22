@@ -16,6 +16,7 @@ type RouteBuilder struct {
 	ConfigCtrl      *ConfigController
 	PluginCtrl      *PluginController
 	AchievementCtrl *AchievementController
+	SyncCtrl        *SyncController
 }
 
 func noopHandler() http.HandlerFunc {
@@ -53,6 +54,12 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration) chi.Router {
 				r.Get("/integrations", b.PluginCtrl.List)
 				r.Get("/integrations/status", b.PluginCtrl.Status)
 				r.Post("/integrations", b.PluginCtrl.Create)
+
+				r.Get("/sync/status", b.SyncCtrl.Status)
+				r.Post("/sync/push", b.SyncCtrl.Push)
+				r.Post("/sync/pull", b.SyncCtrl.Pull)
+				r.Post("/sync/key", b.SyncCtrl.StoreKey)
+				r.Delete("/sync/key", b.SyncCtrl.ClearKey)
 			})
 
 			// Scan can take many minutes; no middleware timeout.
@@ -71,6 +78,11 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration) chi.Router {
 			api.Get("/integrations", noopHandler())
 			api.Get("/integrations/status", noopHandler())
 			api.Post("/integrations", noopHandler())
+			api.Get("/sync/status", noopHandler())
+			api.Post("/sync/push", noopHandler())
+			api.Post("/sync/pull", noopHandler())
+			api.Post("/sync/key", noopHandler())
+			api.Delete("/sync/key", noopHandler())
 		}
 	})
 	return r

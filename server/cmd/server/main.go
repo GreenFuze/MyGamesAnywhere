@@ -10,9 +10,11 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/http"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/keystore"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/logger"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
+	mgasync "github.com/GreenFuze/MyGamesAnywhere/server/internal/sync"
 )
 
 func main() {
@@ -38,7 +40,9 @@ func main() {
 
 	processManager := plugins.NewProcessManager()
 	pluginHost := plugins.NewPluginHost(logSvc, configSvc, processManager)
-	syncSvc := plugins.NewPluginSyncProvider(pluginHost, integrationRepo, dbSvc, configSvc, logSvc)
+
+	ks := keystore.New()
+	syncSvc := mgasync.NewSyncService(integrationRepo, settingRepo, pluginHost, ks, logSvc)
 
 	orchestrator := scan.NewOrchestrator(pluginHost, pluginHost, integrationRepo, gameStore, logSvc)
 
@@ -47,10 +51,11 @@ func main() {
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, logSvc)
 	achievementCtrl := http.NewAchievementController(gameStore, pluginHost, logSvc)
+	syncCtrl := http.NewSyncController(syncSvc, logSvc)
 
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, discoCtrl, configCtrl, pluginCtrl, achievementCtrl)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, discoCtrl, configCtrl, pluginCtrl, achievementCtrl, syncCtrl)
 
-	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost, syncSvc)
+	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

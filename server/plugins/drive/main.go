@@ -45,14 +45,13 @@ type Error struct {
 
 // --------------- Google OAuth constants ---------------
 
-const (
+	const (
 	googleClientID     = "628863254475-ocs0abrdiba0mq6hev7fm1kke3nd2a99.apps.googleusercontent.com"
 	googleClientSecret = "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"
 	localPort          = "9092"
 	redirectURI        = "http://localhost:9092/auth/google/callback"
 	tokenFile          = "tokens.json"
 	configFile         = "config.json"
-	backupFileName     = "mga_backup.db"
 )
 
 var oauthConfig = &oauth2.Config{
@@ -66,8 +65,7 @@ var oauthConfig = &oauth2.Config{
 // --------------- Config ---------------
 
 type driveConfig struct {
-	RootPath       string `json:"root_path"`
-	BackupFolderID string `json:"backup_folder_id"`
+	RootPath string `json:"root_path"`
 }
 
 var cfg driveConfig
@@ -364,93 +362,179 @@ func listFiles(ctx context.Context, rootPath string) ([]map[string]any, error) {
 	return files, nil
 }
 
-// --------------- Settings sync (storage.backup / storage.restore) ---------------
+// --------------- Settings sync (sync.push / sync.pull) ---------------
 
-type StorageParams struct {
-	DBPath string `json:"db_path"`
+type syncPushParams struct {
+	Data   string         `json:"data"`
+	Config map[string]any `json:"config"`
 }
 
-func getBackupFolderID(srv *drive.Service) (string, error) {
-	if cfg.BackupFolderID != "" {
-		return cfg.BackupFolderID, nil
+type syncPullParams struct {
+	Config map[string]any `json:"config"`
+}
+
+func syncPathFromConfig(cfg map[string]any) string {
+	if v, ok := cfg["sync_path"].(string); ok && v != "" {
+		return v
 	}
-	return "root", nil
+	return "Games/mga_sync"
 }
 
-func backupDB(ctx context.Context, params StorageParams) error {
+func maxVersionsFromConfig(cfg map[string]any) int {
+	if v, ok := cfg["max_versions"].(float64); ok && v > 0 {
+		return int(v)
+	}
+	return 10
+}
+
+// ensureFolderPath creates the folder path under My Drive, returning the leaf folder ID.
+func ensureFolderPath(srv *drive.Service, path string) (string, error) {
+	parts := strings.Split(path, "/")
+	currentID := "root"
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		query := fmt.Sprintf("'%s' in parents and name = '%s' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+			currentID, strings.ReplaceAll(part, "'", "\\'"))
+		result, err := srv.Files.List().Q(query).Fields("files(id, name)").PageSize(1).Do()
+		if err != nil {
+			return "", fmt.Errorf("find folder %q: %w", part, err)
+		}
+		if len(result.Files) > 0 {
+			currentID = result.Files[0].Id
+		} else {
+			meta := &drive.File{
+				Name:     part,
+				MimeType: "application/vnd.google-apps.folder",
+				Parents:  []string{currentID},
+			}
+			created, err := srv.Files.Create(meta).Fields("id").Do()
+			if err != nil {
+				return "", fmt.Errorf("create folder %q: %w", part, err)
+			}
+			currentID = created.Id
+			log.Printf("created Drive folder %q (id=%s)", part, currentID)
+		}
+	}
+	return currentID, nil
+}
+
+func syncPush(ctx context.Context, params syncPushParams) (map[string]any, error) {
 	srv, err := getDriveService(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	folderID, err := getBackupFolderID(srv)
+	syncPath := syncPathFromConfig(params.Config)
+	maxVer := maxVersionsFromConfig(params.Config)
+
+	folderID, err := ensureFolderPath(srv, syncPath)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("ensure sync folder: %w", err)
 	}
 
-	f, err := os.Open(params.DBPath)
+	timestamp := time.Now().UTC().Format("2006-01-02T15-04-05Z")
+	versionedName := fmt.Sprintf("mga_sync_%s.json", timestamp)
+
+	reader := strings.NewReader(params.Data)
+	meta := &drive.File{Name: versionedName, Parents: []string{folderID}, MimeType: "application/json"}
+	if _, err := srv.Files.Create(meta).Media(reader).Do(); err != nil {
+		return nil, fmt.Errorf("upload versioned file: %w", err)
+	}
+	log.Printf("uploaded %s to Drive", versionedName)
+
+	// Upsert latest.json
+	latestQuery := fmt.Sprintf("name = 'latest.json' and '%s' in parents and trashed = false", folderID)
+	existing, err := srv.Files.List().Q(latestQuery).Fields("files(id)").Do()
 	if err != nil {
-		return fmt.Errorf("open db: %w", err)
+		return nil, fmt.Errorf("find latest.json: %w", err)
 	}
-	defer f.Close()
-
-	query := fmt.Sprintf("name = '%s' and '%s' in parents and trashed = false", backupFileName, folderID)
-	existing, err := srv.Files.List().Q(query).Fields("files(id)").Do()
-	if err != nil {
-		return fmt.Errorf("find existing backup: %w", err)
-	}
-
+	latestReader := strings.NewReader(params.Data)
 	if len(existing.Files) > 0 {
-		_, err = srv.Files.Update(existing.Files[0].Id, nil).Media(f).Do()
+		_, err = srv.Files.Update(existing.Files[0].Id, nil).Media(latestReader).Do()
 	} else {
-		meta := &drive.File{Name: backupFileName, Parents: []string{folderID}}
-		_, err = srv.Files.Create(meta).Media(f).Do()
+		latestMeta := &drive.File{Name: "latest.json", Parents: []string{folderID}, MimeType: "application/json"}
+		_, err = srv.Files.Create(latestMeta).Media(latestReader).Do()
 	}
 	if err != nil {
-		return fmt.Errorf("upload: %w", err)
+		return nil, fmt.Errorf("upsert latest.json: %w", err)
 	}
-	log.Printf("backup uploaded to Drive folder %s", folderID)
-	return nil
+
+	// Prune old versions beyond maxVer.
+	versionCount, err := pruneOldVersions(srv, folderID, maxVer)
+	if err != nil {
+		log.Printf("prune warning: %v", err)
+	}
+
+	return map[string]any{
+		"status":        "ok",
+		"version_count": versionCount,
+		"latest":        versionedName,
+	}, nil
 }
 
-func restoreDB(ctx context.Context, params StorageParams) error {
+func pruneOldVersions(srv *drive.Service, folderID string, maxVersions int) (int, error) {
+	query := fmt.Sprintf("name contains 'mga_sync_' and name contains '.json' and '%s' in parents and trashed = false", folderID)
+	result, err := srv.Files.List().Q(query).Fields("files(id, name, createdTime)").OrderBy("createdTime desc").PageSize(200).Do()
+	if err != nil {
+		return 0, fmt.Errorf("list versions: %w", err)
+	}
+
+	count := len(result.Files)
+	if count > maxVersions {
+		for _, f := range result.Files[maxVersions:] {
+			if err := srv.Files.Delete(f.Id).Do(); err != nil {
+				log.Printf("failed to delete old version %s: %v", f.Name, err)
+			} else {
+				log.Printf("pruned old version %s", f.Name)
+			}
+		}
+		count = maxVersions
+	}
+	return count, nil
+}
+
+func syncPull(ctx context.Context, params syncPullParams) (map[string]any, error) {
 	srv, err := getDriveService(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	folderID, err := getBackupFolderID(srv)
+	syncPath := syncPathFromConfig(params.Config)
+
+	folderID, err := resolvePathToFolderID(srv, syncPath)
 	if err != nil {
-		return err
+		log.Printf("sync folder %q not found: %v", syncPath, err)
+		return map[string]any{"status": "empty"}, nil
 	}
 
-	query := fmt.Sprintf("name = '%s' and '%s' in parents and trashed = false", backupFileName, folderID)
+	query := fmt.Sprintf("name = 'latest.json' and '%s' in parents and trashed = false", folderID)
 	found, err := srv.Files.List().Q(query).Fields("files(id)").Do()
 	if err != nil {
-		return fmt.Errorf("find backup: %w", err)
+		return nil, fmt.Errorf("find latest.json: %w", err)
 	}
 	if len(found.Files) == 0 {
-		log.Println("no backup found on Drive, starting fresh")
-		return nil
+		return map[string]any{"status": "empty"}, nil
 	}
 
 	resp, err := srv.Files.Get(found.Files[0].Id).Download()
 	if err != nil {
-		return fmt.Errorf("download: %w", err)
+		return nil, fmt.Errorf("download latest.json: %w", err)
 	}
 	defer resp.Body.Close()
 
-	out, err := os.Create(params.DBPath)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("create db file: %w", err)
+		return nil, fmt.Errorf("read latest.json: %w", err)
 	}
-	defer out.Close()
 
-	if _, err := io.Copy(out, resp.Body); err != nil {
-		return fmt.Errorf("write db: %w", err)
-	}
-	log.Printf("restored backup from Drive to %s", params.DBPath)
-	return nil
+	return map[string]any{
+		"status": "ok",
+		"data":   string(data),
+	}, nil
 }
 
 // --------------- IPC handlers ---------------
@@ -487,10 +571,13 @@ func handleFileList(params json.RawMessage) (any, *Error) {
 	return map[string]any{"files": files}, nil
 }
 
-func handleBackup(params json.RawMessage) (any, *Error) {
-	var sp StorageParams
+func handleSyncPush(params json.RawMessage) (any, *Error) {
+	var sp syncPushParams
 	if err := json.Unmarshal(params, &sp); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	if sp.Data == "" {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "data is required"}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -500,14 +587,15 @@ func handleBackup(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
 	}
 
-	if err := backupDB(ctx, sp); err != nil {
-		return nil, &Error{Code: "BACKUP_FAILED", Message: err.Error()}
+	result, err := syncPush(ctx, sp)
+	if err != nil {
+		return nil, &Error{Code: "SYNC_PUSH_FAILED", Message: err.Error()}
 	}
-	return map[string]any{"status": "ok"}, nil
+	return result, nil
 }
 
-func handleRestore(params json.RawMessage) (any, *Error) {
-	var sp StorageParams
+func handleSyncPull(params json.RawMessage) (any, *Error) {
+	var sp syncPullParams
 	if err := json.Unmarshal(params, &sp); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 	}
@@ -519,10 +607,11 @@ func handleRestore(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
 	}
 
-	if err := restoreDB(ctx, sp); err != nil {
-		return nil, &Error{Code: "RESTORE_FAILED", Message: err.Error()}
+	result, err := syncPull(ctx, sp)
+	if err != nil {
+		return nil, &Error{Code: "SYNC_PULL_FAILED", Message: err.Error()}
 	}
-	return map[string]any{"status": "ok"}, nil
+	return result, nil
 }
 
 func handleCheckConfig(params json.RawMessage) (any, *Error) {
@@ -590,7 +679,7 @@ func main() {
 			resp.Result = map[string]any{
 				"plugin_id":      "game-source-google-drive",
 				"plugin_version": "2.0.0",
-				"capabilities":   []string{"source", "storage"},
+				"capabilities":   []string{"source", "sync"},
 			}
 
 		case "plugin.check_config":
@@ -609,16 +698,16 @@ func main() {
 				resp.Result = result
 			}
 
-		case "storage.backup":
-			result, errObj := handleBackup(req.Params)
+		case "sync.push":
+			result, errObj := handleSyncPush(req.Params)
 			if errObj != nil {
 				resp.Error = errObj
 			} else {
 				resp.Result = result
 			}
 
-		case "storage.restore":
-			result, errObj := handleRestore(req.Params)
+		case "sync.pull":
+			result, errObj := handleSyncPull(req.Params)
 			if errObj != nil {
 				resp.Error = errObj
 			} else {

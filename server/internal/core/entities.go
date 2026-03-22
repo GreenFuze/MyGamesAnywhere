@@ -302,6 +302,52 @@ func (b *ScanBatch) Validate() error {
 	return nil
 }
 
+// SyncPayload is the JSON document exchanged during push/pull settings sync.
+type SyncPayload struct {
+	Version      int               `json:"version"`
+	ExportedAt   time.Time         `json:"exported_at"`
+	MGAVersion   string            `json:"mga_version"`
+	Integrations []SyncIntegration `json:"integrations"`
+	Settings     []Setting         `json:"settings"`
+}
+
+// SyncIntegration is an integration record within a sync payload.
+// ConfigEncrypted holds the AES-256-GCM encrypted config_json (base64).
+type SyncIntegration struct {
+	PluginID        string    `json:"plugin_id"`
+	Label           string    `json:"label"`
+	IntegrationType string    `json:"integration_type"`
+	ConfigEncrypted string    `json:"config_encrypted"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// PushResult is returned after a successful sync push.
+type PushResult struct {
+	ExportedAt     time.Time `json:"exported_at"`
+	Integrations   int       `json:"integrations"`
+	Settings       int       `json:"settings"`
+	RemoteVersions int       `json:"remote_versions"`
+}
+
+// PullResult is returned after a successful sync pull (merge).
+type PullResult struct {
+	IntegrationsAdded   int       `json:"integrations_added"`
+	IntegrationsUpdated int       `json:"integrations_updated"`
+	IntegrationsSkipped int       `json:"integrations_skipped"`
+	SettingsAdded       int       `json:"settings_added"`
+	SettingsUpdated     int       `json:"settings_updated"`
+	SettingsSkipped     int       `json:"settings_skipped"`
+	RemoteExportedAt    time.Time `json:"remote_exported_at"`
+}
+
+// SyncStatus describes the current sync configuration state.
+type SyncStatus struct {
+	Configured   bool   `json:"configured"`
+	HasStoredKey bool   `json:"has_stored_key"`
+	LastPush     string `json:"last_push,omitempty"`
+	LastPull     string `json:"last_pull,omitempty"`
+}
+
 // GameFileRole is the role of a file within a game package.
 type GameFileRole string
 

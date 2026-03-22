@@ -20,7 +20,6 @@ type App struct {
 	server     core.Server
 	authSvc    auth.AuthService
 	pluginHost plugins.PluginHost
-	syncSvc    core.SettingsSyncProvider
 }
 
 func NewApp(
@@ -30,7 +29,6 @@ func NewApp(
 	server core.Server,
 	authSvc auth.AuthService,
 	pluginHost plugins.PluginHost,
-	syncSvc core.SettingsSyncProvider,
 ) *App {
 	return &App{
 		logger:     logger,
@@ -39,7 +37,6 @@ func NewApp(
 		server:     server,
 		authSvc:    authSvc,
 		pluginHost: pluginHost,
-		syncSvc:    syncSvc,
 	}
 }
 
@@ -59,17 +56,6 @@ func (a *App) Run(ctx context.Context) error {
 		return fmt.Errorf("database connection failed: %w", err)
 	}
 	defer a.db.Close()
-
-	// Cloud restore: the sync provider reads integration config from the DB,
-	// closes the DB, lets the plugin replace the file, then we reconnect.
-	if a.syncSvc != nil {
-		if err := a.syncSvc.Restore(context.Background(), nil); err != nil {
-			a.logger.Error("Cloud restore failed", err)
-		}
-		if err := a.db.Connect(); err != nil {
-			return fmt.Errorf("database connection failed (post-restore): %w", err)
-		}
-	}
 
 	if err := a.db.EnsureSchema(); err != nil {
 		return fmt.Errorf("database schema creation failed: %w", err)
