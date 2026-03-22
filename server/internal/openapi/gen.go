@@ -105,7 +105,7 @@ func BuildOpenAPI(routes []RouteEntry, docs []OperationDoc) ([]byte, error) {
 				b.WriteString("\n        content:\n          application/json:\n            schema:\n              type: object\n")
 			}
 			b.WriteString("      responses:\n")
-			codes := []string{"200", "201", "202", "400", "404", "500", "501"}
+			codes := []string{"200", "201", "202", "400", "404", "409", "500", "501"}
 			for _, code := range codes {
 				desc := op.ResponseDocs[code]
 				if desc == "" && (code == "500" || code == "400") {

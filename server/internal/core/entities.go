@@ -51,8 +51,8 @@ type GroupKind string
 
 const (
 	GroupKindSelfContained GroupKind = "self_contained" // files ARE the game, playable as-is
-	GroupKindPacked        GroupKind = "packed"          // needs unpacking (installer or compressed archive)
-	GroupKindExtras        GroupKind = "extras"          // non-game content (manuals, soundtracks)
+	GroupKindPacked        GroupKind = "packed"         // needs unpacking (installer or compressed archive)
+	GroupKindExtras        GroupKind = "extras"         // non-game content (manuals, soundtracks)
 	GroupKindUnknown       GroupKind = "unknown"
 )
 
@@ -155,6 +155,13 @@ type ResolverMatch struct {
 	Rating         float64         `json:"rating,omitempty"`
 	MaxPlayers     int             `json:"max_players,omitempty"`
 	CompletionTime *CompletionTime `json:"completion_time,omitempty"`
+	// Xbox / storefront extras (also mirrored in metadata_json for persistence).
+	IsGamePass      bool   `json:"is_game_pass,omitempty"`
+	XcloudAvailable bool   `json:"xcloud_available,omitempty"`
+	StoreProductID  string `json:"store_product_id,omitempty"`
+	XcloudURL       string `json:"xcloud_url,omitempty"`
+	// MetadataJSON is the raw DB metadata_json blob (extra fields merged via parseMetadataJSON).
+	MetadataJSON string `json:"metadata_json,omitempty"`
 }
 
 // Game is the persisted game entity.
@@ -189,7 +196,7 @@ type Game struct {
 // AchievementSet groups all achievements for a game from a single source.
 type AchievementSet struct {
 	GameID         string        `json:"game_id"`
-	Source         string        `json:"source"`          // e.g. "steam", "xbox", "retroachievements"
+	Source         string        `json:"source"`           // e.g. "steam", "xbox", "retroachievements"
 	ExternalGameID string        `json:"external_game_id"` // ID in the source system
 	TotalCount     int           `json:"total_count"`
 	UnlockedCount  int           `json:"unlocked_count"`
@@ -201,15 +208,15 @@ type AchievementSet struct {
 
 // Achievement is a single achievement definition with optional user progress.
 type Achievement struct {
-	ExternalID  string    `json:"external_id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	LockedIcon  string    `json:"locked_icon,omitempty"`
-	UnlockedIcon string   `json:"unlocked_icon,omitempty"`
-	Points      int       `json:"points,omitempty"`
-	Rarity      float64   `json:"rarity,omitempty"` // percentage of players who earned it
-	Unlocked    bool      `json:"unlocked"`
-	UnlockedAt  time.Time `json:"unlocked_at,omitempty"`
+	ExternalID   string    `json:"external_id"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	LockedIcon   string    `json:"locked_icon,omitempty"`
+	UnlockedIcon string    `json:"unlocked_icon,omitempty"`
+	Points       int       `json:"points,omitempty"`
+	Rarity       float64   `json:"rarity,omitempty"` // percentage of players who earned it
+	Unlocked     bool      `json:"unlocked"`
+	UnlockedAt   time.Time `json:"unlocked_at,omitempty"`
 }
 
 // SourceGame is a game record from a single source integration.
@@ -253,6 +260,10 @@ type MediaRef struct {
 	Source  string // plugin_id that provided it
 	Width   int
 	Height  int
+	// LocalPath and Hash come from media_assets when loaded for detail views.
+	LocalPath string `json:"local_path,omitempty"`
+	Hash      string `json:"hash,omitempty"`
+	MimeType  string `json:"mime_type,omitempty"`
 }
 
 // CanonicalGame is the merged view of one logical game, computed from
@@ -275,6 +286,12 @@ type CanonicalGame struct {
 	CompletionTime *CompletionTime
 	Media          []MediaRef
 	ExternalIDs    []ExternalID
+
+	// Xbox (and similar) flags merged from resolver matches.
+	IsGamePass      bool
+	XcloudAvailable bool
+	StoreProductID  string
+	XcloudURL       string
 }
 
 // ScanBatch holds everything produced by one scan cycle, validated in memory
@@ -346,6 +363,19 @@ type SyncStatus struct {
 	HasStoredKey bool   `json:"has_stored_key"`
 	LastPush     string `json:"last_push,omitempty"`
 	LastPull     string `json:"last_pull,omitempty"`
+}
+
+// LibraryStats is the JSON body for GET /api/stats.
+type LibraryStats struct {
+	CanonicalGameCount         int            `json:"canonical_game_count"`
+	SourceGameFoundCount       int            `json:"source_game_found_count"`
+	SourceGameTotalCount       int            `json:"source_game_total_count"`
+	ByPlatform                 map[string]int `json:"by_platform"`
+	ByKind                     map[string]int `json:"by_kind"`
+	ByIntegrationID            map[string]int `json:"by_integration_id"`
+	ByPluginID                 map[string]int `json:"by_plugin_id"`
+	CanonicalWithResolverTitle int            `json:"canonical_with_resolver_title"`
+	PercentWithResolverTitle   float64        `json:"percent_with_resolver_title"`
 }
 
 // GameFileRole is the role of a file within a game package.

@@ -29,7 +29,7 @@ type mockConfig struct {
 	values map[string]string
 }
 
-func (c *mockConfig) Get(key string) string  { return c.values[key] }
+func (c *mockConfig) Get(key string) string   { return c.values[key] }
 func (c *mockConfig) GetInt(key string) int   { return 0 }
 func (c *mockConfig) GetBool(key string) bool { return false }
 func (c *mockConfig) Validate() error         { return nil }
@@ -38,11 +38,27 @@ type mockIntegrationRepo struct {
 	integrations []*core.Integration
 }
 
-func (r *mockIntegrationRepo) Create(context.Context, *core.Integration) error              { return nil }
-func (r *mockIntegrationRepo) Delete(context.Context, string) error                         { return nil }
-func (r *mockIntegrationRepo) GetByID(context.Context, string) (*core.Integration, error)   { return nil, nil }
+func (r *mockIntegrationRepo) Create(context.Context, *core.Integration) error { return nil }
+func (r *mockIntegrationRepo) Update(context.Context, *core.Integration) error { return nil }
+func (r *mockIntegrationRepo) Delete(context.Context, string) error            { return nil }
+func (r *mockIntegrationRepo) GetByID(context.Context, string) (*core.Integration, error) {
+	return nil, nil
+}
 func (r *mockIntegrationRepo) List(context.Context) ([]*core.Integration, error) {
 	return r.integrations, nil
+}
+
+func (r *mockIntegrationRepo) ListByPluginID(_ context.Context, pluginID string) ([]*core.Integration, error) {
+	if pluginID == "" {
+		return nil, nil
+	}
+	var out []*core.Integration
+	for _, in := range r.integrations {
+		if in != nil && in.PluginID == pluginID {
+			out = append(out, in)
+		}
+	}
+	return out, nil
 }
 
 // callerWrapper intercepts calls for the fake source plugin and delegates
@@ -119,7 +135,7 @@ func TestOrchestrator_FullPipeline(t *testing.T) {
 		"PLUGINS_DIR": pluginsDir,
 	}}
 	pm := plugins.NewProcessManager()
-	host := plugins.NewPluginHost(log, cfg, pm)
+	host := plugins.NewPluginHost(log, cfg, pm, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 	defer cancel()

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 )
 
 // PluginInfo is a read-only descriptor for the API (e.g. GET /api/plugins).
@@ -79,19 +80,41 @@ type pluginHost struct {
 	logger         core.Logger
 	config         core.Configuration
 	processManager ProcessManager
+	eventBus       *events.EventBus
 	plugins        map[string]*core.Plugin
 	mu             sync.Mutex
 	clients        map[string]IpcClient
 }
 
-func NewPluginHost(logger core.Logger, config core.Configuration, processManager ProcessManager) PluginHost {
+// NewPluginHost constructs the plugin host. eventBus may be nil (no SSE notifications).
+func NewPluginHost(logger core.Logger, config core.Configuration, processManager ProcessManager, eventBus *events.EventBus) PluginHost {
 	return &pluginHost{
 		logger:         logger,
 		config:         config,
 		processManager: processManager,
+		eventBus:       eventBus,
 		plugins:        make(map[string]*core.Plugin),
 		clients:        make(map[string]IpcClient),
 	}
+}
+
+func (h *pluginHost) onPluginStdoutClosed(pluginID string, readErr error, unexpected bool) {
+	h.mu.Lock()
+	delete(h.clients, pluginID)
+	h.mu.Unlock()
+
+	if !unexpected || h.eventBus == nil {
+		return
+	}
+	detail := ""
+	if readErr != nil {
+		detail = readErr.Error()
+	}
+	events.PublishJSON(h.eventBus, "plugin_process_exited", map[string]any{
+		"plugin_id": pluginID,
+		"reason":    "unexpected_disconnect",
+		"detail":    detail,
+	})
 }
 
 func (h *pluginHost) Discover(ctx context.Context) error {
@@ -197,7 +220,7 @@ func (h *pluginHost) getClient(ctx context.Context, pluginID string) (IpcClient,
 		return nil, fmt.Errorf("failed to spawn plugin process: %w", err)
 	}
 
-	client := NewIpcClient(process, h.logger, pluginID)
+	client := NewIpcClient(process, h.logger, pluginID, h.onPluginStdoutClosed)
 
 	initTimeout := time.Duration(plugin.Manifest.DefaultTimeout) * time.Millisecond
 	if initTimeout <= 0 {

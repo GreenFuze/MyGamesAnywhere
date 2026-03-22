@@ -484,6 +484,69 @@ func (s *gameStore) GetExternalIDsForCanonical(ctx context.Context, canonicalID 
 	return out, nil
 }
 
+func (s *gameStore) GetLibraryStats(ctx context.Context) (*core.LibraryStats, error) {
+	db := s.db.GetDB()
+	out := &core.LibraryStats{
+		ByPlatform:      make(map[string]int),
+		ByKind:          make(map[string]int),
+		ByIntegrationID: make(map[string]int),
+		ByPluginID:      make(map[string]int),
+	}
+
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT l.canonical_id) FROM canonical_source_games_link l
+		WHERE EXISTS (SELECT 1 FROM source_games sg WHERE sg.id = l.source_game_id AND sg.status='found')`).Scan(&out.CanonicalGameCount); err != nil {
+		return nil, err
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM source_games WHERE status='found'`).Scan(&out.SourceGameFoundCount); err != nil {
+		return nil, err
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM source_games`).Scan(&out.SourceGameTotalCount); err != nil {
+		return nil, err
+	}
+
+	if err := scanGroupCounts(ctx, db, `SELECT platform, COUNT(*) FROM source_games WHERE status='found' GROUP BY platform`, out.ByPlatform); err != nil {
+		return nil, err
+	}
+	if err := scanGroupCounts(ctx, db, `SELECT kind, COUNT(*) FROM source_games WHERE status='found' GROUP BY kind`, out.ByKind); err != nil {
+		return nil, err
+	}
+	if err := scanGroupCounts(ctx, db, `SELECT integration_id, COUNT(*) FROM source_games WHERE status='found' GROUP BY integration_id`, out.ByIntegrationID); err != nil {
+		return nil, err
+	}
+	if err := scanGroupCounts(ctx, db, `SELECT plugin_id, COUNT(*) FROM source_games WHERE status='found' GROUP BY plugin_id`, out.ByPluginID); err != nil {
+		return nil, err
+	}
+
+	q := `SELECT COUNT(DISTINCT l.canonical_id) FROM canonical_source_games_link l
+		JOIN source_games sg ON sg.id = l.source_game_id AND sg.status='found'
+		JOIN metadata_resolver_matches m ON m.source_game_id = l.source_game_id
+		WHERE m.outvoted=0 AND IFNULL(m.title,'')!=''`
+	if err := db.QueryRowContext(ctx, q).Scan(&out.CanonicalWithResolverTitle); err != nil {
+		return nil, err
+	}
+	if out.CanonicalGameCount > 0 {
+		out.PercentWithResolverTitle = float64(out.CanonicalWithResolverTitle) / float64(out.CanonicalGameCount) * 100
+	}
+	return out, nil
+}
+
+func scanGroupCounts(ctx context.Context, db *sql.DB, query string, dest map[string]int) error {
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k string
+		var n int
+		if err := rows.Scan(&k, &n); err != nil {
+			return err
+		}
+		dest[k] = n
+	}
+	return rows.Err()
+}
+
 // ── Internal helpers ────────────────────────────────────────────────
 
 type existingSourceGame struct {
@@ -715,6 +778,7 @@ func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string)
 		m.ReleaseDate = relDate.String
 		if metaJSON.String != "" {
 			parseMetadataJSON(metaJSON.String, &m)
+			m.MetadataJSON = metaJSON.String
 		}
 		sg.ResolverMatches = append(sg.ResolverMatches, m)
 	}
@@ -751,7 +815,7 @@ func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonica
 		if sg.Status != "found" {
 			continue
 		}
-		mediaRows, err := db.QueryContext(ctx, `SELECT ma.id, ma.url, sgm.type, sgm.source, ma.width, ma.height
+		mediaRows, err := db.QueryContext(ctx, `SELECT ma.id, ma.url, ma.local_path, ma.hash, ma.mime_type, sgm.type, sgm.source, ma.width, ma.height
 			FROM source_game_media sgm
 			JOIN media_assets ma ON ma.id = sgm.media_asset_id
 			WHERE sgm.source_game_id=?`, sg.ID)
@@ -760,12 +824,15 @@ func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonica
 		}
 		for mediaRows.Next() {
 			var ref core.MediaRef
-			var src sql.NullString
-			if err := mediaRows.Scan(&ref.AssetID, &ref.URL, (*string)(&ref.Type), &src, &ref.Width, &ref.Height); err != nil {
+			var src, lp, h, mt sql.NullString
+			if err := mediaRows.Scan(&ref.AssetID, &ref.URL, &lp, &h, &mt, (*string)(&ref.Type), &src, &ref.Width, &ref.Height); err != nil {
 				mediaRows.Close()
 				return nil, err
 			}
 			ref.Source = src.String
+			ref.LocalPath = lp.String
+			ref.Hash = h.String
+			ref.MimeType = mt.String
 			cg.Media = append(cg.Media, ref)
 		}
 		mediaRows.Close()
@@ -785,8 +852,8 @@ func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonica
 func (s *gameStore) computeUnifiedView(cg *core.CanonicalGame) {
 	// Collect all non-outvoted matches across all source games, keeping source game order.
 	type rankedMatch struct {
-		match    core.ResolverMatch
-		sgIndex  int
+		match   core.ResolverMatch
+		sgIndex int
 	}
 	var winners []rankedMatch
 	for i, sg := range cg.SourceGames {
@@ -842,6 +909,18 @@ func (s *gameStore) computeUnifiedView(cg *core.CanonicalGame) {
 		if m.CompletionTime != nil && cg.CompletionTime == nil {
 			cg.CompletionTime = m.CompletionTime
 		}
+		if m.IsGamePass {
+			cg.IsGamePass = true
+		}
+		if m.XcloudAvailable {
+			cg.XcloudAvailable = true
+		}
+		if m.StoreProductID != "" && cg.StoreProductID == "" {
+			cg.StoreProductID = m.StoreProductID
+		}
+		if m.XcloudURL != "" && cg.XcloudURL == "" {
+			cg.XcloudURL = m.XcloudURL
+		}
 	}
 
 	// Fallback: if no resolver set a title, use the first source game's raw title.
@@ -859,22 +938,30 @@ func (s *gameStore) computeUnifiedView(cg *core.CanonicalGame) {
 // ── JSON serialization helpers ──────────────────────────────────────
 
 type metadataExtra struct {
-	Genres         []string             `json:"genres,omitempty"`
-	MaxPlayers     int                  `json:"max_players,omitempty"`
-	Kind           string               `json:"kind,omitempty"`
-	ParentGameID   string               `json:"parent_game_id,omitempty"`
-	Description    string               `json:"description,omitempty"`
-	CompletionTime *core.CompletionTime `json:"completion_time,omitempty"`
+	Genres          []string             `json:"genres,omitempty"`
+	MaxPlayers      int                  `json:"max_players,omitempty"`
+	Kind            string               `json:"kind,omitempty"`
+	ParentGameID    string               `json:"parent_game_id,omitempty"`
+	Description     string               `json:"description,omitempty"`
+	CompletionTime  *core.CompletionTime `json:"completion_time,omitempty"`
+	IsGamePass      bool                 `json:"is_game_pass,omitempty"`
+	XcloudAvailable bool                 `json:"xcloud_available,omitempty"`
+	StoreProductID  string               `json:"store_product_id,omitempty"`
+	XcloudURL       string               `json:"xcloud_url,omitempty"`
 }
 
 func buildMetadataJSON(m core.ResolverMatch) (string, error) {
 	extra := metadataExtra{
-		Genres:         m.Genres,
-		MaxPlayers:     m.MaxPlayers,
-		Kind:           m.Kind,
-		ParentGameID:   m.ParentGameID,
-		Description:    m.Description,
-		CompletionTime: m.CompletionTime,
+		Genres:          m.Genres,
+		MaxPlayers:      m.MaxPlayers,
+		Kind:            m.Kind,
+		ParentGameID:    m.ParentGameID,
+		Description:     m.Description,
+		CompletionTime:  m.CompletionTime,
+		IsGamePass:      m.IsGamePass,
+		XcloudAvailable: m.XcloudAvailable,
+		StoreProductID:  m.StoreProductID,
+		XcloudURL:       m.XcloudURL,
 	}
 	b, err := json.Marshal(extra)
 	if err != nil {
@@ -900,6 +987,10 @@ func parseMetadataJSON(s string, m *core.ResolverMatch) {
 		m.Description = extra.Description
 	}
 	m.CompletionTime = extra.CompletionTime
+	m.IsGamePass = extra.IsGamePass
+	m.XcloudAvailable = extra.XcloudAvailable
+	m.StoreProductID = extra.StoreProductID
+	m.XcloudURL = extra.XcloudURL
 }
 
 func boolToInt(b bool) int {

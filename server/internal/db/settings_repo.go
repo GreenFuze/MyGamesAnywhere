@@ -114,3 +114,24 @@ func (r *integrationRepository) GetByID(ctx context.Context, id string) (*core.I
 	a.UpdatedAt = time.Unix(updated, 0)
 	return &a, nil
 }
+
+func (r *integrationRepository) ListByPluginID(ctx context.Context, pluginID string) ([]*core.Integration, error) {
+	rows, err := r.db.GetDB().QueryContext(ctx,
+		`SELECT id, plugin_id, label, config_json, integration_type, created_at, updated_at FROM integrations WHERE plugin_id=?`, pluginID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var integrations []*core.Integration
+	for rows.Next() {
+		var a core.Integration
+		var created, updated int64
+		if err := rows.Scan(&a.ID, &a.PluginID, &a.Label, &a.ConfigJSON, &a.IntegrationType, &created, &updated); err != nil {
+			return nil, err
+		}
+		a.CreatedAt = time.Unix(created, 0)
+		a.UpdatedAt = time.Unix(updated, 0)
+		integrations = append(integrations, &a)
+	}
+	return integrations, rows.Err()
+}

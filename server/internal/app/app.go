@@ -10,6 +10,7 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/auth"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
 )
 
@@ -20,6 +21,7 @@ type App struct {
 	server     core.Server
 	authSvc    auth.AuthService
 	pluginHost plugins.PluginHost
+	eventBus   *events.EventBus
 }
 
 func NewApp(
@@ -29,6 +31,7 @@ func NewApp(
 	server core.Server,
 	authSvc auth.AuthService,
 	pluginHost plugins.PluginHost,
+	eventBus *events.EventBus,
 ) *App {
 	return &App{
 		logger:     logger,
@@ -37,6 +40,7 @@ func NewApp(
 		server:     server,
 		authSvc:    authSvc,
 		pluginHost: pluginHost,
+		eventBus:   eventBus,
 	}
 }
 
@@ -84,6 +88,12 @@ func (a *App) Run(ctx context.Context) error {
 		return fmt.Errorf("server error: %w", err)
 	case <-ctx.Done():
 		a.logger.Info("Shutting down...")
+
+		// Close SSE subscribers first so long-lived /api/events handlers exit
+		// before HTTP server shutdown.
+		if a.eventBus != nil {
+			a.eventBus.Close()
+		}
 
 		// Close plugin host
 		if err := a.pluginHost.Close(); err != nil {

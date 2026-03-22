@@ -20,6 +20,7 @@ type httpServer struct {
 	pluginCtrl      *PluginController
 	achievementCtrl *AchievementController
 	syncCtrl        *SyncController
+	sseCtrl         *SSEController
 }
 
 func NewHttpServer(
@@ -31,6 +32,7 @@ func NewHttpServer(
 	pluginCtrl *PluginController,
 	achievementCtrl *AchievementController,
 	syncCtrl *SyncController,
+	sseCtrl *SSEController,
 ) core.Server {
 	return &httpServer{
 		logger:          logger,
@@ -41,6 +43,7 @@ func NewHttpServer(
 		pluginCtrl:      pluginCtrl,
 		achievementCtrl: achievementCtrl,
 		syncCtrl:        syncCtrl,
+		sseCtrl:         sseCtrl,
 	}
 }
 
@@ -57,6 +60,7 @@ func (h *httpServer) Start(ctx context.Context) error {
 		PluginCtrl:      h.pluginCtrl,
 		AchievementCtrl: h.achievementCtrl,
 		SyncCtrl:        h.syncCtrl,
+		SSECtrl:         h.sseCtrl,
 	}, 60*time.Second)
 
 	h.server = &http.Server{

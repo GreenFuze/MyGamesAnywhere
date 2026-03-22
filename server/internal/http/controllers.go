@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
 	"github.com/go-chi/chi/v5"
@@ -22,15 +23,20 @@ type ListGamesResponse struct {
 
 // GameSummary is one game in the list response.
 type GameSummary struct {
-	ID           string           `json:"id"`
-	Title        string           `json:"title"`
-	Platform     string           `json:"platform"`
-	Kind         string           `json:"kind"`
-	ParentGameID string           `json:"parent_game_id,omitempty"`
-	GroupKind    string           `json:"group_kind"`
-	RootPath     string           `json:"root_path,omitempty"`
-	Files        []GameFileDTO    `json:"files,omitempty"`
-	ExternalIDs  []ExternalIDDTO  `json:"external_ids,omitempty"`
+	ID           string          `json:"id"`
+	Title        string          `json:"title"`
+	Platform     string          `json:"platform"`
+	Kind         string          `json:"kind"`
+	ParentGameID string          `json:"parent_game_id,omitempty"`
+	GroupKind    string          `json:"group_kind"`
+	RootPath     string          `json:"root_path,omitempty"`
+	Files        []GameFileDTO   `json:"files,omitempty"`
+	ExternalIDs  []ExternalIDDTO `json:"external_ids,omitempty"`
+	// Unified Xbox / storefront (from resolver metadata, same as detail).
+	IsGamePass      bool   `json:"is_game_pass,omitempty"`
+	XcloudAvailable bool   `json:"xcloud_available,omitempty"`
+	StoreProductID  string `json:"store_product_id,omitempty"`
+	XcloudURL       string `json:"xcloud_url,omitempty"`
 }
 
 // ExternalIDDTO is a reference to an external metadata database.
@@ -100,6 +106,40 @@ func (c *GameController) Get(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(canonicalToSummary(game))
 }
 
+// GetDetail returns full game metadata and per-source resolver data (GET /api/games/{id}/detail).
+func (c *GameController) GetDetail(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	game, err := c.gameStore.GetCanonicalGameByID(ctx, id)
+	if err != nil {
+		c.logger.Error("get game detail", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if game == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(canonicalToGameDetail(game))
+}
+
+// Stats returns aggregate library statistics (GET /api/stats).
+func (c *GameController) Stats(w http.ResponseWriter, r *http.Request) {
+	stats, err := c.gameStore.GetLibraryStats(r.Context())
+	if err != nil {
+		c.logger.Error("library stats", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
 // DeleteAll removes all games and their files (DELETE /api/games).
 func (c *GameController) DeleteAll(w http.ResponseWriter, r *http.Request) {
 	if err := c.gameStore.DeleteAllGames(r.Context()); err != nil {
@@ -113,11 +153,15 @@ func (c *GameController) DeleteAll(w http.ResponseWriter, r *http.Request) {
 
 func canonicalToSummary(cg *core.CanonicalGame) GameSummary {
 	s := GameSummary{
-		ID:        cg.ID,
-		Title:     cg.Title,
-		Platform:  string(cg.Platform),
-		Kind:      string(cg.Kind),
-		GroupKind: "",
+		ID:              cg.ID,
+		Title:           cg.Title,
+		Platform:        string(cg.Platform),
+		Kind:            string(cg.Kind),
+		GroupKind:       "",
+		IsGamePass:      cg.IsGamePass,
+		XcloudAvailable: cg.XcloudAvailable,
+		StoreProductID:  cg.StoreProductID,
+		XcloudURL:       cg.XcloudURL,
 	}
 
 	// Collect files from all source games.
@@ -234,10 +278,15 @@ type PluginController struct {
 	repo       core.IntegrationRepository
 	pluginHost plugins.PluginHost
 	logger     core.Logger
+	eventBus   *events.EventBus
 }
 
-func NewPluginController(repo core.IntegrationRepository, pluginHost plugins.PluginHost, logger core.Logger) *PluginController {
-	return &PluginController{repo: repo, pluginHost: pluginHost, logger: logger}
+func NewPluginController(repo core.IntegrationRepository, pluginHost plugins.PluginHost, logger core.Logger, eventBus *events.EventBus) *PluginController {
+	return &PluginController{repo: repo, pluginHost: pluginHost, logger: logger, eventBus: eventBus}
+}
+
+func (c *PluginController) publishNotification(typ string, payload map[string]any) {
+	events.PublishJSON(c.eventBus, typ, payload)
 }
 
 func (c *PluginController) ListPlugins(w http.ResponseWriter, r *http.Request) {
@@ -289,17 +338,27 @@ func (c *PluginController) Status(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	total := len(integrations)
+	c.publishNotification("integration_status_run_started", map[string]any{"total": total})
+
 	results := make([]IntegrationStatusEntry, 0, len(integrations))
-	for _, integration := range integrations {
+	for i, integration := range integrations {
+		idx := i + 1
 		var configMap map[string]any
 		if integration.ConfigJSON != "" {
 			if err := json.Unmarshal([]byte(integration.ConfigJSON), &configMap); err != nil {
-				results = append(results, IntegrationStatusEntry{
+				entry := IntegrationStatusEntry{
 					IntegrationID: integration.ID,
-					PluginID:     integration.PluginID,
-					Label:        integration.Label,
-					Status:       "error",
-					Message:      "Invalid config JSON",
+					PluginID:      integration.PluginID,
+					Label:         integration.Label,
+					Status:        "error",
+					Message:       "Invalid config JSON",
+				}
+				results = append(results, entry)
+				c.publishNotification("integration_status_checked", map[string]any{
+					"index": idx, "total": total,
+					"integration_id": entry.IntegrationID, "plugin_id": entry.PluginID, "label": entry.Label,
+					"status": entry.Status, "message": entry.Message,
 				})
 				continue
 			}
@@ -309,12 +368,18 @@ func (c *PluginController) Status(w http.ResponseWriter, r *http.Request) {
 		}
 		_, pluginOk := c.pluginHost.GetPlugin(integration.PluginID)
 		if !pluginOk {
-			results = append(results, IntegrationStatusEntry{
+			entry := IntegrationStatusEntry{
 				IntegrationID: integration.ID,
-				PluginID:     integration.PluginID,
-				Label:        integration.Label,
-				Status:       "unavailable",
-				Message:      "plugin not found",
+				PluginID:      integration.PluginID,
+				Label:         integration.Label,
+				Status:        "unavailable",
+				Message:       "plugin not found",
+			}
+			results = append(results, entry)
+			c.publishNotification("integration_status_checked", map[string]any{
+				"index": idx, "total": total,
+				"integration_id": entry.IntegrationID, "plugin_id": entry.PluginID, "label": entry.Label,
+				"status": entry.Status, "message": entry.Message,
 			})
 			continue
 		}
@@ -331,14 +396,21 @@ func (c *PluginController) Status(w http.ResponseWriter, r *http.Request) {
 		} else if checkResult.Status != "" && checkResult.Status != "ok" {
 			status = checkResult.Status
 		}
-		results = append(results, IntegrationStatusEntry{
+		entry := IntegrationStatusEntry{
 			IntegrationID: integration.ID,
-			PluginID:     integration.PluginID,
-			Label:        integration.Label,
-			Status:       status,
-			Message:      message,
+			PluginID:      integration.PluginID,
+			Label:         integration.Label,
+			Status:        status,
+			Message:       message,
+		}
+		results = append(results, entry)
+		c.publishNotification("integration_status_checked", map[string]any{
+			"index": idx, "total": total,
+			"integration_id": entry.IntegrationID, "plugin_id": entry.PluginID, "label": entry.Label,
+			"status": entry.Status, "message": entry.Message,
 		})
 	}
+	c.publishNotification("integration_status_run_complete", map[string]any{"total": total})
 	json.NewEncoder(w).Encode(results)
 }
 
@@ -406,6 +478,23 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid integration config", http.StatusBadRequest)
 		return
 	}
+	existing, err := c.repo.ListByPluginID(r.Context(), body.PluginID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, ex := range existing {
+		if configJSONObjectDeepEqual(string(configBytes), ex.ConfigJSON) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":          "duplicate_integration",
+				"integration_id": ex.ID,
+				"integration":    ex,
+			})
+			return
+		}
+	}
 	integration := &core.Integration{
 		ID:              uuid.New().String(),
 		PluginID:        body.PluginID,
@@ -419,6 +508,12 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	c.publishNotification("integration_created", map[string]any{
+		"integration_id":   integration.ID,
+		"plugin_id":        integration.PluginID,
+		"label":            integration.Label,
+		"integration_type": integration.IntegrationType,
+	})
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(integration)
 }
@@ -428,10 +523,11 @@ type AchievementController struct {
 	gameStore  core.GameStore
 	pluginHost plugins.PluginHost
 	logger     core.Logger
+	eventBus   *events.EventBus
 }
 
-func NewAchievementController(gameStore core.GameStore, pluginHost plugins.PluginHost, logger core.Logger) *AchievementController {
-	return &AchievementController{gameStore: gameStore, pluginHost: pluginHost, logger: logger}
+func NewAchievementController(gameStore core.GameStore, pluginHost plugins.PluginHost, logger core.Logger, eventBus *events.EventBus) *AchievementController {
+	return &AchievementController{gameStore: gameStore, pluginHost: pluginHost, logger: logger, eventBus: eventBus}
 }
 
 type AchievementDTO struct {
@@ -448,11 +544,11 @@ type AchievementDTO struct {
 
 type AchievementSetDTO struct {
 	Source         string           `json:"source"`
-	ExternalGameID string          `json:"external_game_id"`
-	TotalCount     int             `json:"total_count"`
-	UnlockedCount  int             `json:"unlocked_count"`
-	TotalPoints    int             `json:"total_points,omitempty"`
-	EarnedPoints   int             `json:"earned_points,omitempty"`
+	ExternalGameID string           `json:"external_game_id"`
+	TotalCount     int              `json:"total_count"`
+	UnlockedCount  int              `json:"unlocked_count"`
+	TotalPoints    int              `json:"total_points,omitempty"`
+	EarnedPoints   int              `json:"earned_points,omitempty"`
 	Achievements   []AchievementDTO `json:"achievements"`
 }
 
@@ -488,6 +584,14 @@ func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.R
 		externalBySource[eid.Source] = eid.ExternalID
 	}
 
+	toQuery := 0
+	for _, pluginID := range achPlugins {
+		if _, ok := externalBySource[pluginID]; ok {
+			toQuery++
+		}
+	}
+	checked := 0
+
 	var sets []AchievementSetDTO
 	for _, pluginID := range achPlugins {
 		extID, ok := externalBySource[pluginID]
@@ -516,8 +620,17 @@ func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.R
 		}
 
 		params := map[string]any{"external_game_id": extID}
+		checked++
 		if err := c.pluginHost.Call(ctx, pluginID, "achievements.game.get", params, &result); err != nil {
 			c.logger.Error("achievements.game.get failed", err, "plugin_id", pluginID, "game_id", gameID)
+			events.PublishJSON(c.eventBus, "operation_error", map[string]any{
+				"scope":     "achievements",
+				"plugin_id": pluginID,
+				"game_id":   gameID,
+				"error":     err.Error(),
+				"index":     checked,
+				"total":     toQuery,
+			})
 			continue
 		}
 

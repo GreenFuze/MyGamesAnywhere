@@ -9,6 +9,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/app"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/http"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/keystore"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/logger"
@@ -39,23 +40,25 @@ func main() {
 	gameStore := db.NewGameStore(dbSvc, logSvc)
 
 	processManager := plugins.NewProcessManager()
-	pluginHost := plugins.NewPluginHost(logSvc, configSvc, processManager)
+	eventBus := events.New()
+	pluginHost := plugins.NewPluginHost(logSvc, configSvc, processManager, eventBus)
 
 	ks := keystore.New()
 	syncSvc := mgasync.NewSyncService(integrationRepo, settingRepo, pluginHost, ks, logSvc)
-
 	orchestrator := scan.NewOrchestrator(pluginHost, pluginHost, integrationRepo, gameStore, logSvc)
+	orchestrator.SetEventBus(eventBus)
 
 	gameCtrl := http.NewGameController(gameStore, logSvc)
 	discoCtrl := http.NewDiscoveryController(orchestrator, logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
-	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, logSvc)
-	achievementCtrl := http.NewAchievementController(gameStore, pluginHost, logSvc)
-	syncCtrl := http.NewSyncController(syncSvc, logSvc)
+	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, logSvc, eventBus)
+	achievementCtrl := http.NewAchievementController(gameStore, pluginHost, logSvc, eventBus)
+	syncCtrl := http.NewSyncController(syncSvc, logSvc, eventBus)
+	sseCtrl := http.NewSSEController(eventBus, logSvc)
 
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, discoCtrl, configCtrl, pluginCtrl, achievementCtrl, syncCtrl)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, discoCtrl, configCtrl, pluginCtrl, achievementCtrl, syncCtrl, sseCtrl)
 
-	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost)
+	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost, eventBus)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

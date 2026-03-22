@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/google/uuid"
@@ -35,20 +36,26 @@ type IpcClient interface {
 	Close() error
 }
 
+// DisconnectFunc is invoked when the plugin stdout reader ends. unexpected is true if Close() was not called (e.g. crash).
+type DisconnectFunc func(pluginID string, readErr error, unexpected bool)
+
 type jsonIpcClient struct {
-	process Process
-	mu      sync.Mutex
-	pending map[string]chan *Response
-	logger  core.Logger
-	pluginID string
+	process        Process
+	mu             sync.Mutex
+	pending        map[string]chan *Response
+	logger         core.Logger
+	pluginID       string
+	onDisconnect   DisconnectFunc
+	intentionalEnd atomic.Bool
 }
 
-func NewIpcClient(process Process, logger core.Logger, pluginID string) IpcClient {
+func NewIpcClient(process Process, logger core.Logger, pluginID string, onDisconnect DisconnectFunc) IpcClient {
 	c := &jsonIpcClient{
-		process: process,
-		pending: make(map[string]chan *Response),
-		logger:  logger,
-		pluginID: pluginID,
+		process:      process,
+		pending:      make(map[string]chan *Response),
+		logger:       logger,
+		pluginID:     pluginID,
+		onDisconnect: onDisconnect,
 	}
 	go c.listenStdout()
 	go c.listenStderr()
@@ -64,6 +71,7 @@ func (c *jsonIpcClient) listenStdout() {
 			if err != io.EOF {
 				c.logger.Error("failed to read from plugin stdout", err, "plugin_id", c.pluginID)
 			}
+			c.notifyStdoutEnd(err)
 			return
 		}
 
@@ -71,6 +79,7 @@ func (c *jsonIpcClient) listenStdout() {
 		_, err = io.ReadFull(stdout, payload)
 		if err != nil {
 			c.logger.Error("failed to read payload from plugin stdout", err, "plugin_id", c.pluginID)
+			c.notifyStdoutEnd(err)
 			return
 		}
 
@@ -151,6 +160,15 @@ func (c *jsonIpcClient) Call(ctx context.Context, method string, params any, res
 	}
 }
 
+func (c *jsonIpcClient) notifyStdoutEnd(readErr error) {
+	if c.onDisconnect == nil {
+		return
+	}
+	unexpected := !c.intentionalEnd.Load()
+	c.onDisconnect(c.pluginID, readErr, unexpected)
+}
+
 func (c *jsonIpcClient) Close() error {
+	c.intentionalEnd.Store(true)
 	return c.process.Kill()
 }

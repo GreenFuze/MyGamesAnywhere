@@ -255,7 +255,7 @@ func TestEnrich_BasicPipeline(t *testing.T) {
 		{PluginID: "plugin-b", Config: map[string]any{}},
 	}
 
-	resolver.Enrich(context.Background(), games, sources)
+	resolver.Enrich(context.Background(), "test-integration", games, sources)
 
 	// Game 0: plugin-a says "Donkey Kong 3", plugin-b says "DK3 (alternate)".
 	// 1 vs 1 tie → plugin-a wins by priority.
@@ -303,7 +303,7 @@ func TestEnrich_Unidentified(t *testing.T) {
 	}
 
 	sources := []MetadataSource{{PluginID: "plugin-a", Config: map[string]any{}}}
-	resolver.Enrich(context.Background(), games, sources)
+	resolver.Enrich(context.Background(), "test-integration", games, sources)
 
 	if games[0].Status != "unidentified" {
 		t.Errorf("status: got %q, want %q", games[0].Status, "unidentified")
@@ -363,7 +363,7 @@ func TestEnrich_FillPhase(t *testing.T) {
 		{PluginID: "plugin-b", Config: map[string]any{}},
 	}
 
-	resolver.Enrich(context.Background(), games, sources)
+	resolver.Enrich(context.Background(), "test-integration", games, sources)
 
 	if games[0].Title != "Half-Life 2" {
 		t.Errorf("title: got %q, want %q", games[0].Title, "Half-Life 2")
@@ -453,7 +453,7 @@ func TestEnrich_OutvotedResolverRequeried(t *testing.T) {
 		{PluginID: "plugin-c", Config: map[string]any{}},
 	}
 
-	resolver.Enrich(context.Background(), games, sources)
+	resolver.Enrich(context.Background(), "test-integration", games, sources)
 
 	if games[0].Title != "Doom" {
 		t.Errorf("title: got %q, want %q", games[0].Title, "Doom")
@@ -500,7 +500,7 @@ func TestEnrich_SkippedIndex(t *testing.T) {
 	}
 
 	sources := []MetadataSource{{PluginID: "plugin-a", Config: map[string]any{}}}
-	resolver.Enrich(context.Background(), games, sources)
+	resolver.Enrich(context.Background(), "test-integration", games, sources)
 
 	if games[0].Title != "Matched" {
 		t.Errorf("game 0: got %q, want %q", games[0].Title, "Matched")

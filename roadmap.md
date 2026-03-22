@@ -14,6 +14,7 @@
 - [x] Database schema (SQLite, WAL mode, foreign keys)
 - [x] GameStore persistence layer (transactional writes, canonical game views, soft deletes, move detection)
 - [x] REST API (games, integrations, plugins, scan, achievements, config)
+- [x] Server-Sent Events: `GET /api/events`; detailed scan pipeline events (source list, scanner, metadata identify/consensus/fill per resolver, persist, skips); `ts` on payloads; catalog in `server/internal/events/scan_events.md`; event bus closed before HTTP shutdown
 - [x] System tray (Windows)
 - [x] Build system (build.ps1 — server + all plugins)
 
@@ -38,33 +39,58 @@
 - [x] Google Drive sync plugin: `sync.push` / `sync.pull` IPC methods
 
 ### Server-Sent Events
-- [ ] `GET /api/events` SSE endpoint
-- [ ] Scan progress events (started, per-integration progress, completed, error)
-- [ ] Notification events (integration status changes, errors)
-
-### Static File Serving
-- [ ] `go:embed` frontend dist into server binary
-- [ ] Serve `/*` (excluding `/api/*`) from embedded SPA
-- [ ] SPA fallback: all non-file routes return `index.html`
-
-### Tray Icon
-- [ ] Add "Open Web Frontend" menu item → opens `http://localhost:{port}` in default browser
+- [x] `GET /api/events` SSE endpoint
+- [x] Scan progress events (started, per-integration, source listing, scanner grouping, metadata phases + per-resolver IPC, persist, skips, completed, error); catalog: [`server/internal/events/scan_events.md`](server/internal/events/scan_events.md)
+- [x] Notification events: integration create + status run (`index`/`total`), sync push/pull + key store/clear, achievement fetch errors, unexpected plugin process exit; catalog: [`server/internal/events/notification_events.md`](server/internal/events/notification_events.md)
 
 ### API Enhancements
-- [ ] Duplicate integration prevention (`POST /api/integrations` rejects same plugin_id + same config)
-- [ ] `GET /api/games/{id}` — full detail response with metadata_json, media, external IDs
-- [ ] `GET /api/games/{id}/play` — stream game file from source (for emulator playback)
-- [ ] `GET /api/stats` — library statistics (counts by platform, genre, source, metadata coverage)
-- [ ] Frontend preferences: `GET/POST /api/config/frontend` (theme, view mode, sidebar state)
+
+> **Plan (Phase 0)** — *Implemented:* duplicate integrations, `GET /api/games/{id}/detail`, `GET /api/stats`, dedicated frontend config. *`GET /api/games/{id}/play` remains **Phase 6** (in-browser emulation / ROM streaming).*  
+> **Design choices:** no premature optimization — full `resolver_matches` (incl. `metadata_json`) always on detail.  
+> **Contracts:** [`server/openapi.yaml`](server/openapi.yaml) + [`server/internal/openapi/operations.go`](server/internal/openapi/operations.go) updated; regenerate with `go run ./cmd/openapi-gen` from `server/`.
+
+- [x] **Duplicate integration prevention** — `ListByPluginID` + `reflect.DeepEqual` on decoded JSON objects; **409** with `duplicate_integration`, `integration_id`, and `integration` object.
+- [x] **`GET /api/games/{id}/detail`** — Full detail DTO; media includes `local_path`, `hash`, `mime_type`; per–source-game `resolver_matches` always included.
+- [x] **`GET /api/stats`** — `GameStore.GetLibraryStats`: single JSON (`LibraryStats` in [`core/entities.go`](server/internal/core/entities.go)).
+- [x] **Frontend preferences** — **`GET` / `POST /api/config/frontend`** only for SPA prefs; settings key **`frontend`**; max body 256KiB.
 
 ### xCloud Catalog
-- [ ] Extend Xbox source/metadata plugin to detect xCloud availability
-- [ ] Store `xcloud_available` flag and `xcloud_url` per game
-- [ ] xCloud badge in game data
+
+> **Architecture** — Xbox library data is **`game-source-xbox`** only (no separate Xbox metadata plugin). [`fetchTitleHistory`](server/plugins/xbox-source/main.go) requests **`ProductId`**, **`TitleHistory`**, and **`filterTo=IsStreamable,IsGame`** (plus legacy decorations); [`fetchGames`](server/internal/scan/orchestrator.go) forwards **`is_game_pass`**, **`xcloud_*`**, and **`store_product_id`** into resolver metadata.
+
+**SuitCode:** `get_minimum_verified_change_set_by_path` on `server/plugins/xbox-source/main.go` → `go test` / `go build` that module after edits.
+
+**Title Hub — confirmed approach (2026-03):** Same **`titlehub.xboxlive.com`** + user **XSTS** auth, but change the **decoration list** and **query** to match the xCloud web client, e.g.:  
+`.../titles/titleHistory/decoration/GamePass,ProductId,TitleHistory?filterTo=IsStreamable,IsGame&supportedPlatform=StreamableOnly`  
+(plus existing `maxItems`; keep **`x-xbl-contract-version: 2`**, **`x-xbl-market`**, **`accept-language`** as today.)
+
+**Fields to parse per title (from live JSON):**
+- **`isStreamable`** → **`xcloud_available`** (authoritative for cloud play in this pipeline).
+- **`gamePass.isGamePass`** → **Game Pass catalog** entitlement flag (includes GP titles; **not** the same as xCloud — e.g. *Enter the Gungeon* can be `isGamePass: false` and **`isStreamable: true`** if you own it / it’s otherwise streamable).
+- **`productId`** (e.g. `9P20JCF7BV93`) → **Store BigId** for web launch; aligns with URLs like `https://www.xbox.com/en-US/play/launch/final-fantasy/9P20JCF7BV93`.
+- **`titleId`** in this response is a **decimal string**; align with **`external_id`** / achievements (hex vs decimal — normalize in one place).
+- **`name`** → derive **URL slug** for `/play/launch/{slug}/{productId}` (match xbox.com rules: lowercase, hyphens, strip ™/®; verify edge cases against Display Catalog or a small golden-file list).
+
+**`xcloud_url`:** Build when **`isStreamable`** (and optionally only when `productId` looks like a launchable id, e.g. `9P…` / `9N…`). Use configurable locale segment (default `en-US`). Do **not** log or store **Authorization** tokens.
+
+**Optional cross-checks (if ever needed):** [Better xCloud](https://github.com/redphx/better-xcloud) references **Display Catalog** (`displaycatalog.mp.microsoft.com`) and **`catalog.gamepass.com/sigls/`** — useful for debugging or slug mismatches, not required if Title Hub keeps returning `productId` + `isStreamable`.
+
+**Implementation plan:**
+- [x] **`xbox-source`:** Title Hub uses **ProductId,TitleHistory** + **`filterTo=IsStreamable,IsGame`** (no `StreamableOnly` so the full library is returned); extend `title` / [`gameEntry`](server/plugins/xbox-source/main.go) with `xcloud_available`, `store_product_id`, `xcloud_url`; keep `is_game_pass`; optional config **`xbl_market`**, **`play_launch_locale`**; **`x-xbl-market`** header on Title Hub requests.
+- [x] **Orchestrator [`fetchGames`](server/internal/scan/orchestrator.go):** Decode and forward **`is_game_pass`**, **`xcloud_available`**, **`xcloud_url`**, **`store_product_id`** into the initial resolver row from storefront plugins.
+- [x] **Persistence:** [`metadataExtra`](server/internal/db/game_store.go) / `metadata_json` carries these flags + URL; unified canonical view merges them in **`computeUnifiedView`**.
+- [x] **API:** [`GET /api/games/{id}/detail`](server/internal/http/game_detail.go) exposes unified Xbox/xCloud fields plus per-source **`resolver_matches`**. **`GET /api/games`** and **`GET /api/games/{id}`** include the same unified fields on each summary ([`GameSummary`](server/internal/http/controllers.go)).
+- [x] **Tests:** [`titlehistory_decode_test.go`](server/plugins/xbox-source/titlehistory_decode_test.go) fixture (redacted) for `titleId` number/string, streamable URL slug.
+- [x] **Local verify script:** [`server/scripts/verify-xbox-xcloud.ps1`](server/scripts/verify-xbox-xcloud.ps1) — with server running from `server\bin` after [`build.ps1`](server/build.ps1), add a **`game-source-xbox`** integration, then `pwsh -File server/scripts/verify-xbox-xcloud.ps1` (optional `MGA_BASE_URL`).
+
+- [x] Extend Xbox **source** plugin + orchestrator (Title Hub `isStreamable` + `productId` + launch URL)
+- [x] Store `xcloud_available`, `xcloud_url`, and Game Pass flag in persisted game metadata (`metadata_json`)
 
 ---
 
 ## Phase 1 — Frontend Scaffold
+
+Phases **1–7** are **frontend / product** milestones (UI, client logic). **Phase 0** is **backend prep** on the Go server; completed Phase 0 items (e.g. SSE scan stream) are dependencies for later UI work, not partial completion of Phase 4 or 5.
 
 ### Project Setup
 - [ ] Initialize Vite + React + TypeScript in `server/frontend/`
@@ -75,6 +101,18 @@
 - [ ] Auto-generated API client from `openapi.yaml`
 - [ ] Vite dev proxy to Go server (`localhost:8900`)
 - [ ] Add `server/frontend/node_modules/` and `server/frontend/dist/` to `.gitignore`
+
+### Static file serving (production binary)
+*Depends on a built frontend (`dist/`). During Phase 1 dev, use Vite + proxy; embed when we want a single shipped desktop binary that serves the UI.*
+
+- [ ] `go:embed` frontend dist into server binary
+- [ ] Serve `/*` (excluding `/api/*`) from embedded SPA
+- [ ] SPA fallback: all non-file routes return `index.html`
+
+### Tray icon
+*Entry point from the running desktop app into the web UI. Align URL/port with however the frontend is served (Vite dev vs embedded Go server).*
+
+- [ ] Add "Open Web Frontend" menu item → opens `http://localhost:{port}` in default browser
 
 ### Shell & Layout
 - [ ] App shell: sidebar + topbar + main content area
@@ -125,7 +163,7 @@
 - [ ] HLTB time estimate badge
 - [ ] Metadata confidence indicator (number of resolvers matched)
 - [ ] "Playable" badge (browser-emulatable platforms)
-- [ ] "xCloud" badge (cloud-playable Xbox games)
+- [ ] **"xCloud" badge** (cloud-playable Xbox games) — backend already exposes `xcloud_available`, `xcloud_url`, `store_product_id`, `is_game_pass` on `GET /api/games`, `GET /api/games/{id}`, and [`GET /api/games/{id}/detail`](server/internal/http/game_detail.go)
 - [ ] Play button on playable games vs. "View" on others
 
 ### Search & Filtering
@@ -186,7 +224,7 @@
 ### Scanning
 - [ ] Trigger full scan button
 - [ ] Trigger per-integration scan
-- [ ] Scan progress display (driven by SSE)
+- [ ] Scan progress display (driven by SSE — backend ready in Phase 0)
 - [ ] Last scan results summary
 
 ### Sync
@@ -224,7 +262,7 @@
 - [ ] Exit back to library
 
 ### ROM Streaming
-- [ ] `GET /api/games/{id}/play` serves game files from source (SMB, Drive, etc.)
+- [ ] **`GET /api/games/{id}/play`** — Stream a **launchable file** to the browser emulator (query param: `path` or `file_id` matching [`GameFile`](server/internal/core/entities.go)). **Phase A:** local disk / paths resolvable on the machine running the server (`http.ServeFile` or `io.Copy` with **Range** support for large ROMs). **Phase B:** remote sources (SMB / Drive) via plugin IPC (e.g. `source.file.read` with range) or server-side FS abstraction. **Security:** reject path traversal; only files that belong to the game’s source games. OpenAPI + CORS/range behavior as needed for EmulatorJS / WASM loaders.
 - [ ] Platform-to-emulator-core mapping
 
 ### xCloud
@@ -279,7 +317,6 @@
 
 - [ ] HLTB API returning 404 (endpoint may have changed — needs investigation)
 - [ ] RetroAchievements integration needs username in config
-- [ ] Duplicate integration prevention not yet implemented
 - [ ] TGDB disabled due to low API quota
 - [ ] Media download background worker (MediaItems have URLs but no local files yet)
 - [ ] Schema migration strategy (deferred until after first release)

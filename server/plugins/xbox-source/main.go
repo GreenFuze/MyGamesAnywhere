@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -47,6 +48,10 @@ type xboxConfig struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 	RedirectURI  string `json:"redirect_uri"`
+	// XBLMarket is sent as x-xbl-market (default US). Optional.
+	XBLMarket string `json:"xbl_market,omitempty"`
+	// PlayLaunchLocale is the xbox.com path segment for play URLs, e.g. en-US.
+	PlayLaunchLocale string `json:"play_launch_locale,omitempty"`
 }
 
 const (
@@ -137,12 +142,12 @@ func buildAuthorizeURL(state string) string {
 	pkceVerifier = generateCodeVerifier()
 	params := url.Values{
 		"client_id":             {cfg.ClientID},
-		"response_type":        {"code"},
-		"redirect_uri":         {cfg.RedirectURI},
-		"scope":                {"XboxLive.signin XboxLive.offline_access offline_access"},
-		"state":                {state},
-		"response_mode":        {"query"},
-		"code_challenge":       {codeChallenge(pkceVerifier)},
+		"response_type":         {"code"},
+		"redirect_uri":          {cfg.RedirectURI},
+		"scope":                 {"XboxLive.signin XboxLive.offline_access offline_access"},
+		"state":                 {state},
+		"response_mode":         {"query"},
+		"code_challenge":        {codeChallenge(pkceVerifier)},
 		"code_challenge_method": {"S256"},
 	}
 	return msAuthorizeURL + "?" + params.Encode()
@@ -462,6 +467,11 @@ func xboxAPIGet(ctx context.Context, apiURL string) ([]byte, error) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	req.Header.Set("Authorization", auth)
 	req.Header.Set("x-xbl-contract-version", "2")
+	market := strings.TrimSpace(cfg.XBLMarket)
+	if market == "" {
+		market = "US"
+	}
+	req.Header.Set("x-xbl-market", market)
 	req.Header.Set("x-xbl-client-name", "XboxApp")
 	req.Header.Set("x-xbl-client-type", "UWA")
 	req.Header.Set("x-xbl-client-version", "39.39.22001.0")
@@ -484,33 +494,65 @@ func xboxAPIGet(ctx context.Context, apiURL string) ([]byte, error) {
 
 // --------------- Titlehub types ---------------
 
+// titleIDString unmarshals Title Hub titleId whether the API sends a JSON number or string.
+type titleIDString string
+
+func (t *titleIDString) UnmarshalJSON(b []byte) error {
+	s := strings.TrimSpace(string(b))
+	if s == "" || s == "null" {
+		*t = ""
+		return nil
+	}
+	if s[0] == '"' {
+		var unq string
+		if err := json.Unmarshal(b, &unq); err != nil {
+			return err
+		}
+		*t = titleIDString(strings.TrimSpace(unq))
+		return nil
+	}
+	var n json.Number
+	if err := json.Unmarshal(b, &n); err == nil {
+		*t = titleIDString(strings.TrimSpace(string(n)))
+		return nil
+	}
+	var f float64
+	if err := json.Unmarshal(b, &f); err == nil {
+		*t = titleIDString(strconv.FormatInt(int64(f), 10))
+		return nil
+	}
+	return fmt.Errorf("titleId: unexpected JSON %s", s)
+}
+
 type titleHubResponse struct {
 	XUID   string  `json:"xuid"`
 	Titles []title `json:"titles"`
 }
 
 type title struct {
-	TitleID       string         `json:"titleId"`
-	Name          string         `json:"name"`
-	Type          string         `json:"type"`
-	Devices       []string       `json:"devices"`
-	DisplayImage  string         `json:"displayImage"`
-	MediaItemType string         `json:"mediaItemType"`
-	ModernTitleID string         `json:"modernTitleId"`
-	IsBundle      bool           `json:"isBundle"`
-	Achievement   *achievement   `json:"achievement"`
-	GamePass      *gamePass      `json:"gamePass"`
-	Images        []titleImage   `json:"images"`
-	TitleHistory  *titleHistory  `json:"titleHistory"`
-	Detail        *titleDetail   `json:"detail"`
+	TitleID       titleIDString `json:"titleId"`
+	Name          string        `json:"name"`
+	Type          string        `json:"type"`
+	Devices       []string      `json:"devices"`
+	DisplayImage  string        `json:"displayImage"`
+	MediaItemType string        `json:"mediaItemType"`
+	ModernTitleID string        `json:"modernTitleId"`
+	IsBundle      bool          `json:"isBundle"`
+	IsStreamable  bool          `json:"isStreamable"`
+	ProductID     string        `json:"productId"`
+	Achievement   *achievement  `json:"achievement"`
+	GamePass      *gamePass     `json:"gamePass"`
+	Images        []titleImage  `json:"images"`
+	TitleHistory  *titleHistory `json:"titleHistory"`
+	Detail        *titleDetail  `json:"detail"`
 }
 
 type achievement struct {
-	CurrentAchievements  int     `json:"currentAchievements"`
-	TotalAchievements    int     `json:"totalAchievements"`
-	CurrentGamerscore    int     `json:"currentGamerscore"`
-	TotalGamerscore      int     `json:"totalGamerscore"`
-	ProgressPercentage   float64 `json:"progressPercentage"`
+	CurrentAchievements int     `json:"currentAchievements"`
+	TotalAchievements   int     `json:"totalAchievements"`
+	CurrentGamerscore   int     `json:"currentGamerscore"`
+	TotalGamerscore     int     `json:"totalGamerscore"`
+	ProgressPercentage  float64 `json:"progressPercentage"`
 }
 
 type gamePass struct {
@@ -577,9 +619,9 @@ type xboxProgression struct {
 }
 
 type xboxRequirement struct {
-	ID          string `json:"id"`
-	Current     string `json:"current"`
-	Target      string `json:"target"`
+	ID      string `json:"id"`
+	Current string `json:"current"`
+	Target  string `json:"target"`
 }
 
 type xboxMediaAsset struct {
@@ -599,17 +641,20 @@ type mediaItem struct {
 }
 
 type gameEntry struct {
-	ExternalID  string      `json:"external_id"`
-	Title       string      `json:"title"`
-	Platform    string      `json:"platform,omitempty"`
-	URL         string      `json:"url,omitempty"`
-	Description string      `json:"description,omitempty"`
-	ReleaseDate string      `json:"release_date,omitempty"`
-	Genres      []string    `json:"genres,omitempty"`
-	Developer   string      `json:"developer,omitempty"`
-	Publisher   string      `json:"publisher,omitempty"`
-	Media       []mediaItem `json:"media,omitempty"`
-	IsGamePass  bool        `json:"is_game_pass,omitempty"`
+	ExternalID      string      `json:"external_id"`
+	Title           string      `json:"title"`
+	Platform        string      `json:"platform,omitempty"`
+	URL             string      `json:"url,omitempty"`
+	Description     string      `json:"description,omitempty"`
+	ReleaseDate     string      `json:"release_date,omitempty"`
+	Genres          []string    `json:"genres,omitempty"`
+	Developer       string      `json:"developer,omitempty"`
+	Publisher       string      `json:"publisher,omitempty"`
+	Media           []mediaItem `json:"media,omitempty"`
+	IsGamePass      bool        `json:"is_game_pass,omitempty"`
+	XcloudAvailable bool        `json:"xcloud_available,omitempty"`
+	StoreProductID  string      `json:"store_product_id,omitempty"`
+	XcloudURL       string      `json:"xcloud_url,omitempty"`
 }
 
 // --------------- Fetch title history ---------------
@@ -623,8 +668,11 @@ func fetchTitleHistory(ctx context.Context) (*titleHubResponse, error) {
 		return nil, fmt.Errorf("no XUID available")
 	}
 
-	fields := "achievement,image,gamepass,detail"
-	apiURL := fmt.Sprintf("%s/users/xuid(%s)/titles/titlehistory/decoration/%s?maxItems=1000",
+	// Decorations: legacy enrichment + ProductId/TitleHistory for store id, play history, and isStreamable
+	// (xCloud availability). filterTo=IsStreamable,IsGame matches the xbox.com play client contract.
+	// We omit supportedPlatform=StreamableOnly so the library is not limited to streamable-only titles.
+	fields := "achievement,image,gamepass,detail,ProductId,TitleHistory"
+	apiURL := fmt.Sprintf("%s/users/xuid(%s)/titles/titlehistory/decoration/%s?filterTo=IsStreamable,IsGame&maxItems=1000",
 		titlehubURL, xuid, fields)
 
 	body, err := xboxAPIGet(ctx, apiURL)
@@ -639,14 +687,72 @@ func fetchTitleHistory(ctx context.Context) (*titleHubResponse, error) {
 	return &result, nil
 }
 
+func xboxPlaySlug(name string) string {
+	replacer := strings.NewReplacer("™", "", "®", "", "©", "", ":", "", "'", "", "’", "", "–", "-", "—", "-")
+	s := strings.ToLower(strings.TrimSpace(replacer.Replace(name)))
+	var b strings.Builder
+	lastHyphen := false
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastHyphen = false
+		case r == ' ', r == '-', r == '_', r == '.':
+			if b.Len() > 0 && !lastHyphen {
+				b.WriteByte('-')
+				lastHyphen = true
+			}
+		default:
+			// drop other punctuation
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	for strings.Contains(out, "--") {
+		out = strings.ReplaceAll(out, "--", "-")
+	}
+	return out
+}
+
+func launchableStoreProductID(id string) bool {
+	id = strings.TrimSpace(strings.ToUpper(id))
+	if len(id) < 2 {
+		return false
+	}
+	p := id[:2]
+	return p == "9P" || p == "9N" || p == "9M" || p == "9W"
+}
+
+func buildXcloudPlayURL(locale, slug, productID string) string {
+	locale = strings.TrimSpace(locale)
+	if locale == "" {
+		locale = "en-US"
+	}
+	slug = strings.Trim(strings.TrimSpace(slug), "-")
+	productID = strings.TrimSpace(productID)
+	if slug == "" || productID == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://www.xbox.com/%s/play/launch/%s/%s", locale, slug, productID)
+}
+
 func titleToGameEntry(t title) *gameEntry {
-	if t.Name == "" || t.TitleID == "" {
+	tid := strings.TrimSpace(string(t.TitleID))
+	if t.Name == "" || tid == "" {
 		return nil
 	}
 
 	entry := &gameEntry{
-		ExternalID: t.TitleID,
-		Title:      t.Name,
+		ExternalID:      tid,
+		Title:           t.Name,
+		XcloudAvailable: t.IsStreamable,
+	}
+	if pid := strings.TrimSpace(t.ProductID); pid != "" {
+		entry.StoreProductID = pid
+	}
+	if t.IsStreamable && launchableStoreProductID(entry.StoreProductID) {
+		if slug := xboxPlaySlug(t.Name); slug != "" {
+			entry.XcloudURL = buildXcloudPlayURL(cfg.PlayLaunchLocale, slug, entry.StoreProductID)
+		}
 	}
 
 	if t.DisplayImage != "" {

@@ -28,7 +28,7 @@ func Operations() []OperationDoc {
 			Method:        "GET",
 			Path:          "/api/games",
 			Summary:       "List games",
-			Description:   "Returns the current inventory of games with title, platform, kind, files, and optional parent_game_id for addons.",
+			Description:   "Returns the current inventory of games with title, platform, kind, files, optional parent_game_id for addons, and unified Xbox/xCloud fields when present (is_game_pass, xcloud_available, store_product_id, xcloud_url).",
 			ResponseDocs:  map[string]string{"200": "JSON list of games with files", "500": "Internal server error"},
 		},
 		{
@@ -42,8 +42,22 @@ func Operations() []OperationDoc {
 			Method:        "GET",
 			Path:          "/api/games/{id}",
 			Summary:       "Get game by ID",
-			Description:   "Returns a single game by its canonical game ID.",
-			ResponseDocs:  map[string]string{"200": "Game object", "404": "Game not found", "500": "Internal server error"},
+			Description:   "Returns a lightweight game summary (same shape as list items, including Xbox/xCloud fields when present) by canonical game ID.",
+			ResponseDocs:  map[string]string{"200": "Game summary", "404": "Game not found", "500": "Internal server error"},
+		},
+		{
+			Method:       "GET",
+			Path:         "/api/games/{id}/detail",
+			Summary:      "Get game detail",
+			Description:  "Full metadata, media (with local_path/hash when known), external IDs, merged files, unified Xbox/xCloud fields (is_game_pass, xcloud_available, store_product_id, xcloud_url when present), and all source games with resolver_matches (including metadata_json).",
+			ResponseDocs: map[string]string{"200": "Game detail object", "404": "Game not found", "500": "Internal server error"},
+		},
+		{
+			Method:       "GET",
+			Path:         "/api/stats",
+			Summary:      "Library statistics",
+			Description:  "Single JSON document: canonical and source game counts, breakdowns by platform/kind/integration/plugin, metadata coverage (canonical games with a non-empty resolver title).",
+			ResponseDocs: map[string]string{"200": "LibraryStats JSON", "500": "Internal server error"},
 		},
 		{
 			Method:       "GET",
@@ -82,6 +96,21 @@ func Operations() []OperationDoc {
 			ResponseDocs: map[string]string{"200": "Plugin info", "400": "plugin_id required", "404": "Plugin not found", "500": "Internal server error"},
 		},
 		{
+			Method:         "GET",
+			Path:           "/api/config/frontend",
+			Summary:        "Get frontend preferences",
+			Description:    "Returns stored SPA preferences as a JSON object; {} if unset or invalid.",
+			ResponseDocs:   map[string]string{"200": "JSON object", "500": "Internal server error"},
+		},
+		{
+			Method:         "POST",
+			Path:           "/api/config/frontend",
+			Summary:        "Set frontend preferences",
+			Description:    "Upserts SPA preferences as a single JSON object (theme, layout, etc.). Stored under key frontend.",
+			RequestBodyDoc: "JSON object (any keys). Max size enforced by server.",
+			ResponseDocs:   map[string]string{"200": "Saved", "400": "Not a JSON object or too large", "500": "Internal server error"},
+		},
+		{
 			Method:         "POST",
 			Path:           "/api/config/{key}",
 			Summary:        "Set config value",
@@ -109,7 +138,22 @@ func Operations() []OperationDoc {
 			Summary:        "Create integration",
 			Description:    "Creates a new integration (plugin instance). Validates config against plugin schema and plugin.check_config before persisting.",
 			RequestBodyDoc: "JSON: { \"plugin_id\": \"string\", \"label\": \"string\", \"integration_type\": \"source\"|\"metadata\"|..., \"config\": {} }",
-			ResponseDocs:   map[string]string{"201": "Integration created (body is the integration)", "400": "Validation error (missing/invalid plugin_id, label, integration_type, or config)", "500": "Internal server error"},
+			ResponseDocs: map[string]string{
+				"201": "Integration created (body is the integration)",
+				"400": "Validation error (missing/invalid plugin_id, label, integration_type, or config)",
+				"409": "duplicate_integration: same plugin_id and equivalent config JSON (body includes integration_id and integration)",
+				"500": "Internal server error",
+			},
+		},
+		{
+			Method:      "GET",
+			Path:        "/api/events",
+			Summary:     "Server-Sent Events stream",
+			Description: "Opens a long-lived text/event-stream connection. Emits scan pipeline events (see server/internal/events/scan_events.md) and app notifications (integrations, sync, plugin exit, coarse errors; see server/internal/events/notification_events.md). Each data line is JSON; map payloads include a ts field (RFC3339).",
+			ResponseDocs: map[string]string{
+				"200": "text/event-stream; connection stays open until client disconnect or server shutdown",
+				"500": "Streaming not supported",
+			},
 		},
 	}
 }

@@ -17,6 +17,7 @@ type RouteBuilder struct {
 	PluginCtrl      *PluginController
 	AchievementCtrl *AchievementController
 	SyncCtrl        *SyncController
+	SSECtrl         *SSEController
 }
 
 func noopHandler() http.HandlerFunc {
@@ -46,8 +47,12 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration) chi.Router {
 				}
 				r.Get("/games", b.GameCtrl.ListGames)
 				r.Delete("/games", b.GameCtrl.DeleteAll)
+				r.Get("/games/{id}/detail", b.GameCtrl.GetDetail)
 				r.Get("/games/{id}", b.GameCtrl.Get)
 				r.Get("/games/{id}/achievements", b.AchievementCtrl.GetAchievements)
+				r.Get("/stats", b.GameCtrl.Stats)
+				r.Get("/config/frontend", b.ConfigCtrl.GetFrontend)
+				r.Post("/config/frontend", b.ConfigCtrl.SetFrontend)
 				r.Get("/plugins", b.PluginCtrl.ListPlugins)
 				r.Get("/plugins/{plugin_id}", b.PluginCtrl.GetPluginByID)
 				r.Post("/config/{key}", b.ConfigCtrl.Set)
@@ -65,11 +70,18 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration) chi.Router {
 			// Scan can take many minutes; no middleware timeout.
 			api.Get("/scan", b.DiscoCtrl.Scan)
 			api.Post("/scan", b.DiscoCtrl.Scan)
+
+			// Long-lived SSE stream; no middleware timeout.
+			api.Get("/events", b.SSECtrl.Events)
 		} else {
 			api.Get("/games", noopHandler())
 			api.Delete("/games", noopHandler())
+			api.Get("/games/{id}/detail", noopHandler())
 			api.Get("/games/{id}", noopHandler())
 			api.Get("/games/{id}/achievements", noopHandler())
+			api.Get("/stats", noopHandler())
+			api.Get("/config/frontend", noopHandler())
+			api.Post("/config/frontend", noopHandler())
 			api.Get("/scan", noopHandler())
 			api.Post("/scan", noopHandler())
 			api.Get("/plugins", noopHandler())
@@ -83,6 +95,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration) chi.Router {
 			api.Post("/sync/pull", noopHandler())
 			api.Post("/sync/key", noopHandler())
 			api.Delete("/sync/key", noopHandler())
+			api.Get("/events", noopHandler())
 		}
 	})
 	return r

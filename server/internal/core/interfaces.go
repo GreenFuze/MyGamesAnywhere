@@ -41,6 +41,8 @@ type IntegrationRepository interface {
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context) ([]*Integration, error)
 	GetByID(ctx context.Context, id string) (*Integration, error)
+	// ListByPluginID returns integrations for one plugin (for duplicate config checks).
+	ListByPluginID(ctx context.Context, pluginID string) ([]*Integration, error)
 }
 
 // GameStore is the single persistence layer for all game-related data.
@@ -83,6 +85,9 @@ type GameStore interface {
 
 	// GetExternalIDsForCanonical returns all external IDs across source games and resolver matches.
 	GetExternalIDsForCanonical(ctx context.Context, canonicalID string) ([]ExternalID, error)
+
+	// GetLibraryStats returns aggregate counts for the library (GET /api/stats).
+	GetLibraryStats(ctx context.Context) (*LibraryStats, error)
 }
 
 // SyncService handles push/pull settings synchronisation to a remote store.

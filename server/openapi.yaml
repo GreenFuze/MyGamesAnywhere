@@ -5,6 +5,34 @@ info:
   version: 1.0.0
 paths:
 
+  /api/config/frontend:
+    get:
+      summary: Get frontend preferences
+      description: Returns stored SPA preferences as a JSON object; {} if unset or invalid.
+      responses:
+        200:
+          description: JSON object
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+    post:
+      summary: Set frontend preferences
+      description: Upserts SPA preferences as a single JSON object (theme, layout, etc.). Stored under key frontend.
+      requestBody:
+        description: JSON object (any keys). Max size enforced by server.
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Saved
+        400:
+          description: Not a JSON object or too large
+        500:
+          description: Internal server error
+
   /api/config/{key}:
     post:
       summary: Set config value
@@ -29,6 +57,18 @@ paths:
         500:
           description: Internal server error
 
+  /api/events:
+    get:
+      summary: Server-Sent Events stream
+      description: Opens a long-lived text/event-stream connection. Emits scan pipeline events (see server/internal/events/scan_events.md) and app notifications (integrations, sync, plugin exit, coarse errors; see server/internal/events/notification_events.md). Each data line is JSON; map payloads include a ts field (RFC3339).
+      responses:
+        200:
+          description: text/event-stream; connection stays open until client disconnect or server shutdown
+        400:
+          description: Error response
+        500:
+          description: Streaming not supported
+
   /api/games:
     delete:
       summary: Delete all games
@@ -42,7 +82,7 @@ paths:
           description: Internal server error
     get:
       summary: List games
-      description: Returns the current inventory of games with title, platform, kind, files, and optional parent_game_id for addons.
+      description: Returns the current inventory of games with title, platform, kind, files, optional parent_game_id for addons, and unified Xbox/xCloud fields when present (is_game_pass, xcloud_available, store_product_id, xcloud_url).
       responses:
         200:
           description: JSON list of games with files
@@ -54,7 +94,7 @@ paths:
   /api/games/{id}:
     get:
       summary: Get game by ID
-      description: Returns a single game by its canonical game ID.
+      description: Returns a lightweight game summary (same shape as list items, including Xbox/xCloud fields when present) by canonical game ID.
       parameters:
         - name: id
           in: path
@@ -63,7 +103,7 @@ paths:
             type: string
       responses:
         200:
-          description: Game object
+          description: Game summary
         400:
           description: Error response
         404:
@@ -86,6 +126,26 @@ paths:
           description: Array of achievement sets
         400:
           description: id required
+        404:
+          description: Game not found
+        500:
+          description: Internal server error
+
+  /api/games/{id}/detail:
+    get:
+      summary: Get game detail
+      description: Full metadata, media (with local_path/hash when known), external IDs, merged files, unified Xbox/xCloud fields (is_game_pass, xcloud_available, store_product_id, xcloud_url when present), and all source games with resolver_matches (including metadata_json).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Game detail object
+        400:
+          description: Error response
         404:
           description: Game not found
         500:
@@ -116,6 +176,8 @@ paths:
           description: Integration created (body is the integration)
         400:
           description: Validation error (missing/invalid plugin_id, label, integration_type, or config)
+        409:
+          description: 'duplicate_integration: same plugin_id and equivalent config JSON (body includes integration_id and integration)'
         500:
           description: Internal server error
 
@@ -188,6 +250,18 @@ paths:
           description: Scan completed
         400:
           description: Invalid JSON body
+        500:
+          description: Internal server error
+
+  /api/stats:
+    get:
+      summary: Library statistics
+      description: 'Single JSON document: canonical and source game counts, breakdowns by platform/kind/integration/plugin, metadata coverage (canonical games with a non-empty resolver title).'
+      responses:
+        200:
+          description: LibraryStats JSON
+        400:
+          description: Error response
         500:
           description: Internal server error
 
