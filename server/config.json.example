@@ -1,5 +1,6 @@
 {
   "PORT": "8080",
   "DB_PATH": "./data/db.sqlite",
-  "PLUGINS_DIR": "./plugins"
+  "PLUGINS_DIR": "./plugins",
+  "FRONTEND_DIST": "./frontend/dist"
 }

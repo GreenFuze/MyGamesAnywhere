@@ -1,9 +1,10 @@
 # MyGamesAnywhere (MGA)
 
+![MyGamesAnywhere — title banner](docs/branding/title-text.png)
+
 **MyGamesAnywhere** is a **local-first game library** for people who play across **PC installs, consoles, emulators, and cloud**. It runs a small **Go server** on your machine (Windows tray app today), scans **sources** you connect (Steam, Xbox, Epic, SMB shares, Google Drive, etc.), enriches titles with **metadata plugins** (IGDB, RAWG, LaunchBox, HLTB, …), and exposes everything through a **REST API** and a **web UI** (Phase 1 scaffold).
 
-**Tagline ideas (pick one or riff):**  
-*Your games, one shelf.* · *Play anywhere — know what you have.* · *The shelf that follows your library.*
+**Slogan:** *The shelf that follows your library. Play anywhere. Know what you have.*
 
 ---
 
@@ -32,18 +33,20 @@
 
 ### Color direction (not strict — your taste wins)
 
-- **Primary feel:** deep **charcoal / midnight** with a **confident accent** (electric blue, teal, or violet-gold — see our **Midnight** theme in the app: `#0f1115` bg, `#4c8dff` accent).
+- **Primary feel:** deep **purple-charcoal / midnight** with **electric blue** accents (aligned with logo art — see **Midnight** in the app: ~`#0c0a10` bg, ~`#3db8ff` accent).
 - Provide versions for **dark UI** (default) and optional **light / monochrome** for print or light headers.
 - **Tray / favicon:** often **single-color or high-contrast silhouette** reads better than full gradients at 16×16.
 
 ### What to deliver (file checklist)
 
-| Asset | Suggested spec | Where to put it (after you export) |
-|--------|----------------|-------------------------------------|
-| **Master logo** | PNG, **transparent**, ~**1024×1024** or vector master → export | Keep in your repo or design folder; we use downscaled copies below |
-| **Web / UI logo** | PNG **256–512px** wide, transparent | `server/frontend/public/logo.png` (then wire in About / shell — optional for now) |
-| **Favicon** | **32×32** and **192×192** PNG *or* replace `public/favicon.svg` | `server/frontend/public/` — see Vite [public assets](https://vitejs.dev/guide/assets.html#the-public-directory) |
-| **Windows tray `.ico`** | **Multi-size ICO**: **16×16**, **32×32**, **48×48** (some tools add 256×256) | Replace **`server/cmd/server/mga.ico`** (embedded at compile time — rebuild server after swap) |
+| Asset | Suggested spec | In this repo |
+|--------|----------------|--------------|
+| **README / marketing banner** | Wide PNG with title + slogan | [`docs/branding/title-text.png`](docs/branding/title-text.png) |
+| **Web title strip** | Wide hero / wordmark (use **dark** banner; avoid solid magenta fill — that was a separate export) | [`server/frontend/public/title.png`](server/frontend/public/title.png) — Home & About (kept in sync with [`docs/branding/title-text.png`](docs/branding/title-text.png)) |
+| **Optional empty bar hero** | Wide PNG with blank bar for custom text | [`server/frontend/public/title-bar.png`](server/frontend/public/title-bar.png) (unused by default) |
+| **UI logo** | PNG **transparent** (emblem) | [`server/frontend/public/logo.png`](server/frontend/public/logo.png) — shell (home link), About |
+| **Favicon** | Multi-size **ICO** (or PNGs) | [`server/frontend/public/favicon.ico`](server/frontend/public/favicon.ico) — see Vite [public assets](https://vitejs.dev/guide/assets.html#the-public-directory) |
+| **Windows tray `.ico`** | **16×16**, **32×32**, **48×48**, … | [`server/cmd/server/mga.ico`](server/cmd/server/mga.ico) — **rebuild server** after changing |
 
 **Converting PNG → ICO (examples):**  
 [icoconvert.com](https://icoconvert.com), or ImageMagick:  
@@ -75,6 +78,6 @@ More detail: [`server/README.md`](server/README.md), [`server/frontend/README.md
 
 ## Credits
 
-- **Logo & tray icon:** *Your name here after you drop the assets.*
+- **Logo & tray icon:** Brand pack in `docs/branding/` and `server/frontend/public/` (see table above).
 
-When your PNGs are in place, open a PR or ping the maintainer to hook **`logo.png`** into the About page and swap **`mga.ico`** — paths above are the contract.
+Branding is wired into the **web shell** (sidebar / mobile header), **Home** hero, **About**, and **favicon**; the tray uses the embedded **`mga.ico`**. Drop new exports into the same paths and rebuild.

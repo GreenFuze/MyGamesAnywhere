@@ -1,13 +1,56 @@
+param(
+    # Skip npm/Vite when you only need Go/plugins (e.g. CI without Node).
+    [switch]$SkipFrontend
+)
+
 $ErrorActionPreference = "Stop"
 $RootDir = $PSScriptRoot
 $BinDir  = Join-Path $RootDir "bin"
+New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+
+# --- Frontend → server/bin/frontend/dist (served by mga_server from cwd=bin, default FRONTEND_DIST) ---
+$feDir = Join-Path $RootDir "frontend"
+$fePkg = Join-Path $feDir "package.json"
+if ((Test-Path $fePkg) -and -not $SkipFrontend) {
+    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        throw "Node.js/npm is required to build server/frontend. Install Node or pass -SkipFrontend to build.ps1."
+    }
+    Write-Host "Building frontend (output will be copied to $BinDir\frontend\dist)..." -ForegroundColor Cyan
+    Push-Location $feDir
+    try {
+        npm ci
+        if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+        npm run build
+        if ($LASTEXITCODE -ne 0) { throw "frontend build failed" }
+    } finally { Pop-Location }
+    $feOut = Join-Path $BinDir "frontend\dist"
+    if (-not (Test-Path (Join-Path $feDir "dist\index.html"))) {
+        throw "frontend build did not produce dist/index.html"
+    }
+    New-Item -ItemType Directory -Force -Path $feOut | Out-Null
+    Copy-Item -Path (Join-Path $feDir "dist\*") -Destination $feOut -Recurse -Force
+} elseif ((Test-Path $fePkg) -and $SkipFrontend) {
+    Write-Host "Skipping frontend build (-SkipFrontend)." -ForegroundColor Yellow
+}
 
 # --- Server ---
 Write-Host "Building server..." -ForegroundColor Cyan
-New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 
 $ext = if ($IsLinux -or $IsMacOS) { "" } else { ".exe" }
 $serverBin = Join-Path $BinDir "mga_server$ext"
+
+# Windows: Explorer .exe icon (separate from systray //go:embed — needs COFF .syso)
+if ($env:OS -eq "Windows_NT") {
+    $serverPkg = Join-Path $RootDir "cmd\server"
+    $goarch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
+    $sysoName = "rsrc_windows_$goarch.syso"
+    Write-Host "Embedding .exe icon ($goarch) -> cmd\server\$sysoName..." -ForegroundColor Cyan
+    Push-Location $serverPkg
+    try {
+        go run github.com/akavel/rsrc@v0.10.2 -ico mga.ico -arch $goarch -o $sysoName
+        if ($LASTEXITCODE -ne 0) { throw "rsrc failed (Windows .exe icon)" }
+    } finally { Pop-Location }
+}
 
 Push-Location $RootDir
 try {

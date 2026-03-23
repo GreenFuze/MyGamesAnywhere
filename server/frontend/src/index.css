@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark light;
+    /* Fallback before ThemeProvider runs (Midnight) */
+    --mga-bg: #0c0a10;
+    --mga-surface: #13101a;
+    --mga-elevated: #1a1624;
+    --mga-border: #2c2640;
+    --mga-text: #eef0f6;
+    --mga-muted: #8f8aa3;
+    --mga-accent: #3db8ff;
+    --mga-accent-muted: #1e6faf;
+    --mga-radius: 0.5rem;
+    --mga-font-sans: ui-sans-serif, system-ui, sans-serif;
+    --mga-font-mono: ui-monospace, monospace;
+  }
+
+  body {
+    @apply bg-mga-bg text-mga-text;
+  }
+
+  .mga-reduced-motion *,
+  .mga-reduced-motion *::before,
+  .mga-reduced-motion *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

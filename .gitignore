@@ -13,6 +13,9 @@ vendor/
 # Build output — server/bin/ is produced by build.ps1
 server/bin/
 
+# Regenerated from server/cmd/server/mga.ico (Windows .exe icon — run build.ps1 or go generate)
+server/cmd/server/rsrc_windows_*.syso
+
 # SQLite and local DBs
 *.db
 *.db-journal
@@ -54,6 +57,14 @@ Thumbs.db
 # Node (if used)
 node_modules/
 .pnpm-store/
+server/frontend/node_modules/
+server/frontend/dist/
 
 # Cursor / agent
 .cursor/
+
+# Local design drops (assets belong in docs/ and server/frontend/public/)
+temp-resources/
+
+# SuitCode
+.suit/*

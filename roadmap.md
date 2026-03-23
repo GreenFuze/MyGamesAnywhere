@@ -16,7 +16,7 @@
 - [x] REST API (games, integrations, plugins, scan, achievements, config)
 - [x] Server-Sent Events: `GET /api/events`; detailed scan pipeline events (source list, scanner, metadata identify/consensus/fill per resolver, persist, skips); `ts` on payloads; catalog in `server/internal/events/scan_events.md`; event bus closed before HTTP shutdown
 - [x] System tray (Windows)
-- [x] Build system (build.ps1 — server + all plugins)
+- [x] Build system ([`build.ps1`](server/build.ps1) — server + plugins + frontend → `server/bin/`; [`run.ps1`](server/run.ps1) / [`start.ps1`](server/start.ps1) run `mga_server` from bin; [`build_and_start.ps1`](server/build_and_start.ps1); `-SkipFrontend` on build when Node is unavailable)
 
 ### Bugs Fixed
 - [x] HTTP middleware timeout killing long scans (detached context + exempt scan route)
@@ -92,59 +92,99 @@
 
 Phases **1–7** are **frontend / product** milestones (UI, client logic). **Phase 0** is **backend prep** on the Go server; completed Phase 0 items (e.g. SSE scan stream) are dependencies for later UI work, not partial completion of Phase 4 or 5.
 
+### Phase 1 plan (execution)
+
+**Goals** — Ship a **runnable SPA** in `server/frontend/` that talks to the existing Go API (dev: Vite + proxy; prod: optional embed in `mga_server`), with **app shell**, **routing placeholders**, **theme system** + **persistence via** `GET`/`POST /api/config/frontend`, and **11 visual themes**. Real library/game UI stays **Phase 2+**.
+
+**Definition of done** — `pnpm dev` (or npm) serves the UI; `/api/*` proxies to the Go server; a logged-in-less flow can hit `/health` and `/api/games` (or a stub page that uses React Query); theme choice survives reload (server `frontend` setting); production path documented (`npm run build` + server static/embed); tray can open the UI URL (port aligned with `config.json` / Vite).
+
+**Dependencies** — Go server on Phase 0 routes (`openapi.yaml`, CORS if needed for dev). Regenerate OpenAPI client when `server/openapi.yaml` changes (`go run ./cmd/openapi-gen` from `server/`, then regen TS client).
+
+**Recommended sequence**
+
+| Milestone | Focus | Outcome |
+|-----------|--------|---------|
+| **M1 — Bootstrap** | Vite + React + TS in `server/frontend/`; strict TS; path aliases (`@/`); `.gitignore` for `node_modules`, `dist`, env files | Clean `npm run dev` / `build` |
+| **M2 — Styling & UI base** | Tailwind + PostCSS; shadcn/ui init (components live in repo, not `node_modules` only); global `index.css` | Buttons, layout primitives, accessible defaults |
+| **M3 — Routing & data** | React Router (shell routes: `/`, `/library`, `/playable`, `/settings`, `/about` — placeholders OK); TanStack Query + shared `api` module; **Vite proxy** → `http://localhost:8900` (or env); OpenAPI-generated types/client or `openapi-typescript` + `fetch` wrapper | End-to-end one real API call from UI (e.g. game count or health) |
+| **M4 — App shell** | Sidebar + topbar + outlet; Ctrl+K focuses search (can be noop); theme toggle wired to context; notification bell placeholder; responsive breakpoints; route-level **error boundary** + suspense-friendly loading | Matches “Shell & Layout” checklist |
+| **M5 — Theme engine** | `MgaTheme` interface; React context; map theme → **CSS variables** on `:root` or scoped wrapper; load/save **active theme id** + optional overrides via `/api/config/frontend` (merge with localStorage fallback if API fails); theme picker with preview | Matches “Theme Engine” checklist |
+| **M6 — Eleven themes** | Implement palettes + typography tokens per theme (Midnight default); respect `prefers-reduced-motion` and initial `prefers-color-scheme` (suggest default theme on first visit) | All rows under “All 11 Themes” |
+| **M7 — Branding** | Logo asset pipeline (favicon, About, loading); optional tray icon refresh in Windows tray code when logo exists | Logo & Branding checklist |
+| **M8 — Production & tray** | `go:embed` of `frontend/dist`; chi/static file handler + SPA fallback **excluding** `/api/*`; document single-binary workflow; tray “Open Web Frontend” uses same port as server config | Static file serving + Tray checklist |
+
+**Parallelization** — M1→M2→M3 is mostly linear. M6 (themes) can start once M5’s token shape is stable (parallel: author palettes while shell is built). M7 can overlap M4–M6. M8 last (or behind a feature flag).
+
+**Conventions (decide early)** — Package manager (pnpm recommended); ESLint + Prettier; commit hook optional; env: `VITE_API_PROXY_TARGET` for non-default backend port; keep generated API code in a dedicated folder (e.g. `src/api/generated/`) and do not hand-edit.
+
+**Risks** — shadcn + Tailwind **major-version** pairing (pin versions in docs); OpenAPI drift (add CI or pre-commit: regen + diff); CORS only if you ever load UI from a different origin than API without proxy; `go:embed` path relative to server module root.
+
+**SuitCode MCP (for implementation)** — Prefer **`*_by_path`** tools with an **absolute `repository_path`** to the repo root (no pre-opened Cursor workspace required). Verified on this project:
+- **`repository_summary_by_path`** — component/test/package-manager counts + previews (e.g. **32** Go components, **20** test targets, **8** nested `go.mod` plugins).
+- **`get_file_owner_by_path`** — maps a file → owning Go package/component (e.g. `server/internal/http/controllers.go` → `server/internal/http`).
+- **`get_related_tests_by_path`** — related `go test` packages for a file (same example → `go test github.com/.../server/internal/http`).
+- **`get_minimum_verified_change_set_by_path`** — minimal authoritative checks for a **Go-owned** file (same example → `go test -buildvcs=false …/internal/http` only). **Non-Go / unowned files** (e.g. `server/openapi.yaml`) may return *unknown repository file owner* — fall back to manual regen (`go run ./cmd/openapi-gen`) + `go test ./...`.
+- **`get_repository_by_path`** still required **`workspace_id`** here and failed with *unknown workspace id* even after summary returned ids — treat as optional or use only when your SuitCode UI exposes a stable workspace id.
+
+**Wishlist:** `get_minimum_verified_change_set_by_path` for **OpenAPI / YAML** owners; **Vitest** once `server/frontend` exists; align `get_repository_by_path` with ids returned from `repository_summary_by_path`.
+
+---
+
 ### Project Setup
-- [ ] Initialize Vite + React + TypeScript in `server/frontend/`
-- [ ] Tailwind CSS + PostCSS configuration
-- [ ] shadcn/ui component foundation (headless, accessible, owned)
-- [ ] React Router (client-side routing)
-- [ ] TanStack Query (API data fetching + caching)
-- [ ] Auto-generated API client from `openapi.yaml`
-- [ ] Vite dev proxy to Go server (`localhost:8900`)
-- [ ] Add `server/frontend/node_modules/` and `server/frontend/dist/` to `.gitignore`
+- [x] Initialize Vite + React + TypeScript in [`server/frontend/`](server/frontend/)
+- [x] Tailwind CSS + PostCSS configuration
+- [x] shadcn-style foundation — [`cn()`](server/frontend/src/lib/utils.ts), [`Button`](server/frontend/src/components/ui/button.tsx) + CVA (full shadcn CLI optional later)
+- [x] React Router (client-side routing)
+- [x] TanStack Query (API data fetching + caching)
+- [ ] Auto-generated API client from `openapi.yaml` (minimal hand types in [`client.ts`](server/frontend/src/api/client.ts) for now)
+- [x] Vite dev proxy to Go server ([`vite.config.ts`](server/frontend/vite.config.ts), default `8900`, override `VITE_API_PROXY_TARGET`)
+- [x] `server/frontend/node_modules/` and `server/frontend/dist/` in [`.gitignore`](../.gitignore)
 
 ### Static file serving (production binary)
-*Depends on a built frontend (`dist/`). During Phase 1 dev, use Vite + proxy; embed when we want a single shipped desktop binary that serves the UI.*
+*Runtime static files from `FRONTEND_DIST` (default `./frontend/dist`); `build.ps1` copies dist into `bin/frontend/dist`. `go:embed` deferred.*
 
-- [ ] `go:embed` frontend dist into server binary
-- [ ] Serve `/*` (excluding `/api/*`) from embedded SPA
-- [ ] SPA fallback: all non-file routes return `index.html`
+- [ ] `go:embed` frontend dist into server binary *(optional hardening)*
+- [x] Serve static assets + SPA fallback via [`MountSPA`](server/internal/http/spa.go) (`/*` after `/api`, `/health`)
+- [x] SPA fallback: non-file routes → `index.html`
 
 ### Tray icon
-*Entry point from the running desktop app into the web UI. Align URL/port with however the frontend is served (Vite dev vs embedded Go server).*
+*Windows tray opens the **same** URL as the HTTP server (`PORT` from config).*
 
-- [ ] Add "Open Web Frontend" menu item → opens `http://localhost:{port}` in default browser
+- [x] **Open Web Frontend** menu item → default browser ([`tray_windows.go`](server/cmd/server/tray_windows.go))
 
 ### Shell & Layout
-- [ ] App shell: sidebar + topbar + main content area
-- [ ] Sidebar navigation (Library, Playable, Settings, About)
-- [ ] Topbar: search bar (Ctrl+K), theme toggle, notification bell
-- [ ] Responsive breakpoints (desktop, tablet, mobile)
-- [ ] Loading states and error boundaries
+- [x] App shell: sidebar + topbar + main ([`AppLayout.tsx`](server/frontend/src/layouts/AppLayout.tsx))
+- [x] Sidebar: Home, Library, Playable, Settings, About
+- [x] Topbar: search (Ctrl+K focus), theme `<select>`, notification placeholder
+- [x] Responsive: sidebar `md:` breakpoint; mobile stacks (narrow sidebar hidden — refine later)
+- [x] Error boundary ([`ErrorBoundary.tsx`](server/frontend/src/components/ErrorBoundary.tsx)); React Query loading on Home
 
 ### Theme Engine
-- [ ] `MgaTheme` TypeScript interface (colors, typography, shape, elevation, card, layout, motion, effects, badge, scrollbar)
-- [ ] Theme context provider
-- [ ] CSS custom property injection from theme object
-- [ ] Theme persistence via `/api/config/frontend`
-- [ ] Theme selector component with live preview
-- [ ] `prefers-reduced-motion` and `prefers-color-scheme` respect
+- [x] Theme tokens as CSS variables + TypeScript ids ([`presets.ts`](server/frontend/src/theme/presets.ts)); full `MgaTheme` interface can extend later
+- [x] [`ThemeProvider`](server/frontend/src/theme/ThemeProvider.tsx)
+- [x] CSS custom properties on `document.documentElement`
+- [x] Persistence: `GET`/`POST /api/config/frontend` + `localStorage`
+- [x] Theme selector (top bar); live preview = immediate apply
+- [x] `prefers-reduced-motion` class; initial theme from `prefers-color-scheme` when no saved theme
 
 ### All 11 Themes
-- [ ] **Midnight** — default dark, charcoal + blue accent, clean professional
-- [ ] **Daylight** — classic light, white canvas + soft shadows, airy modern
-- [ ] **Deep Blue** — blue-gray + teal highlights, rounded cards, PC gamer feel
-- [ ] **Obsidian** — true black + vivid green, frosted glass, console-premium
-- [ ] **Curator** — purple-slate + warm gold, compact density, power user
-- [ ] **Big Screen** — deep navy + electric blue glow, oversized cards, TV/gamepad friendly
-- [ ] **Retro Terminal** — phosphor green/amber, monospace font, pixel-art sensibility, no gimmicky overlays
-- [ ] **Synthwave** — purple gradient + hot pink/cyan, neon glow, gradient accents, bold
-- [ ] **Cinema** — pure black + warm gold, ultra-high contrast, minimal chrome, OLED-perfect
-- [ ] **Frost** — Nord palette, arctic blue-gray, muted aurora accents, calm sophisticated
-- [ ] **Neon Arcade** — 80s arcade, bright neon palette, chunky display font, uppercase, pixel grid pattern
+- [x] **Midnight** — default dark, charcoal + blue accent, clean professional
+- [x] **Daylight** — classic light, white canvas + soft shadows, airy modern
+- [x] **Deep Blue** — blue-gray + teal highlights, rounded cards, PC gamer feel
+- [x] **Obsidian** — true black + vivid green, frosted glass, console-premium
+- [x] **Curator** — purple-slate + warm gold, compact density, power user
+- [x] **Big Screen** — deep navy + electric blue glow, oversized cards, TV/gamepad friendly
+- [x] **Retro Terminal** — phosphor green/amber, monospace font, pixel-art sensibility, no gimmicky overlays
+- [x] **Synthwave** — purple gradient + hot pink/cyan, neon glow, gradient accents, bold
+- [x] **Cinema** — pure black + warm gold, ultra-high contrast, minimal chrome, OLED-perfect
+- [x] **Frost** — Nord palette, arctic blue-gray, muted aurora accents, calm sophisticated
+- [x] **Neon Arcade** — 80s arcade, bright neon palette, chunky display font, uppercase, pixel grid pattern
 
 ### Logo & Branding
-- [ ] MGA logo design (used as favicon, loading screen, tray icon, about page)
-- [ ] Tray icon update with logo
+- [x] [`README.md`](README.md) brand brief (sizes, paths, tray ICO notes)
+- [x] **Favicon:** [`server/frontend/public/favicon.ico`](server/frontend/public/favicon.ico) + `<link rel="icon" href="/favicon.ico">` in [`index.html`](server/frontend/index.html)
+- [x] **Logo / title art:** [`server/frontend/public/logo.png`](server/frontend/public/logo.png), [`server/frontend/public/title.png`](server/frontend/public/title.png) — shell, Home hero, About (see README)
+- [x] **Windows `mga.ico`:** multi-size ICO at [`server/cmd/server/mga.ico`](server/cmd/server/mga.ico) — **system tray** via `//go:embed` in [`tray_windows.go`](server/cmd/server/tray_windows.go); **File Explorer `.exe` icon** via COFF `rsrc_windows_${GOARCH}.syso` generated by [`build.ps1`](server/build.ps1) (or `go generate ./cmd/server` after editing the ICO)
 
 ---
 

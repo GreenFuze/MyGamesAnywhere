@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
@@ -53,6 +55,16 @@ func (h *httpServer) Start(ctx context.Context) error {
 		panic("No port was defined")
 	}
 
+	spaDir := h.config.Get("FRONTEND_DIST")
+	if spaDir == "" {
+		spaDir = "frontend/dist"
+	}
+	if !filepath.IsAbs(spaDir) {
+		if wd, err := os.Getwd(); err == nil {
+			spaDir = filepath.Join(wd, spaDir)
+		}
+	}
+
 	r := BuildRouter(&RouteBuilder{
 		GameCtrl:        h.gameCtrl,
 		DiscoCtrl:       h.discoCtrl,
@@ -61,7 +73,7 @@ func (h *httpServer) Start(ctx context.Context) error {
 		AchievementCtrl: h.achievementCtrl,
 		SyncCtrl:        h.syncCtrl,
 		SSECtrl:         h.sseCtrl,
-	}, 60*time.Second)
+	}, 60*time.Second, spaDir)
 
 	h.server = &http.Server{
 		Addr:    "127.0.0.1:" + port,

@@ -32,6 +32,13 @@ Or directly:
 go build -o bin/server ./cmd/server
 ```
 
+On **Windows**, plain `go build` does **not** embed the **File Explorer** application icon (only the **system tray** uses `mga.ico` via `go:embed`). For the `.exe` icon in Explorer, either:
+
+- run **`build.ps1`** (generates `cmd/server/rsrc_windows_${GOARCH}.syso` from `mga.ico` before `go build`), or  
+- from `server/`: `go generate ./cmd/server` (amd64 `.syso`), then `go build`.
+
+The generated `rsrc_windows_*.syso` files are gitignored; regenerate after changing `cmd/server/mga.ico`.
+
 On Windows the binary is typically `bin/server.exe`. The server changes its working directory to the executable's directory at startup, so place `config.json` next to the binary (e.g. in `bin/config.json`). A sample config with port 8900 is in `bin/config.json`.
 
 ## Running

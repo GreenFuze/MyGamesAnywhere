@@ -25,7 +25,8 @@ func noopHandler() http.HandlerFunc {
 }
 
 // BuildRouter builds the public API router. If b is nil, all routes use no-op handlers.
-func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration) chi.Router {
+// spaStaticDir is optional: if non-empty and contains index.html, registers /* for the SPA.
+func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -98,5 +99,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration) chi.Router {
 			api.Get("/events", noopHandler())
 		}
 	})
+
+	MountSPA(r, spaStaticDir)
 	return r
 }

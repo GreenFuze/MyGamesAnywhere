@@ -21,7 +21,7 @@ type RouteEntry struct {
 
 // CollectRoutes builds the router with nil handlers and collects all public routes (method + path).
 func CollectRoutes() ([]RouteEntry, error) {
-	r := internalHttp.BuildRouter(nil, 0)
+	r := internalHttp.BuildRouter(nil, 0, "")
 	var entries []RouteEntry
 	err := chi.Walk(r, func(method, path string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
 		if method != "" && path != "" {

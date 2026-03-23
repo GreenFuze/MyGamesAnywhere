@@ -1,5 +1,10 @@
 package main
 
+// Windows File Explorer icon: COFF resource (tray uses //go:embed in tray_windows.go separately).
+// After editing mga.ico: go generate ./cmd/server  (amd64) or run server/build.ps1 (matches host GOARCH).
+//
+//go:generate go run github.com/akavel/rsrc@v0.10.2 -ico mga.ico -arch amd64 -o rsrc_windows_amd64.syso
+
 import (
 	"context"
 	"log"
@@ -62,7 +67,11 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go runTray(cancel)
+	port := configSvc.Get("PORT")
+	if port == "" {
+		port = "8900"
+	}
+	go runTray(cancel, "http://127.0.0.1:"+port)
 
 	if err := a.Run(ctx); err != nil {
 		log.Fatalf("application failed: %v", err)
