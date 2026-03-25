@@ -25,11 +25,15 @@ func Operations() []OperationDoc {
 			ResponseDocs:  map[string]string{"200": "Server is healthy"},
 		},
 		{
-			Method:        "GET",
-			Path:          "/api/games",
-			Summary:       "List games",
-			Description:   "Returns the current inventory of games with title, platform, kind, files, optional parent_game_id for addons, and unified Xbox/xCloud fields when present (is_game_pass, xcloud_available, store_product_id, xcloud_url).",
-			ResponseDocs:  map[string]string{"200": "JSON list of games with files", "500": "Internal server error"},
+			Method:      "GET",
+			Path:        "/api/games",
+			Summary:     "List games (paginated)",
+			Description: "Returns total, page, page_size and games[] as full detail objects (same shape as GET /api/games/{id}/detail) for library grids/tables. Query: page (0-based, default 0), page_size (default 100, max 2000). page_size=0 requests all games in one response (rejected if library exceeds 20000 games; use pagination). Totals also available via GET /api/stats (canonical_game_count).",
+			ResponseDocs: map[string]string{
+				"200": "ListGamesResponse: total, page, page_size, games (GameDetailResponse[])",
+				"400": "Invalid query or library too large for page_size=0",
+				"500": "Internal server error",
+			},
 		},
 		{
 			Method:       "DELETE",
@@ -42,8 +46,8 @@ func Operations() []OperationDoc {
 			Method:        "GET",
 			Path:          "/api/games/{id}",
 			Summary:       "Get game by ID",
-			Description:   "Returns a lightweight game summary (same shape as list items, including Xbox/xCloud fields when present) by canonical game ID.",
-			ResponseDocs:  map[string]string{"200": "Game summary", "404": "Game not found", "500": "Internal server error"},
+			Description:   "Returns full game detail (same JSON as GET /api/games/{id}/detail and each element of GET /api/games).",
+			ResponseDocs:  map[string]string{"200": "GameDetailResponse", "404": "Game not found", "500": "Internal server error"},
 		},
 		{
 			Method:       "GET",
@@ -51,6 +55,13 @@ func Operations() []OperationDoc {
 			Summary:      "Get game detail",
 			Description:  "Full metadata, media (with local_path/hash when known), external IDs, merged files, unified Xbox/xCloud fields (is_game_pass, xcloud_available, store_product_id, xcloud_url when present), and all source games with resolver_matches (including metadata_json).",
 			ResponseDocs: map[string]string{"200": "Game detail object", "404": "Game not found", "500": "Internal server error"},
+		},
+		{
+			Method:       "GET",
+			Path:         "/api/media/{assetID}",
+			Summary:      "Stream cached media file",
+			Description:  "Serves a file from MEDIA_ROOT using media_assets.id and the row's local_path (must be relative, no '..'). Set MEDIA_ROOT in config (default ./media). Use media[].asset_id from game detail; supports Range requests via http.ServeContent.",
+			ResponseDocs: map[string]string{"200": "Binary stream", "400": "Invalid id", "404": "Unknown asset or missing file", "500": "Internal server error"},
 		},
 		{
 			Method:       "GET",

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
@@ -16,12 +17,21 @@ import (
 	"github.com/google/uuid"
 )
 
-// ListGamesResponse is the response for GET /api/games.
+const (
+	defaultGamesPageSize = 100
+	maxGamesPageSize     = 2000
+	maxGamesFetchAll     = 20000
+)
+
+// ListGamesResponse is the response for GET /api/games (paginated, full detail rows for library UI).
 type ListGamesResponse struct {
-	Games []GameSummary `json:"games"`
+	Total    int                  `json:"total"`
+	Page     int                  `json:"page"`
+	PageSize int                  `json:"page_size"`
+	Games    []GameDetailResponse `json:"games"`
 }
 
-// GameSummary is one game in the list response.
+// GameSummary is a lightweight row (e.g. POST /api/scan results). List uses GameDetailResponse per item.
 type GameSummary struct {
 	ID           string          `json:"id"`
 	Title        string          `json:"title"`
@@ -64,27 +74,100 @@ func NewGameController(gameStore core.GameStore, logger core.Logger) *GameContro
 	return &GameController{gameStore: gameStore, logger: logger}
 }
 
-// ListGames returns all canonical games (GET /api/games).
+// ListGames returns a page of canonical games as full detail rows (GET /api/games).
+// Query: page (0-based, default 0), page_size (default 100, max 2000). page_size=0 means all games
+// (capped at maxGamesFetchAll); use GET /api/stats canonical_game_count for totals.
 func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	games, err := c.gameStore.GetCanonicalGames(ctx)
+	total, err := c.gameStore.CountVisibleCanonicalGames(ctx)
 	if err != nil {
-		c.logger.Error("get games", err)
+		c.logger.Error("count games", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	summaries := make([]GameSummary, 0, len(games))
+
+	page := 0
+	if s := r.URL.Query().Get("page"); s != "" {
+		p, err := strconv.Atoi(s)
+		if err != nil || p < 0 {
+			http.Error(w, "invalid page", http.StatusBadRequest)
+			return
+		}
+		page = p
+	}
+
+	pageSizeStr := r.URL.Query().Get("page_size")
+	pageSize := defaultGamesPageSize
+	fetchAll := false
+	if pageSizeStr != "" {
+		ps, err := strconv.Atoi(pageSizeStr)
+		if err != nil || ps < 0 {
+			http.Error(w, "invalid page_size", http.StatusBadRequest)
+			return
+		}
+		if ps == 0 {
+			fetchAll = true
+		} else {
+			pageSize = ps
+			if pageSize > maxGamesPageSize {
+				pageSize = maxGamesPageSize
+			}
+		}
+	}
+
+	var offset, sqlLimit int
+	respPageSize := pageSize
+	if fetchAll {
+		if total > maxGamesFetchAll {
+			http.Error(w, fmt.Sprintf("library too large (%d games); use page_size between 1 and %d", total, maxGamesPageSize), http.StatusBadRequest)
+			return
+		}
+		offset = 0
+		sqlLimit = -1
+		respPageSize = 0
+		page = 0
+	} else {
+		offset = page * pageSize
+		if offset >= total {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(ListGamesResponse{
+				Total: total, Page: page, PageSize: pageSize, Games: []GameDetailResponse{},
+			})
+			return
+		}
+		sqlLimit = pageSize
+	}
+
+	ids, err := c.gameStore.GetVisibleCanonicalIDs(ctx, offset, sqlLimit)
+	if err != nil {
+		c.logger.Error("list game ids", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	games, err := c.gameStore.GetCanonicalGamesByIDs(ctx, ids)
+	if err != nil {
+		c.logger.Error("get games page", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	out := make([]GameDetailResponse, 0, len(games))
 	for _, cg := range games {
 		if cg == nil {
 			continue
 		}
-		summaries = append(summaries, canonicalToSummary(cg))
+		out = append(out, canonicalToGameDetail(cg))
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(ListGamesResponse{Games: summaries})
+	json.NewEncoder(w).Encode(ListGamesResponse{
+		Total:    total,
+		Page:     page,
+		PageSize: respPageSize,
+		Games:    out,
+	})
 }
 
-// Get returns one canonical game by ID (GET /api/games/{id}). 404 if not found.
+// Get returns one canonical game by ID (GET /api/games/{id}) as full detail — same JSON as GET /api/games/{id}/detail and each list item.
 func (c *GameController) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -103,7 +186,7 @@ func (c *GameController) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(canonicalToSummary(game))
+	json.NewEncoder(w).Encode(canonicalToGameDetail(game))
 }
 
 // GetDetail returns full game metadata and per-source resolver data (GET /api/games/{id}/detail).
@@ -196,15 +279,17 @@ func canonicalToSummary(cg *core.CanonicalGame) GameSummary {
 
 type DiscoveryController struct {
 	orchestrator *scan.Orchestrator
+	gameStore    core.GameStore
 	logger       core.Logger
 }
 
-func NewDiscoveryController(orchestrator *scan.Orchestrator, logger core.Logger) *DiscoveryController {
-	return &DiscoveryController{orchestrator: orchestrator, logger: logger}
+func NewDiscoveryController(orchestrator *scan.Orchestrator, gameStore core.GameStore, logger core.Logger) *DiscoveryController {
+	return &DiscoveryController{orchestrator: orchestrator, gameStore: gameStore, logger: logger}
 }
 
 type ScanRequest struct {
-	GameSources []string `json:"game_sources"`
+	GameSources  []string `json:"game_sources"`
+	MetadataOnly bool     `json:"metadata_only"`
 }
 
 // ScanResultDTO is the response for POST /api/scan.
@@ -225,12 +310,21 @@ func (c *DiscoveryController) Scan(w http.ResponseWriter, r *http.Request) {
 	if len(body.GameSources) > 0 {
 		integrationIDs = body.GameSources
 	}
+
 	// Detach from the HTTP request timeout — scans can take many minutes
 	// due to metadata enrichment across multiple resolvers.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	canonical, err := c.orchestrator.RunScan(ctx, integrationIDs)
+	var canonical []*core.CanonicalGame
+	var err error
+
+	if body.MetadataOnly {
+		canonical, err = c.orchestrator.RunMetadataRefresh(ctx, integrationIDs)
+	} else {
+		canonical, err = c.orchestrator.RunScan(ctx, integrationIDs)
+	}
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -246,6 +340,52 @@ func (c *DiscoveryController) Scan(w http.ResponseWriter, r *http.Request) {
 		Status: "scan completed",
 		Games:  summaries,
 	})
+}
+
+// GetScanReports returns the last N scan reports.
+func (c *DiscoveryController) GetScanReports(w http.ResponseWriter, r *http.Request) {
+	limitStr := r.URL.Query().Get("limit")
+	limit := 10
+	if limitStr != "" {
+		if n, err := fmt.Sscanf(limitStr, "%d", &limit); n != 1 || err != nil {
+			limit = 10
+		}
+	}
+
+	reports, err := c.gameStore.GetScanReports(r.Context(), limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if reports == nil {
+		reports = []*core.ScanReport{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(reports)
+}
+
+// GetScanReport returns a single scan report by ID.
+func (c *DiscoveryController) GetScanReport(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	report, err := c.gameStore.GetScanReport(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if report == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(report)
 }
 
 type ConfigController struct {
@@ -277,12 +417,13 @@ func (c *ConfigController) Set(w http.ResponseWriter, r *http.Request) {
 type PluginController struct {
 	repo       core.IntegrationRepository
 	pluginHost plugins.PluginHost
+	gameStore  core.GameStore
 	logger     core.Logger
 	eventBus   *events.EventBus
 }
 
-func NewPluginController(repo core.IntegrationRepository, pluginHost plugins.PluginHost, logger core.Logger, eventBus *events.EventBus) *PluginController {
-	return &PluginController{repo: repo, pluginHost: pluginHost, logger: logger, eventBus: eventBus}
+func NewPluginController(repo core.IntegrationRepository, pluginHost plugins.PluginHost, gameStore core.GameStore, logger core.Logger, eventBus *events.EventBus) *PluginController {
+	return &PluginController{repo: repo, pluginHost: pluginHost, gameStore: gameStore, logger: logger, eventBus: eventBus}
 }
 
 func (c *PluginController) publishNotification(typ string, payload map[string]any) {
@@ -414,6 +555,135 @@ func (c *PluginController) Status(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(results)
 }
 
+// checkOneIntegration validates a single integration's config via the plugin IPC.
+func (c *PluginController) checkOneIntegration(ctx context.Context, integration *core.Integration) IntegrationStatusEntry {
+	var configMap map[string]any
+	if integration.ConfigJSON != "" {
+		if err := json.Unmarshal([]byte(integration.ConfigJSON), &configMap); err != nil {
+			return IntegrationStatusEntry{
+				IntegrationID: integration.ID,
+				PluginID:      integration.PluginID,
+				Label:         integration.Label,
+				Status:        "error",
+				Message:       "Invalid config JSON",
+			}
+		}
+	}
+	if configMap == nil {
+		configMap = map[string]any{}
+	}
+
+	_, pluginOk := c.pluginHost.GetPlugin(integration.PluginID)
+	if !pluginOk {
+		return IntegrationStatusEntry{
+			IntegrationID: integration.ID,
+			PluginID:      integration.PluginID,
+			Label:         integration.Label,
+			Status:        "unavailable",
+			Message:       "plugin not found",
+		}
+	}
+
+	var checkResult struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	}
+	callErr := c.pluginHost.Call(ctx, integration.PluginID, "plugin.check_config", map[string]any{"config": configMap}, &checkResult)
+
+	status := "ok"
+	message := checkResult.Message
+	if callErr != nil {
+		status = "error"
+		message = callErr.Error()
+	} else if checkResult.Status != "" && checkResult.Status != "ok" {
+		status = checkResult.Status
+	}
+
+	return IntegrationStatusEntry{
+		IntegrationID: integration.ID,
+		PluginID:      integration.PluginID,
+		Label:         integration.Label,
+		Status:        status,
+		Message:       message,
+	}
+}
+
+// StatusOne validates a single integration (GET /api/integrations/{id}/status).
+func (c *PluginController) StatusOne(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	integration, err := c.repo.GetByID(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	entry := c.checkOneIntegration(r.Context(), integration)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(entry)
+}
+
+// IntegrationGames returns canonical games discovered by a source integration.
+func (c *PluginController) IntegrationGames(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify integration exists.
+	if _, err := c.repo.GetByID(r.Context(), id); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	items, err := c.gameStore.GetGamesByIntegrationID(r.Context(), id, 500)
+	if err != nil {
+		c.logger.Error("GetGamesByIntegrationID failed", err, "integration_id", id)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if items == nil {
+		items = []core.GameListItem{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(items)
+}
+
+// IntegrationEnrichedGames returns canonical games enriched by a metadata integration's plugin.
+func (c *PluginController) IntegrationEnrichedGames(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	// Resolve integration → plugin_id.
+	integration, err := c.repo.GetByID(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	items, err := c.gameStore.GetEnrichedGamesByPluginID(r.Context(), integration.PluginID, 500)
+	if err != nil {
+		c.logger.Error("GetEnrichedGamesByPluginID failed", err, "plugin_id", integration.PluginID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if items == nil {
+		items = []core.GameListItem{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(items)
+}
+
 func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		PluginID        string          `json:"plugin_id"`
@@ -516,6 +786,144 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 	})
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(integration)
+}
+
+func (c *PluginController) UpdateIntegration(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	existing, err := c.repo.GetByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if existing == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	var body struct {
+		Label           string          `json:"label"`
+		IntegrationType string          `json:"integration_type"`
+		Config          json.RawMessage `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Merge: only update fields that were provided
+	if body.Label != "" {
+		existing.Label = body.Label
+	}
+	if body.IntegrationType != "" {
+		existing.IntegrationType = body.IntegrationType
+	}
+
+	// If config was provided, validate it against the plugin schema
+	if len(body.Config) > 0 {
+		var configMap map[string]any
+		if err := json.Unmarshal(body.Config, &configMap); err != nil {
+			http.Error(w, "config must be a JSON object", http.StatusBadRequest)
+			return
+		}
+
+		plugin, ok := c.pluginHost.GetPlugin(existing.PluginID)
+		if !ok {
+			http.Error(w, "plugin not found: "+existing.PluginID, http.StatusBadRequest)
+			return
+		}
+		if err := plugins.ValidateConfig(configMap, plugin.Manifest.ConfigSchema); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate via IPC
+		var checkResult struct {
+			Status  string `json:"status"`
+			Message string `json:"message"`
+		}
+		if err := c.pluginHost.Call(r.Context(), existing.PluginID, "plugin.check_config", map[string]any{"config": configMap}, &checkResult); err != nil {
+			http.Error(w, "plugin validation failed: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if checkResult.Status != "" && checkResult.Status != "ok" {
+			msg := checkResult.Message
+			if msg == "" {
+				msg = checkResult.Status
+			}
+			http.Error(w, "plugin validation failed: "+msg, http.StatusBadRequest)
+			return
+		}
+
+		configBytes, err := json.Marshal(configMap)
+		if err != nil {
+			http.Error(w, "invalid config", http.StatusBadRequest)
+			return
+		}
+		existing.ConfigJSON = string(configBytes)
+	}
+
+	existing.UpdatedAt = time.Now()
+	if err := c.repo.Update(r.Context(), existing); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	c.publishNotification("integration_updated", map[string]any{
+		"integration_id":   existing.ID,
+		"plugin_id":        existing.PluginID,
+		"label":            existing.Label,
+		"integration_type": existing.IntegrationType,
+	})
+	json.NewEncoder(w).Encode(existing)
+}
+
+func (c *PluginController) DeleteIntegration(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	existing, err := c.repo.GetByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if existing == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Cascade-delete source games if this is a source integration.
+	if plugin, ok := c.pluginHost.GetPlugin(existing.PluginID); ok {
+		for _, cap := range plugin.Manifest.Capabilities {
+			if cap == "source" {
+				if err := c.gameStore.DeleteGamesByIntegrationID(r.Context(), id); err != nil {
+					c.logger.Error("cascade delete games failed", err, "integration_id", id)
+					http.Error(w, "failed to delete associated games: "+err.Error(), http.StatusInternalServerError)
+					return
+				}
+				break
+			}
+		}
+	}
+
+	if err := c.repo.Delete(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	c.publishNotification("integration_deleted", map[string]any{
+		"integration_id": existing.ID,
+		"plugin_id":      existing.PluginID,
+		"label":          existing.Label,
+	})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // AchievementController serves GET /api/games/{id}/achievements.

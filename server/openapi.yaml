@@ -81,20 +81,20 @@ paths:
         500:
           description: Internal server error
     get:
-      summary: List games
-      description: Returns the current inventory of games with title, platform, kind, files, optional parent_game_id for addons, and unified Xbox/xCloud fields when present (is_game_pass, xcloud_available, store_product_id, xcloud_url).
+      summary: List games (paginated)
+      description: 'Returns total, page, page_size and games[] as full detail objects (same shape as GET /api/games/{id}/detail) for library grids/tables. Query: page (0-based, default 0), page_size (default 100, max 2000). page_size=0 requests all games in one response (rejected if library exceeds 20000 games; use pagination). Totals also available via GET /api/stats (canonical_game_count).'
       responses:
         200:
-          description: JSON list of games with files
+          description: 'ListGamesResponse: total, page, page_size, games (GameDetailResponse[])'
         400:
-          description: Error response
+          description: Invalid query or library too large for page_size=0
         500:
           description: Internal server error
 
   /api/games/{id}:
     get:
       summary: Get game by ID
-      description: Returns a lightweight game summary (same shape as list items, including Xbox/xCloud fields when present) by canonical game ID.
+      description: Returns full game detail (same JSON as GET /api/games/{id}/detail and each element of GET /api/games).
       parameters:
         - name: id
           in: path
@@ -103,7 +103,7 @@ paths:
             type: string
       responses:
         200:
-          description: Game summary
+          description: GameDetailResponse
         400:
           description: Error response
         404:
@@ -193,6 +193,94 @@ paths:
         500:
           description: Internal server error
 
+  /api/integrations/{id}:
+    delete:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    put:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/integrations/{id}/enriched-games:
+    get:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/integrations/{id}/games:
+    get:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/integrations/{id}/status:
+    get:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/media/{assetID}:
+    get:
+      summary: Stream cached media file
+      description: Serves a file from MEDIA_ROOT using media_assets.id and the row's local_path (must be relative, no '..'). Set MEDIA_ROOT in config (default ./media). Use media[].asset_id from game detail; supports Range requests via http.ServeContent.
+      parameters:
+        - name: assetID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Binary stream
+        400:
+          description: Invalid id
+        404:
+          description: Unknown asset or missing file
+        500:
+          description: Internal server error
+
   /api/plugins:
     get:
       summary: List plugins
@@ -252,6 +340,28 @@ paths:
           description: Invalid JSON body
         500:
           description: Internal server error
+
+  /api/scan/reports:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/scan/reports/{id}:
+    get:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
 
   /api/stats:
     get:

@@ -51,8 +51,14 @@
 
 - [x] **Duplicate integration prevention** — `ListByPluginID` + `reflect.DeepEqual` on decoded JSON objects; **409** with `duplicate_integration`, `integration_id`, and `integration` object.
 - [x] **`GET /api/games/{id}/detail`** — Full detail DTO; media includes `local_path`, `hash`, `mime_type`; per–source-game `resolver_matches` always included.
-- [x] **`GET /api/stats`** — `GameStore.GetLibraryStats`: single JSON (`LibraryStats` in [`core/entities.go`](server/internal/core/entities.go)).
+- [x] **`GET /api/stats`** — `GameStore.GetLibraryStats`: single JSON (`LibraryStats` in [`core/entities.go`](server/internal/core/entities.go)); includes `by_metadata_plugin_id` for per-provider enrichment counts.
+- [x] **`GET /api/integrations/{id}/games`** — Canonical games discovered by a source integration (lightweight `GameListItem[]`).
+- [x] **`GET /api/integrations/{id}/enriched-games`** — Canonical games enriched by a metadata provider's plugin (resolves integration → plugin_id → `metadata_resolver_matches`).
 - [x] **Frontend preferences** — **`GET` / `POST /api/config/frontend`** only for SPA prefs; settings key **`frontend`**; max body 256KiB.
+- [x] **`POST /api/scan` `metadata_only` flag** — When `true`, skips source discovery and re-enriches existing found games via `RunMetadataRefresh`. Loads `source_games` with `status='found'` from DB, groups by integration, runs 3-phase metadata pipeline, re-persists.
+- [x] **`GET /api/scan/reports`** — Returns last N scan reports (newest first); each includes diff summary (games added/removed), per-integration breakdown, duration. Stored in `scan_reports` table as JSON.
+- [x] **`GET /api/scan/reports/{id}`** — Single scan report by ID.
+- [x] **Cascade delete on source integration removal** — `DeleteGamesByIntegrationID` removes all child rows (achievements, achievement_sets, source_game_media, metadata_resolver_matches, game_files, canonical_source_games_link, source_games) in a single transaction. Called from `DeleteIntegration` handler for source-capability plugins only.
 
 ### xCloud Catalog
 
@@ -79,7 +85,7 @@
 - [x] **`xbox-source`:** Title Hub uses **ProductId,TitleHistory** + **`filterTo=IsStreamable,IsGame`** (no `StreamableOnly` so the full library is returned); extend `title` / [`gameEntry`](server/plugins/xbox-source/main.go) with `xcloud_available`, `store_product_id`, `xcloud_url`; keep `is_game_pass`; optional config **`xbl_market`**, **`play_launch_locale`**; **`x-xbl-market`** header on Title Hub requests.
 - [x] **Orchestrator [`fetchGames`](server/internal/scan/orchestrator.go):** Decode and forward **`is_game_pass`**, **`xcloud_available`**, **`xcloud_url`**, **`store_product_id`** into the initial resolver row from storefront plugins.
 - [x] **Persistence:** [`metadataExtra`](server/internal/db/game_store.go) / `metadata_json` carries these flags + URL; unified canonical view merges them in **`computeUnifiedView`**.
-- [x] **API:** [`GET /api/games/{id}/detail`](server/internal/http/game_detail.go) exposes unified Xbox/xCloud fields plus per-source **`resolver_matches`**. **`GET /api/games`** and **`GET /api/games/{id}`** include the same unified fields on each summary ([`GameSummary`](server/internal/http/controllers.go)).
+- [x] **API:** [`GET /api/games/{id}/detail`](server/internal/http/game_detail.go) exposes unified Xbox/xCloud fields plus per-source **`resolver_matches`**. **`GET /api/games`** (paginated) and **`GET /api/games/{id}`** return the same full detail shape; **`POST /api/scan`** still returns lightweight summaries for a smaller payload.
 - [x] **Tests:** [`titlehistory_decode_test.go`](server/plugins/xbox-source/titlehistory_decode_test.go) fixture (redacted) for `titleId` number/string, streamable URL slug.
 - [x] **Local verify script:** [`server/scripts/verify-xbox-xcloud.ps1`](server/scripts/verify-xbox-xcloud.ps1) — with server running from `server\bin` after [`build.ps1`](server/build.ps1), add a **`game-source-xbox`** integration, then `pwsh -File server/scripts/verify-xbox-xcloud.ps1` (optional `MGA_BASE_URL`).
 
@@ -191,31 +197,31 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 ## Phase 2 — Game Library
 
 ### Library Views
-- [ ] Grid view (cover art cards with metadata badges)
-- [ ] List view (compact table with sortable columns)
-- [ ] View mode toggle (persisted in preferences)
+- [x] Grid view (cover art cards with metadata badges)
+- [x] List view (compact table with sortable columns)
+- [x] View mode toggle (persisted in preferences)
 
 ### Game Cards
-- [ ] Cover art with lazy loading and placeholder
-- [ ] Platform icon badge (Steam, GBA, PS1, Arcade, ScummVM, DOS, etc.)
-- [ ] Source badge (which integration found it)
-- [ ] Achievement progress ring (if available)
-- [ ] HLTB time estimate badge
-- [ ] Metadata confidence indicator (number of resolvers matched)
-- [ ] "Playable" badge (browser-emulatable platforms)
-- [ ] **"xCloud" badge** (cloud-playable Xbox games) — backend already exposes `xcloud_available`, `xcloud_url`, `store_product_id`, `is_game_pass` on `GET /api/games`, `GET /api/games/{id}`, and [`GET /api/games/{id}/detail`](server/internal/http/game_detail.go)
-- [ ] Play button on playable games vs. "View" on others
+- [x] Cover art with lazy loading and placeholder
+- [x] Platform icon badge (Steam, GBA, PS1, Arcade, ScummVM, DOS, etc.)
+- [x] Source badge (which integration found it)
+- [ ] Achievement progress ring (if available) — *deferred to Phase 3 (requires per-game API calls)*
+- [x] HLTB time estimate badge
+- [x] Metadata confidence indicator (number of resolvers matched)
+- [x] "Playable" badge (browser-emulatable platforms)
+- [x] **"xCloud" badge** (cloud-playable Xbox games) — backend already exposes `xcloud_available`, `xcloud_url`, `store_product_id`, `is_game_pass` on `GET /api/games`, `GET /api/games/{id}`, and [`GET /api/games/{id}/detail`](server/internal/http/game_detail.go)
+- [x] Play button on playable games vs. "View" on others
 
 ### Search & Filtering
-- [ ] Full-text search with fuzzy matching
-- [ ] Keyboard shortcut (Ctrl+K) to focus search
-- [ ] Filter sidebar: platform, genre, year range, developer/publisher, source, playable-only
-- [ ] Sort by: title, release date, recently added, HLTB time, platform
+- [x] Full-text search with fuzzy matching
+- [x] Keyboard shortcut (Ctrl+K) to focus search
+- [x] Filter sidebar: platform, genre, year range, developer/publisher, source, playable-only
+- [x] Sort by: title, release date, recently added, HLTB time, platform
 
 ### Library Sections
-- [ ] **All Games** — complete library
-- [ ] **Playable** — filtered to browser-emulatable platforms
-- [ ] **xCloud** — Xbox Game Pass cloud-playable games
+- [x] **All Games** — complete library
+- [x] **Playable** — filtered to browser-emulatable platforms
+- [x] **xCloud** — Xbox Game Pass cloud-playable games
 
 ---
 
@@ -252,37 +258,65 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 
 ## Phase 4 — Settings & Admin
 
+*Settings consolidated from 5 tabs (Integrations, Plugins, Scanning, Sync, Appearance) to 3 tabs (Integrations, Plugins, Appearance). Scanning and Sync controls merged into their respective integration cards.*
+
 ### Integrations
-- [ ] List active integrations with status indicators
-- [ ] Add new integration (plugin selector, config form, test connection)
-- [ ] Remove integration
-- [ ] Edit integration config
+- [x] List active integrations with status indicators
+- [x] Add new integration (guided wizard: category → plugin → config → label)
+- [x] Remove integration
+- [x] Edit integration config (with secret masking)
+- [x] Grouped by capability (Game Sources, Metadata Providers, Achievements, Sync) with collapsible accordion
+- [x] Per-integration and "Check All" status checks (SSE-driven real-time updates)
+- [x] Duplicate integration detection (409 with existing label)
+- [x] Library stats summary at top of Integrations tab
+
+### Integrations — Game Sources
+- [x] Per-source game count badge (from `LibraryStats.by_integration_id`)
+- [x] Per-source "Scan" button with inline progress bar
+- [x] "Scan All Sources" button on accordion header
+- [x] Expandable card: scrollable games list (lazy-loaded via `GET /api/integrations/{id}/games`)
+- [x] SSE-driven scan progress per integration
+
+### Integrations — Metadata Providers
+- [x] Per-provider enrichment count badge (from `LibraryStats.by_metadata_plugin_id`)
+- [x] "Refresh Metadata" button on accordion header (metadata-only refresh, no re-discovery)
+- [x] Expandable card: scrollable enriched games list (lazy-loaded via `GET /api/integrations/{id}/enriched-games`)
+
+### Integrations — Sync
+- [x] Push / Pull buttons on sync integration card
+- [x] Encryption passphrase management (store key / clear key) in expandable section
+- [x] Last push/pull timestamps displayed
+- [x] Push confirmation dialog
+- [x] SSE-driven sync operation status
+
+### Integrations — Scan Summary & History
+- [x] Persistent scan reports stored server-side (`scan_reports` table, JSON blob)
+- [x] Pre/post game count diff computed by orchestrator (games added/removed per integration)
+- [x] `ScanSummary` component: most recent scan at a glance (+N added, -N removed, duration)
+- [x] Expandable per-integration breakdown in report cards
+- [x] "View history" toggle to browse last N scans
+- [x] SSE event name alignment: frontend uses correct backend event names (`scan_complete`, `scan_integration_complete`, `scan_metadata_phase`, etc.)
+- [x] Rich scan progress UI: deterministic progress bar (completed/total integrations), detailed status text from all scan pipeline events
+- [x] Auto-check integration status on page load (status dots green/red instead of gray)
+- [x] Cascade delete: removing a source integration deletes its source games and orphaned canonical entries
 
 ### Plugins
-- [ ] Discovered plugins list with version, capabilities, enabled/disabled status
+- [x] Discovered plugins list with version, capabilities, enabled/disabled status
+- [x] Responsive multi-column grid (1/2/3 columns at sm/md/lg breakpoints)
 
-### Scanning
-- [ ] Trigger full scan button
-- [ ] Trigger per-integration scan
-- [ ] Scan progress display (driven by SSE — backend ready in Phase 0)
-- [ ] Last scan results summary
-
-### Sync
-- [ ] Push to Google Drive button with confirmation dialog
-- [ ] Pull from Google Drive with merge preview
-- [ ] Backup history browser (timestamped snapshots)
-- [ ] "Last synced" indicator
-
-### Theme Selector
-- [ ] Visual theme previews (thumbnails or live mini-preview)
-- [ ] One-click theme switching with instant feedback
+### Appearance
+- [x] Visual theme previews (thumbnails or live mini-preview)
+- [x] One-click theme switching with instant feedback
+- [x] Date format setting (d/M/yyyy or M/d/yyyy) with live preview
+- [x] Time format setting (12-hour or 24-hour) with live preview
+- [x] Format preferences persisted via `FrontendConfig` (server + localStorage)
 
 ---
 
 ## Phase 5 — Real-Time Updates
 
-- [ ] SSE client integration (auto-reconnect, event parsing)
-- [ ] Scan progress bar (global, in topbar or toast)
+- [x] SSE client integration (auto-reconnect, event parsing)
+- [x] Scan progress bar (global, in Integrations tab with deterministic progress + status text)
 - [ ] Toast notification system (non-blocking)
 - [ ] Notification types: scan complete, scan error, integration status change, sync complete
 

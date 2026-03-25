@@ -275,35 +275,101 @@ func (s *gameStore) DeleteAllGames(ctx context.Context) error {
 // ── Reads ───────────────────────────────────────────────────────────
 
 func (s *gameStore) GetCanonicalGames(ctx context.Context) ([]*core.CanonicalGame, error) {
-	db := s.db.GetDB()
+	ids, err := s.GetVisibleCanonicalIDs(ctx, 0, -1)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetCanonicalGamesByIDs(ctx, ids)
+}
 
-	// Load all canonical groups.
-	rows, err := db.QueryContext(ctx, `SELECT canonical_id, source_game_id FROM canonical_source_games_link
-		ORDER BY canonical_id`)
+func (s *gameStore) GetCanonicalGamesByIDs(ctx context.Context, ids []string) ([]*core.CanonicalGame, error) {
+	return s.canonicalGamesForIDs(ctx, ids)
+}
+
+func (s *gameStore) CountVisibleCanonicalGames(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.GetDB().QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM (
+			SELECT canonical_id FROM canonical_source_games_link l
+			WHERE EXISTS (
+				SELECT 1 FROM source_games sg
+				WHERE sg.id = l.source_game_id AND sg.status = 'found'
+			)
+			GROUP BY canonical_id
+		)`).Scan(&n)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// GetVisibleCanonicalIDs returns canonical IDs that have at least one found source game,
+// ordered by canonical_id. limit <= 0 means no upper bound (SQLite: LIMIT -1).
+func (s *gameStore) GetVisibleCanonicalIDs(ctx context.Context, offset, limit int) ([]string, error) {
+	if offset < 0 {
+		offset = 0
+	}
+	db := s.db.GetDB()
+	q := `
+		SELECT canonical_id FROM canonical_source_games_link l
+		WHERE EXISTS (
+			SELECT 1 FROM source_games sg
+			WHERE sg.id = l.source_game_id AND sg.status = 'found'
+		)
+		GROUP BY canonical_id
+		ORDER BY canonical_id`
+	var args []any
+	switch {
+	case limit > 0:
+		q += " LIMIT ? OFFSET ?"
+		args = append(args, limit, offset)
+	case offset > 0:
+		q += " LIMIT -1 OFFSET ?"
+		args = append(args, offset)
+	}
+
+	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	groups := map[string][]string{} // canonical_id -> []source_game_id
-	var order []string
+	var ids []string
 	for rows.Next() {
-		var cid, sgid string
-		if err := rows.Scan(&cid, &sgid); err != nil {
+		var cid string
+		if err := rows.Scan(&cid); err != nil {
 			return nil, err
 		}
-		if _, ok := groups[cid]; !ok {
-			order = append(order, cid)
-		}
-		groups[cid] = append(groups[cid], sgid)
+		ids = append(ids, cid)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
+	return ids, rows.Err()
+}
 
+func (s *gameStore) canonicalGamesForIDs(ctx context.Context, ids []string) ([]*core.CanonicalGame, error) {
+	db := s.db.GetDB()
 	var result []*core.CanonicalGame
-	for _, cid := range order {
-		sgIDs := groups[cid]
+	for _, cid := range ids {
+		rows, err := db.QueryContext(ctx, `SELECT source_game_id FROM canonical_source_games_link WHERE canonical_id=?`, cid)
+		if err != nil {
+			return nil, err
+		}
+		var sgIDs []string
+		for rows.Next() {
+			var sgid string
+			if err := rows.Scan(&sgid); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			sgIDs = append(sgIDs, sgid)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+		if len(sgIDs) == 0 {
+			continue
+		}
 		cg, err := s.buildCanonicalGame(ctx, db, cid, sgIDs)
 		if err != nil {
 			s.logger.Error("build canonical game", err, "canonical_id", cid)
@@ -314,6 +380,26 @@ func (s *gameStore) GetCanonicalGames(ctx context.Context) ([]*core.CanonicalGam
 		}
 	}
 	return result, nil
+}
+
+func (s *gameStore) GetMediaAssetByID(ctx context.Context, id int) (*core.MediaAsset, error) {
+	if id <= 0 {
+		return nil, nil
+	}
+	row := s.db.GetDB().QueryRowContext(ctx,
+		`SELECT id, url, local_path, hash, width, height, mime_type FROM media_assets WHERE id=?`, id)
+	var a core.MediaAsset
+	var lp, h, mt sql.NullString
+	if err := row.Scan(&a.ID, &a.URL, &lp, &h, &a.Width, &a.Height, &mt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	a.LocalPath = lp.String
+	a.Hash = h.String
+	a.MimeType = mt.String
+	return &a, nil
 }
 
 func (s *gameStore) GetCanonicalGameByID(ctx context.Context, canonicalID string) (*core.CanonicalGame, error) {
@@ -487,10 +573,11 @@ func (s *gameStore) GetExternalIDsForCanonical(ctx context.Context, canonicalID 
 func (s *gameStore) GetLibraryStats(ctx context.Context) (*core.LibraryStats, error) {
 	db := s.db.GetDB()
 	out := &core.LibraryStats{
-		ByPlatform:      make(map[string]int),
-		ByKind:          make(map[string]int),
-		ByIntegrationID: make(map[string]int),
-		ByPluginID:      make(map[string]int),
+		ByPlatform:         make(map[string]int),
+		ByKind:             make(map[string]int),
+		ByIntegrationID:    make(map[string]int),
+		ByPluginID:         make(map[string]int),
+		ByMetadataPluginID: make(map[string]int),
 	}
 
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT l.canonical_id) FROM canonical_source_games_link l
@@ -517,6 +604,16 @@ func (s *gameStore) GetLibraryStats(ctx context.Context) (*core.LibraryStats, er
 		return nil, err
 	}
 
+	// Per-metadata-plugin enrichment counts (non-outvoted resolver matches).
+	if err := scanGroupCounts(ctx, db,
+		`SELECT m.plugin_id, COUNT(DISTINCT m.source_game_id)
+		 FROM metadata_resolver_matches m
+		 JOIN source_games sg ON sg.id = m.source_game_id AND sg.status='found'
+		 WHERE m.outvoted = 0
+		 GROUP BY m.plugin_id`, out.ByMetadataPluginID); err != nil {
+		return nil, err
+	}
+
 	q := `SELECT COUNT(DISTINCT l.canonical_id) FROM canonical_source_games_link l
 		JOIN source_games sg ON sg.id = l.source_game_id AND sg.status='found'
 		JOIN metadata_resolver_matches m ON m.source_game_id = l.source_game_id
@@ -528,6 +625,280 @@ func (s *gameStore) GetLibraryStats(ctx context.Context) (*core.LibraryStats, er
 		out.PercentWithResolverTitle = float64(out.CanonicalWithResolverTitle) / float64(out.CanonicalGameCount) * 100
 	}
 	return out, nil
+}
+
+func (s *gameStore) GetGamesByIntegrationID(ctx context.Context, integrationID string, limit int) ([]core.GameListItem, error) {
+	db := s.db.GetDB()
+
+	q := `SELECT DISTINCT l.canonical_id,
+	        COALESCE(NULLIF(m.title,''), sg.raw_title) AS title,
+	        sg.platform
+	      FROM source_games sg
+	      JOIN canonical_source_games_link l ON l.source_game_id = sg.id
+	      LEFT JOIN metadata_resolver_matches m ON m.source_game_id = sg.id AND m.outvoted = 0
+	      WHERE sg.integration_id = ? AND sg.status = 'found'
+	      GROUP BY l.canonical_id
+	      ORDER BY title
+	      LIMIT ?`
+
+	if limit <= 0 {
+		limit = 10000
+	}
+
+	rows, err := db.QueryContext(ctx, q, integrationID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []core.GameListItem
+	for rows.Next() {
+		var g core.GameListItem
+		if err := rows.Scan(&g.ID, &g.Title, &g.Platform); err != nil {
+			return nil, err
+		}
+		items = append(items, g)
+	}
+	return items, rows.Err()
+}
+
+func (s *gameStore) GetEnrichedGamesByPluginID(ctx context.Context, pluginID string, limit int) ([]core.GameListItem, error) {
+	db := s.db.GetDB()
+
+	q := `SELECT DISTINCT l.canonical_id,
+	        COALESCE(NULLIF(m.title,''), sg.raw_title) AS title,
+	        sg.platform
+	      FROM metadata_resolver_matches m
+	      JOIN source_games sg ON sg.id = m.source_game_id AND sg.status = 'found'
+	      JOIN canonical_source_games_link l ON l.source_game_id = sg.id
+	      WHERE m.plugin_id = ? AND m.outvoted = 0
+	      GROUP BY l.canonical_id
+	      ORDER BY title
+	      LIMIT ?`
+
+	if limit <= 0 {
+		limit = 10000
+	}
+
+	rows, err := db.QueryContext(ctx, q, pluginID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []core.GameListItem
+	for rows.Next() {
+		var g core.GameListItem
+		if err := rows.Scan(&g.ID, &g.Title, &g.Platform); err != nil {
+			return nil, err
+		}
+		items = append(items, g)
+	}
+	return items, rows.Err()
+}
+
+func (s *gameStore) GetFoundSourceGames(ctx context.Context, integrationIDs []string) ([]*core.FoundSourceGame, error) {
+	db := s.db.GetDB()
+
+	var rows *sql.Rows
+	var err error
+
+	if len(integrationIDs) == 0 {
+		rows, err = db.QueryContext(ctx,
+			`SELECT id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, COALESCE(root_path,'')
+			 FROM source_games WHERE status = 'found'`)
+	} else {
+		// Build placeholders for the IN clause.
+		placeholders := make([]string, len(integrationIDs))
+		args := make([]any, len(integrationIDs))
+		for i, id := range integrationIDs {
+			placeholders[i] = "?"
+			args[i] = id
+		}
+		q := fmt.Sprintf(
+			`SELECT id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, COALESCE(root_path,'')
+			 FROM source_games WHERE status = 'found' AND integration_id IN (%s)`,
+			strings.Join(placeholders, ","))
+		rows, err = db.QueryContext(ctx, q, args...)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("get found source games: %w", err)
+	}
+	defer rows.Close()
+
+	var games []*core.FoundSourceGame
+	for rows.Next() {
+		var g core.FoundSourceGame
+		if err := rows.Scan(&g.ID, &g.IntegrationID, &g.PluginID, &g.ExternalID,
+			&g.RawTitle, &g.Platform, &g.Kind, &g.GroupKind, &g.RootPath); err != nil {
+			return nil, err
+		}
+		games = append(games, &g)
+	}
+	return games, rows.Err()
+}
+
+func (s *gameStore) DeleteGamesByIntegrationID(ctx context.Context, integrationID string) error {
+	db := s.db.GetDB()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Collect source game IDs for this integration.
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM source_games WHERE integration_id = ?`, integrationID)
+	if err != nil {
+		return fmt.Errorf("list source games: %w", err)
+	}
+	var sgIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		sgIDs = append(sgIDs, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if len(sgIDs) == 0 {
+		return tx.Commit()
+	}
+
+	// Build placeholders for the IN clause.
+	placeholders := make([]string, len(sgIDs))
+	args := make([]any, len(sgIDs))
+	for i, id := range sgIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	inClause := strings.Join(placeholders, ",")
+
+	// Delete from child tables in dependency order.
+	deleteQueries := []string{
+		fmt.Sprintf(`DELETE FROM achievements WHERE set_id IN (SELECT id FROM achievement_sets WHERE source_game_id IN (%s))`, inClause),
+		fmt.Sprintf(`DELETE FROM achievement_sets WHERE source_game_id IN (%s)`, inClause),
+		fmt.Sprintf(`DELETE FROM source_game_media WHERE source_game_id IN (%s)`, inClause),
+		fmt.Sprintf(`DELETE FROM metadata_resolver_matches WHERE source_game_id IN (%s)`, inClause),
+		fmt.Sprintf(`DELETE FROM game_files WHERE source_game_id IN (%s)`, inClause),
+		fmt.Sprintf(`DELETE FROM canonical_source_games_link WHERE source_game_id IN (%s)`, inClause),
+	}
+
+	for _, q := range deleteQueries {
+		if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+			return fmt.Errorf("cascade delete: %w", err)
+		}
+	}
+
+	// Delete the source games themselves.
+	q := fmt.Sprintf(`DELETE FROM source_games WHERE id IN (%s)`, inClause)
+	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+		return fmt.Errorf("delete source games: %w", err)
+	}
+
+	// Clean up orphaned canonical IDs (canonical entries with no remaining source games).
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM canonical_source_games_link WHERE canonical_id NOT IN (
+			SELECT DISTINCT canonical_id FROM canonical_source_games_link
+		)`); err != nil {
+		return fmt.Errorf("clean orphaned canonical: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+func (s *gameStore) SaveScanReport(ctx context.Context, report *core.ScanReport) error {
+	reportJSON, err := json.Marshal(report)
+	if err != nil {
+		return fmt.Errorf("marshal scan report: %w", err)
+	}
+
+	metaOnly := 0
+	if report.MetadataOnly {
+		metaOnly = 1
+	}
+
+	_, err = s.db.GetDB().ExecContext(ctx,
+		`INSERT INTO scan_reports (id, started_at, finished_at, duration_ms, metadata_only, report_json)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+			finished_at = excluded.finished_at,
+			duration_ms = excluded.duration_ms,
+			report_json = excluded.report_json`,
+		report.ID, report.StartedAt.Unix(), report.FinishedAt.Unix(),
+		report.DurationMs, metaOnly, string(reportJSON))
+	return err
+}
+
+func (s *gameStore) GetScanReports(ctx context.Context, limit int) ([]*core.ScanReport, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	rows, err := s.db.GetDB().QueryContext(ctx,
+		`SELECT report_json FROM scan_reports ORDER BY finished_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var reports []*core.ScanReport
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var r core.ScanReport
+		if err := json.Unmarshal([]byte(raw), &r); err != nil {
+			return nil, fmt.Errorf("unmarshal scan report: %w", err)
+		}
+		reports = append(reports, &r)
+	}
+	return reports, rows.Err()
+}
+
+func (s *gameStore) GetScanReport(ctx context.Context, id string) (*core.ScanReport, error) {
+	row := s.db.GetDB().QueryRowContext(ctx,
+		`SELECT report_json FROM scan_reports WHERE id = ?`, id)
+
+	var raw string
+	if err := row.Scan(&raw); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var r core.ScanReport
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		return nil, fmt.Errorf("unmarshal scan report: %w", err)
+	}
+	return &r, nil
+}
+
+func (s *gameStore) GetSourceGameCountsByIntegration(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.GetDB().QueryContext(ctx,
+		`SELECT integration_id, COUNT(*) FROM source_games WHERE status = 'found' GROUP BY integration_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		counts[id] = n
+	}
+	return counts, rows.Err()
 }
 
 func scanGroupCounts(ctx context.Context, db *sql.DB, query string, dest map[string]int) error {

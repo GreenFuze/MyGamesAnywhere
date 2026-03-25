@@ -12,6 +12,7 @@ import (
 // If nil is passed to BuildRouter, routes are registered with no-op handlers for OpenAPI discovery.
 type RouteBuilder struct {
 	GameCtrl        *GameController
+	MediaCtrl       *MediaController
 	DiscoCtrl       *DiscoveryController
 	ConfigCtrl      *ConfigController
 	PluginCtrl      *PluginController
@@ -51,6 +52,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Get("/games/{id}/detail", b.GameCtrl.GetDetail)
 				r.Get("/games/{id}", b.GameCtrl.Get)
 				r.Get("/games/{id}/achievements", b.AchievementCtrl.GetAchievements)
+				r.Get("/media/{assetID}", b.MediaCtrl.ServeMedia)
 				r.Get("/stats", b.GameCtrl.Stats)
 				r.Get("/config/frontend", b.ConfigCtrl.GetFrontend)
 				r.Post("/config/frontend", b.ConfigCtrl.SetFrontend)
@@ -60,6 +62,11 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Get("/integrations", b.PluginCtrl.List)
 				r.Get("/integrations/status", b.PluginCtrl.Status)
 				r.Post("/integrations", b.PluginCtrl.Create)
+				r.Get("/integrations/{id}/status", b.PluginCtrl.StatusOne)
+				r.Get("/integrations/{id}/games", b.PluginCtrl.IntegrationGames)
+				r.Get("/integrations/{id}/enriched-games", b.PluginCtrl.IntegrationEnrichedGames)
+				r.Put("/integrations/{id}", b.PluginCtrl.UpdateIntegration)
+				r.Delete("/integrations/{id}", b.PluginCtrl.DeleteIntegration)
 
 				r.Get("/sync/status", b.SyncCtrl.Status)
 				r.Post("/sync/push", b.SyncCtrl.Push)
@@ -71,6 +78,8 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			// Scan can take many minutes; no middleware timeout.
 			api.Get("/scan", b.DiscoCtrl.Scan)
 			api.Post("/scan", b.DiscoCtrl.Scan)
+			api.Get("/scan/reports", b.DiscoCtrl.GetScanReports)
+			api.Get("/scan/reports/{id}", b.DiscoCtrl.GetScanReport)
 
 			// Long-lived SSE stream; no middleware timeout.
 			api.Get("/events", b.SSECtrl.Events)
@@ -80,17 +89,25 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/games/{id}/detail", noopHandler())
 			api.Get("/games/{id}", noopHandler())
 			api.Get("/games/{id}/achievements", noopHandler())
+			api.Get("/media/{assetID}", noopHandler())
 			api.Get("/stats", noopHandler())
 			api.Get("/config/frontend", noopHandler())
 			api.Post("/config/frontend", noopHandler())
 			api.Get("/scan", noopHandler())
 			api.Post("/scan", noopHandler())
+			api.Get("/scan/reports", noopHandler())
+			api.Get("/scan/reports/{id}", noopHandler())
 			api.Get("/plugins", noopHandler())
 			api.Get("/plugins/{plugin_id}", noopHandler())
 			api.Post("/config/{key}", noopHandler())
 			api.Get("/integrations", noopHandler())
 			api.Get("/integrations/status", noopHandler())
 			api.Post("/integrations", noopHandler())
+			api.Get("/integrations/{id}/status", noopHandler())
+			api.Get("/integrations/{id}/games", noopHandler())
+			api.Get("/integrations/{id}/enriched-games", noopHandler())
+			api.Put("/integrations/{id}", noopHandler())
+			api.Delete("/integrations/{id}", noopHandler())
 			api.Get("/sync/status", noopHandler())
 			api.Post("/sync/push", noopHandler())
 			api.Post("/sync/pull", noopHandler())

@@ -54,14 +54,15 @@ func main() {
 	orchestrator.SetEventBus(eventBus)
 
 	gameCtrl := http.NewGameController(gameStore, logSvc)
-	discoCtrl := http.NewDiscoveryController(orchestrator, logSvc)
+	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc)
+	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
-	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, logSvc, eventBus)
+	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, gameStore, logSvc, eventBus)
 	achievementCtrl := http.NewAchievementController(gameStore, pluginHost, logSvc, eventBus)
 	syncCtrl := http.NewSyncController(syncSvc, logSvc, eventBus)
 	sseCtrl := http.NewSSEController(eventBus, logSvc)
 
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, discoCtrl, configCtrl, pluginCtrl, achievementCtrl, syncCtrl, sseCtrl)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, configCtrl, pluginCtrl, achievementCtrl, syncCtrl, sseCtrl)
 
 	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost, eventBus)
 

@@ -71,8 +71,21 @@ type GameStore interface {
 	// GetCanonicalGames returns merged views of all visible games.
 	GetCanonicalGames(ctx context.Context) ([]*CanonicalGame, error)
 
+	// GetCanonicalGamesByIDs loads merged views for the given canonical IDs (order preserved).
+	GetCanonicalGamesByIDs(ctx context.Context, canonicalIDs []string) ([]*CanonicalGame, error)
+
+	// CountVisibleCanonicalGames returns how many canonical games have at least one found source row.
+	CountVisibleCanonicalGames(ctx context.Context) (int, error)
+
+	// GetVisibleCanonicalIDs returns canonical IDs in stable order (for pagination).
+	// limit <= 0 means no limit (all rows from offset).
+	GetVisibleCanonicalIDs(ctx context.Context, offset, limit int) ([]string, error)
+
 	// GetCanonicalGameByID returns one merged game view by canonical ID.
 	GetCanonicalGameByID(ctx context.Context, canonicalID string) (*CanonicalGame, error)
+
+	// GetMediaAssetByID returns a media_assets row by primary key, or nil if missing.
+	GetMediaAssetByID(ctx context.Context, id int) (*MediaAsset, error)
 
 	// GetSourceGamesForCanonical returns all source game records for a canonical game.
 	GetSourceGamesForCanonical(ctx context.Context, canonicalID string) ([]*SourceGame, error)
@@ -88,6 +101,31 @@ type GameStore interface {
 
 	// GetLibraryStats returns aggregate counts for the library (GET /api/stats).
 	GetLibraryStats(ctx context.Context) (*LibraryStats, error)
+
+	// GetGamesByIntegrationID returns canonical games discovered by a source integration.
+	GetGamesByIntegrationID(ctx context.Context, integrationID string, limit int) ([]GameListItem, error)
+
+	// GetEnrichedGamesByPluginID returns canonical games enriched by a metadata plugin.
+	GetEnrichedGamesByPluginID(ctx context.Context, pluginID string, limit int) ([]GameListItem, error)
+
+	// GetFoundSourceGames returns source games with status='found', optionally filtered
+	// by integration IDs. Used by metadata-only refresh to re-enrich existing games.
+	GetFoundSourceGames(ctx context.Context, integrationIDs []string) ([]*FoundSourceGame, error)
+
+	// DeleteGamesByIntegrationID removes all source games and related data for an integration.
+	DeleteGamesByIntegrationID(ctx context.Context, integrationID string) error
+
+	// SaveScanReport persists a completed scan report.
+	SaveScanReport(ctx context.Context, report *ScanReport) error
+
+	// GetScanReports returns the most recent N scan reports (newest first).
+	GetScanReports(ctx context.Context, limit int) ([]*ScanReport, error)
+
+	// GetScanReport returns a single scan report by ID.
+	GetScanReport(ctx context.Context, id string) (*ScanReport, error)
+
+	// GetSourceGameCountsByIntegration returns a map of integration_id → count of found source games.
+	GetSourceGameCountsByIntegration(ctx context.Context) (map[string]int, error)
 }
 
 // SyncService handles push/pull settings synchronisation to a remote store.

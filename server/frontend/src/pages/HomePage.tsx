@@ -1,9 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { getHealth, listGames } from '@/api/client'
 
 export function HomePage() {
   const health = useQuery({ queryKey: ['health'], queryFn: getHealth })
-  const games = useQuery({ queryKey: ['games'], queryFn: listGames })
+  const games = useQuery({
+    queryKey: ['games'],
+    queryFn: () => listGames(),
+  })
 
   return (
     <div className="space-y-8">
@@ -41,10 +45,26 @@ export function HomePage() {
           {games.isError && <span className="text-red-400">Error: {games.error.message}</span>}
           {games.isSuccess && (
             <span>
-              <strong className="text-mga-text">{games.data.games.length}</strong> canonical games
+              <strong className="text-mga-text">{games.data.total}</strong> canonical games
+              {games.data.games.length < games.data.total && (
+                <span className="text-mga-muted">
+                  {' '}
+                  (home loads first {games.data.games.length} — see Library for paged table)
+                </span>
+              )}
             </span>
           )}
         </p>
+        {games.isSuccess && games.data.total > 0 && (
+          <p className="mt-3">
+            <Link
+              to="/library"
+              className="inline-flex rounded-mga border border-mga-accent/40 bg-mga-accent/10 px-3 py-1.5 text-sm font-medium text-mga-accent hover:bg-mga-accent/20"
+            >
+              View library table →
+            </Link>
+          </p>
+        )}
       </section>
     </div>
   )

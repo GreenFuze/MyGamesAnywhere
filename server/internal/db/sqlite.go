@@ -184,6 +184,14 @@ func (s *sqliteDatabase) EnsureSchema() error {
 			unlocked_at INTEGER
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_ach_set ON achievements(set_id);`,
+		`CREATE TABLE IF NOT EXISTS scan_reports (
+			id TEXT PRIMARY KEY,
+			started_at INTEGER NOT NULL,
+			finished_at INTEGER NOT NULL,
+			duration_ms INTEGER NOT NULL,
+			metadata_only INTEGER NOT NULL DEFAULT 0,
+			report_json TEXT NOT NULL
+		);`,
 	}
 
 	for _, q := range statements {

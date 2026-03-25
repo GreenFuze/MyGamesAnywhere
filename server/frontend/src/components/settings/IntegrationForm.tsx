@@ -1,0 +1,487 @@
+import { useState, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import {
+  listPlugins,
+  createIntegration,
+  updateIntegration,
+  DuplicateIntegrationError,
+  type Integration,
+  type PluginInfo,
+} from '@/api/client'
+import { useDateTimeFormat } from '@/hooks/useDateTimeFormat'
+import {
+  pluginLabel,
+  parsePluginConfigSchema,
+  CAPABILITY_META,
+  CAPABILITY_ORDER,
+} from '@/lib/gameUtils'
+import { Dialog } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { PluginIcon } from './PluginIcon'
+import { ConfigFieldsRenderer } from './ConfigFieldsRenderer'
+import { ArrowLeft, Check } from 'lucide-react'
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Add Integration Wizard
+// ═══════════════════════════════════════════════════════════════════════════
+
+type WizardStep = 'category' | 'plugin' | 'config' | 'label'
+
+interface AddIntegrationWizardProps {
+  onClose: () => void
+  onSaved: () => void
+}
+
+export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardProps) {
+  const { data: plugins = [] } = useQuery({ queryKey: ['plugins'], queryFn: listPlugins })
+
+  // Wizard state.
+  const [step, setStep] = useState<WizardStep>('category')
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null)
+  const [configFields, setConfigFields] = useState<Record<string, string>>({})
+  const [label, setLabel] = useState('')
+  const [integrationType, setIntegrationType] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  // Derived data.
+  const selectedPlugin = plugins.find((p) => p.plugin_id === selectedPluginId)
+  const schema = useMemo(
+    () => parsePluginConfigSchema(selectedPlugin?.config as Record<string, unknown> | undefined),
+    [selectedPlugin],
+  )
+  const hasConfig = schema.length > 0
+
+  // Group plugins by capability for step 1.
+  const capabilityGroups = useMemo(() => {
+    const groups = new Map<string, PluginInfo[]>()
+    for (const plugin of plugins) {
+      const cap = plugin.capabilities?.[0] ?? 'other'
+      if (!groups.has(cap)) groups.set(cap, [])
+      groups.get(cap)!.push(plugin)
+    }
+    return groups
+  }, [plugins])
+
+  // Plugins filtered by selected category.
+  const filteredPlugins = selectedCategory ? (capabilityGroups.get(selectedCategory) ?? []) : []
+
+  // Step navigation.
+  const goBack = () => {
+    setError('')
+    if (step === 'plugin') setStep('category')
+    else if (step === 'config') setStep('plugin')
+    else if (step === 'label') setStep(hasConfig ? 'config' : 'plugin')
+  }
+
+  const selectCategory = (cap: string) => {
+    setSelectedCategory(cap)
+    setStep('plugin')
+  }
+
+  const selectPlugin = (plugin: PluginInfo) => {
+    setSelectedPluginId(plugin.plugin_id)
+    setConfigFields({})
+    setError('')
+
+    // Pre-fill defaults from schema.
+    const parsed = parsePluginConfigSchema(plugin.config as Record<string, unknown> | undefined)
+    const defaults: Record<string, string> = {}
+    for (const { key, field } of parsed) {
+      if (field.default != null) defaults[key] = String(field.default)
+    }
+    setConfigFields(defaults)
+
+    // Auto-derive integration type.
+    const caps = plugin.capabilities ?? []
+    setIntegrationType(caps[0] ?? '')
+
+    // Auto-suggest label.
+    setLabel(pluginLabel(plugin.plugin_id))
+
+    // Skip config step if no config needed.
+    if (parsed.length === 0) {
+      setStep('label')
+    } else {
+      setStep('config')
+    }
+  }
+
+  const advanceToLabel = () => {
+    setError('')
+    setStep('label')
+  }
+
+  const handleCreate = async () => {
+    if (!selectedPlugin || !label || !integrationType) return
+    setError('')
+    setSaving(true)
+
+    // Build typed config object.
+    const config: Record<string, unknown> = {}
+    for (const { key, field } of schema) {
+      const raw = configFields[key] ?? ''
+      if (field.type === 'boolean') {
+        config[key] = raw === 'true' || raw === '1'
+      } else if (field.type === 'number' || field.type === 'integer') {
+        config[key] = Number(raw)
+      } else {
+        config[key] = raw
+      }
+    }
+
+    try {
+      await createIntegration({
+        plugin_id: selectedPlugin.plugin_id,
+        label,
+        integration_type: integrationType,
+        config,
+      })
+      onSaved()
+    } catch (err) {
+      if (err instanceof DuplicateIntegrationError) {
+        setError(err.message)
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to create integration')
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Step titles for the dialog.
+  const stepTitles: Record<WizardStep, string> = {
+    category: 'Add Integration — Choose Type',
+    plugin: 'Add Integration — Choose Plugin',
+    config: 'Add Integration — Configure',
+    label: 'Add Integration — Finish',
+  }
+
+  return (
+    <Dialog open onClose={onClose} title={stepTitles[step]} className="max-w-2xl">
+      {/* Back button (not shown on first step) */}
+      {step !== 'category' && (
+        <button
+          type="button"
+          onClick={goBack}
+          className="flex items-center gap-1 text-xs text-mga-muted hover:text-mga-text mb-4 transition-colors"
+        >
+          <ArrowLeft size={14} /> Back
+        </button>
+      )}
+
+      {/* Step 1: Choose category */}
+      {step === 'category' && (
+        <div className="grid grid-cols-2 gap-3">
+          {CAPABILITY_ORDER.filter((cap) => capabilityGroups.has(cap)).map((cap) => {
+            const meta = CAPABILITY_META[cap]
+            const count = capabilityGroups.get(cap)!.length
+            return (
+              <button
+                key={cap}
+                type="button"
+                onClick={() => selectCategory(cap)}
+                className="flex flex-col items-center gap-2 p-6 border border-mga-border rounded-mga bg-mga-surface hover:border-mga-accent hover:bg-mga-elevated transition-all text-center"
+              >
+                <PluginIcon capability={cap} size={32} className="text-mga-accent" />
+                <span className="font-medium text-mga-text">{meta?.label ?? cap}</span>
+                <span className="text-xs text-mga-muted">
+                  {count} plugin{count !== 1 ? 's' : ''} available
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Step 2: Choose plugin */}
+      {step === 'plugin' && (
+        <div className="space-y-2">
+          {filteredPlugins.map((plugin) => {
+            const pSchema = parsePluginConfigSchema(plugin.config as Record<string, unknown> | undefined)
+            return (
+              <button
+                key={plugin.plugin_id}
+                type="button"
+                onClick={() => selectPlugin(plugin)}
+                className="w-full flex items-center gap-3 p-4 border border-mga-border rounded-mga bg-mga-surface hover:border-mga-accent hover:bg-mga-elevated transition-all text-left"
+              >
+                <PluginIcon pluginId={plugin.plugin_id} size={24} className="text-mga-accent shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-mga-text">{pluginLabel(plugin.plugin_id)}</span>
+                    <Badge variant="muted">v{plugin.plugin_version}</Badge>
+                  </div>
+                  <p className="text-xs text-mga-muted mt-0.5">
+                    {pSchema.length === 0
+                      ? 'No configuration needed'
+                      : `${pSchema.length} config field${pSchema.length !== 1 ? 's' : ''}`}
+                  </p>
+                </div>
+                {plugin.capabilities.map((cap) => (
+                  <Badge key={cap} variant="accent">{cap}</Badge>
+                ))}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Step 3: Configure */}
+      {step === 'config' && selectedPlugin && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <PluginIcon pluginId={selectedPlugin.plugin_id} size={18} className="text-mga-accent" />
+            <span className="text-sm font-medium text-mga-text">
+              {pluginLabel(selectedPlugin.plugin_id)}
+            </span>
+          </div>
+
+          <ConfigFieldsRenderer
+            schema={schema}
+            values={configFields}
+            onChange={(key, value) => setConfigFields((prev) => ({ ...prev, [key]: value }))}
+          />
+
+          {error && <p className="text-sm text-red-400">{error}</p>}
+
+          <div className="flex justify-end pt-2">
+            <Button size="sm" onClick={advanceToLabel}>
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 4: Label + create */}
+      {step === 'label' && selectedPlugin && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <PluginIcon pluginId={selectedPlugin.plugin_id} size={18} className="text-mga-accent" />
+            <span className="text-sm font-medium text-mga-text">
+              {pluginLabel(selectedPlugin.plugin_id)}
+            </span>
+          </div>
+
+          <Input
+            label="Label"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Give this integration a name..."
+          />
+
+          {/* Integration type — auto-derived, dropdown if multiple capabilities */}
+          {selectedPlugin.capabilities.length > 1 ? (
+            <Select
+              label="Integration Type"
+              options={selectedPlugin.capabilities.map((c) => ({ value: c, label: c }))}
+              value={integrationType}
+              onChange={(e) => setIntegrationType(e.target.value)}
+            />
+          ) : (
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-mga-text">Integration Type</span>
+              <Badge variant="accent" className="w-fit">{integrationType}</Badge>
+            </div>
+          )}
+
+          {error && <p className="text-sm text-red-400">{error}</p>}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleCreate}
+              disabled={saving || !label || !integrationType}
+            >
+              {saving ? 'Creating...' : 'Create Integration'}
+            </Button>
+          </div>
+        </div>
+      )}
+    </Dialog>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Edit Integration Dialog
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface EditIntegrationDialogProps {
+  integration: Integration
+  onClose: () => void
+  onSaved: () => void
+}
+
+export function EditIntegrationDialog({ integration, onClose, onSaved }: EditIntegrationDialogProps) {
+  const { data: plugins = [] } = useQuery({ queryKey: ['plugins'], queryFn: listPlugins })
+  const plugin = plugins.find((p) => p.plugin_id === integration.plugin_id)
+  const { format: formatDT } = useDateTimeFormat()
+
+  const schema = useMemo(
+    () => parsePluginConfigSchema(plugin?.config as Record<string, unknown> | undefined),
+    [plugin],
+  )
+
+  // Parse existing config.
+  const existingConfig = useMemo<Record<string, string>>(() => {
+    try {
+      const parsed = JSON.parse(integration.config_json)
+      const flat: Record<string, string> = {}
+      for (const [k, v] of Object.entries(parsed)) {
+        flat[k] = typeof v === 'string' ? v : JSON.stringify(v)
+      }
+      return flat
+    } catch {
+      return {}
+    }
+  }, [integration.config_json])
+
+  // Form state.
+  const [label, setLabel] = useState(integration.label)
+  const [integrationType, setIntegrationType] = useState(integration.integration_type)
+  const [configFields, setConfigFields] = useState<Record<string, string>>(existingConfig)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  // Secret fields — start masked, reveal on "Change" click.
+  const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set())
+  const secretMask = useMemo(() => {
+    const masked = new Set<string>()
+    for (const { key, field } of schema) {
+      if (field['x-secret'] && !revealedSecrets.has(key)) {
+        masked.add(key)
+      }
+    }
+    return masked
+  }, [schema, revealedSecrets])
+
+  const handleRevealSecret = (key: string) => {
+    setRevealedSecrets((prev) => new Set([...prev, key]))
+  }
+
+  const handleSave = async () => {
+    setError('')
+    setSaving(true)
+
+    // Build typed config object.
+    const config: Record<string, unknown> = {}
+    for (const { key, field } of schema) {
+      // Skip masked secrets — don't send them (keep server value).
+      if (secretMask.has(key)) continue
+
+      const raw = configFields[key] ?? ''
+      if (field.type === 'boolean') {
+        config[key] = raw === 'true' || raw === '1'
+      } else if (field.type === 'number' || field.type === 'integer') {
+        config[key] = Number(raw)
+      } else {
+        config[key] = raw
+      }
+    }
+
+    // Include config fields not in schema (preserve unknown fields).
+    for (const [k, v] of Object.entries(configFields)) {
+      if (!(k in config) && !secretMask.has(k)) config[k] = v
+    }
+
+    try {
+      await updateIntegration(integration.id, {
+        label,
+        integration_type: integrationType,
+        config,
+      })
+      onSaved()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onClose={onClose} title="Edit Integration" className="max-w-2xl">
+      <div className="space-y-5">
+        {/* Read-only header info */}
+        <div className="flex items-center gap-3 pb-3 border-b border-mga-border">
+          <PluginIcon pluginId={integration.plugin_id} size={24} className="text-mga-accent" />
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-mga-text">{pluginLabel(integration.plugin_id)}</span>
+              {plugin && <Badge variant="muted">v{plugin.plugin_version}</Badge>}
+            </div>
+            <p className="text-xs text-mga-muted mt-0.5 font-mono">{integration.id}</p>
+          </div>
+        </div>
+
+        {/* Timestamps */}
+        <div className="flex gap-6 text-xs text-mga-muted">
+          <span>Created: {formatDT(integration.created_at)}</span>
+          <span>Updated: {formatDT(integration.updated_at)}</span>
+        </div>
+
+        {/* Editable fields */}
+        <Input
+          label="Label"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+        />
+
+        {/* Integration type from capabilities */}
+        {plugin && plugin.capabilities.length > 1 ? (
+          <Select
+            label="Integration Type"
+            options={plugin.capabilities.map((c) => ({ value: c, label: c }))}
+            value={integrationType}
+            onChange={(e) => setIntegrationType(e.target.value)}
+          />
+        ) : (
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-medium text-mga-text">Integration Type</span>
+            <Badge variant="accent" className="w-fit">{integrationType}</Badge>
+          </div>
+        )}
+
+        {/* Config fields */}
+        {schema.length > 0 && (
+          <div>
+            <h4 className="text-xs uppercase tracking-wider text-mga-muted font-medium mb-3">
+              Configuration
+            </h4>
+            <ConfigFieldsRenderer
+              schema={schema}
+              values={configFields}
+              onChange={(key, value) => setConfigFields((prev) => ({ ...prev, [key]: value }))}
+              secretMask={secretMask}
+              onRevealSecret={handleRevealSecret}
+            />
+          </div>
+        )}
+
+        {/* Error */}
+        {error && <p className="text-sm text-red-400">{error}</p>}
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3 pt-2">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={saving || !label || !integrationType}
+          >
+            <Check size={14} />
+            {saving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  )
+}

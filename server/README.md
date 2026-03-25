@@ -18,6 +18,12 @@ go test -run OpenAPI ./internal/openapi/...
 
 Keep operation summaries and descriptions in `internal/openapi/operations.go` in sync when adding or changing endpoints.
 
+## API notes (library)
+
+- **`GET /api/games`** — Paginated list; each item is a full **game detail** object (same shape as `GET /api/games/{id}/detail`) so the UI can expose every metadata field via column pickers. Query: `page` (default `0`), `page_size` (default `100`, max `2000`). **`page_size=0`** returns all games in one response (allowed only if the library has ≤ 20000 games). **`GET /api/stats`** includes `canonical_game_count` (same notion of “visible” canonical game).
+- **`GET /api/games/{id}`** — Same full detail JSON as **`GET /api/games/{id}/detail`** (and as one element of **`GET /api/games`**).
+- **`GET /api/media/{assetID}`** — Streams a cached file from **`MEDIA_ROOT`** (config key, default `./media`) using `media_assets.id` and the row’s **`local_path`** (must be relative; `..` rejected). Use `media[].asset_id` from game detail; remote URLs in `media[].url` are unchanged.
+
 ## Building
 
 Build the binary into `bin/`:

@@ -374,8 +374,57 @@ type LibraryStats struct {
 	ByKind                     map[string]int `json:"by_kind"`
 	ByIntegrationID            map[string]int `json:"by_integration_id"`
 	ByPluginID                 map[string]int `json:"by_plugin_id"`
+	ByMetadataPluginID         map[string]int `json:"by_metadata_plugin_id"`
 	CanonicalWithResolverTitle int            `json:"canonical_with_resolver_title"`
 	PercentWithResolverTitle   float64        `json:"percent_with_resolver_title"`
+}
+
+// GameListItem is a lightweight game reference returned by integration-scoped queries.
+type GameListItem struct {
+	ID       string   `json:"id"`
+	Title    string   `json:"title"`
+	Platform Platform `json:"platform"`
+}
+
+// FoundSourceGame carries the fields needed for metadata re-enrichment
+// without running the discovery phase again.
+type FoundSourceGame struct {
+	ID            string   `json:"id"`
+	IntegrationID string   `json:"integration_id"`
+	PluginID      string   `json:"plugin_id"`
+	ExternalID    string   `json:"external_id"`
+	RawTitle      string   `json:"raw_title"`
+	Platform      Platform `json:"platform"`
+	Kind          GameKind `json:"kind"`
+	GroupKind     GroupKind `json:"group_kind"`
+	RootPath      string   `json:"root_path"`
+	URL           string   `json:"url,omitempty"`
+}
+
+// ScanReport stores the result and diff of a completed scan.
+type ScanReport struct {
+	ID             string                  `json:"id"`
+	StartedAt      time.Time               `json:"started_at"`
+	FinishedAt     time.Time               `json:"finished_at"`
+	DurationMs     int64                   `json:"duration_ms"`
+	MetadataOnly   bool                    `json:"metadata_only"`
+	IntegrationIDs []string                `json:"integration_ids"`
+	GamesAdded     int                     `json:"games_added"`
+	GamesRemoved   int                     `json:"games_removed"`
+	GamesUpdated   int                     `json:"games_updated"`
+	TotalGames     int                     `json:"total_games"`
+	Results        []ScanIntegrationResult `json:"integration_results"`
+}
+
+// ScanIntegrationResult is a per-integration breakdown within a ScanReport.
+type ScanIntegrationResult struct {
+	IntegrationID string `json:"integration_id"`
+	Label         string `json:"label"`
+	PluginID      string `json:"plugin_id"`
+	GamesFound    int    `json:"games_found"`
+	GamesAdded    int    `json:"games_added"`
+	GamesRemoved  int    `json:"games_removed"`
+	Error         string `json:"error,omitempty"`
 }
 
 // GameFileRole is the role of a file within a game package.

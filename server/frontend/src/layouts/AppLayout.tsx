@@ -1,32 +1,27 @@
-import { useEffect, useRef } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { THEME_IDS, THEME_LABELS, type ThemeId } from '@/theme/presets'
 import { useTheme } from '@/theme/ThemeProvider'
+import { useSearch } from '@/hooks/useSearchContext'
 import { cn } from '@/lib/utils'
 
 const nav = [
   { to: '/', label: 'Home' },
   { to: '/library', label: 'Library' },
   { to: '/playable', label: 'Playable' },
+  { to: '/xcloud', label: 'xCloud' },
   { to: '/settings', label: 'Settings' },
   { to: '/about', label: 'About' },
 ]
 
 export function AppLayout() {
   const { themeId, setThemeId } = useTheme()
-  const searchRef = useRef<HTMLInputElement>(null)
+  const { searchQuery, setSearchQuery, searchRef } = useSearch()
   const loc = useLocation()
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-        e.preventDefault()
-        searchRef.current?.focus()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  // Library-related routes use full width; other pages keep max-w-5xl
+  const isWideRoute = ['/library', '/playable', '/xcloud'].some((p) =>
+    loc.pathname.startsWith(p),
+  )
 
   return (
     <div className="flex min-h-screen bg-mga-bg font-mga text-mga-text">
@@ -87,7 +82,9 @@ export function AppLayout() {
             <input
               ref={searchRef}
               type="search"
-              placeholder="Search… (Ctrl+K)"
+              placeholder="Search\u2026 (Ctrl+K)"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full max-w-md rounded-mga border border-mga-border bg-mga-bg px-3 py-1.5 text-sm text-mga-text placeholder:text-mga-muted focus:outline-none focus:ring-2 focus:ring-mga-accent"
               aria-label="Search"
             />
@@ -117,7 +114,7 @@ export function AppLayout() {
         </header>
 
         <main className="flex-1 overflow-auto p-4 md:p-6">
-          <div key={loc.pathname} className="mx-auto max-w-5xl">
+          <div key={loc.pathname} className={cn('mx-auto', isWideRoute ? 'w-full' : 'max-w-5xl')}>
             <Outlet />
           </div>
         </main>

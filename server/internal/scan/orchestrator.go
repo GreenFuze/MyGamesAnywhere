@@ -128,7 +128,23 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 	o.publishEvent("scan_started", map[string]any{"integration_count": integrationCount})
 
 	scanStart := time.Now()
+
+	// Snapshot pre-scan game counts for diff computation.
+	preCounts, _ := o.gameStore.GetSourceGameCountsByIntegration(ctx)
+
+	// Build integration label map for the report.
+	integLabelMap := make(map[string]string, len(integrations))
+	integPluginMap := make(map[string]string, len(integrations))
+	for _, integ := range integrations {
+		integLabelMap[integ.ID] = integ.Label
+		integPluginMap[integ.ID] = integ.PluginID
+	}
+
 	metaSources := o.findMetadataSources(integrations)
+
+	// Track per-integration results for the report.
+	var integResults []core.ScanIntegrationResult
+	var scannedIDs []string
 
 	for _, integ := range integrations {
 		if filterActive && !filter[integ.ID] {
@@ -229,12 +245,20 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			continue
 		}
 
+		scannedIDs = append(scannedIDs, integ.ID)
+
 		if len(games) == 0 {
 			o.publishEvent("scan_integration_skipped", map[string]any{
 				"integration_id": integ.ID,
 				"plugin_id":      integ.PluginID,
 				"label":          integ.Label,
 				"reason":         "no_games",
+			})
+			integResults = append(integResults, core.ScanIntegrationResult{
+				IntegrationID: integ.ID,
+				Label:         integ.Label,
+				PluginID:      integ.PluginID,
+				GamesFound:    0,
 			})
 			continue
 		}
@@ -264,6 +288,13 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			"integration_id": integ.ID,
 			"games_found":    len(batch.SourceGames),
 		})
+
+		integResults = append(integResults, core.ScanIntegrationResult{
+			IntegrationID: integ.ID,
+			Label:         integ.Label,
+			PluginID:      integ.PluginID,
+			GamesFound:    len(batch.SourceGames),
+		})
 	}
 
 	// Return the canonical game views.
@@ -273,12 +304,176 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		return nil, fmt.Errorf("get canonical games: %w", err)
 	}
 
+	// Compute diff and build scan report.
+	postCounts, _ := o.gameStore.GetSourceGameCountsByIntegration(ctx)
+	report := o.buildScanReport(scanStart, false, scannedIDs, preCounts, postCounts, integResults, len(result))
+	if saveErr := o.gameStore.SaveScanReport(ctx, report); saveErr != nil {
+		o.logger.Warn("orchestrator: failed to save scan report", "error", saveErr)
+	}
+
 	o.logger.Info("orchestrator: scan complete", "canonical_games", len(result))
 	o.publishEvent("scan_complete", map[string]any{
 		"canonical_games": len(result),
-		"duration_ms":     time.Since(scanStart).Milliseconds(),
+		"duration_ms":     report.DurationMs,
+		"report_id":       report.ID,
+		"games_added":     report.GamesAdded,
+		"games_removed":   report.GamesRemoved,
 	})
 	return result, nil
+}
+
+// RunMetadataRefresh re-enriches existing source games without re-discovering.
+// It loads found source games from the DB, groups them by integration, runs the
+// metadata enrichment pipeline, and persists the updated resolver matches.
+func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []string) ([]*core.CanonicalGame, error) {
+	o.logger.Info("orchestrator: starting metadata refresh", "requested", len(integrationIDs))
+
+	integrations, err := o.integrationRepo.List(ctx)
+	if err != nil {
+		o.publishScanError("", err)
+		return nil, fmt.Errorf("list integrations: %w", err)
+	}
+
+	metaSources := o.findMetadataSources(integrations)
+	if len(metaSources) == 0 {
+		o.logger.Info("orchestrator: no metadata providers configured, nothing to refresh")
+		return o.gameStore.GetCanonicalGames(ctx)
+	}
+
+	// Load existing found source games from the DB.
+	foundGames, err := o.gameStore.GetFoundSourceGames(ctx, integrationIDs)
+	if err != nil {
+		o.publishScanError("", err)
+		return nil, fmt.Errorf("get found source games: %w", err)
+	}
+
+	// Group by integration ID.
+	byIntegration := make(map[string][]*core.FoundSourceGame)
+	for _, sg := range foundGames {
+		byIntegration[sg.IntegrationID] = append(byIntegration[sg.IntegrationID], sg)
+	}
+
+	scanStart := time.Now()
+	o.publishEvent("scan_started", map[string]any{
+		"integration_count": len(byIntegration),
+		"metadata_only":     true,
+	})
+
+	for integrationID, sourceGames := range byIntegration {
+		// Convert FoundSourceGame → core.Game for the enrichment pipeline.
+		games := make([]*core.Game, 0, len(sourceGames))
+		for _, sg := range sourceGames {
+			games = append(games, &core.Game{
+				ID:            sg.ID,
+				Title:         sg.RawTitle,
+				RawTitle:      sg.RawTitle,
+				Platform:      sg.Platform,
+				Kind:          sg.Kind,
+				GroupKind:     sg.GroupKind,
+				RootPath:      sg.RootPath,
+				IntegrationID: sg.IntegrationID,
+				Status:        "found",
+				ExternalIDs: []core.ExternalID{{
+					Source:     sg.PluginID,
+					ExternalID: sg.ExternalID,
+				}},
+			})
+		}
+
+		o.publishEvent("scan_integration_started", map[string]any{
+			"integration_id": integrationID,
+			"label":          integrationID,
+		})
+
+		o.publishEvent("scan_metadata_started", map[string]any{
+			"integration_id": integrationID,
+			"game_count":     len(games),
+			"resolver_count": len(metaSources),
+		})
+
+		o.metadataResolver.Enrich(ctx, integrationID, games, metaSources)
+
+		// Re-persist the enriched resolver matches + media.
+		batch := gamesToScanBatch(integrationID, sourceGames[0].PluginID, games)
+		if err := o.gameStore.PersistScanResults(ctx, batch); err != nil {
+			o.publishScanError(integrationID, err)
+			return nil, fmt.Errorf("persist metadata refresh for %q: %w", integrationID, err)
+		}
+
+		o.publishEvent("scan_integration_complete", map[string]any{
+			"integration_id": integrationID,
+			"games_found":    len(games),
+		})
+	}
+
+	result, err := o.gameStore.GetCanonicalGames(ctx)
+	if err != nil {
+		o.publishScanError("", err)
+		return nil, fmt.Errorf("get canonical games: %w", err)
+	}
+
+	// Build a lightweight scan report for metadata-only refresh.
+	var scannedIDs []string
+	for id := range byIntegration {
+		scannedIDs = append(scannedIDs, id)
+	}
+	report := o.buildScanReport(scanStart, true, scannedIDs, nil, nil, nil, len(result))
+	if saveErr := o.gameStore.SaveScanReport(ctx, report); saveErr != nil {
+		o.logger.Warn("orchestrator: failed to save scan report", "error", saveErr)
+	}
+
+	o.logger.Info("orchestrator: metadata refresh complete", "canonical_games", len(result))
+	o.publishEvent("scan_complete", map[string]any{
+		"canonical_games": len(result),
+		"duration_ms":     report.DurationMs,
+		"metadata_only":   true,
+		"report_id":       report.ID,
+	})
+	return result, nil
+}
+
+// buildScanReport computes diff between pre- and post-scan game counts and
+// produces a ScanReport. For metadata-only refreshes, pre/post counts may be nil.
+func (o *Orchestrator) buildScanReport(
+	scanStart time.Time,
+	metadataOnly bool,
+	integrationIDs []string,
+	preCounts, postCounts map[string]int,
+	integResults []core.ScanIntegrationResult,
+	totalCanonical int,
+) *core.ScanReport {
+	now := time.Now()
+	reportID := fmt.Sprintf("scan:%s", now.Format("20060102T150405"))
+
+	// Compute per-integration diff if counts are available.
+	totalAdded, totalRemoved := 0, 0
+	if preCounts != nil && postCounts != nil {
+		for i := range integResults {
+			r := &integResults[i]
+			pre := preCounts[r.IntegrationID]
+			post := postCounts[r.IntegrationID]
+			if post > pre {
+				r.GamesAdded = post - pre
+				totalAdded += r.GamesAdded
+			} else if pre > post {
+				r.GamesRemoved = pre - post
+				totalRemoved += r.GamesRemoved
+			}
+		}
+	}
+
+	return &core.ScanReport{
+		ID:             reportID,
+		StartedAt:      scanStart,
+		FinishedAt:     now,
+		DurationMs:     now.Sub(scanStart).Milliseconds(),
+		MetadataOnly:   metadataOnly,
+		IntegrationIDs: integrationIDs,
+		GamesAdded:     totalAdded,
+		GamesRemoved:   totalRemoved,
+		TotalGames:     totalCanonical,
+		Results:        integResults,
+	}
 }
 
 // fetchFiles calls source.filesystem.list on the plugin and parses the response.
