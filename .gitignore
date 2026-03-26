@@ -70,6 +70,7 @@ server/frontend/dist/
 temp-resources/
 
 # SuitCode
-.suit/*
+.suit/
+server/.suit/
 
 .claude/
