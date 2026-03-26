@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CoverImage } from '@/components/ui/cover-image'
 import { PlatformIcon } from '@/components/ui/platform-icon'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   formatHLTB,
   isPlayable,
@@ -17,11 +18,18 @@ interface GameCardProps {
 }
 
 export function GameCard({ game }: GameCardProps) {
+  const navigate = useNavigate()
+  const location = useLocation()
   const coverUrl = selectCoverUrl(game.media)
   const playable = isPlayable(game.platform)
   const sources = selectSourcePlugins(game)
   const hltb = formatHLTB(game.completion_time)
   const matchCount = resolverMatchCount(game)
+  const from = `${location.pathname}${location.search}`
+
+  const openGame = () => {
+    navigate(`/game/${encodeURIComponent(game.id)}`, { state: { from } })
+  }
 
   return (
     <article className="group relative flex flex-col overflow-hidden rounded-mga border border-mga-border bg-mga-surface transition-shadow hover:ring-1 hover:ring-mga-accent">
@@ -70,7 +78,7 @@ export function GameCard({ game }: GameCardProps) {
 
         {/* Spacer + action button */}
         <div className="mt-auto flex justify-end pt-1">
-          <Button variant="ghost" size="sm">
+          <Button variant="ghost" size="sm" onClick={openGame}>
             {playable ? 'Play' : 'View'}
           </Button>
         </div>

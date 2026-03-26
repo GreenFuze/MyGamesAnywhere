@@ -1,5 +1,5 @@
-import { LibraryPage } from '@/pages/LibraryPage'
+import { Navigate } from 'react-router-dom'
 
 export function PlayablePage() {
-  return <LibraryPage section="playable" />
+  return <Navigate to="/play" replace />
 }

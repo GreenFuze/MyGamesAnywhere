@@ -199,10 +199,10 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 ### App Shell Rework
 *Replace sidebar with Steam-style horizontal top-tab navigation.*
 
-- [ ] **Top tab bar:** Logo + horizontal tabs (Home, Play, Library, Settings, About) + search (Ctrl+K) + theme selector
-- [ ] Remove sidebar navigation entirely
-- [ ] Game detail route (`/game/:id`) renders **outside** the tab layout (back button replaces tabs)
-- [ ] Responsive: tabs collapse on narrow viewports (hamburger or scrollable tab strip)
+- [x] **Top tab bar:** Logo + horizontal tabs (Home, Play, Library, Settings, About) + search (Ctrl+K) + theme selector
+- [x] Remove sidebar navigation entirely
+- [x] Game detail route (`/game/:id`) renders **outside** the tab layout (back button replaces tabs)
+- [x] Responsive: tabs collapse on narrow viewports (hamburger or scrollable tab strip)
 
 ### Navigation & Pages
 
@@ -227,7 +227,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] **Empty sections hidden:** sections with 0 matching games are not rendered
 - [ ] **Global search** (top bar) filters within all visible accordions in real-time
 - [ ] **View toggle:** Accordion view (default) vs Grid view (flat full-collection grid)
-- [ ] **Persist configuration** per page (Play vs Library) in `FrontendConfig` (server + localStorage)
+- [x] **Persist configuration** per page (Play vs Library) in `FrontendConfig` (server + localStorage)
 
 ### Game Cards (carried from prior work)
 - [x] Cover art with lazy loading and placeholder
@@ -252,7 +252,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 *Full-page route (`/game/:id`) rendered **outside** the tab layout. Back button returns to the originating page (Play or Library) with scroll position preserved. Design inspired by Steam / Xbox game pages.*
 
 ### Navigation
-- [ ] Route `/game/:id` with dedicated layout (no tab bar)
+- [x] Route `/game/:id` with dedicated layout (no tab bar)
 - [ ] Back button ("< Library" / "< Play") preserving scroll position on return
 
 ### Metadata Display

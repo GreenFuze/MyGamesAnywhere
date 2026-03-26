@@ -7,32 +7,27 @@ import { FilterBar } from '@/components/library/FilterBar'
 import { GameGrid } from '@/components/library/GameGrid'
 import { GameList } from '@/components/library/GameList'
 import {
-  applySectionFilter,
+  applyScopeFilter,
   DEFAULT_FILTER_STATE,
   LibraryFilter,
   type FilterState,
-  type LibrarySection,
+  type CollectionScope,
 } from '@/lib/libraryFilter'
 
 // ---------------------------------------------------------------------------
 // Section metadata
 // ---------------------------------------------------------------------------
 
-const SECTIONS: Record<LibrarySection, { title: string; subtitle: string; emptyMessage: string }> = {
-  all: {
+const SCOPES: Record<CollectionScope, { title: string; subtitle: string; emptyMessage: string }> = {
+  library: {
     title: 'Library',
     subtitle: 'All games in your collection',
     emptyMessage: 'No games in the library yet. Run a scan from the server.',
   },
-  playable: {
-    title: 'Playable',
-    subtitle: 'Browser-emulatable games',
-    emptyMessage: 'No playable games found. Scan for GBA, PS1, Arcade, ScummVM, or DOS games.',
-  },
-  xcloud: {
-    title: 'xCloud',
-    subtitle: 'Xbox Game Pass cloud-playable games',
-    emptyMessage: 'No xCloud games found. Add an Xbox integration and scan.',
+  play: {
+    title: 'Play',
+    subtitle: 'Browser-emulatable and xCloud-ready games',
+    emptyMessage: 'No actionable games found. Add sources and run a scan.',
   },
 }
 
@@ -40,27 +35,25 @@ const SECTIONS: Record<LibrarySection, { title: string; subtitle: string; emptyM
 // Component
 // ---------------------------------------------------------------------------
 
-interface LibraryPageProps {
-  section?: LibrarySection
+interface CollectionPageProps {
+  scope: CollectionScope
 }
 
-export function LibraryPage({ section = 'all' }: LibraryPageProps) {
+export function CollectionPage({ scope }: CollectionPageProps) {
   const { searchQuery } = useSearch()
   const { data: allGames = [], isPending, isError, error } = useLibraryData()
-  const { prefs, setViewMode, setSortBy, setSortDir } = useLibraryPrefs()
+  const { prefs, setViewMode, setSortBy, setSortDir } = useLibraryPrefs(scope)
 
   // Local filter state (not persisted — session only)
   const [filterState, setFilterState] = useState<FilterState>(DEFAULT_FILTER_STATE)
   const [filterBarOpen, setFilterBarOpen] = useState(false)
 
-  // Section pre-filter (e.g. playable-only, xcloud-only)
-  const sectionGames = useMemo(
-    () => applySectionFilter(allGames, section),
-    [allGames, section],
+  const scopeGames = useMemo(
+    () => applyScopeFilter(allGames, scope),
+    [allGames, scope],
   )
 
-  // Build filter engine from the section-filtered games
-  const filter = useMemo(() => new LibraryFilter(sectionGames), [sectionGames])
+  const filter = useMemo(() => new LibraryFilter(scopeGames), [scopeGames])
 
   // Apply user filters + search + sort
   const displayedGames = useMemo(
@@ -95,7 +88,7 @@ export function LibraryPage({ section = 'all' }: LibraryPageProps) {
     return n
   }, [filterState])
 
-  const sectionMeta = SECTIONS[section]
+  const scopeMeta = SCOPES[scope]
 
   // Patch filter state (merge partial updates)
   const patchFilter = (patch: Partial<FilterState>) => {
@@ -112,9 +105,9 @@ export function LibraryPage({ section = 'all' }: LibraryPageProps) {
     <div className="space-y-4">
       {/* Toolbar: title, counts, sort, view toggle, filters button */}
       <LibraryToolbar
-        title={sectionMeta.title}
-        subtitle={sectionMeta.subtitle}
-        totalCount={sectionGames.length}
+        title={scopeMeta.title}
+        subtitle={scopeMeta.subtitle}
+        totalCount={scopeGames.length}
         filteredCount={displayedGames.length}
         viewMode={prefs.viewMode}
         onViewModeChange={setViewMode}
@@ -161,10 +154,14 @@ export function LibraryPage({ section = 'all' }: LibraryPageProps) {
           <p className="text-mga-muted">
             {searchQuery || activeFilterCount > 0
               ? 'No games match your filters.'
-              : sectionMeta.emptyMessage}
+              : scopeMeta.emptyMessage}
           </p>
         </div>
       )}
     </div>
   )
+}
+
+export function LibraryPage() {
+  return <CollectionPage scope="library" />
 }

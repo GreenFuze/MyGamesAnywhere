@@ -34,6 +34,10 @@ export function isPlayable(platform: string): boolean {
   return PLAYABLE_PLATFORMS.has(platform)
 }
 
+export function isActionable(game: Pick<GameDetailResponse, 'platform' | 'xcloud_available'>): boolean {
+  return isPlayable(game.platform) || game.xcloud_available === true
+}
+
 // ---------------------------------------------------------------------------
 // Platform display labels + emoji
 // ---------------------------------------------------------------------------

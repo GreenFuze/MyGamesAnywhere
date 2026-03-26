@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CoverImage } from '@/components/ui/cover-image'
 import { PlatformIcon } from '@/components/ui/platform-icon'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   formatHLTB,
   isPlayable,
@@ -17,11 +18,18 @@ interface GameRowProps {
 }
 
 export function GameRow({ game }: GameRowProps) {
+  const navigate = useNavigate()
+  const location = useLocation()
   const coverUrl = selectCoverUrl(game.media)
   const playable = isPlayable(game.platform)
   const sources = selectSourcePlugins(game)
   const hltb = formatHLTB(game.completion_time)
   const matchCount = resolverMatchCount(game)
+  const from = `${location.pathname}${location.search}`
+
+  const openGame = () => {
+    navigate(`/game/${encodeURIComponent(game.id)}`, { state: { from } })
+  }
 
   return (
     <tr className="border-b border-mga-border/80 last:border-0 hover:bg-mga-elevated/40">
@@ -74,7 +82,7 @@ export function GameRow({ game }: GameRowProps) {
 
       {/* Action */}
       <td className="px-3 py-2 text-right">
-        <Button variant="ghost" size="sm">
+        <Button variant="ghost" size="sm" onClick={openGame}>
           {playable ? 'Play' : 'View'}
         </Button>
       </td>

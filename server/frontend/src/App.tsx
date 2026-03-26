@@ -7,9 +7,9 @@ import { AppLayout } from '@/layouts/AppLayout'
 import { HomePage } from '@/pages/HomePage'
 import { AboutPage } from '@/pages/AboutPage'
 import { LibraryPage } from '@/pages/LibraryPage'
-import { PlayablePage } from '@/pages/PlayablePage'
-import { XCloudPage } from '@/pages/XCloudPage'
+import { PlayPage } from '@/pages/PlayPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { GameDetailPage } from '@/pages/GameDetailPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,13 +30,15 @@ export function App() {
               <Routes>
                 <Route path="/" element={<AppLayout />}>
                   <Route index element={<HomePage />} />
+                  <Route path="play" element={<PlayPage />} />
                   <Route path="library" element={<LibraryPage />} />
-                  <Route path="playable" element={<PlayablePage />} />
-                  <Route path="xcloud" element={<XCloudPage />} />
+                  <Route path="playable" element={<Navigate to="/play" replace />} />
+                  <Route path="xcloud" element={<Navigate to="/play" replace />} />
                   <Route path="settings" element={<SettingsPage />} />
                   <Route path="about" element={<AboutPage />} />
-                  <Route path="*" element={<Navigate to="/" replace />} />
                 </Route>
+                <Route path="/game/:id" element={<GameDetailPage />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </ErrorBoundary>
           </BrowserRouter>

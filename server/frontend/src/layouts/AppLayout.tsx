@@ -6,9 +6,8 @@ import { cn } from '@/lib/utils'
 
 const nav = [
   { to: '/', label: 'Home' },
+  { to: '/play', label: 'Play' },
   { to: '/library', label: 'Library' },
-  { to: '/playable', label: 'Playable' },
-  { to: '/xcloud', label: 'xCloud' },
   { to: '/settings', label: 'Settings' },
   { to: '/about', label: 'About' },
 ]
@@ -18,67 +17,25 @@ export function AppLayout() {
   const { searchQuery, setSearchQuery, searchRef } = useSearch()
   const loc = useLocation()
 
-  // Library-related routes use full width; other pages keep max-w-5xl
-  const isWideRoute = ['/library', '/playable', '/xcloud'].some((p) =>
+  const isWideRoute = ['/library', '/play'].some((p) =>
     loc.pathname.startsWith(p),
   )
 
   return (
-    <div className="flex min-h-screen bg-mga-bg font-mga text-mga-text">
-      <aside className="hidden w-52 shrink-0 border-r border-mga-border bg-mga-surface md:block">
-        <NavLink
-          to="/"
-          end
-          className={({ isActive }) =>
-            cn(
-              'flex h-14 items-center gap-2 border-b border-mga-border px-3 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mga-accent',
-              isActive ? 'bg-mga-elevated/60' : 'hover:bg-mga-elevated/40',
-            )
-          }
-          aria-label="Home"
-          title="Home"
-        >
-          <img src="/logo.png" alt="" width={32} height={32} className="h-8 w-8 shrink-0 object-contain" />
-          <span className="truncate text-sm font-semibold tracking-tight">MGA</span>
-        </NavLink>
-        <nav className="flex flex-col gap-0.5 p-2">
-          {nav.map(({ to, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                cn(
-                  'rounded-mga px-3 py-2 text-sm transition-colors',
-                  isActive
-                    ? 'bg-mga-elevated text-mga-accent'
-                    : 'text-mga-muted hover:bg-mga-elevated hover:text-mga-text',
-                )
-              }
-            >
-              {label}
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-mga-border bg-mga-surface px-3 md:px-4">
+    <div className="min-h-screen bg-mga-bg font-mga text-mga-text">
+      <header className="sticky top-0 z-20 border-b border-mga-border bg-mga-surface/95 backdrop-blur">
+        <div className="flex flex-wrap items-center gap-3 px-3 py-3 md:px-4">
           <NavLink
             to="/"
             end
-            className={({ isActive }) =>
-              cn(
-                'shrink-0 rounded-mga p-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mga-accent md:hidden',
-                isActive ? 'bg-mga-elevated' : 'hover:bg-mga-elevated',
-              )
-            }
+            className="flex shrink-0 items-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-2 py-1.5 transition-colors hover:bg-mga-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-mga-accent"
             aria-label="Home"
             title="Home"
           >
             <img src="/logo.png" alt="" width={32} height={32} className="h-8 w-8 object-contain" />
+            <span className="hidden text-sm font-semibold tracking-tight sm:inline">MGA</span>
           </NavLink>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-[14rem] flex-1">
             <input
               ref={searchRef}
               type="search"
@@ -111,14 +68,37 @@ export function AppLayout() {
           >
             🔔
           </button>
-        </header>
+        </div>
+        <nav className="overflow-x-auto border-t border-mga-border/70 px-3 md:px-4">
+          <div className="flex min-w-max gap-1 py-2">
+            {nav.map(({ to, label }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={to === '/'}
+                className={({ isActive }) =>
+                  cn(
+                    'rounded-mga px-3 py-2 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-mga-elevated text-mga-accent'
+                      : 'text-mga-muted hover:bg-mga-elevated hover:text-mga-text',
+                  )
+                }
+              >
+                {label}
+              </NavLink>
+            ))}
+          </div>
+        </nav>
+      </header>
 
-        <main className="flex-1 overflow-auto p-4 md:p-6">
+      <main className="p-4 md:p-6">
+        <div className="mx-auto flex min-w-0 max-w-7xl flex-col">
           <div key={loc.pathname} className={cn('mx-auto', isWideRoute ? 'w-full' : 'max-w-5xl')}>
             <Outlet />
           </div>
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
   )
 }

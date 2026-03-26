@@ -1,11 +1,11 @@
 import type { GameDetailResponse, LibraryPrefs } from '@/api/client'
-import { isPlayable } from '@/lib/gameUtils'
+import { isActionable, isPlayable } from '@/lib/gameUtils'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type LibrarySection = 'all' | 'playable' | 'xcloud'
+export type CollectionScope = 'library' | 'play'
 
 export type FilterState = {
   search: string
@@ -43,12 +43,11 @@ export const DEFAULT_FILTER_STATE: FilterState = {
 // Section pre-filter
 // ---------------------------------------------------------------------------
 
-export function applySectionFilter(
+export function applyScopeFilter(
   games: GameDetailResponse[],
-  section: LibrarySection,
+  scope: CollectionScope,
 ): GameDetailResponse[] {
-  if (section === 'playable') return games.filter((g) => isPlayable(g.platform))
-  if (section === 'xcloud') return games.filter((g) => g.xcloud_available === true)
+  if (scope === 'play') return games.filter((g) => isActionable(g))
   return games
 }
 

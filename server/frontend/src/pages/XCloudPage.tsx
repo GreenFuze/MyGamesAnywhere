@@ -1,5 +1,5 @@
-import { LibraryPage } from '@/pages/LibraryPage'
+import { Navigate } from 'react-router-dom'
 
 export function XCloudPage() {
-  return <LibraryPage section="xcloud" />
+  return <Navigate to="/play" replace />
 }
