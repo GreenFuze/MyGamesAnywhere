@@ -1,15 +1,11 @@
 {
   "plugin_id": "game-source-xbox",
-  "plugin_version": "1.0.0",
+  "plugin_version": "1.1.0",
   "api_major": 1,
   "capabilities": ["source", "achievements"],
-  "provides": ["source.games.list", "achievements.game.get"],
+  "provides": ["source.games.list", "achievements.game.get", "plugin.check_config", "auth.oauth.callback"],
   "exec": "xbox-source.exe",
   "default_timeout_ms": 180000,
   "max_concurrency": 1,
-  "config": {
-    "client_id": { "type": "string", "required": true, "description": "Azure AD / Entra app client ID" },
-    "client_secret": { "type": "string", "required": true, "x-secret": true, "description": "Azure AD / Entra app client secret" },
-    "redirect_uri": { "type": "string", "default": "http://localhost:9090/auth/xbox/callback" }
-  }
+  "config": {}
 }

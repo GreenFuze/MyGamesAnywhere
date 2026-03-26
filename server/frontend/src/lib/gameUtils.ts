@@ -139,6 +139,7 @@ export type PluginConfigField = {
   default?: unknown
   description?: string
   'x-secret'?: boolean
+  'x-help-url'?: string
 }
 
 /**

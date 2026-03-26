@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import type { PluginConfigField } from '@/lib/gameUtils'
 import { Input } from '@/components/ui/input'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, ExternalLink } from 'lucide-react'
 
 interface ConfigFieldsRendererProps {
   /** Parsed schema fields from parsePluginConfigSchema(). */
@@ -65,6 +65,30 @@ interface ConfigFieldProps {
   onReveal?: (key: string) => void
 }
 
+/** Renders field description text with an optional help link. */
+function FieldHint({ field }: { field: PluginConfigField }) {
+  const helpUrl = field['x-help-url']
+
+  if (!field.description && !helpUrl) return null
+
+  return (
+    <span className="text-xs text-mga-muted flex items-center gap-1.5">
+      {field.description && <span>{field.description}</span>}
+      {helpUrl && (
+        <a
+          href={helpUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-0.5 text-mga-accent hover:underline"
+        >
+          {field.description ? 'Get one' : 'Help'}
+          <ExternalLink size={12} />
+        </a>
+      )}
+    </span>
+  )
+}
+
 function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal }: ConfigFieldProps) {
   const [showSecret, setShowSecret] = useState(false)
   const isSecret = field['x-secret'] === true
@@ -98,9 +122,7 @@ function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal }: C
           {fieldKey}
           {isRequired && <span className="text-red-400 ml-0.5">*</span>}
         </span>
-        {field.description && (
-          <span className="text-xs text-mga-muted">({field.description})</span>
-        )}
+        <FieldHint field={field} />
       </label>
     )
   }
@@ -120,9 +142,7 @@ function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal }: C
             Change
           </button>
         </div>
-        {field.description && (
-          <span className="text-xs text-mga-muted">{field.description}</span>
-        )}
+        <FieldHint field={field} />
       </div>
     )
   }
@@ -148,9 +168,7 @@ function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal }: C
             {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
         </div>
-        {field.description && (
-          <span className="text-xs text-mga-muted">{field.description}</span>
-        )}
+        <FieldHint field={field} />
       </div>
     )
   }

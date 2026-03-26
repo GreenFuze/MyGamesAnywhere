@@ -119,6 +119,10 @@ export function useSSE() {
 
       // Generic error.
       'operation_error',
+
+      // OAuth flow events.
+      'oauth_complete',
+      'oauth_error',
     ]
 
     for (const eventType of knownTypes) {

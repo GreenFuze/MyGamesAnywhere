@@ -1,12 +1,15 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -34,18 +37,50 @@ type Error struct {
 // Config.
 
 type steamConfig struct {
-	APIKey   string `json:"api_key"`
-	SteamID  string `json:"steam_id"`
-	VanityURL string `json:"vanity_url"`
+	APIKey  string `json:"api_key"`
+	SteamID string `json:"steam_id"` // resolved via Steam OpenID login
 }
 
 var cfg steamConfig
 
 const (
-	steamAPIBase = "https://api.steampowered.com"
-	storeAPIBase = "https://store.steampowered.com/api"
-	configFile   = "config.json"
+	steamAPIBase   = "https://api.steampowered.com"
+	storeAPIBase   = "https://store.steampowered.com/api"
+	configFile     = "config.json"
+	tokenFile      = "tokens.json"
+	steamOpenIDURL = "https://steamcommunity.com/openid/login"
 )
+
+// oauthPending tracks OpenID state tokens for CSRF validation.
+var oauthPending = map[string]bool{}
+
+// Persisted identity — the user's Steam64 ID, resolved via OpenID login.
+type savedIdentity struct {
+	SteamID string `json:"steam_id"`
+}
+
+func loadIdentity() string {
+	data, err := os.ReadFile(tokenFile)
+	if err != nil {
+		return ""
+	}
+	var id savedIdentity
+	if err := json.Unmarshal(data, &id); err != nil {
+		return ""
+	}
+	return id.SteamID
+}
+
+func saveIdentity(steamID string) {
+	data, _ := json.MarshalIndent(savedIdentity{SteamID: steamID}, "", "  ")
+	os.WriteFile(tokenFile, data, 0600)
+}
+
+func randomState() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
 
 // Rate limiter: 2 requests per second for store API.
 var rateLimiter = time.NewTicker(500 * time.Millisecond)
@@ -65,14 +100,6 @@ type ownedGame struct {
 	PlaytimeForever int    `json:"playtime_forever"`
 	ImgIconURL      string `json:"img_icon_url"`
 	ImgLogoURL      string `json:"img_logo_url"`
-}
-
-type vanityURLResponse struct {
-	Response struct {
-		SteamID string `json:"steamid"`
-		Success int    `json:"success"`
-		Message string `json:"message"`
-	} `json:"response"`
 }
 
 type appDetailWrapper struct {
@@ -192,44 +219,23 @@ func loadConfig() (*steamConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var c steamConfig
 	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, err
 	}
+
 	if c.APIKey == "" {
 		return nil, fmt.Errorf("config.json must contain api_key")
 	}
-	if c.SteamID == "" && c.VanityURL == "" {
-		return nil, fmt.Errorf("config.json must contain steam_id or vanity_url")
-	}
+
+	// Load cached Steam identity from tokens.json.
+	c.SteamID = loadIdentity()
+
 	return &c, nil
 }
 
 // --- Steam API calls ---
-
-func resolveVanityURL(apiKey, vanityURL string) (string, error) {
-	url := fmt.Sprintf("%s/ISteamUser/ResolveVanityURL/v1/?key=%s&vanityurl=%s",
-		steamAPIBase, apiKey, vanityURL)
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(url)
-	if err != nil {
-		return "", fmt.Errorf("vanity URL request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("vanity URL: status %d", resp.StatusCode)
-	}
-
-	var result vanityURLResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode vanity response: %w", err)
-	}
-	if result.Response.Success != 1 {
-		return "", fmt.Errorf("vanity URL not found: %s", result.Response.Message)
-	}
-	return result.Response.SteamID, nil
-}
 
 func fetchOwnedGames(apiKey, steamID string) ([]ownedGame, error) {
 	url := fmt.Sprintf(
@@ -302,14 +308,10 @@ func handleInit() (any, *Error) {
 
 	cfg = *c
 
-	if cfg.SteamID == "" && cfg.VanityURL != "" {
-		log.Printf("resolving vanity URL %q...", cfg.VanityURL)
-		steamID, err := resolveVanityURL(cfg.APIKey, cfg.VanityURL)
-		if err != nil {
-			return nil, &Error{Code: "AUTH_FAILED", Message: fmt.Sprintf("resolve vanity URL: %v", err)}
-		}
-		cfg.SteamID = steamID
-		log.Printf("resolved Steam ID: %s", cfg.SteamID)
+	// If no Steam identity yet, that's OK — user will authenticate via OpenID.
+	if cfg.SteamID == "" {
+		log.Printf("Steam source plugin loaded (API key present, Steam login pending)")
+		return map[string]any{"status": "ok", "message": "steam login required"}, nil
 	}
 
 	// Validate by fetching owned games count.
@@ -320,8 +322,8 @@ func handleInit() (any, *Error) {
 
 	log.Printf("Steam source plugin initialized: %d owned games for Steam ID %s", len(games), cfg.SteamID)
 	return map[string]any{
-		"status":    "ok",
-		"steam_id":  cfg.SteamID,
+		"status":     "ok",
+		"steam_id":   cfg.SteamID,
 		"game_count": len(games),
 	}, nil
 }
@@ -572,6 +574,118 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 	}, nil
 }
 
+// --- Config check (Add Integration wizard) ---
+
+func handleCheckConfig(params json.RawMessage) (any, *Error) {
+	var p struct {
+		Config      map[string]any `json:"config"`
+		RedirectURI string         `json:"redirect_uri"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+
+	// Validate API key is present.
+	apiKey, _ := p.Config["api_key"].(string)
+	if apiKey == "" {
+		return map[string]any{"status": "error", "message": "api_key required"}, nil
+	}
+
+	// Check if we already have a cached Steam identity.
+	steamID := loadIdentity()
+	if steamID != "" {
+		// Verify the key works with this steam ID.
+		_, err := fetchOwnedGames(apiKey, steamID)
+		if err != nil {
+			return map[string]any{"status": "error", "message": err.Error()}, nil
+		}
+		return map[string]any{"status": "ok", "steam_id": steamID}, nil
+	}
+
+	// No Steam identity yet — redirect user to Steam OpenID login.
+	state := randomState()
+	oauthPending[state] = true
+
+	// Append state to redirect URI so OAuthController can route it back to us.
+	returnTo := p.RedirectURI
+	if strings.Contains(returnTo, "?") {
+		returnTo += "&state=" + state
+	} else {
+		returnTo += "?state=" + state
+	}
+
+	// Extract realm (scheme + host) from redirect URI.
+	parsed, err := url.Parse(p.RedirectURI)
+	if err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "invalid redirect_uri"}
+	}
+	realm := parsed.Scheme + "://" + parsed.Host
+
+	// Build Steam OpenID URL.
+	openIDParams := url.Values{
+		"openid.ns":         {"http://specs.openid.net/auth/2.0"},
+		"openid.mode":       {"checkid_setup"},
+		"openid.return_to":  {returnTo},
+		"openid.realm":      {realm},
+		"openid.identity":   {"http://specs.openid.net/auth/2.0/identifier_select"},
+		"openid.claimed_id": {"http://specs.openid.net/auth/2.0/identifier_select"},
+	}
+	authorizeURL := steamOpenIDURL + "?" + openIDParams.Encode()
+
+	return map[string]any{
+		"status":        "oauth_required",
+		"authorize_url": authorizeURL,
+		"state":         state,
+	}, nil
+}
+
+// --- OAuth callback (Steam OpenID return) ---
+
+func handleOAuthCallback(params json.RawMessage) (any, *Error) {
+	var p struct {
+		State  string            `json:"state"`
+		Params map[string]string `json:"params"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+
+	// Verify state for CSRF protection.
+	if !oauthPending[p.State] {
+		return nil, &Error{Code: "INVALID_STATE", Message: "unknown or expired state token"}
+	}
+	delete(oauthPending, p.State)
+
+	// Check for user cancellation.
+	if p.Params["openid.mode"] == "cancel" {
+		return nil, &Error{Code: "AUTH_CANCELLED", Message: "user cancelled Steam login"}
+	}
+
+	// Extract Steam64 ID from openid.claimed_id.
+	// Format: https://steamcommunity.com/openid/id/76561198012345678
+	claimedID := p.Params["openid.claimed_id"]
+	if claimedID == "" {
+		return nil, &Error{Code: "AUTH_FAILED", Message: "missing openid.claimed_id"}
+	}
+
+	const prefix = "https://steamcommunity.com/openid/id/"
+	if !strings.HasPrefix(claimedID, prefix) {
+		return nil, &Error{Code: "AUTH_FAILED", Message: "unexpected claimed_id format"}
+	}
+
+	steamID := strings.TrimPrefix(claimedID, prefix)
+	if steamID == "" {
+		return nil, &Error{Code: "AUTH_FAILED", Message: "empty steam ID in claimed_id"}
+	}
+
+	// Persist identity and update in-memory config.
+	saveIdentity(steamID)
+	cfg.SteamID = steamID
+
+	log.Printf("Steam OpenID login successful: Steam ID %s", steamID)
+	return map[string]any{"status": "ok", "steam_id": steamID}, nil
+}
+
 // --- Main ---
 
 func main() {
@@ -613,43 +727,24 @@ func main() {
 		case "plugin.info":
 			resp.Result = map[string]any{
 				"plugin_id":      "game-source-steam",
-				"plugin_version": "1.0.0",
+				"plugin_version": "1.1.0",
 				"capabilities":   []string{"source", "achievements"},
 			}
 
 		case "plugin.check_config":
-			var params struct {
-				Config map[string]any `json:"config"`
-			}
-			if err := json.Unmarshal(req.Params, &params); err == nil {
-				key, _ := params.Config["api_key"].(string)
-				sid, _ := params.Config["steam_id"].(string)
-				vanity, _ := params.Config["vanity_url"].(string)
-				if key == "" {
-					resp.Result = map[string]any{"status": "error", "message": "api_key required"}
-				} else if sid == "" && vanity == "" {
-					resp.Result = map[string]any{"status": "error", "message": "steam_id or vanity_url required"}
-				} else {
-					testID := sid
-					if testID == "" {
-						resolved, err := resolveVanityURL(key, vanity)
-						if err != nil {
-							resp.Result = map[string]any{"status": "error", "message": err.Error()}
-						} else {
-							testID = resolved
-						}
-					}
-					if testID != "" {
-						_, err := fetchOwnedGames(key, testID)
-						if err != nil {
-							resp.Result = map[string]any{"status": "error", "message": err.Error()}
-						} else {
-							resp.Result = map[string]any{"status": "ok", "steam_id": testID}
-						}
-					}
-				}
+			result, errObj := handleCheckConfig(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
 			} else {
-				resp.Result = map[string]any{"status": "ok"}
+				resp.Result = result
+			}
+
+		case "auth.oauth.callback":
+			result, errObj := handleOAuthCallback(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
 			}
 
 		case "source.games.list":
@@ -678,8 +773,3 @@ func main() {
 	}
 }
 
-// filterType returns true if the app type represents a game.
-func filterType(t string) bool {
-	t = strings.ToLower(t)
-	return t == "game" || t == "demo"
-}

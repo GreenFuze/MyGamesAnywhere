@@ -1,15 +1,19 @@
 {
   "plugin_id": "game-source-steam",
-  "plugin_version": "1.0.0",
+  "plugin_version": "1.1.0",
   "api_major": 1,
   "capabilities": ["source", "achievements"],
-  "provides": ["source.games.list", "achievements.game.get"],
+  "provides": ["source.games.list", "achievements.game.get", "plugin.check_config", "auth.oauth.callback"],
   "exec": "steam-source.exe",
   "default_timeout_ms": 120000,
   "max_concurrency": 1,
   "config": {
-    "api_key": { "type": "string", "required": true, "x-secret": true },
-    "steam_id": { "type": "string", "required": false },
-    "vanity_url": { "type": "string", "required": false }
+    "api_key": {
+      "type": "string",
+      "required": true,
+      "x-secret": true,
+      "x-help-url": "https://steamcommunity.com/dev/apikey",
+      "description": "Steam Web API Key"
+    }
   }
 }

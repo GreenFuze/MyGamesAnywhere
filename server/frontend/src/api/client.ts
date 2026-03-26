@@ -305,12 +305,25 @@ export async function checkIntegrationStatus(id: string): Promise<IntegrationSta
   return getJson<IntegrationStatusEntry>(`/api/integrations/${encodeURIComponent(id)}/status`)
 }
 
+export type OAuthRequiredResponse = {
+  status: 'oauth_required'
+  plugin_id: string
+  authorize_url: string
+  state: string
+}
+
+export type CreateIntegrationResult = Integration | OAuthRequiredResponse
+
+export function isOAuthRequired(result: CreateIntegrationResult): result is OAuthRequiredResponse {
+  return 'status' in result && result.status === 'oauth_required'
+}
+
 export async function createIntegration(body: {
   plugin_id: string
   label: string
   integration_type: string
   config?: Record<string, unknown>
-}): Promise<Integration> {
+}): Promise<CreateIntegrationResult> {
   const res = await fetch(`${base}/api/integrations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -322,6 +335,11 @@ export async function createIntegration(body: {
     const data = await res.json().catch(() => null)
     const existingLabel = data?.integration?.label
     throw new DuplicateIntegrationError(existingLabel)
+  }
+
+  // 202 = OAuth consent required before integration can be created.
+  if (res.status === 202) {
+    return res.json() as Promise<OAuthRequiredResponse>
   }
 
   if (!res.ok) {
@@ -411,4 +429,16 @@ export async function clearKey(): Promise<void> {
 
 export async function getStats(): Promise<LibraryStats> {
   return getJson<LibraryStats>('/api/stats')
+}
+
+// ─── Plugin Browse API ──────────────────────────────────────────────
+
+export type BrowseFolder = { name: string; path: string }
+export type BrowseResponse = { folders: BrowseFolder[] }
+
+export async function browsePlugin(pluginId: string, path: string): Promise<BrowseResponse> {
+  return postJson<BrowseResponse>(
+    `/api/plugins/${encodeURIComponent(pluginId)}/browse`,
+    { path },
+  ) as Promise<BrowseResponse>
 }

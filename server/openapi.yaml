@@ -5,6 +5,20 @@ info:
   version: 1.0.0
 paths:
 
+  /api/auth/callback/{plugin_id}:
+    get:
+      parameters:
+        - name: plugin_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/config/frontend:
     get:
       summary: Get frontend preferences
@@ -312,6 +326,20 @@ paths:
           description: Plugin not found
         500:
           description: Internal server error
+
+  /api/plugins/{plugin_id}/browse:
+    post:
+      parameters:
+        - name: plugin_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
 
   /api/scan:
     get:

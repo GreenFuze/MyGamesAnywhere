@@ -34,6 +34,9 @@ server/plugins/*/config.json
 tokens.json
 server/plugins/*/tokens.json
 
+# Plugin build-time secrets (client IDs, API keys injected via ldflags)
+server/plugins/*/.secrets.env
+
 # Integration config files with credentials
 *-integration.json
 
@@ -68,3 +71,5 @@ temp-resources/
 
 # SuitCode
 .suit/*
+
+.claude/

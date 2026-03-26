@@ -11,12 +11,9 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -47,7 +44,6 @@ type Error struct {
 type xboxConfig struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
-	RedirectURI  string `json:"redirect_uri"`
 	// XBLMarket is sent as x-xbl-market (default US). Optional.
 	XBLMarket string `json:"xbl_market,omitempty"`
 	// PlayLaunchLocale is the xbox.com path segment for play URLs, e.g. en-US.
@@ -65,6 +61,13 @@ const (
 	xstsAuthURL = "https://xsts.auth.xboxlive.com/xsts/authorize"
 
 	titlehubURL = "https://titlehub.xboxlive.com"
+)
+
+// Injected at build time via -ldflags "-X main.builtinClientID=... -X main.builtinClientSecret=..."
+// These are the MGA app registration credentials, NOT user credentials.
+var (
+	builtinClientID     string
+	builtinClientSecret string
 )
 
 var cfg xboxConfig
@@ -103,19 +106,22 @@ func saveTokens() error {
 // --------------- Config loading ---------------
 
 func loadConfig() (*xboxConfig, error) {
+	// Start with built-in credentials (injected via ldflags at compile time).
+	c := xboxConfig{
+		ClientID:     builtinClientID,
+		ClientSecret: builtinClientSecret,
+	}
+
+	// Overlay with config.json if present (allows local dev override).
 	data, err := os.ReadFile(configFile)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		if err := json.Unmarshal(data, &c); err != nil {
+			return nil, err
+		}
 	}
-	var c xboxConfig
-	if err := json.Unmarshal(data, &c); err != nil {
-		return nil, err
-	}
+
 	if c.ClientID == "" || c.ClientSecret == "" {
-		return nil, fmt.Errorf("config.json must contain client_id and client_secret")
-	}
-	if c.RedirectURI == "" {
-		c.RedirectURI = "http://localhost:9090/auth/xbox/callback"
+		return nil, fmt.Errorf("no client credentials: set via build-time ldflags or config.json")
 	}
 	return &c, nil
 }
@@ -133,21 +139,28 @@ func codeChallenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
-// Held during an active OAuth flow so the token exchange can use it.
-var pkceVerifier string
+// oauthPending stores PKCE verifiers keyed by OAuth state parameter.
+// Protected by tokenMu.
+var oauthPending = map[string]string{}
 
 // --------------- Microsoft OAuth ---------------
 
-func buildAuthorizeURL(state string) string {
-	pkceVerifier = generateCodeVerifier()
+func buildAuthorizeURL(state string, redirectURI string) string {
+	verifier := generateCodeVerifier()
+
+	// Store verifier keyed by state so the callback can retrieve it.
+	tokenMu.Lock()
+	oauthPending[state] = verifier
+	tokenMu.Unlock()
+
 	params := url.Values{
 		"client_id":             {cfg.ClientID},
 		"response_type":         {"code"},
-		"redirect_uri":          {cfg.RedirectURI},
+		"redirect_uri":          {redirectURI},
 		"scope":                 {"XboxLive.signin XboxLive.offline_access offline_access"},
 		"state":                 {state},
 		"response_mode":         {"query"},
-		"code_challenge":        {codeChallenge(pkceVerifier)},
+		"code_challenge":        {codeChallenge(verifier)},
 		"code_challenge_method": {"S256"},
 	}
 	return msAuthorizeURL + "?" + params.Encode()
@@ -163,14 +176,14 @@ type msTokenResponse struct {
 	ErrorDesc    string `json:"error_description"`
 }
 
-func exchangeCodeForToken(code string) (*msTokenResponse, error) {
+func exchangeCodeForToken(code, verifier, redirectURI string) (*msTokenResponse, error) {
 	data := url.Values{
 		"client_id":     {cfg.ClientID},
 		"code":          {code},
-		"redirect_uri":  {cfg.RedirectURI},
+		"redirect_uri":  {redirectURI},
 		"grant_type":    {"authorization_code"},
 		"scope":         {"XboxLive.signin XboxLive.offline_access offline_access"},
-		"code_verifier": {pkceVerifier},
+		"code_verifier": {verifier},
 	}
 	return postMSToken(data)
 }
@@ -311,86 +324,10 @@ func randomState() string {
 	return hex.EncodeToString(b)
 }
 
-func openBrowser(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	case "darwin":
-		cmd = exec.Command("open", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	cmd.Start()
-}
+// --------------- Ensure authenticated (refresh only) ---------------
 
-// runOAuthFlow starts a local HTTP server, opens the browser, and waits for the callback.
-// Returns the authorization code.
-func runOAuthFlow(ctx context.Context) (string, error) {
-	u, err := url.Parse(cfg.RedirectURI)
-	if err != nil {
-		return "", fmt.Errorf("parse redirect URI: %w", err)
-	}
-	listenAddr := u.Host
-
-	state := randomState()
-	codeCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc(u.Path, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("state") != state {
-			http.Error(w, "state mismatch", http.StatusBadRequest)
-			errCh <- fmt.Errorf("OAuth state mismatch")
-			return
-		}
-		if errMsg := r.URL.Query().Get("error"); errMsg != "" {
-			desc := r.URL.Query().Get("error_description")
-			http.Error(w, "Auth error: "+errMsg, http.StatusBadRequest)
-			errCh <- fmt.Errorf("OAuth error: %s: %s", errMsg, desc)
-			return
-		}
-		code := r.URL.Query().Get("code")
-		if code == "" {
-			http.Error(w, "no code in callback", http.StatusBadRequest)
-			errCh <- fmt.Errorf("no code in OAuth callback")
-			return
-		}
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body><h2>Xbox authentication successful!</h2><p>You can close this tab and return to MyGamesAnywhere.</p></body></html>`)
-		codeCh <- code
-	})
-
-	listener, err := net.Listen("tcp", listenAddr)
-	if err != nil {
-		return "", fmt.Errorf("listen on %s: %w", listenAddr, err)
-	}
-	srv := &http.Server{Handler: mux}
-	go srv.Serve(listener)
-	defer srv.Shutdown(context.Background())
-
-	authorizeURL := buildAuthorizeURL(state)
-	log.Printf("=== XBOX AUTHENTICATION REQUIRED ===")
-	log.Printf("Open this URL in your browser:")
-	log.Printf("%s", authorizeURL)
-	log.Printf("====================================")
-
-	openBrowser(authorizeURL)
-
-	select {
-	case code := <-codeCh:
-		return code, nil
-	case err := <-errCh:
-		return "", err
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case <-time.After(300 * time.Second):
-		return "", fmt.Errorf("OAuth flow timed out (300s)")
-	}
-}
-
-// --------------- Ensure authenticated ---------------
-
+// ensureAuthenticated checks cached tokens and tries a silent refresh.
+// If refresh fails, returns an error — the frontend must trigger re-auth via check_config.
 func ensureAuthenticated(ctx context.Context) error {
 	tokenMu.Lock()
 	defer tokenMu.Unlock()
@@ -416,6 +353,7 @@ func ensureAuthenticated(ctx context.Context) error {
 				tokens.MSRefreshToken = msResp.RefreshToken
 			}
 			tokens.MSExpiresAt = time.Now().Add(time.Duration(msResp.ExpiresIn) * time.Second)
+
 			tokenMu.Unlock()
 			err = fullXboxAuth(msResp.AccessToken)
 			tokenMu.Lock()
@@ -423,38 +361,13 @@ func ensureAuthenticated(ctx context.Context) error {
 				saveTokens()
 				return nil
 			}
-			log.Printf("Xbox auth after refresh failed: %v, falling back to browser flow", err)
+			log.Printf("Xbox auth after refresh failed: %v", err)
 		} else {
-			log.Printf("MS token refresh failed: %v, falling back to browser flow", err)
+			log.Printf("MS token refresh failed: %v", err)
 		}
 	}
 
-	// Full browser OAuth flow.
-	tokenMu.Unlock()
-	code, err := runOAuthFlow(ctx)
-	tokenMu.Lock()
-	if err != nil {
-		return fmt.Errorf("OAuth flow: %w", err)
-	}
-
-	log.Println("exchanging auth code for MS token...")
-	msResp, err := exchangeCodeForToken(code)
-	if err != nil {
-		return fmt.Errorf("exchange code: %w", err)
-	}
-	tokens.MSAccessToken = msResp.AccessToken
-	tokens.MSRefreshToken = msResp.RefreshToken
-	tokens.MSExpiresAt = time.Now().Add(time.Duration(msResp.ExpiresIn) * time.Second)
-
-	tokenMu.Unlock()
-	err = fullXboxAuth(msResp.AccessToken)
-	tokenMu.Lock()
-	if err != nil {
-		return err
-	}
-
-	saveTokens()
-	return nil
+	return fmt.Errorf("not authenticated — re-auth required via OAuth flow")
 }
 
 // --------------- Xbox Live API calls ---------------
@@ -949,12 +862,8 @@ func handleInit() (any, *Error) {
 	}
 	cfg = *c
 
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
-	defer cancel()
-
-	if err := ensureAuthenticated(ctx); err != nil {
-		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
-	}
+	// Try loading cached tokens (non-blocking). Auth happens via check_config + OAuth callback.
+	loadTokens()
 
 	return map[string]any{
 		"status": "ok",
@@ -997,6 +906,116 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 
 	log.Printf("returning %d games (filtered from %d titles)", len(games), len(history.Titles))
 	return map[string]any{"games": games}, nil
+}
+
+// --------------- check_config handler ---------------
+
+func handleCheckConfig(params json.RawMessage) (any, *Error) {
+	var p struct {
+		Config      xboxConfig `json:"config"`
+		RedirectURI string     `json:"redirect_uri"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+
+	// Check for valid cached XSTS tokens.
+	tokenMu.Lock()
+	if tokens.XSTSToken == "" {
+		loadTokens()
+	}
+	hasValid := tokens.XSTSToken != "" && time.Now().Before(tokens.XSTSExpiresAt.Add(-5*time.Minute))
+	tokenMu.Unlock()
+
+	if hasValid {
+		return map[string]any{"status": "ok"}, nil
+	}
+
+	// Try silent refresh if we have a refresh token.
+	tokenMu.Lock()
+	hasRefresh := tokens.MSRefreshToken != ""
+	refreshTok := tokens.MSRefreshToken
+	tokenMu.Unlock()
+
+	if hasRefresh {
+		msResp, err := refreshMSToken(refreshTok)
+		if err == nil {
+			tokenMu.Lock()
+			tokens.MSAccessToken = msResp.AccessToken
+			if msResp.RefreshToken != "" {
+				tokens.MSRefreshToken = msResp.RefreshToken
+			}
+			tokens.MSExpiresAt = time.Now().Add(time.Duration(msResp.ExpiresIn) * time.Second)
+			tokenMu.Unlock()
+
+			if err := fullXboxAuth(msResp.AccessToken); err == nil {
+				tokenMu.Lock()
+				saveTokens()
+				tokenMu.Unlock()
+				return map[string]any{"status": "ok"}, nil
+			}
+		}
+	}
+
+	// OAuth consent required. Build authorize URL with PKCE.
+	state := randomState()
+	authorizeURL := buildAuthorizeURL(state, p.RedirectURI)
+
+	return map[string]any{
+		"status":        "oauth_required",
+		"authorize_url": authorizeURL,
+		"state":         state,
+	}, nil
+}
+
+// --------------- auth.oauth.callback handler ---------------
+
+func handleOAuthCallback(params json.RawMessage) (any, *Error) {
+	var p struct {
+		Code        string `json:"code"`
+		State       string `json:"state"`
+		RedirectURI string `json:"redirect_uri"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+
+	// Look up the PKCE verifier for this state.
+	tokenMu.Lock()
+	verifier, ok := oauthPending[p.State]
+	if ok {
+		delete(oauthPending, p.State)
+	}
+	tokenMu.Unlock()
+
+	if !ok {
+		return nil, &Error{Code: "INVALID_STATE", Message: "no pending OAuth flow for state: " + p.State}
+	}
+
+	// Exchange authorization code for MS tokens.
+	msResp, err := exchangeCodeForToken(p.Code, verifier, p.RedirectURI)
+	if err != nil {
+		return nil, &Error{Code: "TOKEN_EXCHANGE_FAILED", Message: err.Error()}
+	}
+
+	tokenMu.Lock()
+	tokens.MSAccessToken = msResp.AccessToken
+	tokens.MSRefreshToken = msResp.RefreshToken
+	tokens.MSExpiresAt = time.Now().Add(time.Duration(msResp.ExpiresIn) * time.Second)
+	tokenMu.Unlock()
+
+	// Complete the Xbox Live auth chain: MS token -> XBL -> XSTS.
+	if err := fullXboxAuth(msResp.AccessToken); err != nil {
+		return nil, &Error{Code: "XBOX_AUTH_FAILED", Message: err.Error()}
+	}
+
+	tokenMu.Lock()
+	saveTokens()
+	xuid := tokens.XUID
+	tokenMu.Unlock()
+
+	log.Printf("OAuth callback complete, XUID=%s", xuid)
+	return map[string]any{"status": "ok", "xuid": xuid}, nil
 }
 
 // --------------- Main ---------------
@@ -1045,7 +1064,20 @@ func main() {
 			}
 
 		case "plugin.check_config":
-			resp.Result = map[string]any{"status": "ok"}
+			result, errObj := handleCheckConfig(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "auth.oauth.callback":
+			result, errObj := handleOAuthCallback(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
 
 		case "source.games.list":
 			result, errObj := handleGamesList(req.Params)

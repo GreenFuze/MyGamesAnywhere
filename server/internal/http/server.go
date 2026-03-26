@@ -24,6 +24,7 @@ type httpServer struct {
 	achievementCtrl *AchievementController
 	syncCtrl        *SyncController
 	sseCtrl         *SSEController
+	oauthCtrl       *OAuthController
 }
 
 func NewHttpServer(
@@ -37,6 +38,7 @@ func NewHttpServer(
 	achievementCtrl *AchievementController,
 	syncCtrl *SyncController,
 	sseCtrl *SSEController,
+	oauthCtrl *OAuthController,
 ) core.Server {
 	return &httpServer{
 		logger:          logger,
@@ -49,6 +51,7 @@ func NewHttpServer(
 		achievementCtrl: achievementCtrl,
 		syncCtrl:        syncCtrl,
 		sseCtrl:         sseCtrl,
+		oauthCtrl:       oauthCtrl,
 	}
 }
 
@@ -77,6 +80,7 @@ func (h *httpServer) Start(ctx context.Context) error {
 		AchievementCtrl: h.achievementCtrl,
 		SyncCtrl:        h.syncCtrl,
 		SSECtrl:         h.sseCtrl,
+		OAuthCtrl:       h.oauthCtrl,
 	}, 60*time.Second, spaDir)
 
 	h.server = &http.Server{

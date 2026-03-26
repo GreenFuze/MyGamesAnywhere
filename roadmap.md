@@ -159,10 +159,10 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] **Open Web Frontend** menu item → default browser ([`tray_windows.go`](server/cmd/server/tray_windows.go))
 
 ### Shell & Layout
-- [x] App shell: sidebar + topbar + main ([`AppLayout.tsx`](server/frontend/src/layouts/AppLayout.tsx))
-- [x] Sidebar: Home, Library, Playable, Settings, About
+- [x] ~~App shell: sidebar + topbar + main~~ *(replaced by top-tab layout in Phase 2 rework)*
+- [x] ~~Sidebar: Home, Library, Playable, Settings, About~~ *(replaced by horizontal tabs)*
 - [x] Topbar: search (Ctrl+K focus), theme `<select>`, notification placeholder
-- [x] Responsive: sidebar `md:` breakpoint; mobile stacks (narrow sidebar hidden — refine later)
+- [x] ~~Responsive: sidebar `md:` breakpoint~~ *(rework needed for tab layout)*
 - [x] Error boundary ([`ErrorBoundary.tsx`](server/frontend/src/components/ErrorBoundary.tsx)); React Query loading on Home
 
 ### Theme Engine
@@ -194,14 +194,42 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 
 ---
 
-## Phase 2 — Game Library
+## Phase 2 — UI Rework & Game Library
 
-### Library Views
-- [x] Grid view (cover art cards with metadata badges)
-- [x] List view (compact table with sortable columns)
-- [x] View mode toggle (persisted in preferences)
+### App Shell Rework
+*Replace sidebar with Steam-style horizontal top-tab navigation.*
 
-### Game Cards
+- [ ] **Top tab bar:** Logo + horizontal tabs (Home, Play, Library, Settings, About) + search (Ctrl+K) + theme selector
+- [ ] Remove sidebar navigation entirely
+- [ ] Game detail route (`/game/:id`) renders **outside** the tab layout (back button replaces tabs)
+- [ ] Responsive: tabs collapse on narrow viewports (hamburger or scrollable tab strip)
+
+### Navigation & Pages
+
+| Tab | Route | Content |
+|-----|-------|---------|
+| Home | `/` | Dashboard / hero — keep current for now |
+| Play | `/play` | Actionable games only (browser-emulatable + xCloud) |
+| Library | `/library` | All games in the collection |
+| Settings | `/settings` | Integrations, plugins, appearance (unchanged) |
+| About | `/about` | Credits, attributions |
+
+### Accordion-Based Browsing
+*Both Play and Library use the same accordion section UI. Each page has its own persisted configuration.*
+
+- [ ] **Default view:** accordion sections, each showing one row of game cards
+- [ ] **"Add Section" button** → pick a grouping field (Platform, Genre, Developer, Publisher, Source, Year) → checklist of values with game counts → selected values become individual accordion sections
+- [ ] **"All Games" section** — special ungrouped option showing every game; serves as default/fallback
+- [ ] **Remove section** (X button on each accordion header); if none remain → auto-fallback to "All Games"
+- [ ] **Single-row preview:** each collapsed accordion shows up to one row of cards with a **"Show More"** card as the last item
+- [ ] **Expand/collapse:** clicking accordion header or "Show More" reveals all games in that section
+- [ ] **Single-expand policy:** expanding one accordion collapses any other expanded accordion
+- [ ] **Empty sections hidden:** sections with 0 matching games are not rendered
+- [ ] **Global search** (top bar) filters within all visible accordions in real-time
+- [ ] **View toggle:** Accordion view (default) vs Grid view (flat full-collection grid)
+- [ ] **Persist configuration** per page (Play vs Library) in `FrontendConfig` (server + localStorage)
+
+### Game Cards (carried from prior work)
 - [x] Cover art with lazy loading and placeholder
 - [x] Platform icon badge (Steam, GBA, PS1, Arcade, ScummVM, DOS, etc.)
 - [x] Source badge (which integration found it)
@@ -209,32 +237,33 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] HLTB time estimate badge
 - [x] Metadata confidence indicator (number of resolvers matched)
 - [x] "Playable" badge (browser-emulatable platforms)
-- [x] **"xCloud" badge** (cloud-playable Xbox games) — backend already exposes `xcloud_available`, `xcloud_url`, `store_product_id`, `is_game_pass` on `GET /api/games`, `GET /api/games/{id}`, and [`GET /api/games/{id}/detail`](server/internal/http/game_detail.go)
+- [x] **"xCloud" badge** (cloud-playable Xbox games)
 - [x] Play button on playable games vs. "View" on others
 
-### Search & Filtering
+### Search
 - [x] Full-text search with fuzzy matching
 - [x] Keyboard shortcut (Ctrl+K) to focus search
-- [x] Filter sidebar: platform, genre, year range, developer/publisher, source, playable-only
 - [x] Sort by: title, release date, recently added, HLTB time, platform
-
-### Library Sections
-- [x] **All Games** — complete library
-- [x] **Playable** — filtered to browser-emulatable platforms
-- [x] **xCloud** — Xbox Game Pass cloud-playable games
 
 ---
 
 ## Phase 3 — Game Detail Page
 
+*Full-page route (`/game/:id`) rendered **outside** the tab layout. Back button returns to the originating page (Play or Library) with scroll position preserved. Design inspired by Steam / Xbox game pages.*
+
+### Navigation
+- [ ] Route `/game/:id` with dedicated layout (no tab bar)
+- [ ] Back button ("< Library" / "< Play") preserving scroll position on return
+
 ### Metadata Display
-- [ ] Full-bleed hero banner (cover art, blurred background)
-- [ ] Description, release date, developer, publisher, genres, rating
+- [ ] Full-bleed hero banner (cover art / screenshots, blurred background)
+- [ ] Title, description, release date, developer, publisher, genres, rating
 - [ ] In-context attribution: source logos next to data they provided (IGDB logo next to description, etc.)
 
 ### Media Gallery
 - [ ] Screenshot viewer (lightbox)
 - [ ] Video embeds (if available)
+- [ ] Manuals / documents (if available from source)
 - [ ] Media source attribution
 
 ### External Links
@@ -320,6 +349,13 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] Toast notification system (non-blocking)
 - [ ] Notification types: scan complete, scan error, integration status change, sync complete
 
+### Scan Progress Improvements
+*Current progress UI feels stuck during long metadata phases. Add granular per-game events and a visible event log.*
+
+- [ ] **Backend:** `scan_metadata_game_progress` SSE event — `{plugin_id, game_index, game_count, game_title}` emitted per-game during metadata resolver batches (client-agnostic, any consumer can use)
+- [ ] **Frontend:** Rolling event log below progress bar — last 3–5 events as a mini-timeline with timestamps
+- [ ] **Frontend:** Per-game status text during metadata enrichment (e.g. "IGDB: 15/200 — Portal 2")
+
 ---
 
 ## Phase 6 — In-Browser Emulation
@@ -377,6 +413,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   Epic Games, Google Drive
 - [ ] "View Open Source Licenses" link
 - [ ] In-context attribution throughout the app (service logos next to their data)
+- [ ] add credits for icons to wikimedia, the web page xcloud-logo-from-https-github.com-unknownskl-greenlight-issues-351 for xcloud icons, citypng, flaticon, clipmax
 
 ### Additional Ideas
 - [ ] Keyboard shortcuts (Vim-style navigation, quick actions)

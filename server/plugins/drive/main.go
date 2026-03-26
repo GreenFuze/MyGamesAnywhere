@@ -9,11 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
-	"net/http"
 	"os"
-	"os/exec"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -43,39 +39,66 @@ type Error struct {
 	Message string `json:"message"`
 }
 
-// --------------- Google OAuth constants ---------------
+// --------------- Credentials ---------------
 
-	const (
-	googleClientID     = "628863254475-ocs0abrdiba0mq6hev7fm1kke3nd2a99.apps.googleusercontent.com"
-	googleClientSecret = "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"
-	localPort          = "9092"
-	redirectURI        = "http://localhost:9092/auth/google/callback"
-	tokenFile          = "tokens.json"
-	configFile         = "config.json"
+const (
+	tokenFile  = "tokens.json"
+	configFile = "config.json"
 )
 
-var oauthConfig = &oauth2.Config{
-	ClientID:     googleClientID,
-	ClientSecret: googleClientSecret,
-	Endpoint:     google.Endpoint,
-	RedirectURL:  redirectURI,
-	Scopes:       []string{drive.DriveScope},
-}
+// Injected at build time via -ldflags "-X main.builtinClientID=... -X main.builtinClientSecret=..."
+// These are the MGA app registration credentials, NOT user credentials.
+var (
+	builtinClientID     string
+	builtinClientSecret string
+)
+
+// oauthConfig is lazily initialized in loadConfig after credentials are resolved.
+var oauthConfig *oauth2.Config
+
+// oauthPending tracks OAuth state tokens for CSRF validation. Protected by tokenMu.
+var oauthPending = map[string]bool{}
 
 // --------------- Config ---------------
 
 type driveConfig struct {
-	RootPath string `json:"root_path"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
 }
 
-var cfg driveConfig
+func loadConfig() error {
+	// Start with built-in credentials (injected via ldflags at compile time).
+	clientID := builtinClientID
+	clientSecret := builtinClientSecret
 
-func loadConfig() {
+	// Overlay with config.json if present (allows local dev override).
 	data, err := os.ReadFile(configFile)
-	if err != nil {
-		return
+	if err == nil {
+		var fileCfg driveConfig
+		if err := json.Unmarshal(data, &fileCfg); err != nil {
+			return fmt.Errorf("parse config.json: %w", err)
+		}
+		if fileCfg.ClientID != "" {
+			clientID = fileCfg.ClientID
+		}
+		if fileCfg.ClientSecret != "" {
+			clientSecret = fileCfg.ClientSecret
+		}
 	}
-	json.Unmarshal(data, &cfg)
+
+	if clientID == "" || clientSecret == "" {
+		return fmt.Errorf("no client credentials: set via build-time ldflags or config.json")
+	}
+
+	// Initialize the global oauth2 config with resolved credentials.
+	oauthConfig = &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Endpoint:     google.Endpoint,
+		Scopes:       []string{drive.DriveScope},
+	}
+
+	return nil
 }
 
 // --------------- Token persistence ---------------
@@ -118,129 +141,12 @@ func saveToken(tok *oauth2.Token) {
 	os.WriteFile(tokenFile, data, 0600)
 }
 
-// --------------- OAuth browser flow ---------------
+// --------------- OAuth helpers ---------------
 
 func randomState() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
-}
-
-func openBrowser(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	case "darwin":
-		cmd = exec.Command("open", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	cmd.Start()
-}
-
-func runOAuthFlow(ctx context.Context) (*oauth2.Token, error) {
-	state := randomState()
-	codeCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/google/callback", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("state") != state {
-			http.Error(w, "state mismatch", http.StatusBadRequest)
-			errCh <- fmt.Errorf("OAuth state mismatch")
-			return
-		}
-		if errMsg := r.URL.Query().Get("error"); errMsg != "" {
-			http.Error(w, "Auth error: "+errMsg, http.StatusBadRequest)
-			errCh <- fmt.Errorf("OAuth error: %s", errMsg)
-			return
-		}
-		code := r.URL.Query().Get("code")
-		if code == "" {
-			http.Error(w, "no code", http.StatusBadRequest)
-			errCh <- fmt.Errorf("no code in callback")
-			return
-		}
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body><h2>Google Drive authentication successful!</h2><p>You can close this tab and return to MyGamesAnywhere.</p></body></html>`)
-		codeCh <- code
-	})
-
-	listener, err := net.Listen("tcp", "localhost:"+localPort)
-	if err != nil {
-		return nil, fmt.Errorf("listen on localhost:%s: %w", localPort, err)
-	}
-	srv := &http.Server{Handler: mux}
-	go srv.Serve(listener)
-	defer srv.Shutdown(context.Background())
-
-	authURL := oauthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
-	log.Printf("=== GOOGLE DRIVE AUTHENTICATION REQUIRED ===")
-	log.Printf("Open this URL in your browser:")
-	log.Printf("%s", authURL)
-	log.Printf("=============================================")
-	openBrowser(authURL)
-
-	var code string
-	select {
-	case code = <-codeCh:
-	case err := <-errCh:
-		return nil, err
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(300 * time.Second):
-		return nil, fmt.Errorf("OAuth flow timed out (300s)")
-	}
-
-	tok, err := oauthConfig.Exchange(ctx, code)
-	if err != nil {
-		return nil, fmt.Errorf("token exchange: %w", err)
-	}
-	return tok, nil
-}
-
-// --------------- Ensure authenticated ---------------
-
-func ensureAuthenticated(ctx context.Context) error {
-	tokenMu.Lock()
-	defer tokenMu.Unlock()
-
-	if cachedToken == nil {
-		cachedToken = loadTokens()
-	}
-
-	if cachedToken != nil && cachedToken.Valid() {
-		log.Printf("using cached Google token (expires %s)", cachedToken.Expiry.Format(time.RFC3339))
-		return nil
-	}
-
-	// Try refresh via the oauth2 library (it handles refresh automatically with TokenSource).
-	if cachedToken != nil && cachedToken.RefreshToken != "" {
-		log.Println("refreshing Google token...")
-		src := oauthConfig.TokenSource(ctx, cachedToken)
-		newTok, err := src.Token()
-		if err == nil {
-			cachedToken = newTok
-			saveToken(newTok)
-			log.Printf("refreshed Google token (expires %s)", newTok.Expiry.Format(time.RFC3339))
-			return nil
-		}
-		log.Printf("refresh failed: %v, falling back to browser flow", err)
-	}
-
-	// Full browser flow.
-	tokenMu.Unlock()
-	tok, err := runOAuthFlow(ctx)
-	tokenMu.Lock()
-	if err != nil {
-		return fmt.Errorf("OAuth flow: %w", err)
-	}
-
-	cachedToken = tok
-	saveToken(tok)
-	log.Println("Google Drive authentication complete")
-	return nil
 }
 
 func getDriveService(ctx context.Context) (*drive.Service, error) {
@@ -540,34 +446,195 @@ func syncPull(ctx context.Context, params syncPullParams) (map[string]any, error
 // --------------- IPC handlers ---------------
 
 func handleInit() (any, *Error) {
-	loadConfig()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
-	defer cancel()
-
-	if err := ensureAuthenticated(ctx); err != nil {
-		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
+	if err := loadConfig(); err != nil {
+		log.Printf("WARNING: %v", err)
+		return map[string]any{"status": "not_configured", "reason": err.Error()}, nil
 	}
 
+	// Try loading cached tokens (non-blocking). Auth happens via check_config + OAuth callback.
+	tokenMu.Lock()
+	cachedToken = loadTokens()
+	tokenMu.Unlock()
+
+	return map[string]any{"status": "ok"}, nil
+}
+
+func handleCheckConfig(params json.RawMessage) (any, *Error) {
+	var p struct {
+		Config      map[string]any `json:"config"`
+		RedirectURI string         `json:"redirect_uri"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+
+	// Check for valid cached token.
+	tokenMu.Lock()
+	if cachedToken == nil {
+		cachedToken = loadTokens()
+	}
+	tok := cachedToken
+	tokenMu.Unlock()
+
+	if tok != nil && tok.Valid() {
+		return map[string]any{"status": "ok"}, nil
+	}
+
+	// Try silent refresh if we have a refresh token.
+	if tok != nil && tok.RefreshToken != "" {
+		log.Println("refreshing Google token...")
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		src := oauthConfig.TokenSource(ctx, tok)
+		newTok, err := src.Token()
+		if err == nil {
+			tokenMu.Lock()
+			cachedToken = newTok
+			tokenMu.Unlock()
+			saveToken(newTok)
+			log.Printf("refreshed Google token (expires %s)", newTok.Expiry.Format(time.RFC3339))
+			return map[string]any{"status": "ok"}, nil
+		}
+		log.Printf("refresh failed: %v, requesting consent", err)
+	}
+
+	// OAuth consent required. Build authorize URL.
+	redirectURI := p.RedirectURI
+	if redirectURI == "" {
+		return nil, &Error{Code: "NO_REDIRECT_URI", Message: "redirect_uri is required for OAuth flow"}
+	}
+
+	state := randomState()
+
+	tokenMu.Lock()
+	oauthPending[state] = true
+	tokenMu.Unlock()
+
+	oauthConfig.RedirectURL = redirectURI
+	authorizeURL := oauthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+
 	return map[string]any{
-		"status":    "ok",
-		"root_path": cfg.RootPath,
+		"status":        "oauth_required",
+		"authorize_url": authorizeURL,
+		"state":         state,
 	}, nil
 }
 
-func handleFileList(params json.RawMessage) (any, *Error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 540*time.Second)
+func handleOAuthCallback(params json.RawMessage) (any, *Error) {
+	var p struct {
+		Code        string `json:"code"`
+		State       string `json:"state"`
+		RedirectURI string `json:"redirect_uri"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+
+	// Verify the state token for CSRF protection.
+	tokenMu.Lock()
+	_, ok := oauthPending[p.State]
+	if ok {
+		delete(oauthPending, p.State)
+	}
+	tokenMu.Unlock()
+
+	if !ok {
+		return nil, &Error{Code: "INVALID_STATE", Message: "no pending OAuth flow for state: " + p.State}
+	}
+
+	// Exchange authorization code for tokens.
+	oauthConfig.RedirectURL = p.RedirectURI
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := ensureAuthenticated(ctx); err != nil {
+	tok, err := oauthConfig.Exchange(ctx, p.Code)
+	if err != nil {
+		return nil, &Error{Code: "TOKEN_EXCHANGE_FAILED", Message: err.Error()}
+	}
+
+	tokenMu.Lock()
+	cachedToken = tok
+	tokenMu.Unlock()
+	saveToken(tok)
+
+	log.Println("Google Drive OAuth callback complete")
+	return map[string]any{"status": "ok"}, nil
+}
+
+// handleBrowse lists immediate child folders of the given path.
+func handleBrowse(params json.RawMessage) (any, *Error) {
+	var p struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	srv, err := getDriveService(ctx)
+	if err != nil {
 		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
 	}
 
-	files, err := listFiles(ctx, cfg.RootPath)
+	// Resolve the path to a folder ID.
+	folderID, err := resolvePathToFolderID(srv, p.Path)
+	if err != nil {
+		return nil, &Error{Code: "RESOLVE_FAILED", Message: err.Error()}
+	}
+
+	// List immediate child folders only.
+	query := fmt.Sprintf("'%s' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false", folderID)
+	result, err := srv.Files.List().Q(query).
+		Fields("files(id, name)").
+		OrderBy("name").
+		PageSize(200).
+		Do()
+	if err != nil {
+		return nil, &Error{Code: "LIST_FAILED", Message: err.Error()}
+	}
+
+	type folderEntry struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+	}
+
+	folders := make([]folderEntry, 0, len(result.Files))
+	for _, f := range result.Files {
+		entryPath := f.Name
+		if p.Path != "" {
+			entryPath = p.Path + "/" + f.Name
+		}
+		folders = append(folders, folderEntry{Name: f.Name, Path: entryPath})
+	}
+
+	return map[string]any{"folders": folders}, nil
+}
+
+func handleFileList(params json.RawMessage) (any, *Error) {
+	// Read root_path from the IPC params (passed by the orchestrator from integration config).
+	var p struct {
+		Config map[string]any `json:"config"`
+	}
+	json.Unmarshal(params, &p)
+
+	rootPath := ""
+	if p.Config != nil {
+		if v, ok := p.Config["root_path"].(string); ok {
+			rootPath = v
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 540*time.Second)
+	defer cancel()
+
+	files, err := listFiles(ctx, rootPath)
 	if err != nil {
 		return nil, &Error{Code: "SCAN_FAILED", Message: err.Error()}
 	}
-	log.Printf("listed %d files from Drive (root_path=%q)", len(files), cfg.RootPath)
+	log.Printf("listed %d files from Drive (root_path=%q)", len(files), rootPath)
 	return map[string]any{"files": files}, nil
 }
 
@@ -582,10 +649,6 @@ func handleSyncPush(params json.RawMessage) (any, *Error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-
-	if err := ensureAuthenticated(ctx); err != nil {
-		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
-	}
 
 	result, err := syncPush(ctx, sp)
 	if err != nil {
@@ -603,38 +666,11 @@ func handleSyncPull(params json.RawMessage) (any, *Error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	if err := ensureAuthenticated(ctx); err != nil {
-		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
-	}
-
 	result, err := syncPull(ctx, sp)
 	if err != nil {
 		return nil, &Error{Code: "SYNC_PULL_FAILED", Message: err.Error()}
 	}
 	return result, nil
-}
-
-func handleCheckConfig(params json.RawMessage) (any, *Error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := ensureAuthenticated(ctx); err != nil {
-		return map[string]any{"status": "error", "message": err.Error()}, nil
-	}
-
-	srv, err := getDriveService(ctx)
-	if err != nil {
-		return map[string]any{"status": "error", "message": err.Error()}, nil
-	}
-
-	if cfg.RootPath != "" {
-		_, err := resolvePathToFolderID(srv, cfg.RootPath)
-		if err != nil {
-			return map[string]any{"status": "error", "message": fmt.Sprintf("root_path %q: %v", cfg.RootPath, err)}, nil
-		}
-	}
-
-	return map[string]any{"status": "ok"}, nil
 }
 
 // --------------- Main ---------------
@@ -678,12 +714,28 @@ func main() {
 		case "plugin.info":
 			resp.Result = map[string]any{
 				"plugin_id":      "game-source-google-drive",
-				"plugin_version": "2.0.0",
+				"plugin_version": "2.1.0",
 				"capabilities":   []string{"source", "sync"},
 			}
 
 		case "plugin.check_config":
 			result, errObj := handleCheckConfig(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "auth.oauth.callback":
+			result, errObj := handleOAuthCallback(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "source.browse":
+			result, errObj := handleBrowse(req.Params)
 			if errObj != nil {
 				resp.Error = errObj
 			} else {

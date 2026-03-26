@@ -78,19 +78,49 @@ Get-ChildItem -Path $pluginsSrc -Directory | ForEach-Object {
 
     Write-Host "Building plugin: $name..." -ForegroundColor Cyan
 
+    # Load build-time secrets from .secrets.env if present (e.g. client_id/secret via ldflags).
+    $ldflags = ""
+    $secretsFile = Join-Path $srcDir ".secrets.env"
+    if (Test-Path $secretsFile) {
+        $secretVars = @{}
+        Get-Content $secretsFile | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
+                $eqIdx = $line.IndexOf("=")
+                $key   = $line.Substring(0, $eqIdx).Trim()
+                $val   = $line.Substring($eqIdx + 1).Trim()
+                $secretVars[$key] = $val
+            }
+        }
+        if ($secretVars["CLIENT_ID"] -and $secretVars["CLIENT_SECRET"]) {
+            $cid = $secretVars["CLIENT_ID"]
+            $csec = $secretVars["CLIENT_SECRET"]
+            $ldflags = "-X main.builtinClientID=$cid -X main.builtinClientSecret=$csec"
+            Write-Host "  Injecting build-time credentials from .secrets.env" -ForegroundColor DarkCyan
+        }
+    }
+
     $pluginGoMod = Join-Path $srcDir "go.mod"
     if (Test-Path $pluginGoMod) {
         # Standalone module: build from the plugin's own directory.
         Push-Location $srcDir
         try {
-            go build -o (Join-Path $outDir "$name$ext") .
+            if ($ldflags) {
+                go build -ldflags $ldflags -o (Join-Path $outDir "$name$ext") .
+            } else {
+                go build -o (Join-Path $outDir "$name$ext") .
+            }
             if ($LASTEXITCODE -ne 0) { throw "plugin build failed: $name" }
         } finally { Pop-Location }
     } else {
         # Sub-package of the server module: build from the server root.
         Push-Location $RootDir
         try {
-            go build -o (Join-Path $outDir "$name$ext") "./plugins/$name"
+            if ($ldflags) {
+                go build -ldflags $ldflags -o (Join-Path $outDir "$name$ext") "./plugins/$name"
+            } else {
+                go build -o (Join-Path $outDir "$name$ext") "./plugins/$name"
+            }
             if ($LASTEXITCODE -ne 0) { throw "plugin build failed: $name" }
         } finally { Pop-Location }
     }

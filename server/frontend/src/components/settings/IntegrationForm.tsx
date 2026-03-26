@@ -1,13 +1,16 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   listPlugins,
   createIntegration,
+  isOAuthRequired,
   updateIntegration,
   DuplicateIntegrationError,
   type Integration,
   type PluginInfo,
 } from '@/api/client'
+import { FolderBrowser } from './FolderBrowser'
+import { useSSE } from '@/hooks/useSSE'
 import { useDateTimeFormat } from '@/hooks/useDateTimeFormat'
 import {
   pluginLabel,
@@ -17,7 +20,7 @@ import {
 } from '@/lib/gameUtils'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
+
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { PluginIcon } from './PluginIcon'
@@ -28,7 +31,7 @@ import { ArrowLeft, Check } from 'lucide-react'
 // Add Integration Wizard
 // ═══════════════════════════════════════════════════════════════════════════
 
-type WizardStep = 'category' | 'plugin' | 'config' | 'label'
+type WizardStep = 'category' | 'plugin' | 'config' | 'label' | 'oauth' | 'browse'
 
 interface AddIntegrationWizardProps {
   onClose: () => void
@@ -47,6 +50,14 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
   const [integrationType, setIntegrationType] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  // OAuth flow state.
+  const [oauthState, setOauthState] = useState<string | null>(null)
+  const [oauthError, setOauthError] = useState<string | null>(null)
+  const { subscribe } = useSSE()
+
+  // Browse state (for plugins that provide source.browse).
+  const [createdIntegrationId, setCreatedIntegrationId] = useState<string | null>(null)
 
   // Derived data.
   const selectedPlugin = plugins.find((p) => p.plugin_id === selectedPluginId)
@@ -116,12 +127,8 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
     setStep('label')
   }
 
-  const handleCreate = async () => {
-    if (!selectedPlugin || !label || !integrationType) return
-    setError('')
-    setSaving(true)
-
-    // Build typed config object.
+  // Build a typed config object from the form fields.
+  const buildConfig = useCallback(() => {
     const config: Record<string, unknown> = {}
     for (const { key, field } of schema) {
       const raw = configFields[key] ?? ''
@@ -133,15 +140,45 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
         config[key] = raw
       }
     }
+    return config
+  }, [schema, configFields])
+
+  // Check if the selected plugin supports folder browsing.
+  const supportsBrowse = selectedPlugin?.provides?.includes('source.browse') ?? false
+
+  // After successful integration creation, either go to browse step or finish.
+  const finishCreate = useCallback((integrationId: string) => {
+    if (supportsBrowse) {
+      setCreatedIntegrationId(integrationId)
+      setStep('browse')
+    } else {
+      onSaved()
+    }
+  }, [supportsBrowse, onSaved])
+
+  const handleCreate = async () => {
+    if (!selectedPlugin || !label || !integrationType) return
+    setError('')
+    setSaving(true)
 
     try {
-      await createIntegration({
+      const result = await createIntegration({
         plugin_id: selectedPlugin.plugin_id,
         label,
         integration_type: integrationType,
-        config,
+        config: buildConfig(),
       })
-      onSaved()
+
+      // OAuth consent required — open the authorize URL in a new tab.
+      if (isOAuthRequired(result)) {
+        setOauthState(result.state)
+        setOauthError(null)
+        setStep('oauth')
+        window.open(result.authorize_url, '_blank')
+        return
+      }
+
+      finishCreate(result.id)
     } catch (err) {
       if (err instanceof DuplicateIntegrationError) {
         setError(err.message)
@@ -153,18 +190,68 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
     }
   }
 
+  // After OAuth completes, retry creating the integration (tokens are now valid).
+  const retryCreateAfterOAuth = useCallback(async () => {
+    if (!selectedPlugin || !label || !integrationType) return
+    setSaving(true)
+    setOauthError(null)
+
+    try {
+      const result = await createIntegration({
+        plugin_id: selectedPlugin.plugin_id,
+        label,
+        integration_type: integrationType,
+        config: buildConfig(),
+      })
+
+      if (isOAuthRequired(result)) {
+        setOauthError('Authentication incomplete. Please try again.')
+        return
+      }
+
+      finishCreate(result.id)
+    } catch (err) {
+      setOauthError(err instanceof Error ? err.message : 'Failed to create integration')
+    } finally {
+      setSaving(false)
+    }
+  }, [selectedPlugin, label, integrationType, buildConfig, finishCreate])
+
+  // Listen for OAuth completion/error SSE events while on the oauth step.
+  useEffect(() => {
+    if (step !== 'oauth' || !oauthState) return
+
+    const unsubComplete = subscribe('oauth_complete', (data: unknown) => {
+      const d = data as { state?: string }
+      if (d.state === oauthState) {
+        retryCreateAfterOAuth()
+      }
+    })
+
+    const unsubError = subscribe('oauth_error', (data: unknown) => {
+      const d = data as { state?: string; error?: string }
+      if (d.state === oauthState) {
+        setOauthError(d.error ?? 'Authentication failed')
+      }
+    })
+
+    return () => { unsubComplete(); unsubError() }
+  }, [step, oauthState, subscribe, retryCreateAfterOAuth])
+
   // Step titles for the dialog.
   const stepTitles: Record<WizardStep, string> = {
     category: 'Add Integration — Choose Type',
     plugin: 'Add Integration — Choose Plugin',
     config: 'Add Integration — Configure',
     label: 'Add Integration — Finish',
+    oauth: 'Add Integration — Sign In',
+    browse: 'Add Integration — Select Folder',
   }
 
   return (
     <Dialog open onClose={onClose} title={stepTitles[step]} className="max-w-2xl">
-      {/* Back button (not shown on first step) */}
-      {step !== 'category' && (
+      {/* Back button (not shown on first step, during OAuth, or while browsing) */}
+      {step !== 'category' && step !== 'oauth' && step !== 'browse' && (
         <button
           type="button"
           onClick={goBack}
@@ -274,20 +361,15 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
             placeholder="Give this integration a name..."
           />
 
-          {/* Integration type — auto-derived, dropdown if multiple capabilities */}
-          {selectedPlugin.capabilities.length > 1 ? (
-            <Select
-              label="Integration Type"
-              options={selectedPlugin.capabilities.map((c) => ({ value: c, label: c }))}
-              value={integrationType}
-              onChange={(e) => setIntegrationType(e.target.value)}
-            />
-          ) : (
-            <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-mga-text">Integration Type</span>
-              <Badge variant="accent" className="w-fit">{integrationType}</Badge>
+          {/* Integration type — auto-derived from first capability, shown read-only */}
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-medium text-mga-text">Integration Type</span>
+            <div className="flex gap-1.5">
+              {selectedPlugin.capabilities.map((cap) => (
+                <Badge key={cap} variant="accent" className="w-fit">{cap}</Badge>
+              ))}
             </div>
-          )}
+          </div>
 
           {error && <p className="text-sm text-red-400">{error}</p>}
 
@@ -303,6 +385,71 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
               {saving ? 'Creating...' : 'Create Integration'}
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* Step 5: OAuth consent in progress */}
+      {step === 'oauth' && selectedPlugin && (
+        <div className="space-y-4 text-center py-6">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <PluginIcon pluginId={selectedPlugin.plugin_id} size={24} className="text-mga-accent" />
+            <span className="text-sm font-medium text-mga-text">
+              {pluginLabel(selectedPlugin.plugin_id)}
+            </span>
+          </div>
+
+          {saving ? (
+            <p className="text-mga-muted">Creating integration...</p>
+          ) : oauthError ? (
+            <div className="space-y-3">
+              <p className="text-sm text-red-400">{oauthError}</p>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setStep('label')
+                  setOauthError(null)
+                  setOauthState(null)
+                }}
+              >
+                Try Again
+              </Button>
+            </div>
+          ) : (
+            <div className="animate-pulse">
+              <p className="text-mga-text font-medium">Waiting for sign-in...</p>
+              <p className="text-xs text-mga-muted mt-2">
+                A new browser tab has been opened for authentication.
+                <br />Complete the sign-in and this will update automatically.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 6: Folder browser (for plugins that support source.browse) */}
+      {step === 'browse' && selectedPlugin && createdIntegrationId && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <PluginIcon pluginId={selectedPlugin.plugin_id} size={18} className="text-mga-accent" />
+            <span className="text-sm font-medium text-mga-text">
+              {pluginLabel(selectedPlugin.plugin_id)} — Choose a folder to scan
+            </span>
+          </div>
+
+          <FolderBrowser
+            pluginId={selectedPlugin.plugin_id}
+            onSelect={async (path) => {
+              try {
+                await updateIntegration(createdIntegrationId, {
+                  config: { root_path: path },
+                })
+              } catch {
+                // Non-fatal: integration was created, folder preference just wasn't saved.
+              }
+              onSaved()
+            }}
+            onSkip={() => onSaved()}
+          />
         </div>
       )}
     </Dialog>
@@ -345,10 +492,14 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
 
   // Form state.
   const [label, setLabel] = useState(integration.label)
-  const [integrationType, setIntegrationType] = useState(integration.integration_type)
+  const [integrationType] = useState(integration.integration_type)
   const [configFields, setConfigFields] = useState<Record<string, string>>(existingConfig)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  // Folder browsing for plugins that support source.browse.
+  const editSupportsBrowse = plugin?.provides?.includes('source.browse') ?? false
+  const [showBrowser, setShowBrowser] = useState(false)
 
   // Secret fields — start masked, reveal on "Change" click.
   const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set())
@@ -433,20 +584,15 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
           onChange={(e) => setLabel(e.target.value)}
         />
 
-        {/* Integration type from capabilities */}
-        {plugin && plugin.capabilities.length > 1 ? (
-          <Select
-            label="Integration Type"
-            options={plugin.capabilities.map((c) => ({ value: c, label: c }))}
-            value={integrationType}
-            onChange={(e) => setIntegrationType(e.target.value)}
-          />
-        ) : (
-          <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-mga-text">Integration Type</span>
-            <Badge variant="accent" className="w-fit">{integrationType}</Badge>
+        {/* Integration type — read-only, shows all capabilities */}
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-medium text-mga-text">Integration Type</span>
+          <div className="flex gap-1.5">
+            {(plugin?.capabilities ?? [integrationType]).map((cap) => (
+              <Badge key={cap} variant="accent" className="w-fit">{cap}</Badge>
+            ))}
           </div>
-        )}
+        </div>
 
         {/* Config fields */}
         {schema.length > 0 && (
@@ -461,6 +607,37 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
               secretMask={secretMask}
               onRevealSecret={handleRevealSecret}
             />
+          </div>
+        )}
+
+        {/* Folder browser for source.browse-capable plugins */}
+        {editSupportsBrowse && (
+          <div>
+            <h4 className="text-xs uppercase tracking-wider text-mga-muted font-medium mb-3">
+              Source Folder
+            </h4>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-sm text-mga-text font-mono">
+                {configFields.root_path || '/ (entire Drive)'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowBrowser(!showBrowser)}
+                className="text-xs text-mga-accent hover:underline"
+              >
+                {showBrowser ? 'Hide' : 'Browse...'}
+              </button>
+            </div>
+            {showBrowser && (
+              <FolderBrowser
+                pluginId={integration.plugin_id}
+                initialPath={configFields.root_path ?? ''}
+                onSelect={(path) => {
+                  setConfigFields((prev) => ({ ...prev, root_path: path }))
+                  setShowBrowser(false)
+                }}
+              />
+            )}
           </div>
         )}
 

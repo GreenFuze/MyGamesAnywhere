@@ -19,6 +19,7 @@ type RouteBuilder struct {
 	AchievementCtrl *AchievementController
 	SyncCtrl        *SyncController
 	SSECtrl         *SSEController
+	OAuthCtrl       *OAuthController
 }
 
 func noopHandler() http.HandlerFunc {
@@ -67,12 +68,15 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Get("/integrations/{id}/enriched-games", b.PluginCtrl.IntegrationEnrichedGames)
 				r.Put("/integrations/{id}", b.PluginCtrl.UpdateIntegration)
 				r.Delete("/integrations/{id}", b.PluginCtrl.DeleteIntegration)
+				r.Post("/plugins/{plugin_id}/browse", b.PluginCtrl.Browse)
 
 				r.Get("/sync/status", b.SyncCtrl.Status)
 				r.Post("/sync/push", b.SyncCtrl.Push)
 				r.Post("/sync/pull", b.SyncCtrl.Pull)
 				r.Post("/sync/key", b.SyncCtrl.StoreKey)
 				r.Delete("/sync/key", b.SyncCtrl.ClearKey)
+
+				r.Get("/auth/callback/{plugin_id}", b.OAuthCtrl.Callback)
 			})
 
 			// Scan can take many minutes; no middleware timeout.
@@ -108,11 +112,13 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/integrations/{id}/enriched-games", noopHandler())
 			api.Put("/integrations/{id}", noopHandler())
 			api.Delete("/integrations/{id}", noopHandler())
+			api.Post("/plugins/{plugin_id}/browse", noopHandler())
 			api.Get("/sync/status", noopHandler())
 			api.Post("/sync/push", noopHandler())
 			api.Post("/sync/pull", noopHandler())
 			api.Post("/sync/key", noopHandler())
 			api.Delete("/sync/key", noopHandler())
+			api.Get("/auth/callback/{plugin_id}", noopHandler())
 			api.Get("/events", noopHandler())
 		}
 	})

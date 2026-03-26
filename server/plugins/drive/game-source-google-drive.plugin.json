@@ -1,13 +1,11 @@
 {
   "plugin_id": "game-source-google-drive",
-  "plugin_version": "2.0.0",
+  "plugin_version": "2.1.0",
   "api_major": 1,
   "capabilities": ["source"],
-  "provides": ["source.filesystem.list"],
+  "provides": ["source.filesystem.list", "plugin.check_config", "auth.oauth.callback", "source.browse"],
   "exec": "drive.exe",
   "default_timeout_ms": 600000,
   "max_concurrency": 2,
-  "config": {
-    "root_path": { "type": "string", "default": "" }
-  }
+  "config": {}
 }
