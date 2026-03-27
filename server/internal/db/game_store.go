@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/google/uuid"
 )
 
 type gameStore struct {
@@ -408,16 +409,21 @@ func (s *gameStore) GetCanonicalGameByID(ctx context.Context, canonicalID string
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
 	var sgIDs []string
 	for rows.Next() {
 		var sgid string
 		if err := rows.Scan(&sgid); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		sgIDs = append(sgIDs, sgid)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
 	if len(sgIDs) == 0 {
 		return nil, nil
 	}
@@ -978,8 +984,12 @@ func (s *gameStore) softDeleteMissing(ctx context.Context, tx *sql.Tx, integrati
 }
 
 func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) error {
-	// Clear existing groupings.
-	if _, err := tx.ExecContext(ctx, `DELETE FROM canonical_source_games_link`); err != nil {
+	existingMembership, err := s.loadExistingCanonicalMembership(ctx, tx)
+	if err != nil {
+		return err
+	}
+	existingCanonicalGames, err := s.loadExistingCanonicalGames(ctx, tx)
+	if err != nil {
 		return err
 	}
 
@@ -1066,8 +1076,25 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 		groups[root] = append(groups[root], id)
 	}
 
-	// Insert canonical links. The canonical_id is the root of the group (first source game ID).
-	for canonicalID, members := range groups {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM canonical_source_games_link`); err != nil {
+		return err
+	}
+
+	assignments, err := assignStableCanonicalIDs(groups, existingMembership, existingCanonicalGames)
+	if err != nil {
+		return err
+	}
+
+	for _, canonicalID := range collectNewCanonicalIDs(assignments, existingCanonicalGames) {
+		createdAt := time.Now().Unix()
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO canonical_games (id, created_at) VALUES (?, ?)`, canonicalID, createdAt); err != nil {
+			return err
+		}
+	}
+
+	for _, group := range assignments {
+		canonicalID := group.canonicalID
+		members := group.members
 		for _, sgID := range members {
 			_, err := tx.ExecContext(ctx, `INSERT INTO canonical_source_games_link (canonical_id, source_game_id) VALUES (?, ?)`,
 				canonicalID, sgID)
@@ -1079,6 +1106,157 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 
 	s.logger.Info("recomputed canonical groups", "source_games", len(allIDs), "canonical_games", len(groups))
 	return nil
+}
+
+type canonicalGameMeta struct {
+	id        string
+	createdAt int64
+}
+
+type canonicalAssignment struct {
+	groupKey    string
+	members     []string
+	canonicalID string
+}
+
+type canonicalCandidate struct {
+	groupKey    string
+	canonicalID string
+	overlap     int
+	createdAt   int64
+}
+
+func (s *gameStore) loadExistingCanonicalMembership(ctx context.Context, tx *sql.Tx) (map[string]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT source_game_id, canonical_id FROM canonical_source_games_link`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]string)
+	for rows.Next() {
+		var sourceGameID, canonicalID string
+		if err := rows.Scan(&sourceGameID, &canonicalID); err != nil {
+			return nil, err
+		}
+		out[sourceGameID] = canonicalID
+	}
+	return out, rows.Err()
+}
+
+func (s *gameStore) loadExistingCanonicalGames(ctx context.Context, tx *sql.Tx) (map[string]canonicalGameMeta, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id, created_at FROM canonical_games`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]canonicalGameMeta)
+	for rows.Next() {
+		var meta canonicalGameMeta
+		if err := rows.Scan(&meta.id, &meta.createdAt); err != nil {
+			return nil, err
+		}
+		out[meta.id] = meta
+	}
+	return out, rows.Err()
+}
+
+func assignStableCanonicalIDs(
+	groups map[string][]string,
+	existingMembership map[string]string,
+	existingCanonicalGames map[string]canonicalGameMeta,
+) ([]canonicalAssignment, error) {
+	groupKeys := make([]string, 0, len(groups))
+	groupByKey := make(map[string][]string, len(groups))
+	candidates := make([]canonicalCandidate, 0)
+
+	for _, members := range groups {
+		sortedMembers := append([]string(nil), members...)
+		sort.Strings(sortedMembers)
+		if len(sortedMembers) == 0 {
+			continue
+		}
+		groupKey := sortedMembers[0]
+		groupKeys = append(groupKeys, groupKey)
+		groupByKey[groupKey] = sortedMembers
+
+		overlapByCanonical := make(map[string]int)
+		for _, member := range sortedMembers {
+			if canonicalID, ok := existingMembership[member]; ok && canonicalID != "" {
+				overlapByCanonical[canonicalID]++
+			}
+		}
+
+		for canonicalID, overlap := range overlapByCanonical {
+			if strings.HasPrefix(canonicalID, "scan:") {
+				continue
+			}
+			createdAt := int64(^uint64(0) >> 1)
+			if meta, ok := existingCanonicalGames[canonicalID]; ok {
+				createdAt = meta.createdAt
+			}
+			candidates = append(candidates, canonicalCandidate{
+				groupKey:    groupKey,
+				canonicalID: canonicalID,
+				overlap:     overlap,
+				createdAt:   createdAt,
+			})
+		}
+	}
+
+	sort.Strings(groupKeys)
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].overlap != candidates[j].overlap {
+			return candidates[i].overlap > candidates[j].overlap
+		}
+		if candidates[i].createdAt != candidates[j].createdAt {
+			return candidates[i].createdAt < candidates[j].createdAt
+		}
+		if candidates[i].canonicalID != candidates[j].canonicalID {
+			return candidates[i].canonicalID < candidates[j].canonicalID
+		}
+		return candidates[i].groupKey < candidates[j].groupKey
+	})
+
+	assignedByGroup := make(map[string]string, len(groupKeys))
+	usedCanonicalIDs := make(map[string]bool)
+	for _, candidate := range candidates {
+		if assignedByGroup[candidate.groupKey] != "" || usedCanonicalIDs[candidate.canonicalID] {
+			continue
+		}
+		assignedByGroup[candidate.groupKey] = candidate.canonicalID
+		usedCanonicalIDs[candidate.canonicalID] = true
+	}
+
+	assignments := make([]canonicalAssignment, 0, len(groupKeys))
+	for _, groupKey := range groupKeys {
+		canonicalID := assignedByGroup[groupKey]
+		if canonicalID == "" {
+			canonicalID = uuid.NewString()
+		}
+		assignments = append(assignments, canonicalAssignment{
+			groupKey:    groupKey,
+			members:     groupByKey[groupKey],
+			canonicalID: canonicalID,
+		})
+	}
+
+	return assignments, nil
+}
+
+func collectNewCanonicalIDs(
+	assignments []canonicalAssignment,
+	existingCanonicalGames map[string]canonicalGameMeta,
+) []string {
+	var out []string
+	for _, assignment := range assignments {
+		if _, ok := existingCanonicalGames[assignment.canonicalID]; ok {
+			continue
+		}
+		out = append(out, assignment.canonicalID)
+	}
+	return out
 }
 
 func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string) (*core.SourceGame, error) {

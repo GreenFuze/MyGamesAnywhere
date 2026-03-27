@@ -11,9 +11,11 @@ import {
   type FrontendConfig,
   type GameDetailResponse,
 } from '@/api/client'
+import { BrandIcon } from '@/components/ui/brand-icon'
 import { CoverImage } from '@/components/ui/cover-image'
 import { PlatformIcon } from '@/components/ui/platform-icon'
 import { useLibraryData } from '@/hooks/useLibraryData'
+import { useRecentPlayed } from '@/hooks/useRecentPlayed'
 import { buildGameRouteState } from '@/lib/gameNavigation'
 import {
   isActionable,
@@ -85,6 +87,7 @@ export function AppSidebar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { data: allGames = [] } = useLibraryData()
+  const { recentPlayed } = useRecentPlayed()
   const [sidebarPrefs, setSidebarPrefsState] = useState<DesktopSidebarPrefs>(() =>
     readLocalSidebarPrefs(),
   )
@@ -117,6 +120,22 @@ export function AppSidebar() {
       state: buildGameRouteState(location.pathname, location.search),
     })
   }
+
+  const recentPlayedEntries = useMemo(() => {
+    return recentPlayed
+      .map((entry) => {
+        const game = allGames.find((candidate) => candidate.id === entry.gameId)
+        const launchUrl = game?.xcloud_url ?? entry.launchUrl
+        if (!launchUrl) return null
+        return {
+          ...entry,
+          game,
+          launchUrl,
+        }
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      .slice(0, 4)
+  }, [allGames, recentPlayed])
 
   useEffect(() => {
     let cancelled = false
@@ -173,6 +192,46 @@ export function AppSidebar() {
     <aside className="hidden lg:block">
       <div className="sticky top-[7.75rem] space-y-5 rounded-[1.25rem] border border-mga-border bg-mga-surface p-4 shadow-lg shadow-black/10">
         <section className="space-y-3">
+          {recentPlayedEntries.length > 0 && (
+            <div className="space-y-2 rounded-mga border border-mga-border bg-mga-bg/65 p-3">
+              <div className="flex items-center gap-2 text-mga-accent">
+                <BrandIcon brand="xcloud" className="h-4 w-4" />
+                <span className="text-sm font-semibold uppercase tracking-wide">Recent Played</span>
+              </div>
+              <div className="space-y-2">
+                {recentPlayedEntries.map((entry) => {
+                  const title = entry.game?.title ?? entry.title
+                  const coverUrl = selectCoverUrl(entry.game?.media) ?? entry.coverUrl ?? null
+                  const primarySource = entry.game ? primarySourcePlugin(entry.game) : null
+                  const hint = entry.game
+                    ? [platformLabel(entry.game.platform), primarySource ? sourceLabel(primarySource) : null]
+                        .filter(Boolean)
+                        .join(' • ')
+                    : platformLabel(entry.platform)
+
+                  return (
+                    <a
+                      key={entry.gameId}
+                      href={entry.launchUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-3 rounded-mga border border-mga-border bg-mga-surface/80 px-2 py-2 text-left transition-colors hover:bg-mga-elevated/70"
+                    >
+                      <div className="h-12 w-8 shrink-0 overflow-hidden rounded-sm border border-mga-border bg-mga-surface">
+                        <CoverImage src={coverUrl} alt={title} className="h-full w-full text-sm" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-1 text-sm font-medium text-mga-text">{title}</p>
+                        <p className="line-clamp-1 text-xs text-mga-muted">{hint}</p>
+                      </div>
+                      <span className="shrink-0 text-xs font-medium text-mga-accent">Resume</span>
+                    </a>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center gap-2 text-mga-accent">
             <PlayCircle size={16} />
             <span className="text-sm font-semibold uppercase tracking-wide">Playable Games</span>

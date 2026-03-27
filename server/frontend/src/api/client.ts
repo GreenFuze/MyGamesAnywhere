@@ -1,12 +1,34 @@
 /** Same-origin in prod (SPA behind Go); Vite proxy in dev. */
 const base = ''
 
+export class ApiError extends Error {
+  constructor(
+    public path: string,
+    public status: number,
+    public statusText: string,
+    public responseText?: string,
+  ) {
+    super(`${path}: ${status} ${statusText}`)
+    this.name = 'ApiError'
+  }
+}
+
+async function buildApiError(path: string, res: Response): Promise<ApiError> {
+  let responseText: string | undefined
+  try {
+    responseText = await res.text()
+  } catch {
+    responseText = undefined
+  }
+  return new ApiError(path, res.status, res.statusText, responseText)
+}
+
 export async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${base}${path}`, {
     headers: { Accept: 'application/json' },
   })
   if (!res.ok) {
-    throw new Error(`${path}: ${res.status} ${res.statusText}`)
+    throw await buildApiError(path, res)
   }
   return res.json() as Promise<T>
 }
@@ -18,7 +40,7 @@ export async function postJson<T>(path: string, body: unknown): Promise<T | void
     body: JSON.stringify(body),
   })
   if (!res.ok) {
-    throw new Error(`${path}: ${res.status} ${res.statusText}`)
+    throw await buildApiError(path, res)
   }
   if (res.status === 204 || res.headers.get('content-length') === '0') {
     return
@@ -35,7 +57,7 @@ export async function putJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   })
   if (!res.ok) {
-    throw new Error(`${path}: ${res.status} ${res.statusText}`)
+    throw await buildApiError(path, res)
   }
   return res.json() as Promise<T>
 }
@@ -43,7 +65,7 @@ export async function putJson<T>(path: string, body: unknown): Promise<T> {
 export async function deleteRequest(path: string): Promise<void> {
   const res = await fetch(`${base}${path}`, { method: 'DELETE' })
   if (!res.ok) {
-    throw new Error(`${path}: ${res.status} ${res.statusText}`)
+    throw await buildApiError(path, res)
   }
 }
 

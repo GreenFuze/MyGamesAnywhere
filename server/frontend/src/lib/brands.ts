@@ -89,6 +89,36 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
     description: 'Completion-time provider for story and completionist estimates.',
   },
   {
+    id: 'mobygames',
+    label: 'MobyGames',
+    websiteUrl: 'https://www.mobygames.com/',
+    description: 'External reference site for game pages and release metadata.',
+  },
+  {
+    id: 'pcgamingwiki',
+    label: 'PCGamingWiki',
+    websiteUrl: 'https://www.pcgamingwiki.com/',
+    description: 'External reference for platform-specific compatibility and setup details.',
+  },
+  {
+    id: 'wikipedia',
+    label: 'Wikipedia',
+    websiteUrl: 'https://www.wikipedia.org/',
+    description: 'External reference site for encyclopedic game coverage.',
+  },
+  {
+    id: 'youtube',
+    label: 'YouTube',
+    websiteUrl: 'https://www.youtube.com/',
+    description: 'External video host for trailers and gameplay media.',
+  },
+  {
+    id: 'archive-org',
+    label: 'Internet Archive',
+    websiteUrl: 'https://archive.org/',
+    description: 'External archive host for manuals, media, and reference assets.',
+  },
+  {
     id: 'mame',
     label: 'MAME',
     iconPath: '/brands/mame.png',
@@ -191,6 +221,7 @@ const BRAND_ALIASES = new Map<string, string>([
   ['hltb', 'hltb'],
   ['howlongtobeat', 'hltb'],
   ['metadata-hltb', 'hltb'],
+  ['howlongtobeat', 'hltb'],
   ['mame', 'mame'],
   ['mame-dat', 'mame'],
   ['metadata-mame-dat', 'mame'],
@@ -206,6 +237,13 @@ const BRAND_ALIASES = new Map<string, string>([
   ['game-source-epic', 'epic-games'],
   ['tgdb', 'tgdb'],
   ['metadata-tgdb', 'tgdb'],
+  ['thegamesdb', 'tgdb'],
+  ['mobygames', 'mobygames'],
+  ['pcgamingwiki', 'pcgamingwiki'],
+  ['wikipedia', 'wikipedia'],
+  ['youtube', 'youtube'],
+  ['archive-org', 'archive-org'],
+  ['archive', 'archive-org'],
   ['windows', 'windows'],
   ['windows-pc', 'windows'],
   ['windows_pc', 'windows'],
@@ -228,12 +266,25 @@ const BRAND_HOST_ALIASES = new Map<string, string>([
   ['www.igdb.com', 'igdb'],
   ['rawg.io', 'rawg'],
   ['www.rawg.io', 'rawg'],
+  ['howlongtobeat.com', 'hltb'],
+  ['www.howlongtobeat.com', 'hltb'],
   ['launchbox-app.com', 'launchbox'],
   ['www.launchbox-app.com', 'launchbox'],
   ['retroachievements.org', 'retroachievements'],
   ['www.retroachievements.org', 'retroachievements'],
   ['thegamesdb.net', 'tgdb'],
   ['www.thegamesdb.net', 'tgdb'],
+  ['mobygames.com', 'mobygames'],
+  ['www.mobygames.com', 'mobygames'],
+  ['pcgamingwiki.com', 'pcgamingwiki'],
+  ['www.pcgamingwiki.com', 'pcgamingwiki'],
+  ['wikipedia.org', 'wikipedia'],
+  ['www.wikipedia.org', 'wikipedia'],
+  ['youtube.com', 'youtube'],
+  ['www.youtube.com', 'youtube'],
+  ['youtu.be', 'youtube'],
+  ['archive.org', 'archive-org'],
+  ['www.archive.org', 'archive-org'],
   ['store.epicgames.com', 'epic-games'],
   ['epicgames.com', 'epic-games'],
   ['www.epicgames.com', 'epic-games'],
@@ -280,7 +331,11 @@ export function resolveBrandDefinitionFromUrl(url: string | undefined | null): B
   if (!url) return null
 
   try {
-    const hostname = new URL(url).hostname.toLowerCase()
+    const parsed = new URL(url)
+    const hostname = parsed.hostname.toLowerCase()
+    if ((hostname === 'xbox.com' || hostname === 'www.xbox.com') && parsed.pathname.startsWith('/play')) {
+      return BRAND_BY_ID.get('xcloud') ?? null
+    }
     const alias = BRAND_HOST_ALIASES.get(hostname)
     return alias ? BRAND_BY_ID.get(alias) ?? null : null
   } catch {

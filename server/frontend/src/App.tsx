@@ -5,6 +5,7 @@ import { SearchProvider } from '@/hooks/useSearchContext'
 import { SSEProvider } from '@/hooks/useSSE'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AppNotifications } from '@/components/notifications/AppNotifications'
+import { AppQueryInvalidation } from '@/components/notifications/AppQueryInvalidation'
 import { ToastProvider } from '@/components/ui/toast'
 import { AppLayout } from '@/layouts/AppLayout'
 import { HomePage } from '@/pages/HomePage'
@@ -32,6 +33,7 @@ export function App() {
             <SearchProvider>
               <BrowserRouter>
                 <AppNotifications />
+                <AppQueryInvalidation />
                 <ErrorBoundary>
                   <Routes>
                     <Route path="/" element={<AppLayout />}>

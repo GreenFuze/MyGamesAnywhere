@@ -206,7 +206,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] **Persistent desktop playable sidebar:** left rail stays visible across the shell pages and launches actionable games without duplicating app navigation
 - [x] **Desktop tab simplification:** top-level `Play` tab is hidden in desktop layouts where the playable sidebar is present; mobile/tablet keeps the top-nav fallback for now
 - [x] **Sidebar affordances:** desktop sidebar includes a quick filter input and per-platform collapsible groups whose last state is remembered; groups default collapsed on first load
-- [ ] **Recent Played launcher section:** render only when real recent-play data exists; do not synthesize it from scan/title order
+- [x] **Recent Played launcher section:** render only when real recent-play data exists; do not synthesize it from scan/title order
 
 ### Navigation & Pages
 
@@ -266,7 +266,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Full-bleed hero banner (cover art / screenshots, blurred background)
 - [x] Title, description, release date, developer, publisher, genres, rating
 - [x] Source-aware attribution for description and metadata facts when resolver data is reliable
-- [ ] Full per-field/logo attribution coverage for every metadata provider
+- [x] Full per-field/logo attribution coverage for every metadata provider
 
 ### Media Gallery
 - [x] Screenshot viewer (lightbox)
@@ -363,7 +363,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 ### Scan Progress Improvements
 *Current progress UI feels stuck during long metadata phases. Add granular per-game events and a visible event log.*
 
-- [x] **Backend:** `scan_metadata_game_progress` SSE event — `{plugin_id, game_index, game_count, game_title}` emitted per-game during metadata resolver batches (client-agnostic, any consumer can use)
+- [x] **Backend:** `scan_metadata_game_progress` SSE event — `{plugin_id, game_index, game_count, game_title}` emitted after metadata resolver batch responses are processed, with one progress step per game in the batch (client-agnostic, any consumer can use)
 - [x] **Frontend:** Rolling event log below progress bar — last 3–5 events as a mini-timeline with timestamps
 - [x] **Frontend:** Per-game status text during metadata enrichment (e.g. "IGDB: 15/200 — Portal 2")
 

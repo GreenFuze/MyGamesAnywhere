@@ -81,7 +81,7 @@ type GameStore interface {
 	// limit <= 0 means no limit (all rows from offset).
 	GetVisibleCanonicalIDs(ctx context.Context, offset, limit int) ([]string, error)
 
-	// GetCanonicalGameByID returns one merged game view by canonical ID.
+	// GetCanonicalGameByID returns one merged game view by stable canonical ID.
 	GetCanonicalGameByID(ctx context.Context, canonicalID string) (*CanonicalGame, error)
 
 	// GetMediaAssetByID returns a media_assets row by primary key, or nil if missing.

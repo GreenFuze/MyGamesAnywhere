@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
 
@@ -111,6 +113,10 @@ func (s *sqliteDatabase) EnsureSchema() error {
 			source_game_id TEXT NOT NULL REFERENCES source_games(id),
 			PRIMARY KEY(canonical_id, source_game_id)
 		);`,
+		`CREATE TABLE IF NOT EXISTS canonical_games (
+			id TEXT PRIMARY KEY,
+			created_at INTEGER NOT NULL
+		);`,
 		`CREATE INDEX IF NOT EXISTS idx_csgl_source ON canonical_source_games_link(source_game_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_csgl_canonical ON canonical_source_games_link(canonical_id);`,
 		`CREATE TABLE IF NOT EXISTS game_files (
@@ -199,9 +205,109 @@ func (s *sqliteDatabase) EnsureSchema() error {
 			return fmt.Errorf("schema creation failed: %w", err)
 		}
 	}
+	if err := s.backfillCanonicalGames(); err != nil {
+		return err
+	}
+	if err := s.migrateLegacyCanonicalIDs(); err != nil {
+		return err
+	}
 	return nil
 }
 
 func (s *sqliteDatabase) GetDB() *sql.DB {
 	return s.db
+}
+
+func (s *sqliteDatabase) backfillCanonicalGames() error {
+	if s.db == nil {
+		return fmt.Errorf("database not connected")
+	}
+
+	now := time.Now().Unix()
+	if _, err := s.db.Exec(
+		`INSERT OR IGNORE INTO canonical_games (id, created_at)
+		 SELECT
+		   l.canonical_id,
+		   COALESCE(MIN(sg.created_at), ?)
+		 FROM canonical_source_games_link l
+		 LEFT JOIN source_games sg ON sg.id = l.source_game_id
+		 GROUP BY l.canonical_id`,
+		now,
+	); err != nil {
+		return fmt.Errorf("canonical game backfill failed: %w", err)
+	}
+
+	return nil
+}
+
+func (s *sqliteDatabase) migrateLegacyCanonicalIDs() error {
+	if s.db == nil {
+		return fmt.Errorf("database not connected")
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin canonical id migration: %w", err)
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(`
+		SELECT l.canonical_id, COALESCE(cg.created_at, MIN(sg.created_at), ?)
+		FROM canonical_source_games_link l
+		LEFT JOIN canonical_games cg ON cg.id = l.canonical_id
+		LEFT JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE l.canonical_id LIKE 'scan:%'
+		GROUP BY l.canonical_id, cg.created_at
+	`, time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("query legacy canonical ids: %w", err)
+	}
+	defer rows.Close()
+
+	type legacyCanonicalID struct {
+		id        string
+		createdAt int64
+	}
+
+	var legacyIDs []legacyCanonicalID
+	for rows.Next() {
+		var item legacyCanonicalID
+		if err := rows.Scan(&item.id, &item.createdAt); err != nil {
+			return fmt.Errorf("scan legacy canonical id: %w", err)
+		}
+		legacyIDs = append(legacyIDs, item)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate legacy canonical ids: %w", err)
+	}
+
+	for _, legacy := range legacyIDs {
+		newID := uuid.NewString()
+		if _, err := tx.Exec(`INSERT INTO canonical_games (id, created_at) VALUES (?, ?)`, newID, legacy.createdAt); err != nil {
+			return fmt.Errorf("insert migrated canonical game %s: %w", newID, err)
+		}
+		if _, err := tx.Exec(`UPDATE canonical_source_games_link SET canonical_id = ? WHERE canonical_id = ?`, newID, legacy.id); err != nil {
+			return fmt.Errorf("update canonical links %s -> %s: %w", legacy.id, newID, err)
+		}
+		if _, err := tx.Exec(`DELETE FROM canonical_games WHERE id = ?`, legacy.id); err != nil {
+			return fmt.Errorf("delete legacy canonical game %s: %w", legacy.id, err)
+		}
+	}
+
+	if _, err := tx.Exec(`
+		DELETE FROM canonical_games
+		WHERE id LIKE 'scan:%'
+		  AND id NOT IN (SELECT DISTINCT canonical_id FROM canonical_source_games_link)
+	`); err != nil {
+		return fmt.Errorf("cleanup orphaned legacy canonical ids: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit canonical id migration: %w", err)
+	}
+
+	if len(legacyIDs) > 0 {
+		s.logger.Info("migrated legacy canonical ids", "count", len(legacyIDs))
+	}
+	return nil
 }

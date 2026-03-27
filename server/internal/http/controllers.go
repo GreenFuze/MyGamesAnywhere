@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -72,6 +73,18 @@ type GameController struct {
 
 func NewGameController(gameStore core.GameStore, logger core.Logger) *GameController {
 	return &GameController{gameStore: gameStore, logger: logger}
+}
+
+func decodedPathParam(r *http.Request, key string) (string, error) {
+	value := chi.URLParam(r, key)
+	if value == "" {
+		return "", nil
+	}
+	decoded, err := url.PathUnescape(value)
+	if err != nil {
+		return "", fmt.Errorf("invalid path parameter %q: %w", key, err)
+	}
+	return decoded, nil
 }
 
 // ListGames returns a page of canonical games as full detail rows (GET /api/games).
@@ -169,7 +182,11 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 
 // Get returns one canonical game by ID (GET /api/games/{id}) as full detail — same JSON as GET /api/games/{id}/detail and each list item.
 func (c *GameController) Get(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	id, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if id == "" {
 		http.Error(w, "id is required", http.StatusBadRequest)
 		return
@@ -191,7 +208,11 @@ func (c *GameController) Get(w http.ResponseWriter, r *http.Request) {
 
 // GetDetail returns full game metadata and per-source resolver data (GET /api/games/{id}/detail).
 func (c *GameController) GetDetail(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	id, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if id == "" {
 		http.Error(w, "id is required", http.StatusBadRequest)
 		return
@@ -1027,7 +1048,11 @@ type AchievementSetDTO struct {
 
 // GetAchievements fetches achievements on-demand from all capable plugins.
 func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.Request) {
-	gameID := chi.URLParam(r, "id")
+	gameID, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if gameID == "" {
 		http.Error(w, "id is required", http.StatusBadRequest)
 		return

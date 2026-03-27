@@ -269,7 +269,7 @@ type MediaRef struct {
 // CanonicalGame is the merged view of one logical game, computed from
 // one or more SourceGames that share external IDs.
 type CanonicalGame struct {
-	ID          string // canonical_id from the link table
+	ID          string // stable canonical game id from canonical_games/canonical_source_games_link
 	SourceGames []*SourceGame
 
 	// Unified fields (computed, not persisted).
@@ -389,16 +389,16 @@ type GameListItem struct {
 // FoundSourceGame carries the fields needed for metadata re-enrichment
 // without running the discovery phase again.
 type FoundSourceGame struct {
-	ID            string   `json:"id"`
-	IntegrationID string   `json:"integration_id"`
-	PluginID      string   `json:"plugin_id"`
-	ExternalID    string   `json:"external_id"`
-	RawTitle      string   `json:"raw_title"`
-	Platform      Platform `json:"platform"`
-	Kind          GameKind `json:"kind"`
+	ID            string    `json:"id"`
+	IntegrationID string    `json:"integration_id"`
+	PluginID      string    `json:"plugin_id"`
+	ExternalID    string    `json:"external_id"`
+	RawTitle      string    `json:"raw_title"`
+	Platform      Platform  `json:"platform"`
+	Kind          GameKind  `json:"kind"`
 	GroupKind     GroupKind `json:"group_kind"`
-	RootPath      string   `json:"root_path"`
-	URL           string   `json:"url,omitempty"`
+	RootPath      string    `json:"root_path"`
+	URL           string    `json:"url,omitempty"`
 }
 
 // ScanReport stores the result and diff of a completed scan.

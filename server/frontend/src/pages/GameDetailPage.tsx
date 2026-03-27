@@ -1,5 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
   Database,
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
+  ApiError,
   getGame,
   getGameAchievements,
   type AchievementDTO,
@@ -24,6 +25,7 @@ import {
   type ResolverMatchDTO,
   type SourceGameDetailDTO,
 } from '@/api/client'
+import { useRecentPlayed } from '@/hooks/useRecentPlayed'
 import { BrandBadge, BrandIcon } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -236,31 +238,20 @@ function resolverHasField(match: ResolverMatchDTO, field: MetadataField): boolea
   }
 }
 
-function resolverHasUsableMetadata(match: ResolverMatchDTO): boolean {
-  return (
-    resolverHasField(match, 'title') ||
-    resolverHasField(match, 'description') ||
-    resolverHasField(match, 'release_date') ||
-    resolverHasField(match, 'developer') ||
-    resolverHasField(match, 'publisher') ||
-    resolverHasField(match, 'genres') ||
-    resolverHasField(match, 'rating') ||
-    resolverHasField(match, 'max_players')
-  )
-}
+function collectMetadataAttributions(
+  sourceGames: SourceGameDetailDTO[],
+  field: MetadataField,
+): string[] {
+  const matches = sourceGames
+    .flatMap((sourceGame) => sourceGame.resolver_matches)
+    .filter((match) => !match.outvoted && resolverHasField(match, field))
 
-function findMetadataAttribution(sourceGames: SourceGameDetailDTO[], field: MetadataField): ResolverMatchDTO | null {
-  const matches = sourceGames.flatMap((sourceGame) => sourceGame.resolver_matches)
-  const preferred = matches.find(
-    (match) => !match.outvoted && isMetadataPlugin(match.plugin_id) && resolverHasField(match, field),
+  const metadataMatches = matches.filter(
+    (match) => isMetadataPlugin(match.plugin_id) && resolverHasField(match, field),
   )
-  if (preferred) return preferred
+  const relevant = metadataMatches.length > 0 ? metadataMatches : matches
 
-  return (
-    matches.find(
-      (match) => !match.outvoted && resolverHasUsableMetadata(match) && resolverHasField(match, field),
-    ) ?? null
-  )
+  return Array.from(new Set(relevant.map((match) => match.plugin_id)))
 }
 
 function sortAchievementSet(set: AchievementSetDTO): AchievementSetDTO {
@@ -292,22 +283,24 @@ function SourceBadge({ source, className }: { source: string; className?: string
   return <BrandBadge brand={source} label={brandLabel(source, pluginLabel(source))} className={className} />
 }
 
-function AttributionNote({ source, prefix = 'Source' }: { source?: string | null; prefix?: string }) {
-  if (!source) return null
+function AttributionNote({ sources, prefix = 'Source' }: { sources?: string[] | null; prefix?: string }) {
+  if (!sources || sources.length === 0) return null
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-mga-muted">
       <span>{prefix}</span>
-      <SourceBadge source={source} className="bg-mga-bg/80" />
+      {sources.map((source) => (
+        <SourceBadge key={source} source={source} className="bg-mga-bg/80" />
+      ))}
     </div>
   )
 }
 
-function MetaItem({ label, value, attributionSource, attributionPrefix }: { label: string; value: ReactNode; attributionSource?: string | null; attributionPrefix?: string }) {
+function MetaItem({ label, value, attributionSources, attributionPrefix }: { label: string; value: ReactNode; attributionSources?: string[] | null; attributionPrefix?: string }) {
   return (
     <div className="rounded-mga border border-mga-border bg-mga-bg/70 p-3">
       <p className="text-xs font-medium uppercase tracking-wide text-mga-muted">{label}</p>
       <div className="mt-1 text-sm text-mga-text">{value}</div>
-      <AttributionNote source={attributionSource} prefix={attributionPrefix} />
+      <AttributionNote sources={attributionSources} prefix={attributionPrefix} />
     </div>
   )
 }
@@ -565,7 +558,10 @@ export function GameDetailPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { id = '' } = useParams()
+  const queryClient = useQueryClient()
+  const { recordLaunch } = useRecentPlayed()
   const [selectedMedia, setSelectedMedia] = useState<GameMediaDetailDTO | null>(null)
+  const hasRetried404Ref = useRef(false)
 
   const routeState = readGameRouteState(location.state)
   const from = routeState?.from ?? '/library'
@@ -573,7 +569,22 @@ export function GameDetailPage() {
 
   const game = useQuery({
     queryKey: ['game', id],
-    queryFn: () => getGame(id),
+    queryFn: async () => {
+      try {
+        return await getGame(id)
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          error.status === 404 &&
+          !hasRetried404Ref.current
+        ) {
+          hasRetried404Ref.current = true
+          await queryClient.invalidateQueries({ queryKey: ['games'] })
+          return getGame(id)
+        }
+        throw error
+      }
+    },
     enabled: id.length > 0,
   })
 
@@ -598,18 +609,42 @@ export function GameDetailPage() {
   const metadataAttribution = useMemo(() => {
     const sourceGames = gameData?.source_games ?? []
     return {
-      title: findMetadataAttribution(sourceGames, 'title')?.plugin_id ?? null,
-      description: findMetadataAttribution(sourceGames, 'description')?.plugin_id ?? null,
-      release_date: findMetadataAttribution(sourceGames, 'release_date')?.plugin_id ?? null,
-      developer: findMetadataAttribution(sourceGames, 'developer')?.plugin_id ?? null,
-      publisher: findMetadataAttribution(sourceGames, 'publisher')?.plugin_id ?? null,
-      genres: findMetadataAttribution(sourceGames, 'genres')?.plugin_id ?? null,
-      rating: findMetadataAttribution(sourceGames, 'rating')?.plugin_id ?? null,
-      max_players: findMetadataAttribution(sourceGames, 'max_players')?.plugin_id ?? null,
+      title: collectMetadataAttributions(sourceGames, 'title'),
+      description: collectMetadataAttributions(sourceGames, 'description'),
+      release_date: collectMetadataAttributions(sourceGames, 'release_date'),
+      developer: collectMetadataAttributions(sourceGames, 'developer'),
+      publisher: collectMetadataAttributions(sourceGames, 'publisher'),
+      genres: collectMetadataAttributions(sourceGames, 'genres'),
+      rating: collectMetadataAttributions(sourceGames, 'rating'),
+      max_players: collectMetadataAttributions(sourceGames, 'max_players'),
     }
   }, [gameData?.source_games])
   const achievementSets = useMemo(() => (achievements.data ?? []).map(sortAchievementSet), [achievements.data])
   const achievementSummary = useMemo(() => summarizeAchievements(achievementSets), [achievementSets])
+
+  useEffect(() => {
+    hasRetried404Ref.current = false
+  }, [id])
+
+  useEffect(() => {
+    if (!game.data || id.length === 0 || game.data.id === id) return
+    navigate(`/game/${encodeURIComponent(game.data.id)}`, {
+      replace: true,
+      state: location.state,
+    })
+  }, [game.data, id, location.state, navigate])
+
+  const handleLaunchXcloud = () => {
+    if (!game.data?.xcloud_url) return
+    recordLaunch({
+      gameId: game.data.id,
+      title: game.data.title,
+      platform: game.data.platform,
+      coverUrl,
+      launchKind: 'xcloud',
+      launchUrl: game.data.xcloud_url,
+    })
+  }
 
   const handleBack = () => {
     const shouldRestoreScroll = from.startsWith('/play') || from.startsWith('/library')
@@ -680,18 +715,18 @@ export function GameDetailPage() {
 
               <div>
                 <h1 className="text-3xl font-semibold tracking-tight text-mga-text md:text-4xl">{data.title}</h1>
-                <AttributionNote source={metadataAttribution.title} prefix="Title aligned to" />
+                <AttributionNote sources={metadataAttribution.title} prefix="Title aligned to" />
                 <p className="mt-3 max-w-3xl text-sm leading-7 text-mga-muted">
                   {data.description || 'No description is available for this game yet.'}
                 </p>
-                {data.description && <AttributionNote source={metadataAttribution.description} prefix="Description attributed to" />}
+                {data.description && <AttributionNote sources={metadataAttribution.description} prefix="Description attributed to" />}
               </div>
             </div>
 
             <div className="space-y-3">
               <div className="flex flex-wrap gap-3">
                 {data.xcloud_url && (
-                  <a href={data.xcloud_url} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center gap-2 rounded-mga bg-mga-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90">
+                  <a href={data.xcloud_url} target="_blank" rel="noreferrer" onClick={handleLaunchXcloud} className="inline-flex h-10 items-center justify-center gap-2 rounded-mga bg-mga-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90">
                     <BrandIcon brand="xcloud" className="h-4 w-4 invert" />
                     Play on xCloud
                   </a>
@@ -715,18 +750,18 @@ export function GameDetailPage() {
                   </a>
                 )}
               </div>
-              {data.xcloud_url && <AttributionNote source="xcloud" prefix="Streaming target" />}
+              {data.xcloud_url && <AttributionNote sources={['xcloud']} prefix="Streaming target" />}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <MetaItem label="Release Date" value={formatDateValue(data.release_date)} attributionSource={metadataAttribution.release_date} />
-              <MetaItem label="Developer" value={detailValue(data.developer)} attributionSource={metadataAttribution.developer} />
-              <MetaItem label="Publisher" value={detailValue(data.publisher)} attributionSource={metadataAttribution.publisher} />
-              <MetaItem label="Genres" value={data.genres && data.genres.length > 0 ? data.genres.join(', ') : 'Unknown'} attributionSource={metadataAttribution.genres} />
-              <MetaItem label="Rating" value={data.rating ? data.rating.toFixed(1) : 'Unknown'} attributionSource={metadataAttribution.rating} />
-              <MetaItem label="Players" value={data.max_players ? `${data.max_players}` : 'Unknown'} attributionSource={metadataAttribution.max_players} />
-              <MetaItem label="Main Story" value={formatHours(data.completion_time?.main_story)} attributionSource={data.completion_time?.source} attributionPrefix="Estimate from" />
-              <MetaItem label="Completionist" value={formatHours(data.completion_time?.completionist)} attributionSource={data.completion_time?.source} attributionPrefix="Estimate from" />
+              <MetaItem label="Release Date" value={formatDateValue(data.release_date)} attributionSources={metadataAttribution.release_date} />
+              <MetaItem label="Developer" value={detailValue(data.developer)} attributionSources={metadataAttribution.developer} />
+              <MetaItem label="Publisher" value={detailValue(data.publisher)} attributionSources={metadataAttribution.publisher} />
+              <MetaItem label="Genres" value={data.genres && data.genres.length > 0 ? data.genres.join(', ') : 'Unknown'} attributionSources={metadataAttribution.genres} />
+              <MetaItem label="Rating" value={data.rating ? data.rating.toFixed(1) : 'Unknown'} attributionSources={metadataAttribution.rating} />
+              <MetaItem label="Players" value={data.max_players ? `${data.max_players}` : 'Unknown'} attributionSources={metadataAttribution.max_players} />
+              <MetaItem label="Main Story" value={formatHours(data.completion_time?.main_story)} attributionSources={data.completion_time?.source ? [data.completion_time.source] : null} attributionPrefix="Estimate from" />
+              <MetaItem label="Completionist" value={formatHours(data.completion_time?.completionist)} attributionSources={data.completion_time?.source ? [data.completion_time.source] : null} attributionPrefix="Estimate from" />
             </div>
 
             {sources.length > 0 && (
@@ -834,7 +869,7 @@ export function GameDetailPage() {
               <MetaItem label="Files" value={data.files?.length ?? 0} />
               <MetaItem label="Resolver Matches" value={matchCount} />
               <MetaItem label="Root Path" value={data.root_path ?? 'Unknown'} />
-              <MetaItem label="HLTB Main + Extra" value={formatHours(data.completion_time?.main_extra)} attributionSource={data.completion_time?.source} attributionPrefix="Estimate from" />
+              <MetaItem label="HLTB Main + Extra" value={formatHours(data.completion_time?.main_extra)} attributionSources={data.completion_time?.source ? [data.completion_time.source] : null} attributionPrefix="Estimate from" />
               <MetaItem label="HLTB Source" value={data.completion_time?.source ? <SourceBadge source={data.completion_time.source} /> : 'Unknown'} />
             </div>
           </SectionCard>

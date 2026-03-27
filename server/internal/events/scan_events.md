@@ -23,7 +23,7 @@ Events are delivered on `GET /api/events` as Server-Sent Events: each message ha
 | `scan_metadata_started` | Metadata enrichment starting. `game_count`, `resolver_count`. |
 | `scan_metadata_phase` | Phase boundary. `phase`: `identify`, `consensus`, or `fill`. |
 | `scan_metadata_plugin_started` | Resolver IPC call starting. `phase`, `plugin_id`, `batch_size`. |
-| `scan_metadata_game_progress` | Resolver batch progress. `phase`, `plugin_id`, `game_index`, `game_count`, `game_title`. |
+| `scan_metadata_game_progress` | Resolver batch progress emitted after the plugin response is processed. `phase`, `plugin_id`, `game_index`, `game_count`, `game_title`. |
 | `scan_metadata_plugin_complete` | Resolver IPC succeeded. `phase`, `plugin_id`; identify: `matched`, `total`; fill: `filled`, `candidates`. |
 | `scan_metadata_plugin_error` | Resolver IPC failed (non-fatal). `phase`, `plugin_id`, `error`. |
 | `scan_metadata_consensus_complete` | Consensus phase done. `identified`, `unidentified`. |
