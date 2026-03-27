@@ -357,15 +357,15 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 
 - [x] SSE client integration (auto-reconnect, event parsing)
 - [x] Scan progress bar (global, in Integrations tab with deterministic progress + status text)
-- [ ] Toast notification system (non-blocking)
-- [ ] Notification types: scan complete, scan error, integration status change, sync complete
+- [x] Toast notification system (non-blocking)
+- [x] Notification types: scan complete, scan error, integration status change, sync complete
 
 ### Scan Progress Improvements
 *Current progress UI feels stuck during long metadata phases. Add granular per-game events and a visible event log.*
 
-- [ ] **Backend:** `scan_metadata_game_progress` SSE event — `{plugin_id, game_index, game_count, game_title}` emitted per-game during metadata resolver batches (client-agnostic, any consumer can use)
-- [ ] **Frontend:** Rolling event log below progress bar — last 3–5 events as a mini-timeline with timestamps
-- [ ] **Frontend:** Per-game status text during metadata enrichment (e.g. "IGDB: 15/200 — Portal 2")
+- [x] **Backend:** `scan_metadata_game_progress` SSE event — `{plugin_id, game_index, game_count, game_title}` emitted per-game during metadata resolver batches (client-agnostic, any consumer can use)
+- [x] **Frontend:** Rolling event log below progress bar — last 3–5 events as a mini-timeline with timestamps
+- [x] **Frontend:** Per-game status text during metadata enrichment (e.g. "IGDB: 15/200 — Portal 2")
 
 ---
 

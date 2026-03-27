@@ -31,7 +31,11 @@ import { CoverImage } from '@/components/ui/cover-image'
 import { Dialog } from '@/components/ui/dialog'
 import { PlatformIcon } from '@/components/ui/platform-icon'
 import { ProgressBar } from '@/components/ui/progress-bar'
-import { brandLabel } from '@/lib/brands'
+import {
+  brandLabel,
+  resolveBrandDefinition,
+  resolveBrandDefinitionFromUrl,
+} from '@/lib/brands'
 import { inferOriginLabel, readGameRouteState } from '@/lib/gameNavigation'
 import {
   formatHLTB,
@@ -45,6 +49,7 @@ import { cn } from '@/lib/utils'
 const HERO_MEDIA_TYPES = ['screenshot', 'background', 'banner', 'artwork', 'hero', 'cover']
 
 type MetadataField =
+  | 'title'
   | 'description'
   | 'release_date'
   | 'developer'
@@ -59,6 +64,9 @@ type ExternalLinkItem = {
   url: string
   subtitle: string
   source: string
+  host: string
+  actionLabel: string
+  brandId?: string
 }
 
 function hasTextValue(value: string | undefined): boolean {
@@ -80,10 +88,7 @@ function formatDateTimeValue(value: string | undefined): string {
   if (!value) return 'Unknown'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date)
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
 
 function formatHours(value: number | undefined): string {
@@ -100,6 +105,14 @@ function formatBytes(bytes: number): string {
   return `${amount.toFixed(digits)} ${units[exponent]}`
 }
 
+function formatHostname(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, '')
+  } catch {
+    return 'external link'
+  }
+}
+
 function mediaTypeLabel(type: string): string {
   if (!type) return 'Media'
   return type
@@ -109,24 +122,34 @@ function mediaTypeLabel(type: string): string {
     .join(' ')
 }
 
-function isImageMedia(media: GameMediaDetailDTO): boolean {
-  if (media.mime_type?.startsWith('image/')) return true
-  if (media.mime_type?.startsWith('video/')) return false
-  return !['video', 'trailer', 'manual', 'document'].includes(media.type)
-}
-
-function isInlineVideoMedia(media: GameMediaDetailDTO): boolean {
-  return media.mime_type?.startsWith('video/') ?? false
-}
-
-function isPdfMedia(media: GameMediaDetailDTO): boolean {
-  const source = media.local_path ?? media.url
-  return media.mime_type === 'application/pdf' || source.toLowerCase().endsWith('.pdf')
+function urlHasExtension(url: string, extensions: string[]): boolean {
+  return extensions.some((extension) => url.toLowerCase().includes(extension))
 }
 
 function mediaUrl(media: GameMediaDetailDTO): string {
   if (media.local_path) return `/api/media/${media.asset_id}`
   return media.url
+}
+
+function isImageMedia(media: GameMediaDetailDTO): boolean {
+  if (media.mime_type?.startsWith('image/')) return true
+  if (media.mime_type?.startsWith('video/') || media.mime_type?.startsWith('audio/')) return false
+  return !['video', 'trailer', 'manual', 'document', 'audio', 'soundtrack'].includes(media.type)
+}
+
+function isInlineVideoMedia(media: GameMediaDetailDTO): boolean {
+  if (media.mime_type?.startsWith('video/')) return true
+  return urlHasExtension(mediaUrl(media), ['.mp4', '.webm', '.ogg', '.mov'])
+}
+
+function isInlineAudioMedia(media: GameMediaDetailDTO): boolean {
+  if (media.mime_type?.startsWith('audio/')) return true
+  return urlHasExtension(mediaUrl(media), ['.mp3', '.wav', '.ogg', '.m4a', '.flac'])
+}
+
+function isPdfMedia(media: GameMediaDetailDTO): boolean {
+  const source = media.local_path ?? media.url
+  return media.mime_type === 'application/pdf' || source.toLowerCase().endsWith('.pdf')
 }
 
 function selectCoverMedia(media: GameMediaDetailDTO[]): GameMediaDetailDTO | null {
@@ -146,13 +169,22 @@ function buildExternalLinks(externalIds: ExternalIDDTO[] | undefined): ExternalL
 
   const links = externalIds
     .filter((externalId) => typeof externalId.url === 'string' && externalId.url.length > 0)
-    .map((externalId) => ({
-      id: `${externalId.source}:${externalId.external_id}`,
-      label: brandLabel(externalId.source, pluginLabel(externalId.source)),
-      url: externalId.url!,
-      subtitle: externalId.external_id,
-      source: externalId.source,
-    }))
+    .map((externalId) => {
+      const brand =
+        resolveBrandDefinition(externalId.source) ?? resolveBrandDefinitionFromUrl(externalId.url!)
+      const label = brand?.label ?? brandLabel(externalId.source, formatHostname(externalId.url!))
+      return {
+        id: `${externalId.source}:${externalId.external_id}`,
+        label,
+        url: externalId.url!,
+        subtitle: externalId.external_id,
+        source: externalId.source,
+        host: formatHostname(externalId.url!),
+        actionLabel: brand ? `Open in ${brand.label}` : 'Open external link',
+        brandId: brand?.id,
+      }
+    })
+    .sort((a, b) => a.label.localeCompare(b.label) || a.host.localeCompare(b.host))
 
   return Array.from(new Map(links.map((link) => [link.id, link])).values())
 }
@@ -160,6 +192,18 @@ function buildExternalLinks(externalIds: ExternalIDDTO[] | undefined): ExternalL
 function achievementProgress(set: AchievementSetDTO): number {
   if (set.total_count <= 0) return 0
   return (set.unlocked_count / set.total_count) * 100
+}
+
+function summarizeAchievements(sets: AchievementSetDTO[]) {
+  return sets.reduce(
+    (summary, set) => ({
+      totalCount: summary.totalCount + set.total_count,
+      unlockedCount: summary.unlockedCount + set.unlocked_count,
+      totalPoints: summary.totalPoints + (set.total_points ?? 0),
+      earnedPoints: summary.earnedPoints + (set.earned_points ?? 0),
+    }),
+    { totalCount: 0, unlockedCount: 0, totalPoints: 0, earnedPoints: 0 },
+  )
 }
 
 function detailValue(value: string | number | undefined | null): string {
@@ -173,6 +217,8 @@ function isMetadataPlugin(pluginId: string): boolean {
 
 function resolverHasField(match: ResolverMatchDTO, field: MetadataField): boolean {
   switch (field) {
+    case 'title':
+      return hasTextValue(match.title)
     case 'description':
       return hasTextValue(match.description)
     case 'release_date':
@@ -192,6 +238,7 @@ function resolverHasField(match: ResolverMatchDTO, field: MetadataField): boolea
 
 function resolverHasUsableMetadata(match: ResolverMatchDTO): boolean {
   return (
+    resolverHasField(match, 'title') ||
     resolverHasField(match, 'description') ||
     resolverHasField(match, 'release_date') ||
     resolverHasField(match, 'developer') ||
@@ -202,10 +249,7 @@ function resolverHasUsableMetadata(match: ResolverMatchDTO): boolean {
   )
 }
 
-function findMetadataAttribution(
-  sourceGames: SourceGameDetailDTO[],
-  field: MetadataField,
-): ResolverMatchDTO | null {
+function findMetadataAttribution(sourceGames: SourceGameDetailDTO[], field: MetadataField): ResolverMatchDTO | null {
   const matches = sourceGames.flatMap((sourceGame) => sourceGame.resolver_matches)
   const preferred = matches.find(
     (match) => !match.outvoted && isMetadataPlugin(match.plugin_id) && resolverHasField(match, field),
@@ -219,17 +263,22 @@ function findMetadataAttribution(
   )
 }
 
-function SectionCard({
-  title,
-  icon,
-  children,
-}: {
-  title: string
-  icon?: ReactNode
-  children: ReactNode
-}) {
+function sortAchievementSet(set: AchievementSetDTO): AchievementSetDTO {
+  return {
+    ...set,
+    achievements: [...set.achievements].sort((a, b) => {
+      if (a.unlocked !== b.unlocked) return a.unlocked ? -1 : 1
+      if (a.unlocked_at && b.unlocked_at) {
+        return new Date(b.unlocked_at).getTime() - new Date(a.unlocked_at).getTime()
+      }
+      return a.title.localeCompare(b.title)
+    }),
+  }
+}
+
+function SectionCard({ id, title, icon, children }: { id?: string; title: string; icon?: ReactNode; children: ReactNode }) {
   return (
-    <section className="rounded-mga border border-mga-border bg-mga-surface shadow-sm shadow-black/10">
+    <section id={id} className="scroll-mt-28 rounded-mga border border-mga-border bg-mga-surface shadow-sm shadow-black/10">
       <div className="flex items-center gap-2 border-b border-mga-border px-4 py-3">
         {icon}
         <h2 className="text-base font-semibold text-mga-text">{title}</h2>
@@ -240,24 +289,11 @@ function SectionCard({
 }
 
 function SourceBadge({ source, className }: { source: string; className?: string }) {
-  return (
-    <BrandBadge
-      brand={source}
-      label={brandLabel(source, pluginLabel(source))}
-      className={className}
-    />
-  )
+  return <BrandBadge brand={source} label={brandLabel(source, pluginLabel(source))} className={className} />
 }
 
-function AttributionNote({
-  source,
-  prefix = 'Source',
-}: {
-  source?: string | null
-  prefix?: string
-}) {
+function AttributionNote({ source, prefix = 'Source' }: { source?: string | null; prefix?: string }) {
   if (!source) return null
-
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-mga-muted">
       <span>{prefix}</span>
@@ -266,22 +302,25 @@ function AttributionNote({
   )
 }
 
-function MetaItem({
-  label,
-  value,
-  attributionSource,
-  attributionPrefix,
-}: {
-  label: string
-  value: React.ReactNode
-  attributionSource?: string | null
-  attributionPrefix?: string
-}) {
+function MetaItem({ label, value, attributionSource, attributionPrefix }: { label: string; value: ReactNode; attributionSource?: string | null; attributionPrefix?: string }) {
   return (
     <div className="rounded-mga border border-mga-border bg-mga-bg/70 p-3">
       <p className="text-xs font-medium uppercase tracking-wide text-mga-muted">{label}</p>
       <div className="mt-1 text-sm text-mga-text">{value}</div>
       <AttributionNote source={attributionSource} prefix={attributionPrefix} />
+    </div>
+  )
+}
+
+function FileRow({ file }: { file: GameFileDTO }) {
+  return (
+    <div className="rounded-mga border border-mga-border bg-mga-bg/60 p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="muted">{file.role}</Badge>
+        {file.file_kind && <Badge>{file.file_kind}</Badge>}
+        <span className="text-xs text-mga-muted">{formatBytes(file.size)}</span>
+      </div>
+      <p className="mt-2 break-all font-mono text-xs text-mga-text">{file.path}</p>
     </div>
   )
 }
@@ -298,10 +337,7 @@ function AchievementRow({ achievement }: { achievement: AchievementDTO }) {
             alt=""
             loading="lazy"
             decoding="async"
-            className={cn(
-              'h-full w-full object-cover',
-              achievement.unlocked ? '' : 'opacity-70 grayscale',
-            )}
+            className={cn('h-full w-full object-cover', achievement.unlocked ? '' : 'opacity-70 grayscale')}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-mga-muted">
@@ -309,31 +345,55 @@ function AchievementRow({ achievement }: { achievement: AchievementDTO }) {
           </div>
         )}
       </div>
-
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="font-medium text-mga-text">{achievement.title}</p>
-          {achievement.unlocked ? (
-            <Badge variant="accent">Unlocked</Badge>
-          ) : (
-            <Badge variant="muted">Locked</Badge>
-          )}
-          {achievement.points !== undefined && achievement.points > 0 && (
-            <Badge>{achievement.points} pts</Badge>
-          )}
-          {achievement.rarity !== undefined && achievement.rarity > 0 && (
-            <Badge>{achievement.rarity.toFixed(1)}%</Badge>
-          )}
+          {achievement.unlocked ? <Badge variant="accent">Unlocked</Badge> : <Badge variant="muted">Locked</Badge>}
+          {achievement.points !== undefined && achievement.points > 0 && <Badge>{achievement.points} pts</Badge>}
+          {achievement.rarity !== undefined && achievement.rarity > 0 && <Badge>{achievement.rarity.toFixed(1)}%</Badge>}
         </div>
-        {achievement.description && (
-          <p className="text-sm leading-6 text-mga-muted">{achievement.description}</p>
-        )}
-        {achievement.unlocked_at && (
-          <p className="text-xs text-mga-muted">
-            Unlocked {formatDateTimeValue(achievement.unlocked_at)}
-          </p>
+        {achievement.description && <p className="text-sm leading-6 text-mga-muted">{achievement.description}</p>}
+        {achievement.unlocked_at && <p className="text-xs text-mga-muted">Unlocked {formatDateTimeValue(achievement.unlocked_at)}</p>}
+      </div>
+    </div>
+  )
+}
+
+function summarizeResolverMatch(match: ResolverMatchDTO): string[] {
+  const facts: string[] = []
+  if (match.release_date) facts.push(formatDateValue(match.release_date))
+  if (match.developer) facts.push(match.developer)
+  if (match.publisher) facts.push(match.publisher)
+  if (match.genres && match.genres.length > 0) facts.push(match.genres.join(', '))
+  if (match.rating && match.rating > 0) facts.push(`Rating ${match.rating.toFixed(1)}`)
+  if (match.max_players && match.max_players > 0) facts.push(`${match.max_players} players`)
+  if (match.xcloud_available) facts.push('xCloud ready')
+  if (match.is_game_pass) facts.push('Game Pass')
+  return facts
+}
+
+function ResolverMatchRow({ match }: { match: ResolverMatchDTO }) {
+  const facts = summarizeResolverMatch(match)
+
+  return (
+    <div className="rounded-mga border border-mga-border bg-mga-bg/60 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <SourceBadge source={match.plugin_id} />
+        {match.outvoted && <Badge variant="muted">Outvoted</Badge>}
+        {match.xcloud_available && <BrandBadge brand="xcloud" label="xCloud" />}
+        {match.is_game_pass && <Badge variant="gamepass">Game Pass</Badge>}
+        {match.url && (
+          <a href={match.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-mga-accent hover:underline">
+            Open match
+            <ExternalLink size={12} />
+          </a>
         )}
       </div>
+      <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
+        <MetaItem label="Title" value={match.title ?? 'Unknown'} />
+        <MetaItem label="External ID" value={match.external_id} />
+      </div>
+      {facts.length > 0 && <p className="mt-3 text-xs leading-5 text-mga-muted">{facts.join(' • ')}</p>}
     </div>
   )
 }
@@ -346,20 +406,13 @@ function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
           <div className="flex flex-wrap items-center gap-2">
             <SourceBadge source={source.plugin_id} />
             <Badge variant="source">{source.status}</Badge>
-            <Badge variant="platform">
-              <PlatformIcon platform={source.platform} showLabel />
-            </Badge>
+            <Badge variant="platform"><PlatformIcon platform={source.platform} showLabel /></Badge>
           </div>
           <p className="text-sm text-mga-muted">{source.raw_title || source.external_id}</p>
         </div>
 
         {source.url && (
-          <a
-            href={source.url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-mga border border-mga-border bg-mga-surface px-3 py-1.5 text-xs font-medium text-mga-text transition-colors hover:bg-mga-elevated"
-          >
+          <a href={source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-mga border border-mga-border bg-mga-surface px-3 py-1.5 text-xs font-medium text-mga-text transition-colors hover:bg-mga-elevated">
             <BrandIcon brand={source.plugin_id} />
             Open Source
             <ExternalLink size={14} />
@@ -385,10 +438,7 @@ function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
             <p className="text-sm text-mga-muted">No resolver matches stored for this source game.</p>
           ) : (
             source.resolver_matches.map((match) => (
-              <ResolverMatchRow
-                key={`${match.plugin_id}:${match.external_id}:${match.title ?? ''}`}
-                match={match}
-              />
+              <ResolverMatchRow key={`${match.plugin_id}:${match.external_id}:${match.title ?? ''}`} match={match} />
             ))
           )}
         </div>
@@ -402,9 +452,7 @@ function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
           {source.files.length === 0 ? (
             <p className="text-sm text-mga-muted">No files associated with this source game.</p>
           ) : (
-            source.files.map((file) => (
-              <FileRow key={`${file.path}:${file.role}`} file={file} />
-            ))
+            source.files.map((file) => <FileRow key={`${file.path}:${file.role}`} file={file} />)
           )}
         </div>
       </details>
@@ -412,48 +460,38 @@ function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
   )
 }
 
-function ResolverMatchRow({ match }: { match: ResolverMatchDTO }) {
-  return (
-    <div className="rounded-mga border border-mga-border bg-mga-bg/60 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <SourceBadge source={match.plugin_id} />
-        {match.outvoted && <Badge variant="muted">Outvoted</Badge>}
-        {match.url && (
-          <a
-            href={match.url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-xs font-medium text-mga-accent hover:underline"
-          >
-            Open match
-            <ExternalLink size={12} />
-          </a>
-        )}
-      </div>
-      <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
-        <MetaItem label="Title" value={match.title ?? 'Unknown'} />
-        <MetaItem label="External ID" value={match.external_id} />
-      </div>
-    </div>
-  )
-}
+function MediaPreview({ media }: { media: GameMediaDetailDTO }) {
+  const url = mediaUrl(media)
 
-function FileRow({ file }: { file: GameFileDTO }) {
-  return (
-    <div className="rounded-mga border border-mga-border bg-mga-bg/60 p-3 text-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="muted">{file.role}</Badge>
-        {file.file_kind && <Badge>{file.file_kind}</Badge>}
-        <span className="text-xs text-mga-muted">{formatBytes(file.size)}</span>
+  if (isInlineVideoMedia(media)) {
+    return (
+      <video controls preload="metadata" className="max-h-[360px] w-full rounded-mga border border-mga-border bg-black">
+        <source src={url} type={media.mime_type} />
+      </video>
+    )
+  }
+  if (isInlineAudioMedia(media)) {
+    return (
+      <div className="rounded-mga border border-mga-border bg-mga-surface p-4">
+        <audio controls preload="metadata" className="w-full">
+          <source src={url} type={media.mime_type} />
+        </audio>
       </div>
-      <p className="mt-2 break-all font-mono text-xs text-mga-text">{file.path}</p>
+    )
+  }
+  if (isPdfMedia(media)) {
+    return <iframe src={url} title={`${mediaTypeLabel(media.type)} preview`} className="h-[360px] w-full rounded-mga border border-mga-border bg-white" />
+  }
+  return (
+    <div className="flex items-center gap-2 rounded-mga border border-dashed border-mga-border bg-mga-surface px-3 py-4 text-sm text-mga-muted">
+      {media.mime_type?.startsWith('video/') ? <Video size={16} /> : <FileText size={16} />}
+      {`${mediaTypeLabel(media.type)} cannot be previewed inline in the browser. Use the external link above.`}
     </div>
   )
 }
 
 function OtherMediaCard({ media }: { media: GameMediaDetailDTO }) {
   const url = mediaUrl(media)
-
   return (
     <article className="space-y-3 rounded-mga border border-mga-border bg-mga-bg/60 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -461,77 +499,36 @@ function OtherMediaCard({ media }: { media: GameMediaDetailDTO }) {
           <div className="flex flex-wrap items-center gap-2">
             <Badge>{mediaTypeLabel(media.type)}</Badge>
             {media.source && <SourceBadge source={media.source} />}
+            {media.local_path && <Badge variant="muted">Local</Badge>}
           </div>
           <p className="text-sm text-mga-muted">
             {media.mime_type || 'Remote media asset'}
             {media.width && media.height ? ` • ${media.width} × ${media.height}` : ''}
           </p>
         </div>
-
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 text-sm font-medium text-mga-accent hover:underline"
-        >
+        <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium text-mga-accent hover:underline">
           Open media
           <ExternalLink size={14} />
         </a>
       </div>
-
-      {isInlineVideoMedia(media) ? (
-        <video controls preload="metadata" className="max-h-[360px] w-full rounded-mga border border-mga-border bg-black">
-          <source src={url} type={media.mime_type} />
-        </video>
-      ) : isPdfMedia(media) ? (
-        <iframe
-          src={url}
-          title={`${mediaTypeLabel(media.type)} preview`}
-          className="h-[360px] w-full rounded-mga border border-mga-border bg-white"
-        />
-      ) : (
-        <div className="flex items-center gap-2 rounded-mga border border-dashed border-mga-border bg-mga-surface px-3 py-4 text-sm text-mga-muted">
-          {media.mime_type?.startsWith('video/') ? <Video size={16} /> : <FileText size={16} />}
-          Inline preview is not available for this asset. Use the external link above.
-        </div>
-      )}
+      <MediaPreview media={media} />
     </article>
   )
 }
 
-function MediaViewerDialog({
-  media,
-  onClose,
-}: {
-  media: GameMediaDetailDTO | null
-  onClose: () => void
-}) {
+function MediaViewerDialog({ media, onClose }: { media: GameMediaDetailDTO | null; onClose: () => void }) {
   return (
-    <Dialog
-      open={media !== null}
-      onClose={onClose}
-      title={media ? mediaTypeLabel(media.type) : 'Media'}
-      className="max-w-5xl"
-    >
+    <Dialog open={media !== null} onClose={onClose} title={media ? mediaTypeLabel(media.type) : 'Media'} className="max-w-5xl">
       {media && (
         <div className="space-y-4">
           <div className="overflow-hidden rounded-mga border border-mga-border bg-mga-bg">
-            <img
-              src={mediaUrl(media)}
-              alt={mediaTypeLabel(media.type)}
-              className="max-h-[75vh] w-full object-contain"
-            />
+            <img src={mediaUrl(media)} alt={mediaTypeLabel(media.type)} className="max-h-[75vh] w-full object-contain" />
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm text-mga-muted">
             <Badge>{mediaTypeLabel(media.type)}</Badge>
             {media.source && <SourceBadge source={media.source} />}
             {media.width && media.height && <span>{media.width} × {media.height}</span>}
-            <a
-              href={mediaUrl(media)}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 font-medium text-mga-accent hover:underline"
-            >
+            <a href={mediaUrl(media)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-mga-accent hover:underline">
               Open image
               <ExternalLink size={14} />
             </a>
@@ -539,6 +536,28 @@ function MediaViewerDialog({
         </div>
       )}
     </Dialog>
+  )
+}
+
+function ExternalLinkCard({ link }: { link: ExternalLinkItem }) {
+  return (
+    <a href={link.url} target="_blank" rel="noreferrer" className="flex items-start gap-3 rounded-mga border border-mga-border bg-mga-bg/60 p-3 transition-colors hover:border-mga-accent">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-mga border border-mga-border bg-mga-surface">
+        {link.brandId ? <BrandIcon brand={link.brandId} className="h-6 w-6" /> : <ExternalLink size={16} className="text-mga-accent" />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-medium text-mga-text">{link.label}</p>
+          <Badge variant="muted">{link.host}</Badge>
+        </div>
+        <p className="mt-1 truncate text-xs text-mga-muted">{link.subtitle}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <SourceBadge source={link.source} className="bg-mga-surface" />
+          <span className="text-xs font-medium text-mga-accent">{link.actionLabel}</span>
+        </div>
+      </div>
+      <ExternalLink size={16} className="mt-0.5 shrink-0 text-mga-accent" />
+    </a>
   )
 }
 
@@ -566,10 +585,7 @@ export function GameDetailPage() {
 
   const gameData = game.data ?? null
   const imageMedia = useMemo(() => (gameData?.media ?? []).filter(isImageMedia), [gameData?.media])
-  const nonImageMedia = useMemo(
-    () => (gameData?.media ?? []).filter((media) => !isImageMedia(media)),
-    [gameData?.media],
-  )
+  const nonImageMedia = useMemo(() => (gameData?.media ?? []).filter((media) => !isImageMedia(media)), [gameData?.media])
   const coverMedia = useMemo(() => selectCoverMedia(imageMedia), [imageMedia])
   const heroMedia = useMemo(() => selectHeroMedia(imageMedia), [imageMedia])
   const heroUrl = heroMedia ? mediaUrl(heroMedia) : null
@@ -582,6 +598,7 @@ export function GameDetailPage() {
   const metadataAttribution = useMemo(() => {
     const sourceGames = gameData?.source_games ?? []
     return {
+      title: findMetadataAttribution(sourceGames, 'title')?.plugin_id ?? null,
       description: findMetadataAttribution(sourceGames, 'description')?.plugin_id ?? null,
       release_date: findMetadataAttribution(sourceGames, 'release_date')?.plugin_id ?? null,
       developer: findMetadataAttribution(sourceGames, 'developer')?.plugin_id ?? null,
@@ -591,6 +608,8 @@ export function GameDetailPage() {
       max_players: findMetadataAttribution(sourceGames, 'max_players')?.plugin_id ?? null,
     }
   }, [gameData?.source_games])
+  const achievementSets = useMemo(() => (achievements.data ?? []).map(sortAchievementSet), [achievements.data])
+  const achievementSummary = useMemo(() => summarizeAchievements(achievementSets), [achievementSets])
 
   const handleBack = () => {
     const shouldRestoreScroll = from.startsWith('/play') || from.startsWith('/library')
@@ -619,15 +638,14 @@ export function GameDetailPage() {
           {originLabel}
         </Button>
         <div className="rounded-mga border border-red-500/30 bg-red-500/10 p-6">
-          <p className="text-sm text-red-400">
-            {game.isError ? game.error.message : 'Game not found.'}
-          </p>
+          <p className="text-sm text-red-400">{game.isError ? game.error.message : 'Game not found.'}</p>
         </div>
       </div>
     )
   }
 
   const data = game.data
+  const achievementPercent = achievementSummary.totalCount > 0 ? (achievementSummary.unlockedCount / achievementSummary.totalCount) * 100 : 0
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
@@ -639,12 +657,7 @@ export function GameDetailPage() {
       <section className="relative overflow-hidden rounded-mga border border-mga-border bg-mga-surface shadow-lg shadow-black/20">
         {heroUrl && (
           <div className="absolute inset-0">
-            <img
-              src={heroUrl}
-              alt=""
-              className="h-full w-full scale-105 object-cover opacity-30 blur-2xl"
-              aria-hidden="true"
-            />
+            <img src={heroUrl} alt="" className="h-full w-full scale-105 object-cover opacity-30 blur-2xl" aria-hidden="true" />
             <div className="absolute inset-0 bg-gradient-to-br from-mga-bg/90 via-mga-surface/95 to-mga-bg/90" />
           </div>
         )}
@@ -657,9 +670,7 @@ export function GameDetailPage() {
           <div className="space-y-5">
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="platform">
-                  <PlatformIcon platform={data.platform} showLabel />
-                </Badge>
+                <Badge variant="platform"><PlatformIcon platform={data.platform} showLabel /></Badge>
                 {data.xcloud_available && <BrandBadge brand="xcloud" label="xCloud" />}
                 {data.is_game_pass && <Badge variant="gamepass">Game Pass</Badge>}
                 {playable && <Badge variant="playable">Playable Platform</Badge>}
@@ -668,30 +679,19 @@ export function GameDetailPage() {
               </div>
 
               <div>
-                <h1 className="text-3xl font-semibold tracking-tight text-mga-text md:text-4xl">
-                  {data.title}
-                </h1>
-                <p className="mt-2 max-w-3xl text-sm leading-7 text-mga-muted">
+                <h1 className="text-3xl font-semibold tracking-tight text-mga-text md:text-4xl">{data.title}</h1>
+                <AttributionNote source={metadataAttribution.title} prefix="Title aligned to" />
+                <p className="mt-3 max-w-3xl text-sm leading-7 text-mga-muted">
                   {data.description || 'No description is available for this game yet.'}
                 </p>
-                {data.description && (
-                  <AttributionNote
-                    source={metadataAttribution.description}
-                    prefix="Description attributed to"
-                  />
-                )}
+                {data.description && <AttributionNote source={metadataAttribution.description} prefix="Description attributed to" />}
               </div>
             </div>
 
             <div className="space-y-3">
               <div className="flex flex-wrap gap-3">
                 {data.xcloud_url && (
-                  <a
-                    href={data.xcloud_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-mga bg-mga-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
-                  >
+                  <a href={data.xcloud_url} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center gap-2 rounded-mga bg-mga-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90">
                     <BrandIcon brand="xcloud" className="h-4 w-4 invert" />
                     Play on xCloud
                   </a>
@@ -702,60 +702,38 @@ export function GameDetailPage() {
                     Browser Play in Phase 6
                   </div>
                 )}
+                {externalLinks.length > 0 && (
+                  <a href="#external-links" className="inline-flex h-10 items-center justify-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-4 py-2 text-sm font-medium text-mga-text transition-colors hover:bg-mga-elevated">
+                    <ExternalLink size={16} />
+                    External Links
+                  </a>
+                )}
+                {data.source_games.length > 0 && (
+                  <a href="#source-records" className="inline-flex h-10 items-center justify-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-4 py-2 text-sm font-medium text-mga-text transition-colors hover:bg-mga-elevated">
+                    <Database size={16} />
+                    Source Records
+                  </a>
+                )}
               </div>
               {data.xcloud_url && <AttributionNote source="xcloud" prefix="Streaming target" />}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <MetaItem
-                label="Release Date"
-                value={formatDateValue(data.release_date)}
-                attributionSource={metadataAttribution.release_date}
-              />
-              <MetaItem
-                label="Developer"
-                value={detailValue(data.developer)}
-                attributionSource={metadataAttribution.developer}
-              />
-              <MetaItem
-                label="Publisher"
-                value={detailValue(data.publisher)}
-                attributionSource={metadataAttribution.publisher}
-              />
-              <MetaItem
-                label="Genres"
-                value={data.genres && data.genres.length > 0 ? data.genres.join(', ') : 'Unknown'}
-                attributionSource={metadataAttribution.genres}
-              />
-              <MetaItem
-                label="Rating"
-                value={data.rating ? data.rating.toFixed(1) : 'Unknown'}
-                attributionSource={metadataAttribution.rating}
-              />
-              <MetaItem
-                label="Players"
-                value={data.max_players ? `${data.max_players}` : 'Unknown'}
-                attributionSource={metadataAttribution.max_players}
-              />
-              <MetaItem
-                label="Main Story"
-                value={formatHours(data.completion_time?.main_story)}
-                attributionSource={data.completion_time?.source}
-                attributionPrefix="Estimate from"
-              />
-              <MetaItem
-                label="Completionist"
-                value={formatHours(data.completion_time?.completionist)}
-              />
+              <MetaItem label="Release Date" value={formatDateValue(data.release_date)} attributionSource={metadataAttribution.release_date} />
+              <MetaItem label="Developer" value={detailValue(data.developer)} attributionSource={metadataAttribution.developer} />
+              <MetaItem label="Publisher" value={detailValue(data.publisher)} attributionSource={metadataAttribution.publisher} />
+              <MetaItem label="Genres" value={data.genres && data.genres.length > 0 ? data.genres.join(', ') : 'Unknown'} attributionSource={metadataAttribution.genres} />
+              <MetaItem label="Rating" value={data.rating ? data.rating.toFixed(1) : 'Unknown'} attributionSource={metadataAttribution.rating} />
+              <MetaItem label="Players" value={data.max_players ? `${data.max_players}` : 'Unknown'} attributionSource={metadataAttribution.max_players} />
+              <MetaItem label="Main Story" value={formatHours(data.completion_time?.main_story)} attributionSource={data.completion_time?.source} attributionPrefix="Estimate from" />
+              <MetaItem label="Completionist" value={formatHours(data.completion_time?.completionist)} attributionSource={data.completion_time?.source} attributionPrefix="Estimate from" />
             </div>
 
             {sources.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-medium text-mga-text">Sources</p>
                 <div className="flex flex-wrap gap-2">
-                  {sources.map((source) => (
-                    <SourceBadge key={source} source={source} />
-                  ))}
+                  {sources.map((source) => <SourceBadge key={source} source={source} />)}
                 </div>
               </div>
             )}
@@ -765,30 +743,20 @@ export function GameDetailPage() {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr),minmax(320px,0.95fr)]">
         <div className="space-y-6">
-          <SectionCard title="Media Gallery" icon={<ImageIcon size={18} className="text-mga-accent" />}>
+          <SectionCard id="media-gallery" title="Media Gallery" icon={<ImageIcon size={18} className="text-mga-accent" />}>
             {imageMedia.length === 0 ? (
               <p className="text-sm text-mga-muted">No image media is available for this game yet.</p>
             ) : (
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                 {imageMedia.map((media) => (
-                  <button
-                    key={`${media.asset_id}:${media.type}`}
-                    type="button"
-                    onClick={() => setSelectedMedia(media)}
-                    className="group overflow-hidden rounded-mga border border-mga-border bg-mga-bg text-left transition-colors hover:border-mga-accent"
-                  >
-                    <img
-                      src={mediaUrl(media)}
-                      alt={mediaTypeLabel(media.type)}
-                      loading="lazy"
-                      decoding="async"
-                      className="aspect-video w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
-                    />
+                  <button key={`${media.asset_id}:${media.type}`} type="button" onClick={() => setSelectedMedia(media)} className="group overflow-hidden rounded-mga border border-mga-border bg-mga-bg text-left transition-colors hover:border-mga-accent">
+                    <img src={mediaUrl(media)} alt={mediaTypeLabel(media.type)} loading="lazy" decoding="async" className="aspect-video w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
                     <div className="space-y-2 border-t border-mga-border px-3 py-2">
-                      <span className="block truncate text-xs font-medium text-mga-text">
-                        {mediaTypeLabel(media.type)}
-                      </span>
-                      {media.source && <SourceBadge source={media.source} className="bg-mga-surface" />}
+                      <span className="block truncate text-xs font-medium text-mga-text">{mediaTypeLabel(media.type)}</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {media.source && <SourceBadge source={media.source} className="bg-mga-surface" />}
+                        {media.local_path && <Badge variant="muted">Local</Badge>}
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -799,60 +767,44 @@ export function GameDetailPage() {
           {nonImageMedia.length > 0 && (
             <SectionCard title="Other Media" icon={<Video size={18} className="text-mga-accent" />}>
               <div className="space-y-4">
-                {nonImageMedia.map((media) => (
-                  <OtherMediaCard key={`${media.asset_id}:${media.type}`} media={media} />
-                ))}
+                {nonImageMedia.map((media) => <OtherMediaCard key={`${media.asset_id}:${media.type}`} media={media} />)}
               </div>
             </SectionCard>
           )}
 
-          <SectionCard title="Achievements" icon={<Trophy size={18} className="text-mga-accent" />}>
+          <SectionCard id="achievements" title="Achievements" icon={<Trophy size={18} className="text-mga-accent" />}>
             {achievements.isPending ? (
               <p className="text-sm text-mga-muted">Loading achievements...</p>
             ) : achievements.isError ? (
               <div className="rounded-mga border border-red-500/30 bg-red-500/10 p-4">
                 <p className="text-sm text-red-400">{achievements.error.message}</p>
               </div>
-            ) : achievements.data && achievements.data.length > 0 ? (
+            ) : achievementSets.length > 0 ? (
               <div className="space-y-4">
-                {achievements.data.map((set) => (
-                  <div
-                    key={`${set.source}:${set.external_game_id}`}
-                    className="space-y-4 rounded-mga border border-mga-border bg-mga-bg/60 p-4"
-                  >
+                <div className="grid gap-3 md:grid-cols-3">
+                  <MetaItem label="Sources" value={achievementSets.length} />
+                  <MetaItem label="Unlocked" value={`${achievementSummary.unlockedCount}/${achievementSummary.totalCount}`} />
+                  <MetaItem label="Points" value={achievementSummary.totalPoints > 0 ? `${achievementSummary.earnedPoints}/${achievementSummary.totalPoints}` : 'Unknown'} />
+                </div>
+                <ProgressBar value={achievementPercent} label={`${achievementSummary.unlockedCount}/${achievementSummary.totalCount}`} />
+                {achievementSets.map((set) => (
+                  <div key={`${set.source}:${set.external_game_id}`} className="space-y-4 rounded-mga border border-mga-border bg-mga-bg/60 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <SourceBadge source={set.source} />
-                          <span className="text-sm font-medium text-mga-text">
-                            {set.unlocked_count}/{set.total_count} unlocked
-                          </span>
+                          <span className="text-sm font-medium text-mga-text">{set.unlocked_count}/{set.total_count} unlocked</span>
+                          <Badge variant="muted">{Math.round(achievementProgress(set))}% complete</Badge>
                         </div>
-                        <p className="text-xs text-mga-muted">
-                          External game ID: {set.external_game_id}
-                        </p>
+                        <p className="text-xs text-mga-muted">External game ID: {set.external_game_id}</p>
                       </div>
                       <div className="text-right text-sm text-mga-muted">
-                        {set.total_points !== undefined && set.total_points > 0 && (
-                          <p>
-                            {set.earned_points ?? 0}/{set.total_points} points
-                          </p>
-                        )}
+                        {set.total_points !== undefined && set.total_points > 0 && <p>{set.earned_points ?? 0}/{set.total_points} points</p>}
                       </div>
                     </div>
-
-                    <ProgressBar
-                      value={achievementProgress(set)}
-                      label={`${set.unlocked_count}/${set.total_count}`}
-                    />
-
+                    <ProgressBar value={achievementProgress(set)} label={`${set.unlocked_count}/${set.total_count}`} />
                     <div className="space-y-3">
-                      {set.achievements.map((achievement) => (
-                        <AchievementRow
-                          key={`${set.source}:${achievement.external_id}`}
-                          achievement={achievement}
-                        />
-                      ))}
+                      {set.achievements.map((achievement) => <AchievementRow key={`${set.source}:${achievement.external_id}`} achievement={achievement} />)}
                     </div>
                   </div>
                 ))}
@@ -862,21 +814,19 @@ export function GameDetailPage() {
             )}
           </SectionCard>
 
-          <SectionCard title="Source Records" icon={<Database size={18} className="text-mga-accent" />}>
+          <SectionCard id="source-records" title="Source Records" icon={<Database size={18} className="text-mga-accent" />}>
             <div className="space-y-4">
               {data.source_games.length === 0 ? (
                 <p className="text-sm text-mga-muted">No source records are stored for this game.</p>
               ) : (
-                data.source_games.map((source) => (
-                  <SourceRecordCard key={source.id} source={source} />
-                ))
+                data.source_games.map((source) => <SourceRecordCard key={source.id} source={source} />)
               )}
             </div>
           </SectionCard>
         </div>
 
         <div className="space-y-6">
-          <SectionCard title="Library Snapshot" icon={<FolderOpen size={18} className="text-mga-accent" />}>
+          <SectionCard id="quick-facts" title="Quick Facts" icon={<FolderOpen size={18} className="text-mga-accent" />}>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
               <MetaItem label="Canonical ID" value={data.id} />
               <MetaItem label="Source Records" value={data.source_games.length} />
@@ -884,56 +834,23 @@ export function GameDetailPage() {
               <MetaItem label="Files" value={data.files?.length ?? 0} />
               <MetaItem label="Resolver Matches" value={matchCount} />
               <MetaItem label="Root Path" value={data.root_path ?? 'Unknown'} />
-              <MetaItem
-                label="HLTB Main + Extra"
-                value={formatHours(data.completion_time?.main_extra)}
-                attributionSource={data.completion_time?.source}
-                attributionPrefix="Estimate from"
-              />
-              <MetaItem
-                label="HLTB Source"
-                value={
-                  data.completion_time?.source ? (
-                    <SourceBadge source={data.completion_time.source} />
-                  ) : (
-                    'Unknown'
-                  )
-                }
-              />
+              <MetaItem label="HLTB Main + Extra" value={formatHours(data.completion_time?.main_extra)} attributionSource={data.completion_time?.source} attributionPrefix="Estimate from" />
+              <MetaItem label="HLTB Source" value={data.completion_time?.source ? <SourceBadge source={data.completion_time.source} /> : 'Unknown'} />
             </div>
           </SectionCard>
 
           {externalLinks.length > 0 && (
-            <SectionCard title="External Links" icon={<ExternalLink size={18} className="text-mga-accent" />}>
+            <SectionCard id="external-links" title="External Links" icon={<ExternalLink size={18} className="text-mga-accent" />}>
               <div className="space-y-3">
-                {externalLinks.map((link) => (
-                  <a
-                    key={link.id}
-                    href={link.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-start justify-between gap-3 rounded-mga border border-mga-border bg-mga-bg/60 p-3 transition-colors hover:border-mga-accent"
-                  >
-                    <div className="min-w-0 space-y-2">
-                      <SourceBadge source={link.source} />
-                      <div className="min-w-0">
-                        <p className="font-medium text-mga-text">{link.label}</p>
-                        <p className="truncate text-xs text-mga-muted">{link.subtitle}</p>
-                      </div>
-                    </div>
-                    <ExternalLink size={16} className="mt-0.5 shrink-0 text-mga-accent" />
-                  </a>
-                ))}
+                {externalLinks.map((link) => <ExternalLinkCard key={link.id} link={link} />)}
               </div>
             </SectionCard>
           )}
 
-          <SectionCard title="Merged Files" icon={<HardDrive size={18} className="text-mga-accent" />}>
+          <SectionCard id="merged-files" title="Merged Files" icon={<HardDrive size={18} className="text-mga-accent" />}>
             {data.files && data.files.length > 0 ? (
               <div className="space-y-2">
-                {data.files.map((file) => (
-                  <FileRow key={`${file.path}:${file.role}`} file={file} />
-                ))}
+                {data.files.map((file) => <FileRow key={`${file.path}:${file.role}`} file={file} />)}
               </div>
             ) : (
               <p className="text-sm text-mga-muted">No merged files are available for this game.</p>

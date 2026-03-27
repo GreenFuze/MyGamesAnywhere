@@ -2,7 +2,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { SearchProvider } from '@/hooks/useSearchContext'
+import { SSEProvider } from '@/hooks/useSSE'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { AppNotifications } from '@/components/notifications/AppNotifications'
+import { ToastProvider } from '@/components/ui/toast'
 import { AppLayout } from '@/layouts/AppLayout'
 import { HomePage } from '@/pages/HomePage'
 import { AboutPage } from '@/pages/AboutPage'
@@ -23,27 +26,32 @@ const queryClient = new QueryClient({
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <SearchProvider>
-          <BrowserRouter>
-            <ErrorBoundary>
-              <Routes>
-                <Route path="/" element={<AppLayout />}>
-                  <Route index element={<HomePage />} />
-                  <Route path="play" element={<PlayPage />} />
-                  <Route path="library" element={<LibraryPage />} />
-                  <Route path="playable" element={<Navigate to="/play" replace />} />
-                  <Route path="xcloud" element={<Navigate to="/play" replace />} />
-                  <Route path="settings" element={<SettingsPage />} />
-                  <Route path="about" element={<AboutPage />} />
-                </Route>
-                <Route path="/game/:id" element={<GameDetailPage />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </ErrorBoundary>
-          </BrowserRouter>
-        </SearchProvider>
-      </ThemeProvider>
+      <SSEProvider>
+        <ToastProvider>
+          <ThemeProvider>
+            <SearchProvider>
+              <BrowserRouter>
+                <AppNotifications />
+                <ErrorBoundary>
+                  <Routes>
+                    <Route path="/" element={<AppLayout />}>
+                      <Route index element={<HomePage />} />
+                      <Route path="play" element={<PlayPage />} />
+                      <Route path="library" element={<LibraryPage />} />
+                      <Route path="playable" element={<Navigate to="/play" replace />} />
+                      <Route path="xcloud" element={<Navigate to="/play" replace />} />
+                      <Route path="settings" element={<SettingsPage />} />
+                      <Route path="about" element={<AboutPage />} />
+                    </Route>
+                    <Route path="/game/:id" element={<GameDetailPage />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </ErrorBoundary>
+              </BrowserRouter>
+            </SearchProvider>
+          </ThemeProvider>
+        </ToastProvider>
+      </SSEProvider>
     </QueryClientProvider>
   )
 }

@@ -217,6 +217,32 @@ const BRAND_ALIASES = new Map<string, string>([
   ['scummvm', 'scummvm'],
 ])
 
+const BRAND_HOST_ALIASES = new Map<string, string>([
+  ['store.steampowered.com', 'steam'],
+  ['steamcommunity.com', 'steam'],
+  ['xbox.com', 'xbox'],
+  ['www.xbox.com', 'xbox'],
+  ['gog.com', 'gog'],
+  ['www.gog.com', 'gog'],
+  ['igdb.com', 'igdb'],
+  ['www.igdb.com', 'igdb'],
+  ['rawg.io', 'rawg'],
+  ['www.rawg.io', 'rawg'],
+  ['launchbox-app.com', 'launchbox'],
+  ['www.launchbox-app.com', 'launchbox'],
+  ['retroachievements.org', 'retroachievements'],
+  ['www.retroachievements.org', 'retroachievements'],
+  ['thegamesdb.net', 'tgdb'],
+  ['www.thegamesdb.net', 'tgdb'],
+  ['store.epicgames.com', 'epic-games'],
+  ['epicgames.com', 'epic-games'],
+  ['www.epicgames.com', 'epic-games'],
+  ['mamedev.org', 'mame'],
+  ['www.mamedev.org', 'mame'],
+  ['scummvm.org', 'scummvm'],
+  ['www.scummvm.org', 'scummvm'],
+])
+
 export const POWERED_BY_BRAND_IDS = [
   'steam',
   'xbox',
@@ -248,6 +274,18 @@ export function resolveBrandDefinition(value: string | undefined | null): BrandD
   const normalized = normalizeKey(value)
   const alias = BRAND_ALIASES.get(normalized) ?? normalized
   return BRAND_BY_ID.get(alias) ?? null
+}
+
+export function resolveBrandDefinitionFromUrl(url: string | undefined | null): BrandDefinition | null {
+  if (!url) return null
+
+  try {
+    const hostname = new URL(url).hostname.toLowerCase()
+    const alias = BRAND_HOST_ALIASES.get(hostname)
+    return alias ? BRAND_BY_ID.get(alias) ?? null : null
+  } catch {
+    return null
+  }
 }
 
 export function brandLabel(value: string | undefined | null, fallback?: string): string {

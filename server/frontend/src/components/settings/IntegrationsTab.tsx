@@ -37,6 +37,25 @@ type ScanProgress = {
   total: number
 }
 
+type ScanEventLogEntry = {
+  id: string
+  ts: string
+  text: string
+}
+
+function readTimestamp(data: unknown): string {
+  if (data && typeof data === 'object' && typeof (data as { ts?: unknown }).ts === 'string') {
+    return (data as { ts: string }).ts
+  }
+  return new Date().toISOString()
+}
+
+function formatLogTime(ts: string): string {
+  const parsed = new Date(ts)
+  if (Number.isNaN(parsed.getTime())) return ''
+  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -84,6 +103,7 @@ export function IntegrationsTab() {
   const [scanCompletedCount, setScanCompletedCount] = useState(0)
   const [integrationProgress, setIntegrationProgress] = useState<Map<string, ScanProgress>>(new Map())
   const [scanningIds, setScanningIds] = useState<Set<string>>(new Set())
+  const [scanEventLog, setScanEventLog] = useState<ScanEventLogEntry[]>([])
 
   // ── Sync state (absorbed from SyncTab) ──
 
@@ -97,6 +117,14 @@ export function IntegrationsTab() {
   const [wizardOpen, setWizardOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Integration | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Integration | null>(null)
+
+  const appendScanEvent = useCallback((text: string, data?: unknown) => {
+    const ts = readTimestamp(data)
+    setScanEventLog((prev) => {
+      const next = [...prev, { id: `${ts}:${text}`, ts, text }]
+      return next.slice(-5)
+    })
+  }, [])
 
   // ── SSE: Status check events ──
 
@@ -150,6 +178,11 @@ export function IntegrationsTab() {
         setScanTotalCount(d.integration_count ?? 0)
         setScanCompletedCount(0)
         setIntegrationProgress(new Map())
+        setScanEventLog([])
+        appendScanEvent(
+          `Scan started${d.integration_count ? ` for ${d.integration_count} integration${d.integration_count === 1 ? '' : 's'}` : ''}.`,
+          data,
+        )
       }),
 
       subscribe('scan_integration_started', (data: unknown) => {
@@ -163,12 +196,14 @@ export function IntegrationsTab() {
             return next
           })
         }
+        appendScanEvent(`Integration started: ${d.label ?? d.integration_id ?? 'unknown source'}.`, data)
       }),
 
       // Source discovery progress.
       subscribe('scan_source_list_started', (data: unknown) => {
         const d = data as { integration_id?: string; plugin_id?: string }
         setScanStatusText(`Listing files from ${d.plugin_id ?? 'source'}...`)
+        appendScanEvent(`Listing source content from ${d.plugin_id ?? 'source'}.`, data)
       }),
       subscribe('scan_source_list_complete', (data: unknown) => {
         const d = data as { integration_id?: string; file_count?: number; game_count?: number }
@@ -177,16 +212,24 @@ export function IntegrationsTab() {
         } else if (d.game_count) {
           setScanStatusText(`Found ${d.game_count} games`)
         }
+        appendScanEvent(
+          d.file_count
+            ? `Source listing complete: ${d.file_count} files found.`
+            : `Source listing complete: ${d.game_count ?? 0} games found.`,
+          data,
+        )
       }),
 
       // Scanner pipeline progress.
       subscribe('scan_scanner_started', (data: unknown) => {
         const d = data as { file_count?: number }
         setScanStatusText(`Detecting games in ${d.file_count ?? '?'} files...`)
+        appendScanEvent(`Scanner started for ${d.file_count ?? '?'} files.`, data)
       }),
       subscribe('scan_scanner_complete', (data: unknown) => {
         const d = data as { group_count?: number }
         setScanStatusText(`Detected ${d.group_count ?? '?'} games`)
+        appendScanEvent(`Scanner grouped ${d.group_count ?? 0} games.`, data)
       }),
 
       // Metadata enrichment progress.
@@ -194,33 +237,76 @@ export function IntegrationsTab() {
         const d = data as { game_count?: number; resolver_count?: number }
         setScanStatusText(`Enriching ${d.game_count ?? '?'} games with ${d.resolver_count ?? '?'} providers...`)
         setCurrentPhase('metadata')
+        appendScanEvent(
+          `Metadata started for ${d.game_count ?? '?'} games across ${d.resolver_count ?? '?'} providers.`,
+          data,
+        )
       }),
       subscribe('scan_metadata_phase', (data: unknown) => {
         const d = data as { phase?: string }
         const phaseLabel = d.phase === 'identify' ? 'Identifying' : d.phase === 'consensus' ? 'Building consensus' : d.phase === 'fill' ? 'Filling gaps' : d.phase ?? ''
         setCurrentPhase(d.phase ?? '')
         setScanStatusText(`Metadata: ${phaseLabel}...`)
+        appendScanEvent(`Metadata phase: ${phaseLabel || 'working'}.`, data)
       }),
       subscribe('scan_metadata_plugin_started', (data: unknown) => {
         const d = data as { plugin_id?: string; batch_size?: number; phase?: string }
         setScanStatusText(`${d.plugin_id}: looking up ${d.batch_size ?? '?'} games...`)
+        appendScanEvent(`${d.plugin_id ?? 'Provider'} started ${d.phase ?? 'metadata'} for ${d.batch_size ?? '?'} games.`, data)
+      }),
+      subscribe('scan_metadata_game_progress', (data: unknown) => {
+        const d = data as {
+          integration_id?: string
+          plugin_id?: string
+          game_index?: number
+          game_count?: number
+          game_title?: string
+        }
+        setScanStatusText(
+          `${d.plugin_id ?? 'Provider'}: ${d.game_index ?? '?'} / ${d.game_count ?? '?'}${d.game_title ? ` - ${d.game_title}` : ''}`,
+        )
+        if (d.integration_id) {
+          setIntegrationProgress((prev) => {
+            const next = new Map(prev)
+            next.set(d.integration_id!, {
+              progress: d.game_index ?? 0,
+              total: d.game_count ?? 0,
+            })
+            return next
+          })
+        }
+        appendScanEvent(
+          `${d.plugin_id ?? 'Provider'} ${d.game_index ?? '?'} / ${d.game_count ?? '?'}${d.game_title ? ` - ${d.game_title}` : ''}`,
+          data,
+        )
       }),
       subscribe('scan_metadata_plugin_complete', (data: unknown) => {
         const d = data as { plugin_id?: string; matched?: number; total?: number; filled?: number }
         if (d.matched != null) {
           setScanStatusText(`${d.plugin_id}: matched ${d.matched}/${d.total ?? '?'}`)
+          appendScanEvent(`${d.plugin_id ?? 'Provider'} matched ${d.matched}/${d.total ?? '?'}.`, data)
         } else if (d.filled != null) {
           setScanStatusText(`${d.plugin_id}: filled ${d.filled} gaps`)
+          appendScanEvent(`${d.plugin_id ?? 'Provider'} filled ${d.filled} metadata gaps.`, data)
         }
+      }),
+      subscribe('scan_metadata_plugin_error', (data: unknown) => {
+        const d = data as { plugin_id?: string; error?: string }
+        setScanStatusText(`${d.plugin_id ?? 'Provider'} error: ${d.error ?? 'unknown error'}`)
+        appendScanEvent(`${d.plugin_id ?? 'Provider'} error: ${d.error ?? 'unknown error'}.`, data)
       }),
       subscribe('scan_metadata_consensus_complete', (data: unknown) => {
         const d = data as { identified?: number; unidentified?: number }
         setScanStatusText(`Consensus: ${d.identified ?? 0} identified, ${d.unidentified ?? 0} unidentified`)
+        appendScanEvent(
+          `Consensus complete: ${d.identified ?? 0} identified, ${d.unidentified ?? 0} unidentified.`,
+          data,
+        )
       }),
 
       // Per-integration completion.
       subscribe('scan_integration_complete', (data: unknown) => {
-        const d = data as { integration_id?: string; games_found?: number }
+        const d = data as { integration_id?: string; label?: string; games_found?: number }
         if (d.integration_id) {
           setScanningIds((prev) => { const next = new Set(prev); next.delete(d.integration_id!); return next })
           setScanCompletedCount((prev) => prev + 1)
@@ -231,14 +317,19 @@ export function IntegrationsTab() {
             return next
           })
         }
+        appendScanEvent(
+          `Integration complete: ${d.label ?? d.integration_id ?? 'unknown'} (${d.games_found ?? 0} games).`,
+          data,
+        )
       }),
 
       // Scan finished.
-      subscribe('scan_complete', () => {
+      subscribe('scan_complete', (data: unknown) => {
         setScanning(false)
         setCurrentPhase('')
         setScanStatusText('')
         setScanningIds(new Set())
+        appendScanEvent('Scan complete.', data)
         queryClient.invalidateQueries({ queryKey: ['stats'] })
         queryClient.invalidateQueries({ queryKey: ['games'] })
         queryClient.invalidateQueries({ queryKey: ['integration-games'] })
@@ -251,10 +342,11 @@ export function IntegrationsTab() {
         setScanError(d.error ?? 'Scan failed')
         setScanning(false)
         setScanStatusText('')
+        appendScanEvent(`Scan failed: ${d.error ?? 'unknown error'}.`, data)
       }),
     ]
     return () => unsubs.forEach((u) => u())
-  }, [subscribe, queryClient])
+  }, [appendScanEvent, queryClient, subscribe])
 
   // ── SSE: Sync events ──
 
@@ -507,6 +599,18 @@ export function IntegrationsTab() {
           />
           {scanStatusText && (
             <p className="text-xs text-mga-muted truncate">{scanStatusText}</p>
+          )}
+          {scanEventLog.length > 0 && (
+            <div className="space-y-1 border-t border-mga-border/60 pt-2">
+              {scanEventLog.map((entry) => (
+                <div key={entry.id} className="flex items-start gap-2 text-xs text-mga-muted">
+                  <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-mga-accent/80">
+                    {formatLogTime(entry.ts)}
+                  </span>
+                  <span className="min-w-0 flex-1">{entry.text}</span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}

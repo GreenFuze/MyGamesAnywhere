@@ -180,6 +180,15 @@ func (r *MetadataResolver) callPluginIdentify(ctx context.Context, integrationID
 		matched++
 		games[m.Index].ResolverMatches = append(games[m.Index].ResolverMatches, matchToResolver(src.PluginID, m))
 	}
+	for i, query := range queries {
+		r.emitScanEvent(integrationID, "scan_metadata_game_progress", map[string]any{
+			"phase":      "identify",
+			"plugin_id":  src.PluginID,
+			"game_index": i + 1,
+			"game_count": batchSize,
+			"game_title": query.Title,
+		})
+	}
 	r.emitScanEvent(integrationID, "scan_metadata_plugin_complete", map[string]any{
 		"phase":     "identify",
 		"plugin_id": src.PluginID,
@@ -417,6 +426,15 @@ func (r *MetadataResolver) fill(ctx context.Context, integrationID string, games
 					URL:        m.URL,
 				})
 			}
+		}
+		for i, query := range queries {
+			r.emitScanEvent(integrationID, "scan_metadata_game_progress", map[string]any{
+				"phase":      "fill",
+				"plugin_id":  src.PluginID,
+				"game_index": i + 1,
+				"game_count": candidates,
+				"game_title": query.Title,
+			})
 		}
 		r.logger.Info("metadata phase 3", "plugin", src.PluginID, "filled", filled, "candidates", len(entries))
 		r.emitScanEvent(integrationID, "scan_metadata_plugin_complete", map[string]any{
