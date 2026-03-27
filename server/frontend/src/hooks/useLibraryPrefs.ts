@@ -4,6 +4,7 @@ import {
   setFrontendConfig,
   type LibraryPrefs,
 } from '@/api/client'
+import { defaultSections, sanitizeSections } from '@/lib/collectionSections'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -12,9 +13,11 @@ import {
 type LibraryPrefsPage = 'library' | 'play'
 
 const DEFAULTS: LibraryPrefs = {
-  viewMode: 'grid',
+  viewMode: 'accordion',
   sortBy: 'title',
   sortDir: 'asc',
+  sections: defaultSections(),
+  expandedSectionId: null,
 }
 
 // ---------------------------------------------------------------------------
@@ -59,8 +62,12 @@ function extractPrefs(raw: unknown): LibraryPrefs | null {
   const next: LibraryPrefs = { ...DEFAULTS }
   let found = false
 
-  if (source.viewMode === 'grid' || source.viewMode === 'list') {
-    next.viewMode = source.viewMode
+  if (
+    source.viewMode === 'accordion' ||
+    source.viewMode === 'grid' ||
+    source.viewMode === 'list'
+  ) {
+    next.viewMode = source.viewMode === 'list' ? 'grid' : source.viewMode
     found = true
   }
   if (typeof source.sortBy === 'string') {
@@ -69,6 +76,14 @@ function extractPrefs(raw: unknown): LibraryPrefs | null {
   }
   if (source.sortDir === 'asc' || source.sortDir === 'desc') {
     next.sortDir = source.sortDir
+    found = true
+  }
+  if (Array.isArray(source.sections)) {
+    next.sections = sanitizeSections(source.sections)
+    found = true
+  }
+  if (typeof source.expandedSectionId === 'string' || source.expandedSectionId === null) {
+    next.expandedSectionId = source.expandedSectionId
     found = true
   }
 
@@ -148,8 +163,25 @@ export function useLibraryPrefs(page: LibraryPrefsPage) {
     [patchPrefs],
   )
 
+  const setSections = useCallback(
+    (sections: LibraryPrefs['sections']) => patchPrefs({ sections: sanitizeSections(sections) }),
+    [patchPrefs],
+  )
+
+  const setExpandedSectionId = useCallback(
+    (expandedSectionId: string | null) => patchPrefs({ expandedSectionId }),
+    [patchPrefs],
+  )
+
   return useMemo(
-    () => ({ prefs, setViewMode, setSortBy, setSortDir }),
-    [prefs, setViewMode, setSortBy, setSortDir],
+    () => ({
+      prefs,
+      setViewMode,
+      setSortBy,
+      setSortDir,
+      setSections,
+      setExpandedSectionId,
+    }),
+    [prefs, setViewMode, setSortBy, setSortDir, setSections, setExpandedSectionId],
   )
 }

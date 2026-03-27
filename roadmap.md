@@ -217,16 +217,16 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 ### Accordion-Based Browsing
 *Both Play and Library use the same accordion section UI. Each page has its own persisted configuration.*
 
-- [ ] **Default view:** accordion sections, each showing one row of game cards
-- [ ] **"Add Section" button** → pick a grouping field (Platform, Genre, Developer, Publisher, Source, Year) → checklist of values with game counts → selected values become individual accordion sections
-- [ ] **"All Games" section** — special ungrouped option showing every game; serves as default/fallback
-- [ ] **Remove section** (X button on each accordion header); if none remain → auto-fallback to "All Games"
-- [ ] **Single-row preview:** each collapsed accordion shows up to one row of cards with a **"Show More"** card as the last item
-- [ ] **Expand/collapse:** clicking accordion header or "Show More" reveals all games in that section
-- [ ] **Single-expand policy:** expanding one accordion collapses any other expanded accordion
-- [ ] **Empty sections hidden:** sections with 0 matching games are not rendered
-- [ ] **Global search** (top bar) filters within all visible accordions in real-time
-- [ ] **View toggle:** Accordion view (default) vs Grid view (flat full-collection grid)
+- [x] **Default view:** accordion sections, each showing one row of game cards
+- [x] **"Add Section" button** → pick a grouping field (Platform, Genre, Developer, Publisher, Source, Year) → checklist of values with game counts → selected values become individual accordion sections
+- [x] **"All Games" section** — special ungrouped option showing every game; serves as default/fallback
+- [x] **Remove section** (X button on each accordion header); if none remain → auto-fallback to "All Games"
+- [x] **Single-row preview:** each collapsed accordion shows up to one row of cards with a **"Show More"** card as the last item
+- [x] **Expand/collapse:** clicking accordion header or "Show More" reveals all games in that section
+- [x] **Single-expand policy:** expanding one accordion collapses any other expanded accordion
+- [x] **Empty sections hidden:** sections with 0 matching games are not rendered
+- [x] **Global search** (top bar) filters within all visible accordions in real-time
+- [x] **View toggle:** Accordion view (default) vs Grid view (flat full-collection grid)
 - [x] **Persist configuration** per page (Play vs Library) in `FrontendConfig` (server + localStorage)
 
 ### Game Cards (carried from prior work)

@@ -39,7 +39,7 @@ export function AppLayout() {
             <input
               ref={searchRef}
               type="search"
-              placeholder="Search\u2026 (Ctrl+K)"
+              placeholder="Search... (Ctrl+K)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full max-w-md rounded-mga border border-mga-border bg-mga-bg px-3 py-1.5 text-sm text-mga-text placeholder:text-mga-muted focus:outline-none focus:ring-2 focus:ring-mga-accent"

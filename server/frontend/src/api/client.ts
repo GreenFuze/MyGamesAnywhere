@@ -120,11 +120,37 @@ export type CompletionTime = {
   source?: string
 }
 
+export type CollectionViewMode = 'accordion' | 'grid' | 'list'
+
+export type CollectionSectionField =
+  | 'platform'
+  | 'genre'
+  | 'developer'
+  | 'publisher'
+  | 'source'
+  | 'year'
+
+export type CollectionSectionConfig =
+  | {
+      id: string
+      kind: 'all'
+      label: string
+    }
+  | {
+      id: string
+      kind: 'group'
+      field: CollectionSectionField
+      value: string
+      label: string
+    }
+
 /** Persisted library view preferences (stored in /api/config/frontend). */
 export type LibraryPrefs = {
-  viewMode: 'grid' | 'list'
+  viewMode: CollectionViewMode
   sortBy: 'title' | 'release_date' | 'platform' | 'rating'
   sortDir: 'asc' | 'desc'
+  sections: CollectionSectionConfig[]
+  expandedSectionId: string | null
 }
 
 /** Full row (GET /api/games/{id}/detail and each item in GET /api/games). */

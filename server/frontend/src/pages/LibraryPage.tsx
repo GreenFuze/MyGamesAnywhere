@@ -2,10 +2,12 @@ import { useMemo, useState } from 'react'
 import { useSearch } from '@/hooks/useSearchContext'
 import { useLibraryData } from '@/hooks/useLibraryData'
 import { useLibraryPrefs } from '@/hooks/useLibraryPrefs'
+import { CollectionAccordion } from '@/components/library/CollectionAccordion'
 import { LibraryToolbar } from '@/components/library/LibraryToolbar'
 import { FilterBar } from '@/components/library/FilterBar'
 import { GameGrid } from '@/components/library/GameGrid'
-import { GameList } from '@/components/library/GameList'
+import { SectionPickerDialog } from '@/components/library/SectionPickerDialog'
+import { sanitizeSections } from '@/lib/collectionSections'
 import {
   applyScopeFilter,
   DEFAULT_FILTER_STATE,
@@ -42,11 +44,19 @@ interface CollectionPageProps {
 export function CollectionPage({ scope }: CollectionPageProps) {
   const { searchQuery } = useSearch()
   const { data: allGames = [], isPending, isError, error } = useLibraryData()
-  const { prefs, setViewMode, setSortBy, setSortDir } = useLibraryPrefs(scope)
+  const {
+    prefs,
+    setViewMode,
+    setSortBy,
+    setSortDir,
+    setSections,
+    setExpandedSectionId,
+  } = useLibraryPrefs(scope)
 
   // Local filter state (not persisted — session only)
   const [filterState, setFilterState] = useState<FilterState>(DEFAULT_FILTER_STATE)
   const [filterBarOpen, setFilterBarOpen] = useState(false)
+  const [sectionPickerOpen, setSectionPickerOpen] = useState(false)
 
   const scopeGames = useMemo(
     () => applyScopeFilter(allGames, scope),
@@ -101,6 +111,18 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     setSortDir(dir)
   }
 
+  const handleAddSections = (sectionsToAdd: typeof prefs.sections) => {
+    setSections(sanitizeSections([...prefs.sections, ...sectionsToAdd]))
+  }
+
+  const handleRemoveSection = (sectionID: string) => {
+    const next = sanitizeSections(prefs.sections.filter((section) => section.id !== sectionID))
+    setSections(next)
+    if (prefs.expandedSectionId === sectionID || !next.some((section) => section.id === prefs.expandedSectionId)) {
+      setExpandedSectionId(null)
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* Toolbar: title, counts, sort, view toggle, filters button */}
@@ -114,6 +136,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         sortBy={prefs.sortBy}
         sortDir={prefs.sortDir}
         onSortChange={handleSortChange}
+        onAddSection={() => setSectionPickerOpen(true)}
         filterBarOpen={filterBarOpen}
         onFilterBarToggle={() => setFilterBarOpen((v) => !v)}
         activeFilterCount={activeFilterCount}
@@ -128,7 +151,6 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         availableSources={availableSources}
         yearRange={yearRange}
         isOpen={filterBarOpen}
-        onToggle={() => setFilterBarOpen((v) => !v)}
       />
 
       {/* Content */}
@@ -139,12 +161,13 @@ export function CollectionPage({ scope }: CollectionPageProps) {
       {prefs.viewMode === 'grid' ? (
         <GameGrid games={displayedGames} isLoading={isPending} />
       ) : (
-        <GameList
+        <CollectionAccordion
+          sections={prefs.sections}
+          expandedSectionId={prefs.expandedSectionId}
+          onExpandedSectionChange={setExpandedSectionId}
+          onRemoveSection={handleRemoveSection}
           games={displayedGames}
           isLoading={isPending}
-          sortBy={prefs.sortBy}
-          sortDir={prefs.sortDir}
-          onSortChange={handleSortChange}
         />
       )}
 
@@ -158,6 +181,14 @@ export function CollectionPage({ scope }: CollectionPageProps) {
           </p>
         </div>
       )}
+
+      <SectionPickerDialog
+        open={sectionPickerOpen}
+        onClose={() => setSectionPickerOpen(false)}
+        games={scopeGames}
+        existingSections={prefs.sections}
+        onAddSections={handleAddSections}
+      />
     </div>
   )
 }

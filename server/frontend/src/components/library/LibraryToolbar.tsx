@@ -28,6 +28,7 @@ interface LibraryToolbarProps {
   sortBy: LibraryPrefs['sortBy']
   sortDir: LibraryPrefs['sortDir']
   onSortChange: (by: LibraryPrefs['sortBy'], dir: LibraryPrefs['sortDir']) => void
+  onAddSection: () => void
   filterBarOpen: boolean
   onFilterBarToggle: () => void
   activeFilterCount: number
@@ -43,6 +44,7 @@ export function LibraryToolbar({
   sortBy,
   sortDir,
   onSortChange,
+  onAddSection,
   filterBarOpen,
   onFilterBarToggle,
   activeFilterCount,
@@ -91,10 +93,14 @@ export function LibraryToolbar({
         value={viewMode}
         onChange={onViewModeChange}
         options={[
+          { value: 'accordion' as const, label: 'Accordion' },
           { value: 'grid' as const, label: 'Grid' },
-          { value: 'list' as const, label: 'List' },
         ]}
       />
+
+      <Button variant="outline" size="sm" onClick={onAddSection}>
+        Add Section
+      </Button>
 
       {/* Filters toggle */}
       <Button

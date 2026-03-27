@@ -16,7 +16,6 @@ interface FilterBarProps {
   availableSources: string[]
   yearRange: [number, number] | null
   isOpen: boolean
-  onToggle: () => void
 }
 
 // ---------------------------------------------------------------------------
@@ -53,7 +52,6 @@ export function FilterBar({
   availableSources,
   yearRange,
   isOpen,
-  onToggle,
 }: FilterBarProps) {
   const activeCount = countActiveFilters(state)
 
@@ -72,28 +70,19 @@ export function FilterBar({
     })
   }
 
+  if (!isOpen) return null
+
   return (
-    <div>
-      {/* Toggle row — always visible */}
-      <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={onToggle}>
-          Filters
-          {activeCount > 0 && (
-            <Badge variant="accent" className="ml-1">
-              {activeCount}
-            </Badge>
-          )}
-        </Button>
-        {activeCount > 0 && (
+    <div className="space-y-4 rounded-mga border border-mga-border bg-mga-surface p-4">
+      {activeCount > 0 && (
+        <div className="flex items-center justify-end gap-2">
+          <Badge variant="accent">{activeCount} active</Badge>
           <Button variant="ghost" size="sm" onClick={clearAll}>
             Clear all
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Collapsible panel */}
-      {isOpen && (
-        <div className="mt-3 space-y-4 rounded-mga border border-mga-border bg-mga-surface p-4">
           {/* Platforms */}
           {availablePlatforms.length > 0 && (
             <FilterSection label="Platform">
@@ -244,8 +233,6 @@ export function FilterBar({
               />
             </div>
           </FilterSection>
-        </div>
-      )}
     </div>
   )
 }
