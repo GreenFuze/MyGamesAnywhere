@@ -221,6 +221,7 @@ export type GameDetailResponse = {
   xcloud_available?: boolean
   store_product_id?: string
   xcloud_url?: string
+  achievement_summary?: AchievementSummaryDTO
   source_games: SourceGameDetailDTO[]
 }
 
@@ -244,6 +245,14 @@ export type AchievementSetDTO = {
   total_points?: number
   earned_points?: number
   achievements: AchievementDTO[]
+}
+
+export type AchievementSummaryDTO = {
+  source_count: number
+  total_count: number
+  unlocked_count: number
+  total_points?: number
+  earned_points?: number
 }
 
 export type ListGamesResponse = {

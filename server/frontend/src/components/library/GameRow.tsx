@@ -1,4 +1,5 @@
 import type { GameDetailResponse } from '@/api/client'
+import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { BrandBadge } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -50,6 +51,14 @@ export function GameRow({ game }: GameRowProps) {
             <p className="line-clamp-2 text-sm font-medium text-mga-text">{game.title || '\u2014'}</p>
             {secondaryText && (
               <p className="line-clamp-1 text-xs text-mga-muted">{secondaryText}</p>
+            )}
+            {game.achievement_summary && (
+              <AchievementProgressRing
+                summary={game.achievement_summary}
+                size={30}
+                strokeWidth={3}
+                className="mt-2"
+              />
             )}
           </div>
         </div>

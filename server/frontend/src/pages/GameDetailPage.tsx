@@ -154,6 +154,37 @@ function isPdfMedia(media: GameMediaDetailDTO): boolean {
   return media.mime_type === 'application/pdf' || source.toLowerCase().endsWith('.pdf')
 }
 
+function youtubeEmbedUrl(media: GameMediaDetailDTO): string | null {
+  try {
+    const parsed = new URL(mediaUrl(media))
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
+    if (host === 'youtu.be') {
+      const id = parsed.pathname.split('/').filter(Boolean)[0]
+      return id ? `https://www.youtube.com/embed/${id}` : null
+    }
+    if (host === 'youtube.com' || host === 'm.youtube.com') {
+      if (parsed.pathname === '/watch') {
+        const id = parsed.searchParams.get('v')
+        return id ? `https://www.youtube.com/embed/${id}` : null
+      }
+      if (parsed.pathname.startsWith('/embed/')) {
+        return parsed.toString()
+      }
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+function isInlineDocumentMedia(media: GameMediaDetailDTO): boolean {
+  const source = (media.local_path ?? media.url).toLowerCase()
+  const mime = media.mime_type?.toLowerCase() ?? ''
+  if (mime.startsWith('text/')) return true
+  if (mime === 'application/json' || mime === 'application/xml') return true
+  return urlHasExtension(source, ['.txt', '.md', '.markdown', '.html', '.htm', '.json', '.xml', '.csv'])
+}
+
 function selectCoverMedia(media: GameMediaDetailDTO[]): GameMediaDetailDTO | null {
   return media.find((item) => item.type === 'cover') ?? media[0] ?? null
 }
@@ -455,7 +486,19 @@ function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
 
 function MediaPreview({ media }: { media: GameMediaDetailDTO }) {
   const url = mediaUrl(media)
+  const youtubeUrl = youtubeEmbedUrl(media)
 
+  if (youtubeUrl) {
+    return (
+      <iframe
+        src={youtubeUrl}
+        title={`${mediaTypeLabel(media.type)} preview`}
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+        className="h-[360px] w-full rounded-mga border border-mga-border bg-black"
+      />
+    )
+  }
   if (isInlineVideoMedia(media)) {
     return (
       <video controls preload="metadata" className="max-h-[360px] w-full rounded-mga border border-mga-border bg-black">
@@ -475,9 +518,12 @@ function MediaPreview({ media }: { media: GameMediaDetailDTO }) {
   if (isPdfMedia(media)) {
     return <iframe src={url} title={`${mediaTypeLabel(media.type)} preview`} className="h-[360px] w-full rounded-mga border border-mga-border bg-white" />
   }
+  if (isInlineDocumentMedia(media)) {
+    return <iframe src={url} title={`${mediaTypeLabel(media.type)} preview`} className="h-[360px] w-full rounded-mga border border-mga-border bg-mga-surface" />
+  }
   return (
     <div className="flex items-center gap-2 rounded-mga border border-dashed border-mga-border bg-mga-surface px-3 py-4 text-sm text-mga-muted">
-      {media.mime_type?.startsWith('video/') ? <Video size={16} /> : <FileText size={16} />}
+      {youtubeUrl || media.mime_type?.startsWith('video/') ? <Video size={16} /> : <FileText size={16} />}
       {`${mediaTypeLabel(media.type)} cannot be previewed inline in the browser. Use the external link above.`}
     </div>
   )
@@ -625,6 +671,11 @@ export function GameDetailPage() {
   useEffect(() => {
     hasRetried404Ref.current = false
   }, [id])
+
+  useEffect(() => {
+    if (!achievements.isSuccess) return
+    void queryClient.invalidateQueries({ queryKey: ['games'] })
+  }, [achievements.isSuccess, queryClient])
 
   useEffect(() => {
     if (!game.data || id.length === 0 || game.data.id === id) return

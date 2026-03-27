@@ -240,7 +240,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Cover art with lazy loading and placeholder
 - [x] Platform icon badge (Steam, GBA, PS1, Arcade, ScummVM, DOS, etc.)
 - [x] Source badge (which integration found it)
-- [ ] Achievement progress ring (if available) — *deferred to Phase 3 (requires per-game API calls)*
+- [x] Achievement progress ring (if available) — rendered from cached achievement summaries when present
 - [x] HLTB time estimate badge
 - [x] Metadata confidence indicator (number of resolvers matched)
 - [x] "Playable" badge (browser-emulatable platforms)
@@ -274,16 +274,17 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Video embeds when the current media URL is browser-renderable
 - [x] Manuals / documents surfaced with view/open actions
 - [x] Media source attribution
-- [ ] Rich inline handling for every supported video/document format
+- [x] Rich inline handling for every supported video/document format
 
 ### External Links
 - [x] Branded external links for known providers when `external_ids` include URLs
-- [ ] Complete icon coverage for every external link provider
+- [x] Complete icon coverage for every external link provider
 
 ### Achievements
 - [x] Achievement list with icons, descriptions, and per-source groupings
 - [x] Source attribution (RetroAchievements, Steam, Xbox, etc. when source is known)
 - [x] Overall progress bar
+- [x] Achievement unlocked-state normalization and cached summary aggregation (mixed states preserved; `unlocked_count` and `unlocked_at` stay semantically correct)
 
 ### Completion Times
 - [x] HLTB main story / completionist / combined display

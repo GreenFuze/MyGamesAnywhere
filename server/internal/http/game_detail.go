@@ -8,28 +8,37 @@ import (
 
 // GameDetailResponse is the body for GET /api/games/{id}/detail.
 type GameDetailResponse struct {
-	ID              string                `json:"id"`
-	Title           string                `json:"title"`
-	Platform        string                `json:"platform"`
-	Kind            string                `json:"kind"`
-	GroupKind       string                `json:"group_kind,omitempty"`
-	RootPath        string                `json:"root_path,omitempty"`
-	Files           []GameFileDTO         `json:"files,omitempty"`
-	ExternalIDs     []ExternalIDDTO       `json:"external_ids,omitempty"`
-	Description     string                `json:"description,omitempty"`
-	ReleaseDate     string                `json:"release_date,omitempty"`
-	Genres          []string              `json:"genres,omitempty"`
-	Developer       string                `json:"developer,omitempty"`
-	Publisher       string                `json:"publisher,omitempty"`
-	Rating          float64               `json:"rating,omitempty"`
-	MaxPlayers      int                   `json:"max_players,omitempty"`
-	CompletionTime  *core.CompletionTime  `json:"completion_time,omitempty"`
-	Media           []GameMediaDetailDTO  `json:"media,omitempty"`
-	IsGamePass      bool                  `json:"is_game_pass,omitempty"`
-	XcloudAvailable bool                  `json:"xcloud_available,omitempty"`
-	StoreProductID  string                `json:"store_product_id,omitempty"`
-	XcloudURL       string                `json:"xcloud_url,omitempty"`
-	SourceGames     []SourceGameDetailDTO `json:"source_games"`
+	ID                 string                 `json:"id"`
+	Title              string                 `json:"title"`
+	Platform           string                 `json:"platform"`
+	Kind               string                 `json:"kind"`
+	GroupKind          string                 `json:"group_kind,omitempty"`
+	RootPath           string                 `json:"root_path,omitempty"`
+	Files              []GameFileDTO          `json:"files,omitempty"`
+	ExternalIDs        []ExternalIDDTO        `json:"external_ids,omitempty"`
+	Description        string                 `json:"description,omitempty"`
+	ReleaseDate        string                 `json:"release_date,omitempty"`
+	Genres             []string               `json:"genres,omitempty"`
+	Developer          string                 `json:"developer,omitempty"`
+	Publisher          string                 `json:"publisher,omitempty"`
+	Rating             float64                `json:"rating,omitempty"`
+	MaxPlayers         int                    `json:"max_players,omitempty"`
+	CompletionTime     *core.CompletionTime   `json:"completion_time,omitempty"`
+	Media              []GameMediaDetailDTO   `json:"media,omitempty"`
+	IsGamePass         bool                   `json:"is_game_pass,omitempty"`
+	XcloudAvailable    bool                   `json:"xcloud_available,omitempty"`
+	StoreProductID     string                 `json:"store_product_id,omitempty"`
+	XcloudURL          string                 `json:"xcloud_url,omitempty"`
+	AchievementSummary *AchievementSummaryDTO `json:"achievement_summary,omitempty"`
+	SourceGames        []SourceGameDetailDTO  `json:"source_games"`
+}
+
+type AchievementSummaryDTO struct {
+	SourceCount   int `json:"source_count"`
+	TotalCount    int `json:"total_count"`
+	UnlockedCount int `json:"unlocked_count"`
+	TotalPoints   int `json:"total_points,omitempty"`
+	EarnedPoints  int `json:"earned_points,omitempty"`
 }
 
 // GameMediaDetailDTO is one media asset linked to the canonical game.
@@ -86,6 +95,15 @@ func canonicalToGameDetail(cg *core.CanonicalGame) GameDetailResponse {
 		StoreProductID:  cg.StoreProductID,
 		XcloudURL:       cg.XcloudURL,
 		SourceGames:     make([]SourceGameDetailDTO, 0, len(cg.SourceGames)),
+	}
+	if cg.AchievementSummary != nil {
+		out.AchievementSummary = &AchievementSummaryDTO{
+			SourceCount:   cg.AchievementSummary.SourceCount,
+			TotalCount:    cg.AchievementSummary.TotalCount,
+			UnlockedCount: cg.AchievementSummary.UnlockedCount,
+			TotalPoints:   cg.AchievementSummary.TotalPoints,
+			EarnedPoints:  cg.AchievementSummary.EarnedPoints,
+		}
 	}
 
 	for _, sg := range cg.SourceGames {

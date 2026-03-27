@@ -108,18 +108,18 @@ type appDetailWrapper struct {
 }
 
 type appDetails struct {
-	Type             string          `json:"type"`
-	Name             string          `json:"name"`
-	AppID            int             `json:"steam_appid"`
-	ShortDescription string          `json:"short_description"`
-	HeaderImage      string          `json:"header_image"`
-	Developers       []string        `json:"developers"`
-	Publishers       []string        `json:"publishers"`
-	Metacritic       *metacriticInfo `json:"metacritic"`
-	Genres           []genreInfo     `json:"genres"`
+	Type             string           `json:"type"`
+	Name             string           `json:"name"`
+	AppID            int              `json:"steam_appid"`
+	ShortDescription string           `json:"short_description"`
+	HeaderImage      string           `json:"header_image"`
+	Developers       []string         `json:"developers"`
+	Publishers       []string         `json:"publishers"`
+	Metacritic       *metacriticInfo  `json:"metacritic"`
+	Genres           []genreInfo      `json:"genres"`
 	Screenshots      []screenshotInfo `json:"screenshots"`
-	Movies           []movieInfo     `json:"movies"`
-	ReleaseDate      releaseDateInfo `json:"release_date"`
+	Movies           []movieInfo      `json:"movies"`
+	ReleaseDate      releaseDateInfo  `json:"release_date"`
 }
 
 type metacriticInfo struct {
@@ -148,8 +148,8 @@ type releaseDateInfo struct {
 
 type playerAchievementsResponse struct {
 	PlayerStats struct {
-		SteamID  string            `json:"steamID"`
-		GameName string            `json:"gameName"`
+		SteamID      string              `json:"steamID"`
+		GameName     string              `json:"gameName"`
 		Achievements []playerAchievement `json:"achievements"`
 	} `json:"playerstats"`
 }
@@ -170,11 +170,11 @@ type schemaResponse struct {
 }
 
 type schemaAchievement struct {
-	Name         string `json:"name"`
-	DisplayName  string `json:"displayName"`
-	Description  string `json:"description"`
-	Icon         string `json:"icon"`
-	IconGray     string `json:"icongray"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description"`
+	Icon        string `json:"icon"`
+	IconGray    string `json:"icongray"`
 }
 
 type globalAchievementResponse struct {
@@ -490,6 +490,34 @@ type achievementEntry struct {
 	UnlockedAt   int64   `json:"unlocked_at,omitempty"`
 }
 
+func buildSteamAchievementEntries(
+	schemaAchievements []schemaAchievement,
+	playerMap map[string]playerAchievement,
+	globalRarity map[string]float64,
+) ([]achievementEntry, int) {
+	achievements := make([]achievementEntry, 0, len(schemaAchievements))
+	unlocked := 0
+	for _, sa := range schemaAchievements {
+		entry := achievementEntry{
+			ExternalID:   sa.Name,
+			Title:        sa.DisplayName,
+			Description:  sa.Description,
+			LockedIcon:   sa.IconGray,
+			UnlockedIcon: sa.Icon,
+		}
+		if r, ok := globalRarity[sa.Name]; ok {
+			entry.Rarity = r
+		}
+		if pa, ok := playerMap[sa.Name]; ok && pa.Achieved == 1 {
+			entry.Unlocked = true
+			entry.UnlockedAt = pa.UnlockTime
+			unlocked++
+		}
+		achievements = append(achievements, entry)
+	}
+	return achievements, unlocked
+}
+
 func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 	var p struct {
 		ExternalGameID string `json:"external_game_id"`
@@ -542,26 +570,7 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 
 	globalRarity, _ := fetchGlobalAchievements(appID)
 
-	achievements := make([]achievementEntry, 0, len(schema.Game.Stats.Achievements))
-	unlocked := 0
-	for _, sa := range schema.Game.Stats.Achievements {
-		entry := achievementEntry{
-			ExternalID:   sa.Name,
-			Title:        sa.DisplayName,
-			Description:  sa.Description,
-			LockedIcon:   sa.IconGray,
-			UnlockedIcon: sa.Icon,
-		}
-		if r, ok := globalRarity[sa.Name]; ok {
-			entry.Rarity = r
-		}
-		if pa, ok := playerMap[sa.Name]; ok && pa.Achieved == 1 {
-			entry.Unlocked = true
-			entry.UnlockedAt = pa.UnlockTime
-			unlocked++
-		}
-		achievements = append(achievements, entry)
-	}
+	achievements, unlocked := buildSteamAchievementEntries(schema.Game.Stats.Achievements, playerMap, globalRarity)
 
 	log.Printf("achievements for appid %d: %d/%d unlocked", appID, unlocked, len(achievements))
 
@@ -772,4 +781,3 @@ func main() {
 		os.Stdout.Write(out)
 	}
 }
-

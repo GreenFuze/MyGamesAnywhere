@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
@@ -1046,6 +1047,175 @@ type AchievementSetDTO struct {
 	Achievements   []AchievementDTO `json:"achievements"`
 }
 
+type rawAchievementPluginEntry struct {
+	ExternalID   string  `json:"external_id"`
+	Title        string  `json:"title"`
+	Description  string  `json:"description"`
+	LockedIcon   string  `json:"locked_icon"`
+	UnlockedIcon string  `json:"unlocked_icon"`
+	Points       int     `json:"points"`
+	Rarity       float64 `json:"rarity"`
+	Unlocked     bool    `json:"unlocked"`
+	UnlockedAt   any     `json:"unlocked_at"`
+}
+
+type rawAchievementPluginResult struct {
+	Source         string                      `json:"source"`
+	ExternalGameID string                      `json:"external_game_id"`
+	TotalCount     int                         `json:"total_count"`
+	UnlockedCount  int                         `json:"unlocked_count"`
+	TotalPoints    int                         `json:"total_points"`
+	EarnedPoints   int                         `json:"earned_points"`
+	Achievements   []rawAchievementPluginEntry `json:"achievements"`
+}
+
+func parseAchievementUnlockedAt(raw any) (time.Time, bool) {
+	switch v := raw.(type) {
+	case nil:
+		return time.Time{}, false
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return time.Time{}, false
+		}
+		if numeric, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+			return unixAchievementTime(numeric)
+		}
+		if parsed, err := time.Parse(time.RFC3339, trimmed); err == nil {
+			return parsed.UTC(), true
+		}
+		if parsed, err := time.Parse(time.RFC3339Nano, trimmed); err == nil {
+			return parsed.UTC(), true
+		}
+		if parsed, err := time.Parse("2006-01-02 15:04:05", trimmed); err == nil {
+			return parsed.UTC(), true
+		}
+		return time.Time{}, false
+	case float64:
+		return unixAchievementTime(int64(v))
+	case int64:
+		return unixAchievementTime(v)
+	case int:
+		return unixAchievementTime(int64(v))
+	default:
+		return time.Time{}, false
+	}
+}
+
+func unixAchievementTime(raw int64) (time.Time, bool) {
+	if raw <= 0 {
+		return time.Time{}, false
+	}
+	seconds := raw
+	if raw > 9999999999 {
+		seconds = raw / 1000
+	}
+	return time.Unix(seconds, 0).UTC(), true
+}
+
+func normalizeAchievementResult(pluginID, externalGameID string, raw rawAchievementPluginResult, fetchedAt time.Time) (*core.AchievementSet, AchievementSetDTO) {
+	source := raw.Source
+	if source == "" {
+		source = pluginID
+	}
+	canonicalExternalGameID := raw.ExternalGameID
+	if canonicalExternalGameID == "" {
+		canonicalExternalGameID = externalGameID
+	}
+
+	set := &core.AchievementSet{
+		Source:         source,
+		ExternalGameID: canonicalExternalGameID,
+		Achievements:   make([]core.Achievement, 0, len(raw.Achievements)),
+		FetchedAt:      fetchedAt.UTC(),
+	}
+	dto := AchievementSetDTO{
+		Source:         source,
+		ExternalGameID: canonicalExternalGameID,
+		Achievements:   make([]AchievementDTO, 0, len(raw.Achievements)),
+	}
+
+	for _, a := range raw.Achievements {
+		unlockedAt, hasUnlockedAt := parseAchievementUnlockedAt(a.UnlockedAt)
+		if !a.Unlocked {
+			unlockedAt = time.Time{}
+			hasUnlockedAt = false
+		}
+
+		achievement := core.Achievement{
+			ExternalID:   a.ExternalID,
+			Title:        a.Title,
+			Description:  a.Description,
+			LockedIcon:   a.LockedIcon,
+			UnlockedIcon: a.UnlockedIcon,
+			Points:       a.Points,
+			Rarity:       a.Rarity,
+			Unlocked:     a.Unlocked,
+		}
+		if hasUnlockedAt {
+			achievement.UnlockedAt = unlockedAt
+		}
+		set.Achievements = append(set.Achievements, achievement)
+
+		dtoAchievement := AchievementDTO{
+			ExternalID:   a.ExternalID,
+			Title:        a.Title,
+			Description:  a.Description,
+			LockedIcon:   a.LockedIcon,
+			UnlockedIcon: a.UnlockedIcon,
+			Points:       a.Points,
+			Rarity:       a.Rarity,
+			Unlocked:     a.Unlocked,
+		}
+		if hasUnlockedAt {
+			dtoAchievement.UnlockedAt = unlockedAt.Format(time.RFC3339)
+		}
+		dto.Achievements = append(dto.Achievements, dtoAchievement)
+
+		set.TotalCount++
+		dto.TotalCount++
+		if a.Points > 0 {
+			set.TotalPoints += a.Points
+			dto.TotalPoints += a.Points
+		}
+		if a.Unlocked {
+			set.UnlockedCount++
+			dto.UnlockedCount++
+			if a.Points > 0 {
+				set.EarnedPoints += a.Points
+				dto.EarnedPoints += a.Points
+			}
+		}
+	}
+
+	return set, dto
+}
+
+func findAchievementCacheSourceGameID(game *core.CanonicalGame, source, externalGameID string) string {
+	for _, sg := range game.SourceGames {
+		if sg == nil || sg.Status != "found" {
+			continue
+		}
+		if sg.PluginID == source && sg.ExternalID == externalGameID {
+			return sg.ID
+		}
+	}
+	for _, sg := range game.SourceGames {
+		if sg == nil || sg.Status != "found" {
+			continue
+		}
+		for _, match := range sg.ResolverMatches {
+			if match.Outvoted {
+				continue
+			}
+			if match.PluginID == source && match.ExternalID == externalGameID {
+				return sg.ID
+			}
+		}
+	}
+	return ""
+}
+
 // GetAchievements fetches achievements on-demand from all capable plugins.
 func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.Request) {
 	gameID, err := decodedPathParam(r, "id")
@@ -1097,25 +1267,7 @@ func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.R
 			continue
 		}
 
-		var result struct {
-			Source         string `json:"source"`
-			ExternalGameID string `json:"external_game_id"`
-			TotalCount     int    `json:"total_count"`
-			UnlockedCount  int    `json:"unlocked_count"`
-			TotalPoints    int    `json:"total_points"`
-			EarnedPoints   int    `json:"earned_points"`
-			Achievements   []struct {
-				ExternalID   string  `json:"external_id"`
-				Title        string  `json:"title"`
-				Description  string  `json:"description"`
-				LockedIcon   string  `json:"locked_icon"`
-				UnlockedIcon string  `json:"unlocked_icon"`
-				Points       int     `json:"points"`
-				Rarity       float64 `json:"rarity"`
-				Unlocked     bool    `json:"unlocked"`
-				UnlockedAt   any     `json:"unlocked_at"`
-			} `json:"achievements"`
-		}
+		var result rawAchievementPluginResult
 
 		params := map[string]any{"external_game_id": extID}
 		checked++
@@ -1132,35 +1284,11 @@ func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.R
 			continue
 		}
 
-		dto := AchievementSetDTO{
-			Source:         result.Source,
-			ExternalGameID: result.ExternalGameID,
-			TotalCount:     result.TotalCount,
-			UnlockedCount:  result.UnlockedCount,
-			TotalPoints:    result.TotalPoints,
-			EarnedPoints:   result.EarnedPoints,
-		}
-		for _, a := range result.Achievements {
-			unlockedAt := ""
-			switch v := a.UnlockedAt.(type) {
-			case string:
-				unlockedAt = v
-			case float64:
-				if v > 0 {
-					unlockedAt = fmt.Sprintf("%d", int64(v))
-				}
+		set, dto := normalizeAchievementResult(pluginID, extID, result, time.Now())
+		if sourceGameID := findAchievementCacheSourceGameID(game, set.Source, set.ExternalGameID); sourceGameID != "" {
+			if err := c.gameStore.CacheAchievements(ctx, sourceGameID, set); err != nil {
+				c.logger.Error("cache achievements", err, "plugin_id", pluginID, "game_id", gameID, "source_game_id", sourceGameID)
 			}
-			dto.Achievements = append(dto.Achievements, AchievementDTO{
-				ExternalID:   a.ExternalID,
-				Title:        a.Title,
-				Description:  a.Description,
-				LockedIcon:   a.LockedIcon,
-				UnlockedIcon: a.UnlockedIcon,
-				Points:       a.Points,
-				Rarity:       a.Rarity,
-				Unlocked:     a.Unlocked,
-				UnlockedAt:   unlockedAt,
-			})
 		}
 		sets = append(sets, dto)
 	}

@@ -1394,7 +1394,52 @@ func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonica
 	}
 	cg.ExternalIDs = eids
 
+	summary, err := s.loadCanonicalAchievementSummary(ctx, db, canonicalID)
+	if err != nil {
+		return nil, err
+	}
+	cg.AchievementSummary = summary
+
 	return cg, nil
+}
+
+func (s *gameStore) loadCanonicalAchievementSummary(ctx context.Context, db *sql.DB, canonicalID string) (*core.AchievementSummary, error) {
+	rows, err := db.QueryContext(ctx, `SELECT s.source, s.external_game_id, s.total_count, s.unlocked_count, s.total_points, s.earned_points
+		FROM achievement_sets s
+		JOIN canonical_source_games_link l ON l.source_game_id = s.source_game_id
+		WHERE l.canonical_id=?
+		ORDER BY s.fetched_at DESC, s.id DESC`, canonicalID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	summary := &core.AchievementSummary{}
+	seen := make(map[string]bool)
+	for rows.Next() {
+		var source, externalGameID string
+		var totalCount, unlockedCount, totalPoints, earnedPoints int
+		if err := rows.Scan(&source, &externalGameID, &totalCount, &unlockedCount, &totalPoints, &earnedPoints); err != nil {
+			return nil, err
+		}
+		key := source + "|" + externalGameID
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		summary.SourceCount++
+		summary.TotalCount += totalCount
+		summary.UnlockedCount += unlockedCount
+		summary.TotalPoints += totalPoints
+		summary.EarnedPoints += earnedPoints
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if summary.SourceCount == 0 {
+		return nil, nil
+	}
+	return summary, nil
 }
 
 // computeUnifiedView fills the canonical game's unified fields from its source games' resolver matches.

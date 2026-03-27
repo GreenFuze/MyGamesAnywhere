@@ -55,24 +55,24 @@ var rateLimiter = time.NewTicker(250 * time.Millisecond)
 // Platform -> RA console ID mapping.
 // RA uses numeric console IDs; a single platform may map to multiple.
 var platformToConsoleIDs = map[string][]int{
-	"gba":      {5},
-	"gbc":      {6},
-	"gb":       {4},
-	"nes":      {7},
-	"snes":     {3},
-	"n64":      {2},
-	"nds":      {18},
-	"ps1":      {12},
-	"ps2":      {21},
-	"psp":      {41},
-	"arcade":   {27},
-	"genesis":  {1},
+	"gba":       {5},
+	"gbc":       {6},
+	"gb":        {4},
+	"nes":       {7},
+	"snes":      {3},
+	"n64":       {2},
+	"nds":       {18},
+	"ps1":       {12},
+	"ps2":       {21},
+	"psp":       {41},
+	"arcade":    {27},
+	"genesis":   {1},
 	"megadrive": {1},
-	"sms":      {11},
-	"ms_dos":   {},
-	"xbox_360": {},
-	"scummvm":  {},
-	"ps3":      {},
+	"sms":       {11},
+	"ms_dos":    {},
+	"xbox_360":  {},
+	"scummvm":   {},
+	"ps3":       {},
 }
 
 // IPC metadata request/response types (matching the server's contract).
@@ -117,44 +117,44 @@ type lookupResult struct {
 // RA API response types.
 
 type raGameListEntry struct {
-	Title       string `json:"Title"`
-	ID          int    `json:"ID"`
-	ConsoleID   int    `json:"ConsoleID"`
-	ConsoleName string `json:"ConsoleName"`
-	ImageIcon   string `json:"ImageIcon"`
-	NumAchievements int `json:"NumAchievements"`
+	Title           string `json:"Title"`
+	ID              int    `json:"ID"`
+	ConsoleID       int    `json:"ConsoleID"`
+	ConsoleName     string `json:"ConsoleName"`
+	ImageIcon       string `json:"ImageIcon"`
+	NumAchievements int    `json:"NumAchievements"`
 }
 
 type raGameExtended struct {
-	ID              int                    `json:"ID"`
-	Title           string                 `json:"Title"`
-	ConsoleID       int                    `json:"ConsoleID"`
-	ConsoleName     string                 `json:"ConsoleName"`
-	Genre           string                 `json:"Genre"`
-	Developer       string                 `json:"Developer"`
-	Publisher       string                 `json:"Publisher"`
-	Released        string                 `json:"Released"`
-	ImageIcon       string                 `json:"ImageIcon"`
-	ImageTitle      string                 `json:"ImageTitle"`
-	ImageIngame     string                 `json:"ImageIngame"`
-	ImageBoxArt     string                 `json:"ImageBoxArt"`
-	RichPresencePatch string               `json:"RichPresencePatch"`
-	NumAchievements int                    `json:"NumAchievements"`
-	NumDistinctPlayersCasual int           `json:"NumDistinctPlayersCasual"`
-	Achievements    map[string]raAchievement `json:"Achievements"`
+	ID                       int                      `json:"ID"`
+	Title                    string                   `json:"Title"`
+	ConsoleID                int                      `json:"ConsoleID"`
+	ConsoleName              string                   `json:"ConsoleName"`
+	Genre                    string                   `json:"Genre"`
+	Developer                string                   `json:"Developer"`
+	Publisher                string                   `json:"Publisher"`
+	Released                 string                   `json:"Released"`
+	ImageIcon                string                   `json:"ImageIcon"`
+	ImageTitle               string                   `json:"ImageTitle"`
+	ImageIngame              string                   `json:"ImageIngame"`
+	ImageBoxArt              string                   `json:"ImageBoxArt"`
+	RichPresencePatch        string                   `json:"RichPresencePatch"`
+	NumAchievements          int                      `json:"NumAchievements"`
+	NumDistinctPlayersCasual int                      `json:"NumDistinctPlayersCasual"`
+	Achievements             map[string]raAchievement `json:"Achievements"`
 }
 
 type raAchievement struct {
-	ID             int    `json:"ID"`
-	Title          string `json:"Title"`
-	Description    string `json:"Description"`
-	Points         int    `json:"Points"`
-	TrueRatio      int    `json:"TrueRatio"`
-	BadgeName      string `json:"BadgeName"`
-	NumAwarded     int    `json:"NumAwarded"`
-	NumAwardedHardcore int `json:"NumAwardedHardcore"`
-	DisplayOrder   int    `json:"DisplayOrder"`
-	DateEarned     string `json:"DateEarned,omitempty"`
+	ID                 int    `json:"ID"`
+	Title              string `json:"Title"`
+	Description        string `json:"Description"`
+	Points             int    `json:"Points"`
+	TrueRatio          int    `json:"TrueRatio"`
+	BadgeName          string `json:"BadgeName"`
+	NumAwarded         int    `json:"NumAwarded"`
+	NumAwardedHardcore int    `json:"NumAwardedHardcore"`
+	DisplayOrder       int    `json:"DisplayOrder"`
+	DateEarned         string `json:"DateEarned,omitempty"`
 	DateEarnedHardcore string `json:"DateEarnedHardcore,omitempty"`
 }
 
@@ -430,30 +430,7 @@ type achievementEntry struct {
 	UnlockedAt   string  `json:"unlocked_at,omitempty"`
 }
 
-func handleAchievementsGet(params json.RawMessage) (any, *Error) {
-	var p struct {
-		ExternalGameID string `json:"external_game_id"`
-	}
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
-	}
-	if p.ExternalGameID == "" {
-		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id required"}
-	}
-	if cfg.APIKey == "" || cfg.Username == "" {
-		return nil, &Error{Code: "NOT_CONFIGURED", Message: "retroachievements plugin not configured"}
-	}
-
-	gameID, err := strconv.Atoi(p.ExternalGameID)
-	if err != nil {
-		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id must be a numeric RA game ID"}
-	}
-
-	game, err := fetchUserGameProgress(gameID)
-	if err != nil {
-		return nil, &Error{Code: "API_ERROR", Message: err.Error()}
-	}
-
+func buildRetroAchievementEntries(game *raGameExtended) ([]achievementEntry, int, int, int) {
 	totalPlayers := game.NumDistinctPlayersCasual
 	achievements := make([]achievementEntry, 0, len(game.Achievements))
 	unlocked := 0
@@ -497,6 +474,35 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 
 		achievements = append(achievements, entry)
 	}
+
+	return achievements, unlocked, totalPoints, earnedPoints
+}
+
+func handleAchievementsGet(params json.RawMessage) (any, *Error) {
+	var p struct {
+		ExternalGameID string `json:"external_game_id"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	if p.ExternalGameID == "" {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id required"}
+	}
+	if cfg.APIKey == "" || cfg.Username == "" {
+		return nil, &Error{Code: "NOT_CONFIGURED", Message: "retroachievements plugin not configured"}
+	}
+
+	gameID, err := strconv.Atoi(p.ExternalGameID)
+	if err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id must be a numeric RA game ID"}
+	}
+
+	game, err := fetchUserGameProgress(gameID)
+	if err != nil {
+		return nil, &Error{Code: "API_ERROR", Message: err.Error()}
+	}
+
+	achievements, unlocked, totalPoints, earnedPoints := buildRetroAchievementEntries(game)
 
 	log.Printf("RA achievements for game %d: %d/%d unlocked, %d/%d points",
 		gameID, unlocked, len(achievements), earnedPoints, totalPoints)

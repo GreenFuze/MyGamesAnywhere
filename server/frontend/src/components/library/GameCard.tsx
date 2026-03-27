@@ -1,4 +1,5 @@
 import type { GameDetailResponse } from '@/api/client'
+import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { BrandBadge } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { CoverImage } from '@/components/ui/cover-image'
@@ -69,6 +70,18 @@ export function GameCard({ game }: GameCardProps) {
           )}
         </div>
 
+        {game.achievement_summary && (
+          <div className="absolute bottom-2 right-2 rounded-full border border-white/10 bg-black/70 p-1.5 backdrop-blur">
+            <AchievementProgressRing
+              summary={game.achievement_summary}
+              size={42}
+              strokeWidth={4}
+              showLabel={false}
+              className="text-white"
+            />
+          </div>
+        )}
+
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 hidden translate-y-2 p-2 opacity-0 transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 sm:block">
           <div className="space-y-2 rounded-mga border border-white/10 bg-black/55 p-2 text-white shadow-lg shadow-black/30 backdrop-blur">
@@ -107,6 +120,14 @@ export function GameCard({ game }: GameCardProps) {
           {game.title || '\u2014'}
         </p>
         <p className="line-clamp-1 text-sm text-mga-muted">{secondaryText}</p>
+        {game.achievement_summary && (
+          <AchievementProgressRing
+            summary={game.achievement_summary}
+            size={34}
+            strokeWidth={4}
+            className="mt-1 md:hidden"
+          />
+        )}
       </div>
     </article>
   )

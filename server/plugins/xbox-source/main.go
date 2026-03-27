@@ -768,29 +768,7 @@ type achievementEntry struct {
 	UnlockedAt   string  `json:"unlocked_at,omitempty"`
 }
 
-func handleAchievementsGet(params json.RawMessage) (any, *Error) {
-	var p struct {
-		ExternalGameID string `json:"external_game_id"`
-	}
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
-	}
-	if p.ExternalGameID == "" {
-		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id required"}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := ensureAuthenticated(ctx); err != nil {
-		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
-	}
-
-	xboxAchs, err := fetchXboxAchievements(ctx, p.ExternalGameID)
-	if err != nil {
-		return nil, &Error{Code: "API_ERROR", Message: err.Error()}
-	}
-
+func buildXboxAchievementEntries(xboxAchs []xboxAchievement) ([]achievementEntry, int, int, int) {
 	achievements := make([]achievementEntry, 0, len(xboxAchs))
 	unlocked := 0
 	totalPoints := 0
@@ -837,6 +815,34 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 
 		achievements = append(achievements, entry)
 	}
+
+	return achievements, unlocked, totalPoints, earnedPoints
+}
+
+func handleAchievementsGet(params json.RawMessage) (any, *Error) {
+	var p struct {
+		ExternalGameID string `json:"external_game_id"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	if p.ExternalGameID == "" {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id required"}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := ensureAuthenticated(ctx); err != nil {
+		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
+	}
+
+	xboxAchs, err := fetchXboxAchievements(ctx, p.ExternalGameID)
+	if err != nil {
+		return nil, &Error{Code: "API_ERROR", Message: err.Error()}
+	}
+
+	achievements, unlocked, totalPoints, earnedPoints := buildXboxAchievementEntries(xboxAchs)
 
 	log.Printf("achievements for Xbox title %s: %d/%d unlocked, %d/%d gamerscore",
 		p.ExternalGameID, unlocked, len(achievements), earnedPoints, totalPoints)

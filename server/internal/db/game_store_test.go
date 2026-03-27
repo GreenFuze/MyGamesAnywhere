@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/google/uuid"
@@ -188,6 +189,55 @@ func TestGetCanonicalGameByIDDoesNotResolveLegacySourceID(t *testing.T) {
 	}
 	if game != nil {
 		t.Fatalf("expected legacy source id lookup to return nil, got %q", game.ID)
+	}
+}
+
+func TestCanonicalGameIncludesCachedAchievementSummary(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	persistBatch(t, ctx, store, makeTestBatch("integration-1", "scan:source-a", "source-a", "Alpha", "match-alpha"))
+
+	canonicalID := canonicalIDForSource(t, ctx, db, "scan:source-a")
+	fetchedAt := time.Unix(1710000000, 0).UTC()
+	if err := store.CacheAchievements(ctx, "scan:source-a", &core.AchievementSet{
+		Source:         "game-source-steam",
+		ExternalGameID: "220",
+		TotalCount:     3,
+		UnlockedCount:  1,
+		TotalPoints:    30,
+		EarnedPoints:   10,
+		Achievements: []core.Achievement{
+			{ExternalID: "a1", Title: "One", Points: 10, Unlocked: true, UnlockedAt: fetchedAt},
+			{ExternalID: "a2", Title: "Two", Points: 10},
+			{ExternalID: "a3", Title: "Three", Points: 10},
+		},
+		FetchedAt: fetchedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	game, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil || game.AchievementSummary == nil {
+		t.Fatal("expected canonical game to include cached achievement summary")
+	}
+	if game.AchievementSummary.SourceCount != 1 {
+		t.Fatalf("source_count = %d, want 1", game.AchievementSummary.SourceCount)
+	}
+	if game.AchievementSummary.TotalCount != 3 {
+		t.Fatalf("total_count = %d, want 3", game.AchievementSummary.TotalCount)
+	}
+	if game.AchievementSummary.UnlockedCount != 1 {
+		t.Fatalf("unlocked_count = %d, want 1", game.AchievementSummary.UnlockedCount)
+	}
+	if game.AchievementSummary.TotalPoints != 30 {
+		t.Fatalf("total_points = %d, want 30", game.AchievementSummary.TotalPoints)
+	}
+	if game.AchievementSummary.EarnedPoints != 10 {
+		t.Fatalf("earned_points = %d, want 10", game.AchievementSummary.EarnedPoints)
 	}
 }
 

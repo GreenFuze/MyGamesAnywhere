@@ -219,6 +219,15 @@ type Achievement struct {
 	UnlockedAt   time.Time `json:"unlocked_at,omitempty"`
 }
 
+// AchievementSummary is a lightweight cached aggregate for a canonical game.
+type AchievementSummary struct {
+	SourceCount   int `json:"source_count"`
+	TotalCount    int `json:"total_count"`
+	UnlockedCount int `json:"unlocked_count"`
+	TotalPoints   int `json:"total_points,omitempty"`
+	EarnedPoints  int `json:"earned_points,omitempty"`
+}
+
 // SourceGame is a game record from a single source integration.
 // "Dark Souls from Steam" and "Dark Souls from GOG" are separate SourceGames.
 type SourceGame struct {
@@ -273,19 +282,20 @@ type CanonicalGame struct {
 	SourceGames []*SourceGame
 
 	// Unified fields (computed, not persisted).
-	Title          string
-	Platform       Platform
-	Kind           GameKind
-	Description    string
-	ReleaseDate    string
-	Genres         []string
-	Developer      string
-	Publisher      string
-	Rating         float64
-	MaxPlayers     int
-	CompletionTime *CompletionTime
-	Media          []MediaRef
-	ExternalIDs    []ExternalID
+	Title              string
+	Platform           Platform
+	Kind               GameKind
+	Description        string
+	ReleaseDate        string
+	Genres             []string
+	Developer          string
+	Publisher          string
+	Rating             float64
+	MaxPlayers         int
+	CompletionTime     *CompletionTime
+	Media              []MediaRef
+	ExternalIDs        []ExternalID
+	AchievementSummary *AchievementSummary
 
 	// Xbox (and similar) flags merged from resolver matches.
 	IsGamePass      bool
