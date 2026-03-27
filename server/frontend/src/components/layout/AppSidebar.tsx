@@ -31,19 +31,29 @@ type SidebarGroup = {
 }
 
 type DesktopSidebarPrefs = {
-  collapsed: boolean
+  collapsedPlatforms: Record<string, boolean>
 }
 
 const SIDEBAR_STORAGE_KEY = 'mga.desktopSidebarPrefs'
 const DEFAULT_SIDEBAR_PREFS: DesktopSidebarPrefs = {
-  collapsed: true,
+  collapsedPlatforms: {},
 }
 
 function extractSidebarPrefs(raw: unknown): DesktopSidebarPrefs | null {
   if (!raw || typeof raw !== 'object') return null
   const source = raw as Record<string, unknown>
-  if (typeof source.collapsed !== 'boolean') return null
-  return { collapsed: source.collapsed }
+  if (!source.collapsedPlatforms || typeof source.collapsedPlatforms !== 'object') {
+    return DEFAULT_SIDEBAR_PREFS
+  }
+
+  const next: Record<string, boolean> = {}
+  for (const [key, value] of Object.entries(source.collapsedPlatforms as Record<string, unknown>)) {
+    if (typeof value === 'boolean') {
+      next[key] = value
+    }
+  }
+
+  return { collapsedPlatforms: next }
 }
 
 function readLocalSidebarPrefs(): DesktopSidebarPrefs {
@@ -79,7 +89,6 @@ export function AppSidebar() {
     readLocalSidebarPrefs(),
   )
   const [sidebarQuery, setSidebarQuery] = useState('')
-  const [collapsedPlatforms, setCollapsedPlatforms] = useState<Record<string, boolean>>({})
 
   const playableGroups = useMemo<SidebarGroup[]>(() => {
     const grouped = new Map<string, GameDetailResponse[]>()
@@ -151,52 +160,43 @@ export function AppSidebar() {
     })()
   }
 
+  const setPlatformCollapsed = (platform: string, collapsed: boolean) => {
+    setSidebarPrefs({
+      collapsedPlatforms: {
+        ...sidebarPrefs.collapsedPlatforms,
+        [platform]: collapsed,
+      },
+    })
+  }
+
   return (
     <aside className="hidden lg:block">
       <div className="sticky top-[7.75rem] space-y-5 rounded-[1.25rem] border border-mga-border bg-mga-surface p-4 shadow-lg shadow-black/10">
         <section className="space-y-3">
-          <button
-            type="button"
-            onClick={() => setSidebarPrefs({ collapsed: !sidebarPrefs.collapsed })}
-            className="flex w-full items-center justify-between gap-3 text-left"
-          >
-            <div className="flex items-center gap-2 text-mga-accent">
-              <PlayCircle size={16} />
-              <span className="text-sm font-semibold uppercase tracking-wide">Playable Games</span>
-            </div>
-            {sidebarPrefs.collapsed ? (
-              <ChevronRight size={16} className="shrink-0 text-mga-muted" />
-            ) : (
-              <ChevronDown size={16} className="text-mga-muted" />
-            )}
-          </button>
+          <div className="flex items-center gap-2 text-mga-accent">
+            <PlayCircle size={16} />
+            <span className="text-sm font-semibold uppercase tracking-wide">Playable Games</span>
+          </div>
 
-          {!sidebarPrefs.collapsed && (
-            <>
-              <input
-                type="search"
-                value={sidebarQuery}
-                onChange={(event) => setSidebarQuery(event.target.value)}
-                placeholder="Filter playable games..."
-                className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text placeholder:text-mga-muted focus:outline-none focus:ring-2 focus:ring-mga-accent"
-                aria-label="Filter playable games"
-              />
+          <input
+            type="search"
+            value={sidebarQuery}
+            onChange={(event) => setSidebarQuery(event.target.value)}
+            placeholder="Filter playable games..."
+            className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text placeholder:text-mga-muted focus:outline-none focus:ring-2 focus:ring-mga-accent"
+            aria-label="Filter playable games"
+          />
 
-              {playableGroups.length > 0 ? (
+          {playableGroups.length > 0 ? (
               <div className="space-y-2">
                 {playableGroups.map((group) => {
-                  const isCollapsed = collapsedPlatforms[group.platform] === true
+                  const isCollapsed = sidebarPrefs.collapsedPlatforms[group.platform] ?? true
 
                   return (
                     <div key={group.platform} className="rounded-mga border border-mga-border bg-mga-bg/70">
                       <button
                         type="button"
-                        onClick={() =>
-                          setCollapsedPlatforms((prev) => ({
-                            ...prev,
-                            [group.platform]: !isCollapsed,
-                          }))
-                        }
+                        onClick={() => setPlatformCollapsed(group.platform, !isCollapsed)}
                         className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
                       >
                         <div className="flex min-w-0 items-center gap-2">
@@ -258,8 +258,6 @@ export function AppSidebar() {
                   ? 'No playable games match that filter.'
                   : 'No playable games are available yet.'}
               </div>
-            )}
-            </>
           )}
         </section>
       </div>

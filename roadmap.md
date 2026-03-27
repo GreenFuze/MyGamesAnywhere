@@ -197,14 +197,15 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 ## Phase 2 — UI Rework & Game Library
 
 ### App Shell Rework
-*Current stage: keep the header/topbar, add a desktop launcher sidebar on browsing routes, and use mobile top-nav fallback until a dedicated mobile drawer exists.*
+*Current stage: keep the header/topbar, use a persistent desktop playable-games sidebar alongside the shell pages, and keep mobile/tablet on the top-nav fallback until a dedicated mobile drawer exists.*
 
 - [x] **Top tab bar:** Logo + horizontal tabs (Home, Play, Library, Settings, About) + search (Ctrl+K) + theme selector
 - [x] Remove the original full-height app-navigation sidebar from the first shell iteration
 - [x] Game detail route (`/game/:id`) renders **outside** the tab layout (back button replaces tabs)
 - [x] Responsive: tabs collapse on narrow viewports (hamburger or scrollable tab strip)
-- [x] **Desktop launcher sidebar:** shown on Home / Play / Library without replacing the main page content model
-- [x] **Desktop tab simplification:** top-level `Play` tab removed only on desktop layouts where the sidebar is present; mobile/tablet keeps the top-nav fallback for now
+- [x] **Persistent desktop playable sidebar:** left rail stays visible across the shell pages and launches actionable games without duplicating app navigation
+- [x] **Desktop tab simplification:** top-level `Play` tab is hidden in desktop layouts where the playable sidebar is present; mobile/tablet keeps the top-nav fallback for now
+- [x] **Sidebar affordances:** desktop sidebar includes a quick filter input and per-platform collapsible groups whose last state is remembered; groups default collapsed on first load
 - [ ] **Recent Played launcher section:** render only when real recent-play data exists; do not synthesize it from scan/title order
 
 ### Navigation & Pages
@@ -212,7 +213,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 | Tab | Route | Content |
 |-----|-------|---------|
 | Home | `/` | Dashboard / hero — keep current for now |
-| Play | `/play` | Actionable games only (browser-emulatable + xCloud); desktop-primary access is via the sidebar |
+| Play | `/play` | Actionable games route retained, but desktop-primary access to playable titles is via the persistent sidebar |
 | Library | `/library` | All games in the collection |
 | Settings | `/settings` | Integrations, plugins, appearance (unchanged) |
 | About | `/about` | Credits, attributions |
@@ -221,16 +222,18 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 *Both Play and Library use the same shelf section UI. Each page has its own persisted configuration.*
 
 - [x] **Default view:** shelf sections, each showing one row of game cards
-- [x] **"Add Section" button** → pick a grouping field (Platform, Genre, Developer, Publisher, Source, Year) → checklist of values with game counts → selected values become individual shelf sections
+- [x] **Library add-shelf affordance:** `Library` shelf view uses a bottom `+` button after the last shelf; it opens the existing picker flow for Platform, Genre, Developer, Publisher, Source, and Year shelves
 - [x] **"All Games" section** — special ungrouped option showing every game; serves as default/fallback
 - [x] **Remove section** (X button on each shelf header); if none remain → auto-fallback to "All Games"
-- [x] **Single-row preview:** each collapsed shelf shows one horizontal rail of game cards
-- [x] **Expand/collapse:** clicking the shelf header or **"See all"** reveals the full shelf contents
+- [x] **Single-row preview:** each collapsed shelf shows a fixed preview row sized to avoid horizontal scrolling
+- [x] **Overflow affordance:** when more games exist than fit in the preview row, the last visible tile is a centered `...` indicator that expands the shelf
+- [x] **Expand/collapse:** clicking the shelf header or overflow tile reveals the full shelf contents; expanded shelves expose a `Collapse` action
 - [x] **Single-expand policy:** expanding one shelf collapses any other expanded shelf
 - [x] **Empty sections hidden:** sections with 0 matching games are not rendered
 - [x] **Global search** (top bar) filters within all visible shelves in real-time
 - [x] **View toggle:** Shelf view (default) vs Grid view (flat full-collection grid)
 - [x] **Persist configuration** per page (Play vs Library) in `FrontendConfig` (server + localStorage)
+- [x] **Library CTA behavior:** `Add Shelf` is not shown in `Library` grid view
 - [x] **Visual refresh:** borderless shelf presentation, fixed-height image-first cards, branded source/platform badges in Library/Play surfaces
 
 ### Game Cards (carried from prior work)
