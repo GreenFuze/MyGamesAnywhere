@@ -13,7 +13,7 @@ import { defaultSections, sanitizeSections } from '@/lib/collectionSections'
 type LibraryPrefsPage = 'library' | 'play'
 
 const DEFAULTS: LibraryPrefs = {
-  viewMode: 'accordion',
+  viewMode: 'shelf',
   sortBy: 'title',
   sortDir: 'asc',
   sections: defaultSections(),
@@ -63,11 +63,16 @@ function extractPrefs(raw: unknown): LibraryPrefs | null {
   let found = false
 
   if (
+    source.viewMode === 'shelf' ||
     source.viewMode === 'accordion' ||
     source.viewMode === 'grid' ||
     source.viewMode === 'list'
   ) {
-    next.viewMode = source.viewMode === 'list' ? 'grid' : source.viewMode
+    if (source.viewMode === 'accordion') {
+      next.viewMode = 'shelf'
+    } else {
+      next.viewMode = source.viewMode === 'list' ? 'grid' : source.viewMode
+    }
     found = true
   }
   if (typeof source.sortBy === 'string') {

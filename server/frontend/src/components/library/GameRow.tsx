@@ -1,4 +1,5 @@
 import type { GameDetailResponse } from '@/api/client'
+import { BrandBadge } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CoverImage } from '@/components/ui/cover-image'
@@ -7,11 +8,14 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import {
   formatHLTB,
   isPlayable,
-  pluginLabel,
+  preferredSecondaryText,
+  primarySourcePlugin,
   resolverMatchCount,
   selectCoverUrl,
   selectSourcePlugins,
+  sourceLabel,
 } from '@/lib/gameUtils'
+import { buildGameRouteState } from '@/lib/gameNavigation'
 
 interface GameRowProps {
   game: GameDetailResponse
@@ -23,25 +27,31 @@ export function GameRow({ game }: GameRowProps) {
   const coverUrl = selectCoverUrl(game.media)
   const playable = isPlayable(game.platform)
   const sources = selectSourcePlugins(game)
+  const primarySource = primarySourcePlugin(game)
   const hltb = formatHLTB(game.completion_time)
   const matchCount = resolverMatchCount(game)
-  const from = `${location.pathname}${location.search}`
+  const secondaryText = preferredSecondaryText(game)
 
   const openGame = () => {
-    navigate(`/game/${encodeURIComponent(game.id)}`, { state: { from } })
+    navigate(`/game/${encodeURIComponent(game.id)}`, {
+      state: buildGameRouteState(location.pathname, location.search),
+    })
   }
 
   return (
     <tr className="border-b border-mga-border/80 last:border-0 hover:bg-mga-elevated/40">
       {/* Title + cover thumbnail */}
       <td className="px-3 py-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <div className="h-12 w-8 shrink-0 overflow-hidden rounded-sm">
             <CoverImage src={coverUrl} alt={game.title} className="h-full w-full" />
           </div>
-          <span className="line-clamp-2 text-sm font-medium text-mga-text">
-            {game.title || '\u2014'}
-          </span>
+          <div className="min-w-0">
+            <p className="line-clamp-2 text-sm font-medium text-mga-text">{game.title || '\u2014'}</p>
+            {secondaryText && (
+              <p className="line-clamp-1 text-xs text-mga-muted">{secondaryText}</p>
+            )}
+          </div>
         </div>
       </td>
 
@@ -52,12 +62,13 @@ export function GameRow({ game }: GameRowProps) {
 
       {/* Sources */}
       <td className="px-3 py-2">
-        <div className="flex flex-wrap gap-1">
-          {sources.map((s) => (
-            <Badge key={s} variant="source">
-              {pluginLabel(s)}
-            </Badge>
-          ))}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {primarySource ? (
+            <BrandBadge brand={primarySource} label={sourceLabel(primarySource)} />
+          ) : (
+            <Badge variant="source">Unknown</Badge>
+          )}
+          {sources.length > 1 && <Badge variant="muted">+{sources.length - 1}</Badge>}
         </div>
       </td>
 

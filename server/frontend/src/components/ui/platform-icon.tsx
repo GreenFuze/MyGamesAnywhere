@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { BrandIcon } from '@/components/ui/brand-icon'
 import { cn } from '@/lib/utils'
 import { PLATFORM_META, platformEmoji, platformLabel } from '@/lib/gameUtils'
 
@@ -21,6 +22,28 @@ function buildIconMap(): Record<string, PlatformEntry> {
   for (const [key, meta] of Object.entries(PLATFORM_META)) {
     map[key] = { emoji: meta.emoji, label: meta.label }
   }
+
+  map.windows_pc = {
+    ...map.windows_pc,
+    icon: <BrandIcon brand="windows" className="h-3.5 w-3.5" />,
+  }
+  map.ms_dos = {
+    ...map.ms_dos,
+    icon: <BrandIcon brand="ms-dos" className="h-3.5 w-3.5" />,
+  }
+  map.gba = {
+    ...map.gba,
+    icon: <BrandIcon brand="gba" className="h-3.5 w-3.5" />,
+  }
+  map.arcade = {
+    ...map.arcade,
+    icon: <BrandIcon brand="arcade" className="h-3.5 w-3.5" />,
+  }
+  map.scummvm = {
+    ...map.scummvm,
+    icon: <BrandIcon brand="scummvm" className="h-3.5 w-3.5" />,
+  }
+
   return map
 }
 

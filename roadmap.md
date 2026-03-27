@@ -197,37 +197,41 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 ## Phase 2 — UI Rework & Game Library
 
 ### App Shell Rework
-*Replace sidebar with Steam-style horizontal top-tab navigation.*
+*Current stage: keep the header/topbar, add a desktop launcher sidebar on browsing routes, and use mobile top-nav fallback until a dedicated mobile drawer exists.*
 
 - [x] **Top tab bar:** Logo + horizontal tabs (Home, Play, Library, Settings, About) + search (Ctrl+K) + theme selector
-- [x] Remove sidebar navigation entirely
+- [x] Remove the original full-height app-navigation sidebar from the first shell iteration
 - [x] Game detail route (`/game/:id`) renders **outside** the tab layout (back button replaces tabs)
 - [x] Responsive: tabs collapse on narrow viewports (hamburger or scrollable tab strip)
+- [x] **Desktop launcher sidebar:** shown on Home / Play / Library without replacing the main page content model
+- [x] **Desktop tab simplification:** top-level `Play` tab removed only on desktop layouts where the sidebar is present; mobile/tablet keeps the top-nav fallback for now
+- [ ] **Recent Played launcher section:** render only when real recent-play data exists; do not synthesize it from scan/title order
 
 ### Navigation & Pages
 
 | Tab | Route | Content |
 |-----|-------|---------|
 | Home | `/` | Dashboard / hero — keep current for now |
-| Play | `/play` | Actionable games only (browser-emulatable + xCloud) |
+| Play | `/play` | Actionable games only (browser-emulatable + xCloud); desktop-primary access is via the sidebar |
 | Library | `/library` | All games in the collection |
 | Settings | `/settings` | Integrations, plugins, appearance (unchanged) |
 | About | `/about` | Credits, attributions |
 
-### Accordion-Based Browsing
-*Both Play and Library use the same accordion section UI. Each page has its own persisted configuration.*
+### Shelf-Based Browsing
+*Both Play and Library use the same shelf section UI. Each page has its own persisted configuration.*
 
-- [x] **Default view:** accordion sections, each showing one row of game cards
-- [x] **"Add Section" button** → pick a grouping field (Platform, Genre, Developer, Publisher, Source, Year) → checklist of values with game counts → selected values become individual accordion sections
+- [x] **Default view:** shelf sections, each showing one row of game cards
+- [x] **"Add Section" button** → pick a grouping field (Platform, Genre, Developer, Publisher, Source, Year) → checklist of values with game counts → selected values become individual shelf sections
 - [x] **"All Games" section** — special ungrouped option showing every game; serves as default/fallback
-- [x] **Remove section** (X button on each accordion header); if none remain → auto-fallback to "All Games"
-- [x] **Single-row preview:** each collapsed accordion shows up to one row of cards with a **"Show More"** card as the last item
-- [x] **Expand/collapse:** clicking accordion header or "Show More" reveals all games in that section
-- [x] **Single-expand policy:** expanding one accordion collapses any other expanded accordion
+- [x] **Remove section** (X button on each shelf header); if none remain → auto-fallback to "All Games"
+- [x] **Single-row preview:** each collapsed shelf shows one horizontal rail of game cards
+- [x] **Expand/collapse:** clicking the shelf header or **"See all"** reveals the full shelf contents
+- [x] **Single-expand policy:** expanding one shelf collapses any other expanded shelf
 - [x] **Empty sections hidden:** sections with 0 matching games are not rendered
-- [x] **Global search** (top bar) filters within all visible accordions in real-time
-- [x] **View toggle:** Accordion view (default) vs Grid view (flat full-collection grid)
+- [x] **Global search** (top bar) filters within all visible shelves in real-time
+- [x] **View toggle:** Shelf view (default) vs Grid view (flat full-collection grid)
 - [x] **Persist configuration** per page (Play vs Library) in `FrontendConfig` (server + localStorage)
+- [x] **Visual refresh:** borderless shelf presentation, fixed-height image-first cards, branded source/platform badges in Library/Play surfaces
 
 ### Game Cards (carried from prior work)
 - [x] Cover art with lazy loading and placeholder
@@ -253,35 +257,39 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 
 ### Navigation
 - [x] Route `/game/:id` with dedicated layout (no tab bar)
-- [ ] Back button ("< Library" / "< Play") preserving scroll position on return
+- [x] Back button ("< Library" / "< Play") preserving scroll position on return
 
 ### Metadata Display
-- [ ] Full-bleed hero banner (cover art / screenshots, blurred background)
-- [ ] Title, description, release date, developer, publisher, genres, rating
-- [ ] In-context attribution: source logos next to data they provided (IGDB logo next to description, etc.)
+- [x] Full-bleed hero banner (cover art / screenshots, blurred background)
+- [x] Title, description, release date, developer, publisher, genres, rating
+- [x] Source-aware attribution for description and metadata facts when resolver data is reliable
+- [ ] Full per-field/logo attribution coverage for every metadata provider
 
 ### Media Gallery
-- [ ] Screenshot viewer (lightbox)
-- [ ] Video embeds (if available)
-- [ ] Manuals / documents (if available from source)
-- [ ] Media source attribution
+- [x] Screenshot viewer (lightbox)
+- [x] Non-image media surfaced separately from the screenshot gallery
+- [x] Video embeds when the current media URL is browser-renderable
+- [x] Manuals / documents surfaced with view/open actions
+- [x] Media source attribution
+- [ ] Rich inline handling for every supported video/document format
 
 ### External Links
-- [ ] IGDB, RAWG, Steam Store, GOG, LaunchBox links with service favicons/logos
+- [x] Branded external links for known providers when `external_ids` include URLs
+- [ ] Complete icon coverage for every external link provider
 
 ### Achievements
-- [ ] Achievement list with icons, descriptions, progress
-- [ ] Source attribution (RetroAchievements logo, Steam logo, Xbox logo)
-- [ ] Overall progress bar
+- [x] Achievement list with icons, descriptions, and per-source groupings
+- [x] Source attribution (RetroAchievements, Steam, Xbox, etc. when source is known)
+- [x] Overall progress bar
 
 ### Completion Times
-- [ ] HLTB main story / completionist / combined display
-- [ ] HLTB logo attribution
+- [x] HLTB main story / completionist / combined display
+- [x] HLTB attribution
 
 ### Play
 - [ ] "Play in Browser" button for supported platforms
-- [ ] "Play on xCloud" button → opens xCloud URL
-- [ ] Source info: file paths, integration details, resolver match data
+- [x] "Play on xCloud" button → opens xCloud URL
+- [x] Source info: file paths, integration details, resolver match data
 
 ---
 
@@ -407,13 +415,14 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 
 ### About Page
 - [ ] MGA version, build date, author credits
-- [ ] "Powered By" grid with logos and one-liner descriptions for all services:
+- [x] "Powered By" grid with logos and one-liner descriptions for currently integrated services:
   IGDB, RAWG, Steam, GOG, LaunchBox, MAME, HowLongToBeat, RetroAchievements,
-  TheGamesDB, EmulatorJS/RetroArch, js-dos/DOSBox, ScummVM, Xbox/xCloud,
-  Epic Games, Google Drive
+  TheGamesDB, ScummVM, Xbox/xCloud, Epic Games, Google Drive, SMB
+- [ ] Extend "Powered By" coverage for future emulation/runtime services:
+  EmulatorJS/RetroArch, js-dos/DOSBox
 - [ ] "View Open Source Licenses" link
 - [ ] In-context attribution throughout the app (service logos next to their data)
-- [ ] add credits for icons to wikimedia, the web page xcloud-logo-from-https-github.com-unknownskl-greenlight-issues-351 for xcloud icons, citypng, flaticon, clipmax
+- [x] About page icon/vendor credits preserve source locations for shipped brand assets
 
 ### Additional Ideas
 - [ ] Keyboard shortcuts (Vim-style navigation, quick actions)

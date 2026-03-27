@@ -1,4 +1,5 @@
 import type { CompletionTime, GameDetailResponse, GameMediaDetailDTO } from '@/api/client'
+import { brandLabel } from '@/lib/brands'
 
 // ---------------------------------------------------------------------------
 // Cover art selection
@@ -91,6 +92,10 @@ export const PLUGIN_LABELS: Record<string, string> = {
 
 export function pluginLabel(pluginId: string): string {
   return PLUGIN_LABELS[pluginId] ?? pluginId
+}
+
+export function sourceLabel(pluginId: string): string {
+  return brandLabel(pluginId, pluginLabel(pluginId))
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +239,22 @@ export function selectSourcePlugins(game: GameDetailResponse): string[] {
     seen.add(sg.plugin_id)
   }
   return Array.from(seen)
+}
+
+export function primarySourcePlugin(game: GameDetailResponse): string | null {
+  return selectSourcePlugins(game)[0] ?? null
+}
+
+function hasTextValue(value: string | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+export function preferredSecondaryText(game: GameDetailResponse): string | null {
+  if (hasTextValue(game.developer)) return game.developer.trim()
+  if (hasTextValue(game.publisher)) return game.publisher.trim()
+
+  const source = primarySourcePlugin(game)
+  return source ? sourceLabel(source) : null
 }
 
 // ---------------------------------------------------------------------------

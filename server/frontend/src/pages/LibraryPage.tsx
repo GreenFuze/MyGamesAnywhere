@@ -1,12 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Plus } from 'lucide-react'
+import { useLocation } from 'react-router-dom'
 import { useSearch } from '@/hooks/useSearchContext'
 import { useLibraryData } from '@/hooks/useLibraryData'
 import { useLibraryPrefs } from '@/hooks/useLibraryPrefs'
-import { CollectionAccordion } from '@/components/library/CollectionAccordion'
+import { CollectionShelf } from '@/components/library/CollectionShelf'
 import { LibraryToolbar } from '@/components/library/LibraryToolbar'
 import { FilterBar } from '@/components/library/FilterBar'
 import { GameGrid } from '@/components/library/GameGrid'
 import { SectionPickerDialog } from '@/components/library/SectionPickerDialog'
+import { Button } from '@/components/ui/button'
 import { sanitizeSections } from '@/lib/collectionSections'
 import {
   applyScopeFilter,
@@ -15,6 +18,7 @@ import {
   type FilterState,
   type CollectionScope,
 } from '@/lib/libraryFilter'
+import { consumeStoredRouteScroll, shouldRestoreRouteScroll } from '@/lib/gameNavigation'
 
 // ---------------------------------------------------------------------------
 // Section metadata
@@ -42,6 +46,7 @@ interface CollectionPageProps {
 }
 
 export function CollectionPage({ scope }: CollectionPageProps) {
+  const location = useLocation()
   const { searchQuery } = useSearch()
   const { data: allGames = [], isPending, isError, error } = useLibraryData()
   const {
@@ -99,6 +104,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   }, [filterState])
 
   const scopeMeta = SCOPES[scope]
+  const showLibraryShelfAddButton = scope === 'library' && prefs.viewMode === 'shelf'
 
   // Patch filter state (merge partial updates)
   const patchFilter = (patch: Partial<FilterState>) => {
@@ -123,6 +129,19 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     }
   }
 
+  useEffect(() => {
+    if (isPending || !shouldRestoreRouteScroll(location.state)) return
+
+    const nextScroll = consumeStoredRouteScroll(location.pathname, location.search)
+    if (nextScroll === null) return
+
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: nextScroll, behavior: 'auto' })
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [isPending, location.pathname, location.search, location.state])
+
   return (
     <div className="space-y-4">
       {/* Toolbar: title, counts, sort, view toggle, filters button */}
@@ -136,7 +155,9 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         sortBy={prefs.sortBy}
         sortDir={prefs.sortDir}
         onSortChange={handleSortChange}
-        onAddSection={() => setSectionPickerOpen(true)}
+        addButtonLabel="Add Section"
+        showAddButton={scope !== 'library'}
+        onAddButtonClick={() => setSectionPickerOpen(true)}
         filterBarOpen={filterBarOpen}
         onFilterBarToggle={() => setFilterBarOpen((v) => !v)}
         activeFilterCount={activeFilterCount}
@@ -161,14 +182,31 @@ export function CollectionPage({ scope }: CollectionPageProps) {
       {prefs.viewMode === 'grid' ? (
         <GameGrid games={displayedGames} isLoading={isPending} />
       ) : (
-        <CollectionAccordion
-          sections={prefs.sections}
-          expandedSectionId={prefs.expandedSectionId}
-          onExpandedSectionChange={setExpandedSectionId}
-          onRemoveSection={handleRemoveSection}
-          games={displayedGames}
-          isLoading={isPending}
-        />
+        <div className="space-y-6">
+          <CollectionShelf
+            sections={prefs.sections}
+            expandedSectionId={prefs.expandedSectionId}
+            onExpandedSectionChange={setExpandedSectionId}
+            onRemoveSection={handleRemoveSection}
+            games={displayedGames}
+            isLoading={isPending}
+          />
+          {showLibraryShelfAddButton && (
+            <div className="flex justify-center">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => setSectionPickerOpen(true)}
+                aria-label="Add shelf"
+                title="Add shelf"
+                className="h-11 w-11 rounded-full"
+              >
+                <Plus size={18} />
+              </Button>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Empty state */}

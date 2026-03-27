@@ -95,6 +95,29 @@ export type GameMediaDetailDTO = {
   mime_type?: string
 }
 
+export type ResolverMatchDTO = {
+  plugin_id: string
+  title?: string
+  platform?: string
+  kind?: string
+  parent_game_id?: string
+  external_id: string
+  url?: string
+  outvoted?: boolean
+  description?: string
+  release_date?: string
+  genres?: string[]
+  developer?: string
+  publisher?: string
+  rating?: number
+  max_players?: number
+  is_game_pass?: boolean
+  xcloud_available?: boolean
+  store_product_id?: string
+  xcloud_url?: string
+  metadata_json?: string
+}
+
 export type SourceGameDetailDTO = {
   id: string
   integration_id: string
@@ -110,7 +133,7 @@ export type SourceGameDetailDTO = {
   last_seen_at?: string
   created_at: string
   files: GameFileDTO[]
-  resolver_matches: unknown[]
+  resolver_matches: ResolverMatchDTO[]
 }
 
 export type CompletionTime = {
@@ -120,7 +143,7 @@ export type CompletionTime = {
   source?: string
 }
 
-export type CollectionViewMode = 'accordion' | 'grid' | 'list'
+export type CollectionViewMode = 'shelf' | 'grid' | 'list'
 
 export type CollectionSectionField =
   | 'platform'
@@ -179,6 +202,28 @@ export type GameDetailResponse = {
   source_games: SourceGameDetailDTO[]
 }
 
+export type AchievementDTO = {
+  external_id: string
+  title: string
+  description: string
+  locked_icon?: string
+  unlocked_icon?: string
+  points?: number
+  rarity?: number
+  unlocked: boolean
+  unlocked_at?: string
+}
+
+export type AchievementSetDTO = {
+  source: string
+  external_game_id: string
+  total_count: number
+  unlocked_count: number
+  total_points?: number
+  earned_points?: number
+  achievements: AchievementDTO[]
+}
+
 export type ListGamesResponse = {
   total: number
   page: number
@@ -201,6 +246,10 @@ export async function getGameDetail(id: string): Promise<GameDetailResponse> {
 
 export async function getGame(id: string): Promise<GameDetailResponse> {
   return getJson<GameDetailResponse>(`/api/games/${encodeURIComponent(id)}`)
+}
+
+export async function getGameAchievements(id: string): Promise<AchievementSetDTO[]> {
+  return getJson<AchievementSetDTO[]>(`/api/games/${encodeURIComponent(id)}/achievements`)
 }
 
 export type FrontendConfig = Record<string, unknown>

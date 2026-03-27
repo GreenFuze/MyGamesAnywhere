@@ -10,7 +10,7 @@ interface GameGridProps {
 export function GameGrid({ games, isLoading }: GameGridProps) {
   if (isLoading) {
     return (
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-4">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
         {Array.from({ length: 12 }, (_, i) => (
           <div key={i} className="overflow-hidden rounded-mga border border-mga-border bg-mga-surface">
             <Skeleton className="aspect-[2/3] w-full rounded-none" />
@@ -25,7 +25,7 @@ export function GameGrid({ games, isLoading }: GameGridProps) {
   }
 
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-4">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
       {games.map((game) => (
         <GameCard key={game.id} game={game} />
       ))}

@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { AppSidebar } from '@/components/layout/AppSidebar'
 import { THEME_IDS, THEME_LABELS, type ThemeId } from '@/theme/presets'
 import { useTheme } from '@/theme/ThemeProvider'
 import { useSearch } from '@/hooks/useSearchContext'
@@ -6,7 +7,7 @@ import { cn } from '@/lib/utils'
 
 const nav = [
   { to: '/', label: 'Home' },
-  { to: '/play', label: 'Play' },
+  { to: '/play', label: 'Play', hideOnDesktopWithSidebar: true },
   { to: '/library', label: 'Library' },
   { to: '/settings', label: 'Settings' },
   { to: '/about', label: 'About' },
@@ -71,7 +72,7 @@ export function AppLayout() {
         </div>
         <nav className="overflow-x-auto border-t border-mga-border/70 px-3 md:px-4">
           <div className="flex min-w-max gap-1 py-2">
-            {nav.map(({ to, label }) => (
+            {nav.map(({ to, label, hideOnDesktopWithSidebar }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -79,6 +80,7 @@ export function AppLayout() {
                 className={({ isActive }) =>
                   cn(
                     'rounded-mga px-3 py-2 text-sm font-medium transition-colors',
+                    hideOnDesktopWithSidebar && 'lg:hidden',
                     isActive
                       ? 'bg-mga-elevated text-mga-accent'
                       : 'text-mga-muted hover:bg-mga-elevated hover:text-mga-text',
@@ -93,9 +95,12 @@ export function AppLayout() {
       </header>
 
       <main className="p-4 md:p-6">
-        <div className="mx-auto flex min-w-0 max-w-7xl flex-col">
-          <div key={loc.pathname} className={cn('mx-auto', isWideRoute ? 'w-full' : 'max-w-5xl')}>
-            <Outlet />
+        <div className="mx-auto min-w-0 max-w-[96rem]">
+          <div className="mx-auto lg:grid lg:grid-cols-[18rem,minmax(0,1fr)] lg:gap-6">
+            <AppSidebar />
+            <div key={loc.pathname} className={cn('min-w-0', isWideRoute ? 'w-full' : 'max-w-5xl')}>
+              <Outlet />
+            </div>
           </div>
         </div>
       </main>
