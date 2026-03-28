@@ -29,6 +29,7 @@ type GameDetailResponse struct {
 	XcloudAvailable    bool                   `json:"xcloud_available,omitempty"`
 	StoreProductID     string                 `json:"store_product_id,omitempty"`
 	XcloudURL          string                 `json:"xcloud_url,omitempty"`
+	Play               *GamePlayDTO           `json:"play,omitempty"`
 	AchievementSummary *AchievementSummaryDTO `json:"achievement_summary,omitempty"`
 	SourceGames        []SourceGameDetailDTO  `json:"source_games"`
 }
@@ -70,6 +71,7 @@ type SourceGameDetailDTO struct {
 	LastSeenAt      *string              `json:"last_seen_at,omitempty"`
 	CreatedAt       string               `json:"created_at"`
 	Files           []GameFileDTO        `json:"files"`
+	Play            *SourceGamePlayDTO   `json:"play,omitempty"`
 	ResolverMatches []core.ResolverMatch `json:"resolver_matches"`
 }
 
@@ -94,6 +96,9 @@ func canonicalToGameDetail(cg *core.CanonicalGame) GameDetailResponse {
 		XcloudAvailable: cg.XcloudAvailable,
 		StoreProductID:  cg.StoreProductID,
 		XcloudURL:       cg.XcloudURL,
+		Play: &GamePlayDTO{
+			PlatformSupported: supportsBrowserPlayPlatform(cg.Platform),
+		},
 		SourceGames:     make([]SourceGameDetailDTO, 0, len(cg.SourceGames)),
 	}
 	if cg.AchievementSummary != nil {
@@ -119,6 +124,7 @@ func canonicalToGameDetail(cg *core.CanonicalGame) GameDetailResponse {
 		if sg.Status == "found" {
 			for _, f := range sg.Files {
 				out.Files = append(out.Files, GameFileDTO{
+					ID:       encodeGameFileID(sg.ID, f.Path),
 					Path:     f.Path,
 					Role:     string(f.Role),
 					FileKind: f.FileKind,
@@ -126,7 +132,17 @@ func canonicalToGameDetail(cg *core.CanonicalGame) GameDetailResponse {
 				})
 			}
 		}
-		out.SourceGames = append(out.SourceGames, sourceGameToDetailDTO(sg))
+		sourceDTO, launchSource, launchCandidate := sourceGameToDetailDTO(sg, cg.Platform, out.Play.PlatformSupported)
+		if launchSource != nil {
+			out.Play.LaunchSources = append(out.Play.LaunchSources, *launchSource)
+			if launchSource.Launchable {
+				out.Play.Available = true
+			}
+		}
+		if launchSource != nil && launchSource.Launchable && launchCandidate != nil {
+			out.Play.LaunchCandidates = append(out.Play.LaunchCandidates, *launchCandidate)
+		}
+		out.SourceGames = append(out.SourceGames, sourceDTO)
 	}
 
 	for _, ref := range cg.Media {
@@ -153,7 +169,11 @@ func canonicalToGameDetail(cg *core.CanonicalGame) GameDetailResponse {
 	return out
 }
 
-func sourceGameToDetailDTO(sg *core.SourceGame) SourceGameDetailDTO {
+func sourceGameToDetailDTO(
+	sg *core.SourceGame,
+	canonicalPlatform core.Platform,
+	platformSupported bool,
+) (SourceGameDetailDTO, *GameLaunchSourceDTO, *GameLaunchCandidateDTO) {
 	dto := SourceGameDetailDTO{
 		ID:              sg.ID,
 		IntegrationID:   sg.IntegrationID,
@@ -174,16 +194,49 @@ func sourceGameToDetailDTO(sg *core.SourceGame) SourceGameDetailDTO {
 		s := sg.LastSeenAt.UTC().Format(time.RFC3339Nano)
 		dto.LastSeenAt = &s
 	}
+
+	playSource := &GameLaunchSourceDTO{SourceGameID: sg.ID}
+	dto.Play = &SourceGamePlayDTO{}
+	rootPlatform := sg.Platform
+	if rootPlatform == core.PlatformUnknown {
+		rootPlatform = canonicalPlatform
+	}
+	var rootFileID string
+	var rootCandidate *GameLaunchCandidateDTO
 	for _, f := range sg.Files {
+		fileID := encodeGameFileID(sg.ID, f.Path)
 		dto.Files = append(dto.Files, GameFileDTO{
+			ID:       fileID,
 			Path:     f.Path,
 			Role:     string(f.Role),
 			FileKind: f.FileKind,
 			Size:     f.Size,
 		})
+		if f.Role == core.GameFileRoleRoot && rootFileID == "" {
+			rootFileID = fileID
+			rootCandidate = &GameLaunchCandidateDTO{
+				SourceGameID: sg.ID,
+				FileID:       fileID,
+				Path:         f.Path,
+				FileKind:     f.FileKind,
+				Size:         f.Size,
+			}
+		}
 	}
+
+	if sg.Status == "found" && platformSupported && sg.GroupKind == core.GroupKindSelfContained && len(sg.Files) > 0 {
+		launchable := rootFileID != "" || allowsRootlessLaunch(rootPlatform)
+		dto.Play.Launchable = launchable
+		dto.Play.RootFileID = rootFileID
+		playSource.Launchable = launchable
+		playSource.RootFileID = rootFileID
+	} else {
+		dto.Play.Launchable = false
+		playSource.Launchable = false
+	}
+
 	if dto.ResolverMatches == nil {
 		dto.ResolverMatches = []core.ResolverMatch{}
 	}
-	return dto
+	return dto, playSource, rootCandidate
 }

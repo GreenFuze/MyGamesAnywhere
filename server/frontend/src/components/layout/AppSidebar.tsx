@@ -11,7 +11,6 @@ import {
   type FrontendConfig,
   type GameDetailResponse,
 } from '@/api/client'
-import { BrandIcon } from '@/components/ui/brand-icon'
 import { CoverImage } from '@/components/ui/cover-image'
 import { PlatformIcon } from '@/components/ui/platform-icon'
 import { useLibraryData } from '@/hooks/useLibraryData'
@@ -79,7 +78,7 @@ function writeLocalSidebarPrefs(prefs: DesktopSidebarPrefs) {
 function statusHint(game: GameDetailResponse): string | null {
   if (game.xcloud_available) return 'xCloud'
   if (game.is_game_pass) return 'Game Pass'
-  if (isPlayable(game.platform)) return 'Playable'
+  if (isPlayable(game)) return 'Browser Play'
   return null
 }
 
@@ -121,11 +120,20 @@ export function AppSidebar() {
     })
   }
 
+  const openBrowserPlayer = (gameId: string) => {
+    navigate(`/game/${encodeURIComponent(gameId)}/play`, {
+      state: buildGameRouteState(location.pathname, location.search),
+    })
+  }
+
   const recentPlayedEntries = useMemo(() => {
     return recentPlayed
       .map((entry) => {
         const game = allGames.find((candidate) => candidate.id === entry.gameId)
-        const launchUrl = game?.xcloud_url ?? entry.launchUrl
+        const launchUrl =
+          entry.launchKind === 'xcloud'
+            ? game?.xcloud_url ?? entry.launchUrl
+            : entry.launchUrl
         if (!launchUrl) return null
         return {
           ...entry,
@@ -195,7 +203,7 @@ export function AppSidebar() {
           {recentPlayedEntries.length > 0 && (
             <div className="space-y-2 rounded-mga border border-mga-border bg-mga-bg/65 p-3">
               <div className="flex items-center gap-2 text-mga-accent">
-                <BrandIcon brand="xcloud" className="h-4 w-4" />
+                <PlayCircle size={16} />
                 <span className="text-sm font-semibold uppercase tracking-wide">Recent Played</span>
               </div>
               <div className="space-y-2">
@@ -209,14 +217,8 @@ export function AppSidebar() {
                         .join(' • ')
                     : platformLabel(entry.platform)
 
-                  return (
-                    <a
-                      key={entry.gameId}
-                      href={entry.launchUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-3 rounded-mga border border-mga-border bg-mga-surface/80 px-2 py-2 text-left transition-colors hover:bg-mga-elevated/70"
-                    >
+                  const content = (
+                    <>
                       <div className="h-12 w-8 shrink-0 overflow-hidden rounded-sm border border-mga-border bg-mga-surface">
                         <CoverImage src={coverUrl} alt={title} className="h-full w-full text-sm" />
                       </div>
@@ -225,6 +227,27 @@ export function AppSidebar() {
                         <p className="line-clamp-1 text-xs text-mga-muted">{hint}</p>
                       </div>
                       <span className="shrink-0 text-xs font-medium text-mga-accent">Resume</span>
+                    </>
+                  )
+
+                  return entry.launchKind === 'browser' ? (
+                    <button
+                      key={entry.gameId}
+                      type="button"
+                      onClick={() => openBrowserPlayer(entry.gameId)}
+                      className="flex w-full items-center gap-3 rounded-mga border border-mga-border bg-mga-surface/80 px-2 py-2 text-left transition-colors hover:bg-mga-elevated/70"
+                    >
+                      {content}
+                    </button>
+                  ) : (
+                    <a
+                      key={entry.gameId}
+                      href={entry.launchUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-3 rounded-mga border border-mga-border bg-mga-surface/80 px-2 py-2 text-left transition-colors hover:bg-mga-elevated/70"
+                    >
+                      {content}
                     </a>
                   )
                 })}

@@ -7,7 +7,7 @@ export type RecentPlayedEntry = {
   platform: string
   coverUrl?: string | null
   launchUrl: string
-  launchKind: 'xcloud'
+  launchKind: 'xcloud' | 'browser'
   launchedAt: string
 }
 
@@ -26,7 +26,7 @@ function isRecentPlayedEntry(value: unknown): value is RecentPlayedEntry {
     candidate.platform.length > 0 &&
     typeof candidate.launchUrl === 'string' &&
     candidate.launchUrl.length > 0 &&
-    candidate.launchKind === 'xcloud' &&
+    (candidate.launchKind === 'xcloud' || candidate.launchKind === 'browser') &&
     typeof candidate.launchedAt === 'string' &&
     candidate.launchedAt.length > 0
   )

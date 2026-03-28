@@ -19,24 +19,21 @@ export function selectCoverUrl(media: GameMediaDetailDTO[] | undefined): string 
 }
 
 // ---------------------------------------------------------------------------
-// Playable platforms (browser-emulatable)
+// Browser play
 // ---------------------------------------------------------------------------
 
-/** Platforms that can be emulated in-browser (Phase 6). */
-export const PLAYABLE_PLATFORMS = new Set([
-  'gba',
-  'ps1',
-  'arcade',
-  'scummvm',
-  'ms_dos',
-])
-
-export function isPlayable(platform: string): boolean {
-  return PLAYABLE_PLATFORMS.has(platform)
+export function hasBrowserPlaySupport(game: Pick<GameDetailResponse, 'play'>): boolean {
+  return game.play?.platform_supported === true
 }
 
-export function isActionable(game: Pick<GameDetailResponse, 'platform' | 'xcloud_available'>): boolean {
-  return isPlayable(game.platform) || game.xcloud_available === true
+export function isPlayable(game: Pick<GameDetailResponse, 'play'>): boolean {
+  return game.play?.available === true
+}
+
+export function isActionable(
+  game: Pick<GameDetailResponse, 'play' | 'xcloud_available'>,
+): boolean {
+  return isPlayable(game) || game.xcloud_available === true
 }
 
 // ---------------------------------------------------------------------------
@@ -49,7 +46,16 @@ export const PLATFORM_META: Record<string, PlatformMeta> = {
   windows_pc: { label: 'Windows PC', emoji: '\u{1F4BB}' }, // 💻
   ms_dos:     { label: 'MS-DOS',     emoji: '\u{1F4BE}' }, // 💾
   arcade:     { label: 'Arcade',     emoji: '\u{1F579}\uFE0F' }, // 🕹️
+  nes:        { label: 'NES',        emoji: '\u{1F3AE}' }, // 🎮
+  snes:       { label: 'SNES',       emoji: '\u{1F3AE}' }, // 🎮
+  gb:         { label: 'Game Boy',   emoji: '\u{1F3AE}' }, // 🎮
+  gbc:        { label: 'Game Boy Color', emoji: '\u{1F3AE}' }, // 🎮
   gba:        { label: 'GBA',        emoji: '\u{1F3AE}' }, // 🎮
+  genesis:    { label: 'Genesis',    emoji: '\u{1F3AE}' }, // 🎮
+  sega_master_system: { label: 'Master System', emoji: '\u{1F3AE}' }, // 🎮
+  game_gear:  { label: 'Game Gear',  emoji: '\u{1F3AE}' }, // 🎮
+  sega_cd:    { label: 'Sega CD',    emoji: '\u{1F3AE}' }, // 🎮
+  sega_32x:   { label: 'Sega 32X',   emoji: '\u{1F3AE}' }, // 🎮
   ps1:        { label: 'PS1',        emoji: '\u{1F3AE}' }, // 🎮
   ps2:        { label: 'PS2',        emoji: '\u{1F3AE}' }, // 🎮
   ps3:        { label: 'PS3',        emoji: '\u{1F3AE}' }, // 🎮

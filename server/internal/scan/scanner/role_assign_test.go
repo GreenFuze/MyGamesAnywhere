@@ -183,6 +183,24 @@ func TestRoleAssign_Synthetic(t *testing.T) {
 			wantRoots: 0,
 		},
 		{
+			name:      "raw cartridge rom becomes root",
+			groupKind: core.GroupKindSelfContained,
+			files: []AnnotatedFile{
+				{Kind: FileKindUnknown, Extension: ".nes", FileEntry: core.FileEntry{Name: "game.nes", Size: 1000}},
+				{Kind: FileKindDocument, FileEntry: core.FileEntry{Name: "manual.txt", Size: 100}},
+			},
+			wantRoots: 1,
+		},
+		{
+			name:      "dos batch fallback becomes root",
+			groupKind: core.GroupKindSelfContained,
+			files: []AnnotatedFile{
+				{Kind: FileKindScript, Extension: ".bat", FileEntry: core.FileEntry{Name: "RUN.BAT", Size: 100}},
+				{Kind: FileKindUnknown, FileEntry: core.FileEntry{Name: "GAME.DAT", Size: 1000}},
+			},
+			wantRoots: 1,
+		},
+		{
 			name:      "extras group - all optional",
 			groupKind: core.GroupKindExtras,
 			files: []AnnotatedFile{
@@ -196,9 +214,16 @@ func TestRoleAssign_Synthetic(t *testing.T) {
 	for _, tt := range tests {
 		groups := []GameGroup{{
 			Name:      tt.name,
+			Platform:  core.PlatformUnknown,
 			GroupKind: tt.groupKind,
 			Files:     tt.files,
 		}}
+		if tt.name == "raw cartridge rom becomes root" {
+			groups[0].Platform = core.PlatformNES
+		}
+		if tt.name == "dos batch fallback becomes root" {
+			groups[0].Platform = core.PlatformMSDOS
+		}
 		assigner.AssignAll(groups)
 
 		rootCount := 0

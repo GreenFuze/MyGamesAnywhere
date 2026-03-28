@@ -32,7 +32,7 @@ const SCOPES: Record<CollectionScope, { title: string; subtitle: string; emptyMe
   },
   play: {
     title: 'Play',
-    subtitle: 'Browser-emulatable and xCloud-ready games',
+    subtitle: 'Browser-ready and xCloud-ready games',
     emptyMessage: 'No actionable games found. Add sources and run a scan.',
   },
 }

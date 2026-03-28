@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ScummVM Player</title>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        color: #f4f4f5;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        overflow: hidden;
+      }
+      #canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background:
+          radial-gradient(circle at top, rgba(245, 158, 11, 0.2), transparent 40%),
+          linear-gradient(180deg, #1d1102 0%, #000 65%);
+      }
+      #progress {
+        position: fixed;
+        inset: 0 auto auto 0;
+        width: 100%;
+        height: 10px;
+        appearance: none;
+        border: 0;
+        background: #3f2a04;
+        z-index: 2;
+      }
+      #progress::-moz-progress-bar {
+        background: #fbbf24;
+      }
+      #progress::-webkit-progress-value {
+        background: #fbbf24;
+      }
+      #status {
+        position: fixed;
+        right: 0;
+        bottom: 3rem;
+        max-width: min(32rem, calc(100vw - 2rem));
+        padding: 0.85rem 1rem 0.85rem 1.25rem;
+        border: 2px solid rgba(0, 0, 0, 0.75);
+        border-right: 0;
+        border-radius: 1rem 0 0 1rem;
+        background: rgba(251, 191, 36, 0.92);
+        color: #1c1917;
+        font-size: 0.95rem;
+        font-weight: 700;
+        line-height: 1.45;
+        z-index: 3;
+      }
+      #status.error {
+        background: rgba(185, 28, 28, 0.94);
+        color: #fff1f2;
+      }
+    </style>
+  </head>
+  <body>
+    <progress id="progress" hidden max="100" value="0"></progress>
+    <div id="status">Preparing ScummVM...</div>
+    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+
+    <script type="module">
+      import { ScummvmFS } from './scummvm_fs.js'
+
+      const CONFIG_TEXT = `[scummvm]
+pluginspath=/plugins
+extrapath=/data
+savepath=/local/saves
+gui_launcher_chooser=grid
+`
+
+      const params = new URLSearchParams(window.location.search)
+      const sessionId = params.get('session')
+      const progressElement = document.getElementById('progress')
+      const statusElement = document.getElementById('status')
+      const canvas = document.getElementById('canvas')
+      const sessionKey = sessionId ? `mga.browserPlaySession.${sessionId}` : null
+      const rawSession = sessionKey ? sessionStorage.getItem(sessionKey) : null
+
+      function setStatus(text, isError = false) {
+        statusElement.textContent = text
+        statusElement.className = isError ? 'error' : ''
+      }
+
+      function normalizePath(path) {
+        return path.replaceAll('\\', '/').replace(/^\.\/+/, '').replace(/^\/+/, '')
+      }
+
+      function stripLaunchPrefix(path, prefix) {
+        const normalizedPath = normalizePath(path)
+        const normalizedPrefix = normalizePath(prefix)
+        if (!normalizedPrefix) return normalizedPath
+        if (normalizedPath === normalizedPrefix) return ''
+        if (normalizedPath.startsWith(`${normalizedPrefix}/`)) {
+          return normalizedPath.slice(normalizedPrefix.length + 1)
+        }
+        return normalizedPath
+      }
+
+      function ensureDir(targetPath) {
+        const normalized = targetPath.replace(/\/+/g, '/')
+        const parts = normalized.split('/').filter(Boolean)
+        let current = ''
+        for (const part of parts) {
+          current += `/${part}`
+          if (!FS.analyzePath(current).exists) {
+            FS.mkdir(current)
+          }
+        }
+      }
+
+      function configureStatusHooks(module) {
+        module.setStatus = function (text) {
+          if (!module.setStatus.last) {
+            module.setStatus.last = { time: Date.now(), text: '' }
+          }
+          if (text === module.setStatus.last.text) return
+
+          const match = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/)
+          const now = Date.now()
+          if (match && now - module.setStatus.last.time < 30) return
+
+          module.setStatus.last = { time: now, text }
+          if (match) {
+            progressElement.hidden = false
+            progressElement.value = Number.parseInt(match[2], 10)
+            progressElement.max = Number.parseInt(match[4], 10)
+            setStatus(match[1].trim())
+            return
+          }
+
+          progressElement.hidden = true
+          setStatus(text && text.length > 0 ? text : 'Ready.')
+        }
+      }
+
+      if (!sessionId || !rawSession) {
+        progressElement.hidden = true
+        setStatus('Unable to launch ScummVM: browser-play session was not found.', true)
+      } else {
+        const session = JSON.parse(rawSession)
+        if (session.runtime !== 'scummvm') {
+          progressElement.hidden = true
+          setStatus('Unable to launch ScummVM: invalid runtime session.', true)
+        } else {
+          const launchRoot = '/games/game'
+          const launchPrefix = normalizePath(session.launchDirectoryPath ?? '')
+          const launchFiles = session.files.map((file) => ({
+            ...file,
+            mountPath: `${launchRoot}/${stripLaunchPrefix(file.path, launchPrefix)}`.replace(/\/+/g, '/'),
+          }))
+
+          window.location.hash = encodeURI(`--path=${launchRoot} --auto-detect`)
+
+          let syncInterval = null
+          let launchFailure = null
+
+          function syncLocal(fsSync) {
+            try {
+              fsSync(false, () => {})
+            } catch (error) {
+              console.warn('Failed to sync ScummVM local data.', error)
+            }
+          }
+
+          function setupStaticFilesystem() {
+            ensureDir('/data')
+            ensureDir('/plugins')
+            FS.mount(new ScummvmFS(FS, './data'), {}, '/data')
+            FS.mount(new ScummvmFS(FS, './plugins'), {}, '/plugins')
+          }
+
+          function setupLocalFilesystem() {
+            addRunDependency('mga-scummvm-local')
+            ensureDir('/local')
+            FS.mount(IDBFS, {}, '/local')
+            FS.syncfs(true, (error) => {
+              if (error) {
+                launchFailure = error
+                setStatus(`Unable to initialize local save storage: ${error}`, true)
+                removeRunDependency('mga-scummvm-local')
+                return
+              }
+
+              ensureDir('/local/saves')
+              if (!FS.analyzePath('/local/scummvm.ini').exists) {
+                FS.writeFile('/local/scummvm.ini', CONFIG_TEXT)
+              }
+
+              FS.syncfs(false, () => {
+                if (syncInterval === null) {
+                  syncInterval = window.setInterval(() => syncLocal(FS.syncfs.bind(FS)), 15000)
+                }
+                removeRunDependency('mga-scummvm-local')
+              })
+            })
+          }
+
+          function setupGameFilesystem() {
+            addRunDependency('mga-scummvm-game-files')
+            ensureDir(launchRoot)
+
+            ;(async () => {
+              for (let index = 0; index < launchFiles.length; index += 1) {
+                const file = launchFiles[index]
+                setStatus(`Loading game files (${index + 1}/${launchFiles.length}): ${file.path}`)
+                const response = await fetch(file.url)
+                if (!response.ok) {
+                  throw new Error(`HTTP ${response.status} while loading ${file.path}`)
+                }
+                const bytes = new Uint8Array(await response.arrayBuffer())
+                const parent = file.mountPath.replace(/\/[^/]+$/, '')
+                if (parent) ensureDir(parent)
+                FS.writeFile(file.mountPath, bytes, { canOwn: true })
+              }
+            })()
+              .catch((error) => {
+                launchFailure = error
+                console.error(error)
+                setStatus(
+                  `Unable to prepare ScummVM game files: ${error instanceof Error ? error.message : String(error)}`,
+                  true,
+                )
+              })
+              .finally(() => {
+                removeRunDependency('mga-scummvm-game-files')
+              })
+          }
+
+          window.addEventListener('beforeunload', () => {
+            if (typeof FS !== 'undefined' && FS && typeof FS.syncfs === 'function') {
+              syncLocal(FS.syncfs.bind(FS))
+            }
+            if (syncInterval !== null) {
+              window.clearInterval(syncInterval)
+            }
+          })
+
+          window.Module = {
+            preRun: [setupStaticFilesystem, setupLocalFilesystem, setupGameFilesystem],
+            postRun: [],
+            canvas,
+            locateFile(path) {
+              return `./${path}`
+            },
+            print(message) {
+              console.log(message)
+            },
+            printErr(message) {
+              console.error(message)
+            },
+            onAbort(message) {
+              setStatus(`ScummVM aborted: ${message}`, true)
+            },
+          }
+
+          configureStatusHooks(window.Module)
+          window.Module.setStatus('Downloading ScummVM...')
+          window.onerror = function () {
+            progressElement.hidden = true
+            if (launchFailure) {
+              setStatus(
+                `Unable to launch ScummVM: ${launchFailure instanceof Error ? launchFailure.message : String(launchFailure)}`,
+                true,
+              )
+            } else {
+              setStatus('ScummVM hit a runtime error. Check the browser console for details.', true)
+            }
+          }
+
+          const runtimeScript = document.createElement('script')
+          runtimeScript.src = './scummvm.js'
+          runtimeScript.async = true
+          document.body.appendChild(runtimeScript)
+        }
+      }
+    </script>
+  </body>
+</html>

@@ -114,7 +114,7 @@ export class LibraryFilter {
       }
 
       // Flag toggles
-      if (state.playableOnly && !isPlayable(g.platform)) return false
+      if (state.playableOnly && !isPlayable(g)) return false
       if (state.xcloudOnly && !g.xcloud_available) return false
       if (state.gamePassOnly && !g.is_game_pass) return false
 

@@ -12,6 +12,22 @@ var rootPriority = map[FileKind]int{
 	FileKindArchive:       5, // .zip (MAME ROM, packed archive)
 }
 
+var rawROMExtensions = map[string]bool{
+	".nes": true,
+	".fds": true,
+	".smc": true,
+	".sfc": true,
+	".gb":  true,
+	".gbc": true,
+	".gba": true,
+	".gen": true,
+	".md":  true,
+	".smd": true,
+	".sms": true,
+	".gg":  true,
+	".32x": true,
+}
+
 // RoleAssigner assigns a GameFileRole to each file within a GameGroup.
 type RoleAssigner struct{}
 
@@ -25,7 +41,7 @@ func (r *RoleAssigner) AssignAll(groups []GameGroup) {
 }
 
 func (r *RoleAssigner) assign(g *GameGroup) {
-	rootIdx := selectRoot(g.Files)
+	rootIdx := selectRoot(g.Platform, g.Files)
 
 	for i := range g.Files {
 		if i == rootIdx {
@@ -37,7 +53,7 @@ func (r *RoleAssigner) assign(g *GameGroup) {
 }
 
 // selectRoot picks the single best root file index, or -1 if none qualifies.
-func selectRoot(files []AnnotatedFile) int {
+func selectRoot(platform core.Platform, files []AnnotatedFile) int {
 	bestIdx := -1
 	bestPri := 999
 	bestSize := int64(-1)
@@ -51,6 +67,32 @@ func selectRoot(files []AnnotatedFile) int {
 			bestIdx = i
 			bestPri = pri
 			bestSize = f.Size
+		}
+	}
+	if bestIdx >= 0 {
+		return bestIdx
+	}
+
+	if platform == core.PlatformMSDOS {
+		for i, f := range files {
+			if f.Kind == FileKindScript && f.Extension == ".bat" {
+				if f.Size > bestSize {
+					bestIdx = i
+					bestSize = f.Size
+				}
+			}
+		}
+		if bestIdx >= 0 {
+			return bestIdx
+		}
+	}
+
+	for i, f := range files {
+		if rawROMExtensions[f.Extension] {
+			if f.Size > bestSize {
+				bestIdx = i
+				bestSize = f.Size
+			}
 		}
 	}
 	return bestIdx

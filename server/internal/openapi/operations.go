@@ -53,8 +53,15 @@ func Operations() []OperationDoc {
 			Method:       "GET",
 			Path:         "/api/games/{id}/detail",
 			Summary:      "Get game detail",
-			Description:  "Full metadata, media (with local_path/hash when known), external IDs, merged files, unified Xbox/xCloud fields (is_game_pass, xcloud_available, store_product_id, xcloud_url when present), and all source games with resolver_matches (including metadata_json).",
+			Description:  "Full metadata, media (with local_path/hash when known), external IDs, merged files, generic play metadata (play availability, launch sources, launch candidates, file ids), unified Xbox/xCloud fields (is_game_pass, xcloud_available, store_product_id, xcloud_url when present), and all source games with resolver_matches (including metadata_json).",
 			ResponseDocs: map[string]string{"200": "Game detail object", "404": "Game not found", "500": "Internal server error"},
+		},
+		{
+			Method:       "GET",
+			Path:         "/api/games/{id}/play",
+			Summary:      "Stream one game file by file_id",
+			Description:  "Streams a single file that belongs to the requested canonical game. Requires query param file_id (stable id from game detail/list file metadata). Local-disk Phase 6 implementation only; rejects invalid ids, path traversal, and files outside the game's found source roots. Supports Range requests via http.ServeContent.",
+			ResponseDocs: map[string]string{"200": "Binary stream", "400": "Missing or invalid file_id", "404": "Game, file, or source path not found", "500": "Internal server error"},
 		},
 		{
 			Method:       "GET",

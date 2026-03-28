@@ -24,7 +24,7 @@ export function GameCard({ game }: GameCardProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const coverUrl = selectCoverUrl(game.media)
-  const playable = isPlayable(game.platform)
+  const playable = isPlayable(game)
   const primarySource = primarySourcePlugin(game)
   const hltb = formatHLTB(game.completion_time)
   const matchCount = resolverMatchCount(game)

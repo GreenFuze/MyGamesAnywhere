@@ -41,6 +41,7 @@ import {
 import { inferOriginLabel, readGameRouteState } from '@/lib/gameNavigation'
 import {
   formatHLTB,
+  hasBrowserPlaySupport,
   isPlayable,
   pluginLabel,
   resolverMatchCount,
@@ -647,7 +648,8 @@ export function GameDetailPage() {
   const heroMedia = useMemo(() => selectHeroMedia(imageMedia), [imageMedia])
   const heroUrl = heroMedia ? mediaUrl(heroMedia) : null
   const coverUrl = coverMedia ? mediaUrl(coverMedia) : null
-  const playable = gameData ? isPlayable(gameData.platform) : false
+  const playable = gameData ? isPlayable(gameData) : false
+  const browserSupported = gameData ? hasBrowserPlaySupport(gameData) : false
   const sources = gameData ? selectSourcePlugins(gameData) : []
   const hltb = gameData ? formatHLTB(gameData.completion_time) : null
   const matchCount = gameData ? resolverMatchCount(gameData) : 0
@@ -694,6 +696,13 @@ export function GameDetailPage() {
       coverUrl,
       launchKind: 'xcloud',
       launchUrl: game.data.xcloud_url,
+    })
+  }
+
+  const handleLaunchBrowser = () => {
+    if (!game.data?.play?.available) return
+    navigate(`/game/${encodeURIComponent(game.data.id)}/play`, {
+      state: location.state,
     })
   }
 
@@ -759,7 +768,7 @@ export function GameDetailPage() {
                 <Badge variant="platform"><PlatformIcon platform={data.platform} showLabel /></Badge>
                 {data.xcloud_available && <BrandBadge brand="xcloud" label="xCloud" />}
                 {data.is_game_pass && <Badge variant="gamepass">Game Pass</Badge>}
-                {playable && <Badge variant="playable">Playable Platform</Badge>}
+                {playable && <Badge variant="playable">Browser Play</Badge>}
                 {hltb && <Badge>{hltb}</Badge>}
                 {matchCount > 0 && <Badge>{matchCount} matches</Badge>}
               </div>
@@ -783,10 +792,14 @@ export function GameDetailPage() {
                   </a>
                 )}
                 {playable && (
-                  <div className="inline-flex h-10 items-center justify-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-4 py-2 text-sm font-medium text-mga-muted">
+                  <button
+                    type="button"
+                    onClick={handleLaunchBrowser}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-4 py-2 text-sm font-medium text-mga-text transition-colors hover:bg-mga-elevated"
+                  >
                     <PlayCircle size={16} />
-                    Browser Play in Phase 6
-                  </div>
+                    Play in Browser
+                  </button>
                 )}
                 {externalLinks.length > 0 && (
                   <a href="#external-links" className="inline-flex h-10 items-center justify-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-4 py-2 text-sm font-medium text-mga-text transition-colors hover:bg-mga-elevated">
@@ -802,6 +815,11 @@ export function GameDetailPage() {
                 )}
               </div>
               {data.xcloud_url && <AttributionNote sources={['xcloud']} prefix="Streaming target" />}
+              {browserSupported && !playable && (
+                <p className="text-xs text-mga-muted">
+                  Browser Play is supported for this platform, but no launchable source file was found yet.
+                </p>
+              )}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

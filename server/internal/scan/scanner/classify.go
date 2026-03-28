@@ -6,15 +6,24 @@ import "github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 // (ROMs, disc images, extracted console directories — usable as-is by an
 // emulator or engine).
 var emulatedPlatforms = map[core.Platform]bool{
-	core.PlatformArcade:  true,
-	core.PlatformGBA:     true,
-	core.PlatformPS1:     true,
-	core.PlatformPS2:     true,
-	core.PlatformPS3:     true,
-	core.PlatformPSP:     true,
-	core.PlatformXbox360: true,
-	core.PlatformMSDOS:   true,
-	core.PlatformScummVM: true,
+	core.PlatformArcade:           true,
+	core.PlatformNES:              true,
+	core.PlatformSNES:             true,
+	core.PlatformGB:               true,
+	core.PlatformGBC:              true,
+	core.PlatformGBA:              true,
+	core.PlatformGenesis:          true,
+	core.PlatformSegaMasterSystem: true,
+	core.PlatformGameGear:         true,
+	core.PlatformSegaCD:           true,
+	core.PlatformSega32X:          true,
+	core.PlatformPS1:              true,
+	core.PlatformPS2:              true,
+	core.PlatformPS3:              true,
+	core.PlatformPSP:              true,
+	core.PlatformXbox360:          true,
+	core.PlatformMSDOS:            true,
+	core.PlatformScummVM:          true,
 }
 
 // GroupClassifier assigns a GroupKind to each GameGroup based on platform

@@ -25,25 +25,50 @@ func NewPlatformDetector() *PlatformDetector {
 		pathRules: []pathRule{
 			// Exact matches (high specificity, checked first per-segment)
 			{pattern: "mame", platform: core.PlatformArcade, exact: true},
+			{pattern: "arcade", platform: core.PlatformArcade, exact: true},
 			{pattern: "scummvm", platform: core.PlatformScummVM, exact: true},
+			{pattern: "nes", platform: core.PlatformNES, exact: true},
+			{pattern: "snes", platform: core.PlatformSNES, exact: true},
+			{pattern: "gb", platform: core.PlatformGB, exact: true},
+			{pattern: "gbc", platform: core.PlatformGBC, exact: true},
 			{pattern: "ps3", platform: core.PlatformPS3, exact: true},
 			{pattern: "ps2", platform: core.PlatformPS2, exact: true},
 			{pattern: "ps1", platform: core.PlatformPS1, exact: true},
 			{pattern: "psx", platform: core.PlatformPS1, exact: true},
 			{pattern: "psp", platform: core.PlatformPSP, exact: true},
 			{pattern: "gba", platform: core.PlatformGBA, exact: true},
+			{pattern: "genesis", platform: core.PlatformGenesis, exact: true},
+			{pattern: "megadrive", platform: core.PlatformGenesis, exact: true},
+			{pattern: "mastersystem", platform: core.PlatformSegaMasterSystem, exact: true},
+			{pattern: "sms", platform: core.PlatformSegaMasterSystem, exact: true},
+			{pattern: "gamegear", platform: core.PlatformGameGear, exact: true},
+			{pattern: "segacd", platform: core.PlatformSegaCD, exact: true},
+			{pattern: "megacd", platform: core.PlatformSegaCD, exact: true},
+			{pattern: "sega32x", platform: core.PlatformSega32X, exact: true},
 			{pattern: "xbox360", platform: core.PlatformXbox360, exact: true},
 			{pattern: "msdos", platform: core.PlatformMSDOS, exact: true},
 
 			// Substring matches (longer/more specific patterns first to
 			// prevent "playstation" from shadowing "playstation 2")
+			{pattern: "nintendo game boy color", platform: core.PlatformGBC},
+			{pattern: "game boy color", platform: core.PlatformGBC},
+			{pattern: "game boy advance", platform: core.PlatformGBA},
+			{pattern: "game boy advanced", platform: core.PlatformGBA},
+			{pattern: "super nintendo", platform: core.PlatformSNES},
+			{pattern: "nintendo entertainment system", platform: core.PlatformNES},
+			{pattern: "master system", platform: core.PlatformSegaMasterSystem},
+			{pattern: "game gear", platform: core.PlatformGameGear},
+			{pattern: "sega cd", platform: core.PlatformSegaCD},
+			{pattern: "mega cd", platform: core.PlatformSegaCD},
+			{pattern: "mega drive", platform: core.PlatformGenesis},
+			{pattern: "sega genesis", platform: core.PlatformGenesis},
 			{pattern: "playstation portable", platform: core.PlatformPSP},
 			{pattern: "playstation 3", platform: core.PlatformPS3},
 			{pattern: "playstation 2", platform: core.PlatformPS2},
 			{pattern: "playstation", platform: core.PlatformPS1},
 			{pattern: "xbox 360", platform: core.PlatformXbox360},
-			{pattern: "game boy advance", platform: core.PlatformGBA},
-			{pattern: "game boy advanced", platform: core.PlatformGBA},
+			{pattern: "32x", platform: core.PlatformSega32X},
+			{pattern: "game boy", platform: core.PlatformGB},
 			{pattern: "nintendo ds", platform: core.PlatformGBA}, // close enough for now
 			{pattern: "ms dos", platform: core.PlatformMSDOS},
 			{pattern: "ms-dos", platform: core.PlatformMSDOS},
@@ -95,6 +120,12 @@ func (d *PlatformDetector) detectFromPath(rootDir string) core.Platform {
 
 // detectFromFiles uses file-level signals when path gives no answer.
 func detectFromFiles(files []AnnotatedFile) core.Platform {
+	for _, f := range files {
+		if platform, ok := romExtensionPlatforms[f.Extension]; ok {
+			return platform
+		}
+	}
+
 	// PS3 structure: PS3_DISC.SFB at group root or files under PS3_GAME/
 	for _, f := range files {
 		upper := strings.ToUpper(f.Name)
@@ -143,4 +174,20 @@ func detectFromFiles(files []AnnotatedFile) core.Platform {
 	}
 
 	return core.PlatformUnknown
+}
+
+var romExtensionPlatforms = map[string]core.Platform{
+	".nes": core.PlatformNES,
+	".fds": core.PlatformNES,
+	".smc": core.PlatformSNES,
+	".sfc": core.PlatformSNES,
+	".gb":  core.PlatformGB,
+	".gbc": core.PlatformGBC,
+	".gba": core.PlatformGBA,
+	".gen": core.PlatformGenesis,
+	".md":  core.PlatformGenesis,
+	".smd": core.PlatformGenesis,
+	".sms": core.PlatformSegaMasterSystem,
+	".gg":  core.PlatformGameGear,
+	".32x": core.PlatformSega32X,
 }

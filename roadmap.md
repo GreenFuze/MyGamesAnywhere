@@ -291,7 +291,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] HLTB attribution
 
 ### Play
-- [ ] "Play in Browser" button for supported platforms
+- [x] "Play in Browser" button for supported platforms
 - [x] "Play on xCloud" button → opens xCloud URL
 - [x] Source info: file paths, integration details, resolver match data
 
@@ -372,24 +372,43 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 
 ## Phase 6 — In-Browser Emulation
 
-### Emulator Engines
-- [ ] EmulatorJS integration (NES, SNES, GBA, N64, PS1, Genesis, Arcade/MAME)
-- [ ] js-dos integration (MS-DOS games)
-- [ ] ScummVM WASM integration (point-and-click adventures)
+### Generic Server Contract
+- [x] Shared browser-play truth derived from supported platform plus launchable source-file metadata
+- [x] Generic `play` metadata in [`GET /api/games/{id}/detail`](server/internal/http/game_detail.go) / [`GET /api/games/{id}`](server/internal/http/game_detail.go)
+- [x] [`GET /api/games/{id}/play`](server/internal/http/play_controller.go) streams owned files by `file_id` with Range support and ownership/path validation
+- [x] No raw-path selector in the public browser-play API contract
+
+### Web Client Runtime Tracks
+- [x] Dedicated browser-player route: `/game/:id/play`
+- [x] Self-hosted EmulatorJS integration for the conservative browser-strong console set: NES, SNES, GB/GBC, GBA, Genesis-family, PS1, Arcade/MAME
+- [x] Self-hosted js-dos integration for MS-DOS
+- [x] ScummVM WASM target assembly from generic file metadata
+- [x] xCloud stays external; no embedded iframe plan in Phase 6
 
 ### Player UI
-- [ ] Fullscreen mode
-- [ ] Save states
+- [x] Dedicated player shell outside the main tab layout
+- [x] Fullscreen-capable browser player route
+- [x] Exit path back to the game detail page
+- [ ] Explicit cross-runtime save-state UI
 - [ ] Controller mapping / keyboard overlay
-- [ ] Exit back to library
+- [x] Browser-local save persistence where the selected runtime already supports it
 
-### ROM Streaming
-- [ ] **`GET /api/games/{id}/play`** — Stream a **launchable file** to the browser emulator (query param: `path` or `file_id` matching [`GameFile`](server/internal/core/entities.go)). **Phase A:** local disk / paths resolvable on the machine running the server (`http.ServeFile` or `io.Copy` with **Range** support for large ROMs). **Phase B:** remote sources (SMB / Drive) via plugin IPC (e.g. `source.file.read` with range) or server-side FS abstraction. **Security:** reject path traversal; only files that belong to the game’s source games. OpenAPI + CORS/range behavior as needed for EmulatorJS / WASM loaders.
-- [ ] Platform-to-emulator-core mapping
+### Runtime Wiring
+- [x] Client-owned platform-to-runtime/core mapping
+- [x] Self-hosted runtime assets under the frontend app stack
+- [x] DOS launch preparation performed in the web client from generic file metadata
+- [x] ScummVM launch preparation performed in the web client from generic file metadata
 
 ### xCloud
-- [ ] xCloud launch (iframe or external link to `xbox.com/play/launch/{titleId}`)
+- [x] xCloud launch remains an external link to `xbox.com/play/launch/{titleId}`
 - [ ] Evaluate Better xCloud enhancements (open source)
+
+---
+
+## Phase 6.5 — Save Sync
+
+- [ ] Generic save-sync contract for browser runtimes
+- [ ] First save-sync integration: `save-sync-google-drive`
 
 ---
 
@@ -400,6 +419,10 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] Staggered grid item entrance
 - [ ] Smooth filter/sort transitions
 - [ ] Skeleton loading states
+- [ ] Images in cards are too big, they should resized (or cropped?). We need a smart idea on how to fit the images to the cards.
+- [ ] The "More" card shouldn't be a card, it should on the right of the last card in the shelf line. The shelf, when collapsed must be a single line.
+- [ ] "matches" count stated for each game (on the card) should be only source matches.
+- [ ] Game page need to be redesigned. should be much more pretty. 
 
 ### Gamepad Navigation
 - [ ] Navigate entire UI with controller
@@ -444,3 +467,4 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] TGDB disabled due to low API quota
 - [ ] Media download background worker (MediaItems have URLs but no local files yet)
 - [ ] Schema migration strategy (deferred until after first release)
+- [ ] Add Metacritic scoring

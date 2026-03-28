@@ -93,10 +93,37 @@ export type GameSummary = {
 }
 
 export type GameFileDTO = {
+  id: string
   path: string
   role: string
   file_kind?: string
   size: number
+}
+
+export type SourceGamePlayDTO = {
+  launchable: boolean
+  root_file_id?: string
+}
+
+export type GameLaunchSourceDTO = {
+  source_game_id: string
+  launchable: boolean
+  root_file_id?: string
+}
+
+export type GameLaunchCandidateDTO = {
+  source_game_id: string
+  file_id: string
+  path: string
+  file_kind?: string
+  size: number
+}
+
+export type GamePlayDTO = {
+  available: boolean
+  platform_supported: boolean
+  launch_sources?: GameLaunchSourceDTO[]
+  launch_candidates?: GameLaunchCandidateDTO[]
 }
 
 export type ExternalIDDTO = {
@@ -155,6 +182,7 @@ export type SourceGameDetailDTO = {
   last_seen_at?: string
   created_at: string
   files: GameFileDTO[]
+  play?: SourceGamePlayDTO
   resolver_matches: ResolverMatchDTO[]
 }
 
@@ -221,6 +249,7 @@ export type GameDetailResponse = {
   xcloud_available?: boolean
   store_product_id?: string
   xcloud_url?: string
+  play?: GamePlayDTO
   achievement_summary?: AchievementSummaryDTO
   source_games: SourceGameDetailDTO[]
 }

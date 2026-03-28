@@ -110,6 +110,16 @@ func TestPlatformDetect_PathRulePrecedence(t *testing.T) {
 		rootDir  string
 		platform core.Platform
 	}{
+		{"Roms/Nintendo Entertainment System/SomeGame", core.PlatformNES},
+		{"Roms/Super Nintendo/SomeGame", core.PlatformSNES},
+		{"Roms/Game Boy/SomeGame", core.PlatformGB},
+		{"Roms/Game Boy Color/SomeGame", core.PlatformGBC},
+		{"Roms/Sega Genesis/SomeGame", core.PlatformGenesis},
+		{"Roms/Sega Mega Drive/SomeGame", core.PlatformGenesis},
+		{"Roms/Sega Master System/SomeGame", core.PlatformSegaMasterSystem},
+		{"Roms/Sega Game Gear/SomeGame", core.PlatformGameGear},
+		{"Roms/Sega CD/SomeGame", core.PlatformSegaCD},
+		{"Roms/Sega 32X/SomeGame", core.PlatformSega32X},
 		{"Roms/Playstation Portable/SomeGame", core.PlatformPSP},
 		{"Roms/Playstation 3/SomeGame", core.PlatformPS3},
 		{"Roms/Playstation 2/SomeGame", core.PlatformPS2},
@@ -134,6 +144,41 @@ func TestPlatformDetect_FileSignals(t *testing.T) {
 		files    []AnnotatedFile
 		platform core.Platform
 	}{
+		{
+			name: "NES rom extension",
+			files: []AnnotatedFile{
+				{FileEntry: core.FileEntry{Name: "game.nes", Path: "roms/game.nes"}, Extension: ".nes"},
+			},
+			platform: core.PlatformNES,
+		},
+		{
+			name: "SNES rom extension",
+			files: []AnnotatedFile{
+				{FileEntry: core.FileEntry{Name: "game.sfc", Path: "roms/game.sfc"}, Extension: ".sfc"},
+			},
+			platform: core.PlatformSNES,
+		},
+		{
+			name: "GBC rom extension",
+			files: []AnnotatedFile{
+				{FileEntry: core.FileEntry{Name: "game.gbc", Path: "roms/game.gbc"}, Extension: ".gbc"},
+			},
+			platform: core.PlatformGBC,
+		},
+		{
+			name: "Genesis rom extension",
+			files: []AnnotatedFile{
+				{FileEntry: core.FileEntry{Name: "game.gen", Path: "roms/game.gen"}, Extension: ".gen"},
+			},
+			platform: core.PlatformGenesis,
+		},
+		{
+			name: "Game Gear rom extension",
+			files: []AnnotatedFile{
+				{FileEntry: core.FileEntry{Name: "game.gg", Path: "roms/game.gg"}, Extension: ".gg"},
+			},
+			platform: core.PlatformGameGear,
+		},
 		{
 			name: "PS3 disc structure",
 			files: []AnnotatedFile{

@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>js-dos Player</title>
+    <link rel="stylesheet" href="./js-dos.css" />
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        color: #f4f4f5;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        overflow: hidden;
+      }
+      #player {
+        width: 100%;
+        height: 100%;
+      }
+      .overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+        background: radial-gradient(circle at top, #202020, #050505 70%);
+        text-align: center;
+      }
+      .status {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        max-width: 36rem;
+      }
+      .error {
+        color: #fecaca;
+      }
+      .muted {
+        color: #a1a1aa;
+        font-size: 0.95rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="player"></div>
+    <div id="overlay" class="overlay">
+      <div class="status">
+        <strong id="status-title">Preparing DOS runtime...</strong>
+        <span id="status-text" class="muted">Loading launch session.</span>
+      </div>
+    </div>
+    <script src="./js-dos.js"></script>
+    <script>
+      const params = new URLSearchParams(window.location.search)
+      const sessionId = params.get('session')
+      const overlay = document.getElementById('overlay')
+      const statusTitle = document.getElementById('status-title')
+      const statusText = document.getElementById('status-text')
+      const player = document.getElementById('player')
+
+      function setStatus(title, detail, isError = false) {
+        statusTitle.textContent = title
+        statusText.textContent = detail
+        statusText.className = isError ? 'error' : 'muted'
+      }
+
+      function normalizeDosPath(path) {
+        return path.replaceAll('/', '\\')
+      }
+
+      function splitDosPath(path) {
+        const normalized = normalizeDosPath(path)
+        const lastSlash = normalized.lastIndexOf('\\')
+        if (lastSlash === -1) {
+          return { dir: '', file: normalized }
+        }
+        return {
+          dir: normalized.slice(0, lastSlash),
+          file: normalized.slice(lastSlash + 1),
+        }
+      }
+
+      async function fetchFile(file, index, total) {
+        setStatus('Preparing DOS runtime...', `Downloading ${index + 1}/${total}: ${file.path}`)
+        const response = await fetch(file.url)
+        if (!response.ok) {
+          throw new Error(`Failed to load ${file.path}: HTTP ${response.status}`)
+        }
+        return {
+          path: normalizeDosPath(file.path),
+          contents: new Uint8Array(await response.arrayBuffer()),
+        }
+      }
+
+      async function boot() {
+        if (!sessionId) {
+          setStatus('Unable to launch', 'Missing browser-play session token.', true)
+          return
+        }
+
+        const raw = sessionStorage.getItem(`mga.browserPlaySession.${sessionId}`)
+        if (!raw) {
+          setStatus('Unable to launch', 'Browser-play session was not found.', true)
+          return
+        }
+
+        const session = JSON.parse(raw)
+        if (session.runtime !== 'jsdos') {
+          setStatus('Unable to launch', 'Invalid js-dos session payload.', true)
+          return
+        }
+
+        const options = {
+          autoStart: true,
+          pathPrefix: './emulators/',
+          background: '#000000',
+          noCloud: true,
+          noNetworking: true,
+          kiosk: false,
+          workerThread: true,
+        }
+
+        if (session.bundleUrl) {
+          setStatus('Preparing DOS runtime...', 'Loading DOS bundle.')
+          window.Dos(player, {
+            ...options,
+            url: session.bundleUrl,
+          })
+          overlay.style.display = 'none'
+          return
+        }
+
+        const files = []
+        for (let i = 0; i < session.files.length; i += 1) {
+          files.push(await fetchFile(session.files[i], i, session.files.length))
+        }
+
+        const launch = splitDosPath(session.rootFilePath)
+        const autoexec = [
+          '@echo off',
+          'mount c .',
+          'c:',
+          launch.dir ? `cd "${launch.dir}"` : null,
+          `"${launch.file}"`,
+        ].filter(Boolean).join('\n')
+
+        setStatus('Preparing DOS runtime...', 'Starting DOS session.')
+        window.Dos(player, {
+          ...options,
+          dosboxConf: `[autoexec]\n${autoexec}\n`,
+          initFs: files,
+        })
+        overlay.style.display = 'none'
+      }
+
+      boot().catch((error) => {
+        console.error(error)
+        setStatus('Unable to launch', error instanceof Error ? error.message : 'Unexpected DOS launch failure.', true)
+      })
+    </script>
+  </body>
+</html>

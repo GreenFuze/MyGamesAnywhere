@@ -60,6 +60,7 @@ type ExternalIDDTO struct {
 
 // GameFileDTO is a file belonging to a game.
 type GameFileDTO struct {
+	ID       string `json:"id"`
 	Path     string `json:"path"`
 	Role     string `json:"role"`
 	FileKind string `json:"file_kind,omitempty"`

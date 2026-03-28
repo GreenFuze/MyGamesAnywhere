@@ -26,7 +26,7 @@ export function GameRow({ game }: GameRowProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const coverUrl = selectCoverUrl(game.media)
-  const playable = isPlayable(game.platform)
+  const playable = isPlayable(game)
   const sources = selectSourcePlugins(game)
   const primarySource = primarySourcePlugin(game)
   const hltb = formatHLTB(game.completion_time)
