@@ -61,12 +61,86 @@
       const statusTitle = document.getElementById('status-title')
       const statusText = document.getElementById('status-text')
       const player = document.getElementById('player')
+      const runtimeOrigin = window.location.origin
+      let activeDos = null
+      let currentSession = null
 
       function setStatus(title, detail, isError = false) {
         statusTitle.textContent = title
         statusText.textContent = detail
         statusText.className = isError ? 'error' : 'muted'
       }
+
+      function postBridgeMessage(message) {
+        window.parent.postMessage(message, runtimeOrigin)
+      }
+
+      function bytesToBase64(bytes) {
+        const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+        let binary = ''
+        for (let index = 0; index < view.length; index += 1) {
+          binary += String.fromCharCode(view[index])
+        }
+        return btoa(binary)
+      }
+
+      function base64ToBytes(base64) {
+        const binary = atob(base64)
+        const bytes = new Uint8Array(binary.length)
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index)
+        }
+        return bytes
+      }
+
+      window.addEventListener('message', async (event) => {
+        if (event.origin !== runtimeOrigin) return
+        const message = event.data
+        if (!message || typeof message !== 'object' || !('type' in message)) return
+
+        if (message.type === 'export-save-snapshot') {
+          try {
+            if (!activeDos || typeof activeDos.save !== 'function') {
+              throw new Error('This js-dos session does not support save export.')
+            }
+            const bundle = await activeDos.save()
+            postBridgeMessage({
+              type: 'export-result',
+              requestId: message.requestId,
+              snapshot: {
+                files: [{ path: 'bundle-changes.jsdos', base64: bytesToBase64(bundle) }],
+              },
+            })
+          } catch (error) {
+            postBridgeMessage({
+              type: 'export-result',
+              requestId: message.requestId,
+              error: error instanceof Error ? error.message : 'Unable to export js-dos changes.',
+            })
+          }
+          return
+        }
+
+        if (message.type === 'import-save-snapshot') {
+          try {
+            const file = Array.isArray(message.files) ? message.files[0] : null
+            if (!file?.base64 || !currentSession?.bundleUrl) {
+              throw new Error('This js-dos session requires a bundle-backed launch to import saves.')
+            }
+            currentSession.importedBundleBase64 = file.base64
+            sessionStorage.setItem(`mga.browserPlaySession.${sessionId}`, JSON.stringify(currentSession))
+            postBridgeMessage({ type: 'import-result', requestId: message.requestId, ok: true })
+            window.setTimeout(() => window.location.reload(), 50)
+          } catch (error) {
+            postBridgeMessage({
+              type: 'import-result',
+              requestId: message.requestId,
+              ok: false,
+              error: error instanceof Error ? error.message : 'Unable to import js-dos changes.',
+            })
+          }
+        }
+      })
 
       function normalizeDosPath(path) {
         return path.replaceAll('/', '\\')
@@ -109,6 +183,7 @@
         }
 
         const session = JSON.parse(raw)
+        currentSession = session
         if (session.runtime !== 'jsdos') {
           setStatus('Unable to launch', 'Invalid js-dos session payload.', true)
           return
@@ -126,10 +201,23 @@
 
         if (session.bundleUrl) {
           setStatus('Preparing DOS runtime...', 'Loading DOS bundle.')
-          window.Dos(player, {
-            ...options,
-            url: session.bundleUrl,
-          })
+          if (session.importedBundleBase64) {
+            const response = await fetch(session.bundleUrl)
+            if (!response.ok) {
+              throw new Error(`Failed to load DOS bundle: HTTP ${response.status}`)
+            }
+            const baseBundle = new Uint8Array(await response.arrayBuffer())
+            activeDos = window.Dos(player, {
+              ...options,
+              url: [baseBundle, base64ToBytes(session.importedBundleBase64)],
+            })
+          } else {
+            activeDos = window.Dos(player, {
+              ...options,
+              url: session.bundleUrl,
+            })
+          }
+          postBridgeMessage({ type: 'ready', saveAdapter: true })
           overlay.style.display = 'none'
           return
         }
@@ -149,11 +237,12 @@
         ].filter(Boolean).join('\n')
 
         setStatus('Preparing DOS runtime...', 'Starting DOS session.')
-        window.Dos(player, {
+        activeDos = window.Dos(player, {
           ...options,
           dosboxConf: `[autoexec]\n${autoexec}\n`,
           initFs: files,
         })
+        postBridgeMessage({ type: 'ready', saveAdapter: false })
         overlay.style.display = 'none'
       }
 

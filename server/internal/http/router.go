@@ -14,10 +14,12 @@ type RouteBuilder struct {
 	GameCtrl        *GameController
 	MediaCtrl       *MediaController
 	DiscoCtrl       *DiscoveryController
+	AboutCtrl       *AboutController
 	ConfigCtrl      *ConfigController
 	PluginCtrl      *PluginController
 	AchievementCtrl *AchievementController
 	SyncCtrl        *SyncController
+	SaveSyncCtrl    *SaveSyncController
 	SSECtrl         *SSEController
 	OAuthCtrl       *OAuthController
 }
@@ -52,10 +54,15 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Delete("/games", b.GameCtrl.DeleteAll)
 				r.Get("/games/{id}/detail", b.GameCtrl.GetDetail)
 				r.Get("/games/{id}/play", b.GameCtrl.ServePlayFile)
+				r.Get("/games/{id}/save-sync/slots", b.SaveSyncCtrl.ListSlots)
+				r.Get("/games/{id}/save-sync/slots/{slot_id}", b.SaveSyncCtrl.GetSlot)
+				r.Put("/games/{id}/save-sync/slots/{slot_id}", b.SaveSyncCtrl.PutSlot)
 				r.Get("/games/{id}", b.GameCtrl.Get)
 				r.Get("/games/{id}/achievements", b.AchievementCtrl.GetAchievements)
 				r.Get("/media/{assetID}", b.MediaCtrl.ServeMedia)
 				r.Get("/stats", b.GameCtrl.Stats)
+				r.Get("/about", b.AboutCtrl.GetAbout)
+				r.Get("/about/license", b.AboutCtrl.GetLicense)
 				r.Get("/config/frontend", b.ConfigCtrl.GetFrontend)
 				r.Post("/config/frontend", b.ConfigCtrl.SetFrontend)
 				r.Get("/plugins", b.PluginCtrl.ListPlugins)
@@ -76,6 +83,8 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Post("/sync/pull", b.SyncCtrl.Pull)
 				r.Post("/sync/key", b.SyncCtrl.StoreKey)
 				r.Delete("/sync/key", b.SyncCtrl.ClearKey)
+				r.Post("/save-sync/migrations", b.SaveSyncCtrl.StartMigration)
+				r.Get("/save-sync/migrations/{job_id}", b.SaveSyncCtrl.GetMigrationStatus)
 
 				r.Get("/auth/callback/{plugin_id}", b.OAuthCtrl.Callback)
 			})
@@ -83,6 +92,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			// Scan can take many minutes; no middleware timeout.
 			api.Get("/scan", b.DiscoCtrl.Scan)
 			api.Post("/scan", b.DiscoCtrl.Scan)
+			api.Get("/scan/jobs/{job_id}", b.DiscoCtrl.GetScanJob)
 			api.Get("/scan/reports", b.DiscoCtrl.GetScanReports)
 			api.Get("/scan/reports/{id}", b.DiscoCtrl.GetScanReport)
 
@@ -93,14 +103,20 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Delete("/games", noopHandler())
 			api.Get("/games/{id}/detail", noopHandler())
 			api.Get("/games/{id}/play", noopHandler())
+			api.Get("/games/{id}/save-sync/slots", noopHandler())
+			api.Get("/games/{id}/save-sync/slots/{slot_id}", noopHandler())
+			api.Put("/games/{id}/save-sync/slots/{slot_id}", noopHandler())
 			api.Get("/games/{id}", noopHandler())
 			api.Get("/games/{id}/achievements", noopHandler())
 			api.Get("/media/{assetID}", noopHandler())
 			api.Get("/stats", noopHandler())
+			api.Get("/about", noopHandler())
+			api.Get("/about/license", noopHandler())
 			api.Get("/config/frontend", noopHandler())
 			api.Post("/config/frontend", noopHandler())
 			api.Get("/scan", noopHandler())
 			api.Post("/scan", noopHandler())
+			api.Get("/scan/jobs/{job_id}", noopHandler())
 			api.Get("/scan/reports", noopHandler())
 			api.Get("/scan/reports/{id}", noopHandler())
 			api.Get("/plugins", noopHandler())
@@ -120,6 +136,8 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Post("/sync/pull", noopHandler())
 			api.Post("/sync/key", noopHandler())
 			api.Delete("/sync/key", noopHandler())
+			api.Post("/save-sync/migrations", noopHandler())
+			api.Get("/save-sync/migrations/{job_id}", noopHandler())
 			api.Get("/auth/callback/{plugin_id}", noopHandler())
 			api.Get("/events", noopHandler())
 		}

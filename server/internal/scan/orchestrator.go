@@ -69,16 +69,25 @@ func (o *Orchestrator) SetEventBus(bus *events.EventBus) {
 		o.metadataResolver.SetScanEventPublisher(nil)
 		return
 	}
-	o.metadataResolver.SetScanEventPublisher(func(typ string, payload any) {
-		o.publishEvent(typ, payload)
+	o.metadataResolver.SetScanEventPublisher(func(ctx context.Context, typ string, payload any) {
+		o.publishEventWithContext(ctx, typ, payload)
 	})
 }
 
 func (o *Orchestrator) publishEvent(eventType string, payload any) {
+	o.publishEventWithContext(context.Background(), eventType, payload)
+}
+
+func (o *Orchestrator) publishEventWithContext(ctx context.Context, eventType string, payload any) {
 	if o.eventBus == nil {
 		return
 	}
 	if m, ok := payload.(map[string]any); ok {
+		if jobID, ok := ScanJobIDFromContext(ctx); ok {
+			if _, exists := m["job_id"]; !exists {
+				m["job_id"] = jobID
+			}
+		}
 		events.PublishJSON(o.eventBus, eventType, m)
 		return
 	}
@@ -90,7 +99,7 @@ func (o *Orchestrator) publishEvent(eventType string, payload any) {
 	o.eventBus.Publish(events.Event{Type: eventType, Data: data})
 }
 
-func (o *Orchestrator) publishScanError(integrationID string, err error) {
+func (o *Orchestrator) publishScanError(ctx context.Context, integrationID string, err error) {
 	if err == nil {
 		return
 	}
@@ -98,7 +107,7 @@ func (o *Orchestrator) publishScanError(integrationID string, err error) {
 	if integrationID != "" {
 		m["integration_id"] = integrationID
 	}
-	o.publishEvent("scan_error", m)
+	o.publishEventWithContext(ctx, "scan_error", m)
 }
 
 // RunScan scans all (or selected) integrations, enriches metadata,
@@ -108,7 +117,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 
 	integrations, err := o.integrationRepo.List(ctx)
 	if err != nil {
-		o.publishScanError("", err)
+		o.publishScanError(ctx, "", err)
 		return nil, fmt.Errorf("list integrations: %w", err)
 	}
 
@@ -125,7 +134,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		}
 		integrationCount++
 	}
-	o.publishEvent("scan_started", map[string]any{"integration_count": integrationCount})
+	o.publishEventWithContext(ctx, "scan_started", map[string]any{"integration_count": integrationCount})
 
 	scanStart := time.Now()
 
@@ -153,7 +162,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		plugin, ok := o.pluginDiscovery.GetPlugin(integ.PluginID)
 		if !ok {
 			o.logger.Warn("orchestrator: plugin not found", "integration_id", integ.ID, "plugin_id", integ.PluginID)
-			o.publishEvent("scan_integration_skipped", map[string]any{
+			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
 				"integration_id": integ.ID,
 				"plugin_id":      integ.PluginID,
 				"label":          integ.Label,
@@ -165,7 +174,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		config, err := parseConfig(integ.ConfigJSON)
 		if err != nil {
 			o.logger.Warn("orchestrator: bad config", "integration_id", integ.ID, "error", err)
-			o.publishEvent("scan_integration_skipped", map[string]any{
+			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
 				"integration_id": integ.ID,
 				"plugin_id":      integ.PluginID,
 				"label":          integ.Label,
@@ -175,7 +184,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			continue
 		}
 
-		o.publishEvent("scan_integration_started", map[string]any{
+		o.publishEventWithContext(ctx, "scan_integration_started", map[string]any{
 			"integration_id": integ.ID,
 			"plugin_id":      integ.PluginID,
 			"label":          integ.Label,
@@ -185,32 +194,32 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 
 		switch {
 		case pluginProvides(plugin, sourceFilesystemListMethod):
-			o.publishEvent("scan_source_list_started", map[string]any{
+			o.publishEventWithContext(ctx, "scan_source_list_started", map[string]any{
 				"integration_id": integ.ID,
 				"plugin_id":      integ.PluginID,
 			})
 			files, err := o.fetchFiles(ctx, integ.PluginID, config)
 			if err != nil {
-				o.publishScanError(integ.ID, err)
+				o.publishScanError(ctx, integ.ID, err)
 				return nil, fmt.Errorf("fetch files from integration %q: %w", integ.ID, err)
 			}
 			o.logger.Info("orchestrator: fetched files", "integration_id", integ.ID, "count", len(files))
-			o.publishEvent("scan_source_list_complete", map[string]any{
+			o.publishEventWithContext(ctx, "scan_source_list_complete", map[string]any{
 				"integration_id": integ.ID,
 				"plugin_id":      integ.PluginID,
 				"file_count":     len(files),
 			})
 
-			o.publishEvent("scan_scanner_started", map[string]any{
+			o.publishEventWithContext(ctx, "scan_scanner_started", map[string]any{
 				"integration_id": integ.ID,
 				"file_count":     len(files),
 			})
 			groups, err := o.scanner.ScanFiles(ctx, files)
 			if err != nil {
-				o.publishScanError(integ.ID, err)
+				o.publishScanError(ctx, integ.ID, err)
 				return nil, fmt.Errorf("scan files for integration %q: %w", integ.ID, err)
 			}
-			o.publishEvent("scan_scanner_complete", map[string]any{
+			o.publishEventWithContext(ctx, "scan_scanner_complete", map[string]any{
 				"integration_id": integ.ID,
 				"group_count":    len(groups),
 			})
@@ -219,24 +228,24 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			o.logger.Info("orchestrator: built games", "integration_id", integ.ID, "games", len(games))
 
 		case pluginProvides(plugin, sourceGamesListMethod):
-			o.publishEvent("scan_source_list_started", map[string]any{
+			o.publishEventWithContext(ctx, "scan_source_list_started", map[string]any{
 				"integration_id": integ.ID,
 				"plugin_id":      integ.PluginID,
 			})
 			games, err = o.fetchGames(ctx, integ.ID, integ.PluginID, config)
 			if err != nil {
-				o.publishScanError(integ.ID, err)
+				o.publishScanError(ctx, integ.ID, err)
 				return nil, fmt.Errorf("fetch games from integration %q: %w", integ.ID, err)
 			}
 			o.logger.Info("orchestrator: fetched storefront games", "integration_id", integ.ID, "count", len(games))
-			o.publishEvent("scan_source_list_complete", map[string]any{
+			o.publishEventWithContext(ctx, "scan_source_list_complete", map[string]any{
 				"integration_id": integ.ID,
 				"plugin_id":      integ.PluginID,
 				"game_count":     len(games),
 			})
 
 		default:
-			o.publishEvent("scan_integration_skipped", map[string]any{
+			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
 				"integration_id": integ.ID,
 				"plugin_id":      integ.PluginID,
 				"label":          integ.Label,
@@ -248,7 +257,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		scannedIDs = append(scannedIDs, integ.ID)
 
 		if len(games) == 0 {
-			o.publishEvent("scan_integration_skipped", map[string]any{
+			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
 				"integration_id": integ.ID,
 				"plugin_id":      integ.PluginID,
 				"label":          integ.Label,
@@ -265,7 +274,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 
 		// Metadata enrichment per-integration.
 		if len(metaSources) > 0 {
-			o.publishEvent("scan_metadata_started", map[string]any{
+			o.publishEventWithContext(ctx, "scan_metadata_started", map[string]any{
 				"integration_id": integ.ID,
 				"game_count":     len(games),
 				"resolver_count": len(metaSources),
@@ -274,17 +283,17 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		}
 
 		// Convert enriched games → ScanBatch and persist.
-		o.publishEvent("scan_persist_started", map[string]any{
+		o.publishEventWithContext(ctx, "scan_persist_started", map[string]any{
 			"integration_id":    integ.ID,
 			"source_game_count": len(games),
 		})
 		batch := gamesToScanBatch(integ.ID, integ.PluginID, games)
 		if err := o.gameStore.PersistScanResults(ctx, batch); err != nil {
-			o.publishScanError(integ.ID, err)
+			o.publishScanError(ctx, integ.ID, err)
 			return nil, fmt.Errorf("persist scan results for integration %q: %w", integ.ID, err)
 		}
 		o.logger.Info("orchestrator: persisted", "integration_id", integ.ID, "source_games", len(batch.SourceGames))
-		o.publishEvent("scan_integration_complete", map[string]any{
+		o.publishEventWithContext(ctx, "scan_integration_complete", map[string]any{
 			"integration_id": integ.ID,
 			"games_found":    len(batch.SourceGames),
 		})
@@ -300,7 +309,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 	// Return the canonical game views.
 	result, err := o.gameStore.GetCanonicalGames(ctx)
 	if err != nil {
-		o.publishScanError("", err)
+		o.publishScanError(ctx, "", err)
 		return nil, fmt.Errorf("get canonical games: %w", err)
 	}
 
@@ -312,7 +321,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 	}
 
 	o.logger.Info("orchestrator: scan complete", "canonical_games", len(result))
-	o.publishEvent("scan_complete", map[string]any{
+	o.publishEventWithContext(ctx, "scan_complete", map[string]any{
 		"canonical_games": len(result),
 		"duration_ms":     report.DurationMs,
 		"report_id":       report.ID,
@@ -330,7 +339,7 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 
 	integrations, err := o.integrationRepo.List(ctx)
 	if err != nil {
-		o.publishScanError("", err)
+		o.publishScanError(ctx, "", err)
 		return nil, fmt.Errorf("list integrations: %w", err)
 	}
 
@@ -343,7 +352,7 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 	// Load existing found source games from the DB.
 	foundGames, err := o.gameStore.GetFoundSourceGames(ctx, integrationIDs)
 	if err != nil {
-		o.publishScanError("", err)
+		o.publishScanError(ctx, "", err)
 		return nil, fmt.Errorf("get found source games: %w", err)
 	}
 
@@ -354,7 +363,7 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 	}
 
 	scanStart := time.Now()
-	o.publishEvent("scan_started", map[string]any{
+	o.publishEventWithContext(ctx, "scan_started", map[string]any{
 		"integration_count": len(byIntegration),
 		"metadata_only":     true,
 	})
@@ -380,12 +389,12 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 			})
 		}
 
-		o.publishEvent("scan_integration_started", map[string]any{
+		o.publishEventWithContext(ctx, "scan_integration_started", map[string]any{
 			"integration_id": integrationID,
 			"label":          integrationID,
 		})
 
-		o.publishEvent("scan_metadata_started", map[string]any{
+		o.publishEventWithContext(ctx, "scan_metadata_started", map[string]any{
 			"integration_id": integrationID,
 			"game_count":     len(games),
 			"resolver_count": len(metaSources),
@@ -396,11 +405,11 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 		// Re-persist the enriched resolver matches + media.
 		batch := gamesToScanBatch(integrationID, sourceGames[0].PluginID, games)
 		if err := o.gameStore.PersistScanResults(ctx, batch); err != nil {
-			o.publishScanError(integrationID, err)
+			o.publishScanError(ctx, integrationID, err)
 			return nil, fmt.Errorf("persist metadata refresh for %q: %w", integrationID, err)
 		}
 
-		o.publishEvent("scan_integration_complete", map[string]any{
+		o.publishEventWithContext(ctx, "scan_integration_complete", map[string]any{
 			"integration_id": integrationID,
 			"games_found":    len(games),
 		})
@@ -408,7 +417,7 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 
 	result, err := o.gameStore.GetCanonicalGames(ctx)
 	if err != nil {
-		o.publishScanError("", err)
+		o.publishScanError(ctx, "", err)
 		return nil, fmt.Errorf("get canonical games: %w", err)
 	}
 
@@ -423,7 +432,7 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 	}
 
 	o.logger.Info("orchestrator: metadata refresh complete", "canonical_games", len(result))
-	o.publishEvent("scan_complete", map[string]any{
+	o.publishEventWithContext(ctx, "scan_complete", map[string]any{
 		"canonical_games": len(result),
 		"duration_ms":     report.DurationMs,
 		"metadata_only":   true,

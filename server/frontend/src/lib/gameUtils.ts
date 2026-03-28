@@ -94,6 +94,8 @@ export const PLUGIN_LABELS: Record<string, string> = {
   'metadata-tgdb':              'TGDB',
   'retroachievements':          'RetroAchievements',
   'sync-settings-google-drive': 'Google Drive Sync',
+  'save-sync-google-drive':     'Google Drive Save Sync',
+  'save-sync-local-disk':       'Local Disk Save Sync',
 }
 
 export function pluginLabel(pluginId: string): string {
@@ -126,6 +128,8 @@ export const PLUGIN_LUCIDE_ICONS: Record<string, string> = {
   'metadata-tgdb':              'Database',
   'retroachievements':          'Trophy',
   'sync-settings-google-drive': 'RefreshCw',
+  'save-sync-google-drive':     'HardDriveUpload',
+  'save-sync-local-disk':       'HardDrive',
 }
 
 // ---------------------------------------------------------------------------
@@ -139,9 +143,10 @@ export const CAPABILITY_META: Record<string, CapabilityMeta> = {
   metadata:     { label: 'Metadata Providers',  icon: 'BookOpen',  order: 1 },
   achievements: { label: 'Achievements',        icon: 'Trophy',    order: 2 },
   sync:         { label: 'Sync',                icon: 'RefreshCw', order: 3 },
+  save_sync:    { label: 'Save Sync',           icon: 'HardDrive', order: 4 },
 }
 
-export const CAPABILITY_ORDER: string[] = ['source', 'metadata', 'achievements', 'sync']
+export const CAPABILITY_ORDER: string[] = ['source', 'metadata', 'achievements', 'sync', 'save_sync']
 
 // ---------------------------------------------------------------------------
 // Plugin config schema helpers
@@ -196,6 +201,8 @@ export class ConfigSummaryBuilder {
     'game-source-google-drive': (c) => (c.root_path ? `Path: ${c.root_path}` : 'Root'),
     'game-source-gdrive': (c) => (c.root_path ? `Path: ${c.root_path}` : 'Root'),
     'sync-settings-google-drive': (c) => (c.sync_path ? `Path: ${c.sync_path}` : ''),
+    'save-sync-google-drive': (c) => (c.root_path ? `Path: ${c.root_path}` : 'Root'),
+    'save-sync-local-disk': () => 'Server-managed root',
   }
 
   private static hintSecret(config: Record<string, unknown>, key: string): string {

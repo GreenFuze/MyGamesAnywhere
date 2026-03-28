@@ -7,12 +7,29 @@ export function AppQueryInvalidation() {
   const { subscribe } = useSSE()
 
   useEffect(() => {
-    return subscribe('scan_complete', () => {
+    const refreshLibrarySlices = () => {
       queryClient.invalidateQueries({ queryKey: ['games'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })
       queryClient.invalidateQueries({ queryKey: ['integration-games'] })
-      queryClient.invalidateQueries({ queryKey: ['scan-reports'] })
-    })
+    }
+
+    const unsubs = [
+      subscribe('scan_integration_complete', refreshLibrarySlices),
+      subscribe('scan_complete', () => {
+        refreshLibrarySlices()
+        queryClient.invalidateQueries({ queryKey: ['scan-reports'] })
+      }),
+      subscribe('scan_error', () => {
+        queryClient.invalidateQueries({ queryKey: ['scan-reports'] })
+      }),
+      subscribe('save_sync_migration_completed', () => {
+        queryClient.invalidateQueries({ queryKey: ['frontend-config'] })
+      }),
+    ]
+
+    return () => {
+      for (const unsub of unsubs) unsub()
+    }
   }, [queryClient, subscribe])
 
   return null

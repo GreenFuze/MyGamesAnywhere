@@ -216,6 +216,27 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
     creditNote: 'Icon sourced from Wikimedia.',
     tempResourceName: 'ScummVM-logo-wikimedia.png',
   },
+  {
+    id: 'emulatorjs',
+    label: 'EmulatorJS',
+    websiteUrl: 'https://emulatorjs.org/',
+    description: 'Browser runtime used for cartridge and console playback in the embedded player.',
+    creditNote: 'No bundled logo asset; rendered as a text badge in-app.',
+  },
+  {
+    id: 'js-dos',
+    label: 'js-dos',
+    websiteUrl: 'https://js-dos.com/',
+    description: 'Browser runtime used for DOS playback in the embedded player.',
+    creditNote: 'No bundled logo asset; rendered as a text badge in-app.',
+  },
+  {
+    id: 'dosbox',
+    label: 'DOSBox',
+    websiteUrl: 'https://www.dosbox.com/',
+    description: 'DOS emulation core used behind the js-dos browser runtime.',
+    creditNote: 'No bundled logo asset; rendered as a text badge in-app.',
+  },
 ]
 
 const BRAND_BY_ID = new Map(BRAND_DEFINITIONS.map((brand) => [brand.id, brand] as const))
@@ -271,6 +292,11 @@ const BRAND_ALIASES = new Map<string, string>([
   ['game-boy-advance', 'gba'],
   ['arcade', 'arcade'],
   ['scummvm', 'scummvm'],
+  ['emulatorjs', 'emulatorjs'],
+  ['emulator-js', 'emulatorjs'],
+  ['js-dos', 'js-dos'],
+  ['jsdos', 'js-dos'],
+  ['dosbox', 'dosbox'],
 ])
 
 const BRAND_HOST_ALIASES = new Map<string, string>([
@@ -313,6 +339,12 @@ const BRAND_HOST_ALIASES = new Map<string, string>([
   ['www.mamedev.org', 'mame'],
   ['scummvm.org', 'scummvm'],
   ['www.scummvm.org', 'scummvm'],
+  ['emulatorjs.org', 'emulatorjs'],
+  ['www.emulatorjs.org', 'emulatorjs'],
+  ['js-dos.com', 'js-dos'],
+  ['www.js-dos.com', 'js-dos'],
+  ['dosbox.com', 'dosbox'],
+  ['www.dosbox.com', 'dosbox'],
 ])
 
 export const POWERED_BY_BRAND_IDS = [
@@ -331,6 +363,9 @@ export const POWERED_BY_BRAND_IDS = [
   'epic-games',
   'tgdb',
   'scummvm',
+  'emulatorjs',
+  'js-dos',
+  'dosbox',
 ] as const
 
 export const SHIPPED_ICON_BRAND_IDS = BRAND_DEFINITIONS.filter((brand) => brand.iconPath).map(

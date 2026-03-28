@@ -1,0 +1,17 @@
+{
+  "plugin_id": "save-sync-local-disk",
+  "plugin_version": "1.0.0",
+  "api_major": 1,
+  "capabilities": ["save_sync"],
+  "provides": [
+    "save_sync.list",
+    "save_sync.get",
+    "save_sync.put",
+    "save_sync.delete",
+    "plugin.check_config"
+  ],
+  "exec": "save-sync-local-disk.exe",
+  "default_timeout_ms": 60000,
+  "max_concurrency": 1,
+  "config": {}
+}

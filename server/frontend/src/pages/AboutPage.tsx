@@ -1,4 +1,6 @@
+import { useQuery } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
+import { getAboutInfo } from '@/api/client'
 import { BrandIcon } from '@/components/ui/brand-icon'
 import {
   getBrandDefinition,
@@ -14,7 +16,36 @@ const shippedIconBrands = SHIPPED_ICON_BRAND_IDS
   .map((id) => getBrandDefinition(id))
   .filter((brand) => brand !== null)
 
+function formatBuildDate(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function InfoCard({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  return (
+    <article className="rounded-mga border border-mga-border bg-mga-bg p-4">
+      <p className="text-xs uppercase tracking-[0.18em] text-mga-muted">{label}</p>
+      <p className="mt-2 break-all text-lg font-semibold text-mga-text">{value}</p>
+      {detail ? <p className="mt-1 text-xs text-mga-muted">{detail}</p> : null}
+    </article>
+  )
+}
+
 export function AboutPage() {
+  const aboutQuery = useQuery({
+    queryKey: ['about'],
+    queryFn: getAboutInfo,
+  })
+
+  const about = aboutQuery.data
+
   return (
     <div className="space-y-8">
       <section className="rounded-mga border border-mga-border bg-mga-surface p-5 shadow-sm shadow-black/10 md:p-6">
@@ -32,8 +63,8 @@ export function AboutPage() {
             </h1>
             <p className="max-w-3xl text-sm leading-7 text-mga-muted">
               Local-first game library server and embedded web client. The frontend surfaces source
-              integrations, metadata providers, achievement providers, and platform/vendor marks while
-              keeping the server API generic and client-agnostic.
+              integrations, metadata providers, achievement providers, sync providers, and browser
+              runtimes while keeping the server API generic and client-agnostic.
             </p>
           </div>
         </div>
@@ -47,12 +78,53 @@ export function AboutPage() {
         </div>
       </section>
 
+      <section className="rounded-mga border border-mga-border bg-mga-surface p-5 shadow-sm shadow-black/10 md:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-mga-text">Build Information</h2>
+            <p className="mt-1 text-sm text-mga-muted">
+              The server is the source of truth for app version metadata and author credits.
+            </p>
+          </div>
+          <a
+            href="/api/about/license"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded-mga border border-mga-accent/30 bg-mga-accent/10 px-3 py-1.5 text-sm font-medium text-mga-accent hover:bg-mga-accent/20"
+          >
+            View Open Source Licenses
+            <ExternalLink size={14} />
+          </a>
+        </div>
+
+        {aboutQuery.isPending ? (
+          <p className="mt-4 text-sm text-mga-muted">Loading build metadata…</p>
+        ) : null}
+
+        {aboutQuery.isError ? (
+          <p className="mt-4 text-sm text-red-300">Failed to load build metadata: {aboutQuery.error.message}</p>
+        ) : null}
+
+        {about ? (
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <InfoCard label="Version" value={about.version} />
+            <InfoCard label="Commit" value={about.commit} />
+            <InfoCard label="Built" value={formatBuildDate(about.build_date)} />
+            <InfoCard
+              label="Authors"
+              value={about.author_credits.join(', ') || 'Unknown'}
+              detail="Server-provided credits"
+            />
+          </div>
+        ) : null}
+      </section>
+
       <section className="space-y-3">
         <div>
           <h2 className="text-lg font-semibold text-mga-text">Powered By</h2>
           <p className="mt-1 text-sm text-mga-muted">
-            External vendors and services currently represented in the app through sources, metadata,
-            achievements, sync, or launch targets.
+            External vendors and runtimes currently represented in the app through sources, metadata,
+            achievements, sync, or embedded browser playback.
           </p>
         </div>
 
@@ -68,8 +140,8 @@ export function AboutPage() {
                     {brand.iconPath ? (
                       <BrandIcon brand={brand} className="h-7 w-7" />
                     ) : (
-                      <span className="text-xs font-semibold uppercase text-mga-muted">
-                        {brand.label.slice(0, 3)}
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-mga-muted">
+                        {brand.label.slice(0, 4)}
                       </span>
                     )}
                   </div>
@@ -79,7 +151,7 @@ export function AboutPage() {
                   </div>
                 </div>
 
-                {brand.websiteUrl && (
+                {brand.websiteUrl ? (
                   <a
                     href={brand.websiteUrl}
                     target="_blank"
@@ -89,7 +161,7 @@ export function AboutPage() {
                     Visit
                     <ExternalLink size={14} />
                   </a>
-                )}
+                ) : null}
               </div>
             </article>
           ))}
@@ -122,8 +194,8 @@ export function AboutPage() {
               </div>
 
               <div className="text-sm text-mga-muted md:text-right">
-                {brand.tempResourceName && <p>Temp resource: {brand.tempResourceName}</p>}
-                {brand.websiteUrl && (
+                {brand.tempResourceName ? <p>Temp resource: {brand.tempResourceName}</p> : null}
+                {brand.websiteUrl ? (
                   <a
                     href={brand.websiteUrl}
                     target="_blank"
@@ -133,7 +205,7 @@ export function AboutPage() {
                     Vendor site
                     <ExternalLink size={14} />
                   </a>
-                )}
+                ) : null}
               </div>
             </article>
           ))}

@@ -1,0 +1,21 @@
+{
+  "plugin_id": "save-sync-google-drive",
+  "plugin_version": "2.1.0",
+  "api_major": 1,
+  "capabilities": ["save_sync"],
+  "provides": [
+    "save_sync.list",
+    "save_sync.get",
+    "save_sync.put",
+    "save_sync.delete",
+    "plugin.check_config",
+    "auth.oauth.callback",
+    "source.browse"
+  ],
+  "exec": "drive.exe",
+  "default_timeout_ms": 600000,
+  "max_concurrency": 2,
+  "config": {
+    "root_path": { "type": "string", "default": "Games/mga_save_syncs" }
+  }
+}

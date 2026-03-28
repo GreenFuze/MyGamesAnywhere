@@ -310,6 +310,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Per-integration and "Check All" status checks (SSE-driven real-time updates)
 - [x] Duplicate integration detection (409 with existing label)
 - [x] Library stats summary at top of Integrations tab
+- [x] Save Sync integrations grouped separately with active integration selection and server-driven migration actions
 
 ### Integrations — Game Sources
 - [x] Per-source game count badge (from `LibraryStats.by_integration_id`)
@@ -389,8 +390,8 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Dedicated player shell outside the main tab layout
 - [x] Fullscreen-capable browser player route
 - [x] Exit path back to the game detail page
-- [ ] Explicit cross-runtime save-state UI
-- [ ] Controller mapping / keyboard overlay
+- [x] Explicit browser save `Load` / `Save` UI with remote slots (`autosave`, `slot-1` … `slot-5`)
+- [ ] Controller mapping / keyboard overlay *(moved out of browser scope; future desktop/native client work)*
 - [x] Browser-local save persistence where the selected runtime already supports it
 
 ### Runtime Wiring
@@ -398,6 +399,12 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Self-hosted runtime assets under the frontend app stack
 - [x] DOS launch preparation performed in the web client from generic file metadata
 - [x] ScummVM launch preparation performed in the web client from generic file metadata
+- [x] Runtime save bridge for EmulatorJS, js-dos, and ScummVM via `postMessage`
+
+### Playability Corrections
+- [x] Browser play truth tightened to require launchable source metadata, not platform heuristics alone
+- [x] Nintendo DS no longer falls back to GBA browser play detection
+- [x] ScummVM launchability requires recognized self-contained game signatures, not merely a non-empty folder
 
 ### xCloud
 - [x] xCloud launch remains an external link to `xbox.com/play/launch/{titleId}`
@@ -407,8 +414,15 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 
 ## Phase 6.5 — Save Sync
 
-- [ ] Generic save-sync contract for browser runtimes
-- [ ] First save-sync integration: `save-sync-google-drive`
+- [x] Generic server-first save-sync contract for browser runtimes (opaque files + manifest metadata, no MGA save-state abstraction)
+- [x] Explicit `Load` / `Save` flow only; no auto-sync
+- [x] Active save-sync integration stored in frontend config and selectable from Settings
+- [x] Save slot identity keyed by canonical game, source game, runtime, and slot id
+- [x] Browser player exports/imports whole runtime save snapshots
+- [x] Save conflict handling: last-writer-wins with warning
+- [x] Save-sync migration jobs (`all` or `game`) run server-side with SSE progress
+- [x] Save-sync integration: `save-sync-google-drive`
+- [x] Save-sync integration: `save-sync-local-disk`
 
 ---
 
@@ -422,34 +436,30 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] Images in cards are too big, they should resized (or cropped?). We need a smart idea on how to fit the images to the cards.
 - [ ] The "More" card shouldn't be a card, it should on the right of the last card in the shelf line. The shelf, when collapsed must be a single line.
 - [ ] "matches" count stated for each game (on the card) should be only source matches.
-- [ ] Game page need to be redesigned. should be much more pretty. 
-
-### Gamepad Navigation
-- [ ] Navigate entire UI with controller
-- [ ] Focus management, visual focus indicators
-- [ ] Optimized for Big Screen theme
+- [ ] Game page need to be redesigned. should be much more pretty.
+- [x] Fix scanning/refetching to show detailed progress (or/and least a progress bar). Async scan jobs now return immediately, publish `job_id` over SSE, and the Settings UI can recover progress after reload.
 
 ### Dashboard / Stats
-- [ ] Games by platform (chart)
-- [ ] Games by decade
-- [ ] Top genres
+- [x] Games by platform (chart)
+- [x] Games by decade
+- [x] Top genres
 - [ ] Metadata coverage (% with descriptions, cover art, achievements)
-- [ ] Recent scan activity
+- [x] Recent scan activity
 
-### Collections
-- [ ] User-created groupings ("Couch co-op", "Childhood favorites")
-- [ ] "What should I play?" random picker (factors in HLTB and mood)
 
 ### About Page
-- [ ] MGA version, build date, author credits
+- [x] MGA version, build date, author credits
 - [x] "Powered By" grid with logos and one-liner descriptions for currently integrated services:
   IGDB, RAWG, Steam, GOG, LaunchBox, MAME, HowLongToBeat, RetroAchievements,
   TheGamesDB, ScummVM, Xbox/xCloud, Epic Games, Google Drive, SMB
-- [ ] Extend "Powered By" coverage for future emulation/runtime services:
+- [x] Extend "Powered By" coverage for future emulation/runtime services:
   EmulatorJS/RetroArch, js-dos/DOSBox
-- [ ] "View Open Source Licenses" link
+- [x] "View Open Source Licenses" link
 - [ ] In-context attribution throughout the app (service logos next to their data)
 - [x] About page icon/vendor credits preserve source locations for shipped brand assets
+
+### Home Page
+- [x] Should contains statistics using graphs/diagrams (games, achivements, etc)
 
 ### Additional Ideas
 - [ ] Keyboard shortcuts (Vim-style navigation, quick actions)

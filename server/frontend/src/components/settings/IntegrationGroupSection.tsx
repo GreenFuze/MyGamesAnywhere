@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { Integration, IntegrationStatusEntry, PluginInfo, LibraryStats, SyncStatus } from '@/api/client'
 import { CAPABILITY_META } from '@/lib/gameUtils'
 import { PluginIcon } from './PluginIcon'
@@ -38,6 +38,11 @@ interface IntegrationGroupSectionProps {
   onPull?: () => void
   onStoreKey?: (passphrase: string) => void
   onClearKey?: () => void
+
+  // Save sync.
+  activeSaveSyncIntegrationId?: string | null
+  onSetActiveSaveSync?: (integrationId: string) => void
+  saveSyncHeaderControls?: ReactNode
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +72,9 @@ export function IntegrationGroupSection({
   onPull,
   onStoreKey,
   onClearKey,
+  activeSaveSyncIntegrationId,
+  onSetActiveSaveSync,
+  saveSyncHeaderControls,
 }: IntegrationGroupSectionProps) {
   const [expanded, setExpanded] = useState(true)
 
@@ -121,6 +129,7 @@ export function IntegrationGroupSection({
               {scanning ? 'Refreshing...' : 'Refresh Metadata'}
             </Button>
           )}
+          {capability === 'save_sync' && saveSyncHeaderControls}
         </div>
       </div>
 
@@ -150,6 +159,8 @@ export function IntegrationGroupSection({
               onPull={capability === 'sync' ? onPull : undefined}
               onStoreKey={capability === 'sync' ? onStoreKey : undefined}
               onClearKey={capability === 'sync' ? onClearKey : undefined}
+              activeSaveSyncIntegrationId={capability === 'save_sync' ? activeSaveSyncIntegrationId : undefined}
+              onSetActiveSaveSync={capability === 'save_sync' ? onSetActiveSaveSync : undefined}
             />
           ))}
         </div>

@@ -127,6 +127,7 @@ func TestPlatformDetect_PathRulePrecedence(t *testing.T) {
 		{"Mame", core.PlatformArcade},
 		{"ScummVM/Some Game (CD DOS)", core.PlatformScummVM},
 		{"Games/MS DOS/mygame", core.PlatformMSDOS},
+		{"Roms/Nintendo DS/SomeGame", core.PlatformUnknown},
 		{"", core.PlatformUnknown},
 	}
 

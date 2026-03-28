@@ -1,15 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -279,11 +282,35 @@ type syncPullParams struct {
 	Config map[string]any `json:"config"`
 }
 
+type saveSyncListParams struct {
+	Config map[string]any `json:"config"`
+	Prefix string         `json:"prefix"`
+}
+
+type saveSyncPathParams struct {
+	Config map[string]any `json:"config"`
+	Path   string         `json:"path"`
+}
+
+type saveSyncPutParams struct {
+	Config      map[string]any `json:"config"`
+	Path        string         `json:"path"`
+	DataBase64  string         `json:"data_base64"`
+	ContentType string         `json:"content_type"`
+}
+
 func syncPathFromConfig(cfg map[string]any) string {
 	if v, ok := cfg["sync_path"].(string); ok && v != "" {
 		return v
 	}
 	return "Games/mga_sync"
+}
+
+func saveSyncRootPathFromConfig(cfg map[string]any) string {
+	if v, ok := cfg["root_path"].(string); ok && strings.TrimSpace(v) != "" {
+		return strings.Trim(strings.TrimSpace(v), "/")
+	}
+	return "Games/mga_save_syncs"
 }
 
 func maxVersionsFromConfig(cfg map[string]any) int {
@@ -441,6 +468,229 @@ func syncPull(ctx context.Context, params syncPullParams) (map[string]any, error
 		"status": "ok",
 		"data":   string(data),
 	}, nil
+}
+
+func normalizeObjectPath(p string) (string, error) {
+	cleaned := path.Clean(strings.ReplaceAll(strings.TrimSpace(p), "\\", "/"))
+	if cleaned == "." || cleaned == "/" || cleaned == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	cleaned = strings.TrimPrefix(cleaned, "/")
+	if strings.HasPrefix(cleaned, "../") || cleaned == ".." {
+		return "", fmt.Errorf("invalid path")
+	}
+	return cleaned, nil
+}
+
+func resolveObjectFile(srv *drive.Service, rootPath, objectPath string) (string, string, error) {
+	normalized, err := normalizeObjectPath(objectPath)
+	if err != nil {
+		return "", "", err
+	}
+	parentDir := path.Dir(normalized)
+	if parentDir == "." {
+		parentDir = ""
+	}
+	fileName := path.Base(normalized)
+
+	rootFolderID, err := resolvePathToFolderID(srv, rootPath)
+	if err != nil {
+		return "", "", err
+	}
+	parentID := rootFolderID
+	if parentDir != "" {
+		parentID, err = resolvePathToFolderID(srv, strings.Trim(path.Join(rootPath, parentDir), "/"))
+		if err != nil {
+			return "", fileName, err
+		}
+	}
+	query := fmt.Sprintf("'%s' in parents and name = '%s' and trashed = false", parentID, strings.ReplaceAll(fileName, "'", "\\'"))
+	result, err := srv.Files.List().Q(query).Fields("files(id, name, size, modifiedTime)").PageSize(1).Do()
+	if err != nil {
+		return "", fileName, err
+	}
+	if len(result.Files) == 0 {
+		return "", fileName, nil
+	}
+	return result.Files[0].Id, fileName, nil
+}
+
+func handleSaveSyncList(params json.RawMessage) (any, *Error) {
+	var p saveSyncListParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	srv, err := getDriveService(ctx)
+	if err != nil {
+		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
+	}
+
+	rootPath := saveSyncRootPathFromConfig(p.Config)
+	searchPath := strings.Trim(path.Join(rootPath, strings.TrimPrefix(strings.ReplaceAll(p.Prefix, "\\", "/"), "/")), "/")
+	folderID, err := resolvePathToFolderID(srv, searchPath)
+	if err != nil {
+		return map[string]any{"status": "ok", "files": []map[string]any{}}, nil
+	}
+
+	type folderItem struct {
+		id   string
+		path string
+	}
+	queue := []folderItem{{id: folderID, path: strings.Trim(strings.ReplaceAll(p.Prefix, "\\", "/"), "/")}}
+	files := []map[string]any{}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		query := fmt.Sprintf("'%s' in parents and trashed = false", current.id)
+		result, err := srv.Files.List().Q(query).Fields("files(id, name, mimeType, size, modifiedTime)").PageSize(1000).Do()
+		if err != nil {
+			return nil, &Error{Code: "LIST_FAILED", Message: err.Error()}
+		}
+		for _, f := range result.Files {
+			entryPath := f.Name
+			if current.path != "" {
+				entryPath = current.path + "/" + f.Name
+			}
+			if f.MimeType == "application/vnd.google-apps.folder" {
+				queue = append(queue, folderItem{id: f.Id, path: entryPath})
+				continue
+			}
+			files = append(files, map[string]any{
+				"path":     entryPath,
+				"size":     f.Size,
+				"mod_time": f.ModifiedTime,
+			})
+		}
+	}
+	return map[string]any{"status": "ok", "files": files}, nil
+}
+
+func handleSaveSyncGet(params json.RawMessage) (any, *Error) {
+	var p saveSyncPathParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	srv, err := getDriveService(ctx)
+	if err != nil {
+		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
+	}
+
+	rootPath := saveSyncRootPathFromConfig(p.Config)
+	fileID, _, err := resolveObjectFile(srv, rootPath, p.Path)
+	if err != nil {
+		return nil, &Error{Code: "LOOKUP_FAILED", Message: err.Error()}
+	}
+	if fileID == "" {
+		return map[string]any{"status": "not_found"}, nil
+	}
+
+	resp, err := srv.Files.Get(fileID).Download()
+	if err != nil {
+		return nil, &Error{Code: "DOWNLOAD_FAILED", Message: err.Error()}
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, &Error{Code: "READ_FAILED", Message: err.Error()}
+	}
+	return map[string]any{
+		"status":      "ok",
+		"data_base64": base64.StdEncoding.EncodeToString(data),
+	}, nil
+}
+
+func handleSaveSyncPut(params json.RawMessage) (any, *Error) {
+	var p saveSyncPutParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	if p.DataBase64 == "" {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "data_base64 is required"}
+	}
+	data, err := base64.StdEncoding.DecodeString(p.DataBase64)
+	if err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	normalized, err := normalizeObjectPath(p.Path)
+	if err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	srv, err := getDriveService(ctx)
+	if err != nil {
+		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
+	}
+
+	rootPath := saveSyncRootPathFromConfig(p.Config)
+	parentPath := path.Dir(normalized)
+	if parentPath == "." {
+		parentPath = ""
+	}
+	parentID, err := ensureFolderPath(srv, strings.Trim(path.Join(rootPath, parentPath), "/"))
+	if err != nil {
+		return nil, &Error{Code: "CREATE_PATH_FAILED", Message: err.Error()}
+	}
+	fileName := path.Base(normalized)
+
+	existingID, _, err := resolveObjectFile(srv, rootPath, normalized)
+	if err != nil {
+		return nil, &Error{Code: "LOOKUP_FAILED", Message: err.Error()}
+	}
+
+	reader := bytes.NewReader(data)
+	if existingID != "" {
+		_, err = srv.Files.Update(existingID, nil).Media(reader).Do()
+	} else {
+		meta := &drive.File{Name: fileName, Parents: []string{parentID}}
+		if p.ContentType != "" {
+			meta.MimeType = p.ContentType
+		}
+		_, err = srv.Files.Create(meta).Media(reader).Do()
+	}
+	if err != nil {
+		return nil, &Error{Code: "UPLOAD_FAILED", Message: err.Error()}
+	}
+	return map[string]any{"status": "ok"}, nil
+}
+
+func handleSaveSyncDelete(params json.RawMessage) (any, *Error) {
+	var p saveSyncPathParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	srv, err := getDriveService(ctx)
+	if err != nil {
+		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
+	}
+
+	rootPath := saveSyncRootPathFromConfig(p.Config)
+	fileID, _, err := resolveObjectFile(srv, rootPath, p.Path)
+	if err != nil {
+		return nil, &Error{Code: "LOOKUP_FAILED", Message: err.Error()}
+	}
+	if fileID == "" {
+		return map[string]any{"status": "not_found"}, nil
+	}
+	if err := srv.Files.Delete(fileID).Do(); err != nil {
+		return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
+	}
+	return map[string]any{"status": "ok"}, nil
 }
 
 // --------------- IPC handlers ---------------
@@ -760,6 +1010,38 @@ func main() {
 
 		case "sync.pull":
 			result, errObj := handleSyncPull(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "save_sync.list":
+			result, errObj := handleSaveSyncList(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "save_sync.get":
+			result, errObj := handleSaveSyncGet(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "save_sync.put":
+			result, errObj := handleSaveSyncPut(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "save_sync.delete":
+			result, errObj := handleSaveSyncDelete(req.Params)
 			if errObj != nil {
 				resp.Error = errObj
 			} else {

@@ -81,12 +81,34 @@ gui_launcher_chooser=grid
       const progressElement = document.getElementById('progress')
       const statusElement = document.getElementById('status')
       const canvas = document.getElementById('canvas')
+      const runtimeOrigin = window.location.origin
       const sessionKey = sessionId ? `mga.browserPlaySession.${sessionId}` : null
       const rawSession = sessionKey ? sessionStorage.getItem(sessionKey) : null
 
       function setStatus(text, isError = false) {
         statusElement.textContent = text
         statusElement.className = isError ? 'error' : ''
+      }
+
+      function postBridgeMessage(message) {
+        window.parent.postMessage(message, runtimeOrigin)
+      }
+
+      function bytesToBase64(bytes) {
+        let binary = ''
+        for (let index = 0; index < bytes.length; index += 1) {
+          binary += String.fromCharCode(bytes[index])
+        }
+        return btoa(binary)
+      }
+
+      function base64ToBytes(base64) {
+        const binary = atob(base64)
+        const bytes = new Uint8Array(binary.length)
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index)
+        }
+        return bytes
       }
 
       function normalizePath(path) {
@@ -115,6 +137,96 @@ gui_launcher_chooser=grid
           }
         }
       }
+
+      function listFilesRecursive(rootPath) {
+        const files = []
+        const entries = FS.readdir(rootPath)
+        for (const entry of entries) {
+          if (entry === '.' || entry === '..') continue
+          const fullPath = `${rootPath}/${entry}`.replace(/\/+/g, '/')
+          const stat = FS.stat(fullPath)
+          if (FS.isDir(stat.mode)) {
+            files.push(...listFilesRecursive(fullPath))
+          } else {
+            files.push(fullPath)
+          }
+        }
+        return files
+      }
+
+      function exportSaveSnapshot(requestId) {
+        try {
+          FS.syncfs(false, (error) => {
+            if (error) {
+              postBridgeMessage({ type: 'export-result', requestId, error: String(error) })
+              return
+            }
+            const files = listFilesRecursive('/local/saves').map((filePath) => ({
+              path: filePath.replace(/^\/local\/saves\/?/, ''),
+              base64: bytesToBase64(FS.readFile(filePath)),
+            }))
+            postBridgeMessage({ type: 'export-result', requestId, snapshot: { files } })
+          })
+        } catch (error) {
+          postBridgeMessage({
+            type: 'export-result',
+            requestId,
+            error: error instanceof Error ? error.message : 'Unable to export ScummVM saves.',
+          })
+        }
+      }
+
+      function removeExistingSaveTree(rootPath) {
+        const entries = FS.readdir(rootPath)
+        for (const entry of entries) {
+          if (entry === '.' || entry === '..') continue
+          const fullPath = `${rootPath}/${entry}`.replace(/\/+/g, '/')
+          const stat = FS.stat(fullPath)
+          if (FS.isDir(stat.mode)) {
+            removeExistingSaveTree(fullPath)
+            FS.rmdir(fullPath)
+          } else {
+            FS.unlink(fullPath)
+          }
+        }
+      }
+
+      function importSaveSnapshot(requestId, files) {
+        try {
+          removeExistingSaveTree('/local/saves')
+          for (const file of files ?? []) {
+            const mountPath = `/local/saves/${normalizePath(file.path)}`.replace(/\/+/g, '/')
+            const parent = mountPath.replace(/\/[^/]+$/, '')
+            if (parent) ensureDir(parent)
+            FS.writeFile(mountPath, base64ToBytes(file.base64), { canOwn: true })
+          }
+          FS.syncfs(false, (error) => {
+            if (error) {
+              postBridgeMessage({ type: 'import-result', requestId, ok: false, error: String(error) })
+              return
+            }
+            postBridgeMessage({ type: 'import-result', requestId, ok: true })
+          })
+        } catch (error) {
+          postBridgeMessage({
+            type: 'import-result',
+            requestId,
+            ok: false,
+            error: error instanceof Error ? error.message : 'Unable to import ScummVM saves.',
+          })
+        }
+      }
+
+      window.addEventListener('message', (event) => {
+        if (event.origin !== runtimeOrigin) return
+        const message = event.data
+        if (!message || typeof message !== 'object' || !('type' in message)) return
+        if (message.type === 'export-save-snapshot') {
+          exportSaveSnapshot(message.requestId)
+        } else if (message.type === 'import-save-snapshot') {
+          importSaveSnapshot(message.requestId, message.files)
+        }
+      })
 
       function configureStatusHooks(module) {
         module.setStatus = function (text) {
@@ -198,6 +310,7 @@ gui_launcher_chooser=grid
                 if (syncInterval === null) {
                   syncInterval = window.setInterval(() => syncLocal(FS.syncfs.bind(FS)), 15000)
                 }
+                postBridgeMessage({ type: 'ready', saveAdapter: true })
                 removeRunDependency('mga-scummvm-local')
               })
             })

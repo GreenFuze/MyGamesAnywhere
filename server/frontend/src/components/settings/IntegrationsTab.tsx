@@ -1,21 +1,28 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  ApiError,
   listIntegrations,
   listPlugins,
   getIntegrationStatus,
   checkIntegrationStatus,
   deleteIntegration,
   triggerScan,
+  getScanJob,
   getStats,
   getSyncStatus,
   syncPush,
   syncPull,
   storeKey,
   clearKey,
+  getFrontendConfig,
+  setFrontendConfig,
+  startSaveSyncMigration,
   type Integration,
   type IntegrationStatusEntry,
   type PluginInfo,
+  type ScanJobStatus,
+  type SaveSyncMigrationStatus,
 } from '@/api/client'
 import { CAPABILITY_META } from '@/lib/gameUtils'
 import { useSSE } from '@/hooks/useSSE'
@@ -23,9 +30,10 @@ import { IntegrationGroupSection } from './IntegrationGroupSection'
 import { LibraryStatsSummary } from './LibraryStatsSummary'
 import { ScanSummary } from './ScanSummary'
 import { AddIntegrationWizard, EditIntegrationDialog } from './IntegrationForm'
-import { ConfirmDialog } from '@/components/ui/dialog'
+import { ConfirmDialog, Dialog } from '@/components/ui/dialog'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Plus, RefreshCw } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
@@ -54,6 +62,33 @@ function formatLogTime(ts: string): string {
   const parsed = new Date(ts)
   if (Number.isNaN(parsed.getTime())) return ''
   return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+const activeScanJobStorageKey = 'mga.activeScanJobId'
+
+function readStoredScanJobId(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.sessionStorage.getItem(activeScanJobStorageKey)
+}
+
+function writeStoredScanJobId(jobId: string | null) {
+  if (typeof window === 'undefined') return
+  if (jobId) {
+    window.sessionStorage.setItem(activeScanJobStorageKey, jobId)
+  } else {
+    window.sessionStorage.removeItem(activeScanJobStorageKey)
+  }
+}
+
+function scanJobIsTerminal(job: Pick<ScanJobStatus, 'status'>) {
+  return job.status === 'completed' || job.status === 'failed'
+}
+
+function readJobId(data: unknown): string | null {
+  if (data && typeof data === 'object' && typeof (data as { job_id?: unknown }).job_id === 'string') {
+    return (data as { job_id: string }).job_id
+  }
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +121,11 @@ export function IntegrationsTab() {
     queryFn: getSyncStatus,
   })
 
+  const { data: frontendConfig = {} } = useQuery({
+    queryKey: ['frontend-config'],
+    queryFn: getFrontendConfig,
+  })
+
   // ── Status check state ──
 
   const [statusMap, setStatusMap] = useState<Map<string, IntegrationStatusEntry>>(new Map())
@@ -96,6 +136,7 @@ export function IntegrationsTab() {
   // ── Scan state (absorbed from ScanTab) ──
 
   const [scanning, setScanning] = useState(false)
+  const [activeScanJobId, setActiveScanJobId] = useState<string | null>(() => readStoredScanJobId())
   const [scanError, setScanError] = useState('')
   const [currentPhase, setCurrentPhase] = useState('')
   const [scanStatusText, setScanStatusText] = useState('')
@@ -112,6 +153,23 @@ export function IntegrationsTab() {
   const [syncError, setSyncError] = useState('')
   const [syncMessage, setSyncMessage] = useState('')
 
+  // ── Save sync state ──
+
+  const activeSaveSyncIntegrationId =
+    typeof frontendConfig.saveSyncActiveIntegrationId === 'string'
+      ? frontendConfig.saveSyncActiveIntegrationId
+      : null
+  const [saveSyncMessage, setSaveSyncMessage] = useState('')
+  const [saveSyncError, setSaveSyncError] = useState('')
+  const [saveSyncMigration, setSaveSyncMigration] = useState<SaveSyncMigrationStatus | null>(null)
+  const [migrationDialogOpen, setMigrationDialogOpen] = useState(false)
+  const [migrationSourceId, setMigrationSourceId] = useState('')
+  const [migrationTargetId, setMigrationTargetId] = useState('')
+  const [migrationScope, setMigrationScope] = useState<'all' | 'game'>('all')
+  const [migrationCanonicalGameId, setMigrationCanonicalGameId] = useState('')
+  const [migrationDeleteSource, setMigrationDeleteSource] = useState(false)
+  const [migrationStarting, setMigrationStarting] = useState(false)
+
   // ── UI state ──
 
   const [wizardOpen, setWizardOpen] = useState(false)
@@ -125,6 +183,52 @@ export function IntegrationsTab() {
       return next.slice(-5)
     })
   }, [])
+
+  const persistActiveScanJobId = useCallback((jobId: string | null) => {
+    setActiveScanJobId(jobId)
+    writeStoredScanJobId(jobId)
+  }, [])
+
+  const clearScanState = useCallback(() => {
+    setScanning(false)
+    setCurrentPhase('')
+    setScanStatusText('')
+    setScanTotalCount(0)
+    setScanCompletedCount(0)
+    setScanningIds(new Set())
+    setIntegrationProgress(new Map())
+  }, [])
+
+  const adoptScanJob = useCallback((job: ScanJobStatus, opts?: { appendMessage?: string; resetLog?: boolean }) => {
+    persistActiveScanJobId(scanJobIsTerminal(job) ? null : job.job_id)
+    if (opts?.resetLog) {
+      setScanEventLog([])
+    }
+    if (opts?.appendMessage) {
+      appendScanEvent(opts.appendMessage)
+    }
+
+    setScanError(job.status === 'failed' ? (job.error ?? 'Scan failed') : '')
+    setCurrentPhase(job.current_phase ?? '')
+    setScanTotalCount(job.integration_count)
+    setScanCompletedCount(job.integrations_completed)
+    setScanStatusText(
+      job.current_integration_label
+        ? `${job.current_phase ?? 'Scanning'}: ${job.current_integration_label}`
+        : (job.current_phase ?? ''),
+    )
+
+    if (scanJobIsTerminal(job)) {
+      clearScanState()
+      if (job.status === 'completed' && opts?.appendMessage) {
+        setScanStatusText('')
+      }
+      return
+    }
+
+    setScanning(true)
+    setScanningIds(job.current_integration_id ? new Set([job.current_integration_id]) : new Set())
+  }, [appendScanEvent, clearScanState, persistActiveScanJobId])
 
   // ── SSE: Status check events ──
 
@@ -165,12 +269,45 @@ export function IntegrationsTab() {
     return () => unsubs.forEach((u) => u())
   }, [subscribe])
 
+  const matchesActiveScanEvent = useCallback((data: unknown) => {
+    const jobId = readJobId(data)
+    if (!jobId || !activeScanJobId) return false
+    return jobId === activeScanJobId
+  }, [activeScanJobId])
+
+  useEffect(() => {
+    if (!activeScanJobId) return
+
+    let cancelled = false
+    void (async () => {
+      try {
+        const job = await getScanJob(activeScanJobId)
+        if (cancelled) return
+        adoptScanJob(job)
+      } catch (err) {
+        if (cancelled) return
+        if (err instanceof ApiError && err.status === 404) {
+          persistActiveScanJobId(null)
+          clearScanState()
+          setScanError('')
+          return
+        }
+        setScanError(err instanceof Error ? err.message : 'Failed to restore scan progress')
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeScanJobId, adoptScanJob, clearScanState, persistActiveScanJobId])
+
   // ── SSE: Scan events ──
 
   useEffect(() => {
     const unsubs = [
       // Scan lifecycle.
       subscribe('scan_started', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { integration_count?: number }
         setScanning(true)
         setScanError('')
@@ -186,6 +323,7 @@ export function IntegrationsTab() {
       }),
 
       subscribe('scan_integration_started', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { integration_id?: string; label?: string }
         if (d.integration_id) {
           setScanningIds((prev) => new Set([...prev, d.integration_id!]))
@@ -201,11 +339,13 @@ export function IntegrationsTab() {
 
       // Source discovery progress.
       subscribe('scan_source_list_started', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { integration_id?: string; plugin_id?: string }
         setScanStatusText(`Listing files from ${d.plugin_id ?? 'source'}...`)
         appendScanEvent(`Listing source content from ${d.plugin_id ?? 'source'}.`, data)
       }),
       subscribe('scan_source_list_complete', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { integration_id?: string; file_count?: number; game_count?: number }
         if (d.file_count) {
           setScanStatusText(`Found ${d.file_count} files`)
@@ -222,11 +362,13 @@ export function IntegrationsTab() {
 
       // Scanner pipeline progress.
       subscribe('scan_scanner_started', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { file_count?: number }
         setScanStatusText(`Detecting games in ${d.file_count ?? '?'} files...`)
         appendScanEvent(`Scanner started for ${d.file_count ?? '?'} files.`, data)
       }),
       subscribe('scan_scanner_complete', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { group_count?: number }
         setScanStatusText(`Detected ${d.group_count ?? '?'} games`)
         appendScanEvent(`Scanner grouped ${d.group_count ?? 0} games.`, data)
@@ -234,6 +376,7 @@ export function IntegrationsTab() {
 
       // Metadata enrichment progress.
       subscribe('scan_metadata_started', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { game_count?: number; resolver_count?: number }
         setScanStatusText(`Enriching ${d.game_count ?? '?'} games with ${d.resolver_count ?? '?'} providers...`)
         setCurrentPhase('metadata')
@@ -243,6 +386,7 @@ export function IntegrationsTab() {
         )
       }),
       subscribe('scan_metadata_phase', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { phase?: string }
         const phaseLabel = d.phase === 'identify' ? 'Identifying' : d.phase === 'consensus' ? 'Building consensus' : d.phase === 'fill' ? 'Filling gaps' : d.phase ?? ''
         setCurrentPhase(d.phase ?? '')
@@ -250,11 +394,13 @@ export function IntegrationsTab() {
         appendScanEvent(`Metadata phase: ${phaseLabel || 'working'}.`, data)
       }),
       subscribe('scan_metadata_plugin_started', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { plugin_id?: string; batch_size?: number; phase?: string }
         setScanStatusText(`${d.plugin_id}: looking up ${d.batch_size ?? '?'} games...`)
         appendScanEvent(`${d.plugin_id ?? 'Provider'} started ${d.phase ?? 'metadata'} for ${d.batch_size ?? '?'} games.`, data)
       }),
       subscribe('scan_metadata_game_progress', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as {
           integration_id?: string
           plugin_id?: string
@@ -281,6 +427,7 @@ export function IntegrationsTab() {
         )
       }),
       subscribe('scan_metadata_plugin_complete', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { plugin_id?: string; matched?: number; total?: number; filled?: number }
         if (d.matched != null) {
           setScanStatusText(`${d.plugin_id}: matched ${d.matched}/${d.total ?? '?'}`)
@@ -291,11 +438,13 @@ export function IntegrationsTab() {
         }
       }),
       subscribe('scan_metadata_plugin_error', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { plugin_id?: string; error?: string }
         setScanStatusText(`${d.plugin_id ?? 'Provider'} error: ${d.error ?? 'unknown error'}`)
         appendScanEvent(`${d.plugin_id ?? 'Provider'} error: ${d.error ?? 'unknown error'}.`, data)
       }),
       subscribe('scan_metadata_consensus_complete', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { identified?: number; unidentified?: number }
         setScanStatusText(`Consensus: ${d.identified ?? 0} identified, ${d.unidentified ?? 0} unidentified`)
         appendScanEvent(
@@ -306,6 +455,7 @@ export function IntegrationsTab() {
 
       // Per-integration completion.
       subscribe('scan_integration_complete', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { integration_id?: string; label?: string; games_found?: number }
         if (d.integration_id) {
           setScanningIds((prev) => { const next = new Set(prev); next.delete(d.integration_id!); return next })
@@ -317,18 +467,38 @@ export function IntegrationsTab() {
             return next
           })
         }
+        queryClient.invalidateQueries({ queryKey: ['stats'] })
+        queryClient.invalidateQueries({ queryKey: ['integration-games'] })
         appendScanEvent(
           `Integration complete: ${d.label ?? d.integration_id ?? 'unknown'} (${d.games_found ?? 0} games).`,
+          data,
+        )
+      }),
+      subscribe('scan_integration_skipped', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
+        const d = data as { integration_id?: string; label?: string; reason?: string }
+        if (d.integration_id) {
+          setScanningIds((prev) => {
+            const next = new Set(prev)
+            next.delete(d.integration_id!)
+            return next
+          })
+          setScanCompletedCount((prev) => prev + 1)
+        }
+        appendScanEvent(
+          `Integration skipped: ${d.label ?? d.integration_id ?? 'unknown'}${d.reason ? ` (${d.reason})` : ''}.`,
           data,
         )
       }),
 
       // Scan finished.
       subscribe('scan_complete', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         setScanning(false)
         setCurrentPhase('')
         setScanStatusText('')
         setScanningIds(new Set())
+        persistActiveScanJobId(null)
         appendScanEvent('Scan complete.', data)
         queryClient.invalidateQueries({ queryKey: ['stats'] })
         queryClient.invalidateQueries({ queryKey: ['games'] })
@@ -338,15 +508,17 @@ export function IntegrationsTab() {
 
       // Scan error.
       subscribe('scan_error', (data: unknown) => {
+        if (!matchesActiveScanEvent(data)) return
         const d = data as { error?: string }
         setScanError(d.error ?? 'Scan failed')
         setScanning(false)
         setScanStatusText('')
+        persistActiveScanJobId(null)
         appendScanEvent(`Scan failed: ${d.error ?? 'unknown error'}.`, data)
       }),
     ]
     return () => unsubs.forEach((u) => u())
-  }, [appendScanEvent, queryClient, subscribe])
+  }, [appendScanEvent, matchesActiveScanEvent, persistActiveScanJobId, queryClient, subscribe])
 
   // ── SSE: Sync events ──
 
@@ -370,6 +542,24 @@ export function IntegrationsTab() {
       subscribe('sync_key_cleared', () => {
         setSyncMessage('Encryption key cleared')
         queryClient.invalidateQueries({ queryKey: ['sync', 'status'] })
+      }),
+      subscribe('save_sync_migration_started', (data: unknown) => {
+        setSaveSyncMigration(data as SaveSyncMigrationStatus)
+        setSaveSyncMessage('Save migration started.')
+        setSaveSyncError('')
+      }),
+      subscribe('save_sync_migration_progress', (data: unknown) => {
+        setSaveSyncMigration(data as SaveSyncMigrationStatus)
+      }),
+      subscribe('save_sync_migration_completed', (data: unknown) => {
+        setSaveSyncMigration(data as SaveSyncMigrationStatus)
+        setSaveSyncMessage('Save migration completed.')
+        setSaveSyncError('')
+      }),
+      subscribe('save_sync_migration_failed', (data: unknown) => {
+        const status = data as SaveSyncMigrationStatus
+        setSaveSyncMigration(status)
+        setSaveSyncError(status.error ?? 'Save migration failed.')
       }),
     ]
     return () => unsubs.forEach((u) => u())
@@ -417,36 +607,46 @@ export function IntegrationsTab() {
   // ── Handlers: Scan ──
 
   const handleScanAll = useCallback(async () => {
-    setScanning(true)
     setScanError('')
     try {
-      await triggerScan()
+      const result = await triggerScan()
+      adoptScanJob(result.job, {
+        resetLog: true,
+        appendMessage: result.accepted ? 'Scan job started.' : 'Rejoined the active scan job.',
+      })
     } catch (err) {
       setScanError(err instanceof Error ? err.message : 'Scan failed')
-      setScanning(false)
+      clearScanState()
     }
-  }, [])
+  }, [adoptScanJob, clearScanState])
 
   const handleScanOne = useCallback(async (id: string) => {
-    setScanningIds((prev) => new Set([...prev, id]))
     setScanError('')
     try {
-      await triggerScan([id])
+      const result = await triggerScan([id])
+      adoptScanJob(result.job, {
+        resetLog: true,
+        appendMessage: result.accepted ? `Scan job started for ${id}.` : 'Rejoined the active scan job.',
+      })
     } catch (err) {
       setScanError(err instanceof Error ? err.message : 'Scan failed')
+      clearScanState()
     }
-  }, [])
+  }, [adoptScanJob, clearScanState])
 
   const handleRefreshMetadata = useCallback(async () => {
-    setScanning(true)
     setScanError('')
     try {
-      await triggerScan(undefined, { metadataOnly: true })
+      const result = await triggerScan(undefined, { metadataOnly: true })
+      adoptScanJob(result.job, {
+        resetLog: true,
+        appendMessage: result.accepted ? 'Metadata refresh job started.' : 'Rejoined the active scan job.',
+      })
     } catch (err) {
       setScanError(err instanceof Error ? err.message : 'Metadata refresh failed')
-      setScanning(false)
+      clearScanState()
     }
-  }, [])
+  }, [adoptScanJob, clearScanState])
 
   // ── Handlers: Sync ──
 
@@ -518,11 +718,70 @@ export function IntegrationsTab() {
     } catch { /* Fail silently for now. */ }
   }, [deleteTarget, queryClient])
 
+  const handleSetActiveSaveSync = useCallback(async (integrationId: string) => {
+    setSaveSyncError('')
+    setSaveSyncMessage('')
+    try {
+      await setFrontendConfig({
+        ...frontendConfig,
+        saveSyncActiveIntegrationId: integrationId,
+      })
+      setSaveSyncMessage('Active save sync integration updated.')
+      queryClient.invalidateQueries({ queryKey: ['frontend-config'] })
+    } catch (err) {
+      setSaveSyncError(err instanceof Error ? err.message : 'Failed to update active save sync integration.')
+    }
+  }, [frontendConfig, queryClient])
+
+  const handleStartMigration = useCallback(async () => {
+    if (!migrationSourceId || !migrationTargetId) {
+      setSaveSyncError('Choose both source and target save sync integrations.')
+      return
+    }
+    if (migrationSourceId === migrationTargetId) {
+      setSaveSyncError('Source and target integrations must differ.')
+      return
+    }
+    if (migrationScope === 'game' && !migrationCanonicalGameId.trim()) {
+      setSaveSyncError('Canonical game ID is required for game migration.')
+      return
+    }
+
+    setMigrationStarting(true)
+    setSaveSyncError('')
+    setSaveSyncMessage('')
+    try {
+      const status = await startSaveSyncMigration({
+        source_integration_id: migrationSourceId,
+        target_integration_id: migrationTargetId,
+        scope: migrationScope,
+        canonical_game_id: migrationScope === 'game' ? migrationCanonicalGameId.trim() : undefined,
+        delete_source_after_success: migrationDeleteSource,
+      })
+      setSaveSyncMigration(status)
+      setSaveSyncMessage('Save migration started.')
+      setMigrationDialogOpen(false)
+    } catch (err) {
+      setSaveSyncError(err instanceof Error ? err.message : 'Failed to start save migration.')
+    } finally {
+      setMigrationStarting(false)
+    }
+  }, [migrationCanonicalGameId, migrationDeleteSource, migrationScope, migrationSourceId, migrationTargetId])
+
   // ── Group integrations by capability ──
 
   const groups = useMemo(() => {
     return groupIntegrationsByCapability(integrations, plugins)
   }, [integrations, plugins])
+
+  const saveSyncIntegrations = useMemo(() => groups.get('save_sync') ?? [], [groups])
+
+  useEffect(() => {
+    if (saveSyncIntegrations.length > 0) {
+      setMigrationSourceId((prev) => prev || saveSyncIntegrations[0]?.id || '')
+      setMigrationTargetId((prev) => prev || saveSyncIntegrations[1]?.id || saveSyncIntegrations[0]?.id || '')
+    }
+  }, [saveSyncIntegrations])
 
   const sortedGroupKeys = useMemo(() => {
     const keys = Array.from(groups.keys())
@@ -633,6 +892,37 @@ export function IntegrationsTab() {
         </div>
       ) : (
         <div className="space-y-3">
+          {saveSyncMigration && (
+            <div className="border border-mga-border rounded-mga bg-mga-surface p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-mga-text">Save Sync Migration</p>
+                <span className="text-xs text-mga-muted uppercase tracking-wide">{saveSyncMigration.status}</span>
+              </div>
+              <ProgressBar
+                value={saveSyncMigration.items_total > 0 ? (saveSyncMigration.items_completed / saveSyncMigration.items_total) * 100 : undefined}
+                label={
+                  saveSyncMigration.items_total > 0
+                    ? `${saveSyncMigration.items_completed}/${saveSyncMigration.items_total}`
+                    : 'Preparing...'
+                }
+              />
+              <p className="text-xs text-mga-muted">
+                {saveSyncMigration.slots_migrated} migrated, {saveSyncMigration.slots_skipped} skipped
+              </p>
+            </div>
+          )}
+
+          {saveSyncMessage && (
+            <div className="border border-emerald-500/30 rounded-mga bg-emerald-500/10 p-3">
+              <p className="text-xs text-emerald-300">{saveSyncMessage}</p>
+            </div>
+          )}
+          {saveSyncError && (
+            <div className="border border-red-500/30 rounded-mga bg-red-500/10 p-3">
+              <p className="text-xs text-red-400">{saveSyncError}</p>
+            </div>
+          )}
+
           {sortedGroupKeys.map((cap) => (
             <IntegrationGroupSection
               key={cap}
@@ -659,6 +949,19 @@ export function IntegrationsTab() {
               onPull={handlePull}
               onStoreKey={handleStoreKey}
               onClearKey={handleClearKey}
+              activeSaveSyncIntegrationId={cap === 'save_sync' ? activeSaveSyncIntegrationId : undefined}
+              onSetActiveSaveSync={cap === 'save_sync' ? handleSetActiveSaveSync : undefined}
+              saveSyncHeaderControls={cap === 'save_sync' ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMigrationDialogOpen(true)}
+                  disabled={saveSyncIntegrations.length < 2}
+                  className="text-xs"
+                >
+                  Migrate Saves
+                </Button>
+              ) : undefined}
             />
           ))}
         </div>
@@ -697,6 +1000,88 @@ export function IntegrationsTab() {
         confirmLabel="Delete"
         confirmVariant="danger"
       />
+
+      {migrationDialogOpen && (
+        <Dialog open={migrationDialogOpen} onClose={() => setMigrationDialogOpen(false)} title="Migrate Save Sync Data">
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-mga-text">Source Integration</label>
+                <select
+                  value={migrationSourceId}
+                  onChange={(event) => setMigrationSourceId(event.target.value)}
+                  className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text"
+                >
+                  {saveSyncIntegrations.map((integration) => (
+                    <option key={integration.id} value={integration.id}>{integration.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-mga-text">Target Integration</label>
+                <select
+                  value={migrationTargetId}
+                  onChange={(event) => setMigrationTargetId(event.target.value)}
+                  className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text"
+                >
+                  {saveSyncIntegrations.map((integration) => (
+                    <option key={integration.id} value={integration.id}>{integration.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-mga-text">Scope</label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={migrationScope === 'all' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setMigrationScope('all')}
+                >
+                  Entire Library
+                </Button>
+                <Button
+                  type="button"
+                  variant={migrationScope === 'game' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setMigrationScope('game')}
+                >
+                  One Canonical Game
+                </Button>
+              </div>
+            </div>
+
+            {migrationScope === 'game' && (
+              <Input
+                label="Canonical Game ID"
+                value={migrationCanonicalGameId}
+                onChange={(event) => setMigrationCanonicalGameId(event.target.value)}
+                placeholder="Enter the canonical game ID to migrate"
+              />
+            )}
+
+            <label className="flex items-center gap-2 text-sm text-mga-text">
+              <input
+                type="checkbox"
+                checked={migrationDeleteSource}
+                onChange={(event) => setMigrationDeleteSource(event.target.checked)}
+              />
+              Delete source copies after a successful migration
+            </label>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setMigrationDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleStartMigration} disabled={migrationStarting}>
+                {migrationStarting ? 'Starting...' : 'Start Migration'}
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      )}
     </div>
   )
 }

@@ -225,7 +225,10 @@ func sourceGameToDetailDTO(
 	}
 
 	if sg.Status == "found" && platformSupported && sg.GroupKind == core.GroupKindSelfContained && len(sg.Files) > 0 {
-		launchable := rootFileID != "" || allowsRootlessLaunch(rootPlatform)
+		launchable := rootFileID != ""
+		if !launchable && rootPlatform == core.PlatformScummVM {
+			launchable = supportsScummVMLaunchSource(sg.Files)
+		}
 		dto.Play.Launchable = launchable
 		dto.Play.RootFileID = rootFileID
 		playSource.Launchable = launchable

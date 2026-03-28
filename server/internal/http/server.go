@@ -19,10 +19,12 @@ type httpServer struct {
 	gameCtrl        *GameController
 	mediaCtrl       *MediaController
 	discoCtrl       *DiscoveryController
+	aboutCtrl       *AboutController
 	configCtrl      *ConfigController
 	pluginCtrl      *PluginController
 	achievementCtrl *AchievementController
 	syncCtrl        *SyncController
+	saveSyncCtrl    *SaveSyncController
 	sseCtrl         *SSEController
 	oauthCtrl       *OAuthController
 }
@@ -33,10 +35,12 @@ func NewHttpServer(
 	gameCtrl *GameController,
 	mediaCtrl *MediaController,
 	discoCtrl *DiscoveryController,
+	aboutCtrl *AboutController,
 	configCtrl *ConfigController,
 	pluginCtrl *PluginController,
 	achievementCtrl *AchievementController,
 	syncCtrl *SyncController,
+	saveSyncCtrl *SaveSyncController,
 	sseCtrl *SSEController,
 	oauthCtrl *OAuthController,
 ) core.Server {
@@ -46,10 +50,12 @@ func NewHttpServer(
 		gameCtrl:        gameCtrl,
 		mediaCtrl:       mediaCtrl,
 		discoCtrl:       discoCtrl,
+		aboutCtrl:       aboutCtrl,
 		configCtrl:      configCtrl,
 		pluginCtrl:      pluginCtrl,
 		achievementCtrl: achievementCtrl,
 		syncCtrl:        syncCtrl,
+		saveSyncCtrl:    saveSyncCtrl,
 		sseCtrl:         sseCtrl,
 		oauthCtrl:       oauthCtrl,
 	}
@@ -75,10 +81,12 @@ func (h *httpServer) Start(ctx context.Context) error {
 		GameCtrl:        h.gameCtrl,
 		MediaCtrl:       h.mediaCtrl,
 		DiscoCtrl:       h.discoCtrl,
+		AboutCtrl:       h.aboutCtrl,
 		ConfigCtrl:      h.configCtrl,
 		PluginCtrl:      h.pluginCtrl,
 		AchievementCtrl: h.achievementCtrl,
 		SyncCtrl:        h.syncCtrl,
+		SaveSyncCtrl:    h.saveSyncCtrl,
 		SSECtrl:         h.sseCtrl,
 		OAuthCtrl:       h.oauthCtrl,
 	}, 60*time.Second, spaDir)

@@ -61,6 +61,12 @@ const knownTypes = [
   'sync_key_stored',
   'sync_key_cleared',
 
+  // Save sync migration notifications.
+  'save_sync_migration_started',
+  'save_sync_migration_progress',
+  'save_sync_migration_completed',
+  'save_sync_migration_failed',
+
   // Plugin lifecycle and generic errors.
   'plugin_process_exited',
   'operation_error',

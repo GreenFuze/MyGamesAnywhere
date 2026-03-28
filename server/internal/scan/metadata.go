@@ -94,7 +94,7 @@ func (r *MetadataResolver) SetScanEventPublisher(fn ScanEventFunc) {
 	r.publisher = fn
 }
 
-func (r *MetadataResolver) emitScanEvent(integrationID, typ string, fields map[string]any) {
+func (r *MetadataResolver) emitScanEvent(ctx context.Context, integrationID, typ string, fields map[string]any) {
 	if r.publisher == nil {
 		return
 	}
@@ -103,7 +103,7 @@ func (r *MetadataResolver) emitScanEvent(integrationID, typ string, fields map[s
 		m[k] = v
 	}
 	m["integration_id"] = integrationID
-	r.publisher(typ, m)
+	r.publisher(ctx, typ, m)
 }
 
 // Enrich runs the three-phase enrichment pipeline on the provided games.
@@ -118,19 +118,19 @@ func (r *MetadataResolver) Enrich(ctx context.Context, integrationID string, gam
 	r.identify(ctx, integrationID, games, sources)
 
 	// Phase 2: consensus vote + compute unified fields.
-	r.consensus(integrationID, games, sources)
+	r.consensus(ctx, integrationID, games, sources)
 
 	// Phase 3: re-query missed/outvoted resolvers with the consensus title.
 	r.fill(ctx, integrationID, games, sources)
 
 	r.logSummary(games)
-	r.emitMetadataFinished(integrationID, games)
+	r.emitMetadataFinished(ctx, integrationID, games)
 }
 
 // ── Phase 1: Identify ───────────────────────────────────────────────
 
 func (r *MetadataResolver) identify(ctx context.Context, integrationID string, games []*core.Game, sources []MetadataSource) {
-	r.emitScanEvent(integrationID, "scan_metadata_phase", map[string]any{"phase": "identify"})
+	r.emitScanEvent(ctx, integrationID, "scan_metadata_phase", map[string]any{"phase": "identify"})
 	for _, src := range sources {
 		matched := r.callPluginIdentify(ctx, integrationID, src, games)
 		r.logger.Info("metadata phase 1", "plugin", src.PluginID, "matched", matched, "total", len(games))
@@ -155,7 +155,7 @@ func (r *MetadataResolver) callPluginIdentify(ctx context.Context, integrationID
 	}
 
 	batchSize := len(games)
-	r.emitScanEvent(integrationID, "scan_metadata_plugin_started", map[string]any{
+	r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_started", map[string]any{
 		"phase":      "identify",
 		"plugin_id":  src.PluginID,
 		"batch_size": batchSize,
@@ -164,7 +164,7 @@ func (r *MetadataResolver) callPluginIdentify(ctx context.Context, integrationID
 	var resp metadataLookupResponse
 	if err := r.caller.Call(ctx, src.PluginID, metadataGameLookupMethod, params, &resp); err != nil {
 		r.logger.Error("metadata plugin call failed", fmt.Errorf("%s: %w", src.PluginID, err))
-		r.emitScanEvent(integrationID, "scan_metadata_plugin_error", map[string]any{
+		r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_error", map[string]any{
 			"phase":     "identify",
 			"plugin_id": src.PluginID,
 			"error":     err.Error(),
@@ -181,7 +181,7 @@ func (r *MetadataResolver) callPluginIdentify(ctx context.Context, integrationID
 		games[m.Index].ResolverMatches = append(games[m.Index].ResolverMatches, matchToResolver(src.PluginID, m))
 	}
 	for i, query := range queries {
-		r.emitScanEvent(integrationID, "scan_metadata_game_progress", map[string]any{
+		r.emitScanEvent(ctx, integrationID, "scan_metadata_game_progress", map[string]any{
 			"phase":      "identify",
 			"plugin_id":  src.PluginID,
 			"game_index": i + 1,
@@ -189,7 +189,7 @@ func (r *MetadataResolver) callPluginIdentify(ctx context.Context, integrationID
 			"game_title": query.Title,
 		})
 	}
-	r.emitScanEvent(integrationID, "scan_metadata_plugin_complete", map[string]any{
+	r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_complete", map[string]any{
 		"phase":     "identify",
 		"plugin_id": src.PluginID,
 		"matched":   matched,
@@ -200,8 +200,8 @@ func (r *MetadataResolver) callPluginIdentify(ctx context.Context, integrationID
 
 // ── Phase 2: Consensus ──────────────────────────────────────────────
 
-func (r *MetadataResolver) consensus(integrationID string, games []*core.Game, sources []MetadataSource) {
-	r.emitScanEvent(integrationID, "scan_metadata_phase", map[string]any{"phase": "consensus"})
+func (r *MetadataResolver) consensus(ctx context.Context, integrationID string, games []*core.Game, sources []MetadataSource) {
+	r.emitScanEvent(ctx, integrationID, "scan_metadata_phase", map[string]any{"phase": "consensus"})
 	identified, unidentified := 0, 0
 	for _, g := range games {
 		if len(g.ResolverMatches) == 0 {
@@ -214,7 +214,7 @@ func (r *MetadataResolver) consensus(integrationID string, games []*core.Game, s
 		identified++
 	}
 	r.logger.Info("metadata phase 2", "identified", identified, "unidentified", unidentified)
-	r.emitScanEvent(integrationID, "scan_metadata_consensus_complete", map[string]any{
+	r.emitScanEvent(ctx, integrationID, "scan_metadata_consensus_complete", map[string]any{
 		"identified":   identified,
 		"unidentified": unidentified,
 	})
@@ -354,7 +354,7 @@ func sourcePriority(pluginID string, sources []MetadataSource) int {
 // ── Phase 3: Fill ───────────────────────────────────────────────────
 
 func (r *MetadataResolver) fill(ctx context.Context, integrationID string, games []*core.Game, sources []MetadataSource) {
-	r.emitScanEvent(integrationID, "scan_metadata_phase", map[string]any{"phase": "fill"})
+	r.emitScanEvent(ctx, integrationID, "scan_metadata_phase", map[string]any{"phase": "fill"})
 	for _, src := range sources {
 		type fillEntry struct {
 			gameIdx int
@@ -393,7 +393,7 @@ func (r *MetadataResolver) fill(ctx context.Context, integrationID string, games
 		}
 
 		candidates := len(entries)
-		r.emitScanEvent(integrationID, "scan_metadata_plugin_started", map[string]any{
+		r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_started", map[string]any{
 			"phase":      "fill",
 			"plugin_id":  src.PluginID,
 			"batch_size": candidates,
@@ -402,7 +402,7 @@ func (r *MetadataResolver) fill(ctx context.Context, integrationID string, games
 		var resp metadataLookupResponse
 		if err := r.caller.Call(ctx, src.PluginID, metadataGameLookupMethod, params, &resp); err != nil {
 			r.logger.Error("metadata fill call failed", fmt.Errorf("%s: %w", src.PluginID, err))
-			r.emitScanEvent(integrationID, "scan_metadata_plugin_error", map[string]any{
+			r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_error", map[string]any{
 				"phase":     "fill",
 				"plugin_id": src.PluginID,
 				"error":     err.Error(),
@@ -428,7 +428,7 @@ func (r *MetadataResolver) fill(ctx context.Context, integrationID string, games
 			}
 		}
 		for i, query := range queries {
-			r.emitScanEvent(integrationID, "scan_metadata_game_progress", map[string]any{
+			r.emitScanEvent(ctx, integrationID, "scan_metadata_game_progress", map[string]any{
 				"phase":      "fill",
 				"plugin_id":  src.PluginID,
 				"game_index": i + 1,
@@ -437,7 +437,7 @@ func (r *MetadataResolver) fill(ctx context.Context, integrationID string, games
 			})
 		}
 		r.logger.Info("metadata phase 3", "plugin", src.PluginID, "filled", filled, "candidates", len(entries))
-		r.emitScanEvent(integrationID, "scan_metadata_plugin_complete", map[string]any{
+		r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_complete", map[string]any{
 			"phase":      "fill",
 			"plugin_id":  src.PluginID,
 			"filled":     filled,
@@ -529,7 +529,7 @@ func (r *MetadataResolver) logSummary(games []*core.Game) {
 	)
 }
 
-func (r *MetadataResolver) emitMetadataFinished(integrationID string, games []*core.Game) {
+func (r *MetadataResolver) emitMetadataFinished(ctx context.Context, integrationID string, games []*core.Game) {
 	identified, unidentified := 0, 0
 	totalExtIDs := 0
 	for _, g := range games {
@@ -540,7 +540,7 @@ func (r *MetadataResolver) emitMetadataFinished(integrationID string, games []*c
 		}
 		totalExtIDs += len(g.ExternalIDs)
 	}
-	r.emitScanEvent(integrationID, "scan_metadata_finished", map[string]any{
+	r.emitScanEvent(ctx, integrationID, "scan_metadata_finished", map[string]any{
 		"identified":        identified,
 		"unidentified":      unidentified,
 		"external_id_count": totalExtIDs,

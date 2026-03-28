@@ -1,8 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type LegacyRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, ExternalLink, PlayCircle } from 'lucide-react'
+import { ArrowLeft, Download, ExternalLink, PlayCircle, Upload } from 'lucide-react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ApiError, getGame } from '@/api/client'
+import {
+  ApiError,
+  getFrontendConfig,
+  getGame,
+  getGameSaveSyncSlot,
+  listGameSaveSyncSlots,
+  putGameSaveSyncSlot,
+  type SaveSyncSlotSummary,
+} from '@/api/client'
 import { BrandBadge } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,14 +22,33 @@ import {
   buildBrowserPlayerUrl,
   clearBrowserPlaySession,
   persistBrowserPlaySession,
+  sessionSupportsSaveSync,
   selectBrowserPlaySelection,
   type BrowserPlaySession,
 } from '@/lib/browserPlay'
 import { hasBrowserPlaySupport } from '@/lib/gameUtils'
+import {
+  SAVE_SYNC_SLOT_IDS,
+  buildSaveSyncSnapshot,
+  computeLocalSnapshotHash,
+  extractRuntimeFilesFromSnapshot,
+  type RuntimeBridgeCommand,
+  type RuntimeBridgeEvent,
+  type RuntimeSaveSnapshot,
+} from '@/lib/saveSync'
 
-function LaunchFrame({ src, title }: { src: string; title: string }) {
+function LaunchFrame({
+  iframeRef,
+  src,
+  title,
+}: {
+  iframeRef: LegacyRef<HTMLIFrameElement>
+  src: string
+  title: string
+}) {
   return (
     <iframe
+      ref={iframeRef}
       src={src}
       title={title}
       allow="autoplay; fullscreen; gamepad"
@@ -30,14 +57,41 @@ function LaunchFrame({ src, title }: { src: string; title: string }) {
   )
 }
 
+type PendingBridgeRequest = {
+  resolve: (value?: any) => void
+  reject: (reason?: unknown) => void
+  kind: 'export' | 'import'
+}
+
+function activeSaveSyncIntegrationId(frontendConfig: Record<string, unknown> | undefined): string | null {
+  const value = frontendConfig?.saveSyncActiveIntegrationId
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
 export function GamePlayerPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { id = '' } = useParams()
   const { recordLaunch } = useRecentPlayed()
   const [sessionToken, setSessionToken] = useState<string | null>(null)
+  const [selectedSlot, setSelectedSlot] = useState<(typeof SAVE_SYNC_SLOT_IDS)[number]>('autosave')
+  const [bridgeReady, setBridgeReady] = useState(false)
+  const [bridgeSupportsSaveSync, setBridgeSupportsSaveSync] = useState(false)
+  const [saveSyncBusy, setSaveSyncBusy] = useState(false)
+  const [saveSyncMessage, setSaveSyncMessage] = useState('')
+  const [saveSyncError, setSaveSyncError] = useState('')
+  const [baselineLocalHash, setBaselineLocalHash] = useState<string | null>(null)
+  const [baselineRemoteManifestHash, setBaselineRemoteManifestHash] = useState<string | null>(null)
+  const [runtimeError, setRuntimeError] = useState('')
   const recordedRef = useRef<string | null>(null)
   const tokenRef = useRef<string | null>(null)
+  const iframeRef = useRef<HTMLIFrameElement | null>(null)
+  const pendingBridgeRef = useRef<Map<string, PendingBridgeRequest>>(new Map())
+
+  const frontendConfig = useQuery({
+    queryKey: ['frontend-config'],
+    queryFn: getFrontendConfig,
+  })
 
   const game = useQuery({
     queryKey: ['game', id],
@@ -66,6 +120,28 @@ export function GamePlayerPage() {
     if (!sessionToken || !session) return null
     return buildBrowserPlayerUrl(session.runtime, sessionToken)
   }, [session, sessionToken])
+  const runtimeLabel = selection ? browserPlayRuntimeLabel(selection.runtime) : null
+  const activeIntegrationId = activeSaveSyncIntegrationId(frontendConfig.data)
+  const saveSyncRuntimeSupported = session ? sessionSupportsSaveSync(session) : false
+  const saveSyncEnabled = Boolean(activeIntegrationId && session && saveSyncRuntimeSupported)
+
+  const slotsQuery = useQuery({
+    queryKey: ['save-sync-slots', id, activeIntegrationId, session?.sourceGameId, session?.runtime],
+    queryFn: async () => {
+      if (!session || !activeIntegrationId) return []
+      return listGameSaveSyncSlots({
+        gameId: id,
+        integrationId: activeIntegrationId,
+        sourceGameId: session.sourceGameId,
+        runtime: session.runtime,
+      })
+    },
+    enabled: saveSyncEnabled,
+  })
+
+  const currentSlot = useMemo<SaveSyncSlotSummary | null>(() => {
+    return slotsQuery.data?.find((slot) => slot.slot_id === selectedSlot) ?? null
+  }, [selectedSlot, slotsQuery.data])
 
   useEffect(() => {
     if (tokenRef.current) {
@@ -81,6 +157,11 @@ export function GamePlayerPage() {
     const nextToken = persistBrowserPlaySession(session)
     tokenRef.current = nextToken
     setSessionToken(nextToken)
+    setBridgeReady(false)
+    setBridgeSupportsSaveSync(false)
+    setRuntimeError('')
+    setSaveSyncMessage('')
+    setSaveSyncError('')
 
     return () => {
       clearBrowserPlaySession(nextToken)
@@ -103,8 +184,194 @@ export function GamePlayerPage() {
     })
   }, [game.data, playerUrl, recordLaunch, session])
 
+  useEffect(() => {
+    const onMessage = (event: MessageEvent<RuntimeBridgeEvent>) => {
+      if (event.source !== iframeRef.current?.contentWindow) return
+      const message = event.data
+      if (!message || typeof message !== 'object' || !('type' in message)) return
+
+      if (message.type === 'ready') {
+        setBridgeReady(true)
+        setBridgeSupportsSaveSync(message.saveAdapter === true)
+        return
+      }
+
+      if (message.type === 'runtime-error') {
+        setRuntimeError(message.error)
+        return
+      }
+
+      if (message.type !== 'export-result' && message.type !== 'import-result') {
+        return
+      }
+
+      const pending = pendingBridgeRef.current.get(message.requestId)
+      if (!pending) return
+      pendingBridgeRef.current.delete(message.requestId)
+
+      if (message.type === 'export-result') {
+        if (message.error || !message.snapshot) {
+          pending.reject(new Error(message.error || 'Runtime export failed.'))
+        } else {
+          pending.resolve(message.snapshot)
+        }
+        return
+      }
+
+      if (!message.ok) {
+        pending.reject(new Error(message.error || 'Runtime import failed.'))
+      } else {
+        pending.resolve()
+      }
+    }
+
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+
+  const sendBridgeCommand = (command: RuntimeBridgeCommand) => {
+    const target = iframeRef.current?.contentWindow
+    if (!target) {
+      throw new Error('Player frame is not available.')
+    }
+    target.postMessage(command, window.location.origin)
+  }
+
+  const exportRuntimeSnapshot = async (): Promise<RuntimeSaveSnapshot> => {
+    if (!bridgeReady || !bridgeSupportsSaveSync) {
+      throw new Error('This runtime is not ready for save sync yet.')
+    }
+    const requestId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+    const promise = new Promise<RuntimeSaveSnapshot>((resolve, reject) => {
+      pendingBridgeRef.current.set(requestId, { resolve, reject, kind: 'export' })
+    })
+    sendBridgeCommand({ type: 'export-save-snapshot', requestId })
+    return promise
+  }
+
+  const importRuntimeSnapshot = async (snapshot: RuntimeSaveSnapshot) => {
+    if (!bridgeReady || !bridgeSupportsSaveSync) {
+      throw new Error('This runtime is not ready for save sync yet.')
+    }
+    const requestId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+    const promise = new Promise<void>((resolve, reject) => {
+      pendingBridgeRef.current.set(requestId, { resolve, reject, kind: 'import' })
+    })
+    sendBridgeCommand({ type: 'import-save-snapshot', requestId, files: snapshot.files })
+    return promise
+  }
+
+  useEffect(() => {
+    setBaselineRemoteManifestHash(currentSlot?.manifest_hash ?? null)
+  }, [currentSlot?.manifest_hash])
+
   const handleBack = () => {
     navigate(`/game/${encodeURIComponent(id)}`, { state: location.state })
+  }
+
+  const handleSave = async () => {
+    if (!session || !activeIntegrationId) return
+    setSaveSyncBusy(true)
+    setSaveSyncError('')
+    setSaveSyncMessage('')
+    try {
+      const local = await exportRuntimeSnapshot()
+      const snapshot = await buildSaveSyncSnapshot({
+        canonicalGameId: id,
+        sourceGameId: session.sourceGameId,
+        runtime: session.runtime,
+        slotId: selectedSlot,
+        files: local.files,
+      })
+
+      let result = await putGameSaveSyncSlot({
+        gameId: id,
+        slotId: selectedSlot,
+        integrationId: activeIntegrationId,
+        sourceGameId: session.sourceGameId,
+        runtime: session.runtime,
+        baseManifestHash: baselineRemoteManifestHash ?? undefined,
+        snapshot,
+      })
+
+      if (result.conflict) {
+        const confirmed = window.confirm(
+          `Remote ${selectedSlot} changed on ${new Date(result.conflict.remote_updated_at).toLocaleString()}. Overwrite it with local data?`,
+        )
+        if (!confirmed) {
+          setSaveSyncMessage('Save canceled.')
+          return
+        }
+        result = await putGameSaveSyncSlot({
+          gameId: id,
+          slotId: selectedSlot,
+          integrationId: activeIntegrationId,
+          sourceGameId: session.sourceGameId,
+          runtime: session.runtime,
+          force: true,
+          snapshot,
+        })
+      }
+
+      if (!result.ok) {
+        throw new Error(result.conflict?.message || 'Save sync failed.')
+      }
+
+      setBaselineRemoteManifestHash(result.summary.manifest_hash ?? null)
+      setBaselineLocalHash(await computeLocalSnapshotHash(local.files))
+      setSaveSyncMessage(`Saved ${selectedSlot} to the active integration.`)
+      await slotsQuery.refetch()
+    } catch (error) {
+      setSaveSyncError(error instanceof Error ? error.message : 'Save failed.')
+    } finally {
+      setSaveSyncBusy(false)
+    }
+  }
+
+  const handleLoad = async () => {
+    if (!session || !activeIntegrationId || !currentSlot?.exists) return
+    setSaveSyncBusy(true)
+    setSaveSyncError('')
+    setSaveSyncMessage('')
+    try {
+      const local = await exportRuntimeSnapshot()
+      const localHash = await computeLocalSnapshotHash(local.files)
+      if (baselineLocalHash && localHash !== baselineLocalHash) {
+        const confirmed = window.confirm(
+          `Local save files changed since the last save or load. Replace them with remote ${selectedSlot}?`,
+        )
+        if (!confirmed) {
+          setSaveSyncMessage('Load canceled.')
+          return
+        }
+      }
+
+      const remote = await getGameSaveSyncSlot({
+        gameId: id,
+        integrationId: activeIntegrationId,
+        sourceGameId: session.sourceGameId,
+        runtime: session.runtime,
+        slotId: selectedSlot,
+      })
+      const files = extractRuntimeFilesFromSnapshot(remote)
+      await importRuntimeSnapshot({ files })
+      setBaselineLocalHash(await computeLocalSnapshotHash(files))
+      setBaselineRemoteManifestHash(remote.manifest_hash ?? null)
+      setSaveSyncMessage(`Loaded ${selectedSlot} from the active integration.`)
+      await slotsQuery.refetch()
+    } catch (error) {
+      setSaveSyncError(error instanceof Error ? error.message : 'Load failed.')
+    } finally {
+      setSaveSyncBusy(false)
+    }
   }
 
   if (game.isPending) {
@@ -140,7 +407,6 @@ export function GamePlayerPage() {
   }
 
   const data = game.data
-  const runtimeLabel = selection ? browserPlayRuntimeLabel(selection.runtime) : null
 
   return (
     <div className="min-h-screen bg-mga-bg text-mga-text">
@@ -171,7 +437,7 @@ export function GamePlayerPage() {
           <div className="mt-3">
             <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">{data.title}</h1>
             <p className="mt-2 text-sm text-mga-muted">
-              Dedicated browser player route for fullscreen play, runtime lifecycle, and local save-state UX.
+              Dedicated browser player route for fullscreen play, runtime lifecycle, and explicit save sync.
             </p>
           </div>
         </section>
@@ -189,18 +455,78 @@ export function GamePlayerPage() {
             Failed to assemble a browser-play launch session for this game.
           </section>
         ) : (
-          <section className="flex min-h-[70vh] flex-1 flex-col overflow-hidden rounded-[1.25rem] border border-mga-border bg-black shadow-lg shadow-black/25">
-            <div className="flex items-center justify-between border-b border-white/10 bg-black/80 px-4 py-3 text-sm text-white/80">
-              <div className="flex items-center gap-2">
-                <PlayCircle size={16} />
-                <span>{data.title}</span>
+          <>
+            <section className="rounded-mga border border-mga-border bg-mga-surface p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-[12rem]">
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-mga-muted">Save Slot</label>
+                  <select
+                    value={selectedSlot}
+                    onChange={(event) => setSelectedSlot(event.target.value as (typeof SAVE_SYNC_SLOT_IDS)[number])}
+                    className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text"
+                  >
+                    {SAVE_SYNC_SLOT_IDS.map((slot) => (
+                      <option key={slot} value={slot}>{slot}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLoad}
+                  disabled={!saveSyncEnabled || !currentSlot?.exists || saveSyncBusy || !bridgeReady || !bridgeSupportsSaveSync}
+                >
+                  <Download size={14} />
+                  {saveSyncBusy ? 'Working...' : 'Load'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSave}
+                  disabled={!saveSyncEnabled || saveSyncBusy || !bridgeReady || !bridgeSupportsSaveSync}
+                >
+                  <Upload size={14} />
+                  {saveSyncBusy ? 'Working...' : 'Save'}
+                </Button>
+
+                <div className="min-w-[14rem] text-xs text-mga-muted">
+                  {!activeIntegrationId && 'Choose an active Save Sync integration in Settings to enable remote saves.'}
+                  {activeIntegrationId && !bridgeReady && 'Waiting for runtime bridge...'}
+                  {activeIntegrationId && bridgeReady && !bridgeSupportsSaveSync && 'This runtime page does not support save import/export yet.'}
+                  {activeIntegrationId && bridgeReady && bridgeSupportsSaveSync && currentSlot?.exists && (
+                    <>
+                      Remote {selectedSlot}: {currentSlot.file_count ?? 0} files, {currentSlot.total_size ?? 0} bytes
+                      {currentSlot.updated_at ? `, updated ${new Date(currentSlot.updated_at).toLocaleString()}` : ''}
+                    </>
+                  )}
+                  {activeIntegrationId && bridgeReady && bridgeSupportsSaveSync && currentSlot && !currentSlot.exists && (
+                    <>Remote {selectedSlot} is empty.</>
+                  )}
+                </div>
               </div>
-              <span className="text-xs uppercase tracking-wide text-white/50">{runtimeLabel}</span>
-            </div>
-            <div className="flex-1">
-              <LaunchFrame src={playerUrl} title={`${data.title} browser player`} />
-            </div>
-          </section>
+
+              {slotsQuery.isLoading && (
+                <p className="mt-3 text-xs text-mga-muted">Loading save slot metadata...</p>
+              )}
+              {saveSyncMessage && <p className="mt-3 text-xs text-green-400">{saveSyncMessage}</p>}
+              {saveSyncError && <p className="mt-3 text-xs text-red-400">{saveSyncError}</p>}
+              {runtimeError && <p className="mt-3 text-xs text-red-400">{runtimeError}</p>}
+            </section>
+
+            <section className="flex min-h-[70vh] flex-1 flex-col overflow-hidden rounded-[1.25rem] border border-mga-border bg-black shadow-lg shadow-black/25">
+              <div className="flex items-center justify-between border-b border-white/10 bg-black/80 px-4 py-3 text-sm text-white/80">
+                <div className="flex items-center gap-2">
+                  <PlayCircle size={16} />
+                  <span>{data.title}</span>
+                </div>
+                <span className="text-xs uppercase tracking-wide text-white/50">{runtimeLabel}</span>
+              </div>
+              <div className="flex-1">
+                <LaunchFrame iframeRef={iframeRef} src={playerUrl} title={`${data.title} browser player`} />
+              </div>
+            </section>
+          </>
         )}
 
         {hasBrowserPlaySupport(data) && data.xcloud_url && (

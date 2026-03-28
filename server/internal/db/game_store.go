@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -580,7 +581,9 @@ func (s *gameStore) GetLibraryStats(ctx context.Context) (*core.LibraryStats, er
 	db := s.db.GetDB()
 	out := &core.LibraryStats{
 		ByPlatform:         make(map[string]int),
+		ByDecade:           make(map[string]int),
 		ByKind:             make(map[string]int),
+		TopGenres:          make(map[string]int),
 		ByIntegrationID:    make(map[string]int),
 		ByPluginID:         make(map[string]int),
 		ByMetadataPluginID: make(map[string]int),
@@ -630,7 +633,55 @@ func (s *gameStore) GetLibraryStats(ctx context.Context) (*core.LibraryStats, er
 	if out.CanonicalGameCount > 0 {
 		out.PercentWithResolverTitle = float64(out.CanonicalWithResolverTitle) / float64(out.CanonicalGameCount) * 100
 	}
+
+	games, err := s.GetCanonicalGames(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, game := range games {
+		if game == nil {
+			continue
+		}
+		if len(game.Media) > 0 {
+			out.GamesWithMedia++
+		}
+		if game.AchievementSummary != nil && game.AchievementSummary.SourceCount > 0 {
+			out.GamesWithAchievements++
+		}
+		if decade := decadeLabel(game.ReleaseDate); decade != "" {
+			out.ByDecade[decade]++
+		}
+		for _, genre := range game.Genres {
+			genre = strings.TrimSpace(genre)
+			if genre == "" {
+				continue
+			}
+			out.TopGenres[genre]++
+		}
+	}
+	if out.CanonicalGameCount > 0 {
+		out.PercentWithMedia = float64(out.GamesWithMedia) / float64(out.CanonicalGameCount) * 100
+		out.PercentWithAchievements = float64(out.GamesWithAchievements) / float64(out.CanonicalGameCount) * 100
+	}
 	return out, nil
+}
+
+var yearPattern = regexp.MustCompile(`\b(\d{4})\b`)
+
+func decadeLabel(releaseDate string) string {
+	match := yearPattern.FindStringSubmatch(releaseDate)
+	if len(match) != 2 {
+		return ""
+	}
+	year := 0
+	for _, ch := range match[1] {
+		year = (year * 10) + int(ch-'0')
+	}
+	if year < 1000 {
+		return ""
+	}
+	decade := (year / 10) * 10
+	return fmt.Sprintf("%ds", decade)
 }
 
 func (s *gameStore) GetGamesByIntegrationID(ctx context.Context, integrationID string, limit int) ([]core.GameListItem, error) {

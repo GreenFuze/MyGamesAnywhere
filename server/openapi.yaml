@@ -5,6 +5,30 @@ info:
   version: 1.0.0
 paths:
 
+  /api/about:
+    get:
+      summary: Application build metadata
+      description: Returns the server's authoritative app version information, including version, commit, build date, and author credits.
+      responses:
+        200:
+          description: AboutInfo JSON
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
+  /api/about/license:
+    get:
+      summary: Open-source license text
+      description: Streams the repository license file used by the About page.
+      responses:
+        200:
+          description: License text
+        400:
+          description: Error response
+        500:
+          description: License file not found
+
   /api/auth/callback/{plugin_id}:
     get:
       parameters:
@@ -32,7 +56,7 @@ paths:
           description: Internal server error
     post:
       summary: Set frontend preferences
-      description: Upserts SPA preferences as a single JSON object (theme, layout, etc.). Stored under key frontend.
+      description: Upserts SPA preferences as a single JSON object (theme, layout, active save-sync integration, etc.). Stored under key frontend.
       requestBody:
         description: JSON object (any keys). Max size enforced by server.
         content:
@@ -74,7 +98,7 @@ paths:
   /api/events:
     get:
       summary: Server-Sent Events stream
-      description: Opens a long-lived text/event-stream connection. Emits scan pipeline events (see server/internal/events/scan_events.md) and app notifications (integrations, sync, plugin exit, coarse errors; see server/internal/events/notification_events.md). Each data line is JSON; map payloads include a ts field (RFC3339).
+      description: Opens a long-lived text/event-stream connection. Emits scan pipeline events (see server/internal/events/scan_events.md), app notifications (integrations, sync, plugin exit, coarse errors; see server/internal/events/notification_events.md), and save-sync migration lifecycle events (`save_sync_migration_started`, `save_sync_migration_progress`, `save_sync_migration_completed`, `save_sync_migration_failed`). Scan payloads include `job_id` so clients can recover in-progress jobs after reload. Each data line is JSON; map payloads include a ts field (RFC3339) when the publisher includes one.
       responses:
         200:
           description: text/event-stream; connection stays open until client disconnect or server shutdown
@@ -182,6 +206,82 @@ paths:
           description: Missing or invalid file_id
         404:
           description: Game, file, or source path not found
+        500:
+          description: Internal server error
+
+  /api/games/{id}/save-sync/slots:
+    get:
+      summary: List save-sync slots for one browser runtime source
+      description: 'Returns summary metadata for `autosave` and `slot-1` through `slot-5` for the requested canonical game, source game, runtime, and save-sync integration. Query params: integration_id, source_game_id, runtime.'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: JSON object with slots[] of SaveSyncSlotSummary
+        400:
+          description: Missing or invalid integration_id, source_game_id, or runtime
+        404:
+          description: Game not found
+        500:
+          description: Internal server error
+
+  /api/games/{id}/save-sync/slots/{slot_id}:
+    get:
+      summary: Get one remote save-sync slot snapshot
+      description: 'Loads the manifest metadata and opaque zip snapshot for one browser-runtime save slot. Query params: integration_id, source_game_id, runtime.'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: slot_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: SaveSyncSnapshot JSON
+        400:
+          description: Missing or invalid parameters
+        404:
+          description: Slot or game not found
+        500:
+          description: Internal server error
+    put:
+      summary: Store one remote save-sync slot snapshot
+      description: Uploads a whole runtime save snapshot for a single slot. The server validates ownership, runtime compatibility, file manifest integrity, and optional conflict state via `base_manifest_hash`. Use `force=true` to overwrite after a conflict warning.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: slot_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: 'JSON: { integration_id, source_game_id, runtime, base_manifest_hash?, force?, snapshot: { canonical_game_id?, source_game_id?, runtime?, slot_id?, files[], archive_base64 } }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: SaveSyncPutResult JSON
+        400:
+          description: Invalid parameters or snapshot payload
+        404:
+          description: Game or slot target not found
+        409:
+          description: SaveSyncPutResult with conflict metadata
         500:
           description: Internal server error
 
@@ -361,20 +461,60 @@ paths:
         500:
           description: Error response
 
+  /api/save-sync/migrations:
+    post:
+      summary: Start a save-sync migration job
+      description: Starts a background save migration from one save-sync integration to another. Supports `scope=all` or `scope=game`; `game` requires `canonical_game_id`. Progress and completion arrive over SSE and can also be polled by job id.
+      requestBody:
+        description: 'JSON: { source_integration_id, target_integration_id, scope: "all"|"game", canonical_game_id?, delete_source_after_success? }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: SaveSyncMigrationStatus JSON
+        400:
+          description: Invalid request body or unsupported scope
+        500:
+          description: Internal server error
+
+  /api/save-sync/migrations/{job_id}:
+    get:
+      summary: Get save-sync migration job status
+      description: Returns the latest in-memory status for a save-sync migration job, including counts for total, completed, migrated, skipped, and any terminal error.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: SaveSyncMigrationStatus JSON
+        400:
+          description: Error response
+        404:
+          description: Unknown job id
+        500:
+          description: Internal server error
+
   /api/scan:
     get:
       summary: Run full scan
-      description: 'Same as POST /api/scan with no body: runs discovery across all game source integrations (source.library.list) and, for integrations with root_path in config, runs the local inventory pipeline.'
+      description: 'Same as POST /api/scan with no body: starts an asynchronous full-library scan job across all game source integrations.'
       responses:
         202:
-          description: Scan completed
+          description: ScanJobStatus JSON
         400:
           description: Error response
+        409:
+          description: Another scan job is already active; returns the active ScanJobStatus
         500:
           description: Internal server error
     post:
       summary: Run scan
-      description: 'Runs discovery: calls each source plugin (source.library.list) and, for integrations with root_path in config, runs the local inventory pipeline. Optional body limits which sources to scan.'
+      description: 'Starts an asynchronous scan job. Runs discovery: calls each source plugin (source.library.list) and, for integrations with root_path in config, runs the local inventory pipeline. Optional body limits which sources to scan.'
       requestBody:
         description: 'Optional JSON: { "game_sources": ["integration-id-1", ...] }. Omitted or empty = scan all sources.'
         content:
@@ -383,9 +523,31 @@ paths:
               type: object
       responses:
         202:
-          description: Scan completed
+          description: ScanJobStatus JSON
         400:
           description: Invalid JSON body
+        409:
+          description: Another scan job is already active; returns the active ScanJobStatus
+        500:
+          description: Internal server error
+
+  /api/scan/jobs/{job_id}:
+    get:
+      summary: Get scan job status
+      description: Returns the current in-memory status for an asynchronous scan job, including state, progress counters, phase, current integration, report id, and any terminal error.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: ScanJobStatus JSON
+        400:
+          description: job_id is required
+        404:
+          description: Unknown job id
         500:
           description: Internal server error
 
@@ -414,7 +576,7 @@ paths:
   /api/stats:
     get:
       summary: Library statistics
-      description: 'Single JSON document: canonical and source game counts, breakdowns by platform/kind/integration/plugin, metadata coverage (canonical games with a non-empty resolver title).'
+      description: 'Single JSON document: canonical and source game counts, breakdowns by platform/kind/integration/plugin, metadata coverage, decade and genre summaries, and canonical-game coverage for media and achievements.'
       responses:
         200:
           description: LibraryStats JSON

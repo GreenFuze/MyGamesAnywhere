@@ -69,7 +69,6 @@ func NewPlatformDetector() *PlatformDetector {
 			{pattern: "xbox 360", platform: core.PlatformXbox360},
 			{pattern: "32x", platform: core.PlatformSega32X},
 			{pattern: "game boy", platform: core.PlatformGB},
-			{pattern: "nintendo ds", platform: core.PlatformGBA}, // close enough for now
 			{pattern: "ms dos", platform: core.PlatformMSDOS},
 			{pattern: "ms-dos", platform: core.PlatformMSDOS},
 			{pattern: "dosbox", platform: core.PlatformMSDOS},

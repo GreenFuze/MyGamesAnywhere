@@ -241,6 +241,110 @@ func TestCanonicalGameIncludesCachedAchievementSummary(t *testing.T) {
 	}
 }
 
+func TestGetLibraryStatsIncludesDashboardFields(t *testing.T) {
+	ctx := context.Background()
+	_, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "scan:source-one",
+				IntegrationID: "integration-1",
+				PluginID:      "game-source-steam",
+				ExternalID:    "source-one",
+				RawTitle:      "Game One",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			},
+		},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:source-one": {{
+				PluginID:    "metadata-igdb",
+				Title:       "Game One",
+				Platform:    string(core.PlatformWindowsPC),
+				ExternalID:  "match-one",
+				ReleaseDate: "1998-11-19",
+				Genres:      []string{"RPG", "Adventure"},
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			"scan:source-one": {{
+				Type: core.MediaTypeCover,
+				URL:  "https://example.com/game-one-cover.png",
+			}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-2",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "scan:source-two",
+				IntegrationID: "integration-2",
+				PluginID:      "game-source-gog",
+				ExternalID:    "source-two",
+				RawTitle:      "Game Two",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			},
+		},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:source-two": {{
+				PluginID:    "metadata-igdb",
+				Title:       "Game Two",
+				Platform:    string(core.PlatformWindowsPC),
+				ExternalID:  "match-two",
+				ReleaseDate: "2004",
+				Genres:      []string{"RPG", "Action"},
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.CacheAchievements(ctx, "scan:source-one", &core.AchievementSet{
+		Source:         "game-source-steam",
+		ExternalGameID: "220",
+		TotalCount:     1,
+		UnlockedCount:  0,
+		FetchedAt:      time.Unix(1710000000, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := store.GetLibraryStats(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if stats.GamesWithMedia != 1 {
+		t.Fatalf("games_with_media = %d, want 1", stats.GamesWithMedia)
+	}
+	if stats.GamesWithAchievements != 1 {
+		t.Fatalf("games_with_achievements = %d, want 1", stats.GamesWithAchievements)
+	}
+	if stats.ByDecade["1990s"] != 1 || stats.ByDecade["2000s"] != 1 {
+		t.Fatalf("unexpected by_decade: %+v", stats.ByDecade)
+	}
+	if stats.TopGenres["RPG"] != 2 || stats.TopGenres["Adventure"] != 1 || stats.TopGenres["Action"] != 1 {
+		t.Fatalf("unexpected top_genres: %+v", stats.TopGenres)
+	}
+	if stats.PercentWithMedia != 50 {
+		t.Fatalf("percent_with_media = %v, want 50", stats.PercentWithMedia)
+	}
+	if stats.PercentWithAchievements != 50 {
+		t.Fatalf("percent_with_achievements = %v, want 50", stats.PercentWithAchievements)
+	}
+}
+
 func newTestGameStore(t *testing.T) (*sqliteDatabase, *gameStore) {
 	t.Helper()
 

@@ -384,18 +384,143 @@ type SyncStatus struct {
 	LastPull     string `json:"last_pull,omitempty"`
 }
 
+type AboutInfo struct {
+	Version       string   `json:"version"`
+	Commit        string   `json:"commit"`
+	BuildDate     string   `json:"build_date"`
+	AuthorCredits []string `json:"author_credits"`
+}
+
+type ScanJobStatus struct {
+	JobID                  string   `json:"job_id"`
+	Status                 string   `json:"status"`
+	MetadataOnly           bool     `json:"metadata_only"`
+	IntegrationIDs         []string `json:"integration_ids"`
+	StartedAt              string   `json:"started_at,omitempty"`
+	FinishedAt             string   `json:"finished_at,omitempty"`
+	IntegrationCount       int      `json:"integration_count"`
+	IntegrationsCompleted  int      `json:"integrations_completed"`
+	CurrentPhase           string   `json:"current_phase,omitempty"`
+	CurrentIntegrationID   string   `json:"current_integration_id,omitempty"`
+	CurrentIntegrationLabel string  `json:"current_integration_label,omitempty"`
+	ReportID               string   `json:"report_id,omitempty"`
+	Error                  string   `json:"error,omitempty"`
+}
+
+type SaveSyncSlotRef struct {
+	CanonicalGameID string `json:"canonical_game_id"`
+	SourceGameID    string `json:"source_game_id"`
+	Runtime         string `json:"runtime"`
+	SlotID          string `json:"slot_id"`
+	IntegrationID   string `json:"integration_id"`
+}
+
+type SaveSyncListRequest struct {
+	CanonicalGameID string `json:"canonical_game_id"`
+	SourceGameID    string `json:"source_game_id"`
+	Runtime         string `json:"runtime"`
+	IntegrationID   string `json:"integration_id"`
+}
+
+type SaveSyncSnapshotFile struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+	Hash string `json:"hash"`
+}
+
+type SaveSyncSnapshot struct {
+	ManifestHash   string                 `json:"manifest_hash"`
+	CanonicalGameID string                `json:"canonical_game_id"`
+	SourceGameID   string                 `json:"source_game_id"`
+	Runtime        string                 `json:"runtime"`
+	SlotID         string                 `json:"slot_id"`
+	UpdatedAt      time.Time              `json:"updated_at"`
+	TotalSize      int64                  `json:"total_size"`
+	FileCount      int                    `json:"file_count"`
+	Files          []SaveSyncSnapshotFile `json:"files"`
+	ArchiveBase64  string                 `json:"archive_base64,omitempty"`
+}
+
+type SaveSyncSlotSummary struct {
+	SlotID         string `json:"slot_id"`
+	Exists         bool   `json:"exists"`
+	ManifestHash   string `json:"manifest_hash,omitempty"`
+	UpdatedAt      string `json:"updated_at,omitempty"`
+	FileCount      int    `json:"file_count,omitempty"`
+	TotalSize      int64  `json:"total_size,omitempty"`
+}
+
+type SaveSyncConflict struct {
+	SlotID              string `json:"slot_id"`
+	Message             string `json:"message"`
+	RemoteManifestHash  string `json:"remote_manifest_hash"`
+	RemoteUpdatedAt     string `json:"remote_updated_at"`
+	RemoteFileCount     int    `json:"remote_file_count"`
+	RemoteTotalSize     int64  `json:"remote_total_size"`
+}
+
+type SaveSyncPutRequest struct {
+	SaveSyncSlotRef
+	BaseManifestHash string             `json:"base_manifest_hash,omitempty"`
+	Force            bool               `json:"force"`
+	Snapshot         SaveSyncSnapshot   `json:"snapshot"`
+}
+
+type SaveSyncPutResult struct {
+	OK       bool              `json:"ok"`
+	Summary  SaveSyncSlotSummary `json:"summary"`
+	Conflict *SaveSyncConflict `json:"conflict,omitempty"`
+}
+
+type SaveSyncMigrationScope string
+
+const (
+	SaveSyncMigrationScopeAll  SaveSyncMigrationScope = "all"
+	SaveSyncMigrationScopeGame SaveSyncMigrationScope = "game"
+)
+
+type SaveSyncMigrationRequest struct {
+	SourceIntegrationID      string                 `json:"source_integration_id"`
+	TargetIntegrationID      string                 `json:"target_integration_id"`
+	Scope                    SaveSyncMigrationScope `json:"scope"`
+	CanonicalGameID          string                 `json:"canonical_game_id,omitempty"`
+	DeleteSourceAfterSuccess bool                   `json:"delete_source_after_success"`
+}
+
+type SaveSyncMigrationStatus struct {
+	JobID            string                 `json:"job_id"`
+	Status           string                 `json:"status"`
+	Scope            SaveSyncMigrationScope `json:"scope"`
+	SourceIntegrationID string              `json:"source_integration_id"`
+	TargetIntegrationID string              `json:"target_integration_id"`
+	CanonicalGameID   string                `json:"canonical_game_id,omitempty"`
+	StartedAt         string                `json:"started_at,omitempty"`
+	FinishedAt        string                `json:"finished_at,omitempty"`
+	ItemsTotal        int                   `json:"items_total"`
+	ItemsCompleted    int                   `json:"items_completed"`
+	SlotsMigrated     int                   `json:"slots_migrated"`
+	SlotsSkipped      int                   `json:"slots_skipped"`
+	Error             string                `json:"error,omitempty"`
+}
+
 // LibraryStats is the JSON body for GET /api/stats.
 type LibraryStats struct {
 	CanonicalGameCount         int            `json:"canonical_game_count"`
 	SourceGameFoundCount       int            `json:"source_game_found_count"`
 	SourceGameTotalCount       int            `json:"source_game_total_count"`
 	ByPlatform                 map[string]int `json:"by_platform"`
+	ByDecade                   map[string]int `json:"by_decade"`
 	ByKind                     map[string]int `json:"by_kind"`
+	TopGenres                  map[string]int `json:"top_genres"`
 	ByIntegrationID            map[string]int `json:"by_integration_id"`
 	ByPluginID                 map[string]int `json:"by_plugin_id"`
 	ByMetadataPluginID         map[string]int `json:"by_metadata_plugin_id"`
 	CanonicalWithResolverTitle int            `json:"canonical_with_resolver_title"`
 	PercentWithResolverTitle   float64        `json:"percent_with_resolver_title"`
+	GamesWithMedia             int            `json:"games_with_media"`
+	GamesWithAchievements      int            `json:"games_with_achievements"`
+	PercentWithMedia           float64        `json:"percent_with_media"`
+	PercentWithAchievements    float64        `json:"percent_with_achievements"`
 }
 
 // GameListItem is a lightweight game reference returned by integration-scoped queries.

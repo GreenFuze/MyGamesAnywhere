@@ -14,7 +14,6 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
-	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -301,24 +300,24 @@ func canonicalToSummary(cg *core.CanonicalGame) GameSummary {
 }
 
 type DiscoveryController struct {
-	orchestrator *scan.Orchestrator
+	orchestrator scanRunner
+	scanJobs     *scanJobManager
 	gameStore    core.GameStore
 	logger       core.Logger
 }
 
-func NewDiscoveryController(orchestrator *scan.Orchestrator, gameStore core.GameStore, logger core.Logger) *DiscoveryController {
-	return &DiscoveryController{orchestrator: orchestrator, gameStore: gameStore, logger: logger}
+func NewDiscoveryController(orchestrator scanRunner, gameStore core.GameStore, logger core.Logger, eventBus *events.EventBus) *DiscoveryController {
+	return &DiscoveryController{
+		orchestrator: orchestrator,
+		scanJobs:     newScanJobManager(orchestrator, eventBus, logger),
+		gameStore:    gameStore,
+		logger:       logger,
+	}
 }
 
 type ScanRequest struct {
 	GameSources  []string `json:"game_sources"`
 	MetadataOnly bool     `json:"metadata_only"`
-}
-
-// ScanResultDTO is the response for POST /api/scan.
-type ScanResultDTO struct {
-	Status string        `json:"status"`
-	Games  []GameSummary `json:"games"`
 }
 
 func (c *DiscoveryController) Scan(w http.ResponseWriter, r *http.Request) {
@@ -333,36 +332,36 @@ func (c *DiscoveryController) Scan(w http.ResponseWriter, r *http.Request) {
 	if len(body.GameSources) > 0 {
 		integrationIDs = body.GameSources
 	}
-
-	// Detach from the HTTP request timeout — scans can take many minutes
-	// due to metadata enrichment across multiple resolvers.
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-
-	var canonical []*core.CanonicalGame
-	var err error
-
-	if body.MetadataOnly {
-		canonical, err = c.orchestrator.RunMetadataRefresh(ctx, integrationIDs)
-	} else {
-		canonical, err = c.orchestrator.RunScan(ctx, integrationIDs)
-	}
-
+	status, alreadyRunning, err := c.scanJobs.Start(ScanRequest{
+		GameSources:  integrationIDs,
+		MetadataOnly: body.MetadataOnly,
+	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	summaries := make([]GameSummary, 0, len(canonical))
-	for _, cg := range canonical {
-		summaries = append(summaries, canonicalToSummary(cg))
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(ScanResultDTO{
-		Status: "scan completed",
-		Games:  summaries,
-	})
+	if alreadyRunning {
+		w.WriteHeader(http.StatusConflict)
+	} else {
+		w.WriteHeader(http.StatusAccepted)
+	}
+	_ = json.NewEncoder(w).Encode(status)
+}
+
+func (c *DiscoveryController) GetScanJob(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "job_id")
+	if jobID == "" {
+		http.Error(w, "job_id is required", http.StatusBadRequest)
+		return
+	}
+	status := c.scanJobs.Get(jobID)
+	if status == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(status)
 }
 
 // GetScanReports returns the last N scan reports.

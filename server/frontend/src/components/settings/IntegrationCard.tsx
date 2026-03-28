@@ -39,6 +39,10 @@ interface IntegrationCardProps {
   onPull?: () => void
   onStoreKey?: (passphrase: string) => void
   onClearKey?: () => void
+
+  // Save-sync-specific props.
+  activeSaveSyncIntegrationId?: string | null
+  onSetActiveSaveSync?: (integrationId: string) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +68,8 @@ export function IntegrationCard({
   onPull,
   onStoreKey,
   onClearKey,
+  activeSaveSyncIntegrationId,
+  onSetActiveSaveSync,
 }: IntegrationCardProps) {
   const summary = ConfigSummaryBuilder.summarize(integration.plugin_id, integration.config_json)
   const primaryCapability = plugin?.capabilities?.[0] ?? integration.integration_type
@@ -76,6 +82,7 @@ export function IntegrationCard({
 
   // Determine if this card is expandable (has a games list or sync controls).
   const isExpandable = capability === 'source' || capability === 'metadata' || capability === 'sync'
+  const isActiveSaveSync = capability === 'save_sync' && activeSaveSyncIntegrationId === integration.id
 
   return (
     <div className="border border-mga-border rounded-mga bg-mga-surface p-4 flex flex-col gap-2 transition-colors hover:border-mga-muted/50">
@@ -88,6 +95,11 @@ export function IntegrationCard({
         {gameCount != null && gameCount > 0 && (
           <Badge variant="muted" className="text-[10px] shrink-0">
             {capability === 'metadata' ? `enriched ${gameCount}` : `${gameCount} games`}
+          </Badge>
+        )}
+        {isActiveSaveSync && (
+          <Badge variant="accent" className="text-[10px] shrink-0">
+            Active
           </Badge>
         )}
 
@@ -192,6 +204,18 @@ export function IntegrationCard({
               {syncState?.pulling ? 'Pulling...' : 'Pull'}
             </Button>
           </>
+        )}
+
+        {capability === 'save_sync' && onSetActiveSaveSync && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onSetActiveSaveSync(integration.id)}
+            className="text-xs"
+            disabled={isActiveSaveSync}
+          >
+            {isActiveSaveSync ? 'Active' : 'Use for Save Sync'}
+          </Button>
         )}
 
         <Button variant="ghost" size="sm" onClick={() => onEdit(integration)} className="text-xs">

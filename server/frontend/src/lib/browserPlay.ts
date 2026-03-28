@@ -20,6 +20,7 @@ export type BrowserPlaySession =
   | {
       runtime: 'emulatorjs'
       title: string
+      sourceGameId: string
       gameUrl: string
       gameName: string
       core: string
@@ -27,6 +28,7 @@ export type BrowserPlaySession =
   | {
       runtime: 'jsdos'
       title: string
+      sourceGameId: string
       rootFilePath: string
       files: BrowserPlaySessionFile[]
       bundleUrl?: string
@@ -34,6 +36,7 @@ export type BrowserPlaySession =
   | {
       runtime: 'scummvm'
       title: string
+      sourceGameId: string
       launchDirectoryPath: string
       files: BrowserPlaySessionFile[]
     }
@@ -78,6 +81,17 @@ export function browserPlayRuntimeLabel(runtime: BrowserPlayRuntime): string {
     case 'scummvm':
       return 'ScummVM'
   }
+}
+
+export function runtimeSupportsSaveSync(runtime: BrowserPlayRuntime): boolean {
+  return runtime === 'emulatorjs' || runtime === 'jsdos' || runtime === 'scummvm'
+}
+
+export function sessionSupportsSaveSync(session: BrowserPlaySession): boolean {
+  if (session.runtime === 'jsdos') {
+    return typeof session.bundleUrl === 'string' && session.bundleUrl.length > 0
+  }
+  return true
 }
 
 export function getEmulatorJsCore(platform: string): string | null {
@@ -167,6 +181,7 @@ export function buildBrowserPlaySession(
     return {
       runtime: 'emulatorjs',
       title: game.title,
+      sourceGameId: selection.sourceGame.id,
       gameName: game.title,
       gameUrl: buildPlayFileUrl(game.id, selection.rootFile.id),
       core,
@@ -182,6 +197,7 @@ export function buildBrowserPlaySession(
     return {
       runtime: 'jsdos',
       title: game.title,
+      sourceGameId: selection.sourceGame.id,
       rootFilePath: selection.rootFile.path,
       files: buildSourceSessionFiles(game, selection.sourceGame),
       bundleUrl: isBundle ? buildPlayFileUrl(game.id, selection.rootFile.id) : undefined,
@@ -191,6 +207,7 @@ export function buildBrowserPlaySession(
   return {
     runtime: 'scummvm',
     title: game.title,
+    sourceGameId: selection.sourceGame.id,
     launchDirectoryPath: commonDirectoryPath(selection.sourceGame.files.map((file) => file.path)),
     files: buildSourceSessionFiles(game, selection.sourceGame),
   }

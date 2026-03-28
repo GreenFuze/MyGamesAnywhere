@@ -36,11 +36,110 @@
       const params = new URLSearchParams(window.location.search)
       const sessionId = params.get('session')
       const mount = document.getElementById('game')
+      const runtimeOrigin = window.location.origin
+      let latestSaveBase64 = null
 
       function renderError(message) {
         mount.className = 'error'
         mount.textContent = message
       }
+
+      function bytesToBase64(bytes) {
+        let binary = ''
+        for (let index = 0; index < bytes.length; index += 1) {
+          binary += String.fromCharCode(bytes[index])
+        }
+        return btoa(binary)
+      }
+
+      function base64ToBytes(base64) {
+        const binary = atob(base64)
+        const bytes = new Uint8Array(binary.length)
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index)
+        }
+        return bytes
+      }
+
+      function postBridgeMessage(message) {
+        window.parent.postMessage(message, runtimeOrigin)
+      }
+
+      function saveFilePath() {
+        return window.EJS_emulator?.gameManager?.getSaveFilePath?.()
+      }
+
+      function exportSnapshot(requestId) {
+        try {
+          const path = saveFilePath()
+          const save = window.EJS_emulator?.gameManager?.getSaveFile?.(true)
+          if (!path || !save) {
+            postBridgeMessage({ type: 'export-result', requestId, snapshot: { files: [] } })
+            return
+          }
+          latestSaveBase64 = bytesToBase64(save)
+          postBridgeMessage({
+            type: 'export-result',
+            requestId,
+            snapshot: {
+              files: [{ path, base64: latestSaveBase64 }],
+            },
+          })
+        } catch (error) {
+          postBridgeMessage({
+            type: 'export-result',
+            requestId,
+            error: error instanceof Error ? error.message : 'Unable to export EmulatorJS saves.',
+          })
+        }
+      }
+
+      function importSnapshot(requestId, files) {
+        try {
+          const file = Array.isArray(files) ? files[0] : null
+          const path = file?.path || saveFilePath()
+          if (!path || !file?.base64) {
+            postBridgeMessage({ type: 'import-result', requestId, ok: false, error: 'No EmulatorJS save file was provided.' })
+            return
+          }
+          const bytes = base64ToBytes(file.base64)
+          const parts = path.split('/')
+          let current = ''
+          for (let index = 0; index < parts.length - 1; index += 1) {
+            const segment = parts[index]
+            if (!segment) continue
+            current += `/${segment}`
+            if (!window.EJS_emulator.gameManager.FS.analyzePath(current).exists) {
+              window.EJS_emulator.gameManager.FS.mkdir(current)
+            }
+          }
+          if (window.EJS_emulator.gameManager.FS.analyzePath(path).exists) {
+            window.EJS_emulator.gameManager.FS.unlink(path)
+          }
+          window.EJS_emulator.gameManager.FS.writeFile(path, bytes)
+          window.EJS_emulator.gameManager.loadSaveFiles()
+          latestSaveBase64 = file.base64
+          postBridgeMessage({ type: 'import-result', requestId, ok: true })
+        } catch (error) {
+          postBridgeMessage({
+            type: 'import-result',
+            requestId,
+            ok: false,
+            error: error instanceof Error ? error.message : 'Unable to import EmulatorJS saves.',
+          })
+        }
+      }
+
+      window.addEventListener('message', (event) => {
+        if (event.origin !== runtimeOrigin) return
+        const message = event.data
+        if (!message || typeof message !== 'object' || !('type' in message)) return
+        if (message.type === 'export-save-snapshot') {
+          exportSnapshot(message.requestId)
+        } else if (message.type === 'import-save-snapshot') {
+          importSnapshot(message.requestId, message.files)
+        }
+      })
 
       if (!sessionId) {
         renderError('Missing browser-play session token.')
@@ -53,6 +152,19 @@
           if (session.runtime !== 'emulatorjs') {
             renderError('Invalid EmulatorJS session payload.')
           } else {
+            window.EJS_ready = () => {
+              postBridgeMessage({ type: 'ready', saveAdapter: true })
+            }
+            window.EJS_onSaveSave = (payload) => {
+              if (payload?.save) {
+                latestSaveBase64 = bytesToBase64(payload.save)
+              }
+            }
+            window.EJS_onSaveUpdate = (payload) => {
+              if (payload?.save) {
+                latestSaveBase64 = bytesToBase64(payload.save)
+              }
+            }
             window.EJS_player = '#game'
             window.EJS_core = session.core
             window.EJS_gameUrl = session.gameUrl

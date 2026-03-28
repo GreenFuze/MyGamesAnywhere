@@ -75,7 +75,7 @@ export async function getHealth(): Promise<string> {
   return res.text()
 }
 
-/** Lightweight row returned by POST /api/scan (not used for GET /api/games/{id}). */
+/** Lightweight row used in scan/report contexts (not used for GET /api/games/{id}). */
 export type GameSummary = {
   id: string
   title: string
@@ -355,6 +355,27 @@ export type ScanResult = {
   games: GameSummary[]
 }
 
+export type ScanJobStatus = {
+  job_id: string
+  status: string
+  metadata_only: boolean
+  integration_ids: string[]
+  started_at?: string
+  finished_at?: string
+  integration_count: number
+  integrations_completed: number
+  current_phase?: string
+  current_integration_id?: string
+  current_integration_label?: string
+  report_id?: string
+  error?: string
+}
+
+export type TriggerScanResult = {
+  accepted: boolean
+  job: ScanJobStatus
+}
+
 export type ScanIntegrationResult = {
   integration_id: string
   label: string
@@ -386,6 +407,75 @@ export type SyncStatus = {
   last_pull?: string
 }
 
+export type SaveSyncSnapshotFile = {
+  path: string
+  size: number
+  hash: string
+}
+
+export type SaveSyncSnapshot = {
+  manifest_hash?: string
+  canonical_game_id: string
+  source_game_id: string
+  runtime: string
+  slot_id: string
+  updated_at?: string
+  total_size?: number
+  file_count?: number
+  files: SaveSyncSnapshotFile[]
+  archive_base64?: string
+}
+
+export type SaveSyncSlotSummary = {
+  slot_id: string
+  exists: boolean
+  manifest_hash?: string
+  updated_at?: string
+  file_count?: number
+  total_size?: number
+}
+
+export type SaveSyncConflict = {
+  slot_id: string
+  message: string
+  remote_manifest_hash: string
+  remote_updated_at: string
+  remote_file_count: number
+  remote_total_size: number
+}
+
+export type SaveSyncPutResult = {
+  ok: boolean
+  summary: SaveSyncSlotSummary
+  conflict?: SaveSyncConflict
+}
+
+export type SaveSyncMigrationScope = 'all' | 'game'
+
+export type SaveSyncMigrationRequest = {
+  source_integration_id: string
+  target_integration_id: string
+  scope: SaveSyncMigrationScope
+  canonical_game_id?: string
+  delete_source_after_success: boolean
+}
+
+export type SaveSyncMigrationStatus = {
+  job_id: string
+  status: string
+  scope: SaveSyncMigrationScope
+  source_integration_id: string
+  target_integration_id: string
+  canonical_game_id?: string
+  started_at?: string
+  finished_at?: string
+  items_total: number
+  items_completed: number
+  slots_migrated: number
+  slots_skipped: number
+  error?: string
+}
+
 export type PushResult = {
   status: string
   exported_at: string
@@ -412,12 +502,25 @@ export type LibraryStats = {
   source_game_found_count: number
   source_game_total_count: number
   by_platform: Record<string, number>
+  by_decade: Record<string, number>
   by_kind: Record<string, number>
+  top_genres: Record<string, number>
   by_integration_id: Record<string, number>
   by_plugin_id: Record<string, number>
   by_metadata_plugin_id: Record<string, number>
   canonical_with_resolver_title: number
   percent_with_resolver_title: number
+  games_with_media: number
+  games_with_achievements: number
+  percent_with_media: number
+  percent_with_achievements: number
+}
+
+export type AboutInfo = {
+  version: string
+  commit: string
+  build_date: string
+  author_credits: string[]
 }
 
 export type IntegrationGameItem = {
@@ -527,11 +630,26 @@ export async function getPlugin(id: string): Promise<PluginInfo> {
 export async function triggerScan(
   integrationIds?: string[],
   opts?: { metadataOnly?: boolean },
-): Promise<ScanResult> {
+): Promise<TriggerScanResult> {
   const body: Record<string, unknown> = {}
   if (integrationIds) body.game_sources = integrationIds
   if (opts?.metadataOnly) body.metadata_only = true
-  return postJson<ScanResult>('/api/scan', body) as Promise<ScanResult>
+  const res = await fetch(`${base}/api/scan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (res.status !== 202 && res.status !== 409) {
+    throw await buildApiError('/api/scan', res)
+  }
+  return {
+    accepted: res.status === 202,
+    job: (await res.json()) as ScanJobStatus,
+  }
+}
+
+export async function getScanJob(jobId: string): Promise<ScanJobStatus> {
+  return getJson<ScanJobStatus>(`/api/scan/jobs/${encodeURIComponent(jobId)}`)
 }
 
 export async function getScanReports(limit = 10): Promise<ScanReport[]> {
@@ -566,6 +684,10 @@ export async function getStats(): Promise<LibraryStats> {
   return getJson<LibraryStats>('/api/stats')
 }
 
+export async function getAboutInfo(): Promise<AboutInfo> {
+  return getJson<AboutInfo>('/api/about')
+}
+
 // ─── Plugin Browse API ──────────────────────────────────────────────
 
 export type BrowseFolder = { name: string; path: string }
@@ -576,4 +698,80 @@ export async function browsePlugin(pluginId: string, path: string): Promise<Brow
     `/api/plugins/${encodeURIComponent(pluginId)}/browse`,
     { path },
   ) as Promise<BrowseResponse>
+}
+
+export async function listGameSaveSyncSlots(params: {
+  gameId: string
+  integrationId: string
+  sourceGameId: string
+  runtime: string
+}): Promise<SaveSyncSlotSummary[]> {
+  const q = new URLSearchParams({
+    integration_id: params.integrationId,
+    source_game_id: params.sourceGameId,
+    runtime: params.runtime,
+  })
+  const result = await getJson<{ slots: SaveSyncSlotSummary[] }>(
+    `/api/games/${encodeURIComponent(params.gameId)}/save-sync/slots?${q.toString()}`,
+  )
+  return result.slots
+}
+
+export async function getGameSaveSyncSlot(params: {
+  gameId: string
+  integrationId: string
+  sourceGameId: string
+  runtime: string
+  slotId: string
+}): Promise<SaveSyncSnapshot> {
+  const q = new URLSearchParams({
+    integration_id: params.integrationId,
+    source_game_id: params.sourceGameId,
+    runtime: params.runtime,
+  })
+  return getJson<SaveSyncSnapshot>(
+    `/api/games/${encodeURIComponent(params.gameId)}/save-sync/slots/${encodeURIComponent(params.slotId)}?${q.toString()}`,
+  )
+}
+
+export async function putGameSaveSyncSlot(params: {
+  gameId: string
+  slotId: string
+  integrationId: string
+  sourceGameId: string
+  runtime: string
+  baseManifestHash?: string
+  force?: boolean
+  snapshot: SaveSyncSnapshot
+}): Promise<SaveSyncPutResult> {
+  const res = await fetch(`${base}/api/games/${encodeURIComponent(params.gameId)}/save-sync/slots/${encodeURIComponent(params.slotId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      integration_id: params.integrationId,
+      source_game_id: params.sourceGameId,
+      runtime: params.runtime,
+      base_manifest_hash: params.baseManifestHash,
+      force: params.force ?? false,
+      snapshot: params.snapshot,
+    }),
+  })
+
+  if (res.status === 409) {
+    return res.json() as Promise<SaveSyncPutResult>
+  }
+  if (!res.ok) {
+    throw await buildApiError(`/api/games/${params.gameId}/save-sync/slots/${params.slotId}`, res)
+  }
+  return res.json() as Promise<SaveSyncPutResult>
+}
+
+export async function startSaveSyncMigration(
+  body: SaveSyncMigrationRequest,
+): Promise<SaveSyncMigrationStatus> {
+  return postJson<SaveSyncMigrationStatus>('/api/save-sync/migrations', body) as Promise<SaveSyncMigrationStatus>
+}
+
+export async function getSaveSyncMigrationStatus(jobId: string): Promise<SaveSyncMigrationStatus> {
+  return getJson<SaveSyncMigrationStatus>(`/api/save-sync/migrations/${encodeURIComponent(jobId)}`)
 }

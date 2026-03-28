@@ -38,6 +38,23 @@ Write-Host "Building server..." -ForegroundColor Cyan
 
 $ext = if ($IsLinux -or $IsMacOS) { "" } else { ".exe" }
 $serverBin = Join-Path $BinDir "mga_server$ext"
+$buildInfoPkg = "github.com/GreenFuze/MyGamesAnywhere/server/internal/buildinfo"
+$version = if ($env:MGA_VERSION) { $env:MGA_VERSION } else { "dev" }
+$commit = "unknown"
+if (Get-Command git -ErrorAction SilentlyContinue) {
+    try {
+        $gitCommit = (git -C $RootDir rev-parse --short HEAD 2>$null).Trim()
+        if ($gitCommit) {
+            $commit = $gitCommit
+        }
+    } catch {}
+}
+$buildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+$serverLdflags = @(
+    "-X", "$buildInfoPkg.Version=$version",
+    "-X", "$buildInfoPkg.Commit=$commit",
+    "-X", "$buildInfoPkg.BuildDate=$buildDate"
+)
 
 # Windows: Explorer .exe icon (separate from systray //go:embed — needs COFF .syso)
 if ($env:OS -eq "Windows_NT") {
@@ -54,7 +71,7 @@ if ($env:OS -eq "Windows_NT") {
 
 Push-Location $RootDir
 try {
-    go build -o $serverBin ./cmd/server
+    go build -ldflags ($serverLdflags -join " ") -o $serverBin ./cmd/server
     if ($LASTEXITCODE -ne 0) { throw "server build failed" }
 } finally { Pop-Location }
 

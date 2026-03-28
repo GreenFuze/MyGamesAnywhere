@@ -19,6 +19,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/keystore"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/logger"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
+	saveSync "github.com/GreenFuze/MyGamesAnywhere/server/internal/save_sync"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
 	mgasync "github.com/GreenFuze/MyGamesAnywhere/server/internal/sync"
 )
@@ -50,20 +51,23 @@ func main() {
 
 	ks := keystore.New()
 	syncSvc := mgasync.NewSyncService(integrationRepo, settingRepo, pluginHost, ks, logSvc)
+	saveSyncSvc := saveSync.NewService(integrationRepo, gameStore, pluginHost, logSvc, eventBus)
 	orchestrator := scan.NewOrchestrator(pluginHost, pluginHost, integrationRepo, gameStore, logSvc)
 	orchestrator.SetEventBus(eventBus)
 
 	gameCtrl := http.NewGameController(gameStore, logSvc)
 	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc)
-	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc)
+	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc, eventBus)
+	aboutCtrl := http.NewAboutController(logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, gameStore, configSvc, logSvc, eventBus)
 	achievementCtrl := http.NewAchievementController(gameStore, pluginHost, logSvc, eventBus)
 	syncCtrl := http.NewSyncController(syncSvc, logSvc, eventBus)
+	saveSyncCtrl := http.NewSaveSyncController(saveSyncSvc, logSvc)
 	sseCtrl := http.NewSSEController(eventBus, logSvc)
 	oauthCtrl := http.NewOAuthController(pluginHost, configSvc, logSvc, eventBus)
 
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, configCtrl, pluginCtrl, achievementCtrl, syncCtrl, sseCtrl, oauthCtrl)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, achievementCtrl, syncCtrl, saveSyncCtrl, sseCtrl, oauthCtrl)
 
 	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost, eventBus)
 
