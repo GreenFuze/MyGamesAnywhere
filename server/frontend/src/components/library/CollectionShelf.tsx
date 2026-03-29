@@ -105,9 +105,9 @@ export function CollectionShelf({
             {expanded ? (
               <GameGrid games={sectionGames} isLoading={false} />
             ) : (
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+              <div className="flex items-stretch gap-4 overflow-hidden">
                 {previewGames.map((game) => (
-                  <div key={game.id} className="min-w-0">
+                  <div key={game.id} className="w-[190px] min-w-0 shrink-0">
                     <GameCard game={game} />
                   </div>
                 ))}
@@ -115,15 +115,11 @@ export function CollectionShelf({
                   <button
                     type="button"
                     onClick={() => onExpandedSectionChange(section.id)}
-                    className="flex min-h-[18rem] items-center justify-center rounded-mga border border-dashed border-mga-border bg-mga-surface/70 transition-colors hover:border-mga-accent hover:bg-mga-elevated/40"
+                    className="inline-flex shrink-0 items-center gap-2 self-center rounded-full border border-dashed border-mga-border bg-mga-surface/80 px-4 py-2 text-sm font-medium text-mga-muted transition-colors hover:border-mga-accent hover:bg-mga-elevated/40 hover:text-mga-text"
                     aria-label={`Show more games in ${section.label}`}
                   >
-                    <div className="flex flex-col items-center gap-2 text-center">
-                      <Ellipsis size={28} className="text-mga-muted" />
-                      <p className="text-xs font-medium uppercase tracking-[0.3em] text-mga-muted">
-                        More
-                      </p>
-                    </div>
+                    <Ellipsis size={18} />
+                    <span>More</span>
                   </button>
                 )}
               </div>

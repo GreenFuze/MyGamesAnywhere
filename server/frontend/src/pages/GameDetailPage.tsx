@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
+  ArrowRightLeft,
   Database,
   ExternalLink,
   FileText,
@@ -44,8 +45,8 @@ import {
   hasBrowserPlaySupport,
   isPlayable,
   pluginLabel,
-  resolverMatchCount,
   selectSourcePlugins,
+  sourceMatchCount,
 } from '@/lib/gameUtils'
 import { cn } from '@/lib/utils'
 
@@ -70,6 +71,14 @@ type ExternalLinkItem = {
   host: string
   actionLabel: string
   brandId?: string
+}
+
+type GameFileDisplayRecord = {
+  sourceGameId: string
+  sourcePluginId: string
+  sourceTitle: string
+  isLaunchFile: boolean
+  file: GameFileDTO
 }
 
 function hasTextValue(value: string | undefined): boolean {
@@ -106,6 +115,17 @@ function formatBytes(bytes: number): string {
   const amount = bytes / 1024 ** exponent
   const digits = amount >= 10 || exponent === 0 ? 0 : 1
   return `${amount.toFixed(digits)} ${units[exponent]}`
+}
+
+function humanizeValue(value: string): string {
+  return value
+    .split(/[_-]+/g)
+    .filter(Boolean)
+    .map((part) => {
+      if (part.length <= 3) return part.toUpperCase()
+      return part.charAt(0).toUpperCase() + part.slice(1)
+    })
+    .join(' ')
 }
 
 function formatHostname(url: string): string {
@@ -299,12 +319,40 @@ function sortAchievementSet(set: AchievementSetDTO): AchievementSetDTO {
   }
 }
 
-function SectionCard({ id, title, icon, children }: { id?: string; title: string; icon?: ReactNode; children: ReactNode }) {
+function SectionCard({
+  id,
+  title,
+  icon,
+  description,
+  actions,
+  className,
+  children,
+}: {
+  id?: string
+  title: string
+  icon?: ReactNode
+  description?: ReactNode
+  actions?: ReactNode
+  className?: string
+  children: ReactNode
+}) {
   return (
-    <section id={id} className="scroll-mt-28 rounded-mga border border-mga-border bg-mga-surface shadow-sm shadow-black/10">
-      <div className="flex items-center gap-2 border-b border-mga-border px-4 py-3">
-        {icon}
-        <h2 className="text-base font-semibold text-mga-text">{title}</h2>
+    <section
+      id={id}
+      className={cn(
+        'scroll-mt-28 overflow-hidden rounded-mga border border-mga-border bg-mga-surface shadow-sm shadow-black/10',
+        className,
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-mga-border px-4 py-3 md:px-5">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            {icon}
+            <h2 className="text-base font-semibold text-mga-text">{title}</h2>
+          </div>
+          {description ? <div className="text-sm leading-6 text-mga-muted">{description}</div> : null}
+        </div>
+        {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
       </div>
       <div className="p-4 md:p-5">{children}</div>
     </section>
@@ -329,23 +377,140 @@ function AttributionNote({ sources, prefix = 'Source' }: { sources?: string[] | 
 
 function MetaItem({ label, value, attributionSources, attributionPrefix }: { label: string; value: ReactNode; attributionSources?: string[] | null; attributionPrefix?: string }) {
   return (
-    <div className="rounded-mga border border-mga-border bg-mga-bg/70 p-3">
+    <div className="rounded-mga border border-mga-border bg-mga-bg/70 p-3 shadow-sm shadow-black/5">
       <p className="text-xs font-medium uppercase tracking-wide text-mga-muted">{label}</p>
-      <div className="mt-1 text-sm text-mga-text">{value}</div>
+      <div className="mt-1 text-sm font-medium text-mga-text">{value}</div>
       <AttributionNote sources={attributionSources} prefix={attributionPrefix} />
     </div>
   )
 }
 
-function FileRow({ file }: { file: GameFileDTO }) {
+function HeroStatCard({ label, value, detail }: { label: string; value: ReactNode; detail?: ReactNode }) {
   return (
-    <div className="rounded-mga border border-mga-border bg-mga-bg/60 p-3 text-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="muted">{file.role}</Badge>
-        {file.file_kind && <Badge>{file.file_kind}</Badge>}
-        <span className="text-xs text-mga-muted">{formatBytes(file.size)}</span>
+    <div className="rounded-mga border border-mga-border bg-mga-bg/75 px-3 py-3 shadow-sm shadow-black/10">
+      <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-mga-muted">{label}</p>
+      <div className="mt-1 text-lg font-semibold text-mga-text">{value}</div>
+      {detail ? <div className="mt-1 text-xs leading-5 text-mga-muted">{detail}</div> : null}
+    </div>
+  )
+}
+
+function SectionJumpLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      className="inline-flex h-9 items-center justify-center rounded-mga border border-mga-border bg-mga-bg/80 px-3 text-xs font-medium text-mga-text transition-colors hover:bg-mga-elevated"
+    >
+      {label}
+    </a>
+  )
+}
+
+function fileRoleLabel(role: string): string {
+  if (role === 'root') return 'Launch / Root'
+  return humanizeValue(role)
+}
+
+function fileKindLabel(kind: string | undefined): string | null {
+  if (!kind) return null
+  return humanizeValue(kind)
+}
+
+function fileGroupKey(entry: GameFileDisplayRecord): 'primary' | 'package' | 'other' {
+  if (entry.isLaunchFile || entry.file.role === 'root') return 'primary'
+  const fileKind = entry.file.file_kind?.toLowerCase() ?? ''
+  if (
+    fileKind === 'archive' ||
+    fileKind === 'executable' ||
+    fileKind === 'dos_executable' ||
+    fileKind === 'disc_image' ||
+    fileKind === 'disc_meta'
+  ) {
+    return 'package'
+  }
+  return 'other'
+}
+
+function compareFileEntries(a: GameFileDisplayRecord, b: GameFileDisplayRecord): number {
+  if (a.isLaunchFile !== b.isLaunchFile) return a.isLaunchFile ? -1 : 1
+  if (a.file.role !== b.file.role) {
+    if (a.file.role === 'root') return -1
+    if (b.file.role === 'root') return 1
+  }
+  if (a.file.path !== b.file.path) return a.file.path.localeCompare(b.file.path)
+  return a.sourcePluginId.localeCompare(b.sourcePluginId)
+}
+
+function buildGameFileGroups(sourceGames: SourceGameDetailDTO[]) {
+  const entries = sourceGames
+    .flatMap((source) =>
+      source.files.map((file) => ({
+        sourceGameId: source.id,
+        sourcePluginId: source.plugin_id,
+        sourceTitle: source.raw_title || source.external_id,
+        isLaunchFile: source.play?.root_file_id === file.id || file.role === 'root',
+        file,
+      })),
+    )
+    .sort(compareFileEntries)
+
+  return {
+    all: entries,
+    primary: entries.filter((entry) => fileGroupKey(entry) === 'primary'),
+    package: entries.filter((entry) => fileGroupKey(entry) === 'package'),
+    other: entries.filter((entry) => fileGroupKey(entry) === 'other'),
+  }
+}
+
+function GameFileRow({ entry }: { entry: GameFileDisplayRecord }) {
+  return (
+    <div className="rounded-mga border border-mga-border bg-mga-bg/60 p-3 text-sm shadow-sm shadow-black/5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <SourceBadge source={entry.sourcePluginId} />
+            <Badge variant="muted">{fileRoleLabel(entry.file.role)}</Badge>
+            {entry.isLaunchFile ? <Badge variant="accent">Launchable</Badge> : null}
+            {fileKindLabel(entry.file.file_kind) ? <Badge>{fileKindLabel(entry.file.file_kind)}</Badge> : null}
+          </div>
+          <p className="text-xs font-medium uppercase tracking-wide text-mga-muted">{entry.sourceTitle}</p>
+        </div>
+        <div className="rounded-mga border border-mga-border bg-mga-surface px-2.5 py-1 text-xs font-medium text-mga-text">
+          {formatBytes(entry.file.size)}
+        </div>
       </div>
-      <p className="mt-2 break-all font-mono text-xs text-mga-text">{file.path}</p>
+      <div className="mt-3 rounded-mga border border-mga-border/70 bg-mga-surface/70 px-3 py-2">
+        <p className="break-all font-mono text-xs leading-6 text-mga-text">{entry.file.path}</p>
+      </div>
+    </div>
+  )
+}
+
+function GameFileGroup({
+  title,
+  description,
+  entries,
+}: {
+  title: string
+  description: string
+  entries: GameFileDisplayRecord[]
+}) {
+  if (entries.length === 0) return null
+
+  return (
+    <div className="space-y-3 rounded-mga border border-mga-border bg-mga-bg/40 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-mga-text">{title}</h3>
+          <p className="mt-1 text-xs text-mga-muted">{description}</p>
+        </div>
+        <Badge variant="muted">{entries.length}</Badge>
+      </div>
+      <div className="space-y-2">
+        {entries.map((entry) => (
+          <GameFileRow key={`${entry.sourceGameId}:${entry.file.path}:${entry.file.role}`} entry={entry} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -401,22 +566,27 @@ function ResolverMatchRow({ match }: { match: ResolverMatchDTO }) {
   const facts = summarizeResolverMatch(match)
 
   return (
-    <div className="rounded-mga border border-mga-border bg-mga-bg/60 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <SourceBadge source={match.plugin_id} />
-        {match.outvoted && <Badge variant="muted">Outvoted</Badge>}
-        {match.xcloud_available && <BrandBadge brand="xcloud" label="xCloud" />}
-        {match.is_game_pass && <Badge variant="gamepass">Game Pass</Badge>}
-        {match.url && (
+    <div className="rounded-mga border border-mga-border bg-mga-bg/60 p-3 shadow-sm shadow-black/5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <SourceBadge source={match.plugin_id} />
+            {match.outvoted ? <Badge variant="muted">Outvoted</Badge> : <Badge variant="accent">Active</Badge>}
+            {match.xcloud_available ? <BrandBadge brand="xcloud" label="xCloud" /> : null}
+            {match.is_game_pass ? <Badge variant="gamepass">Game Pass</Badge> : null}
+          </div>
+          <p className="text-sm font-semibold text-mga-text">{match.title ?? 'Unknown title'}</p>
+        </div>
+        {match.url ? (
           <a href={match.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-mga-accent hover:underline">
             Open match
             <ExternalLink size={12} />
           </a>
-        )}
+        ) : null}
       </div>
-      <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
-        <MetaItem label="Title" value={match.title ?? 'Unknown'} />
+      <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
         <MetaItem label="External ID" value={match.external_id} />
+        <MetaItem label="Platform" value={match.platform ? humanizeValue(match.platform) : 'Unknown'} />
       </div>
       {facts.length > 0 && <p className="mt-3 text-xs leading-5 text-mga-muted">{facts.join(' • ')}</p>}
     </div>
@@ -425,15 +595,19 @@ function ResolverMatchRow({ match }: { match: ResolverMatchDTO }) {
 
 function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
   return (
-    <article className="space-y-4 rounded-mga border border-mga-border bg-mga-bg/60 p-4">
+    <article className="space-y-4 rounded-mga border border-mga-border bg-mga-bg/60 p-4 shadow-sm shadow-black/5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <SourceBadge source={source.plugin_id} />
             <Badge variant="source">{source.status}</Badge>
             <Badge variant="platform"><PlatformIcon platform={source.platform} showLabel /></Badge>
+            {source.play?.launchable ? <Badge variant="accent">Launch Ready</Badge> : null}
           </div>
-          <p className="text-sm text-mga-muted">{source.raw_title || source.external_id}</p>
+          <div>
+            <p className="text-sm font-semibold text-mga-text">{source.raw_title || source.external_id}</p>
+            <p className="mt-1 text-xs text-mga-muted">{source.external_id}</p>
+          </div>
         </div>
 
         {source.url && (
@@ -447,11 +621,12 @@ function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
 
       <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
         <MetaItem label="Integration" value={source.integration_id} />
-        <MetaItem label="External ID" value={source.external_id} />
         <MetaItem label="Kind" value={source.kind} />
         <MetaItem label="Created" value={formatDateTimeValue(source.created_at)} />
         <MetaItem label="Last Seen" value={formatDateTimeValue(source.last_seen_at)} />
         <MetaItem label="Root Path" value={source.root_path ?? 'Unknown'} />
+        <MetaItem label="Files" value={source.files.length} />
+        <MetaItem label="Resolver Matches" value={source.resolver_matches.length} />
       </div>
 
       <details className="rounded-mga border border-mga-border bg-mga-surface px-3 py-2">
@@ -471,13 +646,24 @@ function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
 
       <details className="rounded-mga border border-mga-border bg-mga-surface px-3 py-2">
         <summary className="cursor-pointer list-none text-sm font-medium text-mga-text">
-          Files ({source.files.length})
+          Source File Inventory ({source.files.length})
         </summary>
         <div className="mt-3 space-y-2">
           {source.files.length === 0 ? (
             <p className="text-sm text-mga-muted">No files associated with this source game.</p>
           ) : (
-            source.files.map((file) => <FileRow key={`${file.path}:${file.role}`} file={file} />)
+            source.files.map((file) => (
+              <GameFileRow
+                key={`${source.id}:${file.path}:${file.role}`}
+                entry={{
+                  sourceGameId: source.id,
+                  sourcePluginId: source.plugin_id,
+                  sourceTitle: source.raw_title || source.external_id,
+                  isLaunchFile: source.play?.root_file_id === file.id || file.role === 'root',
+                  file,
+                }}
+              />
+            ))
           )}
         </div>
       </details>
@@ -652,8 +838,15 @@ export function GameDetailPage() {
   const browserSupported = gameData ? hasBrowserPlaySupport(gameData) : false
   const sources = gameData ? selectSourcePlugins(gameData) : []
   const hltb = gameData ? formatHLTB(gameData.completion_time) : null
-  const matchCount = gameData ? resolverMatchCount(gameData) : 0
+  const matchCount = gameData ? sourceMatchCount(gameData) : 0
+  const resolverCount = gameData
+    ? gameData.source_games.reduce(
+        (total, sourceGame) => total + sourceGame.resolver_matches.length,
+        0,
+      )
+    : 0
   const externalLinks = useMemo(() => buildExternalLinks(gameData?.external_ids), [gameData?.external_ids])
+  const fileGroups = useMemo(() => buildGameFileGroups(gameData?.source_games ?? []), [gameData?.source_games])
   const metadataAttribution = useMemo(() => {
     const sourceGames = gameData?.source_games ?? []
     return {
@@ -669,6 +862,9 @@ export function GameDetailPage() {
   }, [gameData?.source_games])
   const achievementSets = useMemo(() => (achievements.data ?? []).map(sortAchievementSet), [achievements.data])
   const achievementSummary = useMemo(() => summarizeAchievements(achievementSets), [achievementSets])
+  const launchableSourceCount = gameData
+    ? gameData.source_games.filter((sourceGame) => sourceGame.play?.launchable).length
+    : 0
 
   useEffect(() => {
     hasRetried404Ref.current = false
@@ -711,6 +907,24 @@ export function GameDetailPage() {
     navigate(from, shouldRestoreScroll ? { state: { restoreScroll: true } } : undefined)
   }
 
+  const handleReclassify = () => {
+    if (!game.data) return
+    const params = new URLSearchParams()
+    params.set('tab', 'undetected')
+    const candidateId = game.data.source_games[0]?.id
+    if (candidateId) {
+      params.set('candidate_id', candidateId)
+    }
+    params.set('reclassify_game_id', game.data.id)
+    params.set('reclassify_title', game.data.title)
+    params.set('reclassify_platform', game.data.platform)
+    const primarySource = game.data.source_games[0]?.plugin_id
+    if (primarySource) {
+      params.set('reclassify_source', primarySource)
+    }
+    navigate({ pathname: '/settings', search: params.toString() })
+  }
+
   if (game.isPending) {
     return (
       <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
@@ -741,6 +955,7 @@ export function GameDetailPage() {
 
   const data = game.data
   const achievementPercent = achievementSummary.totalCount > 0 ? (achievementSummary.unlockedCount / achievementSummary.totalCount) * 100 : 0
+  const gameFilesComplete = fileGroups.all.length > 0 || data.source_games.some((source) => source.files.length === 0)
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
@@ -749,41 +964,74 @@ export function GameDetailPage() {
         {originLabel}
       </Button>
 
-      <section className="relative overflow-hidden rounded-mga border border-mga-border bg-mga-surface shadow-lg shadow-black/20">
+      <section className="relative overflow-hidden rounded-[28px] border border-mga-border bg-mga-surface shadow-lg shadow-black/20">
         {heroUrl && (
           <div className="absolute inset-0">
             <img src={heroUrl} alt="" className="h-full w-full scale-105 object-cover opacity-30 blur-2xl" aria-hidden="true" />
-            <div className="absolute inset-0 bg-gradient-to-br from-mga-bg/90 via-mga-surface/95 to-mga-bg/90" />
+            <div className="absolute inset-0 bg-gradient-to-br from-mga-bg/92 via-mga-surface/94 to-mga-bg/90" />
           </div>
         )}
 
-        <div className="relative grid gap-6 p-5 md:grid-cols-[240px,1fr] md:p-8">
-          <div className="overflow-hidden rounded-mga border border-mga-border bg-mga-bg shadow-md shadow-black/20">
-            <CoverImage src={coverUrl} alt={data.title} className="aspect-[2/3] h-full w-full" />
+        <div className="relative grid gap-6 p-5 lg:grid-cols-[minmax(260px,320px)_1fr] lg:p-8">
+          <div className="space-y-4">
+            <div className="overflow-hidden rounded-[24px] border border-mga-border bg-mga-bg shadow-xl shadow-black/20">
+              <CoverImage src={coverUrl} alt={data.title} className="aspect-[2/3] h-full w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <HeroStatCard label="Source Records" value={data.source_games.length} detail={`${launchableSourceCount} launch ready`} />
+              <HeroStatCard label="Game Files" value={fileGroups.all.length} detail={fileGroups.primary.length > 0 ? `${fileGroups.primary.length} primary` : 'No primary files'} />
+              <HeroStatCard label="Media" value={data.media?.length ?? 0} detail={imageMedia.length > 0 ? `${imageMedia.length} images` : 'No gallery yet'} />
+              <HeroStatCard
+                label="Achievements"
+                value={achievementSummary.totalCount > 0 ? `${achievementSummary.unlockedCount}/${achievementSummary.totalCount}` : 'None'}
+                detail={achievementSets.length > 0 ? `${achievementSets.length} source${achievementSets.length === 1 ? '' : 's'}` : 'No achievement feeds'}
+              />
+            </div>
           </div>
 
           <div className="space-y-5">
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="muted">Game Detail</Badge>
                 <Badge variant="platform"><PlatformIcon platform={data.platform} showLabel /></Badge>
                 {data.xcloud_available && <BrandBadge brand="xcloud" label="xCloud" />}
                 {data.is_game_pass && <Badge variant="gamepass">Game Pass</Badge>}
                 {playable && <Badge variant="playable">Browser Play</Badge>}
                 {hltb && <Badge>{hltb}</Badge>}
-                {matchCount > 0 && <Badge>{matchCount} matches</Badge>}
+                {matchCount > 0 && <Badge>{matchCount} source{matchCount === 1 ? '' : 's'}</Badge>}
               </div>
 
-              <div>
-                <h1 className="text-3xl font-semibold tracking-tight text-mga-text md:text-4xl">{data.title}</h1>
+              <div className="space-y-4">
+                <div>
+                  <h1 className="max-w-4xl text-3xl font-semibold tracking-tight text-mga-text md:text-5xl">{data.title}</h1>
+                  <p className="mt-2 text-sm font-medium uppercase tracking-[0.2em] text-mga-muted">
+                    {humanizeValue(data.kind)}
+                    {data.group_kind ? ` · ${humanizeValue(data.group_kind)}` : ''}
+                  </p>
+                </div>
                 <AttributionNote sources={metadataAttribution.title} prefix="Title aligned to" />
-                <p className="mt-3 max-w-3xl text-sm leading-7 text-mga-muted">
+                <p className="max-w-4xl text-sm leading-7 text-mga-muted md:text-[15px]">
                   {data.description || 'No description is available for this game yet.'}
                 </p>
                 {data.description && <AttributionNote sources={metadataAttribution.description} prefix="Description attributed to" />}
               </div>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 rounded-[22px] border border-mga-border bg-mga-bg/45 p-4 shadow-sm shadow-black/10">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-mga-text">Actions</p>
+                  <p className="mt-1 text-xs leading-5 text-mga-muted">
+                    Launch, inspect, or reclassify this game without leaving the page context.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <SectionJumpLink href="#game-files" label="Files" />
+                  <SectionJumpLink href="#media-gallery" label="Media" />
+                  <SectionJumpLink href="#source-records" label="Sources" />
+                  {achievementSets.length > 0 ? <SectionJumpLink href="#achievements" label="Achievements" /> : null}
+                </div>
+              </div>
               <div className="flex flex-wrap gap-3">
                 {data.xcloud_url && (
                   <a href={data.xcloud_url} target="_blank" rel="noreferrer" onClick={handleLaunchXcloud} className="inline-flex h-10 items-center justify-center gap-2 rounded-mga bg-mga-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90">
@@ -813,6 +1061,14 @@ export function GameDetailPage() {
                     Source Records
                   </a>
                 )}
+                <button
+                  type="button"
+                  onClick={handleReclassify}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-4 py-2 text-sm font-medium text-mga-text transition-colors hover:bg-mga-elevated"
+                >
+                  <ArrowRightLeft size={16} />
+                  Reclassify
+                </button>
               </div>
               {data.xcloud_url && <AttributionNote sources={['xcloud']} prefix="Streaming target" />}
               {browserSupported && !playable && (
@@ -847,6 +1103,46 @@ export function GameDetailPage() {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr),minmax(320px,0.95fr)]">
         <div className="space-y-6">
+          <SectionCard
+            id="game-files"
+            title="Game Files"
+            icon={<HardDrive size={18} className="text-mga-accent" />}
+            description="Relevant files are grouped by intent so you can quickly see what launches, what installs or packages the game, and what supports the stored source records."
+            actions={
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="muted">{fileGroups.all.length} total</Badge>
+                {fileGroups.primary.length > 0 ? <Badge variant="accent">{fileGroups.primary.length} launch/root</Badge> : null}
+              </div>
+            }
+          >
+            {fileGroups.all.length > 0 ? (
+              <div className="space-y-5">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <HeroStatCard label="Launchable" value={fileGroups.primary.length} detail="Primary launch or root files" />
+                  <HeroStatCard label="Packages" value={fileGroups.package.length} detail="Installers, archives, and disc images" />
+                  <HeroStatCard label="Supporting" value={fileGroups.other.length} detail="Required or optional supporting files" />
+                </div>
+                <GameFileGroup
+                  title="Primary Files"
+                  description="Launchable or root files for the stored source records."
+                  entries={fileGroups.primary}
+                />
+                <GameFileGroup
+                  title="Installer / Package Files"
+                  description="Archives, disc images, or executable package files that are likely part of installation or packaging."
+                  entries={fileGroups.package}
+                />
+                <GameFileGroup
+                  title="Supporting Files"
+                  description="Required or optional supporting files that belong to the stored source records."
+                  entries={fileGroups.other}
+                />
+              </div>
+            ) : (
+              <p className="text-sm text-mga-muted">No source files are available for this game yet.</p>
+            )}
+          </SectionCard>
+
           <SectionCard id="media-gallery" title="Media Gallery" icon={<ImageIcon size={18} className="text-mga-accent" />}>
             {imageMedia.length === 0 ? (
               <p className="text-sm text-mga-muted">No image media is available for this game yet.</p>
@@ -930,13 +1226,18 @@ export function GameDetailPage() {
         </div>
 
         <div className="space-y-6">
-          <SectionCard id="quick-facts" title="Quick Facts" icon={<FolderOpen size={18} className="text-mga-accent" />}>
+          <SectionCard
+            id="quick-facts"
+            title="Library Snapshot"
+            icon={<FolderOpen size={18} className="text-mga-accent" />}
+            description="Fast reference facts for this canonical entry."
+          >
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
               <MetaItem label="Canonical ID" value={data.id} />
               <MetaItem label="Source Records" value={data.source_games.length} />
               <MetaItem label="Media Items" value={data.media?.length ?? 0} />
-              <MetaItem label="Files" value={data.files?.length ?? 0} />
-              <MetaItem label="Resolver Matches" value={matchCount} />
+              <MetaItem label="Files" value={fileGroups.all.length} />
+              <MetaItem label="Resolver Matches" value={resolverCount} />
               <MetaItem label="Root Path" value={data.root_path ?? 'Unknown'} />
               <MetaItem label="HLTB Main + Extra" value={formatHours(data.completion_time?.main_extra)} attributionSources={data.completion_time?.source ? [data.completion_time.source] : null} attributionPrefix="Estimate from" />
               <MetaItem label="HLTB Source" value={data.completion_time?.source ? <SourceBadge source={data.completion_time.source} /> : 'Unknown'} />
@@ -944,22 +1245,33 @@ export function GameDetailPage() {
           </SectionCard>
 
           {externalLinks.length > 0 && (
-            <SectionCard id="external-links" title="External Links" icon={<ExternalLink size={18} className="text-mga-accent" />}>
+            <SectionCard
+              id="external-links"
+              title="External Links"
+              icon={<ExternalLink size={18} className="text-mga-accent" />}
+              description="Open known provider pages tied to the current canonical game."
+            >
               <div className="space-y-3">
                 {externalLinks.map((link) => <ExternalLinkCard key={link.id} link={link} />)}
               </div>
             </SectionCard>
           )}
-
-          <SectionCard id="merged-files" title="Merged Files" icon={<HardDrive size={18} className="text-mga-accent" />}>
-            {data.files && data.files.length > 0 ? (
-              <div className="space-y-2">
-                {data.files.map((file) => <FileRow key={`${file.path}:${file.role}`} file={file} />)}
+          {gameFilesComplete && (
+            <SectionCard
+              title="File Coverage"
+              icon={<HardDrive size={18} className="text-mga-accent" />}
+              description="The page already exposes both canonical file grouping and per-source file inventory."
+            >
+              <div className="space-y-3 text-sm text-mga-muted">
+                <p>
+                  Canonical grouping answers what launches, what packages the game, and what supports it.
+                </p>
+                <p>
+                  Per-source inventories remain available inside each source record for deeper inspection.
+                </p>
               </div>
-            ) : (
-              <p className="text-sm text-mga-muted">No merged files are available for this game.</p>
-            )}
-          </SectionCard>
+            </SectionCard>
+          )}
         </div>
       </div>
 

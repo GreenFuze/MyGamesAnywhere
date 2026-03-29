@@ -220,7 +220,13 @@ export function AppSidebar() {
                   const content = (
                     <>
                       <div className="h-12 w-8 shrink-0 overflow-hidden rounded-sm border border-mga-border bg-mga-surface">
-                        <CoverImage src={coverUrl} alt={title} className="h-full w-full text-sm" />
+                        <CoverImage
+                          src={coverUrl}
+                          alt={title}
+                          fit="contain"
+                          variant="compact"
+                          className="h-full w-full text-sm"
+                        />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="line-clamp-1 text-sm font-medium text-mga-text">{title}</p>

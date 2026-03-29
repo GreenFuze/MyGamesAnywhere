@@ -17,6 +17,7 @@ type RouteBuilder struct {
 	AboutCtrl       *AboutController
 	ConfigCtrl      *ConfigController
 	PluginCtrl      *PluginController
+	ReviewCtrl      *ReviewController
 	AchievementCtrl *AchievementController
 	SyncCtrl        *SyncController
 	SaveSyncCtrl    *SaveSyncController
@@ -74,6 +75,12 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Get("/integrations/{id}/status", b.PluginCtrl.StatusOne)
 				r.Get("/integrations/{id}/games", b.PluginCtrl.IntegrationGames)
 				r.Get("/integrations/{id}/enriched-games", b.PluginCtrl.IntegrationEnrichedGames)
+				r.Get("/review-candidates", b.ReviewCtrl.ListCandidates)
+				r.Get("/review-candidates/{id}", b.ReviewCtrl.GetCandidate)
+				r.Post("/review-candidates/{id}/search", b.ReviewCtrl.SearchCandidate)
+				r.Post("/review-candidates/{id}/apply", b.ReviewCtrl.ApplyCandidate)
+				r.Post("/review-candidates/{id}/not-a-game", b.ReviewCtrl.MarkCandidateNotAGame)
+				r.Post("/review-candidates/{id}/unarchive", b.ReviewCtrl.UnarchiveCandidate)
 				r.Put("/integrations/{id}", b.PluginCtrl.UpdateIntegration)
 				r.Delete("/integrations/{id}", b.PluginCtrl.DeleteIntegration)
 				r.Post("/plugins/{plugin_id}/browse", b.PluginCtrl.Browse)
@@ -130,6 +137,12 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/integrations/{id}/status", noopHandler())
 			api.Get("/integrations/{id}/games", noopHandler())
 			api.Get("/integrations/{id}/enriched-games", noopHandler())
+			api.Get("/review-candidates", noopHandler())
+			api.Get("/review-candidates/{id}", noopHandler())
+			api.Post("/review-candidates/{id}/search", noopHandler())
+			api.Post("/review-candidates/{id}/apply", noopHandler())
+			api.Post("/review-candidates/{id}/not-a-game", noopHandler())
+			api.Post("/review-candidates/{id}/unarchive", noopHandler())
 			api.Put("/integrations/{id}", noopHandler())
 			api.Delete("/integrations/{id}", noopHandler())
 			api.Post("/plugins/{plugin_id}/browse", noopHandler())

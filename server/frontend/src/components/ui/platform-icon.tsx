@@ -31,10 +31,6 @@ function buildIconMap(): Record<string, PlatformEntry> {
     ...map.ms_dos,
     icon: <BrandIcon brand="ms-dos" className="h-3.5 w-3.5" />,
   }
-  map.gba = {
-    ...map.gba,
-    icon: <BrandIcon brand="gba" className="h-3.5 w-3.5" />,
-  }
   map.arcade = {
     ...map.arcade,
     icon: <BrandIcon brand="arcade" className="h-3.5 w-3.5" />,

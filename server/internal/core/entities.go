@@ -154,6 +154,8 @@ type ResolverMatch struct {
 	ExternalID   string `json:"external_id"`
 	URL          string `json:"url,omitempty"`
 	Outvoted     bool   `json:"outvoted,omitempty"`
+	// ManualSelection marks a sticky user-selected metadata match.
+	ManualSelection bool `json:"manual_selection,omitempty"`
 
 	Description    string          `json:"description,omitempty"`
 	ReleaseDate    string          `json:"release_date,omitempty"`
@@ -251,8 +253,10 @@ type SourceGame struct {
 	RootPath      string
 	URL           string
 	Status        string // "found", "not_found"
+	ReviewState   ManualReviewState
 	LastSeenAt    *time.Time
 	CreatedAt     time.Time
+	ManualReview  *ManualReviewDecision
 
 	Files           []GameFile
 	ResolverMatches []ResolverMatch
@@ -564,6 +568,8 @@ type LibraryStats struct {
 	ByMetadataPluginID         map[string]int `json:"by_metadata_plugin_id"`
 	CanonicalWithResolverTitle int            `json:"canonical_with_resolver_title"`
 	PercentWithResolverTitle   float64        `json:"percent_with_resolver_title"`
+	GamesWithDescription       int            `json:"games_with_description"`
+	PercentWithDescription     float64        `json:"percent_with_description"`
 	GamesWithMedia             int            `json:"games_with_media"`
 	GamesWithAchievements      int            `json:"games_with_achievements"`
 	PercentWithMedia           float64        `json:"percent_with_media"`
@@ -575,6 +581,72 @@ type GameListItem struct {
 	ID       string   `json:"id"`
 	Title    string   `json:"title"`
 	Platform Platform `json:"platform"`
+}
+
+type ManualReviewState string
+
+const (
+	ManualReviewStatePending  ManualReviewState = "pending"
+	ManualReviewStateMatched  ManualReviewState = "matched"
+	ManualReviewStateNotAGame ManualReviewState = "not_a_game"
+)
+
+type ManualReviewScope string
+
+const (
+	ManualReviewScopeActive  ManualReviewScope = "active"
+	ManualReviewScopeArchive ManualReviewScope = "archive"
+)
+
+type ManualReviewSelection struct {
+	ProviderIntegrationID string   `json:"provider_integration_id"`
+	ProviderLabel         string   `json:"provider_label,omitempty"`
+	ProviderPluginID      string   `json:"provider_plugin_id"`
+	Title                 string   `json:"title"`
+	Platform              string   `json:"platform,omitempty"`
+	Kind                  string   `json:"kind,omitempty"`
+	ParentGameID          string   `json:"parent_game_id,omitempty"`
+	ExternalID            string   `json:"external_id"`
+	URL                   string   `json:"url,omitempty"`
+	Description           string   `json:"description,omitempty"`
+	ReleaseDate           string   `json:"release_date,omitempty"`
+	Genres                []string `json:"genres,omitempty"`
+	Developer             string   `json:"developer,omitempty"`
+	Publisher             string   `json:"publisher,omitempty"`
+	Rating                float64  `json:"rating,omitempty"`
+	MaxPlayers            int      `json:"max_players,omitempty"`
+	ImageURL              string   `json:"image_url,omitempty"`
+}
+
+type ManualReviewDecision struct {
+	State    ManualReviewState      `json:"state"`
+	Selected *ManualReviewSelection `json:"selected,omitempty"`
+}
+
+// ManualReviewCandidate is a read-only server-owned review candidate used by
+// the Undetected Games and Reclassify flows.
+type ManualReviewCandidate struct {
+	ID                 string            `json:"id"`
+	CanonicalGameID    string            `json:"canonical_game_id,omitempty"`
+	CurrentTitle       string            `json:"current_title"`
+	RawTitle           string            `json:"raw_title"`
+	Platform           Platform          `json:"platform"`
+	Kind               GameKind          `json:"kind"`
+	GroupKind          GroupKind         `json:"group_kind"`
+	IntegrationID      string            `json:"integration_id"`
+	PluginID           string            `json:"plugin_id"`
+	ExternalID         string            `json:"external_id"`
+	RootPath           string            `json:"root_path,omitempty"`
+	URL                string            `json:"url,omitempty"`
+	Status             string            `json:"status"`
+	ReviewState        ManualReviewState `json:"review_state"`
+	FileCount          int               `json:"file_count"`
+	ResolverMatchCount int               `json:"resolver_match_count"`
+	ReviewReasons      []string          `json:"review_reasons,omitempty"`
+	Files              []GameFile        `json:"files,omitempty"`
+	ResolverMatches    []ResolverMatch   `json:"resolver_matches,omitempty"`
+	CreatedAt          time.Time         `json:"created_at"`
+	LastSeenAt         *time.Time        `json:"last_seen_at,omitempty"`
 }
 
 // FoundSourceGame carries the fields needed for metadata re-enrichment

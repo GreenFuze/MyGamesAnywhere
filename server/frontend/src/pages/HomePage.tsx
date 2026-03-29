@@ -174,9 +174,9 @@ function Dashboard({ stats, reports }: { stats: LibraryStats; reports: ScanRepor
           detail="Tracked records across configured source integrations"
         />
         <DashboardStat
-          label="Metadata"
-          value={percent(stats.percent_with_resolver_title)}
-          detail={`${stats.canonical_with_resolver_title} games have resolver titles`}
+          label="Description"
+          value={percent(stats.percent_with_description)}
+          detail={`${stats.games_with_description} games have unified descriptions`}
         />
         <DashboardStat
           label="Media"

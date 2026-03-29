@@ -11,9 +11,9 @@ import {
   isPlayable,
   preferredSecondaryText,
   primarySourcePlugin,
-  resolverMatchCount,
   selectCoverUrl,
   selectSourcePlugins,
+  sourceMatchCount,
   sourceLabel,
 } from '@/lib/gameUtils'
 import { buildGameRouteState } from '@/lib/gameNavigation'
@@ -30,7 +30,7 @@ export function GameRow({ game }: GameRowProps) {
   const sources = selectSourcePlugins(game)
   const primarySource = primarySourcePlugin(game)
   const hltb = formatHLTB(game.completion_time)
-  const matchCount = resolverMatchCount(game)
+  const matchCount = sourceMatchCount(game)
   const secondaryText = preferredSecondaryText(game)
 
   const openGame = () => {
@@ -45,7 +45,13 @@ export function GameRow({ game }: GameRowProps) {
       <td className="px-3 py-2">
         <div className="flex items-center gap-3">
           <div className="h-12 w-8 shrink-0 overflow-hidden rounded-sm">
-            <CoverImage src={coverUrl} alt={game.title} className="h-full w-full" />
+            <CoverImage
+              src={coverUrl}
+              alt={game.title}
+              fit="contain"
+              variant="compact"
+              className="h-full w-full"
+            />
           </div>
           <div className="min-w-0">
             <p className="line-clamp-2 text-sm font-medium text-mga-text">{game.title || '\u2014'}</p>

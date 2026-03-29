@@ -54,6 +54,7 @@ func main() {
 	saveSyncSvc := saveSync.NewService(integrationRepo, gameStore, pluginHost, logSvc, eventBus)
 	orchestrator := scan.NewOrchestrator(pluginHost, pluginHost, integrationRepo, gameStore, logSvc)
 	orchestrator.SetEventBus(eventBus)
+	manualReviewSvc := scan.NewManualReviewService(pluginHost, pluginHost, integrationRepo, gameStore, logSvc)
 
 	gameCtrl := http.NewGameController(gameStore, logSvc)
 	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc)
@@ -61,13 +62,14 @@ func main() {
 	aboutCtrl := http.NewAboutController(logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, gameStore, configSvc, logSvc, eventBus)
+	reviewCtrl := http.NewReviewController(integrationRepo, pluginHost, gameStore, manualReviewSvc, logSvc)
 	achievementCtrl := http.NewAchievementController(gameStore, pluginHost, logSvc, eventBus)
 	syncCtrl := http.NewSyncController(syncSvc, logSvc, eventBus)
 	saveSyncCtrl := http.NewSaveSyncController(saveSyncSvc, logSvc)
 	sseCtrl := http.NewSSEController(eventBus, logSvc)
 	oauthCtrl := http.NewOAuthController(pluginHost, configSvc, logSvc, eventBus)
 
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, achievementCtrl, syncCtrl, saveSyncCtrl, sseCtrl, oauthCtrl)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, reviewCtrl, achievementCtrl, syncCtrl, saveSyncCtrl, sseCtrl, oauthCtrl)
 
 	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost, eventBus)
 

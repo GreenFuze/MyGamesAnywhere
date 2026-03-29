@@ -22,6 +22,7 @@ type httpServer struct {
 	aboutCtrl       *AboutController
 	configCtrl      *ConfigController
 	pluginCtrl      *PluginController
+	reviewCtrl      *ReviewController
 	achievementCtrl *AchievementController
 	syncCtrl        *SyncController
 	saveSyncCtrl    *SaveSyncController
@@ -38,6 +39,7 @@ func NewHttpServer(
 	aboutCtrl *AboutController,
 	configCtrl *ConfigController,
 	pluginCtrl *PluginController,
+	reviewCtrl *ReviewController,
 	achievementCtrl *AchievementController,
 	syncCtrl *SyncController,
 	saveSyncCtrl *SaveSyncController,
@@ -53,6 +55,7 @@ func NewHttpServer(
 		aboutCtrl:       aboutCtrl,
 		configCtrl:      configCtrl,
 		pluginCtrl:      pluginCtrl,
+		reviewCtrl:      reviewCtrl,
 		achievementCtrl: achievementCtrl,
 		syncCtrl:        syncCtrl,
 		saveSyncCtrl:    saveSyncCtrl,
@@ -84,6 +87,7 @@ func (h *httpServer) Start(ctx context.Context) error {
 		AboutCtrl:       h.aboutCtrl,
 		ConfigCtrl:      h.configCtrl,
 		PluginCtrl:      h.pluginCtrl,
+		ReviewCtrl:      h.reviewCtrl,
 		AchievementCtrl: h.achievementCtrl,
 		SyncCtrl:        h.syncCtrl,
 		SaveSyncCtrl:    h.saveSyncCtrl,

@@ -10,8 +10,8 @@ import {
   isPlayable,
   preferredSecondaryText,
   primarySourcePlugin,
-  resolverMatchCount,
   selectCoverUrl,
+  sourceMatchCount,
   sourceLabel,
 } from '@/lib/gameUtils'
 import { buildGameRouteState } from '@/lib/gameNavigation'
@@ -27,7 +27,7 @@ export function GameCard({ game }: GameCardProps) {
   const playable = isPlayable(game)
   const primarySource = primarySourcePlugin(game)
   const hltb = formatHLTB(game.completion_time)
-  const matchCount = resolverMatchCount(game)
+  const matchCount = sourceMatchCount(game)
   const secondaryText = preferredSecondaryText(game) ?? 'Unknown source'
 
   const openGame = () => {
@@ -50,7 +50,12 @@ export function GameCard({ game }: GameCardProps) {
       className="group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-mga border border-mga-border bg-mga-surface transition-all hover:-translate-y-0.5 hover:border-mga-accent/60 hover:shadow-lg hover:shadow-black/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-mga-accent"
     >
       <div className="relative">
-        <CoverImage src={coverUrl} alt={game.title} className="aspect-[2/3] w-full" />
+        <CoverImage
+          src={coverUrl}
+          alt={game.title}
+          fit="contain"
+          className="aspect-[2/3] w-full"
+        />
 
         <div className="absolute left-2 top-2 flex max-w-[calc(100%-1rem)] flex-wrap gap-1">
           {game.xcloud_available && (
@@ -106,7 +111,7 @@ export function GameCard({ game }: GameCardProps) {
                 )}
                 {matchCount > 0 && (
                   <Badge variant="muted" className="bg-white/10 text-white">
-                    {matchCount} {matchCount === 1 ? 'match' : 'matches'}
+                    {matchCount} {matchCount === 1 ? 'source' : 'sources'}
                   </Badge>
                 )}
               </div>

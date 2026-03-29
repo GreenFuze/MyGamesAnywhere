@@ -3,6 +3,12 @@ package core
 import (
 	"context"
 	"database/sql"
+	"errors"
+)
+
+var (
+	ErrManualReviewCandidateNotFound = errors.New("manual review candidate not found")
+	ErrManualReviewSelectionInvalid  = errors.New("manual review selection invalid")
 )
 
 // Logger defines the interface for structured logging.
@@ -108,6 +114,24 @@ type GameStore interface {
 	// GetEnrichedGamesByPluginID returns canonical games enriched by a metadata plugin.
 	GetEnrichedGamesByPluginID(ctx context.Context, pluginID string, limit int) ([]GameListItem, error)
 
+	// ListManualReviewCandidates returns source-record-backed candidates for the
+	// requested review scope.
+	ListManualReviewCandidates(ctx context.Context, scope ManualReviewScope, limit int) ([]*ManualReviewCandidate, error)
+
+	// GetManualReviewCandidate returns one source-record-backed manual review candidate.
+	// Unlike ListManualReviewCandidates, this may return a candidate that is not currently
+	// in the review queue so direct reclassify entry can still open it.
+	GetManualReviewCandidate(ctx context.Context, candidateID string) (*ManualReviewCandidate, error)
+
+	// SaveManualReviewResult persists an inline manual-review decision and the
+	// resulting resolver/media state for one source record without affecting
+	// other source rows in the same integration.
+	SaveManualReviewResult(ctx context.Context, sourceGame *SourceGame, resolverMatches []ResolverMatch, media []MediaRef) error
+
+	// SetManualReviewState updates one source record's manual-review state and
+	// recomputes canonical membership if its visibility changes.
+	SetManualReviewState(ctx context.Context, candidateID string, state ManualReviewState) error
+
 	// GetFoundSourceGames returns source games with status='found', optionally filtered
 	// by integration IDs. Used by metadata-only refresh to re-enrich existing games.
 	GetFoundSourceGames(ctx context.Context, integrationIDs []string) ([]*FoundSourceGame, error)
@@ -158,4 +182,9 @@ type KeyStore interface {
 type Server interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
+}
+
+// ManualReviewService handles inline manual metadata selection workflows.
+type ManualReviewService interface {
+	Apply(ctx context.Context, candidateID string, selection ManualReviewSelection) error
 }

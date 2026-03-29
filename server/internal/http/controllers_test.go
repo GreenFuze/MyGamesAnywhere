@@ -196,8 +196,10 @@ type cachedAchievementCall struct {
 }
 
 type fakeGameStore struct {
-	game   *core.CanonicalGame
-	cached []cachedAchievementCall
+	game                   *core.CanonicalGame
+	cached                 []cachedAchievementCall
+	manualReviewCandidates []*core.ManualReviewCandidate
+	manualReviewByID       map[string]*core.ManualReviewCandidate
 }
 
 func (f *fakeGameStore) PersistScanResults(context.Context, *core.ScanBatch) error {
@@ -250,6 +252,68 @@ func (f *fakeGameStore) GetGamesByIntegrationID(context.Context, string, int) ([
 func (f *fakeGameStore) GetEnrichedGamesByPluginID(context.Context, string, int) ([]core.GameListItem, error) {
 	panic("unexpected call")
 }
+func (f *fakeGameStore) ListManualReviewCandidates(_ context.Context, scope core.ManualReviewScope, _ int) ([]*core.ManualReviewCandidate, error) {
+	if scope == core.ManualReviewScopeArchive {
+		var archived []*core.ManualReviewCandidate
+		for _, candidate := range f.manualReviewCandidates {
+			if candidate != nil && candidate.ReviewState == core.ManualReviewStateNotAGame {
+				archived = append(archived, candidate)
+			}
+		}
+		return archived, nil
+	}
+	return f.manualReviewCandidates, nil
+}
+func (f *fakeGameStore) GetManualReviewCandidate(_ context.Context, id string) (*core.ManualReviewCandidate, error) {
+	if f.manualReviewByID == nil {
+		return nil, nil
+	}
+	return f.manualReviewByID[id], nil
+}
+func (f *fakeGameStore) SaveManualReviewResult(_ context.Context, sourceGame *core.SourceGame, resolverMatches []core.ResolverMatch, _ []core.MediaRef) error {
+	if sourceGame == nil {
+		return nil
+	}
+	candidate := &core.ManualReviewCandidate{
+		ID:                 sourceGame.ID,
+		CurrentTitle:       sourceGame.RawTitle,
+		RawTitle:           sourceGame.RawTitle,
+		Platform:           sourceGame.Platform,
+		Kind:               sourceGame.Kind,
+		GroupKind:          sourceGame.GroupKind,
+		IntegrationID:      sourceGame.IntegrationID,
+		PluginID:           sourceGame.PluginID,
+		ExternalID:         sourceGame.ExternalID,
+		RootPath:           sourceGame.RootPath,
+		URL:                sourceGame.URL,
+		Status:             sourceGame.Status,
+		ReviewState:        sourceGame.ReviewState,
+		FileCount:          len(sourceGame.Files),
+		ResolverMatchCount: len(resolverMatches),
+		Files:              append([]core.GameFile(nil), sourceGame.Files...),
+		ResolverMatches:    append([]core.ResolverMatch(nil), resolverMatches...),
+		CreatedAt:          time.Now().UTC(),
+		LastSeenAt:         sourceGame.LastSeenAt,
+	}
+	if f.manualReviewByID == nil {
+		f.manualReviewByID = map[string]*core.ManualReviewCandidate{}
+	}
+	f.manualReviewByID[sourceGame.ID] = candidate
+	return nil
+}
+func (f *fakeGameStore) SetManualReviewState(_ context.Context, candidateID string, state core.ManualReviewState) error {
+	if f.manualReviewByID != nil {
+		if candidate := f.manualReviewByID[candidateID]; candidate != nil {
+			candidate.ReviewState = state
+		}
+	}
+	for _, candidate := range f.manualReviewCandidates {
+		if candidate != nil && candidate.ID == candidateID {
+			candidate.ReviewState = state
+		}
+	}
+	return nil
+}
 func (f *fakeGameStore) GetFoundSourceGames(context.Context, []string) ([]*core.FoundSourceGame, error) {
 	panic("unexpected call")
 }
@@ -270,24 +334,41 @@ func (f *fakeGameStore) GetSourceGameCountsByIntegration(context.Context) (map[s
 }
 
 type fakePluginHost struct {
-	provides map[string][]string
-	results  map[string]rawAchievementPluginResult
+	provides          map[string][]string
+	results           map[string]rawAchievementPluginResult
+	metadataResults   map[string]reviewMetadataLookupResponse
+	metadataCallError map[string]error
 }
 
 func (f *fakePluginHost) Discover(context.Context) error { panic("unexpected call") }
 func (f *fakePluginHost) Call(_ context.Context, pluginID, method string, _ any, result any) error {
-	if method != "achievements.game.get" {
+	switch method {
+	case "achievements.game.get":
+		payload, ok := f.results[pluginID]
+		if !ok {
+			return nil
+		}
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(data, result)
+	case reviewMetadataLookupMethod:
+		if err, ok := f.metadataCallError[pluginID]; ok {
+			return err
+		}
+		payload, ok := f.metadataResults[pluginID]
+		if !ok {
+			return nil
+		}
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(data, result)
+	default:
 		panic("unexpected call")
 	}
-	payload, ok := f.results[pluginID]
-	if !ok {
-		return nil
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, result)
 }
 func (f *fakePluginHost) Close() error { return nil }
 func (f *fakePluginHost) GetPluginIDs() []string {

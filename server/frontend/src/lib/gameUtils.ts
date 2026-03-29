@@ -61,12 +61,26 @@ export const PLATFORM_META: Record<string, PlatformMeta> = {
   ps3:        { label: 'PS3',        emoji: '\u{1F3AE}' }, // 🎮
   psp:        { label: 'PSP',        emoji: '\u{1F3AE}' }, // 🎮
   xbox_360:   { label: 'Xbox 360',   emoji: '\u{1F3AE}' }, // 🎮
+  xbox_one:   { label: 'Xbox One',   emoji: '\u{1F3AE}' }, // 🎮
+  xbox_series: { label: 'Xbox Series', emoji: '\u{1F3AE}' }, // 🎮
   scummvm:    { label: 'ScummVM',    emoji: '\u{1F5B1}\uFE0F' }, // 🖱️
   unknown:    { label: 'Unknown',    emoji: '\u{2753}' }, // ❓
 }
 
+function humanizeIdentifier(value: string): string {
+  return value
+    .trim()
+    .split(/[_-]+/g)
+    .filter(Boolean)
+    .map((part) => {
+      if (part.length <= 3) return part.toUpperCase()
+      return part.charAt(0).toUpperCase() + part.slice(1)
+    })
+    .join(' ')
+}
+
 export function platformLabel(platform: string): string {
-  return PLATFORM_META[platform]?.label ?? platform
+  return PLATFORM_META[platform]?.label ?? humanizeIdentifier(platform)
 }
 
 export function platformEmoji(platform: string): string {
@@ -99,7 +113,7 @@ export const PLUGIN_LABELS: Record<string, string> = {
 }
 
 export function pluginLabel(pluginId: string): string {
-  return PLUGIN_LABELS[pluginId] ?? pluginId
+  return PLUGIN_LABELS[pluginId] ?? humanizeIdentifier(pluginId)
 }
 
 export function sourceLabel(pluginId: string): string {
@@ -284,18 +298,10 @@ export function formatHLTB(ct: CompletionTime | undefined): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Resolver match count (metadata confidence)
+// Source match count
 // ---------------------------------------------------------------------------
 
-/** Total resolver matches across all source games. */
-export function resolverMatchCount(game: GameDetailResponse): number {
-  if (!game.source_games) return 0
-
-  let count = 0
-  for (const sg of game.source_games) {
-    if (sg.resolver_matches) {
-      count += sg.resolver_matches.length
-    }
-  }
-  return count
+/** Total linked source game records for a canonical game. */
+export function sourceMatchCount(game: GameDetailResponse): number {
+  return game.source_games?.length ?? 0
 }

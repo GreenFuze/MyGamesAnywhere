@@ -205,6 +205,9 @@ func (s *sqliteDatabase) EnsureSchema() error {
 			return fmt.Errorf("schema creation failed: %w", err)
 		}
 	}
+	if err := s.ensureManualReviewSchema(); err != nil {
+		return err
+	}
 	if err := s.backfillCanonicalGames(); err != nil {
 		return err
 	}
@@ -310,4 +313,62 @@ func (s *sqliteDatabase) migrateLegacyCanonicalIDs() error {
 		s.logger.Info("migrated legacy canonical ids", "count", len(legacyIDs))
 	}
 	return nil
+}
+
+func (s *sqliteDatabase) ensureManualReviewSchema() error {
+	if s.db == nil {
+		return fmt.Errorf("database not connected")
+	}
+	if err := s.ensureColumn("source_games", "review_state",
+		`ALTER TABLE source_games ADD COLUMN review_state TEXT NOT NULL DEFAULT 'pending'`); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("source_games", "manual_review_json",
+		`ALTER TABLE source_games ADD COLUMN manual_review_json TEXT`); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("metadata_resolver_matches", "manual_selection",
+		`ALTER TABLE metadata_resolver_matches ADD COLUMN manual_selection INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *sqliteDatabase) ensureColumn(tableName, columnName, alterSQL string) error {
+	ok, err := s.hasColumn(tableName, columnName)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	if _, err := s.db.Exec(alterSQL); err != nil {
+		return fmt.Errorf("add column %s.%s: %w", tableName, columnName, err)
+	}
+	return nil
+}
+
+func (s *sqliteDatabase) hasColumn(tableName, columnName string) (bool, error) {
+	rows, err := s.db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, tableName))
+	if err != nil {
+		return false, fmt.Errorf("inspect table %s: %w", tableName, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, dataType string
+		var notNull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return false, fmt.Errorf("scan table info %s: %w", tableName, err)
+		}
+		if name == columnName {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("iterate table info %s: %w", tableName, err)
+	}
+	return false, nil
 }

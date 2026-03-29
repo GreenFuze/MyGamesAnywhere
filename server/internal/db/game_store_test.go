@@ -266,6 +266,7 @@ func TestGetLibraryStatsIncludesDashboardFields(t *testing.T) {
 				Title:       "Game One",
 				Platform:    string(core.PlatformWindowsPC),
 				ExternalID:  "match-one",
+				Description: "Game One description",
 				ReleaseDate: "1998-11-19",
 				Genres:      []string{"RPG", "Adventure"},
 			}},
@@ -301,6 +302,7 @@ func TestGetLibraryStatsIncludesDashboardFields(t *testing.T) {
 				Title:       "Game Two",
 				Platform:    string(core.PlatformWindowsPC),
 				ExternalID:  "match-two",
+				Description: "   ",
 				ReleaseDate: "2004",
 				Genres:      []string{"RPG", "Action"},
 			}},
@@ -328,6 +330,9 @@ func TestGetLibraryStatsIncludesDashboardFields(t *testing.T) {
 	if stats.GamesWithMedia != 1 {
 		t.Fatalf("games_with_media = %d, want 1", stats.GamesWithMedia)
 	}
+	if stats.GamesWithDescription != 1 {
+		t.Fatalf("games_with_description = %d, want 1", stats.GamesWithDescription)
+	}
 	if stats.GamesWithAchievements != 1 {
 		t.Fatalf("games_with_achievements = %d, want 1", stats.GamesWithAchievements)
 	}
@@ -340,8 +345,495 @@ func TestGetLibraryStatsIncludesDashboardFields(t *testing.T) {
 	if stats.PercentWithMedia != 50 {
 		t.Fatalf("percent_with_media = %v, want 50", stats.PercentWithMedia)
 	}
+	if stats.PercentWithDescription != 50 {
+		t.Fatalf("percent_with_description = %v, want 50", stats.PercentWithDescription)
+	}
 	if stats.PercentWithAchievements != 50 {
 		t.Fatalf("percent_with_achievements = %v, want 50", stats.PercentWithAchievements)
+	}
+}
+
+func TestListManualReviewCandidatesFiltersToNeedsReview(t *testing.T) {
+	ctx := context.Background()
+	_, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "scan:review-no-match",
+				IntegrationID: "integration-1",
+				PluginID:      "game-source-steam",
+				ExternalID:    "review-no-match",
+				RawTitle:      "Unidentified Game",
+				Platform:      core.PlatformUnknown,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindUnknown,
+				Status:        "found",
+				Files: []core.GameFile{{
+					Path:     "C:/Games/Unidentified/game.exe",
+					FileName: "game.exe",
+					Role:     core.GameFileRoleRoot,
+					FileKind: "exe",
+					Size:     1024,
+				}},
+			},
+			{
+				ID:            "scan:review-no-title",
+				IntegrationID: "integration-1",
+				PluginID:      "game-source-steam",
+				ExternalID:    "review-no-title",
+				RawTitle:      "Match Without Title",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			},
+			{
+				ID:            "scan:clean",
+				IntegrationID: "integration-1",
+				PluginID:      "game-source-steam",
+				ExternalID:    "clean",
+				RawTitle:      "Resolved Game",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			},
+		},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:review-no-title": {{
+				PluginID:   "metadata-igdb",
+				Title:      "",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "match-without-title",
+			}},
+			"scan:clean": {{
+				PluginID:   "metadata-igdb",
+				Title:      "Resolved Game",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "clean-match",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates, err := store.ListManualReviewCandidates(ctx, core.ManualReviewScopeActive, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(candidates) != 2 {
+		t.Fatalf("len(candidates) = %d, want 2", len(candidates))
+	}
+
+	reasonsByID := make(map[string][]string, len(candidates))
+	for _, candidate := range candidates {
+		reasonsByID[candidate.ID] = candidate.ReviewReasons
+	}
+
+	if _, ok := reasonsByID["scan:clean"]; ok {
+		t.Fatal("expected resolved source game to be excluded from manual review candidates")
+	}
+	if !containsString(reasonsByID["scan:review-no-match"], "no_metadata_matches") {
+		t.Fatalf("review-no-match reasons = %+v, want no_metadata_matches", reasonsByID["scan:review-no-match"])
+	}
+	if !containsString(reasonsByID["scan:review-no-match"], "unknown_platform") {
+		t.Fatalf("review-no-match reasons = %+v, want unknown_platform", reasonsByID["scan:review-no-match"])
+	}
+	if !containsString(reasonsByID["scan:review-no-match"], "unknown_grouping") {
+		t.Fatalf("review-no-match reasons = %+v, want unknown_grouping", reasonsByID["scan:review-no-match"])
+	}
+	if !containsString(reasonsByID["scan:review-no-title"], "no_resolved_title") {
+		t.Fatalf("review-no-title reasons = %+v, want no_resolved_title", reasonsByID["scan:review-no-title"])
+	}
+}
+
+func TestGetManualReviewCandidateReturnsDirectSourceDetailEvenWhenNotQueued(t *testing.T) {
+	ctx := context.Background()
+	_, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:clean",
+			IntegrationID: "integration-1",
+			PluginID:      "game-source-steam",
+			ExternalID:    "clean",
+			RawTitle:      "Resolved Game",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			RootPath:      "C:/Games/Resolved",
+			Status:        "found",
+			Files: []core.GameFile{{
+				Path:     "C:/Games/Resolved/game.exe",
+				FileName: "game.exe",
+				Role:     core.GameFileRoleRoot,
+				FileKind: "exe",
+				Size:     2048,
+			}},
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:clean": {{
+				PluginID:   "metadata-igdb",
+				Title:      "Resolved Game",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "clean-match",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates, err := store.ListManualReviewCandidates(ctx, core.ManualReviewScopeActive, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("len(candidates) = %d, want 0 for resolved source game", len(candidates))
+	}
+
+	candidate, err := store.GetManualReviewCandidate(ctx, "scan:clean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil {
+		t.Fatal("expected direct manual review candidate detail")
+	}
+	if candidate.CurrentTitle != "Resolved Game" {
+		t.Fatalf("current_title = %q, want %q", candidate.CurrentTitle, "Resolved Game")
+	}
+	if len(candidate.Files) != 1 {
+		t.Fatalf("len(files) = %d, want 1", len(candidate.Files))
+	}
+	if len(candidate.ResolverMatches) != 1 {
+		t.Fatalf("len(resolver_matches) = %d, want 1", len(candidate.ResolverMatches))
+	}
+	if len(candidate.ReviewReasons) != 0 {
+		t.Fatalf("review_reasons = %+v, want empty for clean direct candidate", candidate.ReviewReasons)
+	}
+}
+
+func TestManualReviewCandidatesSupportArchiveScopeAndUnarchive(t *testing.T) {
+	ctx := context.Background()
+	_, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:archive-me",
+			IntegrationID: "integration-1",
+			PluginID:      "game-source-steam",
+			ExternalID:    "archive-me",
+			RawTitle:      "Archive Me",
+			Platform:      core.PlatformUnknown,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindUnknown,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{},
+		MediaItems:      map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	active, err := store.ListManualReviewCandidates(ctx, core.ManualReviewScopeActive, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 1 || active[0].ID != "scan:archive-me" {
+		t.Fatalf("active candidates = %+v, want archive-me in active scope", active)
+	}
+
+	if err := store.SetManualReviewState(ctx, "scan:archive-me", core.ManualReviewStateNotAGame); err != nil {
+		t.Fatal(err)
+	}
+
+	active, err = store.ListManualReviewCandidates(ctx, core.ManualReviewScopeActive, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("len(active) = %d, want 0 after archive", len(active))
+	}
+
+	archive, err := store.ListManualReviewCandidates(ctx, core.ManualReviewScopeArchive, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archive) != 1 || archive[0].ID != "scan:archive-me" {
+		t.Fatalf("archive candidates = %+v, want archive-me in archive scope", archive)
+	}
+	if archive[0].ReviewState != core.ManualReviewStateNotAGame {
+		t.Fatalf("archive review_state = %q, want %q", archive[0].ReviewState, core.ManualReviewStateNotAGame)
+	}
+
+	foundGames, err := store.GetFoundSourceGames(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(foundGames) != 0 {
+		t.Fatalf("len(foundGames) = %d, want 0 while archived", len(foundGames))
+	}
+
+	if err := store.SetManualReviewState(ctx, "scan:archive-me", core.ManualReviewStatePending); err != nil {
+		t.Fatal(err)
+	}
+
+	active, err = store.ListManualReviewCandidates(ctx, core.ManualReviewScopeActive, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 1 || active[0].ID != "scan:archive-me" {
+		t.Fatalf("active candidates after unarchive = %+v, want archive-me", active)
+	}
+}
+
+func TestSaveManualReviewResultPersistsStickyDecisionAndCanonicalView(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:review-apply",
+			IntegrationID: "integration-1",
+			PluginID:      "game-source-steam",
+			ExternalID:    "review-apply",
+			RawTitle:      "Mystery Setup",
+			Platform:      core.PlatformUnknown,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindUnknown,
+			RootPath:      "C:/Games/Mystery Setup",
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{},
+		MediaItems:      map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	selection := &core.ManualReviewSelection{
+		ProviderIntegrationID: "metadata-1",
+		ProviderPluginID:      "metadata-igdb",
+		Title:                 "Mystery Game",
+		Platform:              string(core.PlatformWindowsPC),
+		Kind:                  string(core.GameKindBaseGame),
+		ExternalID:            "igdb-1",
+		URL:                   "https://example.com/igdb-1",
+		ImageURL:              "https://example.com/igdb-1-cover.png",
+	}
+	if err := store.SaveManualReviewResult(ctx, &core.SourceGame{
+		ID:            "scan:review-apply",
+		IntegrationID: "integration-1",
+		PluginID:      "game-source-steam",
+		ExternalID:    "review-apply",
+		RawTitle:      "Mystery Setup",
+		Platform:      core.PlatformWindowsPC,
+		Kind:          core.GameKindBaseGame,
+		GroupKind:     core.GroupKindSelfContained,
+		RootPath:      "C:/Games/Mystery Setup",
+		Status:        "found",
+		ReviewState:   core.ManualReviewStateMatched,
+		ManualReview: &core.ManualReviewDecision{
+			State:    core.ManualReviewStateMatched,
+			Selected: selection,
+		},
+	}, []core.ResolverMatch{{
+		PluginID:        "metadata-igdb",
+		ExternalID:      "igdb-1",
+		Title:           "Mystery Game",
+		Platform:        string(core.PlatformWindowsPC),
+		Kind:            string(core.GameKindBaseGame),
+		URL:             "https://example.com/igdb-1",
+		ManualSelection: true,
+	}}, []core.MediaRef{{
+		Type:   core.MediaTypeCover,
+		URL:    "https://example.com/igdb-1-cover.png",
+		Source: "metadata-igdb",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	active, err := store.ListManualReviewCandidates(ctx, core.ManualReviewScopeActive, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("len(active) = %d, want 0 after apply", len(active))
+	}
+
+	candidate, err := store.GetManualReviewCandidate(ctx, "scan:review-apply")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil {
+		t.Fatal("expected applied manual review candidate detail")
+	}
+	if candidate.ReviewState != core.ManualReviewStateMatched {
+		t.Fatalf("review_state = %q, want %q", candidate.ReviewState, core.ManualReviewStateMatched)
+	}
+	if candidate.CanonicalGameID == "" {
+		t.Fatal("expected canonical_game_id after apply")
+	}
+	if len(candidate.ResolverMatches) != 1 {
+		t.Fatalf("len(resolver_matches) = %d, want 1", len(candidate.ResolverMatches))
+	}
+	if !candidate.ResolverMatches[0].ManualSelection {
+		t.Fatal("expected resolver match to be marked manual_selection")
+	}
+
+	var reviewState, manualReviewJSON string
+	if err := db.GetDB().QueryRowContext(ctx,
+		`SELECT review_state, COALESCE(manual_review_json, '') FROM source_games WHERE id = ?`,
+		"scan:review-apply",
+	).Scan(&reviewState, &manualReviewJSON); err != nil {
+		t.Fatal(err)
+	}
+	if reviewState != string(core.ManualReviewStateMatched) {
+		t.Fatalf("review_state column = %q, want %q", reviewState, core.ManualReviewStateMatched)
+	}
+	if !strings.Contains(manualReviewJSON, `"external_id":"igdb-1"`) {
+		t.Fatalf("manual_review_json = %q, want saved selection payload", manualReviewJSON)
+	}
+
+	game, err := store.GetCanonicalGameByID(ctx, candidate.CanonicalGameID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil {
+		t.Fatal("expected canonical game after apply")
+	}
+	if game.Title != "Mystery Game" {
+		t.Fatalf("canonical title = %q, want %q", game.Title, "Mystery Game")
+	}
+}
+
+func TestPersistScanResultsPreservesStickyManualSelectionAcrossRefresh(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:sticky",
+			IntegrationID: "integration-1",
+			PluginID:      "game-source-steam",
+			ExternalID:    "sticky",
+			RawTitle:      "Sticky Setup",
+			Platform:      core.PlatformUnknown,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindUnknown,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{},
+		MediaItems:      map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	selection := &core.ManualReviewSelection{
+		ProviderIntegrationID: "metadata-1",
+		ProviderPluginID:      "metadata-igdb",
+		Title:                 "Chosen Game",
+		Platform:              string(core.PlatformWindowsPC),
+		ExternalID:            "igdb-1",
+	}
+	if err := store.SaveManualReviewResult(ctx, &core.SourceGame{
+		ID:            "scan:sticky",
+		IntegrationID: "integration-1",
+		PluginID:      "game-source-steam",
+		ExternalID:    "sticky",
+		RawTitle:      "Sticky Setup",
+		Platform:      core.PlatformWindowsPC,
+		Kind:          core.GameKindBaseGame,
+		GroupKind:     core.GroupKindSelfContained,
+		Status:        "found",
+		ReviewState:   core.ManualReviewStateMatched,
+		ManualReview: &core.ManualReviewDecision{
+			State:    core.ManualReviewStateMatched,
+			Selected: selection,
+		},
+	}, []core.ResolverMatch{{
+		PluginID:        "metadata-igdb",
+		ExternalID:      "igdb-1",
+		Title:           "Chosen Game",
+		Platform:        string(core.PlatformWindowsPC),
+		ManualSelection: true,
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:sticky",
+			IntegrationID: "integration-1",
+			PluginID:      "game-source-steam",
+			ExternalID:    "sticky",
+			RawTitle:      "Sticky Setup",
+			Platform:      core.PlatformUnknown,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindUnknown,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:sticky": {{
+				PluginID:   "metadata-other",
+				ExternalID: "other-1",
+				Title:      "Wrong Game",
+				Platform:   string(core.PlatformWindowsPC),
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	candidate, err := store.GetManualReviewCandidate(ctx, "scan:sticky")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil {
+		t.Fatal("expected sticky candidate detail")
+	}
+	if candidate.ReviewState != core.ManualReviewStateMatched {
+		t.Fatalf("review_state = %q, want %q", candidate.ReviewState, core.ManualReviewStateMatched)
+	}
+	if len(candidate.ResolverMatches) != 2 {
+		t.Fatalf("len(resolver_matches) = %d, want 2", len(candidate.ResolverMatches))
+	}
+
+	var manualMatch, outvotedMatch *core.ResolverMatch
+	for i := range candidate.ResolverMatches {
+		match := &candidate.ResolverMatches[i]
+		if match.ManualSelection {
+			manualMatch = match
+		}
+		if match.PluginID == "metadata-other" {
+			outvotedMatch = match
+		}
+	}
+	if manualMatch == nil || manualMatch.Title != "Chosen Game" {
+		t.Fatalf("manual match = %+v, want sticky selected title", manualMatch)
+	}
+	if outvotedMatch == nil || !outvotedMatch.Outvoted {
+		t.Fatalf("outvoted match = %+v, want conflicting refresh result to be outvoted", outvotedMatch)
+	}
+
+	var reviewState string
+	if err := db.GetDB().QueryRowContext(ctx,
+		`SELECT review_state FROM source_games WHERE id = ?`,
+		"scan:sticky",
+	).Scan(&reviewState); err != nil {
+		t.Fatal(err)
+	}
+	if reviewState != string(core.ManualReviewStateMatched) {
+		t.Fatalf("review_state column = %q, want %q", reviewState, core.ManualReviewStateMatched)
 	}
 }
 
@@ -416,4 +908,13 @@ func canonicalIDForSource(t *testing.T, ctx context.Context, db *sqliteDatabase,
 		t.Fatal(err)
 	}
 	return canonicalID
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

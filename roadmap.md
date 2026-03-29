@@ -408,7 +408,6 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 
 ### xCloud
 - [x] xCloud launch remains an external link to `xbox.com/play/launch/{titleId}`
-- [ ] Evaluate Better xCloud enhancements (open source)
 
 ---
 
@@ -435,20 +434,31 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] Skeleton loading states
 - [ ] Images in cards are too big, they should resized (or cropped?). We need a smart idea on how to fit the images to the cards.
 - [ ] The "More" card shouldn't be a card, it should on the right of the last card in the shelf line. The shelf, when collapsed must be a single line.
-- [ ] "matches" count stated for each game (on the card) should be only source matches.
-- [ ] Game page need to be redesigned. should be much more pretty.
+- [x] "matches" count stated for each game (on the card) should be only source matches.
+- [x] Game page need to be redesigned. should be much more pretty.
 - [x] Fix scanning/refetching to show detailed progress (or/and least a progress bar). Async scan jobs now return immediately, publish `job_id` over SSE, and the Settings UI can recover progress after reload.
+
+### display
+- [ ] many of the labels seems wrong with "_", like "xbox_series".
+- [ ] `temp-resources` directory has a better logo for GameBoy advanced (just with GBA instead of full name). The full name is a "title" image and not a logo image.
+
+### Game page improvements
+- [x] Show all relevant game files (installer files / ROM / directory, whatever is relevant)
+- [x] Reclassify a game option, goes through the same mechanism as in `Undetected Games tab under settings` section.
 
 ### Dashboard / Stats
 - [x] Games by platform (chart)
 - [x] Games by decade
 - [x] Top genres
-- [ ] Metadata coverage (% with descriptions, cover art, achievements)
+- [x] Metadata coverage (% with descriptions, cover art, achievements)
 - [x] Recent scan activity
 
 ### play sidebar
 - [ ] Recent Played in the sidebar - add removing last played game
 
+
+### scanning log in settings page - integrations tab
+- [x] if the last line is displayed (scroller at the bottom), the scorller should auto-scroll.
 
 ### About Page
 - [x] MGA version, build date, author credits
@@ -463,6 +473,16 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 
 ### Home Page
 - [x] Should contains statistics using graphs/diagrams (games, achivements, etc)
+
+### Undetected Games tab under settings
+- [x] Read-only Undetected Games review inventory exists in Settings, and `Reclassify` deep-links into a specific review candidate.
+- [x] Read-only metadata search exists for review candidates: MGA can query relevant configured metadata providers, show normalized results, and let the user refine the search.
+- [x] A page that displays the undetected games. User should be able to either detect the game or mark as not a game
+- [x] To detect the game, the user can enter the game name (or a substring of it), MGA would use all the RELEVANT metadata providers to find the closest matches and display them to the user with some details. The user can select one of them or refine the search.
+- [x] If a game was selected by a user, MGA should complete the whole process of matching a new game (other sources + all metadata)
+- [x] If a game is selected as "not a game" it is not displayed, but placed in "not games archive"
+- [x] The screen should have a button of no games archives where the user can "unarchive" if a "not a game" was misclassified
+
 
 ### Additional Ideas
 - [ ] Keyboard shortcuts (Vim-style navigation, quick actions)

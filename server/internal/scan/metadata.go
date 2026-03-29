@@ -238,6 +238,20 @@ func (r *MetadataResolver) consensus(ctx context.Context, integrationID string, 
 // picks the majority group (priority breaks ties), marks losers as
 // outvoted, and applies the winning fields to the game.
 func runConsensus(g *core.Game, sources []MetadataSource) {
+	for _, match := range g.ResolverMatches {
+		if !match.ManualSelection {
+			continue
+		}
+		selectedKey := normalizeForConsensus(match.Title)
+		for i, current := range g.ResolverMatches {
+			currentKey := normalizeForConsensus(current.Title)
+			g.ResolverMatches[i].Outvoted = selectedKey != "" && currentKey != selectedKey
+		}
+		applyUnifiedFields(g, sources)
+		g.Status = "identified"
+		return
+	}
+
 	groups := map[string][]int{}
 	for i, m := range g.ResolverMatches {
 		key := normalizeForConsensus(m.Title)
@@ -297,6 +311,9 @@ func applyUnifiedFields(g *core.Game, sources []MetadataSource) {
 		winners = append(winners, ranked{m, sourcePriority(m.PluginID, sources)})
 	}
 	sort.Slice(winners, func(i, j int) bool {
+		if winners[i].match.ManualSelection != winners[j].match.ManualSelection {
+			return winners[i].match.ManualSelection
+		}
 		return winners[i].priority < winners[j].priority
 	})
 

@@ -156,6 +156,7 @@ export type ResolverMatchDTO = {
   external_id: string;
   url?: string;
   outvoted?: boolean;
+  manual_selection?: boolean;
   description?: string;
   release_date?: string;
   genres?: string[];
@@ -575,6 +576,8 @@ export type LibraryStats = {
   by_metadata_plugin_id: Record<string, number>;
   canonical_with_resolver_title: number;
   percent_with_resolver_title: number;
+  games_with_description: number;
+  percent_with_description: number;
   games_with_media: number;
   games_with_achievements: number;
   percent_with_media: number;
@@ -593,6 +596,72 @@ export type IntegrationGameItem = {
   title: string;
   platform: string;
 };
+
+export type ManualReviewCandidateSummary = {
+  id: string;
+  canonical_game_id?: string;
+  current_title: string;
+  raw_title: string;
+  platform: string;
+  kind: string;
+  group_kind?: string;
+  integration_id: string;
+  integration_label?: string;
+  plugin_id: string;
+  external_id: string;
+  root_path?: string;
+  status: string;
+  review_state: "pending" | "matched" | "not_a_game";
+  file_count: number;
+  resolver_match_count: number;
+  review_reasons: string[];
+  created_at: string;
+  last_seen_at?: string;
+};
+
+export type ManualReviewCandidateDetail = ManualReviewCandidateSummary & {
+  url?: string;
+  files: GameFileDTO[];
+  resolver_matches: ResolverMatchDTO[];
+};
+
+export type ManualReviewSearchProviderStatus = {
+  integration_id: string;
+  integration_label?: string;
+  plugin_id: string;
+  status: "success" | "no_results" | "error";
+  error?: string;
+  result_count: number;
+};
+
+export type ManualReviewSearchResult = {
+  provider_integration_id: string;
+  provider_label?: string;
+  provider_plugin_id: string;
+  title: string;
+  platform?: string;
+  kind?: string;
+  parent_game_id?: string;
+  external_id: string;
+  url?: string;
+  description?: string;
+  release_date?: string;
+  genres?: string[];
+  developer?: string;
+  publisher?: string;
+  rating?: number;
+  max_players?: number;
+  image_url?: string;
+};
+
+export type ManualReviewSearchResponse = {
+  candidate_id: string;
+  query: string;
+  providers: ManualReviewSearchProviderStatus[];
+  results: ManualReviewSearchResult[];
+};
+
+export type ManualReviewScope = "active" | "archive";
 
 // ─── Admin / Settings API functions ─────────────────────────────────
 
@@ -705,6 +774,61 @@ export async function getIntegrationEnrichedGames(
   return getJson<IntegrationGameItem[]>(
     `/api/integrations/${encodeURIComponent(id)}/enriched-games`,
   );
+}
+
+export async function listManualReviewCandidates(
+  scope: ManualReviewScope,
+  limit = 200,
+): Promise<ManualReviewCandidateSummary[]> {
+  return getJson<ManualReviewCandidateSummary[]>(
+    `/api/review-candidates?scope=${encodeURIComponent(scope)}&limit=${limit}`,
+  );
+}
+
+export async function getManualReviewCandidate(
+  id: string,
+): Promise<ManualReviewCandidateDetail> {
+  return getJson<ManualReviewCandidateDetail>(
+    `/api/review-candidates/${encodeURIComponent(id)}`,
+  );
+}
+
+export async function searchManualReviewCandidate(
+  id: string,
+  query?: string,
+): Promise<ManualReviewSearchResponse> {
+  return postJson<ManualReviewSearchResponse>(
+    `/api/review-candidates/${encodeURIComponent(id)}/search`,
+    query !== undefined ? { query } : {},
+  ) as Promise<ManualReviewSearchResponse>;
+}
+
+export async function applyManualReviewCandidate(
+  id: string,
+  body: ManualReviewSearchResult,
+): Promise<ManualReviewCandidateDetail> {
+  return postJson<ManualReviewCandidateDetail>(
+    `/api/review-candidates/${encodeURIComponent(id)}/apply`,
+    body,
+  ) as Promise<ManualReviewCandidateDetail>;
+}
+
+export async function markManualReviewCandidateNotAGame(
+  id: string,
+): Promise<ManualReviewCandidateDetail> {
+  return postJson<ManualReviewCandidateDetail>(
+    `/api/review-candidates/${encodeURIComponent(id)}/not-a-game`,
+    {},
+  ) as Promise<ManualReviewCandidateDetail>;
+}
+
+export async function unarchiveManualReviewCandidate(
+  id: string,
+): Promise<ManualReviewCandidateDetail> {
+  return postJson<ManualReviewCandidateDetail>(
+    `/api/review-candidates/${encodeURIComponent(id)}/unarchive`,
+    {},
+  ) as Promise<ManualReviewCandidateDetail>;
 }
 
 export async function listPlugins(): Promise<PluginInfo[]> {

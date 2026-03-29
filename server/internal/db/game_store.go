@@ -44,12 +44,18 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 	if err != nil {
 		return fmt.Errorf("load existing: %w", err)
 	}
+	existingByID := make(map[string]existingSourceGame, len(existing))
+	for _, item := range existing {
+		existingByID[item.ID] = item
+	}
 
 	seenIDs := make(map[string]bool, len(batch.SourceGames))
+	sourceGamesByID := make(map[string]*core.SourceGame, len(batch.SourceGames))
 
 	// 2. Upsert source games.
 	for _, sg := range batch.SourceGames {
 		seenIDs[sg.ID] = true
+		sourceGamesByID[sg.ID] = sg
 
 		// Detect move: same integration, a not_found game shares the same raw_title+platform.
 		if sg.RootPath != "" {
@@ -71,10 +77,14 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 		} else {
 			lastSeen = now
 		}
+		finalReviewState, finalManualReviewJSON, err := resolveManualReviewPersistence(sg, existingByID[sg.ID])
+		if err != nil {
+			return fmt.Errorf("resolve manual review persistence for %s: %w", sg.ID, err)
+		}
 
-		_, err := tx.ExecContext(ctx, `INSERT INTO source_games
-			(id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, root_path, url, status, last_seen_at, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'found', ?, ?)
+		_, err = tx.ExecContext(ctx, `INSERT INTO source_games
+			(id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, root_path, url, status, review_state, manual_review_json, last_seen_at, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'found', ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				raw_title = excluded.raw_title,
 				platform = excluded.platform,
@@ -83,10 +93,12 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 				root_path = excluded.root_path,
 				url = excluded.url,
 				status = 'found',
+				review_state = excluded.review_state,
+				manual_review_json = excluded.manual_review_json,
 				last_seen_at = excluded.last_seen_at`,
 			sg.ID, sg.IntegrationID, sg.PluginID, sg.ExternalID,
 			sg.RawTitle, string(sg.Platform), string(sg.Kind), string(sg.GroupKind),
-			nullEmpty(sg.RootPath), nullEmpty(sg.URL), lastSeen, now)
+			nullEmpty(sg.RootPath), nullEmpty(sg.URL), string(finalReviewState), nullEmpty(finalManualReviewJSON), lastSeen, now)
 		if err != nil {
 			return fmt.Errorf("upsert source game %s: %w", sg.ID, err)
 		}
@@ -115,19 +127,23 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 		if !seenIDs[sgID] {
 			continue
 		}
+		processedMatches, err := applyPersistedManualReview(sourceGamesByID[sgID], matches, existingByID[sgID])
+		if err != nil {
+			return fmt.Errorf("apply manual review for %s: %w", sgID, err)
+		}
 		// Clear old matches for this source game.
 		if _, err := tx.ExecContext(ctx, `DELETE FROM metadata_resolver_matches WHERE source_game_id=?`, sgID); err != nil {
 			return fmt.Errorf("delete matches for %s: %w", sgID, err)
 		}
-		for _, m := range matches {
+		for _, m := range processedMatches {
 			metaJSON, _ := buildMetadataJSON(m)
 			_, err := tx.ExecContext(ctx, `INSERT INTO metadata_resolver_matches
-				(source_game_id, plugin_id, external_id, title, platform, url, outvoted,
+				(source_game_id, plugin_id, external_id, title, platform, url, outvoted, manual_selection,
 				 developer, publisher, release_date, rating, metadata_json, created_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				sgID, m.PluginID, m.ExternalID,
 				nullEmpty(m.Title), nullEmpty(m.Platform), nullEmpty(m.URL),
-				boolToInt(m.Outvoted),
+				boolToInt(m.Outvoted), boolToInt(m.ManualSelection),
 				nullEmpty(m.Developer), nullEmpty(m.Publisher), nullEmpty(m.ReleaseDate),
 				m.Rating, nullEmpty(metaJSON), now)
 			if err != nil {
@@ -295,7 +311,7 @@ func (s *gameStore) CountVisibleCanonicalGames(ctx context.Context) (int, error)
 			SELECT canonical_id FROM canonical_source_games_link l
 			WHERE EXISTS (
 				SELECT 1 FROM source_games sg
-				WHERE sg.id = l.source_game_id AND sg.status = 'found'
+				WHERE sg.id = l.source_game_id AND `+visibleSourceGameWhere("sg")+`
 			)
 			GROUP BY canonical_id
 		)`).Scan(&n)
@@ -316,7 +332,7 @@ func (s *gameStore) GetVisibleCanonicalIDs(ctx context.Context, offset, limit in
 		SELECT canonical_id FROM canonical_source_games_link l
 		WHERE EXISTS (
 			SELECT 1 FROM source_games sg
-			WHERE sg.id = l.source_game_id AND sg.status = 'found'
+			WHERE sg.id = l.source_game_id AND ` + visibleSourceGameWhere("sg") + `
 		)
 		GROUP BY canonical_id
 		ORDER BY canonical_id`
@@ -529,7 +545,7 @@ func (s *gameStore) GetExternalIDsForCanonical(ctx context.Context, canonicalID 
 	rows, err := db.QueryContext(ctx, `SELECT sg.plugin_id, sg.external_id, sg.url
 		FROM source_games sg
 		JOIN canonical_source_games_link l ON l.source_game_id = sg.id
-		WHERE l.canonical_id=? AND sg.status='found'`, canonicalID)
+		WHERE l.canonical_id=? AND `+visibleSourceGameWhere("sg"), canonicalID)
 	if err != nil {
 		return nil, err
 	}
@@ -555,6 +571,7 @@ func (s *gameStore) GetExternalIDsForCanonical(ctx context.Context, canonicalID 
 	rows2, err := db.QueryContext(ctx, `SELECT m.plugin_id, m.external_id, m.url
 		FROM metadata_resolver_matches m
 		JOIN canonical_source_games_link l ON l.source_game_id = m.source_game_id
+		JOIN source_games sg ON sg.id = m.source_game_id AND `+visibleSourceGameWhere("sg")+`
 		WHERE l.canonical_id=? AND m.outvoted=0`, canonicalID)
 	if err != nil {
 		return nil, err
@@ -590,26 +607,26 @@ func (s *gameStore) GetLibraryStats(ctx context.Context) (*core.LibraryStats, er
 	}
 
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT l.canonical_id) FROM canonical_source_games_link l
-		WHERE EXISTS (SELECT 1 FROM source_games sg WHERE sg.id = l.source_game_id AND sg.status='found')`).Scan(&out.CanonicalGameCount); err != nil {
+		WHERE EXISTS (SELECT 1 FROM source_games sg WHERE sg.id = l.source_game_id AND `+visibleSourceGameWhere("sg")+`)`).Scan(&out.CanonicalGameCount); err != nil {
 		return nil, err
 	}
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM source_games WHERE status='found'`).Scan(&out.SourceGameFoundCount); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM source_games WHERE `+visibleSourceGameWhere("source_games")).Scan(&out.SourceGameFoundCount); err != nil {
 		return nil, err
 	}
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM source_games`).Scan(&out.SourceGameTotalCount); err != nil {
 		return nil, err
 	}
 
-	if err := scanGroupCounts(ctx, db, `SELECT platform, COUNT(*) FROM source_games WHERE status='found' GROUP BY platform`, out.ByPlatform); err != nil {
+	if err := scanGroupCounts(ctx, db, `SELECT platform, COUNT(*) FROM source_games WHERE `+visibleSourceGameWhere("source_games")+` GROUP BY platform`, out.ByPlatform); err != nil {
 		return nil, err
 	}
-	if err := scanGroupCounts(ctx, db, `SELECT kind, COUNT(*) FROM source_games WHERE status='found' GROUP BY kind`, out.ByKind); err != nil {
+	if err := scanGroupCounts(ctx, db, `SELECT kind, COUNT(*) FROM source_games WHERE `+visibleSourceGameWhere("source_games")+` GROUP BY kind`, out.ByKind); err != nil {
 		return nil, err
 	}
-	if err := scanGroupCounts(ctx, db, `SELECT integration_id, COUNT(*) FROM source_games WHERE status='found' GROUP BY integration_id`, out.ByIntegrationID); err != nil {
+	if err := scanGroupCounts(ctx, db, `SELECT integration_id, COUNT(*) FROM source_games WHERE `+visibleSourceGameWhere("source_games")+` GROUP BY integration_id`, out.ByIntegrationID); err != nil {
 		return nil, err
 	}
-	if err := scanGroupCounts(ctx, db, `SELECT plugin_id, COUNT(*) FROM source_games WHERE status='found' GROUP BY plugin_id`, out.ByPluginID); err != nil {
+	if err := scanGroupCounts(ctx, db, `SELECT plugin_id, COUNT(*) FROM source_games WHERE `+visibleSourceGameWhere("source_games")+` GROUP BY plugin_id`, out.ByPluginID); err != nil {
 		return nil, err
 	}
 
@@ -617,14 +634,14 @@ func (s *gameStore) GetLibraryStats(ctx context.Context) (*core.LibraryStats, er
 	if err := scanGroupCounts(ctx, db,
 		`SELECT m.plugin_id, COUNT(DISTINCT m.source_game_id)
 		 FROM metadata_resolver_matches m
-		 JOIN source_games sg ON sg.id = m.source_game_id AND sg.status='found'
+		 JOIN source_games sg ON sg.id = m.source_game_id AND `+visibleSourceGameWhere("sg")+`
 		 WHERE m.outvoted = 0
 		 GROUP BY m.plugin_id`, out.ByMetadataPluginID); err != nil {
 		return nil, err
 	}
 
 	q := `SELECT COUNT(DISTINCT l.canonical_id) FROM canonical_source_games_link l
-		JOIN source_games sg ON sg.id = l.source_game_id AND sg.status='found'
+		JOIN source_games sg ON sg.id = l.source_game_id AND ` + visibleSourceGameWhere("sg") + `
 		JOIN metadata_resolver_matches m ON m.source_game_id = l.source_game_id
 		WHERE m.outvoted=0 AND IFNULL(m.title,'')!=''`
 	if err := db.QueryRowContext(ctx, q).Scan(&out.CanonicalWithResolverTitle); err != nil {
@@ -641,6 +658,9 @@ func (s *gameStore) GetLibraryStats(ctx context.Context) (*core.LibraryStats, er
 	for _, game := range games {
 		if game == nil {
 			continue
+		}
+		if strings.TrimSpace(game.Description) != "" {
+			out.GamesWithDescription++
 		}
 		if len(game.Media) > 0 {
 			out.GamesWithMedia++
@@ -660,6 +680,7 @@ func (s *gameStore) GetLibraryStats(ctx context.Context) (*core.LibraryStats, er
 		}
 	}
 	if out.CanonicalGameCount > 0 {
+		out.PercentWithDescription = float64(out.GamesWithDescription) / float64(out.CanonicalGameCount) * 100
 		out.PercentWithMedia = float64(out.GamesWithMedia) / float64(out.CanonicalGameCount) * 100
 		out.PercentWithAchievements = float64(out.GamesWithAchievements) / float64(out.CanonicalGameCount) * 100
 	}
@@ -687,16 +708,16 @@ func decadeLabel(releaseDate string) string {
 func (s *gameStore) GetGamesByIntegrationID(ctx context.Context, integrationID string, limit int) ([]core.GameListItem, error) {
 	db := s.db.GetDB()
 
-	q := `SELECT DISTINCT l.canonical_id,
+	q := fmt.Sprintf(`SELECT DISTINCT l.canonical_id,
 	        COALESCE(NULLIF(m.title,''), sg.raw_title) AS title,
 	        sg.platform
 	      FROM source_games sg
 	      JOIN canonical_source_games_link l ON l.source_game_id = sg.id
 	      LEFT JOIN metadata_resolver_matches m ON m.source_game_id = sg.id AND m.outvoted = 0
-	      WHERE sg.integration_id = ? AND sg.status = 'found'
+	      WHERE sg.integration_id = ? AND %s
 	      GROUP BY l.canonical_id
 	      ORDER BY title
-	      LIMIT ?`
+	      LIMIT ?`, visibleSourceGameWhere("sg"))
 
 	if limit <= 0 {
 		limit = 10000
@@ -722,16 +743,16 @@ func (s *gameStore) GetGamesByIntegrationID(ctx context.Context, integrationID s
 func (s *gameStore) GetEnrichedGamesByPluginID(ctx context.Context, pluginID string, limit int) ([]core.GameListItem, error) {
 	db := s.db.GetDB()
 
-	q := `SELECT DISTINCT l.canonical_id,
+	q := fmt.Sprintf(`SELECT DISTINCT l.canonical_id,
 	        COALESCE(NULLIF(m.title,''), sg.raw_title) AS title,
 	        sg.platform
 	      FROM metadata_resolver_matches m
-	      JOIN source_games sg ON sg.id = m.source_game_id AND sg.status = 'found'
+	      JOIN source_games sg ON sg.id = m.source_game_id AND %s
 	      JOIN canonical_source_games_link l ON l.source_game_id = sg.id
 	      WHERE m.plugin_id = ? AND m.outvoted = 0
 	      GROUP BY l.canonical_id
 	      ORDER BY title
-	      LIMIT ?`
+	      LIMIT ?`, visibleSourceGameWhere("sg"))
 
 	if limit <= 0 {
 		limit = 10000
@@ -754,6 +775,328 @@ func (s *gameStore) GetEnrichedGamesByPluginID(ctx context.Context, pluginID str
 	return items, rows.Err()
 }
 
+func reviewReasonsForCandidate(platform core.Platform, groupKind core.GroupKind, resolverMatchCount, resolverTitleCount int) []string {
+	var reasons []string
+	if resolverMatchCount == 0 {
+		reasons = append(reasons, "no_metadata_matches")
+	}
+	if resolverTitleCount == 0 {
+		reasons = append(reasons, "no_resolved_title")
+	}
+	if platform == core.PlatformUnknown {
+		reasons = append(reasons, "unknown_platform")
+	}
+	if groupKind == core.GroupKindUnknown {
+		reasons = append(reasons, "unknown_grouping")
+	}
+	return reasons
+}
+
+func (s *gameStore) ListManualReviewCandidates(ctx context.Context, scope core.ManualReviewScope, limit int) ([]*core.ManualReviewCandidate, error) {
+	db := s.db.GetDB()
+	if limit <= 0 {
+		limit = 10000
+	}
+	whereClause := "sg.status = 'found' AND IFNULL(sg.review_state, 'pending') = 'pending'"
+	if scope == core.ManualReviewScopeArchive {
+		whereClause = "sg.status = 'found' AND IFNULL(sg.review_state, 'pending') = 'not_a_game'"
+	}
+
+	rows, err := db.QueryContext(ctx, fmt.Sprintf(`SELECT
+		sg.id,
+		COALESCE(l.canonical_id, ''),
+		COALESCE((
+			SELECT NULLIF(m.title, '')
+			FROM metadata_resolver_matches m
+			WHERE m.source_game_id = sg.id AND m.outvoted = 0
+			ORDER BY m.id
+			LIMIT 1
+		), sg.raw_title),
+		sg.raw_title,
+		sg.platform,
+		sg.kind,
+		sg.group_kind,
+		sg.integration_id,
+		sg.plugin_id,
+		sg.external_id,
+		COALESCE(sg.root_path, ''),
+		COALESCE(sg.url, ''),
+		sg.status,
+		COALESCE(sg.review_state, 'pending'),
+		COALESCE((SELECT COUNT(*) FROM game_files gf WHERE gf.source_game_id = sg.id), 0),
+		COALESCE((SELECT COUNT(*) FROM metadata_resolver_matches m WHERE m.source_game_id = sg.id), 0),
+		COALESCE((SELECT COUNT(*) FROM metadata_resolver_matches m WHERE m.source_game_id = sg.id AND m.outvoted = 0 AND IFNULL(m.title, '') != ''), 0),
+		sg.created_at,
+		sg.last_seen_at
+	FROM source_games sg
+	LEFT JOIN canonical_source_games_link l ON l.source_game_id = sg.id
+	WHERE %s
+	ORDER BY sg.raw_title
+	LIMIT ?`, whereClause), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list manual review candidates: %w", err)
+	}
+	defer rows.Close()
+
+	var candidates []*core.ManualReviewCandidate
+	for rows.Next() {
+		var candidate core.ManualReviewCandidate
+		var lastSeen sql.NullInt64
+		var resolverTitleCount int
+		var createdAt int64
+		if err := rows.Scan(
+			&candidate.ID,
+			&candidate.CanonicalGameID,
+			&candidate.CurrentTitle,
+			&candidate.RawTitle,
+			(*string)(&candidate.Platform),
+			(*string)(&candidate.Kind),
+			(*string)(&candidate.GroupKind),
+			&candidate.IntegrationID,
+			&candidate.PluginID,
+			&candidate.ExternalID,
+			&candidate.RootPath,
+			&candidate.URL,
+			&candidate.Status,
+			(*string)(&candidate.ReviewState),
+			&candidate.FileCount,
+			&candidate.ResolverMatchCount,
+			&resolverTitleCount,
+			&createdAt,
+			&lastSeen,
+		); err != nil {
+			return nil, err
+		}
+		candidate.CreatedAt = time.Unix(createdAt, 0)
+		if lastSeen.Valid {
+			t := time.Unix(lastSeen.Int64, 0)
+			candidate.LastSeenAt = &t
+		}
+		candidate.ReviewReasons = reviewReasonsForCandidate(candidate.Platform, candidate.GroupKind, candidate.ResolverMatchCount, resolverTitleCount)
+		if scope == core.ManualReviewScopeActive && len(candidate.ReviewReasons) == 0 {
+			continue
+		}
+		candidates = append(candidates, &candidate)
+	}
+	return candidates, rows.Err()
+}
+
+func (s *gameStore) GetManualReviewCandidate(ctx context.Context, candidateID string) (*core.ManualReviewCandidate, error) {
+	db := s.db.GetDB()
+	sg, err := s.loadSourceGame(ctx, db, candidateID)
+	if err != nil {
+		return nil, fmt.Errorf("load manual review candidate source game: %w", err)
+	}
+	if sg == nil || sg.Status != "found" {
+		return nil, nil
+	}
+
+	candidate := &core.ManualReviewCandidate{
+		ID:                 sg.ID,
+		RawTitle:           sg.RawTitle,
+		CurrentTitle:       sg.RawTitle,
+		Platform:           sg.Platform,
+		Kind:               sg.Kind,
+		GroupKind:          sg.GroupKind,
+		IntegrationID:      sg.IntegrationID,
+		PluginID:           sg.PluginID,
+		ExternalID:         sg.ExternalID,
+		RootPath:           sg.RootPath,
+		URL:                sg.URL,
+		Status:             sg.Status,
+		ReviewState:        sg.ReviewState,
+		FileCount:          len(sg.Files),
+		ResolverMatchCount: len(sg.ResolverMatches),
+		Files:              append([]core.GameFile(nil), sg.Files...),
+		ResolverMatches:    append([]core.ResolverMatch(nil), sg.ResolverMatches...),
+		CreatedAt:          sg.CreatedAt,
+		LastSeenAt:         sg.LastSeenAt,
+	}
+
+	resolverTitleCount := 0
+	for _, match := range sg.ResolverMatches {
+		if !match.Outvoted && strings.TrimSpace(match.Title) != "" {
+			resolverTitleCount++
+			if candidate.CurrentTitle == sg.RawTitle {
+				candidate.CurrentTitle = match.Title
+			}
+		}
+	}
+	candidate.ReviewReasons = reviewReasonsForCandidate(candidate.Platform, candidate.GroupKind, candidate.ResolverMatchCount, resolverTitleCount)
+
+	var canonicalID sql.NullString
+	if err := db.QueryRowContext(ctx,
+		`SELECT canonical_id FROM canonical_source_games_link WHERE source_game_id = ? LIMIT 1`,
+		sg.ID,
+	).Scan(&canonicalID); err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("load manual review candidate canonical id: %w", err)
+	}
+	candidate.CanonicalGameID = canonicalID.String
+
+	return candidate, nil
+}
+
+func (s *gameStore) SaveManualReviewResult(
+	ctx context.Context,
+	sourceGame *core.SourceGame,
+	resolverMatches []core.ResolverMatch,
+	media []core.MediaRef,
+) error {
+	if sourceGame == nil {
+		return fmt.Errorf("source game is required")
+	}
+	if sourceGame.ID == "" {
+		return fmt.Errorf("source game id is required")
+	}
+	if sourceGame.ReviewState == "" {
+		sourceGame.ReviewState = core.ManualReviewStatePending
+	}
+	manualReviewJSON, err := manualReviewDecisionJSON(sourceGame.ManualReview)
+	if err != nil {
+		return fmt.Errorf("marshal manual review decision: %w", err)
+	}
+
+	db := s.db.GetDB()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var lastSeen any
+	if sourceGame.LastSeenAt != nil {
+		lastSeen = sourceGame.LastSeenAt.Unix()
+	}
+
+	result, err := tx.ExecContext(ctx, `UPDATE source_games
+		SET raw_title = ?,
+			platform = ?,
+			kind = ?,
+			group_kind = ?,
+			root_path = ?,
+			url = ?,
+			status = 'found',
+			review_state = ?,
+			manual_review_json = ?,
+			last_seen_at = COALESCE(?, last_seen_at)
+		WHERE id = ?`,
+		sourceGame.RawTitle,
+		string(sourceGame.Platform),
+		string(sourceGame.Kind),
+		string(sourceGame.GroupKind),
+		nullEmpty(sourceGame.RootPath),
+		nullEmpty(sourceGame.URL),
+		string(sourceGame.ReviewState),
+		nullEmpty(manualReviewJSON),
+		lastSeen,
+		sourceGame.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("update source game review result %s: %w", sourceGame.ID, err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected for source game review result %s: %w", sourceGame.ID, err)
+	}
+	if rowsAffected == 0 {
+		return core.ErrManualReviewCandidateNotFound
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM metadata_resolver_matches WHERE source_game_id = ?`, sourceGame.ID); err != nil {
+		return fmt.Errorf("delete resolver matches for %s: %w", sourceGame.ID, err)
+	}
+	now := time.Now().Unix()
+	for _, match := range resolverMatches {
+		metaJSON, _ := buildMetadataJSON(match)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO metadata_resolver_matches
+			(source_game_id, plugin_id, external_id, title, platform, url, outvoted, manual_selection,
+			 developer, publisher, release_date, rating, metadata_json, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			sourceGame.ID,
+			match.PluginID,
+			match.ExternalID,
+			nullEmpty(match.Title),
+			nullEmpty(match.Platform),
+			nullEmpty(match.URL),
+			boolToInt(match.Outvoted),
+			boolToInt(match.ManualSelection),
+			nullEmpty(match.Developer),
+			nullEmpty(match.Publisher),
+			nullEmpty(match.ReleaseDate),
+			match.Rating,
+			nullEmpty(metaJSON),
+			now,
+		); err != nil {
+			return fmt.Errorf("insert manual review match for %s/%s: %w", sourceGame.ID, match.PluginID, err)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM source_game_media WHERE source_game_id = ?`, sourceGame.ID); err != nil {
+		return fmt.Errorf("delete media links for %s: %w", sourceGame.ID, err)
+	}
+	for _, ref := range media {
+		if ref.URL == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO media_assets (url, width, height, mime_type)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(url) DO UPDATE SET
+				width = COALESCE(NULLIF(excluded.width,0), media_assets.width),
+				height = COALESCE(NULLIF(excluded.height,0), media_assets.height)`,
+			ref.URL, ref.Width, ref.Height, nullEmpty("")); err != nil {
+			return fmt.Errorf("upsert media asset %s: %w", ref.URL, err)
+		}
+		var assetID int
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM media_assets WHERE url = ?`, ref.URL).Scan(&assetID); err != nil {
+			return fmt.Errorf("get media asset id for %s: %w", ref.URL, err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO source_game_media
+			(source_game_id, media_asset_id, type, source) VALUES (?, ?, ?, ?)`,
+			sourceGame.ID, assetID, string(ref.Type), nullEmpty(ref.Source)); err != nil {
+			return fmt.Errorf("link manual review media for %s: %w", sourceGame.ID, err)
+		}
+	}
+
+	if err := s.recomputeCanonicalGroups(ctx, tx); err != nil {
+		return fmt.Errorf("recompute canonical after manual review save: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (s *gameStore) SetManualReviewState(ctx context.Context, candidateID string, state core.ManualReviewState) error {
+	if candidateID == "" {
+		return fmt.Errorf("candidate id is required")
+	}
+	if state == "" {
+		return fmt.Errorf("review state is required")
+	}
+
+	db := s.db.GetDB()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `UPDATE source_games
+		SET review_state = ?, manual_review_json = NULL
+		WHERE id = ?`, string(state), candidateID)
+	if err != nil {
+		return fmt.Errorf("update manual review state %s: %w", candidateID, err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected for manual review state %s: %w", candidateID, err)
+	}
+	if rowsAffected == 0 {
+		return core.ErrManualReviewCandidateNotFound
+	}
+	if err := s.recomputeCanonicalGroups(ctx, tx); err != nil {
+		return fmt.Errorf("recompute canonical after manual review state update: %w", err)
+	}
+	return tx.Commit()
+}
+
 func (s *gameStore) GetFoundSourceGames(ctx context.Context, integrationIDs []string) ([]*core.FoundSourceGame, error) {
 	db := s.db.GetDB()
 
@@ -763,7 +1106,7 @@ func (s *gameStore) GetFoundSourceGames(ctx context.Context, integrationIDs []st
 	if len(integrationIDs) == 0 {
 		rows, err = db.QueryContext(ctx,
 			`SELECT id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, COALESCE(root_path,'')
-			 FROM source_games WHERE status = 'found'`)
+			 FROM source_games WHERE status = 'found' AND IFNULL(review_state, 'pending') != 'not_a_game'`)
 	} else {
 		// Build placeholders for the IN clause.
 		placeholders := make([]string, len(integrationIDs))
@@ -774,7 +1117,7 @@ func (s *gameStore) GetFoundSourceGames(ctx context.Context, integrationIDs []st
 		}
 		q := fmt.Sprintf(
 			`SELECT id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, COALESCE(root_path,'')
-			 FROM source_games WHERE status = 'found' AND integration_id IN (%s)`,
+			 FROM source_games WHERE status = 'found' AND IFNULL(review_state, 'pending') != 'not_a_game' AND integration_id IN (%s)`,
 			strings.Join(placeholders, ","))
 		rows, err = db.QueryContext(ctx, q, args...)
 	}
@@ -940,7 +1283,7 @@ func (s *gameStore) GetScanReport(ctx context.Context, id string) (*core.ScanRep
 
 func (s *gameStore) GetSourceGameCountsByIntegration(ctx context.Context) (map[string]int, error) {
 	rows, err := s.db.GetDB().QueryContext(ctx,
-		`SELECT integration_id, COUNT(*) FROM source_games WHERE status = 'found' GROUP BY integration_id`)
+		`SELECT integration_id, COUNT(*) FROM source_games WHERE `+visibleSourceGameWhere("source_games")+` GROUP BY integration_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -978,16 +1321,162 @@ func scanGroupCounts(ctx context.Context, db *sql.DB, query string, dest map[str
 // ── Internal helpers ────────────────────────────────────────────────
 
 type existingSourceGame struct {
-	ID       string
-	RawTitle string
-	Platform string
-	RootPath string
-	Status   string
+	ID               string
+	RawTitle         string
+	Platform         string
+	RootPath         string
+	Status           string
+	ReviewState      core.ManualReviewState
+	ManualReviewJSON string
+}
+
+func visibleSourceGameWhere(alias string) string {
+	if alias == "" {
+		alias = "source_games"
+	}
+	return fmt.Sprintf("%s.status = 'found' AND IFNULL(%s.review_state, 'pending') != 'not_a_game'", alias, alias)
+}
+
+func isVisibleSourceGame(sg *core.SourceGame) bool {
+	return sg != nil && sg.Status == "found" && sg.ReviewState != core.ManualReviewStateNotAGame
+}
+
+func resolveManualReviewPersistence(sg *core.SourceGame, existing existingSourceGame) (core.ManualReviewState, string, error) {
+	state := sg.ReviewState
+	if state == "" {
+		if existing.ReviewState != "" {
+			state = existing.ReviewState
+		} else {
+			state = core.ManualReviewStatePending
+		}
+	}
+
+	decision := sg.ManualReview
+	if decision == nil && existing.ManualReviewJSON != "" {
+		parsed, err := parseManualReviewDecisionJSON(existing.ManualReviewJSON)
+		if err != nil {
+			return "", "", err
+		}
+		decision = parsed
+	}
+	if state != core.ManualReviewStateMatched {
+		decision = nil
+	}
+
+	raw, err := manualReviewDecisionJSON(decision)
+	if err != nil {
+		return "", "", err
+	}
+	return state, raw, nil
+}
+
+func manualReviewDecisionJSON(decision *core.ManualReviewDecision) (string, error) {
+	if decision == nil {
+		return "", nil
+	}
+	payload, err := json.Marshal(decision)
+	if err != nil {
+		return "", err
+	}
+	if string(payload) == "null" {
+		return "", nil
+	}
+	return string(payload), nil
+}
+
+func parseManualReviewDecisionJSON(raw string) (*core.ManualReviewDecision, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var decision core.ManualReviewDecision
+	if err := json.Unmarshal([]byte(raw), &decision); err != nil {
+		return nil, fmt.Errorf("parse manual review json: %w", err)
+	}
+	return &decision, nil
+}
+
+func applyPersistedManualReview(sg *core.SourceGame, matches []core.ResolverMatch, existing existingSourceGame) ([]core.ResolverMatch, error) {
+	if sg != nil && sg.ReviewState == core.ManualReviewStateMatched && sg.ManualReview != nil && sg.ManualReview.Selected != nil {
+		return enforceManualSelection(matches, *sg.ManualReview.Selected), nil
+	}
+	if existing.ReviewState != core.ManualReviewStateMatched || strings.TrimSpace(existing.ManualReviewJSON) == "" {
+		return matches, nil
+	}
+	decision, err := parseManualReviewDecisionJSON(existing.ManualReviewJSON)
+	if err != nil {
+		return nil, err
+	}
+	if decision == nil || decision.Selected == nil {
+		return matches, nil
+	}
+	return enforceManualSelection(matches, *decision.Selected), nil
+}
+
+func enforceManualSelection(matches []core.ResolverMatch, selection core.ManualReviewSelection) []core.ResolverMatch {
+	locked := manualSelectionToResolverMatch(selection)
+	normalizedSelectedKey := manualSelectionConsensusKey(selection)
+	out := make([]core.ResolverMatch, 0, len(matches)+1)
+	out = append(out, locked)
+	for _, match := range matches {
+		if match.PluginID == locked.PluginID && match.ExternalID == locked.ExternalID {
+			continue
+		}
+		normalizedMatchKey := normalizeManualReviewConsensusKey(match.Title)
+		match.ManualSelection = false
+		if normalizedSelectedKey != "" && normalizedMatchKey != normalizedSelectedKey {
+			match.Outvoted = true
+		} else {
+			match.Outvoted = false
+		}
+		out = append(out, match)
+	}
+	return out
+}
+
+func manualSelectionToResolverMatch(selection core.ManualReviewSelection) core.ResolverMatch {
+	var media []core.MediaItem
+	if strings.TrimSpace(selection.ImageURL) != "" {
+		media = append(media, core.MediaItem{
+			Type:   core.MediaTypeCover,
+			URL:    strings.TrimSpace(selection.ImageURL),
+			Source: selection.ProviderPluginID,
+		})
+	}
+	return core.ResolverMatch{
+		PluginID:        strings.TrimSpace(selection.ProviderPluginID),
+		Title:           strings.TrimSpace(selection.Title),
+		Platform:        strings.TrimSpace(selection.Platform),
+		Kind:            strings.TrimSpace(selection.Kind),
+		ParentGameID:    strings.TrimSpace(selection.ParentGameID),
+		ExternalID:      strings.TrimSpace(selection.ExternalID),
+		URL:             strings.TrimSpace(selection.URL),
+		Description:     strings.TrimSpace(selection.Description),
+		ReleaseDate:     strings.TrimSpace(selection.ReleaseDate),
+		Genres:          append([]string(nil), selection.Genres...),
+		Developer:       strings.TrimSpace(selection.Developer),
+		Publisher:       strings.TrimSpace(selection.Publisher),
+		Rating:          selection.Rating,
+		MaxPlayers:      selection.MaxPlayers,
+		Media:           media,
+		ManualSelection: true,
+	}
+}
+
+func manualSelectionConsensusKey(selection core.ManualReviewSelection) string {
+	return normalizeManualReviewConsensusKey(selection.Title)
+}
+
+func normalizeManualReviewConsensusKey(title string) string {
+	title = strings.ToLower(strings.TrimSpace(title))
+	title = strings.ReplaceAll(title, "_", " ")
+	title = strings.ReplaceAll(title, "-", " ")
+	return strings.Join(strings.Fields(title), " ")
 }
 
 func (s *gameStore) loadExistingSourceGames(ctx context.Context, tx *sql.Tx, integrationID string) ([]existingSourceGame, error) {
 	rows, err := tx.QueryContext(ctx,
-		`SELECT id, raw_title, platform, COALESCE(root_path,''), status FROM source_games WHERE integration_id=?`, integrationID)
+		`SELECT id, raw_title, platform, COALESCE(root_path,''), status, COALESCE(review_state, 'pending'), COALESCE(manual_review_json, '')
+		 FROM source_games WHERE integration_id=?`, integrationID)
 	if err != nil {
 		return nil, err
 	}
@@ -996,7 +1485,7 @@ func (s *gameStore) loadExistingSourceGames(ctx context.Context, tx *sql.Tx, int
 	var out []existingSourceGame
 	for rows.Next() {
 		var e existingSourceGame
-		if err := rows.Scan(&e.ID, &e.RawTitle, &e.Platform, &e.RootPath, &e.Status); err != nil {
+		if err := rows.Scan(&e.ID, &e.RawTitle, &e.Platform, &e.RootPath, &e.Status, (*string)(&e.ReviewState), &e.ManualReviewJSON); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -1045,7 +1534,7 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 	}
 
 	// Load all active source games.
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM source_games WHERE status='found'`)
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM source_games WHERE `+visibleSourceGameWhere("source_games"))
 	if err != nil {
 		return err
 	}
@@ -1314,13 +1803,13 @@ func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string)
 	var sg core.SourceGame
 	var lastSeen sql.NullInt64
 	var createdAt int64
-	var rootPath, url sql.NullString
+	var rootPath, url, manualReviewJSON sql.NullString
 	err := db.QueryRowContext(ctx, `SELECT id, integration_id, plugin_id, external_id, raw_title,
-		platform, kind, group_kind, root_path, url, status, last_seen_at, created_at
+		platform, kind, group_kind, root_path, url, status, COALESCE(review_state, 'pending'), COALESCE(manual_review_json, ''), last_seen_at, created_at
 		FROM source_games WHERE id=?`, sgID).Scan(
 		&sg.ID, &sg.IntegrationID, &sg.PluginID, &sg.ExternalID, &sg.RawTitle,
 		(*string)(&sg.Platform), (*string)(&sg.Kind), (*string)(&sg.GroupKind),
-		&rootPath, &url, &sg.Status, &lastSeen, &createdAt)
+		&rootPath, &url, &sg.Status, (*string)(&sg.ReviewState), &manualReviewJSON, &lastSeen, &createdAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -1330,6 +1819,13 @@ func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string)
 	sg.RootPath = rootPath.String
 	sg.URL = url.String
 	sg.CreatedAt = time.Unix(createdAt, 0)
+	if manualReviewJSON.String != "" {
+		decision, err := parseManualReviewDecisionJSON(manualReviewJSON.String)
+		if err != nil {
+			return nil, err
+		}
+		sg.ManualReview = decision
+	}
 	if lastSeen.Valid {
 		t := time.Unix(lastSeen.Int64, 0)
 		sg.LastSeenAt = &t
@@ -1354,7 +1850,7 @@ func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string)
 	}
 
 	// Load resolver matches.
-	matchRows, err := db.QueryContext(ctx, `SELECT plugin_id, external_id, title, platform, url, outvoted,
+	matchRows, err := db.QueryContext(ctx, `SELECT plugin_id, external_id, title, platform, url, outvoted, manual_selection,
 		developer, publisher, release_date, rating, metadata_json
 		FROM metadata_resolver_matches WHERE source_game_id=? ORDER BY id`, sgID)
 	if err != nil {
@@ -1364,8 +1860,8 @@ func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string)
 	for matchRows.Next() {
 		var m core.ResolverMatch
 		var title, plat, murl, dev, pub, relDate, metaJSON sql.NullString
-		var outvoted int
-		if err := matchRows.Scan(&m.PluginID, &m.ExternalID, &title, &plat, &murl, &outvoted,
+		var outvoted, manualSelection int
+		if err := matchRows.Scan(&m.PluginID, &m.ExternalID, &title, &plat, &murl, &outvoted, &manualSelection,
 			&dev, &pub, &relDate, &m.Rating, &metaJSON); err != nil {
 			return nil, err
 		}
@@ -1373,6 +1869,7 @@ func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string)
 		m.Platform = plat.String
 		m.URL = murl.String
 		m.Outvoted = outvoted != 0
+		m.ManualSelection = manualSelection != 0
 		m.Developer = dev.String
 		m.Publisher = pub.String
 		m.ReleaseDate = relDate.String
@@ -1398,7 +1895,7 @@ func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonica
 		if sg == nil {
 			continue
 		}
-		if sg.Status == "found" {
+		if isVisibleSourceGame(sg) {
 			hasVisible = true
 		}
 		cg.SourceGames = append(cg.SourceGames, sg)
@@ -1412,7 +1909,7 @@ func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonica
 
 	// Load media refs.
 	for _, sg := range cg.SourceGames {
-		if sg.Status != "found" {
+		if !isVisibleSourceGame(sg) {
 			continue
 		}
 		mediaRows, err := db.QueryContext(ctx, `SELECT ma.id, ma.url, ma.local_path, ma.hash, ma.mime_type, sgm.type, sgm.source, ma.width, ma.height
@@ -1502,7 +1999,7 @@ func (s *gameStore) computeUnifiedView(cg *core.CanonicalGame) {
 	}
 	var winners []rankedMatch
 	for i, sg := range cg.SourceGames {
-		if sg.Status != "found" {
+		if !isVisibleSourceGame(sg) {
 			continue
 		}
 		for _, m := range sg.ResolverMatches {
@@ -1512,8 +2009,11 @@ func (s *gameStore) computeUnifiedView(cg *core.CanonicalGame) {
 		}
 	}
 
-	// Sort by source game index (earlier = higher priority within group).
+	// Sort manual selections ahead of automatic winners, then by source game order.
 	sort.SliceStable(winners, func(i, j int) bool {
+		if winners[i].match.ManualSelection != winners[j].match.ManualSelection {
+			return winners[i].match.ManualSelection
+		}
 		return winners[i].sgIndex < winners[j].sgIndex
 	})
 

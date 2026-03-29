@@ -12,10 +12,10 @@ type ColumnKey = LibraryPrefs['sortBy']
 const COLUMNS: { key: ColumnKey | null; label: string; sortable: boolean }[] = [
   { key: 'title',        label: 'Title',      sortable: true },
   { key: 'platform',     label: 'Platform',   sortable: true },
-  { key: null,            label: 'Sources',    sortable: false },
+  { key: null,            label: 'Source Count', sortable: false },
   { key: null,            label: 'Flags',      sortable: false },
   { key: null,            label: 'HLTB',       sortable: false },
-  { key: null,            label: 'Conf.',      sortable: false },
+  { key: null,            label: 'Sources',    sortable: false },
   { key: null,            label: '',           sortable: false }, // action
 ]
 

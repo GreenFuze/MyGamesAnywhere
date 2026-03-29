@@ -145,6 +145,7 @@ function cloneMetadataProvider(
 ): ScanJobMetadataProviderStatus {
   return {
     ...provider,
+    status: normalizeScanStatus(provider.status),
     progress: cloneJobProgress(provider.progress),
   };
 }
@@ -154,6 +155,7 @@ function cloneJobIntegration(
 ): ScanJobIntegrationStatus {
   return {
     ...integration,
+    status: normalizeScanStatus(integration.status),
     source_progress: cloneJobProgress(integration.source_progress),
     metadata_progress: cloneJobProgress(integration.metadata_progress),
     metadata_providers: integration.metadata_providers?.map(
@@ -273,6 +275,10 @@ function formatMetadataPhase(phase?: string) {
   }
 }
 
+function normalizeScanStatus(status?: string, fallback = "pending") {
+  return status && status.trim().length > 0 ? status : fallback;
+}
+
 function formatSourceSkipReason(reason?: string) {
   switch (reason) {
     case "plugin_not_found":
@@ -289,7 +295,7 @@ function formatSourceSkipReason(reason?: string) {
 }
 
 function formatSourceDetail(integration: ScanJobIntegrationStatus) {
-  if (integration.status === "skipped") {
+  if (normalizeScanStatus(integration.status) === "skipped") {
     const reasonLabel = formatSourceSkipReason(integration.reason);
     if (integration.error) {
       return `${reasonLabel}: ${integration.error}`;
@@ -338,7 +344,8 @@ function formatSourceDetail(integration: ScanJobIntegrationStatus) {
 }
 
 function sourceBadgePresentation(integration: ScanJobIntegrationStatus) {
-  switch (integration.status) {
+  const status = normalizeScanStatus(integration.status);
+  switch (status) {
     case "pending":
       return { badge: "Waiting to start", badgeVariant: "muted" as const };
     case "running":
@@ -372,7 +379,7 @@ function sourceBadgePresentation(integration: ScanJobIntegrationStatus) {
     }
     default:
       return {
-        badge: integration.status.replace(/_/g, " "),
+        badge: status.replace(/_/g, " "),
         badgeVariant: "muted" as const,
       };
   }
@@ -381,14 +388,12 @@ function sourceBadgePresentation(integration: ScanJobIntegrationStatus) {
 function sourceCardState(
   integration: ScanJobIntegrationStatus,
 ): IntegrationScanState {
+  const status = normalizeScanStatus(integration.status);
   const badge = sourceBadgePresentation(integration);
   const showSourceProgress =
-    integration.status !== "skipped" &&
-    integration.status !== "failed" &&
-    integration.status !== "cancelled";
+    status !== "skipped" && status !== "failed" && status !== "cancelled";
   return {
-    active:
-      integration.status === "running" || integration.status === "cancelling",
+    active: status === "running" || status === "cancelling",
     ...badge,
     detail: formatSourceDetail(integration),
     progress:
@@ -403,8 +408,8 @@ function sourceCardState(
   };
 }
 
-function metadataStatusRank(status: string) {
-  switch (status) {
+function metadataStatusRank(status?: string) {
+  switch (normalizeScanStatus(status)) {
     case "running":
       return 5;
     case "error":
@@ -423,7 +428,8 @@ function metadataStatusRank(status: string) {
 function metadataCardState(
   participation: MetadataParticipationState,
 ): IntegrationScanState {
-  switch (participation.status) {
+  const status = normalizeScanStatus(participation.status);
+  switch (status) {
     case "running": {
       const phase = formatMetadataPhase(participation.phase);
       return {
@@ -475,7 +481,7 @@ function metadataCardState(
       };
     default:
       return {
-        badge: participation.status.replace(/_/g, " "),
+        badge: status.replace(/_/g, " "),
         badgeVariant: "muted",
       };
   }
@@ -498,6 +504,9 @@ function formatMetadataPanelLabel(integration: ScanJobIntegrationStatus) {
 export function IntegrationsTab() {
   const queryClient = useQueryClient();
   const { subscribe, connected } = useSSE();
+  const scanEventLogRef = useRef<HTMLDivElement | null>(null);
+  const scanEventLogShouldStickRef = useRef(true);
+  const scanEventLogLastKeyRef = useRef<string | null>(null);
 
   // ── Data queries ──
 
@@ -587,6 +596,8 @@ export function IntegrationsTab() {
   const scanInProgress = scanning || activeScanJobId != null;
   const sourceScanActive = scanning && !scanMetadataOnly;
   const metadataRefreshActive = scanning && scanMetadataOnly;
+  const latestScanEventKey =
+    scanEventLog.length > 0 ? scanEventLog[scanEventLog.length - 1].id : null;
 
   const sourceScanStateByIntegrationId = useMemo(() => {
     if (!scanning) return new Map<string, IntegrationScanState>();
@@ -720,6 +731,36 @@ export function IntegrationsTab() {
     },
     [appendScanEvent, clearScanState, persistActiveScanJobId],
   );
+
+  useEffect(() => {
+    if (!latestScanEventKey) {
+      scanEventLogLastKeyRef.current = null;
+      scanEventLogShouldStickRef.current = true;
+      return;
+    }
+    if (scanEventLogLastKeyRef.current === latestScanEventKey) {
+      return;
+    }
+    scanEventLogLastKeyRef.current = latestScanEventKey;
+    if (!scanEventLogShouldStickRef.current) {
+      return;
+    }
+    const container = scanEventLogRef.current;
+    if (!container) {
+      return;
+    }
+    container.scrollTop = container.scrollHeight;
+  }, [latestScanEventKey]);
+
+  const handleScanEventLogScroll = useCallback(() => {
+    const container = scanEventLogRef.current;
+    if (!container) {
+      return;
+    }
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    scanEventLogShouldStickRef.current = distanceFromBottom <= 16;
+  }, []);
 
   // ── SSE: Status check events ──
 
@@ -2051,7 +2092,11 @@ export function IntegrationsTab() {
             </div>
           )}
           {scanEventLog.length > 0 && (
-            <div className="space-y-1 border-t border-mga-border/60 pt-2 max-h-56 overflow-y-auto pr-1">
+            <div
+              ref={scanEventLogRef}
+              onScroll={handleScanEventLogScroll}
+              className="space-y-1 border-t border-mga-border/60 pt-2 max-h-56 overflow-y-auto pr-1"
+            >
               {scanEventLog.map((entry) => (
                 <div
                   key={entry.id}
