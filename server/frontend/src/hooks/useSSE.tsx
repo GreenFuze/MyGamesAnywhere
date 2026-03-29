@@ -31,6 +31,7 @@ const knownTypes = [
   'scan_source_list_started',
   'scan_source_list_complete',
   'scan_scanner_started',
+  'scan_scanner_progress',
   'scan_scanner_complete',
   'scan_metadata_started',
   'scan_metadata_phase',
@@ -42,6 +43,8 @@ const knownTypes = [
   'scan_metadata_finished',
   'scan_persist_started',
   'scan_integration_complete',
+  'scan_cancel_requested',
+  'scan_cancelled',
   'scan_complete',
   'scan_error',
 

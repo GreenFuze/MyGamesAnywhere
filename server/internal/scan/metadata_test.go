@@ -515,3 +515,55 @@ func TestEnrich_SkippedIndex(t *testing.T) {
 		t.Errorf("game 2: got %q, want %q", games[2].Title, "Also Matched")
 	}
 }
+
+func TestEnrich_EmitsMetadataIntegrationIdentity(t *testing.T) {
+	caller := &mockCaller{
+		responses: map[string]any{
+			"metadata-steam": metadataLookupResponse{
+				Results: []metadataMatch{{Index: 0, Title: "Doom", ExternalID: "steam-1"}},
+			},
+		},
+	}
+
+	resolver := NewMetadataResolver(caller, testLogger{})
+
+	type emittedEvent struct {
+		typ    string
+		fields map[string]any
+	}
+	var events []emittedEvent
+	resolver.SetScanEventPublisher(func(_ context.Context, typ string, payload any) {
+		fields, _ := payload.(map[string]any)
+		events = append(events, emittedEvent{typ: typ, fields: fields})
+	})
+
+	games := []*core.Game{
+		{Title: "doom", RawTitle: "doom", Platform: core.PlatformWindowsPC, Kind: core.GameKindBaseGame},
+	}
+	sources := []MetadataSource{
+		{
+			IntegrationID: "metadata-steam-primary",
+			Label:         "Steam Metadata",
+			PluginID:      "metadata-steam",
+			Config:        map[string]any{},
+		},
+	}
+
+	resolver.Enrich(context.Background(), "source-1", games, sources)
+
+	if len(events) == 0 {
+		t.Fatal("expected metadata events")
+	}
+
+	for _, ev := range events {
+		switch ev.typ {
+		case "scan_metadata_plugin_started", "scan_metadata_game_progress", "scan_metadata_plugin_complete":
+			if ev.fields["metadata_integration_id"] != "metadata-steam-primary" {
+				t.Fatalf("%s metadata_integration_id = %v, want metadata-steam-primary", ev.typ, ev.fields["metadata_integration_id"])
+			}
+			if ev.fields["metadata_label"] != "Steam Metadata" {
+				t.Fatalf("%s metadata_label = %v, want Steam Metadata", ev.typ, ev.fields["metadata_label"])
+			}
+		}
+	}
+}

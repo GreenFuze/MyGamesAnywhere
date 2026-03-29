@@ -67,11 +67,13 @@ func (o *Orchestrator) SetEventBus(bus *events.EventBus) {
 	o.eventBus = bus
 	if bus == nil {
 		o.metadataResolver.SetScanEventPublisher(nil)
+		o.scanner.SetProgressReporter(nil)
 		return
 	}
 	o.metadataResolver.SetScanEventPublisher(func(ctx context.Context, typ string, payload any) {
 		o.publishEventWithContext(ctx, typ, payload)
 	})
+	o.scanner.SetProgressReporter(nil)
 }
 
 func (o *Orchestrator) publishEvent(eventType string, payload any) {
@@ -110,6 +112,18 @@ func (o *Orchestrator) publishScanError(ctx context.Context, integrationID strin
 	o.publishEventWithContext(ctx, "scan_error", m)
 }
 
+func buildScanIntegrationPayload(integrations []*core.Integration) []map[string]any {
+	out := make([]map[string]any, 0, len(integrations))
+	for _, integ := range integrations {
+		out = append(out, map[string]any{
+			"integration_id": integ.ID,
+			"plugin_id":      integ.PluginID,
+			"label":          integ.Label,
+		})
+	}
+	return out
+}
+
 // RunScan scans all (or selected) integrations, enriches metadata,
 // persists via GameStore, and returns the canonical game views.
 func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]*core.CanonicalGame, error) {
@@ -127,14 +141,18 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 	}
 	filterActive := len(filter) > 0
 
-	integrationCount := 0
+	filteredIntegrations := make([]*core.Integration, 0, len(integrations))
 	for _, integ := range integrations {
 		if filterActive && !filter[integ.ID] {
 			continue
 		}
-		integrationCount++
+		filteredIntegrations = append(filteredIntegrations, integ)
 	}
-	o.publishEventWithContext(ctx, "scan_started", map[string]any{"integration_count": integrationCount})
+	o.publishEventWithContext(ctx, "scan_started", map[string]any{
+		"integration_count": len(filteredIntegrations),
+		"metadata_only":     false,
+		"integrations":      buildScanIntegrationPayload(filteredIntegrations),
+	})
 
 	scanStart := time.Now()
 
@@ -149,15 +167,15 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		integPluginMap[integ.ID] = integ.PluginID
 	}
 
-	metaSources := o.findMetadataSources(integrations)
+	metaSources, metadataProviders := o.findMetadataSources(integrations)
 
 	// Track per-integration results for the report.
 	var integResults []core.ScanIntegrationResult
 	var scannedIDs []string
 
-	for _, integ := range integrations {
-		if filterActive && !filter[integ.ID] {
-			continue
+	for _, integ := range filteredIntegrations {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		plugin, ok := o.pluginDiscovery.GetPlugin(integ.PluginID)
 		if !ok {
@@ -212,15 +230,26 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 
 			o.publishEventWithContext(ctx, "scan_scanner_started", map[string]any{
 				"integration_id": integ.ID,
+				"plugin_id":      integ.PluginID,
 				"file_count":     len(files),
 			})
+			o.scanner.SetProgressReporter(func(scanCtx context.Context, update scanner.ProgressUpdate) {
+				o.publishEventWithContext(scanCtx, "scan_scanner_progress", map[string]any{
+					"integration_id":  integ.ID,
+					"plugin_id":       integ.PluginID,
+					"processed_count": update.ProcessedCount,
+					"file_count":      update.FileCount,
+				})
+			})
 			groups, err := o.scanner.ScanFiles(ctx, files)
+			o.scanner.SetProgressReporter(nil)
 			if err != nil {
 				o.publishScanError(ctx, integ.ID, err)
 				return nil, fmt.Errorf("scan files for integration %q: %w", integ.ID, err)
 			}
 			o.publishEventWithContext(ctx, "scan_scanner_complete", map[string]any{
 				"integration_id": integ.ID,
+				"plugin_id":      integ.PluginID,
 				"group_count":    len(groups),
 			})
 
@@ -275,9 +304,11 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		// Metadata enrichment per-integration.
 		if len(metaSources) > 0 {
 			o.publishEventWithContext(ctx, "scan_metadata_started", map[string]any{
-				"integration_id": integ.ID,
-				"game_count":     len(games),
-				"resolver_count": len(metaSources),
+				"integration_id":     integ.ID,
+				"plugin_id":          integ.PluginID,
+				"game_count":         len(games),
+				"resolver_count":     len(metaSources),
+				"metadata_providers": metadataProviders,
 			})
 			o.metadataResolver.Enrich(ctx, integ.ID, games, metaSources)
 		}
@@ -285,6 +316,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		// Convert enriched games → ScanBatch and persist.
 		o.publishEventWithContext(ctx, "scan_persist_started", map[string]any{
 			"integration_id":    integ.ID,
+			"plugin_id":         integ.PluginID,
 			"source_game_count": len(games),
 		})
 		batch := gamesToScanBatch(integ.ID, integ.PluginID, games)
@@ -295,6 +327,8 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		o.logger.Info("orchestrator: persisted", "integration_id", integ.ID, "source_games", len(batch.SourceGames))
 		o.publishEventWithContext(ctx, "scan_integration_complete", map[string]any{
 			"integration_id": integ.ID,
+			"plugin_id":      integ.PluginID,
+			"label":          integ.Label,
 			"games_found":    len(batch.SourceGames),
 		})
 
@@ -343,7 +377,7 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 		return nil, fmt.Errorf("list integrations: %w", err)
 	}
 
-	metaSources := o.findMetadataSources(integrations)
+	metaSources, metadataProviders := o.findMetadataSources(integrations)
 	if len(metaSources) == 0 {
 		o.logger.Info("orchestrator: no metadata providers configured, nothing to refresh")
 		return o.gameStore.GetCanonicalGames(ctx)
@@ -363,12 +397,25 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 	}
 
 	scanStart := time.Now()
+	activeIntegrations := make([]*core.Integration, 0, len(byIntegration))
+	for _, integ := range integrations {
+		if len(byIntegration[integ.ID]) == 0 {
+			continue
+		}
+		activeIntegrations = append(activeIntegrations, integ)
+	}
 	o.publishEventWithContext(ctx, "scan_started", map[string]any{
-		"integration_count": len(byIntegration),
+		"integration_count": len(activeIntegrations),
 		"metadata_only":     true,
+		"integrations":      buildScanIntegrationPayload(activeIntegrations),
 	})
 
-	for integrationID, sourceGames := range byIntegration {
+	for _, integ := range activeIntegrations {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		integrationID := integ.ID
+		sourceGames := byIntegration[integrationID]
 		// Convert FoundSourceGame → core.Game for the enrichment pipeline.
 		games := make([]*core.Game, 0, len(sourceGames))
 		for _, sg := range sourceGames {
@@ -391,13 +438,16 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 
 		o.publishEventWithContext(ctx, "scan_integration_started", map[string]any{
 			"integration_id": integrationID,
-			"label":          integrationID,
+			"plugin_id":      integ.PluginID,
+			"label":          integ.Label,
 		})
 
 		o.publishEventWithContext(ctx, "scan_metadata_started", map[string]any{
-			"integration_id": integrationID,
-			"game_count":     len(games),
-			"resolver_count": len(metaSources),
+			"integration_id":     integrationID,
+			"plugin_id":          integ.PluginID,
+			"game_count":         len(games),
+			"resolver_count":     len(metaSources),
+			"metadata_providers": metadataProviders,
 		})
 
 		o.metadataResolver.Enrich(ctx, integrationID, games, metaSources)
@@ -411,6 +461,8 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 
 		o.publishEventWithContext(ctx, "scan_integration_complete", map[string]any{
 			"integration_id": integrationID,
+			"plugin_id":      integ.PluginID,
+			"label":          integ.Label,
 			"games_found":    len(games),
 		})
 	}
@@ -423,8 +475,8 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 
 	// Build a lightweight scan report for metadata-only refresh.
 	var scannedIDs []string
-	for id := range byIntegration {
-		scannedIDs = append(scannedIDs, id)
+	for _, integ := range activeIntegrations {
+		scannedIDs = append(scannedIDs, integ.ID)
 	}
 	report := o.buildScanReport(scanStart, true, scannedIDs, nil, nil, nil, len(result))
 	if saveErr := o.gameStore.SaveScanReport(ctx, report); saveErr != nil {
@@ -733,12 +785,11 @@ func deterministicID(integrationID, rootDir, name string) string {
 	return "scan:" + hex.EncodeToString(h[:])[:16]
 }
 
-// findMetadataSources returns an ordered list of metadata plugin sources
-// by matching integrations whose plugin provides metadata.game.lookup.
-func (o *Orchestrator) findMetadataSources(integrations []*core.Integration) []MetadataSource {
+// findMetadataSources returns ordered metadata sources plus per-provider scan snapshots.
+func (o *Orchestrator) findMetadataSources(integrations []*core.Integration) ([]MetadataSource, []map[string]any) {
 	metaPluginIDs := o.pluginDiscovery.GetPluginIDsProviding(metadataGameLookupMethod)
 	if len(metaPluginIDs) == 0 {
-		return nil
+		return nil, nil
 	}
 	metaSet := make(map[string]bool, len(metaPluginIDs))
 	for _, id := range metaPluginIDs {
@@ -746,21 +797,35 @@ func (o *Orchestrator) findMetadataSources(integrations []*core.Integration) []M
 	}
 
 	var sources []MetadataSource
+	var providerStates []map[string]any
 	for _, integ := range integrations {
 		if !metaSet[integ.PluginID] {
 			continue
 		}
+		state := map[string]any{
+			"integration_id": integ.ID,
+			"label":          integ.Label,
+			"plugin_id":      integ.PluginID,
+		}
 		config, err := parseConfig(integ.ConfigJSON)
 		if err != nil {
 			o.logger.Warn("orchestrator: bad metadata config", "integration_id", integ.ID, "error", err)
+			state["status"] = "error"
+			state["reason"] = "invalid_config"
+			state["error"] = err.Error()
+			providerStates = append(providerStates, state)
 			continue
 		}
 		sources = append(sources, MetadataSource{
-			PluginID: integ.PluginID,
-			Config:   config,
+			IntegrationID: integ.ID,
+			Label:         integ.Label,
+			PluginID:      integ.PluginID,
+			Config:        config,
 		})
+		state["status"] = "pending"
+		providerStates = append(providerStates, state)
 	}
-	return sources
+	return sources, providerStates
 }
 
 func pluginProvides(plugin *core.Plugin, method string) bool {

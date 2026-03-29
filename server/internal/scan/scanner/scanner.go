@@ -34,6 +34,13 @@ type AnnotatedFile struct {
 	Role      core.GameFileRole // assigned during role assignment step
 }
 
+type ProgressUpdate struct {
+	ProcessedCount int
+	FileCount      int
+}
+
+type ProgressReporter func(context.Context, ProgressUpdate)
+
 // Scanner classifies games from a filesystem-style game source.
 // It is stateless and pure: given a flat file listing, it returns
 // classified game groups. It knows nothing about the database,
@@ -44,6 +51,7 @@ type Scanner struct {
 	platformDetector *PlatformDetector
 	classifier       *GroupClassifier
 	roleAssigner     *RoleAssigner
+	progressReporter ProgressReporter
 }
 
 func New(logger core.Logger) *Scanner {
@@ -56,6 +64,10 @@ func New(logger core.Logger) *Scanner {
 	}
 }
 
+func (s *Scanner) SetProgressReporter(fn ProgressReporter) {
+	s.progressReporter = fn
+}
+
 // ScanFiles takes a flat file listing from a filesystem source plugin
 // and returns classified game groups.
 //
@@ -66,7 +78,10 @@ func New(logger core.Logger) *Scanner {
 //  4. Classify each group (self_contained, packed, extras, unknown).
 //  5. Assign file roles (root, required, optional) within each group.
 func (s *Scanner) ScanFiles(ctx context.Context, files []core.FileEntry) ([]GameGroup, error) {
-	annotated := annotateFiles(files)
+	annotated, err := annotateFilesWithProgress(ctx, files, s.progressReporter)
+	if err != nil {
+		return nil, err
+	}
 	groups := s.grouper.Group(annotated)
 	s.platformDetector.DetectAll(groups)
 	s.classifier.ClassifyAll(groups)
@@ -95,8 +110,16 @@ func filterPlayable(groups []GameGroup) []GameGroup {
 
 // annotateFiles enriches raw file entries with kind, extension, directory, and depth.
 func annotateFiles(files []core.FileEntry) []AnnotatedFile {
+	out, _ := annotateFilesWithProgress(context.Background(), files, nil)
+	return out
+}
+
+func annotateFilesWithProgress(ctx context.Context, files []core.FileEntry, reporter ProgressReporter) ([]AnnotatedFile, error) {
 	out := make([]AnnotatedFile, 0, len(files))
-	for _, f := range files {
+	for i, f := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		ext := ""
 		if !f.IsDir {
 			ext = strings.ToLower(filepath.Ext(f.Name))
@@ -117,8 +140,25 @@ func annotateFiles(files []core.FileEntry) []AnnotatedFile {
 			Dir:       dir,
 			Depth:     depth,
 		})
+
+		if reporter != nil && shouldReportProgress(i+1, len(files)) {
+			reporter(ctx, ProgressUpdate{
+				ProcessedCount: i + 1,
+				FileCount:      len(files),
+			})
+		}
 	}
-	return out
+	return out, nil
+}
+
+func shouldReportProgress(current, total int) bool {
+	if current <= 0 {
+		return false
+	}
+	if current == 1 || current == total {
+		return true
+	}
+	return current%25 == 0
 }
 
 func detectFileKind(ext string, isDir bool) FileKind {

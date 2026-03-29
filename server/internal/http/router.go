@@ -93,6 +93,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/scan", b.DiscoCtrl.Scan)
 			api.Post("/scan", b.DiscoCtrl.Scan)
 			api.Get("/scan/jobs/{job_id}", b.DiscoCtrl.GetScanJob)
+			api.Post("/scan/jobs/{job_id}/cancel", b.DiscoCtrl.CancelScanJob)
 			api.Get("/scan/reports", b.DiscoCtrl.GetScanReports)
 			api.Get("/scan/reports/{id}", b.DiscoCtrl.GetScanReport)
 
@@ -117,6 +118,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/scan", noopHandler())
 			api.Post("/scan", noopHandler())
 			api.Get("/scan/jobs/{job_id}", noopHandler())
+			api.Post("/scan/jobs/{job_id}/cancel", noopHandler())
 			api.Get("/scan/reports", noopHandler())
 			api.Get("/scan/reports/{id}", noopHandler())
 			api.Get("/plugins", noopHandler())

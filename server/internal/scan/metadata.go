@@ -15,8 +15,10 @@ const metadataGameLookupMethod = "metadata.game.lookup"
 // MetadataSource identifies a metadata plugin and its config.
 // Sources are ordered by priority: index 0 is highest priority.
 type MetadataSource struct {
-	PluginID string
-	Config   map[string]any
+	IntegrationID string
+	Label         string
+	PluginID      string
+	Config        map[string]any
 }
 
 // Plugin request/response types.
@@ -106,6 +108,14 @@ func (r *MetadataResolver) emitScanEvent(ctx context.Context, integrationID, typ
 	r.publisher(ctx, typ, m)
 }
 
+func metadataSourceFields(src MetadataSource) map[string]any {
+	return map[string]any{
+		"metadata_integration_id": src.IntegrationID,
+		"metadata_label":          src.Label,
+		"plugin_id":               src.PluginID,
+	}
+}
+
 // Enrich runs the three-phase enrichment pipeline on the provided games.
 func (r *MetadataResolver) Enrich(ctx context.Context, integrationID string, games []*core.Game, sources []MetadataSource) {
 	if len(games) == 0 || len(sources) == 0 {
@@ -155,20 +165,18 @@ func (r *MetadataResolver) callPluginIdentify(ctx context.Context, integrationID
 	}
 
 	batchSize := len(games)
-	r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_started", map[string]any{
-		"phase":      "identify",
-		"plugin_id":  src.PluginID,
-		"batch_size": batchSize,
-	})
+	fields := metadataSourceFields(src)
+	fields["phase"] = "identify"
+	fields["batch_size"] = batchSize
+	r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_started", fields)
 
 	var resp metadataLookupResponse
 	if err := r.caller.Call(ctx, src.PluginID, metadataGameLookupMethod, params, &resp); err != nil {
 		r.logger.Error("metadata plugin call failed", fmt.Errorf("%s: %w", src.PluginID, err))
-		r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_error", map[string]any{
-			"phase":     "identify",
-			"plugin_id": src.PluginID,
-			"error":     err.Error(),
-		})
+		fields := metadataSourceFields(src)
+		fields["phase"] = "identify"
+		fields["error"] = err.Error()
+		r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_error", fields)
 		return 0
 	}
 
@@ -181,20 +189,18 @@ func (r *MetadataResolver) callPluginIdentify(ctx context.Context, integrationID
 		games[m.Index].ResolverMatches = append(games[m.Index].ResolverMatches, matchToResolver(src.PluginID, m))
 	}
 	for i, query := range queries {
-		r.emitScanEvent(ctx, integrationID, "scan_metadata_game_progress", map[string]any{
-			"phase":      "identify",
-			"plugin_id":  src.PluginID,
-			"game_index": i + 1,
-			"game_count": batchSize,
-			"game_title": query.Title,
-		})
+		fields := metadataSourceFields(src)
+		fields["phase"] = "identify"
+		fields["game_index"] = i + 1
+		fields["game_count"] = batchSize
+		fields["game_title"] = query.Title
+		r.emitScanEvent(ctx, integrationID, "scan_metadata_game_progress", fields)
 	}
-	r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_complete", map[string]any{
-		"phase":     "identify",
-		"plugin_id": src.PluginID,
-		"matched":   matched,
-		"total":     batchSize,
-	})
+	fields = metadataSourceFields(src)
+	fields["phase"] = "identify"
+	fields["matched"] = matched
+	fields["total"] = batchSize
+	r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_complete", fields)
 	return matched
 }
 
@@ -393,20 +399,18 @@ func (r *MetadataResolver) fill(ctx context.Context, integrationID string, games
 		}
 
 		candidates := len(entries)
-		r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_started", map[string]any{
-			"phase":      "fill",
-			"plugin_id":  src.PluginID,
-			"batch_size": candidates,
-		})
+		fields := metadataSourceFields(src)
+		fields["phase"] = "fill"
+		fields["batch_size"] = candidates
+		r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_started", fields)
 
 		var resp metadataLookupResponse
 		if err := r.caller.Call(ctx, src.PluginID, metadataGameLookupMethod, params, &resp); err != nil {
 			r.logger.Error("metadata fill call failed", fmt.Errorf("%s: %w", src.PluginID, err))
-			r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_error", map[string]any{
-				"phase":     "fill",
-				"plugin_id": src.PluginID,
-				"error":     err.Error(),
-			})
+			fields := metadataSourceFields(src)
+			fields["phase"] = "fill"
+			fields["error"] = err.Error()
+			r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_error", fields)
 			continue
 		}
 
@@ -428,21 +432,19 @@ func (r *MetadataResolver) fill(ctx context.Context, integrationID string, games
 			}
 		}
 		for i, query := range queries {
-			r.emitScanEvent(ctx, integrationID, "scan_metadata_game_progress", map[string]any{
-				"phase":      "fill",
-				"plugin_id":  src.PluginID,
-				"game_index": i + 1,
-				"game_count": candidates,
-				"game_title": query.Title,
-			})
+			fields := metadataSourceFields(src)
+			fields["phase"] = "fill"
+			fields["game_index"] = i + 1
+			fields["game_count"] = candidates
+			fields["game_title"] = query.Title
+			r.emitScanEvent(ctx, integrationID, "scan_metadata_game_progress", fields)
 		}
 		r.logger.Info("metadata phase 3", "plugin", src.PluginID, "filled", filled, "candidates", len(entries))
-		r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_complete", map[string]any{
-			"phase":      "fill",
-			"plugin_id":  src.PluginID,
-			"filled":     filled,
-			"candidates": candidates,
-		})
+		fields = metadataSourceFields(src)
+		fields["phase"] = "fill"
+		fields["filled"] = filled
+		fields["candidates"] = candidates
+		r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_complete", fields)
 	}
 }
 

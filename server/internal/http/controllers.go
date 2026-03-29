@@ -364,6 +364,29 @@ func (c *DiscoveryController) GetScanJob(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(status)
 }
 
+func (c *DiscoveryController) CancelScanJob(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "job_id")
+	if jobID == "" {
+		http.Error(w, "job_id is required", http.StatusBadRequest)
+		return
+	}
+	status, result := c.scanJobs.Cancel(jobID)
+	if result == scanCancelNotFound {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	switch result {
+	case scanCancelAccepted:
+		w.WriteHeader(http.StatusAccepted)
+	case scanCancelNoop:
+		w.WriteHeader(http.StatusOK)
+	case scanCancelConflict:
+		w.WriteHeader(http.StatusConflict)
+	}
+	_ = json.NewEncoder(w).Encode(status)
+}
+
 // GetScanReports returns the last N scan reports.
 func (c *DiscoveryController) GetScanReports(w http.ResponseWriter, r *http.Request) {
 	limitStr := r.URL.Query().Get("limit")

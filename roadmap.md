@@ -446,6 +446,9 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] Metadata coverage (% with descriptions, cover art, achievements)
 - [x] Recent scan activity
 
+### play sidebar
+- [ ] Recent Played in the sidebar - add removing last played game
+
 
 ### About Page
 - [x] MGA version, build date, author credits
@@ -478,3 +481,4 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] Media download background worker (MediaItems have URLs but no local files yet)
 - [ ] Schema migration strategy (deferred until after first release)
 - [ ] Add Metacritic scoring
+- [ ] Fix npm build vulnerabilities detected during build

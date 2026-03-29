@@ -514,9 +514,9 @@ paths:
           description: Internal server error
     post:
       summary: Run scan
-      description: 'Starts an asynchronous scan job. Runs discovery: calls each source plugin (source.library.list) and, for integrations with root_path in config, runs the local inventory pipeline. Optional body limits which sources to scan.'
+      description: 'Starts an asynchronous scan job. Runs discovery: calls each source plugin (source.library.list) and, for integrations with root_path in config, runs the local inventory pipeline. Optional body limits which sources to scan or requests metadata-only refresh.'
       requestBody:
-        description: 'Optional JSON: { "game_sources": ["integration-id-1", ...] }. Omitted or empty = scan all sources.'
+        description: 'Optional JSON: { "game_sources": ["integration-id-1", ...], "metadata_only": true|false }. Omitted or empty game_sources = scan all sources.'
         content:
           application/json:
             schema:
@@ -534,7 +534,7 @@ paths:
   /api/scan/jobs/{job_id}:
     get:
       summary: Get scan job status
-      description: Returns the current in-memory status for an asynchronous scan job, including state, progress counters, phase, current integration, report id, and any terminal error.
+      description: Returns the current in-memory status for an asynchronous scan job, including state, integration-level progress snapshots, a rolling recent-events log, current integration, report id, and any terminal error.
       parameters:
         - name: job_id
           in: path
@@ -548,6 +548,30 @@ paths:
           description: job_id is required
         404:
           description: Unknown job id
+        500:
+          description: Internal server error
+
+  /api/scan/jobs/{job_id}/cancel:
+    post:
+      summary: Cancel a running scan job
+      description: Requests cancellation for an asynchronous scan job. Returns the updated ScanJobStatus. Jobs transition through cancelling and then cancelled if the worker exits due to context cancellation.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: ScanJobStatus JSON; job was already cancelling or cancelled
+        202:
+          description: ScanJobStatus JSON; cancellation requested
+        400:
+          description: job_id is required
+        404:
+          description: Unknown job id
+        409:
+          description: ScanJobStatus JSON; job is already completed or failed
         500:
           description: Internal server error
 

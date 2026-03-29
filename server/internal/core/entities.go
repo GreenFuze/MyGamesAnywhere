@@ -60,26 +60,26 @@ const (
 type Platform string
 
 const (
-	PlatformWindowsPC Platform = "windows_pc"
-	PlatformMSDOS     Platform = "ms_dos"
-	PlatformArcade    Platform = "arcade"
-	PlatformNES       Platform = "nes"
-	PlatformSNES      Platform = "snes"
-	PlatformGB        Platform = "gb"
-	PlatformGBC       Platform = "gbc"
-	PlatformGBA       Platform = "gba"
-	PlatformGenesis   Platform = "genesis"
+	PlatformWindowsPC        Platform = "windows_pc"
+	PlatformMSDOS            Platform = "ms_dos"
+	PlatformArcade           Platform = "arcade"
+	PlatformNES              Platform = "nes"
+	PlatformSNES             Platform = "snes"
+	PlatformGB               Platform = "gb"
+	PlatformGBC              Platform = "gbc"
+	PlatformGBA              Platform = "gba"
+	PlatformGenesis          Platform = "genesis"
 	PlatformSegaMasterSystem Platform = "sega_master_system"
-	PlatformGameGear  Platform = "game_gear"
-	PlatformSegaCD    Platform = "sega_cd"
-	PlatformSega32X   Platform = "sega_32x"
-	PlatformPS1       Platform = "ps1"
-	PlatformPS2       Platform = "ps2"
-	PlatformPS3       Platform = "ps3"
-	PlatformPSP       Platform = "psp"
-	PlatformXbox360   Platform = "xbox_360"
-	PlatformScummVM   Platform = "scummvm"
-	PlatformUnknown   Platform = "unknown"
+	PlatformGameGear         Platform = "game_gear"
+	PlatformSegaCD           Platform = "sega_cd"
+	PlatformSega32X          Platform = "sega_32x"
+	PlatformPS1              Platform = "ps1"
+	PlatformPS2              Platform = "ps2"
+	PlatformPS3              Platform = "ps3"
+	PlatformPSP              Platform = "psp"
+	PlatformXbox360          Platform = "xbox_360"
+	PlatformScummVM          Platform = "scummvm"
+	PlatformUnknown          Platform = "unknown"
 )
 
 // GameKind is the kind of game (base, addon, dlc, etc.).
@@ -391,20 +391,67 @@ type AboutInfo struct {
 	AuthorCredits []string `json:"author_credits"`
 }
 
+type ScanJobProgress struct {
+	Current       int    `json:"current"`
+	Total         int    `json:"total,omitempty"`
+	Unit          string `json:"unit,omitempty"`
+	Indeterminate bool   `json:"indeterminate,omitempty"`
+}
+
+type ScanJobMetadataProviderStatus struct {
+	IntegrationID string           `json:"integration_id"`
+	Label         string           `json:"label,omitempty"`
+	PluginID      string           `json:"plugin_id,omitempty"`
+	Status        string           `json:"status"`
+	Phase         string           `json:"phase,omitempty"`
+	Progress      *ScanJobProgress `json:"progress,omitempty"`
+	Reason        string           `json:"reason,omitempty"`
+	Error         string           `json:"error,omitempty"`
+}
+
+type ScanJobIntegrationStatus struct {
+	IntegrationID         string                          `json:"integration_id"`
+	Label                 string                          `json:"label,omitempty"`
+	PluginID              string                          `json:"plugin_id,omitempty"`
+	Status                string                          `json:"status"`
+	Phase                 string                          `json:"phase,omitempty"`
+	GamesFound            int                             `json:"games_found,omitempty"`
+	SourceProgress        *ScanJobProgress                `json:"source_progress,omitempty"`
+	Reason                string                          `json:"reason,omitempty"`
+	MetadataPhase         string                          `json:"metadata_phase,omitempty"`
+	MetadataIntegrationID string                          `json:"metadata_integration_id,omitempty"`
+	MetadataLabel         string                          `json:"metadata_label,omitempty"`
+	MetadataPluginID      string                          `json:"metadata_plugin_id,omitempty"`
+	MetadataProgress      *ScanJobProgress                `json:"metadata_progress,omitempty"`
+	MetadataProviders     []ScanJobMetadataProviderStatus `json:"metadata_providers,omitempty"`
+	Error                 string                          `json:"error,omitempty"`
+}
+
+type ScanJobRecentEvent struct {
+	Type          string         `json:"type"`
+	TS            string         `json:"ts,omitempty"`
+	Message       string         `json:"message,omitempty"`
+	IntegrationID string         `json:"integration_id,omitempty"`
+	Label         string         `json:"label,omitempty"`
+	Data          map[string]any `json:"data,omitempty"`
+}
+
 type ScanJobStatus struct {
-	JobID                  string   `json:"job_id"`
-	Status                 string   `json:"status"`
-	MetadataOnly           bool     `json:"metadata_only"`
-	IntegrationIDs         []string `json:"integration_ids"`
-	StartedAt              string   `json:"started_at,omitempty"`
-	FinishedAt             string   `json:"finished_at,omitempty"`
-	IntegrationCount       int      `json:"integration_count"`
-	IntegrationsCompleted  int      `json:"integrations_completed"`
-	CurrentPhase           string   `json:"current_phase,omitempty"`
-	CurrentIntegrationID   string   `json:"current_integration_id,omitempty"`
-	CurrentIntegrationLabel string  `json:"current_integration_label,omitempty"`
-	ReportID               string   `json:"report_id,omitempty"`
-	Error                  string   `json:"error,omitempty"`
+	JobID                   string                     `json:"job_id"`
+	Status                  string                     `json:"status"`
+	MetadataOnly            bool                       `json:"metadata_only"`
+	IntegrationIDs          []string                   `json:"integration_ids"`
+	StartedAt               string                     `json:"started_at,omitempty"`
+	FinishedAt              string                     `json:"finished_at,omitempty"`
+	IntegrationCount        int                        `json:"integration_count"`
+	IntegrationsCompleted   int                        `json:"integrations_completed"`
+	CurrentPhase            string                     `json:"current_phase,omitempty"`
+	CurrentIntegrationID    string                     `json:"current_integration_id,omitempty"`
+	CurrentIntegrationLabel string                     `json:"current_integration_label,omitempty"`
+	Integrations            []ScanJobIntegrationStatus `json:"integrations,omitempty"`
+	RecentEvents            []ScanJobRecentEvent       `json:"recent_events,omitempty"`
+	ReportID                string                     `json:"report_id,omitempty"`
+	Error                   string                     `json:"error,omitempty"`
 }
 
 type SaveSyncSlotRef struct {
@@ -429,47 +476,47 @@ type SaveSyncSnapshotFile struct {
 }
 
 type SaveSyncSnapshot struct {
-	ManifestHash   string                 `json:"manifest_hash"`
-	CanonicalGameID string                `json:"canonical_game_id"`
-	SourceGameID   string                 `json:"source_game_id"`
-	Runtime        string                 `json:"runtime"`
-	SlotID         string                 `json:"slot_id"`
-	UpdatedAt      time.Time              `json:"updated_at"`
-	TotalSize      int64                  `json:"total_size"`
-	FileCount      int                    `json:"file_count"`
-	Files          []SaveSyncSnapshotFile `json:"files"`
-	ArchiveBase64  string                 `json:"archive_base64,omitempty"`
+	ManifestHash    string                 `json:"manifest_hash"`
+	CanonicalGameID string                 `json:"canonical_game_id"`
+	SourceGameID    string                 `json:"source_game_id"`
+	Runtime         string                 `json:"runtime"`
+	SlotID          string                 `json:"slot_id"`
+	UpdatedAt       time.Time              `json:"updated_at"`
+	TotalSize       int64                  `json:"total_size"`
+	FileCount       int                    `json:"file_count"`
+	Files           []SaveSyncSnapshotFile `json:"files"`
+	ArchiveBase64   string                 `json:"archive_base64,omitempty"`
 }
 
 type SaveSyncSlotSummary struct {
-	SlotID         string `json:"slot_id"`
-	Exists         bool   `json:"exists"`
-	ManifestHash   string `json:"manifest_hash,omitempty"`
-	UpdatedAt      string `json:"updated_at,omitempty"`
-	FileCount      int    `json:"file_count,omitempty"`
-	TotalSize      int64  `json:"total_size,omitempty"`
+	SlotID       string `json:"slot_id"`
+	Exists       bool   `json:"exists"`
+	ManifestHash string `json:"manifest_hash,omitempty"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
+	FileCount    int    `json:"file_count,omitempty"`
+	TotalSize    int64  `json:"total_size,omitempty"`
 }
 
 type SaveSyncConflict struct {
-	SlotID              string `json:"slot_id"`
-	Message             string `json:"message"`
-	RemoteManifestHash  string `json:"remote_manifest_hash"`
-	RemoteUpdatedAt     string `json:"remote_updated_at"`
-	RemoteFileCount     int    `json:"remote_file_count"`
-	RemoteTotalSize     int64  `json:"remote_total_size"`
+	SlotID             string `json:"slot_id"`
+	Message            string `json:"message"`
+	RemoteManifestHash string `json:"remote_manifest_hash"`
+	RemoteUpdatedAt    string `json:"remote_updated_at"`
+	RemoteFileCount    int    `json:"remote_file_count"`
+	RemoteTotalSize    int64  `json:"remote_total_size"`
 }
 
 type SaveSyncPutRequest struct {
 	SaveSyncSlotRef
-	BaseManifestHash string             `json:"base_manifest_hash,omitempty"`
-	Force            bool               `json:"force"`
-	Snapshot         SaveSyncSnapshot   `json:"snapshot"`
+	BaseManifestHash string           `json:"base_manifest_hash,omitempty"`
+	Force            bool             `json:"force"`
+	Snapshot         SaveSyncSnapshot `json:"snapshot"`
 }
 
 type SaveSyncPutResult struct {
-	OK       bool              `json:"ok"`
+	OK       bool                `json:"ok"`
 	Summary  SaveSyncSlotSummary `json:"summary"`
-	Conflict *SaveSyncConflict `json:"conflict,omitempty"`
+	Conflict *SaveSyncConflict   `json:"conflict,omitempty"`
 }
 
 type SaveSyncMigrationScope string
@@ -488,19 +535,19 @@ type SaveSyncMigrationRequest struct {
 }
 
 type SaveSyncMigrationStatus struct {
-	JobID            string                 `json:"job_id"`
-	Status           string                 `json:"status"`
-	Scope            SaveSyncMigrationScope `json:"scope"`
-	SourceIntegrationID string              `json:"source_integration_id"`
-	TargetIntegrationID string              `json:"target_integration_id"`
-	CanonicalGameID   string                `json:"canonical_game_id,omitempty"`
-	StartedAt         string                `json:"started_at,omitempty"`
-	FinishedAt        string                `json:"finished_at,omitempty"`
-	ItemsTotal        int                   `json:"items_total"`
-	ItemsCompleted    int                   `json:"items_completed"`
-	SlotsMigrated     int                   `json:"slots_migrated"`
-	SlotsSkipped      int                   `json:"slots_skipped"`
-	Error             string                `json:"error,omitempty"`
+	JobID               string                 `json:"job_id"`
+	Status              string                 `json:"status"`
+	Scope               SaveSyncMigrationScope `json:"scope"`
+	SourceIntegrationID string                 `json:"source_integration_id"`
+	TargetIntegrationID string                 `json:"target_integration_id"`
+	CanonicalGameID     string                 `json:"canonical_game_id,omitempty"`
+	StartedAt           string                 `json:"started_at,omitempty"`
+	FinishedAt          string                 `json:"finished_at,omitempty"`
+	ItemsTotal          int                    `json:"items_total"`
+	ItemsCompleted      int                    `json:"items_completed"`
+	SlotsMigrated       int                    `json:"slots_migrated"`
+	SlotsSkipped        int                    `json:"slots_skipped"`
+	Error               string                 `json:"error,omitempty"`
 }
 
 // LibraryStats is the JSON body for GET /api/stats.
