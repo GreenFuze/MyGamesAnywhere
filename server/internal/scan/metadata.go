@@ -11,6 +11,7 @@ import (
 )
 
 const metadataGameLookupMethod = "metadata.game.lookup"
+const metadataLookupChunkSize = 10
 
 // MetadataSource identifies a metadata plugin and its config.
 // Sources are ordered by priority: index 0 is highest priority.
@@ -159,43 +160,50 @@ func (r *MetadataResolver) callPluginIdentify(ctx context.Context, integrationID
 		}
 	}
 
-	params := map[string]any{
-		"games":  queries,
-		"config": src.Config,
-	}
-
 	batchSize := len(games)
 	fields := metadataSourceFields(src)
 	fields["phase"] = "identify"
 	fields["batch_size"] = batchSize
 	r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_started", fields)
 
-	var resp metadataLookupResponse
-	if err := r.caller.Call(ctx, src.PluginID, metadataGameLookupMethod, params, &resp); err != nil {
-		r.logger.Error("metadata plugin call failed", fmt.Errorf("%s: %w", src.PluginID, err))
-		fields := metadataSourceFields(src)
-		fields["phase"] = "identify"
-		fields["error"] = err.Error()
-		r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_error", fields)
-		return 0
-	}
-
 	matched := 0
-	for _, m := range resp.Results {
-		if m.Index < 0 || m.Index >= len(games) {
-			continue
+	for chunkStart := 0; chunkStart < len(queries); chunkStart += metadataLookupChunkSize {
+		chunkEnd := chunkStart + metadataLookupChunkSize
+		if chunkEnd > len(queries) {
+			chunkEnd = len(queries)
 		}
-		matched++
-		games[m.Index].ResolverMatches = append(games[m.Index].ResolverMatches, matchToResolver(src.PluginID, m))
-	}
-	for i, query := range queries {
+
+		params := map[string]any{
+			"games":  queries[chunkStart:chunkEnd],
+			"config": src.Config,
+		}
+
+		var resp metadataLookupResponse
+		if err := r.caller.Call(ctx, src.PluginID, metadataGameLookupMethod, params, &resp); err != nil {
+			r.logger.Error("metadata plugin call failed", fmt.Errorf("%s: %w", src.PluginID, err))
+			fields := metadataSourceFields(src)
+			fields["phase"] = "identify"
+			fields["error"] = err.Error()
+			r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_error", fields)
+			return matched
+		}
+
+		for _, m := range resp.Results {
+			if m.Index < 0 || m.Index >= len(games) {
+				continue
+			}
+			matched++
+			games[m.Index].ResolverMatches = append(games[m.Index].ResolverMatches, matchToResolver(src.PluginID, m))
+		}
+
 		fields := metadataSourceFields(src)
 		fields["phase"] = "identify"
-		fields["game_index"] = i + 1
+		fields["game_index"] = chunkEnd
 		fields["game_count"] = batchSize
-		fields["game_title"] = query.Title
+		fields["game_title"] = queries[chunkEnd-1].Title
 		r.emitScanEvent(ctx, integrationID, "scan_metadata_game_progress", fields)
 	}
+
 	fields = metadataSourceFields(src)
 	fields["phase"] = "identify"
 	fields["matched"] = matched
@@ -394,7 +402,6 @@ func (r *MetadataResolver) fill(ctx context.Context, integrationID string, games
 		}
 
 		params := map[string]any{
-			"games":  queries,
 			"config": src.Config,
 		}
 
@@ -404,41 +411,56 @@ func (r *MetadataResolver) fill(ctx context.Context, integrationID string, games
 		fields["batch_size"] = candidates
 		r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_started", fields)
 
-		var resp metadataLookupResponse
-		if err := r.caller.Call(ctx, src.PluginID, metadataGameLookupMethod, params, &resp); err != nil {
-			r.logger.Error("metadata fill call failed", fmt.Errorf("%s: %w", src.PluginID, err))
+		filled := 0
+		callFailed := false
+		for chunkStart := 0; chunkStart < len(queries); chunkStart += metadataLookupChunkSize {
+			chunkEnd := chunkStart + metadataLookupChunkSize
+			if chunkEnd > len(queries) {
+				chunkEnd = len(queries)
+			}
+
+			params["games"] = queries[chunkStart:chunkEnd]
+
+			var resp metadataLookupResponse
+			if err := r.caller.Call(ctx, src.PluginID, metadataGameLookupMethod, params, &resp); err != nil {
+				r.logger.Error("metadata fill call failed", fmt.Errorf("%s: %w", src.PluginID, err))
+				fields := metadataSourceFields(src)
+				fields["phase"] = "fill"
+				fields["error"] = err.Error()
+				r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_error", fields)
+				callFailed = true
+				break
+			}
+
+			for _, m := range resp.Results {
+				if m.Index < chunkStart || m.Index >= chunkEnd {
+					continue
+				}
+				entry := entries[m.Index]
+				g := games[entry.gameIdx]
+				filled++
+
+				g.ResolverMatches = append(g.ResolverMatches, matchToResolver(src.PluginID, m))
+				if m.ExternalID != "" {
+					g.ExternalIDs = append(g.ExternalIDs, core.ExternalID{
+						Source:     src.PluginID,
+						ExternalID: m.ExternalID,
+						URL:        m.URL,
+					})
+				}
+			}
+
 			fields := metadataSourceFields(src)
 			fields["phase"] = "fill"
-			fields["error"] = err.Error()
-			r.emitScanEvent(ctx, integrationID, "scan_metadata_plugin_error", fields)
+			fields["game_index"] = chunkEnd
+			fields["game_count"] = candidates
+			fields["game_title"] = queries[chunkEnd-1].Title
+			r.emitScanEvent(ctx, integrationID, "scan_metadata_game_progress", fields)
+		}
+		if callFailed {
 			continue
 		}
 
-		filled := 0
-		for _, m := range resp.Results {
-			if m.Index < 0 || m.Index >= len(entries) {
-				continue
-			}
-			g := games[entries[m.Index].gameIdx]
-			filled++
-
-			g.ResolverMatches = append(g.ResolverMatches, matchToResolver(src.PluginID, m))
-			if m.ExternalID != "" {
-				g.ExternalIDs = append(g.ExternalIDs, core.ExternalID{
-					Source:     src.PluginID,
-					ExternalID: m.ExternalID,
-					URL:        m.URL,
-				})
-			}
-		}
-		for i, query := range queries {
-			fields := metadataSourceFields(src)
-			fields["phase"] = "fill"
-			fields["game_index"] = i + 1
-			fields["game_count"] = candidates
-			fields["game_title"] = query.Title
-			r.emitScanEvent(ctx, integrationID, "scan_metadata_game_progress", fields)
-		}
 		r.logger.Info("metadata phase 3", "plugin", src.PluginID, "filled", filled, "candidates", len(entries))
 		fields = metadataSourceFields(src)
 		fields["phase"] = "fill"

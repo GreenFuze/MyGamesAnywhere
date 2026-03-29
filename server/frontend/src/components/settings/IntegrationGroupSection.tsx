@@ -34,7 +34,9 @@ interface IntegrationGroupSectionProps {
   onScan?: (id: string) => void;
   onScanGroup?: () => void;
   onRefreshMetadata?: () => void;
-  scanning?: boolean;
+  scanControlsDisabled?: boolean;
+  sourceScanActive?: boolean;
+  metadataRefreshActive?: boolean;
 
   // Sync.
   syncStatus?: SyncStatus;
@@ -74,7 +76,9 @@ export function IntegrationGroupSection({
   onScan,
   onScanGroup,
   onRefreshMetadata,
-  scanning,
+  scanControlsDisabled,
+  sourceScanActive,
+  metadataRefreshActive,
   syncStatus,
   syncState,
   onPush,
@@ -141,10 +145,10 @@ export function IntegrationGroupSection({
               variant="outline"
               size="sm"
               onClick={onScanGroup}
-              disabled={scanning}
+              disabled={scanControlsDisabled}
               className="text-xs"
             >
-              {scanning ? "Scanning..." : "Scan All Sources"}
+              {sourceScanActive ? "Scanning sources..." : "Scan All Sources"}
             </Button>
           )}
           {capability === "metadata" && onRefreshMetadata && (
@@ -152,10 +156,12 @@ export function IntegrationGroupSection({
               variant="outline"
               size="sm"
               onClick={onRefreshMetadata}
-              disabled={scanning}
+              disabled={scanControlsDisabled}
               className="text-xs"
             >
-              {scanning ? "Refreshing..." : "Refresh Metadata"}
+              {metadataRefreshActive
+                ? "Refreshing metadata..."
+                : "Refresh Metadata"}
             </Button>
           )}
           {capability === "save_sync" && saveSyncHeaderControls}
@@ -179,6 +185,9 @@ export function IntegrationGroupSection({
               onDelete={onDelete}
               // Source-specific.
               scanState={scanStateByIntegrationId?.get(integ.id)}
+              scanDisabled={
+                capability === "source" ? scanControlsDisabled : undefined
+              }
               onScan={onScan}
               // Sync-specific.
               syncStatus={capability === "sync" ? syncStatus : undefined}

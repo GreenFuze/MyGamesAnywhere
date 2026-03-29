@@ -539,6 +539,12 @@ func applyScanEvent(record *scanJobRecord, eventType string, payload map[string]
 			integration.Phase = "skipped"
 			integration.Reason = readString(payload["reason"])
 			integration.Error = readString(payload["error"])
+			integration.SourceProgress = nil
+			integration.MetadataPhase = ""
+			integration.MetadataProgress = nil
+			integration.MetadataIntegrationID = ""
+			integration.MetadataLabel = ""
+			integration.MetadataPluginID = ""
 		}
 		markIntegrationComplete(record, integrationID)
 	case "scan_cancel_requested":

@@ -274,6 +274,54 @@ func TestScanJobTracksMetadataProvidersByIntegrationID(t *testing.T) {
 	}
 }
 
+func TestApplyScanEventNoGamesClearsProgress(t *testing.T) {
+	record := &scanJobRecord{
+		status: &core.ScanJobStatus{
+			Integrations: []core.ScanJobIntegrationStatus{{
+				IntegrationID: "steam-source",
+				Label:         "Steam Library",
+				Status:        "running",
+				Phase:         "listing source content",
+				SourceProgress: &core.ScanJobProgress{
+					Current:       0,
+					Unit:          "items",
+					Indeterminate: true,
+				},
+				MetadataPhase: "identify",
+				MetadataProgress: &core.ScanJobProgress{
+					Current: 1,
+					Total:   10,
+					Unit:    "games",
+				},
+			}},
+			CurrentIntegrationID: "steam-source",
+		},
+		completedIntegrations: map[string]bool{},
+	}
+
+	applyScanEvent(record, "scan_integration_skipped", map[string]any{
+		"job_id":         "job-1",
+		"integration_id": "steam-source",
+		"label":          "Steam Library",
+		"plugin_id":      "source-steam",
+		"reason":         "no_games",
+	})
+
+	integration := record.status.Integrations[0]
+	if integration.Status != "skipped" {
+		t.Fatalf("status = %q, want skipped", integration.Status)
+	}
+	if integration.SourceProgress != nil {
+		t.Fatalf("source progress = %+v, want nil", integration.SourceProgress)
+	}
+	if integration.MetadataProgress != nil {
+		t.Fatalf("metadata progress = %+v, want nil", integration.MetadataProgress)
+	}
+	if integration.Reason != "no_games" {
+		t.Fatalf("reason = %q, want no_games", integration.Reason)
+	}
+}
+
 func waitForScanJob(t *testing.T, timeout time.Duration, done func(*core.ScanJobStatus) bool, get func() *core.ScanJobStatus) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

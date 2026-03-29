@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
@@ -565,5 +566,67 @@ func TestEnrich_EmitsMetadataIntegrationIdentity(t *testing.T) {
 				t.Fatalf("%s metadata_label = %v, want Steam Metadata", ev.typ, ev.fields["metadata_label"])
 			}
 		}
+	}
+}
+
+func TestEnrich_ChunksMetadataLookupsAndEmitsChunkProgress(t *testing.T) {
+	callSizes := []int{}
+	progressMarks := []int{}
+
+	caller := &mockCaller{
+		callFn: func(pluginID, method string, params any) (any, error) {
+			b, _ := json.Marshal(params)
+			var p struct {
+				Games []metadataGameQuery `json:"games"`
+			}
+			json.Unmarshal(b, &p)
+			callSizes = append(callSizes, len(p.Games))
+
+			results := make([]metadataMatch, 0, len(p.Games))
+			for _, game := range p.Games {
+				results = append(results, metadataMatch{
+					Index:      game.Index,
+					Title:      game.Title,
+					ExternalID: game.Title,
+				})
+			}
+			return metadataLookupResponse{Results: results}, nil
+		},
+	}
+
+	resolver := NewMetadataResolver(caller, testLogger{})
+	resolver.SetScanEventPublisher(func(_ context.Context, typ string, payload any) {
+		if typ != "scan_metadata_game_progress" {
+			return
+		}
+		fields, _ := payload.(map[string]any)
+		current, _ := fields["game_index"].(int)
+		progressMarks = append(progressMarks, current)
+	})
+
+	games := make([]*core.Game, 23)
+	for i := range games {
+		games[i] = &core.Game{
+			Title:    fmt.Sprintf("Game %d", i+1),
+			RawTitle: fmt.Sprintf("Game %d", i+1),
+			Platform: core.PlatformWindowsPC,
+			Kind:     core.GameKindBaseGame,
+		}
+	}
+
+	sources := []MetadataSource{{PluginID: "plugin-a", Config: map[string]any{}}}
+	resolver.Enrich(context.Background(), "test-integration", games, sources)
+
+	if len(callSizes) != 3 {
+		t.Fatalf("call count = %d, want 3", len(callSizes))
+	}
+	if callSizes[0] != 10 || callSizes[1] != 10 || callSizes[2] != 3 {
+		t.Fatalf("call sizes = %v, want [10 10 3]", callSizes)
+	}
+	if len(progressMarks) != 3 {
+		t.Fatalf("progress events = %d, want 3", len(progressMarks))
+	}
+	if progressMarks[0] != 10 || progressMarks[1] != 20 || progressMarks[2] != 23 {
+		t.Fatalf("progress marks = %v, want [10 20 23]", progressMarks)
 	}
 }

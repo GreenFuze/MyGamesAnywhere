@@ -124,6 +124,38 @@ func buildScanIntegrationPayload(integrations []*core.Integration) []map[string]
 	return out
 }
 
+func pluginProvidesSource(plugin *core.Plugin) bool {
+	if plugin == nil {
+		return false
+	}
+	return pluginProvides(plugin, sourceFilesystemListMethod) || pluginProvides(plugin, sourceGamesListMethod)
+}
+
+func isSourceIntegrationCandidate(discovery PluginDiscovery, integration *core.Integration) bool {
+	if integration == nil {
+		return false
+	}
+	if integration.IntegrationType == "source" {
+		return true
+	}
+	plugin, ok := discovery.GetPlugin(integration.PluginID)
+	return ok && pluginProvidesSource(plugin)
+}
+
+func filterSourceIntegrations(discovery PluginDiscovery, integrations []*core.Integration, filter map[string]bool) []*core.Integration {
+	out := make([]*core.Integration, 0, len(integrations))
+	for _, integ := range integrations {
+		if len(filter) > 0 && !filter[integ.ID] {
+			continue
+		}
+		if !isSourceIntegrationCandidate(discovery, integ) {
+			continue
+		}
+		out = append(out, integ)
+	}
+	return out
+}
+
 // RunScan scans all (or selected) integrations, enriches metadata,
 // persists via GameStore, and returns the canonical game views.
 func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]*core.CanonicalGame, error) {
@@ -139,15 +171,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 	for _, id := range integrationIDs {
 		filter[id] = true
 	}
-	filterActive := len(filter) > 0
-
-	filteredIntegrations := make([]*core.Integration, 0, len(integrations))
-	for _, integ := range integrations {
-		if filterActive && !filter[integ.ID] {
-			continue
-		}
-		filteredIntegrations = append(filteredIntegrations, integ)
-	}
+	filteredIntegrations := filterSourceIntegrations(o.pluginDiscovery, integrations, filter)
 	o.publishEventWithContext(ctx, "scan_started", map[string]any{
 		"integration_count": len(filteredIntegrations),
 		"metadata_only":     false,
@@ -399,6 +423,9 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 	scanStart := time.Now()
 	activeIntegrations := make([]*core.Integration, 0, len(byIntegration))
 	for _, integ := range integrations {
+		if !isSourceIntegrationCandidate(o.pluginDiscovery, integ) {
+			continue
+		}
 		if len(byIntegration[integ.ID]) == 0 {
 			continue
 		}

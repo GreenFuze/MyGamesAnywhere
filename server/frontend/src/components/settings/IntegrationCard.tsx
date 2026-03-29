@@ -48,6 +48,7 @@ interface IntegrationCardProps {
 
   // Source-specific props.
   scanState?: IntegrationScanState;
+  scanDisabled?: boolean;
   onScan?: (id: string) => void;
 
   // Sync-specific props.
@@ -83,6 +84,7 @@ export function IntegrationCard({
   onEdit,
   onDelete,
   scanState,
+  scanDisabled,
   onScan,
   syncStatus,
   syncState,
@@ -277,7 +279,7 @@ export function IntegrationCard({
             variant="outline"
             size="sm"
             onClick={() => onScan(integration.id)}
-            disabled={scanState?.active}
+            disabled={scanDisabled || scanState?.active}
             className="text-xs"
           >
             {scanState?.active ? "Scanning..." : "Scan"}

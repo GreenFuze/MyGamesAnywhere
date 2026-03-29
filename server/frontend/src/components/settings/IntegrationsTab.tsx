@@ -239,6 +239,13 @@ function shouldAppendProgressEvent(current?: number, total?: number) {
   return current % 25 === 0;
 }
 
+function shouldAppendMetadataProgressEvent(current?: number, total?: number) {
+  if (!current || current <= 0) return false;
+  if (!total || total <= 0) return true;
+  if (current === total) return true;
+  return current % 10 === 0;
+}
+
 function formatProgressLabel(
   progress?: ScanJobProgress,
   fallback = "Working...",
@@ -283,7 +290,11 @@ function formatSourceSkipReason(reason?: string) {
 
 function formatSourceDetail(integration: ScanJobIntegrationStatus) {
   if (integration.status === "skipped") {
-    return integration.error || integration.reason || "Skipped for this scan.";
+    const reasonLabel = formatSourceSkipReason(integration.reason);
+    if (integration.error) {
+      return `${reasonLabel}: ${integration.error}`;
+    }
+    return reasonLabel;
   }
   if (integration.metadata_label) {
     const phase = formatMetadataPhase(integration.metadata_phase);
@@ -371,19 +382,24 @@ function sourceCardState(
   integration: ScanJobIntegrationStatus,
 ): IntegrationScanState {
   const badge = sourceBadgePresentation(integration);
+  const showSourceProgress =
+    integration.status !== "skipped" &&
+    integration.status !== "failed" &&
+    integration.status !== "cancelled";
   return {
     active:
       integration.status === "running" || integration.status === "cancelling",
     ...badge,
     detail: formatSourceDetail(integration),
-    progress: integration.source_progress
-      ? {
-          progress: integration.source_progress.current ?? 0,
-          total: integration.source_progress.total ?? 0,
-          indeterminate: integration.source_progress.indeterminate,
-          label: `Source scan: ${formatProgressLabel(integration.source_progress, "Working...")}`,
-        }
-      : undefined,
+    progress:
+      showSourceProgress && integration.source_progress
+        ? {
+            progress: integration.source_progress.current ?? 0,
+            total: integration.source_progress.total ?? 0,
+            indeterminate: integration.source_progress.indeterminate,
+            label: `Source scan: ${formatProgressLabel(integration.source_progress, "Working...")}`,
+          }
+        : undefined,
   };
 }
 
@@ -423,8 +439,8 @@ function metadataCardState(
         badge: "Participating",
         badgeVariant: "muted",
         detail: participation.sourceLabel
-          ? `Queued for ${participation.sourceLabel}`
-          : "Waiting for metadata phase",
+          ? `Selected for ${participation.sourceLabel}`
+          : "Selected for this scan",
       };
     case "completed":
       return {
@@ -523,6 +539,7 @@ export function IntegrationsTab() {
 
   const [scanning, setScanning] = useState(false);
   const [scanJobStatus, setScanJobStatus] = useState("idle");
+  const [scanMetadataOnly, setScanMetadataOnly] = useState(false);
   const [activeScanJobId, setActiveScanJobId] = useState<string | null>(() =>
     readStoredScanJobId(),
   );
@@ -566,16 +583,22 @@ export function IntegrationsTab() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Integration | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Integration | null>(null);
+  const deferredAutoCheckRef = useRef(false);
+  const scanInProgress = scanning || activeScanJobId != null;
+  const sourceScanActive = scanning && !scanMetadataOnly;
+  const metadataRefreshActive = scanning && scanMetadataOnly;
 
   const sourceScanStateByIntegrationId = useMemo(() => {
+    if (!scanning) return new Map<string, IntegrationScanState>();
     const next = new Map<string, IntegrationScanState>();
     for (const integration of scanIntegrations.values()) {
       next.set(integration.integration_id, sourceCardState(integration));
     }
     return next;
-  }, [scanIntegrations]);
+  }, [scanIntegrations, scanning]);
 
   const metadataScanStateByIntegrationId = useMemo(() => {
+    if (!scanning) return new Map<string, IntegrationScanState>();
     const aggregate = new Map<string, MetadataParticipationState>();
 
     for (const sourceIntegration of scanIntegrations.values()) {
@@ -608,7 +631,7 @@ export function IntegrationsTab() {
       next.set(participation.integrationId, metadataCardState(participation));
     }
     return next;
-  }, [scanIntegrations]);
+  }, [scanIntegrations, scanning]);
 
   const appendScanEvent = useCallback((text: string, data?: unknown) => {
     const ts = readTimestamp(data);
@@ -645,6 +668,7 @@ export function IntegrationsTab() {
   const clearScanState = useCallback(() => {
     setScanning(false);
     setScanJobStatus("idle");
+    setScanMetadataOnly(false);
     setCurrentPhase("");
     setScanStatusText("");
     setScanTotalCount(0);
@@ -666,6 +690,7 @@ export function IntegrationsTab() {
       }
 
       setScanJobStatus(job.status);
+      setScanMetadataOnly(job.metadata_only);
       setScanError(job.status === "failed" ? (job.error ?? "Scan failed") : "");
       setCurrentPhase(job.current_phase ?? "");
       setScanTotalCount(job.integration_count);
@@ -834,8 +859,9 @@ export function IntegrationsTab() {
         };
         setScanning(true);
         setScanJobStatus("running");
+        setScanMetadataOnly(Boolean(d.metadata_only));
         setScanError("");
-        setCurrentPhase(d.metadata_only ? "metadata refresh" : "scan started");
+        setCurrentPhase(d.metadata_only ? "metadata refresh" : "source scan");
         setScanStatusText("Starting scan...");
         setScanTotalCount(d.integration_count ?? 0);
         setScanCompletedCount(0);
@@ -1141,7 +1167,7 @@ export function IntegrationsTab() {
             provider.progress = cloneJobProgress(integration.metadata_progress);
           });
         }
-        if (shouldAppendProgressEvent(d.game_index, d.game_count)) {
+        if (shouldAppendMetadataProgressEvent(d.game_index, d.game_count)) {
           appendScanEvent(
             `${providerLabel} ${d.game_index ?? "?"} / ${d.game_count ?? "?"}${d.game_title ? ` - ${d.game_title}` : ""}`,
             data,
@@ -1376,6 +1402,12 @@ export function IntegrationsTab() {
             integration.phase = "skipped";
             integration.reason = d.reason;
             integration.error = d.error;
+            integration.source_progress = undefined;
+            integration.metadata_phase = undefined;
+            integration.metadata_progress = undefined;
+            integration.metadata_integration_id = undefined;
+            integration.metadata_label = undefined;
+            integration.metadata_plugin_id = undefined;
           });
         }
         appendScanEvent(
@@ -1394,6 +1426,7 @@ export function IntegrationsTab() {
         if (!matchesActiveScanEvent(data)) return;
         setScanJobStatus("cancelled");
         setScanning(false);
+        setScanMetadataOnly(false);
         setCurrentPhase("");
         setScanStatusText("");
         persistActiveScanJobId(null);
@@ -1408,6 +1441,7 @@ export function IntegrationsTab() {
         if (!matchesActiveScanEvent(data)) return;
         setScanJobStatus("completed");
         setScanning(false);
+        setScanMetadataOnly(false);
         setCurrentPhase("");
         setScanStatusText("");
         persistActiveScanJobId(null);
@@ -1423,6 +1457,7 @@ export function IntegrationsTab() {
         if (!matchesActiveScanEvent(data)) return;
         const d = data as { integration_id?: string; error?: string };
         setScanJobStatus("failed");
+        setScanMetadataOnly(false);
         setScanError(d.error ?? "Scan failed");
         setScanning(false);
         setScanStatusText("");
@@ -1499,6 +1534,10 @@ export function IntegrationsTab() {
   // ── Handlers: Status ──
 
   const handleCheckAll = useCallback(async () => {
+    if (scanInProgress) {
+      deferredAutoCheckRef.current = true;
+      return;
+    }
     setCheckingAll(true);
     setCheckProgress({ current: 0, total: integrations.length });
     setCheckingIds(new Set(integrations.map((i) => i.id)));
@@ -1515,7 +1554,7 @@ export function IntegrationsTab() {
       setCheckingAll(false);
       setCheckingIds(new Set());
     }
-  }, [integrations]);
+  }, [integrations, scanInProgress]);
 
   const handleCheckOne = useCallback(async (id: string) => {
     setCheckingIds((prev) => new Set([...prev, id]));
@@ -1543,9 +1582,26 @@ export function IntegrationsTab() {
   useEffect(() => {
     if (integrations.length > 0 && !checkedOnceRef.current) {
       checkedOnceRef.current = true;
+      if (scanInProgress) {
+        deferredAutoCheckRef.current = true;
+        return;
+      }
       handleCheckAll();
     }
-  }, [integrations.length, handleCheckAll]);
+  }, [handleCheckAll, integrations.length, scanInProgress]);
+
+  useEffect(() => {
+    if (
+      integrations.length === 0 ||
+      !deferredAutoCheckRef.current ||
+      scanInProgress ||
+      checkingAll
+    ) {
+      return;
+    }
+    deferredAutoCheckRef.current = false;
+    void handleCheckAll();
+  }, [checkingAll, handleCheckAll, integrations.length, scanInProgress]);
 
   // ── Handlers: Scan ──
 
@@ -1841,7 +1897,9 @@ export function IntegrationsTab() {
             variant="outline"
             size="sm"
             onClick={handleCheckAll}
-            disabled={checkingAll || integrations.length === 0}
+            disabled={
+              checkingAll || integrations.length === 0 || scanInProgress
+            }
           >
             <RefreshCw
               size={14}
@@ -1863,6 +1921,11 @@ export function IntegrationsTab() {
           label={`Checking ${checkProgress.current}/${checkProgress.total}`}
         />
       )}
+      {scanInProgress && (
+        <p className="text-xs text-mga-muted">
+          Automatic integration checks are deferred while a scan is active.
+        </p>
+      )}
 
       {/* Library stats summary */}
       {stats && stats.canonical_game_count > 0 && (
@@ -1880,7 +1943,9 @@ export function IntegrationsTab() {
               <p className="text-xs font-medium text-mga-text">
                 {scanJobStatus === "cancelling"
                   ? "Cancelling scan..."
-                  : "Scanning..."}
+                  : scanMetadataOnly
+                    ? "Refreshing metadata..."
+                    : "Scanning sources..."}
                 {scanTotalCount > 0 &&
                   ` (${scanCompletedCount}/${scanTotalCount} integrations)`}
               </p>
@@ -1927,7 +1992,7 @@ export function IntegrationsTab() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-xs font-medium text-mga-text truncate">
-                        {integration.label ?? integration.integration_id}
+                        {`Game source: ${integration.label ?? integration.integration_id}`}
                       </p>
                       {formatSourceDetail(integration) && (
                         <p className="text-[11px] text-mga-muted truncate">
@@ -2090,7 +2155,9 @@ export function IntegrationsTab() {
               onRefreshMetadata={
                 cap === "metadata" ? handleRefreshMetadata : undefined
               }
-              scanning={scanning}
+              scanControlsDisabled={scanInProgress}
+              sourceScanActive={sourceScanActive}
+              metadataRefreshActive={metadataRefreshActive}
               // Sync props.
               syncStatus={syncStatus}
               syncState={syncStateObj}
