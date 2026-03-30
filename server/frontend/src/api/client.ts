@@ -1,3 +1,67 @@
+import type {
+  FrontendConfig,
+  GamePlayDTO,
+  GameFileDTO,
+  IntegrationGameItem,
+  IntegrationStatusEntry,
+  ManualReviewCandidateDetail,
+  ManualReviewCandidateSummary,
+  ManualReviewScope,
+  ManualReviewSearchResponse,
+  ManualReviewSearchResult,
+  ResolverMatchDTO,
+  SaveSyncMigrationRequest,
+  SaveSyncMigrationStatus,
+  SaveSyncPutResult,
+  SaveSyncSlotSummary,
+  SaveSyncSnapshot,
+  ScanJobStatus,
+  ScanReport,
+  SourceGamePlayDTO,
+} from "@/api/generated/contracts";
+
+export type {
+  CollectionSectionConfig,
+  CollectionSectionField,
+  CollectionViewMode,
+  DateFormat,
+  DateTimePrefs,
+  DesktopSidebarPrefs,
+  FrontendConfig,
+  GameLaunchCandidateDTO,
+  GameLaunchSourceDTO,
+  GamePlayDTO,
+  GameFileDTO,
+  IntegrationGameItem,
+  IntegrationStatusEntry,
+  LibraryPrefs,
+  ManualReviewCandidateDetail,
+  ManualReviewCandidateSummary,
+  ManualReviewScope,
+  ManualReviewSearchProviderStatus,
+  ManualReviewSearchResponse,
+  ManualReviewSearchResult,
+  RecentPlayedEntry,
+  ResolverMatchDTO,
+  SaveSyncConflict,
+  SaveSyncMigrationRequest,
+  SaveSyncMigrationScope,
+  SaveSyncMigrationStatus,
+  SaveSyncPutResult,
+  SaveSyncSlotSummary,
+  SaveSyncSnapshot,
+  SaveSyncSnapshotFile,
+  ScanIntegrationResult,
+  ScanJobIntegrationStatus,
+  ScanJobMetadataProviderStatus,
+  ScanJobProgress,
+  ScanJobRecentEvent,
+  ScanJobStatus,
+  ScanReport,
+  SourceGamePlayDTO,
+  TimeFormat,
+} from "@/api/generated/contracts";
+
 /** Same-origin in prod (SPA behind Go); Vite proxy in dev. */
 const base = "";
 
@@ -95,40 +159,6 @@ export type GameSummary = {
   xcloud_url?: string;
 };
 
-export type GameFileDTO = {
-  id: string;
-  path: string;
-  role: string;
-  file_kind?: string;
-  size: number;
-};
-
-export type SourceGamePlayDTO = {
-  launchable: boolean;
-  root_file_id?: string;
-};
-
-export type GameLaunchSourceDTO = {
-  source_game_id: string;
-  launchable: boolean;
-  root_file_id?: string;
-};
-
-export type GameLaunchCandidateDTO = {
-  source_game_id: string;
-  file_id: string;
-  path: string;
-  file_kind?: string;
-  size: number;
-};
-
-export type GamePlayDTO = {
-  available: boolean;
-  platform_supported: boolean;
-  launch_sources?: GameLaunchSourceDTO[];
-  launch_candidates?: GameLaunchCandidateDTO[];
-};
-
 export type ExternalIDDTO = {
   source: string;
   external_id: string;
@@ -145,30 +175,6 @@ export type GameMediaDetailDTO = {
   local_path?: string;
   hash?: string;
   mime_type?: string;
-};
-
-export type ResolverMatchDTO = {
-  plugin_id: string;
-  title?: string;
-  platform?: string;
-  kind?: string;
-  parent_game_id?: string;
-  external_id: string;
-  url?: string;
-  outvoted?: boolean;
-  manual_selection?: boolean;
-  description?: string;
-  release_date?: string;
-  genres?: string[];
-  developer?: string;
-  publisher?: string;
-  rating?: number;
-  max_players?: number;
-  is_game_pass?: boolean;
-  xcloud_available?: boolean;
-  store_product_id?: string;
-  xcloud_url?: string;
-  metadata_json?: string;
 };
 
 export type SourceGameDetailDTO = {
@@ -195,39 +201,6 @@ export type CompletionTime = {
   main_extra?: number;
   completionist?: number;
   source?: string;
-};
-
-export type CollectionViewMode = "shelf" | "grid" | "list";
-
-export type CollectionSectionField =
-  | "platform"
-  | "genre"
-  | "developer"
-  | "publisher"
-  | "source"
-  | "year";
-
-export type CollectionSectionConfig =
-  | {
-      id: string;
-      kind: "all";
-      label: string;
-    }
-  | {
-      id: string;
-      kind: "group";
-      field: CollectionSectionField;
-      value: string;
-      label: string;
-    };
-
-/** Persisted library view preferences (stored in /api/config/frontend). */
-export type LibraryPrefs = {
-  viewMode: CollectionViewMode;
-  sortBy: "title" | "release_date" | "platform" | "rating";
-  sortDir: "asc" | "desc";
-  sections: CollectionSectionConfig[];
-  expandedSectionId: string | null;
 };
 
 /** Full row (GET /api/games/{id}/detail and each item in GET /api/games). */
@@ -326,8 +299,6 @@ export async function getGameAchievements(
   );
 }
 
-export type FrontendConfig = Record<string, unknown>;
-
 export async function getFrontendConfig(): Promise<FrontendConfig> {
   return getJson<FrontendConfig>("/api/config/frontend");
 }
@@ -348,14 +319,6 @@ export type Integration = {
   updated_at: string;
 };
 
-export type IntegrationStatusEntry = {
-  integration_id: string;
-  plugin_id: string;
-  label: string;
-  status: "ok" | "error" | "unavailable";
-  message: string;
-};
-
 export type PluginInfo = {
   plugin_id: string;
   plugin_version: string;
@@ -369,69 +332,6 @@ export type ScanResult = {
   games: GameSummary[];
 };
 
-export type ScanJobProgress = {
-  current: number;
-  total?: number;
-  unit?: string;
-  indeterminate?: boolean;
-};
-
-export type ScanJobMetadataProviderStatus = {
-  integration_id: string;
-  label?: string;
-  plugin_id?: string;
-  status: string;
-  phase?: string;
-  progress?: ScanJobProgress;
-  reason?: string;
-  error?: string;
-};
-
-export type ScanJobIntegrationStatus = {
-  integration_id: string;
-  label?: string;
-  plugin_id?: string;
-  status: string;
-  phase?: string;
-  games_found?: number;
-  source_progress?: ScanJobProgress;
-  metadata_phase?: string;
-  metadata_integration_id?: string;
-  metadata_label?: string;
-  metadata_plugin_id?: string;
-  metadata_progress?: ScanJobProgress;
-  metadata_providers?: ScanJobMetadataProviderStatus[];
-  reason?: string;
-  error?: string;
-};
-
-export type ScanJobRecentEvent = {
-  type: string;
-  ts?: string;
-  message?: string;
-  integration_id?: string;
-  label?: string;
-  data?: Record<string, unknown>;
-};
-
-export type ScanJobStatus = {
-  job_id: string;
-  status: string;
-  metadata_only: boolean;
-  integration_ids: string[];
-  started_at?: string;
-  finished_at?: string;
-  integration_count: number;
-  integrations_completed: number;
-  current_phase?: string;
-  current_integration_id?: string;
-  current_integration_label?: string;
-  integrations?: ScanJobIntegrationStatus[];
-  recent_events?: ScanJobRecentEvent[];
-  report_id?: string;
-  error?: string;
-};
-
 export type TriggerScanResult = {
   accepted: boolean;
   job: ScanJobStatus;
@@ -442,104 +342,11 @@ export type CancelScanResult = {
   job: ScanJobStatus;
 };
 
-export type ScanIntegrationResult = {
-  integration_id: string;
-  label: string;
-  plugin_id: string;
-  games_found: number;
-  games_added: number;
-  games_removed: number;
-  error?: string;
-};
-
-export type ScanReport = {
-  id: string;
-  started_at: string;
-  finished_at: string;
-  duration_ms: number;
-  metadata_only: boolean;
-  integration_ids: string[];
-  games_added: number;
-  games_removed: number;
-  games_updated: number;
-  total_games: number;
-  integration_results: ScanIntegrationResult[];
-};
-
 export type SyncStatus = {
   configured: boolean;
   has_stored_key: boolean;
   last_push?: string;
   last_pull?: string;
-};
-
-export type SaveSyncSnapshotFile = {
-  path: string;
-  size: number;
-  hash: string;
-};
-
-export type SaveSyncSnapshot = {
-  manifest_hash?: string;
-  canonical_game_id: string;
-  source_game_id: string;
-  runtime: string;
-  slot_id: string;
-  updated_at?: string;
-  total_size?: number;
-  file_count?: number;
-  files: SaveSyncSnapshotFile[];
-  archive_base64?: string;
-};
-
-export type SaveSyncSlotSummary = {
-  slot_id: string;
-  exists: boolean;
-  manifest_hash?: string;
-  updated_at?: string;
-  file_count?: number;
-  total_size?: number;
-};
-
-export type SaveSyncConflict = {
-  slot_id: string;
-  message: string;
-  remote_manifest_hash: string;
-  remote_updated_at: string;
-  remote_file_count: number;
-  remote_total_size: number;
-};
-
-export type SaveSyncPutResult = {
-  ok: boolean;
-  summary: SaveSyncSlotSummary;
-  conflict?: SaveSyncConflict;
-};
-
-export type SaveSyncMigrationScope = "all" | "game";
-
-export type SaveSyncMigrationRequest = {
-  source_integration_id: string;
-  target_integration_id: string;
-  scope: SaveSyncMigrationScope;
-  canonical_game_id?: string;
-  delete_source_after_success: boolean;
-};
-
-export type SaveSyncMigrationStatus = {
-  job_id: string;
-  status: string;
-  scope: SaveSyncMigrationScope;
-  source_integration_id: string;
-  target_integration_id: string;
-  canonical_game_id?: string;
-  started_at?: string;
-  finished_at?: string;
-  items_total: number;
-  items_completed: number;
-  slots_migrated: number;
-  slots_skipped: number;
-  error?: string;
 };
 
 export type PushResult = {
@@ -590,78 +397,6 @@ export type AboutInfo = {
   build_date: string;
   author_credits: string[];
 };
-
-export type IntegrationGameItem = {
-  id: string;
-  title: string;
-  platform: string;
-};
-
-export type ManualReviewCandidateSummary = {
-  id: string;
-  canonical_game_id?: string;
-  current_title: string;
-  raw_title: string;
-  platform: string;
-  kind: string;
-  group_kind?: string;
-  integration_id: string;
-  integration_label?: string;
-  plugin_id: string;
-  external_id: string;
-  root_path?: string;
-  status: string;
-  review_state: "pending" | "matched" | "not_a_game";
-  file_count: number;
-  resolver_match_count: number;
-  review_reasons: string[];
-  created_at: string;
-  last_seen_at?: string;
-};
-
-export type ManualReviewCandidateDetail = ManualReviewCandidateSummary & {
-  url?: string;
-  files: GameFileDTO[];
-  resolver_matches: ResolverMatchDTO[];
-};
-
-export type ManualReviewSearchProviderStatus = {
-  integration_id: string;
-  integration_label?: string;
-  plugin_id: string;
-  status: "success" | "no_results" | "error";
-  error?: string;
-  result_count: number;
-};
-
-export type ManualReviewSearchResult = {
-  provider_integration_id: string;
-  provider_label?: string;
-  provider_plugin_id: string;
-  title: string;
-  platform?: string;
-  kind?: string;
-  parent_game_id?: string;
-  external_id: string;
-  url?: string;
-  description?: string;
-  release_date?: string;
-  genres?: string[];
-  developer?: string;
-  publisher?: string;
-  rating?: number;
-  max_players?: number;
-  image_url?: string;
-};
-
-export type ManualReviewSearchResponse = {
-  candidate_id: string;
-  query: string;
-  providers: ManualReviewSearchProviderStatus[];
-  results: ManualReviewSearchResult[];
-};
-
-export type ManualReviewScope = "active" | "archive";
 
 // ─── Admin / Settings API functions ─────────────────────────────────
 

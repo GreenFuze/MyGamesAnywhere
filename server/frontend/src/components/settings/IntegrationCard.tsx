@@ -230,7 +230,14 @@ export function IntegrationCard({
       )}
 
       {/* Status message (error or success) */}
-      {status?.message && status.status !== "ok" && (
+      {status?.message && status.status === "oauth_required" && (
+        <p className="text-xs text-amber-300 truncate" title={status.message}>
+          {status.message}
+        </p>
+      )}
+      {status?.message &&
+        status.status !== "ok" &&
+        status.status !== "oauth_required" && (
         <p className="text-xs text-red-400 truncate" title={status.message}>
           {status.message}
         </p>

@@ -193,11 +193,9 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
   },
   {
     id: 'gba',
-    label: 'Game Boy Advance',
-    iconPath: '/brands/gba.svg',
-    description: 'Platform mark used for GBA titles.',
-    creditNote: 'Icon sourced from Wikimedia.',
-    tempResourceName: 'Game_Boy_Advance_logo-from-wikimedia-org.svg',
+    label: 'GBA',
+    description: 'Platform mark rendered in-app as a compact text badge until a proper square logo is added.',
+    creditNote: 'Wide wordmark removed from shipped icon credits; the UI now renders a compact in-app badge instead.',
   },
   {
     id: 'arcade',

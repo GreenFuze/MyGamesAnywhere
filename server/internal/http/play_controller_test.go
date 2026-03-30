@@ -1,6 +1,8 @@
 package http
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +13,26 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/go-chi/chi/v5"
 )
+
+type fakePlayIntegrationRepo struct {
+	byID map[string]*core.Integration
+}
+
+func (f *fakePlayIntegrationRepo) Create(context.Context, *core.Integration) error { return nil }
+func (f *fakePlayIntegrationRepo) Update(context.Context, *core.Integration) error { return nil }
+func (f *fakePlayIntegrationRepo) Delete(context.Context, string) error            { return nil }
+func (f *fakePlayIntegrationRepo) List(context.Context) ([]*core.Integration, error) {
+	return nil, nil
+}
+func (f *fakePlayIntegrationRepo) GetByID(_ context.Context, id string) (*core.Integration, error) {
+	if f == nil || f.byID == nil {
+		return nil, nil
+	}
+	return f.byID[id], nil
+}
+func (f *fakePlayIntegrationRepo) ListByPluginID(context.Context, string) ([]*core.Integration, error) {
+	return nil, nil
+}
 
 func TestCanonicalToGameDetailIncludesPlayMetadataAndFileIDs(t *testing.T) {
 	game := &core.CanonicalGame{
@@ -121,7 +143,7 @@ func TestGameControllerServePlayFileSupportsRange(t *testing.T) {
 			},
 		},
 	}
-	ctrl := NewGameController(store, noopLogger{})
+	ctrl := NewGameController(store, nil, noopLogger{})
 	r := chi.NewRouter()
 	r.Get("/api/games/{id}/play", ctrl.ServePlayFile)
 
@@ -140,7 +162,7 @@ func TestGameControllerServePlayFileSupportsRange(t *testing.T) {
 }
 
 func TestGameControllerServePlayFileRejectsInvalidFileID(t *testing.T) {
-	ctrl := NewGameController(&fakeGameStore{}, noopLogger{})
+	ctrl := NewGameController(&fakeGameStore{}, nil, noopLogger{})
 	r := chi.NewRouter()
 	r.Get("/api/games/{id}/play", ctrl.ServePlayFile)
 
@@ -173,7 +195,7 @@ func TestGameControllerServePlayFileRejectsUnknownOwnedFile(t *testing.T) {
 			},
 		},
 	}
-	ctrl := NewGameController(store, noopLogger{})
+	ctrl := NewGameController(store, nil, noopLogger{})
 	r := chi.NewRouter()
 	r.Get("/api/games/{id}/play", ctrl.ServePlayFile)
 
@@ -207,7 +229,7 @@ func TestGameControllerServePlayFileRejectsTraversal(t *testing.T) {
 			},
 		},
 	}
-	ctrl := NewGameController(store, noopLogger{})
+	ctrl := NewGameController(store, nil, noopLogger{})
 	r := chi.NewRouter()
 	r.Get("/api/games/{id}/play", ctrl.ServePlayFile)
 
@@ -218,5 +240,55 @@ func TestGameControllerServePlayFileRejectsTraversal(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d (%s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestResolveSMBSharePathUsesIntegrationBasePath(t *testing.T) {
+	got, err := resolveSMBSharePath("", "Mame/megaman.zip")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "Mame/megaman.zip" {
+		t.Fatalf("got %q, want %q", got, "Mame/megaman.zip")
+	}
+
+	got, err = resolveSMBSharePath("Retro", "Roms/MS DOS/bonus/BON.EXE")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "Retro/Roms/MS DOS/bonus/BON.EXE" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestGameControllerOpenSMBPlayFileRejectsInvalidConfig(t *testing.T) {
+	cfg, err := json.Marshal(map[string]any{
+		"host": "TV2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctrl := NewGameController(
+		&fakeGameStore{},
+		&fakePlayIntegrationRepo{
+			byID: map[string]*core.Integration{
+				"integ-1": {
+					ID:         "integ-1",
+					PluginID:   "game-source-smb",
+					ConfigJSON: string(cfg),
+				},
+			},
+		},
+		noopLogger{},
+	)
+
+	_, _, err = ctrl.openSMBPlayFile(context.Background(), &core.SourceGame{
+		ID:            "source-1",
+		IntegrationID: "integ-1",
+		PluginID:      "game-source-smb",
+	}, &core.GameFile{Path: "Mame/megaman.zip"})
+	if err == nil {
+		t.Fatal("expected invalid smb config error")
 	}
 }

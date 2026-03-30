@@ -56,7 +56,7 @@ func main() {
 	orchestrator.SetEventBus(eventBus)
 	manualReviewSvc := scan.NewManualReviewService(pluginHost, pluginHost, integrationRepo, gameStore, logSvc)
 
-	gameCtrl := http.NewGameController(gameStore, logSvc)
+	gameCtrl := http.NewGameController(gameStore, integrationRepo, logSvc)
 	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc)
 	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc, eventBus)
 	aboutCtrl := http.NewAboutController(logSvc)

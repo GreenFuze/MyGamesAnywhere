@@ -54,6 +54,7 @@ export function GameCard({ game }: GameCardProps) {
           src={coverUrl}
           alt={game.title}
           fit="contain"
+          variant="card"
           className="aspect-[2/3] w-full"
         />
 

@@ -29,6 +29,7 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 	if err := batch.Validate(); err != nil {
 		return fmt.Errorf("invalid scan batch: %w", err)
 	}
+	batch = s.normalizeDuplicateSourceGames(batch)
 
 	db := s.db.GetDB()
 	tx, err := db.BeginTx(ctx, nil)
@@ -45,25 +46,42 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 		return fmt.Errorf("load existing: %w", err)
 	}
 	existingByID := make(map[string]existingSourceGame, len(existing))
+	existingByNaturalKey := make(map[string]existingSourceGame, len(existing))
 	for _, item := range existing {
 		existingByID[item.ID] = item
+		existingByNaturalKey[sourceGameNaturalKey(item.PluginID, item.ExternalID)] = item
 	}
 
 	seenIDs := make(map[string]bool, len(batch.SourceGames))
 	sourceGamesByID := make(map[string]*core.SourceGame, len(batch.SourceGames))
+	persistedSourceIDs := make(map[string]string, len(batch.SourceGames))
 
 	// 2. Upsert source games.
 	for _, sg := range batch.SourceGames {
-		seenIDs[sg.ID] = true
-		sourceGamesByID[sg.ID] = sg
+		batchSourceID := sg.ID
+		naturalKey := sourceGameNaturalKey(sg.PluginID, sg.ExternalID)
+
+		persistedID := batchSourceID
+		existingRecord := existingByID[batchSourceID]
+		if item, ok := existingByNaturalKey[naturalKey]; ok {
+			persistedID = item.ID
+			existingRecord = item
+		}
+
+		persistedSG := *sg
+		persistedSG.ID = persistedID
+
+		seenIDs[persistedID] = true
+		persistedSourceIDs[batchSourceID] = persistedID
+		sourceGamesByID[persistedID] = &persistedSG
 
 		// Detect move: same integration, a not_found game shares the same raw_title+platform.
 		if sg.RootPath != "" {
 			for _, ex := range existing {
 				if ex.Status == "not_found" && ex.RawTitle == sg.RawTitle &&
-					ex.Platform == string(sg.Platform) && ex.ID != sg.ID {
+					ex.Platform == string(sg.Platform) && ex.ID != persistedID {
 					s.logger.Info("detected game move",
-						"old_id", ex.ID, "new_id", sg.ID,
+						"old_id", ex.ID, "new_id", persistedID,
 						"old_path", ex.RootPath, "new_path", sg.RootPath)
 					// Soft-delete the old record and continue with the new one.
 					tx.ExecContext(ctx, `UPDATE source_games SET status='replaced' WHERE id=?`, ex.ID)
@@ -77,9 +95,9 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 		} else {
 			lastSeen = now
 		}
-		finalReviewState, finalManualReviewJSON, err := resolveManualReviewPersistence(sg, existingByID[sg.ID])
+		finalReviewState, finalManualReviewJSON, err := resolveManualReviewPersistence(&persistedSG, existingRecord)
 		if err != nil {
-			return fmt.Errorf("resolve manual review persistence for %s: %w", sg.ID, err)
+			return fmt.Errorf("resolve manual review persistence for %s: %w", persistedID, err)
 		}
 
 		_, err = tx.ExecContext(ctx, `INSERT INTO source_games
@@ -96,16 +114,16 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 				review_state = excluded.review_state,
 				manual_review_json = excluded.manual_review_json,
 				last_seen_at = excluded.last_seen_at`,
-			sg.ID, sg.IntegrationID, sg.PluginID, sg.ExternalID,
+			persistedID, sg.IntegrationID, sg.PluginID, sg.ExternalID,
 			sg.RawTitle, string(sg.Platform), string(sg.Kind), string(sg.GroupKind),
 			nullEmpty(sg.RootPath), nullEmpty(sg.URL), string(finalReviewState), nullEmpty(finalManualReviewJSON), lastSeen, now)
 		if err != nil {
-			return fmt.Errorf("upsert source game %s: %w", sg.ID, err)
+			return fmt.Errorf("upsert source game %s: %w", persistedID, err)
 		}
 
 		// 3. Replace files for this source game.
-		if _, err := tx.ExecContext(ctx, `DELETE FROM game_files WHERE source_game_id=?`, sg.ID); err != nil {
-			return fmt.Errorf("delete files for %s: %w", sg.ID, err)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM game_files WHERE source_game_id=?`, persistedID); err != nil {
+			return fmt.Errorf("delete files for %s: %w", persistedID, err)
 		}
 		for _, f := range sg.Files {
 			isDir := 0
@@ -115,25 +133,26 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 			_, err := tx.ExecContext(ctx, `INSERT INTO game_files
 				(source_game_id, path, file_name, role, file_kind, size, is_dir)
 				VALUES (?, ?, ?, ?, ?, ?, ?)`,
-				sg.ID, f.Path, f.FileName, string(f.Role), nullEmpty(f.FileKind), f.Size, isDir)
+				persistedID, f.Path, f.FileName, string(f.Role), nullEmpty(f.FileKind), f.Size, isDir)
 			if err != nil {
-				return fmt.Errorf("insert file for %s: %w", sg.ID, err)
+				return fmt.Errorf("insert file for %s: %w", persistedID, err)
 			}
 		}
 	}
 
 	// 4. Insert resolver matches.
-	for sgID, matches := range batch.ResolverMatches {
-		if !seenIDs[sgID] {
+	for batchSourceID, matches := range batch.ResolverMatches {
+		persistedID := persistedSourceIDs[batchSourceID]
+		if persistedID == "" || !seenIDs[persistedID] {
 			continue
 		}
-		processedMatches, err := applyPersistedManualReview(sourceGamesByID[sgID], matches, existingByID[sgID])
+		processedMatches, err := applyPersistedManualReview(sourceGamesByID[persistedID], matches, existingByID[persistedID])
 		if err != nil {
-			return fmt.Errorf("apply manual review for %s: %w", sgID, err)
+			return fmt.Errorf("apply manual review for %s: %w", persistedID, err)
 		}
 		// Clear old matches for this source game.
-		if _, err := tx.ExecContext(ctx, `DELETE FROM metadata_resolver_matches WHERE source_game_id=?`, sgID); err != nil {
-			return fmt.Errorf("delete matches for %s: %w", sgID, err)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM metadata_resolver_matches WHERE source_game_id=?`, persistedID); err != nil {
+			return fmt.Errorf("delete matches for %s: %w", persistedID, err)
 		}
 		for _, m := range processedMatches {
 			metaJSON, _ := buildMetadataJSON(m)
@@ -141,24 +160,25 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 				(source_game_id, plugin_id, external_id, title, platform, url, outvoted, manual_selection,
 				 developer, publisher, release_date, rating, metadata_json, created_at)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				sgID, m.PluginID, m.ExternalID,
+				persistedID, m.PluginID, m.ExternalID,
 				nullEmpty(m.Title), nullEmpty(m.Platform), nullEmpty(m.URL),
 				boolToInt(m.Outvoted), boolToInt(m.ManualSelection),
 				nullEmpty(m.Developer), nullEmpty(m.Publisher), nullEmpty(m.ReleaseDate),
 				m.Rating, nullEmpty(metaJSON), now)
 			if err != nil {
-				return fmt.Errorf("insert match for %s/%s: %w", sgID, m.PluginID, err)
+				return fmt.Errorf("insert match for %s/%s: %w", persistedID, m.PluginID, err)
 			}
 		}
 	}
 
 	// 5. Upsert media assets + link to source games.
-	for sgID, refs := range batch.MediaItems {
-		if !seenIDs[sgID] {
+	for batchSourceID, refs := range batch.MediaItems {
+		persistedID := persistedSourceIDs[batchSourceID]
+		if persistedID == "" || !seenIDs[persistedID] {
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM source_game_media WHERE source_game_id=?`, sgID); err != nil {
-			return fmt.Errorf("delete media links for %s: %w", sgID, err)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM source_game_media WHERE source_game_id=?`, persistedID); err != nil {
+			return fmt.Errorf("delete media links for %s: %w", persistedID, err)
 		}
 		for _, ref := range refs {
 			if ref.URL == "" {
@@ -184,9 +204,9 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 
 			_, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO source_game_media
 				(source_game_id, media_asset_id, type, source) VALUES (?, ?, ?, ?)`,
-				sgID, assetID, string(ref.Type), nullEmpty(ref.Source))
+				persistedID, assetID, string(ref.Type), nullEmpty(ref.Source))
 			if err != nil {
-				return fmt.Errorf("link media for %s: %w", sgID, err)
+				return fmt.Errorf("link media for %s: %w", persistedID, err)
 			}
 		}
 	}
@@ -1322,6 +1342,8 @@ func scanGroupCounts(ctx context.Context, db *sql.DB, query string, dest map[str
 
 type existingSourceGame struct {
 	ID               string
+	PluginID         string
+	ExternalID       string
 	RawTitle         string
 	Platform         string
 	RootPath         string
@@ -1473,9 +1495,67 @@ func normalizeManualReviewConsensusKey(title string) string {
 	return strings.Join(strings.Fields(title), " ")
 }
 
+func sourceGameNaturalKey(pluginID, externalID string) string {
+	return pluginID + "\x00" + externalID
+}
+
+func (s *gameStore) normalizeDuplicateSourceGames(batch *core.ScanBatch) *core.ScanBatch {
+	if batch == nil || len(batch.SourceGames) < 2 {
+		return batch
+	}
+
+	orderedKeys := make([]string, 0, len(batch.SourceGames))
+	latestByNaturalKey := make(map[string]*core.SourceGame, len(batch.SourceGames))
+
+	for _, sg := range batch.SourceGames {
+		naturalKey := sourceGameNaturalKey(sg.PluginID, sg.ExternalID)
+		if prev, ok := latestByNaturalKey[naturalKey]; ok && prev.ID != sg.ID {
+			s.logger.Warn(
+				"duplicate source game in scan batch; later entry overwriting earlier entry",
+				"integration_id", batch.IntegrationID,
+				"plugin_id", sg.PluginID,
+				"external_id", sg.ExternalID,
+				"discarded_id", prev.ID,
+				"discarded_title", prev.RawTitle,
+				"kept_id", sg.ID,
+				"kept_title", sg.RawTitle,
+			)
+		} else if !ok {
+			orderedKeys = append(orderedKeys, naturalKey)
+		}
+		latestByNaturalKey[naturalKey] = sg
+	}
+
+	if len(orderedKeys) == len(batch.SourceGames) {
+		return batch
+	}
+
+	dedupedSourceGames := make([]*core.SourceGame, 0, len(orderedKeys))
+	dedupedResolverMatches := make(map[string][]core.ResolverMatch, len(orderedKeys))
+	dedupedMediaItems := make(map[string][]core.MediaRef, len(orderedKeys))
+
+	for _, naturalKey := range orderedKeys {
+		sg := latestByNaturalKey[naturalKey]
+		dedupedSourceGames = append(dedupedSourceGames, sg)
+		if matches, ok := batch.ResolverMatches[sg.ID]; ok {
+			dedupedResolverMatches[sg.ID] = matches
+		}
+		if refs, ok := batch.MediaItems[sg.ID]; ok {
+			dedupedMediaItems[sg.ID] = refs
+		}
+	}
+
+	return &core.ScanBatch{
+		IntegrationID:   batch.IntegrationID,
+		SourceGames:     dedupedSourceGames,
+		ResolverMatches: dedupedResolverMatches,
+		MediaItems:      dedupedMediaItems,
+	}
+}
+
 func (s *gameStore) loadExistingSourceGames(ctx context.Context, tx *sql.Tx, integrationID string) ([]existingSourceGame, error) {
 	rows, err := tx.QueryContext(ctx,
-		`SELECT id, raw_title, platform, COALESCE(root_path,''), status, COALESCE(review_state, 'pending'), COALESCE(manual_review_json, '')
+		`SELECT id, plugin_id, external_id, raw_title, platform, COALESCE(root_path,''), status, COALESCE(review_state, 'pending'), COALESCE(manual_review_json, '')
 		 FROM source_games WHERE integration_id=?`, integrationID)
 	if err != nil {
 		return nil, err
@@ -1485,7 +1565,7 @@ func (s *gameStore) loadExistingSourceGames(ctx context.Context, tx *sql.Tx, int
 	var out []existingSourceGame
 	for rows.Next() {
 		var e existingSourceGame
-		if err := rows.Scan(&e.ID, &e.RawTitle, &e.Platform, &e.RootPath, &e.Status, (*string)(&e.ReviewState), &e.ManualReviewJSON); err != nil {
+		if err := rows.Scan(&e.ID, &e.PluginID, &e.ExternalID, &e.RawTitle, &e.Platform, &e.RootPath, &e.Status, (*string)(&e.ReviewState), &e.ManualReviewJSON); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

@@ -157,6 +157,62 @@ func TestMatchGame_TitleBasedLookup(t *testing.T) {
 	}
 }
 
+func TestMatchGame_UsesExpandedPlatformMappings(t *testing.T) {
+	idx := &launchBoxIndex{
+		files: map[string]*fileEntry{},
+		games: map[string]*gameEntry{
+			"nintendo entertainment system\tsuper mario bros": {DatabaseID: 1985, Name: "Super Mario Bros", Platform: "Nintendo Entertainment System"},
+			"sega genesis\tsonic the hedgehog":                {DatabaseID: 1991, Name: "Sonic the Hedgehog", Platform: "Sega Genesis"},
+		},
+		images: map[int][]gameImage{},
+	}
+
+	nes := matchGame(idx, gameQuery{Index: 0, Title: "Super Mario Bros", Platform: "nes"})
+	if nes == nil || nes.ExternalID != "1985" {
+		t.Fatalf("nes mapping failed: %+v", nes)
+	}
+
+	genesis := matchGame(idx, gameQuery{Index: 0, Title: "Sonic the Hedgehog", Platform: "genesis"})
+	if genesis == nil || genesis.ExternalID != "1991" {
+		t.Fatalf("genesis mapping failed: %+v", genesis)
+	}
+}
+
+func TestMatchGame_UnknownInstallerFallsBackToWindows(t *testing.T) {
+	idx := &launchBoxIndex{
+		files: map[string]*fileEntry{},
+		games: map[string]*gameEntry{
+			"windows\tplasma pong": {DatabaseID: 157048, Name: "Plasma Pong", Platform: "Windows"},
+		},
+		normalized: map[string]*gameEntry{
+			"windows\ti am fish": {DatabaseID: 204964, Name: "I Am Fish", Platform: "Windows"},
+		},
+		images: map[int][]gameImage{},
+	}
+
+	plasma := matchGame(idx, gameQuery{
+		Index:     0,
+		Title:     "plasma pong",
+		Platform:  "unknown",
+		RootPath:  "Installers",
+		GroupKind: "packed",
+	})
+	if plasma == nil || plasma.ExternalID != "157048" {
+		t.Fatalf("expected Windows fallback for Plasma Pong, got %+v", plasma)
+	}
+
+	fish := matchGame(idx, gameQuery{
+		Index:     1,
+		Title:     "i_am_fish",
+		Platform:  "unknown",
+		RootPath:  "Installers",
+		GroupKind: "packed",
+	})
+	if fish == nil || fish.ExternalID != "204964" {
+		t.Fatalf("expected normalized Windows fallback for I Am Fish, got %+v", fish)
+	}
+}
+
 func TestMatchGame_NoMatch(t *testing.T) {
 	idx := &launchBoxIndex{
 		files:  map[string]*fileEntry{},
@@ -200,10 +256,10 @@ func TestTitleVariations(t *testing.T) {
 
 func TestMatchGame_NumeralVariation(t *testing.T) {
 	idx := &launchBoxIndex{
-		files:      map[string]*fileEntry{},
-		games:      map[string]*gameEntry{},
+		files: map[string]*fileEntry{},
+		games: map[string]*gameEntry{},
 		normalized: map[string]*gameEntry{
-			"scummvm\tinca ii": {DatabaseID: 999, Name: "Inca II", Platform: "ScummVM"},
+			"scummvm\tinca ii":  {DatabaseID: 999, Name: "Inca II", Platform: "ScummVM"},
 			"ms-dos\tdiscworld": {DatabaseID: 888, Name: "Discworld", Platform: "MS-DOS"},
 		},
 		byPlatform: map[string][]tokenedGame{},
@@ -310,13 +366,13 @@ func TestTV2GamesCoverage(t *testing.T) {
 	var candidates []gameCandidate
 
 	platformDirMap := map[string]string{
-		"MS DOS":                "ms_dos",
+		"MS DOS":                     "ms_dos",
 		"Nintendo Game Boy Advanced": "gba",
-		"Playstation":           "ps1",
-		"Playstation 2":         "ps2",
-		"Playstation 3":         "ps3",
-		"Playstation Portable":  "psp",
-		"XBox 360":              "xbox_360",
+		"Playstation":                "ps1",
+		"Playstation 2":              "ps2",
+		"Playstation 3":              "ps3",
+		"Playstation Portable":       "psp",
+		"XBox 360":                   "xbox_360",
 	}
 
 	seenDirs := map[string]bool{}

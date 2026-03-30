@@ -3,9 +3,11 @@ import {
   ChevronDown,
   ChevronRight,
   PlayCircle,
+  X,
 } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
+  type DesktopSidebarPrefs,
   getFrontendConfig,
   setFrontendConfig,
   type FrontendConfig,
@@ -29,10 +31,6 @@ type SidebarGroup = {
   platform: string
   label: string
   games: GameDetailResponse[]
-}
-
-type DesktopSidebarPrefs = {
-  collapsedPlatforms: Record<string, boolean>
 }
 
 const SIDEBAR_STORAGE_KEY = 'mga.desktopSidebarPrefs'
@@ -86,7 +84,7 @@ export function AppSidebar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { data: allGames = [] } = useLibraryData()
-  const { recentPlayed } = useRecentPlayed()
+  const { recentPlayed, removeRecentPlayed } = useRecentPlayed()
   const [sidebarPrefs, setSidebarPrefsState] = useState<DesktopSidebarPrefs>(() =>
     readLocalSidebarPrefs(),
   )
@@ -224,7 +222,7 @@ export function AppSidebar() {
                           src={coverUrl}
                           alt={title}
                           fit="contain"
-                          variant="compact"
+                          variant="sidebar"
                           className="h-full w-full text-sm"
                         />
                       </div>
@@ -236,25 +234,36 @@ export function AppSidebar() {
                     </>
                   )
 
-                  return entry.launchKind === 'browser' ? (
-                    <button
-                      key={entry.gameId}
-                      type="button"
-                      onClick={() => openBrowserPlayer(entry.gameId)}
-                      className="flex w-full items-center gap-3 rounded-mga border border-mga-border bg-mga-surface/80 px-2 py-2 text-left transition-colors hover:bg-mga-elevated/70"
-                    >
-                      {content}
-                    </button>
-                  ) : (
-                    <a
-                      key={entry.gameId}
-                      href={entry.launchUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-3 rounded-mga border border-mga-border bg-mga-surface/80 px-2 py-2 text-left transition-colors hover:bg-mga-elevated/70"
-                    >
-                      {content}
-                    </a>
+                  return (
+                    <div key={entry.gameId} className="group flex items-stretch gap-2">
+                      {entry.launchKind === 'browser' ? (
+                        <button
+                          type="button"
+                          onClick={() => openBrowserPlayer(entry.gameId)}
+                          className="flex min-w-0 flex-1 items-center gap-3 rounded-mga border border-mga-border bg-mga-surface/80 px-2 py-2 text-left transition-colors hover:bg-mga-elevated/70"
+                        >
+                          {content}
+                        </button>
+                      ) : (
+                        <a
+                          href={entry.launchUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex min-w-0 flex-1 items-center gap-3 rounded-mga border border-mga-border bg-mga-surface/80 px-2 py-2 text-left transition-colors hover:bg-mga-elevated/70"
+                        >
+                          {content}
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeRecentPlayed(entry.gameId)}
+                        className="flex h-auto shrink-0 items-center justify-center rounded-mga border border-mga-border/70 bg-mga-bg/70 px-2 text-mga-muted transition-colors hover:border-mga-accent/50 hover:text-mga-text"
+                        aria-label={`Remove ${title} from recent played`}
+                        title="Remove from recent played"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
                   )
                 })}
               </div>
@@ -293,7 +302,8 @@ export function AppSidebar() {
                           ) : (
                             <ChevronDown size={14} className="shrink-0 text-mga-muted" />
                           )}
-                          <PlatformIcon platform={group.platform} showLabel />
+                          <PlatformIcon platform={group.platform} showLabel={false} />
+                          <span className="truncate">{group.label}</span>
                         </div>
                         <span className="text-xs text-mga-muted">{group.games.length}</span>
                       </button>
@@ -318,6 +328,8 @@ export function AppSidebar() {
                                   <CoverImage
                                     src={selectCoverUrl(game.media)}
                                     alt={game.title}
+                                    fit="contain"
+                                    variant="sidebar"
                                     className="h-full w-full text-sm"
                                   />
                                 </div>

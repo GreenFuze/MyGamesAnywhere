@@ -6,7 +6,7 @@ import { GameCard } from '@/components/library/GameCard'
 import { GameGrid } from '@/components/library/GameGrid'
 import { filterGamesBySection } from '@/lib/collectionSections'
 
-const PREVIEW_CARD_LIMIT = 5
+const PREVIEW_SLOT_LIMIT = 5
 
 interface CollectionShelfProps {
   sections: CollectionSectionConfig[]
@@ -64,8 +64,9 @@ export function CollectionShelf({
     <div className="space-y-8">
       {visibleSections.map(({ section, games: sectionGames }) => {
         const expanded = expandedSectionId === section.id
-        const previewGames = sectionGames.slice(0, PREVIEW_CARD_LIMIT)
-        const hasMore = sectionGames.length > PREVIEW_CARD_LIMIT
+        const hasMore = sectionGames.length > PREVIEW_SLOT_LIMIT
+        const previewGames = sectionGames.slice(0, hasMore ? PREVIEW_SLOT_LIMIT - 1 : PREVIEW_SLOT_LIMIT)
+        const hiddenCount = sectionGames.length - previewGames.length
 
         return (
           <section key={section.id} className="space-y-3">
@@ -105,7 +106,7 @@ export function CollectionShelf({
             {expanded ? (
               <GameGrid games={sectionGames} isLoading={false} />
             ) : (
-              <div className="flex items-stretch gap-4 overflow-hidden">
+              <div className="relative flex items-stretch gap-4 overflow-hidden">
                 {previewGames.map((game) => (
                   <div key={game.id} className="w-[190px] min-w-0 shrink-0">
                     <GameCard game={game} />
@@ -115,11 +116,16 @@ export function CollectionShelf({
                   <button
                     type="button"
                     onClick={() => onExpandedSectionChange(section.id)}
-                    className="inline-flex shrink-0 items-center gap-2 self-center rounded-full border border-dashed border-mga-border bg-mga-surface/80 px-4 py-2 text-sm font-medium text-mga-muted transition-colors hover:border-mga-accent hover:bg-mga-elevated/40 hover:text-mga-text"
+                    className="group relative flex w-16 shrink-0 items-center justify-center overflow-hidden rounded-[1.1rem] border border-dashed border-mga-border bg-gradient-to-b from-mga-surface via-mga-bg to-mga-surface text-mga-muted transition-colors hover:border-mga-accent/60 hover:text-mga-text"
                     aria-label={`Show more games in ${section.label}`}
                   >
-                    <Ellipsis size={18} />
-                    <span>More</span>
+                    <div className="absolute inset-0 bg-gradient-to-l from-mga-elevated/40 to-transparent opacity-70 transition-opacity group-hover:opacity-100" />
+                    <div className="relative flex flex-col items-center justify-center gap-2 py-4">
+                      <Ellipsis size={18} />
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em]">
+                        +{hiddenCount}
+                      </span>
+                    </div>
                   </button>
                 )}
               </div>

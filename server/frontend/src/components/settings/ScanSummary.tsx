@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getScanReports, type ScanReport } from '@/api/client'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useDateTimeFormat } from '@/hooks/useDateTimeFormat'
 import { ChevronDown, ChevronRight, Clock, History } from 'lucide-react'
 
@@ -111,13 +112,34 @@ function ReportCard({ report, expanded, onToggle }: {
 // ---------------------------------------------------------------------------
 
 export function ScanSummary() {
-  const { data: reports = [] } = useQuery({
+  const { data: reports = [], isPending } = useQuery({
     queryKey: ['scan-reports'],
     queryFn: () => getScanReports(10),
   })
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
+
+  if (isPending) {
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 2 }, (_, index) => (
+          <div
+            key={index}
+            className="overflow-hidden rounded-mga border border-mga-border bg-mga-surface"
+          >
+            <div className="flex items-center justify-between gap-3 p-3">
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-48" />
+              </div>
+              <Skeleton className="h-4 w-14" />
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   if (reports.length === 0) return null
 

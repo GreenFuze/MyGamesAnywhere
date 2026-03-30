@@ -48,6 +48,18 @@ export type BrowserPlaySelection = {
   rootFile: GameFileDTO | null
 }
 
+export type BrowserPlaySelectionIssue = {
+  code:
+    | 'unsupported_platform'
+    | 'missing_launch_source'
+    | 'missing_source_game'
+    | 'missing_root_file'
+    | 'missing_runtime_core'
+    | 'missing_source_files'
+    | 'missing_scummvm_files'
+  message: string
+}
+
 const SESSION_PREFIX = 'mga.browserPlaySession.'
 
 const EMULATORJS_CORES: Record<string, string> = {
@@ -122,6 +134,73 @@ export function selectBrowserPlaySelection(game: GameDetailResponse): BrowserPla
       : null
 
     return { runtime, sourceGame, launchSource, rootFile }
+  }
+
+  return null
+}
+
+export function getBrowserPlaySelectionIssue(
+  game: GameDetailResponse,
+  selection: BrowserPlaySelection | null,
+): BrowserPlaySelectionIssue | null {
+  if (!game.play?.platform_supported) {
+    return {
+      code: 'unsupported_platform',
+      message: `Browser Play is not enabled for ${game.platform}.`,
+    }
+  }
+
+  if (!game.play?.available || !game.play.launch_sources || game.play.launch_sources.length === 0) {
+    return {
+      code: 'missing_launch_source',
+      message: 'No launchable source file was found for this game yet.',
+    }
+  }
+
+  if (!selection) {
+    return {
+      code: 'missing_source_game',
+      message: 'The selected browser-play source record could not be resolved from the game detail payload.',
+    }
+  }
+
+  if (selection.runtime === 'emulatorjs') {
+    if (!selection.rootFile) {
+      return {
+        code: 'missing_root_file',
+        message: `EmulatorJS needs a root launch file for "${selection.sourceGame.raw_title || game.title}".`,
+      }
+    }
+    if (!getEmulatorJsCore(game.platform)) {
+      return {
+        code: 'missing_runtime_core',
+        message: `No EmulatorJS core is mapped for ${game.platform}.`,
+      }
+    }
+    return null
+  }
+
+  if (selection.runtime === 'jsdos') {
+    if (!selection.rootFile) {
+      return {
+        code: 'missing_root_file',
+        message: `js-dos needs a root launch file for "${selection.sourceGame.raw_title || game.title}".`,
+      }
+    }
+    if (selection.sourceGame.files.length === 0) {
+      return {
+        code: 'missing_source_files',
+        message: `No source files were attached to "${selection.sourceGame.raw_title || game.title}".`,
+      }
+    }
+    return null
+  }
+
+  if (selection.sourceGame.files.length === 0) {
+    return {
+      code: 'missing_scummvm_files',
+      message: `ScummVM needs source files before "${selection.sourceGame.raw_title || game.title}" can launch.`,
+    }
   }
 
   return null

@@ -68,12 +68,13 @@ type GameFileDTO struct {
 
 // GameController serves GET /api/games (list) and GET /api/games/{id} (single game).
 type GameController struct {
-	gameStore core.GameStore
-	logger    core.Logger
+	gameStore       core.GameStore
+	integrationRepo core.IntegrationRepository
+	logger          core.Logger
 }
 
-func NewGameController(gameStore core.GameStore, logger core.Logger) *GameController {
-	return &GameController{gameStore: gameStore, logger: logger}
+func NewGameController(gameStore core.GameStore, integrationRepo core.IntegrationRepository, logger core.Logger) *GameController {
+	return &GameController{gameStore: gameStore, integrationRepo: integrationRepo, logger: logger}
 }
 
 func decodedPathParam(r *http.Request, key string) (string, error) {

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
@@ -122,6 +123,21 @@ func buildScanIntegrationPayload(integrations []*core.Integration) []map[string]
 		})
 	}
 	return out
+}
+
+func scanSkipReasonForSourceError(err error) string {
+	if err == nil {
+		return "source_error"
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "plugin error [NOT_CONFIGURED]"):
+		return "invalid_config"
+	case strings.Contains(msg, "plugin error [AUTH_REQUIRED]"):
+		return "auth_required"
+	default:
+		return "source_error"
+	}
 }
 
 func pluginProvidesSource(plugin *core.Plugin) bool {
@@ -242,8 +258,21 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			})
 			files, err := o.fetchFiles(ctx, integ.PluginID, config)
 			if err != nil {
-				o.publishScanError(ctx, integ.ID, err)
-				return nil, fmt.Errorf("fetch files from integration %q: %w", integ.ID, err)
+				o.logger.Warn("orchestrator: source listing failed", "integration_id", integ.ID, "plugin_id", integ.PluginID, "error", err)
+				o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
+					"integration_id": integ.ID,
+					"plugin_id":      integ.PluginID,
+					"label":          integ.Label,
+					"reason":         scanSkipReasonForSourceError(err),
+					"error":          err.Error(),
+				})
+				integResults = append(integResults, core.ScanIntegrationResult{
+					IntegrationID: integ.ID,
+					Label:         integ.Label,
+					PluginID:      integ.PluginID,
+					Error:         err.Error(),
+				})
+				continue
 			}
 			o.logger.Info("orchestrator: fetched files", "integration_id", integ.ID, "count", len(files))
 			o.publishEventWithContext(ctx, "scan_source_list_complete", map[string]any{
@@ -268,8 +297,21 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			groups, err := o.scanner.ScanFiles(ctx, files)
 			o.scanner.SetProgressReporter(nil)
 			if err != nil {
-				o.publishScanError(ctx, integ.ID, err)
-				return nil, fmt.Errorf("scan files for integration %q: %w", integ.ID, err)
+				o.logger.Warn("orchestrator: file scanner failed", "integration_id", integ.ID, "plugin_id", integ.PluginID, "error", err)
+				o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
+					"integration_id": integ.ID,
+					"plugin_id":      integ.PluginID,
+					"label":          integ.Label,
+					"reason":         "source_error",
+					"error":          err.Error(),
+				})
+				integResults = append(integResults, core.ScanIntegrationResult{
+					IntegrationID: integ.ID,
+					Label:         integ.Label,
+					PluginID:      integ.PluginID,
+					Error:         err.Error(),
+				})
+				continue
 			}
 			o.publishEventWithContext(ctx, "scan_scanner_complete", map[string]any{
 				"integration_id": integ.ID,
@@ -287,8 +329,21 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			})
 			games, err = o.fetchGames(ctx, integ.ID, integ.PluginID, config)
 			if err != nil {
-				o.publishScanError(ctx, integ.ID, err)
-				return nil, fmt.Errorf("fetch games from integration %q: %w", integ.ID, err)
+				o.logger.Warn("orchestrator: storefront source listing failed", "integration_id", integ.ID, "plugin_id", integ.PluginID, "error", err)
+				o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
+					"integration_id": integ.ID,
+					"plugin_id":      integ.PluginID,
+					"label":          integ.Label,
+					"reason":         scanSkipReasonForSourceError(err),
+					"error":          err.Error(),
+				})
+				integResults = append(integResults, core.ScanIntegrationResult{
+					IntegrationID: integ.ID,
+					Label:         integ.Label,
+					PluginID:      integ.PluginID,
+					Error:         err.Error(),
+				})
+				continue
 			}
 			o.logger.Info("orchestrator: fetched storefront games", "integration_id", integ.ID, "count", len(games))
 			o.publishEventWithContext(ctx, "scan_source_list_complete", map[string]any{

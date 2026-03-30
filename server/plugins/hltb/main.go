@@ -85,9 +85,11 @@ type lookupResult struct {
 // HLTB API constants and types.
 
 const (
-	hltbBaseURL   = "https://howlongtobeat.com"
-	hltbSearchURL = hltbBaseURL + "/api/search"
-	hltbImageURL  = hltbBaseURL + "/games/"
+	hltbBaseURL      = "https://howlongtobeat.com"
+	hltbFindInitURL  = hltbBaseURL + "/api/find/init"
+	hltbFindURL      = hltbBaseURL + "/api/find"
+	hltbLegacySearch = hltbBaseURL + "/api/search"
+	hltbImageURL     = hltbBaseURL + "/games/"
 )
 
 // 10 req/s rate limiter.
@@ -99,14 +101,16 @@ type hltbSearchPayload struct {
 	SearchPage    int               `json:"searchPage"`
 	Size          int               `json:"size"`
 	SearchOptions hltbSearchOptions `json:"searchOptions"`
+	UseCache      bool              `json:"useCache"`
 }
 
 type hltbSearchOptions struct {
-	Games  hltbGameOptions `json:"games"`
-	Users  hltbUserOptions `json:"users"`
-	Filter string          `json:"filter"`
-	Sort   int             `json:"sort"`
-	Randomizer int         `json:"randomizer"`
+	Games      hltbGameOptions `json:"games"`
+	Users      hltbUserOptions `json:"users"`
+	Lists      hltbListOptions `json:"lists"`
+	Filter     string          `json:"filter"`
+	Sort       int             `json:"sort"`
+	Randomizer int             `json:"randomizer"`
 }
 
 type hltbGameOptions struct {
@@ -134,9 +138,14 @@ type hltbGameplay struct {
 	Perspective string `json:"perspective"`
 	Flow        string `json:"flow"`
 	Genre       string `json:"genre"`
+	Difficulty  string `json:"difficulty"`
 }
 
 type hltbUserOptions struct {
+	SortCategory string `json:"sortCategory"`
+}
+
+type hltbListOptions struct {
 	SortCategory string `json:"sortCategory"`
 }
 
@@ -156,6 +165,7 @@ type hltbGame struct {
 	GameName         string `json:"game_name"`
 	GameNameDate     int    `json:"game_name_date"`
 	GameAlias        string `json:"game_alias"`
+	GameType         string `json:"game_type"`
 	GameImage        string `json:"game_image"`
 	CompMain         int    `json:"comp_main"`         // seconds
 	CompPlus         int    `json:"comp_plus"`         // seconds
@@ -180,9 +190,134 @@ type hltbGame struct {
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}
 
-func searchHLTB(query string) (*hltbSearchResponse, error) {
-	<-rateLimiter.C
+type hltbFindInitResponse struct {
+	Token string `json:"token"`
+	HPKey string `json:"hpKey"`
+	HPVal string `json:"hpVal"`
+}
 
+func applyHLTBHeaders(req *http.Request) {
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Origin", hltbBaseURL)
+	req.Header.Set("Referer", hltbBaseURL+"/")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+}
+
+func initHLTBSearchAuth() (*hltbFindInitResponse, error) {
+	req, err := http.NewRequest("GET", hltbFindInitURL+fmt.Sprintf("?t=%d", time.Now().UnixMilli()), nil)
+	if err != nil {
+		return nil, fmt.Errorf("new init request: %w", err)
+	}
+	applyHLTBHeaders(req)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HLTB auth init request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read HLTB auth init response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HLTB auth init: status %d: %s", resp.StatusCode, string(respBody[:min(len(respBody), 200)]))
+	}
+
+	var result hltbFindInitResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("decode HLTB auth init response: %w", err)
+	}
+	if result.Token == "" || result.HPKey == "" || result.HPVal == "" {
+		return nil, fmt.Errorf("HLTB auth init returned incomplete token payload")
+	}
+	return &result, nil
+}
+
+func searchHLTBViaFind(query string) (*hltbSearchResponse, error) {
+	auth, err := initHLTBSearchAuth()
+	if err != nil {
+		return nil, err
+	}
+
+	terms := strings.Fields(query)
+	if len(terms) == 0 {
+		return nil, fmt.Errorf("empty search query")
+	}
+
+	payload := hltbSearchPayload{
+		SearchType:  "games",
+		SearchTerms: terms,
+		SearchPage:  1,
+		Size:        20,
+		UseCache:    true,
+		SearchOptions: hltbSearchOptions{
+			Games: hltbGameOptions{
+				UserID:        0,
+				Platform:      "",
+				SortCategory:  "popular",
+				RangeCategory: "main",
+				RangeTime:     hltbRange{},
+				Gameplay:      hltbGameplay{},
+				RangeYear:     hltbRangeYear{},
+				Modifier:      "",
+			},
+			Users:      hltbUserOptions{SortCategory: "postcount"},
+			Lists:      hltbListOptions{SortCategory: "follows"},
+			Filter:     "",
+			Sort:       0,
+			Randomizer: 0,
+		},
+	}
+
+	bodyMap := map[string]any{
+		"searchType":    payload.SearchType,
+		"searchTerms":   payload.SearchTerms,
+		"searchPage":    payload.SearchPage,
+		"size":          payload.Size,
+		"searchOptions": payload.SearchOptions,
+		"useCache":      payload.UseCache,
+		auth.HPKey:      auth.HPVal,
+	}
+
+	body, err := json.Marshal(bodyMap)
+	if err != nil {
+		return nil, fmt.Errorf("marshal search payload: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", hltbFindURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	applyHLTBHeaders(req)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-auth-token", auth.Token)
+	req.Header.Set("x-hp-key", auth.HPKey)
+	req.Header.Set("x-hp-val", auth.HPVal)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HLTB search request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read HLTB response: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("HLTB search: status %d: %s", resp.StatusCode, string(respBody[:min(len(respBody), 200)]))
+	}
+
+	var result hltbSearchResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("decode HLTB response: %w", err)
+	}
+	return &result, nil
+}
+
+func searchHLTBLegacy(query string) (*hltbSearchResponse, error) {
 	terms := strings.Fields(query)
 	if len(terms) == 0 {
 		return nil, fmt.Errorf("empty search query")
@@ -204,47 +339,62 @@ func searchHLTB(query string) (*hltbSearchResponse, error) {
 				RangeYear:     hltbRangeYear{},
 				Modifier:      "",
 			},
-			Users:  hltbUserOptions{SortCategory: "postcount"},
-			Filter: "",
-			Sort:   0,
+			Users:      hltbUserOptions{SortCategory: "postcount"},
+			Lists:      hltbListOptions{SortCategory: "follows"},
+			Filter:     "",
+			Sort:       0,
 			Randomizer: 0,
 		},
 	}
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("marshal search payload: %w", err)
+		return nil, fmt.Errorf("marshal legacy search payload: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", hltbSearchURL, bytes.NewReader(body))
+	req, err := http.NewRequest("POST", hltbLegacySearch, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
+		return nil, fmt.Errorf("new legacy request: %w", err)
 	}
+	applyHLTBHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Origin", hltbBaseURL)
-	req.Header.Set("Referer", hltbBaseURL+"/")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("HLTB search request: %w", err)
+		return nil, fmt.Errorf("HLTB legacy search request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read HLTB response: %w", err)
+		return nil, fmt.Errorf("read HLTB legacy response: %w", err)
 	}
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("HLTB search: status %d: %s", resp.StatusCode, string(respBody[:min(len(respBody), 200)]))
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HLTB legacy search: status %d: %s", resp.StatusCode, string(respBody[:min(len(respBody), 200)]))
 	}
 
 	var result hltbSearchResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("decode HLTB response: %w", err)
+		return nil, fmt.Errorf("decode HLTB legacy response: %w", err)
 	}
 	return &result, nil
+}
+
+func searchHLTB(query string) (*hltbSearchResponse, error) {
+	<-rateLimiter.C
+
+	resp, err := searchHLTBViaFind(query)
+	if err == nil {
+		return resp, nil
+	}
+
+	log.Printf("HLTB live search fallback for %q after api/find failed: %v", query, err)
+
+	legacyResp, legacyErr := searchHLTBLegacy(query)
+	if legacyErr == nil {
+		return legacyResp, nil
+	}
+	return nil, fmt.Errorf("api/find failed: %v; legacy fallback failed: %v", err, legacyErr)
 }
 
 // Title normalization and matching.
@@ -317,6 +467,9 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 
 	for i := range resp.Data {
 		g := &resp.Data[i]
+		if g.GameType != "" && g.GameType != "game" {
+			continue
+		}
 		candidateNorm := normalizeTitle(g.GameName)
 
 		var score float64
@@ -391,7 +544,7 @@ func handleLookup(params lookupParams) (any, *Error) {
 	for _, q := range params.Games {
 		r, err := matchGame(q)
 		if err != nil {
-			log.Printf("HLTB lookup error for %q: %v", q.Title, err)
+			log.Printf("HLTB lookup error for title=%q platform=%q root_path=%q: %v", q.Title, q.Platform, q.RootPath, err)
 			continue
 		}
 		if r != nil {

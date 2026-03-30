@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 
-type Status = 'ok' | 'error' | 'unavailable' | 'pending'
+type Status = 'ok' | 'error' | 'unavailable' | 'oauth_required' | 'pending'
 
 interface StatusDotProps {
   status: Status
@@ -12,6 +12,7 @@ const colors: Record<Status, string> = {
   ok: 'bg-green-500',
   error: 'bg-red-500',
   unavailable: 'bg-yellow-500',
+  oauth_required: 'bg-amber-400',
   pending: 'bg-mga-muted animate-pulse',
 }
 

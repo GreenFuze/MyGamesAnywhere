@@ -142,7 +142,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] shadcn-style foundation — [`cn()`](server/frontend/src/lib/utils.ts), [`Button`](server/frontend/src/components/ui/button.tsx) + CVA (full shadcn CLI optional later)
 - [x] React Router (client-side routing)
 - [x] TanStack Query (API data fetching + caching)
-- [ ] Auto-generated API client from `openapi.yaml` (minimal hand types in [`client.ts`](server/frontend/src/api/client.ts) for now)
+- [x] Generated frontend API contracts now live under [`server/frontend/src/api/generated/`](server/frontend/src/api/generated/) while the fetch facade in [`client.ts`](server/frontend/src/api/client.ts) remains hand-maintained for now
 - [x] Vite dev proxy to Go server ([`vite.config.ts`](server/frontend/vite.config.ts), default `8900`, override `VITE_API_PROXY_TARGET`)
 - [x] `server/frontend/node_modules/` and `server/frontend/dist/` in [`.gitignore`](../.gitignore)
 
@@ -431,16 +431,17 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] Page transition animations
 - [ ] Staggered grid item entrance
 - [ ] Smooth filter/sort transitions
-- [ ] Skeleton loading states
-- [ ] Images in cards are too big, they should resized (or cropped?). We need a smart idea on how to fit the images to the cards.
-- [ ] The "More" card shouldn't be a card, it should on the right of the last card in the shelf line. The shelf, when collapsed must be a single line.
+- [x] Expand skeleton/loading coverage beyond the Home and library surfaces that already have loading placeholders
+- [x] Cover art sizing tightened across cards, rows, and sidebar thumbnails while keeping contain-based fallbacks
+- [x] The shelf overflow affordance now sits as a slim right-edge expander instead of reading like a regular card, and collapsed shelves stay visually single-line
 - [x] "matches" count stated for each game (on the card) should be only source matches.
 - [x] Game page need to be redesigned. should be much more pretty.
 - [x] Fix scanning/refetching to show detailed progress (or/and least a progress bar). Async scan jobs now return immediately, publish `job_id` over SSE, and the Settings UI can recover progress after reload.
+- [x] Browser-play route now shows explicit runtime/session diagnostics and uses skeleton loading instead of abrupt blank states
 
 ### display
-- [ ] many of the labels seems wrong with "_", like "xbox_series".
-- [ ] `temp-resources` directory has a better logo for GameBoy advanced (just with GBA instead of full name). The full name is a "title" image and not a logo image.
+- [x] Remaining visible platform labels now route through shared display helpers so raw ids like `xbox_series` do not leak into the UI
+- [x] GBA now uses a compact in-app mark instead of the old wide wordmark/title-style asset
 
 ### Game page improvements
 - [x] Show all relevant game files (installer files / ROM / directory, whatever is relevant)
@@ -454,7 +455,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Recent scan activity
 
 ### play sidebar
-- [ ] Recent Played in the sidebar - add removing last played game
+- [x] Recent Played in the sidebar supports removing individual entries
 
 
 ### scanning log in settings page - integrations tab
@@ -468,7 +469,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Extend "Powered By" coverage for future emulation/runtime services:
   EmulatorJS/RetroArch, js-dos/DOSBox
 - [x] "View Open Source Licenses" link
-- [ ] In-context attribution throughout the app (service logos next to their data)
+- [x] In-context attribution throughout the app (service logos next to their data)
 - [x] About page icon/vendor credits preserve source locations for shipped brand assets
 
 ### Home Page
@@ -484,6 +485,21 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] The screen should have a button of no games archives where the user can "unarchive" if a "not a game" was misclassified
 
 
+# Issues
+- [x] Steam source scans now fail explicitly with configuration/auth-required status instead of silently returning an empty list, and the scan continues past that integration
+- [x] Unknown-platform installer titles now fall back to Windows LaunchBox matching (e.g. "Plasma Pong", "I Am Fish")
+- [x] HLTB lookup now uses the current live auth/init + `/api/find` flow, with legacy fallback and clearer diagnostics on provider failures
+- [x] RetroAchievements integration config already requires `username` in the plugin manifest/code and the settings UI schema-driven forms expose/persist it
+- [ ] remove TGDB - it has too low API quota
+- [ ] Media download background worker (MediaItems have URLs but no local files yet)
+- [ ] Schema migration strategy (deferred until after first release)
+- [ ] Add Metacritic scoring
+- [ ] Fix npm build vulnerabilities detected during build
+- [ ] Concurrency on scanning/metadata-fetching
+- [ ] Web-Emulators don't run the games
+- [x] Playable-games sidebar now uses compact platform icon rendering without duplicating text-style badges like the in-app GBA mark
+- [ ] `temp-resources` directory contains an updated GBA logo with onlt the GBA characters. this can be used for small space icons. the full gameboy advanced title image can be used for larger space icons (like in the game pages)
+
 ### Additional Ideas
 - [ ] Keyboard shortcuts (Vim-style navigation, quick actions)
 - [ ] Import/export library (JSON/CSV)
@@ -492,13 +508,3 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] Responsive mobile/tablet design
 
 ---
-
-## Known Issues / Deferred
-
-- [ ] HLTB API returning 404 (endpoint may have changed — needs investigation)
-- [ ] RetroAchievements integration needs username in config
-- [ ] TGDB disabled due to low API quota
-- [ ] Media download background worker (MediaItems have URLs but no local files yet)
-- [ ] Schema migration strategy (deferred until after first release)
-- [ ] Add Metacritic scoring
-- [ ] Fix npm build vulnerabilities detected during build

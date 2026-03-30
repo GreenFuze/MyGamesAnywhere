@@ -11,6 +11,23 @@ import (
 	"time"
 )
 
+func TestHandleGamesListRequiresConfiguration(t *testing.T) {
+	originalCfg := cfg
+	t.Cleanup(func() {
+		cfg = originalCfg
+	})
+
+	cfg = steamConfig{}
+	if _, errObj := handleGamesList(nil); errObj == nil || errObj.Code != "NOT_CONFIGURED" {
+		t.Fatalf("missing api key: got %+v, want NOT_CONFIGURED", errObj)
+	}
+
+	cfg = steamConfig{APIKey: "key-only"}
+	if _, errObj := handleGamesList(nil); errObj == nil || errObj.Code != "AUTH_REQUIRED" {
+		t.Fatalf("missing steam id: got %+v, want AUTH_REQUIRED", errObj)
+	}
+}
+
 // ipcCall sends a single IPC request and reads the response via stdin/stdout
 // of the given process.
 func ipcCall(stdin io.Writer, stdout io.Reader, method string, params any) (*Response, error) {

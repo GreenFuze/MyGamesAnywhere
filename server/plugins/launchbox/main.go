@@ -262,24 +262,35 @@ type lookupResult struct {
 // Platform mapping: our platform enum → LaunchBox platform name(s).
 // First entry is the primary; additional entries are checked as fallbacks.
 var platformMap = map[string][]string{
-	"windows_pc": {"Windows"},
-	"ms_dos":     {"MS-DOS"},
-	"arcade":     {"Arcade"},
-	"gba":        {"Nintendo Game Boy Advance"},
-	"ps1":        {"Sony Playstation"},
-	"ps2":        {"Sony Playstation 2"},
-	"ps3":        {"Sony Playstation 3"},
-	"psp":        {"Sony PSP"},
-	"xbox_360":   {"Microsoft Xbox 360"},
-	"scummvm":    {"ScummVM", "MS-DOS", "Windows"},
+	"windows_pc":         {"Windows"},
+	"ms_dos":             {"MS-DOS", "Windows"},
+	"arcade":             {"Arcade"},
+	"nes":                {"Nintendo Entertainment System"},
+	"snes":               {"Super Nintendo Entertainment System"},
+	"gb":                 {"Nintendo Game Boy"},
+	"gbc":                {"Nintendo Game Boy Color"},
+	"gba":                {"Nintendo Game Boy Advance"},
+	"genesis":            {"Sega Genesis", "Sega Mega Drive"},
+	"sega_master_system": {"Sega Master System"},
+	"game_gear":          {"Sega Game Gear"},
+	"sega_cd":            {"Sega CD", "Sega Mega-CD"},
+	"sega_32x":           {"Sega 32X"},
+	"ps1":                {"Sony Playstation"},
+	"ps2":                {"Sony Playstation 2"},
+	"ps3":                {"Sony Playstation 3"},
+	"psp":                {"Sony PSP"},
+	"xbox_360":           {"Microsoft Xbox 360"},
+	"xbox_one":           {"Microsoft Xbox One"},
+	"xbox_series":        {"Microsoft Xbox Series X|S", "Microsoft Xbox Series", "Xbox Series X|S"},
+	"scummvm":            {"ScummVM", "MS-DOS", "Windows"},
 }
 
 const (
-	dataDir          = "data"
-	filesIndexFile   = "data/files-index.json"
-	gamesIndexFile   = "data/games-index.json"
-	imagesIndexFile  = "data/images-index.json"
-	timestampFile    = "data/.downloaded_at"
+	dataDir         = "data"
+	filesIndexFile  = "data/files-index.json"
+	gamesIndexFile  = "data/games-index.json"
+	imagesIndexFile = "data/images-index.json"
+	timestampFile   = "data/.downloaded_at"
 	metadataZipURL  = "https://gamesdb.launchbox-app.com/Metadata.zip"
 	httpTimeout     = 10 * time.Minute
 	maxAge          = 30 * 24 * time.Hour
@@ -782,7 +793,15 @@ func handleLookup(params lookupParams) (any, *Error) {
 	for _, q := range params.Games {
 		if r := matchGame(idx, q); r != nil {
 			results = append(results, *r)
+			continue
 		}
+		log.Printf(
+			"launchbox lookup miss: index=%d title=%q platform=%q root_path=%q",
+			q.Index,
+			q.Title,
+			q.Platform,
+			q.RootPath,
+		)
 	}
 
 	return map[string]any{"results": results}, nil
@@ -790,6 +809,9 @@ func handleLookup(params lookupParams) (any, *Error) {
 
 func matchGame(idx *launchBoxIndex, q gameQuery) *lookupResult {
 	lbPlatforms := platformMap[q.Platform]
+	if len(lbPlatforms) == 0 {
+		lbPlatforms = fallbackPlatforms(q)
+	}
 	if len(lbPlatforms) == 0 {
 		lbPlatforms = []string{q.Platform}
 	}
@@ -854,12 +876,23 @@ func matchGame(idx *launchBoxIndex, q gameQuery) *lookupResult {
 	return nil
 }
 
+func fallbackPlatforms(q gameQuery) []string {
+	if q.Platform != "" && q.Platform != "unknown" {
+		return nil
+	}
+	root := strings.ToLower(filepath.ToSlash(q.RootPath))
+	if q.GroupKind == "packed" || strings.Contains(root, "installers") {
+		return []string{"Windows"}
+	}
+	return nil
+}
+
 func buildResult(index int, ge *gameEntry, idx *launchBoxIndex) *lookupResult {
 	r := &lookupResult{
-		Index:      index,
-		Title:      ge.Name,
-		ExternalID: fmt.Sprintf("%d", ge.DatabaseID),
-		URL:        fmt.Sprintf("https://gamesdb.launchbox-app.com/games/details/%d", ge.DatabaseID),
+		Index:       index,
+		Title:       ge.Name,
+		ExternalID:  fmt.Sprintf("%d", ge.DatabaseID),
+		URL:         fmt.Sprintf("https://gamesdb.launchbox-app.com/games/details/%d", ge.DatabaseID),
 		Description: ge.Overview,
 		Developer:   ge.Developer,
 		Publisher:   ge.Publisher,

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
 import { getAboutInfo } from '@/api/client'
 import { BrandIcon } from '@/components/ui/brand-icon'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   getBrandDefinition,
   POWERED_BY_BRAND_IDS,
@@ -34,6 +35,51 @@ function InfoCard({ label, value, detail }: { label: string; value: string; deta
       <p className="text-xs uppercase tracking-[0.18em] text-mga-muted">{label}</p>
       <p className="mt-2 break-all text-lg font-semibold text-mga-text">{value}</p>
       {detail ? <p className="mt-1 text-xs text-mga-muted">{detail}</p> : null}
+    </article>
+  )
+}
+
+function InfoCardSkeleton() {
+  return (
+    <article className="rounded-mga border border-mga-border bg-mga-bg p-4">
+      <Skeleton className="h-3 w-20" />
+      <Skeleton className="mt-3 h-6 w-32" />
+      <Skeleton className="mt-2 h-3 w-24" />
+    </article>
+  )
+}
+
+function BrandCardSkeleton() {
+  return (
+    <article className="rounded-mga border border-mga-border bg-mga-surface p-4 shadow-sm shadow-black/10">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Skeleton className="h-11 w-11 rounded-mga" />
+          <div className="min-w-0 space-y-2">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-3 w-48" />
+          </div>
+        </div>
+        <Skeleton className="h-4 w-10" />
+      </div>
+    </article>
+  )
+}
+
+function CreditRowSkeleton() {
+  return (
+    <article className="flex flex-col gap-3 rounded-mga border border-mga-border bg-mga-surface p-4 shadow-sm shadow-black/10 md:flex-row md:items-center md:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
+        <Skeleton className="h-11 w-11 rounded-mga" />
+        <div className="min-w-0 space-y-2">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-3 w-56" />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-4 w-20" />
+      </div>
     </article>
   )
 }
@@ -98,7 +144,11 @@ export function AboutPage() {
         </div>
 
         {aboutQuery.isPending ? (
-          <p className="mt-4 text-sm text-mga-muted">Loading build metadata…</p>
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }, (_, index) => (
+              <InfoCardSkeleton key={index} />
+            ))}
+          </div>
         ) : null}
 
         {aboutQuery.isError ? (
@@ -129,6 +179,9 @@ export function AboutPage() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {aboutQuery.isPending
+            ? Array.from({ length: 6 }, (_, index) => <BrandCardSkeleton key={`brand-skeleton-${index}`} />)
+            : null}
           {poweredByBrands.map((brand) => (
             <article
               key={brand.id}
@@ -178,6 +231,9 @@ export function AboutPage() {
         </div>
 
         <div className="space-y-3">
+          {aboutQuery.isPending
+            ? Array.from({ length: 4 }, (_, index) => <CreditRowSkeleton key={`credit-skeleton-${index}`} />)
+            : null}
           {shippedIconBrands.map((brand) => (
             <article
               key={brand.id}

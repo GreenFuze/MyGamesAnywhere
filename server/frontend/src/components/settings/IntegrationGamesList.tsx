@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { getIntegrationGames, getIntegrationEnrichedGames } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
+import { PlatformIcon } from '@/components/ui/platform-icon'
 import { Loader2 } from 'lucide-react'
 
 interface IntegrationGamesListProps {
@@ -59,7 +60,7 @@ export function IntegrationGamesList({ integrationId, type, expanded }: Integrat
             <span className="text-mga-text truncate flex-1 mr-2">{game.title}</span>
             {game.platform && (
               <Badge variant="muted" className="text-[10px] shrink-0">
-                {game.platform}
+                <PlatformIcon platform={game.platform} showLabel className="text-[10px]" />
               </Badge>
             )}
           </div>

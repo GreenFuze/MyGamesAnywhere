@@ -1,17 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getFrontendConfig, setFrontendConfig } from '@/api/client'
+import {
+  getFrontendConfig,
+  setFrontendConfig,
+  type DateFormat,
+  type DateTimePrefs,
+  type TimeFormat,
+} from '@/api/client'
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type DateFormat = 'd/M/yyyy' | 'M/d/yyyy'
-export type TimeFormat = '12h' | '24h'
-
-export type DateTimePrefs = {
-  dateFormat: DateFormat
-  timeFormat: TimeFormat
-}
+export type { DateFormat, DateTimePrefs, TimeFormat } from '@/api/client'
 
 // ---------------------------------------------------------------------------
 // Constants

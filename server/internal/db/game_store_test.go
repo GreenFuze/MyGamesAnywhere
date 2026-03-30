@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,20 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/google/uuid"
 )
+
+type warningCaptureLogger struct {
+	warnings []string
+}
+
+func (l *warningCaptureLogger) Info(string, ...any) {}
+
+func (l *warningCaptureLogger) Error(string, error, ...any) {}
+
+func (l *warningCaptureLogger) Debug(string, ...any) {}
+
+func (l *warningCaptureLogger) Warn(msg string, args ...any) {
+	l.warnings = append(l.warnings, fmt.Sprintf("%s %v", msg, args))
+}
 
 func TestEnsureSchemaBackfillsCanonicalGames(t *testing.T) {
 	ctx := context.Background()
@@ -174,6 +189,187 @@ func TestStableCanonicalIDSurvivesSplit(t *testing.T) {
 	}
 	if afterSplitB == mergedCanonical {
 		t.Fatalf("expected source-b to receive a new canonical id after split")
+	}
+}
+
+func TestPersistScanResultsReusesExistingRowForSameNaturalKey(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	if _, err := db.GetDB().ExecContext(ctx, `INSERT INTO source_games
+		(id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"scan:legacy-source", "integration-1", "game-source-steam", "source-a",
+		"Legacy Alpha", "windows_pc", "base_game", "self_contained", "found", 1700000000,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:new-source-id",
+			IntegrationID: "integration-1",
+			PluginID:      "game-source-steam",
+			ExternalID:    "source-a",
+			RawTitle:      "Alpha",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			Status:        "found",
+			Files: []core.GameFile{{
+				Path:     "C:/Games/Alpha/game.exe",
+				FileName: "game.exe",
+				Role:     core.GameFileRoleRoot,
+				FileKind: "exe",
+				Size:     4096,
+			}},
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:new-source-id": {{
+				PluginID:   "metadata-steam",
+				Title:      "Alpha",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "match-alpha",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var sourceGameID, rawTitle, status string
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT id, raw_title, status FROM source_games
+		WHERE integration_id=? AND plugin_id=? AND external_id=?`,
+		"integration-1", "game-source-steam", "source-a",
+	).Scan(&sourceGameID, &rawTitle, &status); err != nil {
+		t.Fatal(err)
+	}
+	if sourceGameID != "scan:legacy-source" {
+		t.Fatalf("source game id = %q, want legacy persisted id", sourceGameID)
+	}
+	if rawTitle != "Alpha" {
+		t.Fatalf("raw_title = %q, want updated title", rawTitle)
+	}
+	if status != "found" {
+		t.Fatalf("status = %q, want found", status)
+	}
+
+	var count int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM source_games
+		WHERE integration_id=? AND plugin_id=? AND external_id=?`,
+		"integration-1", "game-source-steam", "source-a",
+	).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("source game row count = %d, want 1", count)
+	}
+
+	var fileCount int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM game_files WHERE source_game_id=?`, "scan:legacy-source").Scan(&fileCount); err != nil {
+		t.Fatal(err)
+	}
+	if fileCount != 1 {
+		t.Fatalf("file_count = %d, want 1 for reused persisted source id", fileCount)
+	}
+}
+
+func TestPersistScanResultsDuplicateNaturalKeyInBatchKeepsLastEntryAndWarns(t *testing.T) {
+	ctx := context.Background()
+	logger := &warningCaptureLogger{}
+	_, store := newTestGameStoreWithLogger(t, logger)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "scan:first-source",
+				IntegrationID: "integration-1",
+				PluginID:      "game-source-steam",
+				ExternalID:    "source-a",
+				RawTitle:      "Alpha First",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+				Files: []core.GameFile{{
+					Path:     "C:/Games/Alpha/first.exe",
+					FileName: "first.exe",
+					Role:     core.GameFileRoleRoot,
+					FileKind: "exe",
+					Size:     100,
+				}},
+			},
+			{
+				ID:            "scan:second-source",
+				IntegrationID: "integration-1",
+				PluginID:      "game-source-steam",
+				ExternalID:    "source-a",
+				RawTitle:      "Alpha Second",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+				Files: []core.GameFile{{
+					Path:     "C:/Games/Alpha/second.exe",
+					FileName: "second.exe",
+					Role:     core.GameFileRoleRoot,
+					FileKind: "exe",
+					Size:     200,
+				}},
+			},
+		},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:first-source": {{
+				PluginID:   "metadata-steam",
+				Title:      "Alpha First",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "match-first",
+			}},
+			"scan:second-source": {{
+				PluginID:   "metadata-steam",
+				Title:      "Alpha Second",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "match-second",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var keptTitle string
+	if err := store.db.GetDB().QueryRowContext(ctx, `SELECT raw_title FROM source_games WHERE id = ?`, "scan:second-source").Scan(&keptTitle); err != nil {
+		t.Fatal(err)
+	}
+	if keptTitle != "Alpha Second" {
+		t.Fatalf("raw_title = %q, want last duplicate title", keptTitle)
+	}
+
+	var olderCount int
+	if err := store.db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM source_games WHERE id = ?`, "scan:first-source").Scan(&olderCount); err != nil {
+		t.Fatal(err)
+	}
+	if olderCount != 0 {
+		t.Fatalf("expected overwritten duplicate source id to be absent, count = %d", olderCount)
+	}
+
+	if len(logger.warnings) != 1 {
+		t.Fatalf("warning count = %d, want 1", len(logger.warnings))
+	}
+	warning := logger.warnings[0]
+	for _, want := range []string{
+		"game-source-steam",
+		"source-a",
+		"scan:first-source",
+		"Alpha First",
+		"scan:second-source",
+		"Alpha Second",
+	} {
+		if !strings.Contains(warning, want) {
+			t.Fatalf("warning %q missing %q", warning, want)
+		}
 	}
 }
 
@@ -838,6 +1034,10 @@ func TestPersistScanResultsPreservesStickyManualSelectionAcrossRefresh(t *testin
 }
 
 func newTestGameStore(t *testing.T) (*sqliteDatabase, *gameStore) {
+	return newTestGameStoreWithLogger(t, testLogger{})
+}
+
+func newTestGameStoreWithLogger(t *testing.T, logger core.Logger) (*sqliteDatabase, *gameStore) {
 	t.Helper()
 
 	rawDB := NewSQLiteDatabase(testLogger{}, testDBConfig{})
@@ -855,7 +1055,7 @@ func newTestGameStore(t *testing.T) (*sqliteDatabase, *gameStore) {
 		t.Fatal(err)
 	}
 
-	store := NewGameStore(db, testLogger{}).(*gameStore)
+	store := NewGameStore(db, logger).(*gameStore)
 	return db, store
 }
 

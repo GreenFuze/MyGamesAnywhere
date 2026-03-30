@@ -331,8 +331,11 @@ func handleInit() (any, *Error) {
 // --- Games list ---
 
 func handleGamesList(params json.RawMessage) (any, *Error) {
-	if cfg.APIKey == "" || cfg.SteamID == "" {
-		return map[string]any{"games": []any{}}, nil
+	if cfg.APIKey == "" {
+		return nil, &Error{Code: "NOT_CONFIGURED", Message: "steam source requires api_key before it can scan games"}
+	}
+	if cfg.SteamID == "" {
+		return nil, &Error{Code: "AUTH_REQUIRED", Message: "steam source requires Steam login before it can scan games"}
 	}
 
 	owned, err := fetchOwnedGames(cfg.APIKey, cfg.SteamID)

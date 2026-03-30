@@ -285,10 +285,14 @@ function formatSourceSkipReason(reason?: string) {
       return "Source unavailable";
     case "invalid_config":
       return "Needs configuration";
+    case "auth_required":
+      return "Login required";
     case "no_source_capability":
       return "Not a game source";
     case "no_games":
       return "No games found";
+    case "source_error":
+      return "Source error";
     default:
       return "Skipped";
   }

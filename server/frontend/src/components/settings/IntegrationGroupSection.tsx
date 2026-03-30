@@ -220,9 +220,10 @@ export function IntegrationGroupSection({
 function computeAggregateStatus(
   integrations: Integration[],
   statusMap: Map<string, IntegrationStatusEntry>,
-): "ok" | "error" | "unavailable" | "pending" {
+): "ok" | "error" | "unavailable" | "oauth_required" | "pending" {
   let hasError = false;
   let hasUnavailable = false;
+  let hasOAuthRequired = false;
   let allChecked = true;
 
   for (const integ of integrations) {
@@ -233,10 +234,12 @@ function computeAggregateStatus(
     }
     if (s.status === "error") hasError = true;
     if (s.status === "unavailable") hasUnavailable = true;
+    if (s.status === "oauth_required") hasOAuthRequired = true;
   }
 
   if (!allChecked && !hasError && !hasUnavailable) return "pending";
   if (hasError) return "error";
+  if (hasOAuthRequired) return "oauth_required";
   if (hasUnavailable) return "unavailable";
   return "ok";
 }

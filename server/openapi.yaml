@@ -31,6 +31,8 @@ paths:
 
   /api/auth/callback/{plugin_id}:
     get:
+      summary: Handle OAuth callback for a plugin
+      description: Consumes the browser redirect callback for OAuth2 or OpenID-style plugin consent flows, invokes auth.oauth.callback on the plugin, publishes oauth_complete or oauth_error over SSE, and returns a small HTML page that closes the tab.
       parameters:
         - name: plugin_id
           in: path
@@ -38,10 +40,12 @@ paths:
           schema:
             type: string
       responses:
+        200:
+          description: HTML callback result page
         400:
           description: Error response
         500:
-          description: Error response
+          description: Internal server error
 
   /api/config/frontend:
     get:
@@ -329,6 +333,8 @@ paths:
 
   /api/integrations/{id}:
     delete:
+      summary: Delete one integration
+      description: Deletes the integration. If the plugin has source capability, the server also cascade-deletes associated source games and related child rows before removing the integration.
       parameters:
         - name: id
           in: path
@@ -337,24 +343,40 @@ paths:
             type: string
       responses:
         400:
-          description: Error response
+          description: id is required
+        404:
+          description: Integration not found
         500:
-          description: Error response
+          description: Internal server error
     put:
+      summary: Update one integration
+      description: Updates selected integration fields. Label and integration_type are merged when present; config is optional but, when supplied, must remain a JSON object that passes schema validation and plugin.check_config.
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: string
+      requestBody:
+        description: 'JSON: { label?, integration_type?, config? }'
+        content:
+          application/json:
+            schema:
+              type: object
       responses:
+        200:
+          description: Updated integration JSON
         400:
-          description: Error response
+          description: Invalid id, JSON body, or config
+        404:
+          description: Integration not found
         500:
-          description: Error response
+          description: Internal server error
 
   /api/integrations/{id}/enriched-games:
     get:
+      summary: List games enriched by one metadata integration
+      description: Resolves the saved integration to its plugin_id and returns lightweight canonical game rows enriched by that metadata provider's plugin.
       parameters:
         - name: id
           in: path
@@ -362,13 +384,19 @@ paths:
           schema:
             type: string
       responses:
+        200:
+          description: Array of GameListItem JSON
         400:
-          description: Error response
+          description: id is required
+        404:
+          description: Integration not found
         500:
-          description: Error response
+          description: Internal server error
 
   /api/integrations/{id}/games:
     get:
+      summary: List games discovered by one source integration
+      description: Returns lightweight canonical game rows for games linked to the specified source integration. Intended for Settings drill-down lists and quick inspection.
       parameters:
         - name: id
           in: path
@@ -376,13 +404,19 @@ paths:
           schema:
             type: string
       responses:
+        200:
+          description: Array of GameListItem JSON
         400:
-          description: Error response
+          description: id is required
+        404:
+          description: Integration not found
         500:
-          description: Error response
+          description: Internal server error
 
   /api/integrations/{id}/status:
     get:
+      summary: Validate one integration
+      description: Runs plugin.check_config for one saved integration and returns a single IntegrationStatusEntry with status, label, and message.
       parameters:
         - name: id
           in: path
@@ -390,10 +424,14 @@ paths:
           schema:
             type: string
       responses:
+        200:
+          description: IntegrationStatusEntry JSON
         400:
-          description: Error response
+          description: id is required
+        404:
+          description: Integration not found
         500:
-          description: Error response
+          description: Internal server error
 
   /api/media/{assetID}:
     get:
@@ -449,17 +487,151 @@ paths:
 
   /api/plugins/{plugin_id}/browse:
     post:
+      summary: Browse source paths via a plugin
+      description: Proxies a source.browse IPC call to a plugin so the frontend can browse remote/local path trees during integration setup.
       parameters:
         - name: plugin_id
           in: path
           required: true
           schema:
             type: string
+      requestBody:
+        description: 'JSON: { path: string }'
+        content:
+          application/json:
+            schema:
+              type: object
       responses:
+        200:
+          description: Plugin-defined browse result JSON
         400:
-          description: Error response
+          description: plugin_id required or invalid body
         500:
-          description: Error response
+          description: Browse failed
+
+  /api/review-candidates:
+    get:
+      summary: List manual-review candidates
+      description: 'Returns manual-review candidate summaries for the Undetected Games workflow. Query: scope (active or archive, default active) and limit (optional). Review state can be pending, matched, or not_a_game.'
+      responses:
+        200:
+          description: Array of ManualReviewCandidateSummary JSON
+        400:
+          description: Invalid scope or limit
+        500:
+          description: Internal server error
+
+  /api/review-candidates/{id}:
+    get:
+      summary: Get one manual-review candidate
+      description: Returns full manual-review candidate detail including files, resolver matches, current review_state, and linked canonical game id when present.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: ManualReviewCandidateDetail JSON
+        400:
+          description: id is required
+        404:
+          description: Candidate not found
+        500:
+          description: Internal server error
+
+  /api/review-candidates/{id}/apply:
+    post:
+      summary: Apply a manual-review search result
+      description: Persists a chosen manual-review metadata match for the candidate, marks review_state as matched, and updates the candidate detail that the UI should continue showing.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: JSON manual-review search result object (provider ids, external_id, title, optional metadata fields).
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Updated ManualReviewCandidateDetail JSON
+        400:
+          description: Invalid body or missing id
+        404:
+          description: Candidate not found
+        500:
+          description: Internal server error
+
+  /api/review-candidates/{id}/not-a-game:
+    post:
+      summary: Archive a candidate as not a game
+      description: Marks the candidate review_state as not_a_game and moves it out of the active Undetected Games queue while preserving the decision for later scan refreshes.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Updated ManualReviewCandidateDetail JSON
+        400:
+          description: Missing id
+        404:
+          description: Candidate not found
+        500:
+          description: Internal server error
+
+  /api/review-candidates/{id}/search:
+    post:
+      summary: Search metadata providers for a review candidate
+      description: Runs a manual search across configured metadata providers for one candidate. If query is omitted, the server derives a best-effort title query from the candidate data.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: 'Optional JSON: { query?: string }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: ManualReviewSearchResponse JSON
+        400:
+          description: Invalid body or missing id
+        404:
+          description: Candidate not found
+        500:
+          description: Internal server error
+
+  /api/review-candidates/{id}/unarchive:
+    post:
+      summary: Restore an archived manual-review candidate
+      description: Moves an archived candidate back into the active queue and resets its review_state to pending so it can be worked again.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Updated ManualReviewCandidateDetail JSON
+        400:
+          description: Missing id
+        404:
+          description: Candidate not found
+        500:
+          description: Internal server error
 
   /api/save-sync/migrations:
     post:
@@ -577,14 +749,20 @@ paths:
 
   /api/scan/reports:
     get:
+      summary: List recent scan reports
+      description: 'Returns the most recent persisted scan reports in reverse chronological order. Query: limit (optional, defaults to 10). Each report includes totals plus per-integration diff summaries.'
       responses:
+        200:
+          description: Array of ScanReport JSON objects
         400:
           description: Error response
         500:
-          description: Error response
+          description: Internal server error
 
   /api/scan/reports/{id}:
     get:
+      summary: Get one scan report
+      description: Returns one persisted scan report by id, including totals, timing, metadata_only flag, and per-integration results.
       parameters:
         - name: id
           in: path
@@ -592,10 +770,14 @@ paths:
           schema:
             type: string
       responses:
+        200:
+          description: ScanReport JSON
         400:
-          description: Error response
+          description: id is required
+        404:
+          description: Report not found
         500:
-          description: Error response
+          description: Internal server error
 
   /api/stats:
     get:
@@ -611,41 +793,79 @@ paths:
 
   /api/sync/key:
     delete:
+      summary: Clear stored sync passphrase
+      description: Deletes the locally stored sync key/passphrase without changing remote data.
       responses:
+        200:
+          description: Status ok JSON
         400:
           description: Error response
         500:
-          description: Error response
+          description: Failed to clear sync key
     post:
+      summary: Store sync passphrase locally
+      description: Stores the sync passphrase/key for later push/pull operations so the frontend does not need to resend it every time.
+      requestBody:
+        description: 'JSON: { passphrase: string }'
+        content:
+          application/json:
+            schema:
+              type: object
       responses:
+        200:
+          description: Status ok JSON
         400:
-          description: Error response
+          description: Invalid JSON body or missing passphrase
         500:
-          description: Error response
+          description: Failed to store sync key
 
   /api/sync/pull:
     post:
+      summary: Pull and merge settings sync snapshot
+      description: Downloads the latest remote sync payload, decrypts it, and merges integrations/settings into the local database. Optional passphrase in the body overrides any stored key for this request.
+      requestBody:
+        description: 'Optional JSON: { passphrase?: string }'
+        content:
+          application/json:
+            schema:
+              type: object
       responses:
+        200:
+          description: PullResult JSON
         400:
-          description: Error response
+          description: Invalid JSON body
         500:
-          description: Error response
+          description: Sync pull failed
 
   /api/sync/push:
     post:
+      summary: Push settings sync snapshot
+      description: Exports the local sync payload and uploads it through the configured sync integration. Optional passphrase in the body overrides any stored key for this request.
+      requestBody:
+        description: 'Optional JSON: { passphrase?: string }'
+        content:
+          application/json:
+            schema:
+              type: object
       responses:
+        200:
+          description: PushResult JSON
         400:
-          description: Error response
+          description: Invalid JSON body
         500:
-          description: Error response
+          description: Sync push failed
 
   /api/sync/status:
     get:
+      summary: Get sync configuration status
+      description: Returns whether settings sync is configured, whether an encrypted key/passphrase is already stored locally, and timestamps for the last push and pull operations when known.
       responses:
+        200:
+          description: SyncStatus JSON
         400:
           description: Error response
         500:
-          description: Error response
+          description: Internal server error
 
   /health:
     get:

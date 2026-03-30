@@ -4,6 +4,7 @@ import { ArrowLeft, Download, ExternalLink, PlayCircle, Upload } from 'lucide-re
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
+  type FrontendConfig,
   getFrontendConfig,
   getGame,
   getGameSaveSyncSlot,
@@ -14,6 +15,7 @@ import {
 import { BrandBadge } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { PlatformIcon } from '@/components/ui/platform-icon'
 import { useRecentPlayed } from '@/hooks/useRecentPlayed'
 import {
@@ -21,6 +23,7 @@ import {
   buildBrowserPlaySession,
   buildBrowserPlayerUrl,
   clearBrowserPlaySession,
+  getBrowserPlaySelectionIssue,
   persistBrowserPlaySession,
   sessionSupportsSaveSync,
   selectBrowserPlaySelection,
@@ -63,7 +66,7 @@ type PendingBridgeRequest = {
   kind: 'export' | 'import'
 }
 
-function activeSaveSyncIntegrationId(frontendConfig: Record<string, unknown> | undefined): string | null {
+function activeSaveSyncIntegrationId(frontendConfig: FrontendConfig | undefined): string | null {
   const value = frontendConfig?.saveSyncActiveIntegrationId
   return typeof value === 'string' && value.trim().length > 0 ? value : null
 }
@@ -111,6 +114,10 @@ export function GamePlayerPage() {
   const selection = useMemo(
     () => (game.data ? selectBrowserPlaySelection(game.data) : null),
     [game.data],
+  )
+  const selectionIssue = useMemo(
+    () => (game.data ? getBrowserPlaySelectionIssue(game.data, selection) : null),
+    [game.data, selection],
   )
   const session = useMemo<BrowserPlaySession | null>(
     () => (game.data && selection ? buildBrowserPlaySession(game.data, selection) : null),
@@ -382,8 +389,12 @@ export function GamePlayerPage() {
             <ArrowLeft size={14} />
             Back to Game
           </Button>
-          <div className="rounded-mga border border-mga-border bg-mga-surface p-6 text-sm text-mga-muted">
-            Loading browser player...
+          <div className="rounded-mga border border-mga-border bg-mga-surface p-6">
+            <div className="space-y-4">
+              <Skeleton className="h-6 w-40" />
+              <Skeleton className="h-4 w-72" />
+              <Skeleton className="h-[70vh] w-full rounded-[1.25rem]" />
+            </div>
           </div>
         </div>
       </div>
@@ -439,20 +450,26 @@ export function GamePlayerPage() {
             <p className="mt-2 text-sm text-mga-muted">
               Dedicated browser player route for fullscreen play, runtime lifecycle, and explicit save sync.
             </p>
+            {selection && (
+              <p className="mt-2 text-xs text-mga-muted">
+                Source: {selection.sourceGame.raw_title || selection.sourceGame.external_id}
+                {selection.rootFile ? ` · Launch file: ${selection.rootFile.path}` : ''}
+              </p>
+            )}
           </div>
         </section>
 
         {!data.play?.platform_supported ? (
           <section className="rounded-mga border border-mga-border bg-mga-surface p-6 text-sm text-mga-muted">
-            This platform is not part of the supported browser-play set for Phase 6.
+            {selectionIssue?.message ?? 'This platform is not part of the supported browser-play set for Phase 6.'}
           </section>
         ) : !data.play?.available || !selection ? (
           <section className="rounded-mga border border-mga-border bg-mga-surface p-6 text-sm text-mga-muted">
-            Browser Play is supported for this platform, but no launchable source file was found for this game yet.
+            {selectionIssue?.message ?? 'Browser Play is supported for this platform, but no launchable source file was found for this game yet.'}
           </section>
         ) : !session || !playerUrl ? (
           <section className="rounded-mga border border-red-500/30 bg-red-500/10 p-6 text-sm text-red-200">
-            Failed to assemble a browser-play launch session for this game.
+            {selectionIssue?.message ?? 'Failed to assemble a browser-play launch session for this game.'}
           </section>
         ) : (
           <>

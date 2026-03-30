@@ -35,6 +35,10 @@ function buildIconMap(): Record<string, PlatformEntry> {
     ...map.arcade,
     icon: <BrandIcon brand="arcade" className="h-3.5 w-3.5" />,
   }
+  map.gba = {
+    ...map.gba,
+    icon: <span className="text-[9px] font-semibold uppercase tracking-[0.18em]">GBA</span>,
+  }
   map.scummvm = {
     ...map.scummvm,
     icon: <BrandIcon brand="scummvm" className="h-3.5 w-3.5" />,
