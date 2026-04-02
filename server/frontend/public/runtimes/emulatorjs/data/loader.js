@@ -34,11 +34,11 @@ async function loadScript(file) {
     try {
         const script = resolvePath(file);
         const module = await import(script);
-        return module.default;
+        return module.default || module.EmulatorJS || window.EmulatorJS;
     } catch(e) {
         if (debug) console.error(e);
         const module = await filesMissing(file);
-        return module.default;
+        return module?.default || module?.EmulatorJS || window.EmulatorJS;
     }
 }
 
@@ -259,6 +259,8 @@ async function prepareLanguage() {
 
     if (typeof window.EJS_onSaveUpdate === "function") {
         window.EJS_emulator.on("saveUpdate", window.EJS_onSaveUpdate);
-        window.EJS_emulator.enableSaveUpdateEvent();
+        if (typeof window.EJS_emulator.enableSaveUpdateEvent === "function") {
+            window.EJS_emulator.enableSaveUpdateEvent();
+        }
     }
 })();

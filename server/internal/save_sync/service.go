@@ -38,14 +38,14 @@ type service struct {
 }
 
 type saveSyncStoredManifest struct {
-	Version         int                       `json:"version"`
-	CanonicalGameID string                    `json:"canonical_game_id"`
-	SourceGameID    string                    `json:"source_game_id"`
-	Runtime         string                    `json:"runtime"`
-	SlotID          string                    `json:"slot_id"`
-	UpdatedAt       time.Time                 `json:"updated_at"`
-	FileCount       int                       `json:"file_count"`
-	TotalSize       int64                     `json:"total_size"`
+	Version         int                         `json:"version"`
+	CanonicalGameID string                      `json:"canonical_game_id"`
+	SourceGameID    string                      `json:"source_game_id"`
+	Runtime         string                      `json:"runtime"`
+	SlotID          string                      `json:"slot_id"`
+	UpdatedAt       time.Time                   `json:"updated_at"`
+	FileCount       int                         `json:"file_count"`
+	TotalSize       int64                       `json:"total_size"`
 	Files           []core.SaveSyncSnapshotFile `json:"files"`
 }
 
@@ -364,7 +364,7 @@ func (s *service) enumerateMigrationTargets(ctx context.Context, req core.SaveSy
 			if sourceGame == nil || sourceGame.Status != "found" {
 				continue
 			}
-			runtime, ok := browserRuntimeForPlatform(sourceGame.Platform)
+			runtime, ok := core.BrowserPlayRuntimeForSourceGame(sourceGame.Platform, game.Platform)
 			if !ok {
 				continue
 			}
@@ -426,19 +426,19 @@ func (s *service) publishMigrationEvent(eventType string, status *core.SaveSyncM
 		return
 	}
 	events.PublishJSON(s.eventBus, eventType, map[string]any{
-		"job_id":                 status.JobID,
-		"status":                 status.Status,
-		"scope":                  status.Scope,
-		"source_integration_id":  status.SourceIntegrationID,
-		"target_integration_id":  status.TargetIntegrationID,
-		"canonical_game_id":      status.CanonicalGameID,
-		"started_at":             status.StartedAt,
-		"finished_at":            status.FinishedAt,
-		"items_total":            status.ItemsTotal,
-		"items_completed":        status.ItemsCompleted,
-		"slots_migrated":         status.SlotsMigrated,
-		"slots_skipped":          status.SlotsSkipped,
-		"error":                  status.Error,
+		"job_id":                status.JobID,
+		"status":                status.Status,
+		"scope":                 status.Scope,
+		"source_integration_id": status.SourceIntegrationID,
+		"target_integration_id": status.TargetIntegrationID,
+		"canonical_game_id":     status.CanonicalGameID,
+		"started_at":            status.StartedAt,
+		"finished_at":           status.FinishedAt,
+		"items_total":           status.ItemsTotal,
+		"items_completed":       status.ItemsCompleted,
+		"slots_migrated":        status.SlotsMigrated,
+		"slots_skipped":         status.SlotsSkipped,
+		"error":                 status.Error,
 	})
 }
 
@@ -500,9 +500,16 @@ func (s *service) validateSlotRef(ctx context.Context, req core.SaveSyncSlotRef)
 	if game == nil {
 		return fmt.Errorf("game not found")
 	}
+	return validateSlotRefAgainstGame(game, req)
+}
+
+func validateSlotRefAgainstGame(game *core.CanonicalGame, req core.SaveSyncSlotRef) error {
+	if game == nil {
+		return fmt.Errorf("game not found")
+	}
 	for _, sourceGame := range game.SourceGames {
-		if sourceGame != nil && sourceGame.ID == req.SourceGameID && sourceGame.Status == "found" {
-			expectedRuntime, ok := browserRuntimeForPlatform(sourceGame.Platform)
+		if sourceGame != nil && sourceGame.ID == req.SourceGameID {
+			expectedRuntime, ok := core.BrowserPlayRuntimeForSourceGame(sourceGame.Platform, game.Platform)
 			if !ok || expectedRuntime != req.Runtime {
 				return fmt.Errorf("runtime does not match source game platform")
 			}
@@ -635,21 +642,6 @@ func browserRuntimeAllowed(runtime string) (string, bool) {
 	switch runtime {
 	case "emulatorjs", "jsdos", "scummvm":
 		return runtime, true
-	default:
-		return "", false
-	}
-}
-
-func browserRuntimeForPlatform(platform core.Platform) (string, bool) {
-	switch platform {
-	case core.PlatformNES, core.PlatformSNES, core.PlatformGB, core.PlatformGBC, core.PlatformGBA,
-		core.PlatformGenesis, core.PlatformSegaMasterSystem, core.PlatformGameGear, core.PlatformSegaCD,
-		core.PlatformSega32X, core.PlatformPS1, core.PlatformArcade:
-		return "emulatorjs", true
-	case core.PlatformMSDOS:
-		return "jsdos", true
-	case core.PlatformScummVM:
-		return "scummvm", true
 	default:
 		return "", false
 	}

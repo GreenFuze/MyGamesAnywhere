@@ -25,9 +25,15 @@ export function GameGrid({ games, isLoading }: GameGridProps) {
   }
 
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
-      {games.map((game) => (
-        <GameCard key={game.id} game={game} />
+    <div className="mga-grid-fade grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
+      {games.map((game, index) => (
+        <div
+          key={game.id}
+          className="mga-stagger-item"
+          style={{ animationDelay: `${Math.min(index, 10) * 40}ms` }}
+        >
+          <GameCard game={game} />
+        </div>
       ))}
     </div>
   )

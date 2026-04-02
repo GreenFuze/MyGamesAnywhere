@@ -45,6 +45,7 @@ interface IntegrationCardProps {
   onCheck: (id: string) => void;
   onEdit: (integration: Integration) => void;
   onDelete: (integration: Integration) => void;
+  mutationDisabled?: boolean;
 
   // Source-specific props.
   scanState?: IntegrationScanState;
@@ -67,6 +68,60 @@ interface IntegrationCardProps {
   // Save-sync-specific props.
   activeSaveSyncIntegrationId?: string | null;
   onSetActiveSaveSync?: (integrationId: string) => void;
+  onStartAuth?: (integration: Integration) => void;
+  authPending?: boolean;
+}
+
+function supportsOAuth(plugin: PluginInfo | undefined): boolean {
+  return plugin?.provides?.includes("auth.oauth.callback") ?? false;
+}
+
+function statusPresentation(
+  status: IntegrationStatusEntry | undefined,
+): {
+  label: string;
+  detail: string;
+  className: string;
+} {
+  switch (status?.status) {
+    case "ok":
+      return {
+        label: "Connected",
+        detail:
+          status.message || "Configuration validated and the integration is ready.",
+        className: "text-green-400",
+      };
+    case "oauth_required":
+      return {
+        label: "Sign-in required",
+        detail:
+          status.message ||
+          "This integration needs browser sign-in before it can be used.",
+        className: "text-amber-300",
+      };
+    case "unavailable":
+      return {
+        label: "Unavailable",
+        detail:
+          status.message ||
+          "The plugin is not available in this server session.",
+        className: "text-amber-300",
+      };
+    case "error":
+      return {
+        label: "Error",
+        detail:
+          status.message ||
+          "The integration configuration did not validate successfully.",
+        className: "text-red-400",
+      };
+    default:
+      return {
+        label: "Pending",
+        detail: "Status has not been checked yet in this session.",
+        className: "text-mga-muted",
+      };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +138,7 @@ export function IntegrationCard({
   onCheck,
   onEdit,
   onDelete,
+  mutationDisabled,
   scanState,
   scanDisabled,
   onScan,
@@ -94,6 +150,8 @@ export function IntegrationCard({
   onClearKey,
   activeSaveSyncIntegrationId,
   onSetActiveSaveSync,
+  onStartAuth,
+  authPending,
 }: IntegrationCardProps) {
   const summary = ConfigSummaryBuilder.summarize(
     integration.plugin_id,
@@ -116,6 +174,14 @@ export function IntegrationCard({
   const isActiveSaveSync =
     capability === "save_sync" &&
     activeSaveSyncIntegrationId === integration.id;
+  const oauthCapable = supportsOAuth(plugin);
+  const statusInfo = statusPresentation(status);
+  const showAuthAction =
+    oauthCapable &&
+    onStartAuth &&
+    (!status || status.status === "oauth_required");
+  const authLabel =
+    status?.status === "oauth_required" ? "Re-auth" : "Connect";
 
   return (
     <div className="border border-mga-border rounded-mga bg-mga-surface p-4 flex flex-col gap-2 transition-colors hover:border-mga-muted/50">
@@ -229,24 +295,14 @@ export function IntegrationCard({
         </div>
       )}
 
-      {/* Status message (error or success) */}
-      {status?.message && status.status === "oauth_required" && (
-        <p className="text-xs text-amber-300 truncate" title={status.message}>
-          {status.message}
+      <div className="space-y-1">
+        <p className={`text-xs font-medium uppercase tracking-wide ${statusInfo.className}`}>
+          {statusInfo.label}
         </p>
-      )}
-      {status?.message &&
-        status.status !== "ok" &&
-        status.status !== "oauth_required" && (
-        <p className="text-xs text-red-400 truncate" title={status.message}>
-          {status.message}
+        <p className={`text-xs ${statusInfo.className} truncate`} title={statusInfo.detail}>
+          {statusInfo.detail}
         </p>
-      )}
-      {status?.status === "ok" && status.message && (
-        <p className="text-xs text-green-400 truncate" title={status.message}>
-          {status.message || "Connected"}
-        </p>
-      )}
+      </div>
 
       {/* Scan progress bar (source integrations) */}
       {capability === "source" && scanState?.progress && (
@@ -328,12 +384,24 @@ export function IntegrationCard({
             {isActiveSaveSync ? "Active" : "Use for Save Sync"}
           </Button>
         )}
+        {showAuthAction && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onStartAuth(integration)}
+            className="text-xs"
+            disabled={mutationDisabled || isChecking || authPending}
+          >
+            {authPending ? "Connecting..." : authLabel}
+          </Button>
+        )}
 
         <Button
           variant="ghost"
           size="sm"
           onClick={() => onEdit(integration)}
           className="text-xs"
+          disabled={mutationDisabled}
         >
           Edit
         </Button>
@@ -342,6 +410,7 @@ export function IntegrationCard({
           size="sm"
           className="text-xs text-red-400 hover:text-red-300"
           onClick={() => onDelete(integration)}
+          disabled={mutationDisabled}
         >
           Delete
         </Button>

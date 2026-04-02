@@ -230,7 +230,7 @@ func findSourceGameFile(
 	}
 	normalizedPath := filepath.ToSlash(strings.TrimSpace(filePath))
 	for _, sg := range game.SourceGames {
-		if sg == nil || sg.ID != sourceGameID || sg.Status != "found" {
+		if sg == nil || sg.ID != sourceGameID {
 			continue
 		}
 		for i := range sg.Files {

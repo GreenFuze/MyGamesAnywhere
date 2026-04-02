@@ -428,9 +428,9 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 ## Phase 7 — Polish & Advanced Features
 
 ### Animations & Motion
-- [ ] Page transition animations
-- [ ] Staggered grid item entrance
-- [ ] Smooth filter/sort transitions
+- [x] Page transition animations
+- [x] Staggered grid item entrance
+- [x] Smooth filter/sort transitions
 - [x] Expand skeleton/loading coverage beyond the Home and library surfaces that already have loading placeholders
 - [x] Cover art sizing tightened across cards, rows, and sidebar thumbnails while keeping contain-based fallbacks
 - [x] The shelf overflow affordance now sits as a slim right-edge expander instead of reading like a regular card, and collapsed shelves stay visually single-line
@@ -496,9 +496,11 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] Add Metacritic scoring
 - [ ] Fix npm build vulnerabilities detected during build
 - [ ] Concurrency on scanning/metadata-fetching
-- [ ] Web-Emulators don't run the games
+- [ ] Browser-play manual proof: EmulatorJS launches a real title end-to-end, including save import/export where supported
+- [ ] Browser-play manual proof: js-dos launches a real title end-to-end, including save import/export where supported
+- [ ] Browser-play manual proof: ScummVM launches a real title end-to-end, including save import/export where supported
 - [x] Playable-games sidebar now uses compact platform icon rendering without duplicating text-style badges like the in-app GBA mark
-- [ ] `temp-resources` directory contains an updated GBA logo with onlt the GBA characters. this can be used for small space icons. the full gameboy advanced title image can be used for larger space icons (like in the game pages)
+- [x] The playable games sidebar now has its own desktop-only scrolling container, separate from the main page scroller, with a theme-colored thumb and transparent track.
 
 ### Additional Ideas
 - [ ] Keyboard shortcuts (Vim-style navigation, quick actions)

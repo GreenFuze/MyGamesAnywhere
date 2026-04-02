@@ -35,6 +35,7 @@ func (f *fakePlayIntegrationRepo) ListByPluginID(context.Context, string) ([]*co
 }
 
 func TestCanonicalToGameDetailIncludesPlayMetadataAndFileIDs(t *testing.T) {
+	root := t.TempDir()
 	game := &core.CanonicalGame{
 		ID:       "game-1",
 		Title:    "Castlevania",
@@ -45,6 +46,7 @@ func TestCanonicalToGameDetailIncludesPlayMetadataAndFileIDs(t *testing.T) {
 				ID:        "source-1",
 				Platform:  core.PlatformPS1,
 				GroupKind: core.GroupKindSelfContained,
+				RootPath:  root,
 				Status:    "found",
 				CreatedAt: time.Unix(1700000000, 0),
 				Files: []core.GameFile{
@@ -83,6 +85,7 @@ func TestCanonicalToGameDetailIncludesPlayMetadataAndFileIDs(t *testing.T) {
 }
 
 func TestCanonicalToGameDetailAllowsRootlessScummVMLaunch(t *testing.T) {
+	root := t.TempDir()
 	game := &core.CanonicalGame{
 		ID:       "game-2",
 		Title:    "Quest for Glory",
@@ -93,6 +96,7 @@ func TestCanonicalToGameDetailAllowsRootlessScummVMLaunch(t *testing.T) {
 				ID:        "source-2",
 				Platform:  core.PlatformScummVM,
 				GroupKind: core.GroupKindSelfContained,
+				RootPath:  root,
 				Status:    "found",
 				CreatedAt: time.Unix(1700000000, 0),
 				Files: []core.GameFile{
@@ -112,6 +116,43 @@ func TestCanonicalToGameDetailAllowsRootlessScummVMLaunch(t *testing.T) {
 	}
 	if detail.SourceGames[0].Play == nil || detail.SourceGames[0].Play.RootFileID != "" {
 		t.Fatalf("expected no root file id for rootless scummvm source, got %+v", detail.SourceGames[0].Play)
+	}
+}
+
+func TestCanonicalToGameDetailExcludesNonStreamableBrowserPlaySource(t *testing.T) {
+	game := &core.CanonicalGame{
+		ID:       "game-transport",
+		Title:    "Aria of Sorrow",
+		Platform: core.PlatformGBA,
+		Kind:     core.GameKindBaseGame,
+		SourceGames: []*core.SourceGame{
+			{
+				ID:        "source-drive",
+				PluginID:  "game-source-google-drive",
+				Platform:  core.PlatformGBA,
+				GroupKind: core.GroupKindSelfContained,
+				RootPath:  "Games/Platforms/Nintendo Game Boy Advance",
+				Status:    "found",
+				CreatedAt: time.Unix(1700000000, 0),
+				Files: []core.GameFile{
+					{GameID: "source-drive", Path: "Castlevania.zip", Role: core.GameFileRoleRoot, Size: 128},
+				},
+			},
+		},
+	}
+
+	detail := canonicalToGameDetail(game)
+	if detail.Play == nil {
+		t.Fatal("expected play metadata")
+	}
+	if detail.Play.Available {
+		t.Fatalf("expected non-streamable source to be excluded from launch sources, got %+v", detail.Play)
+	}
+	if len(detail.Play.LaunchSources) != 1 || detail.Play.LaunchSources[0].Launchable {
+		t.Fatalf("expected non-streamable launch source to remain non-launchable, got %+v", detail.Play.LaunchSources)
+	}
+	if detail.SourceGames[0].Play == nil || detail.SourceGames[0].Play.Launchable {
+		t.Fatalf("expected source to be marked non-launchable, got %+v", detail.SourceGames[0].Play)
 	}
 }
 
@@ -158,6 +199,70 @@ func TestGameControllerServePlayFileSupportsRange(t *testing.T) {
 	}
 	if rr.Body.String() != "bcd" {
 		t.Fatalf("unexpected body: %q", rr.Body.String())
+	}
+}
+
+func TestGameControllerServePlayFileSupportsHead(t *testing.T) {
+	root := t.TempDir()
+	fullPath := filepath.Join(root, "roms", "game.bin")
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fullPath, []byte("abcdef"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := &fakeGameStore{
+		game: &core.CanonicalGame{
+			ID:       "game-head",
+			Platform: core.PlatformGBA,
+			SourceGames: []*core.SourceGame{
+				{
+					ID:        "source-head",
+					Platform:  core.PlatformGBA,
+					GroupKind: core.GroupKindSelfContained,
+					RootPath:  root,
+					Status:    "found",
+					Files: []core.GameFile{
+						{GameID: "source-head", Path: "roms/game.bin", Role: core.GameFileRoleRoot, Size: 6},
+					},
+				},
+			},
+		},
+	}
+	ctrl := NewGameController(store, nil, noopLogger{})
+	router := BuildRouter(
+		&RouteBuilder{
+			GameCtrl:        ctrl,
+			MediaCtrl:       &MediaController{},
+			DiscoCtrl:       &DiscoveryController{},
+			AboutCtrl:       &AboutController{},
+			ConfigCtrl:      &ConfigController{},
+			PluginCtrl:      &PluginController{},
+			ReviewCtrl:      &ReviewController{},
+			AchievementCtrl: &AchievementController{},
+			SyncCtrl:        &SyncController{},
+			SaveSyncCtrl:    &SaveSyncController{},
+			SSECtrl:         &SSEController{},
+			OAuthCtrl:       &OAuthController{},
+		},
+		0,
+		"",
+	)
+
+	req := httptest.NewRequest(http.MethodHead, "/api/games/game-head/play?file_id="+encodeGameFileID("source-head", "roms/game.bin"), nil)
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Content-Length"); got != "6" {
+		t.Fatalf("expected content-length 6, got %q", got)
+	}
+	if rr.Body.Len() != 0 {
+		t.Fatalf("expected empty head response body, got %q", rr.Body.String())
 	}
 }
 

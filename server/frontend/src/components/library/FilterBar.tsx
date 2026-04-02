@@ -70,18 +70,25 @@ export function FilterBar({
     })
   }
 
-  if (!isOpen) return null
-
   return (
-    <div className="space-y-4 rounded-mga border border-mga-border bg-mga-surface p-4">
-      {activeCount > 0 && (
-        <div className="flex items-center justify-end gap-2">
-          <Badge variant="accent">{activeCount} active</Badge>
-          <Button variant="ghost" size="sm" onClick={clearAll}>
-            Clear all
-          </Button>
-        </div>
+    <div
+      className={cn(
+        'grid transition-[grid-template-rows,opacity,transform] duration-300 ease-out',
+        isOpen
+          ? 'grid-rows-[1fr] opacity-100'
+          : 'pointer-events-none grid-rows-[0fr] -translate-y-1 opacity-0',
       )}
+    >
+      <div className="overflow-hidden">
+        <div className="space-y-4 rounded-mga border border-mga-border bg-mga-surface p-4">
+          {activeCount > 0 && (
+            <div className="flex items-center justify-end gap-2">
+              <Badge variant="accent">{activeCount} active</Badge>
+              <Button variant="ghost" size="sm" onClick={clearAll}>
+                Clear all
+              </Button>
+            </div>
+          )}
 
           {/* Platforms */}
           {availablePlatforms.length > 0 && (
@@ -233,6 +240,8 @@ export function FilterBar({
               />
             </div>
           </FilterSection>
+        </div>
+      </div>
     </div>
   )
 }

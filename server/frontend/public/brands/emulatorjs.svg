@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title>EmulatorJS</title>
+  <circle cx="256" cy="256" r="208" fill="#1fb4e5" stroke="#0d2a4f" stroke-width="24" />
+  <rect x="56" y="128" width="400" height="240" rx="34" fill="#179bc8" stroke="#0d2a4f" stroke-width="18" />
+  <path d="M118 196h54v-54h64v54h54v64h-54v54h-64v-54h-54z" fill="#02070c" stroke="#0d2a4f" stroke-width="12" />
+  <g fill="#02070c" stroke="#0d2a4f" stroke-width="12">
+    <circle cx="358" cy="184" r="26" />
+    <circle cx="322" cy="232" r="26" />
+    <circle cx="394" cy="232" r="26" />
+    <circle cx="358" cy="280" r="26" />
+  </g>
+</svg>

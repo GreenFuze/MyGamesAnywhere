@@ -61,6 +61,7 @@ export type BrowserPlaySelectionIssue = {
 }
 
 const SESSION_PREFIX = 'mga.browserPlaySession.'
+const SOURCE_PREFERENCE_PREFIX = 'mga.browserPlaySource.'
 
 const EMULATORJS_CORES: Record<string, string> = {
   nes: 'fceumm',
@@ -114,14 +115,78 @@ export function buildPlayFileUrl(gameId: string, fileId: string): string {
   return `/api/games/${encodeURIComponent(gameId)}/play?file_id=${encodeURIComponent(fileId)}`
 }
 
-export function selectBrowserPlaySelection(game: GameDetailResponse): BrowserPlaySelection | null {
+function sourcePreferenceKey(gameId: string, runtime: BrowserPlayRuntime): string {
+  return `${SOURCE_PREFERENCE_PREFIX}${gameId}.${runtime}`
+}
+
+export function readBrowserPlaySourcePreference(
+  gameId: string,
+  runtime: BrowserPlayRuntime,
+): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const value = window.localStorage.getItem(sourcePreferenceKey(gameId, runtime))
+    return value && value.trim().length > 0 ? value : null
+  } catch {
+    return null
+  }
+}
+
+export function writeBrowserPlaySourcePreference(
+  gameId: string,
+  runtime: BrowserPlayRuntime,
+  sourceGameId: string,
+) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(sourcePreferenceKey(gameId, runtime), sourceGameId)
+  } catch {
+    // Ignore localStorage write failures and keep the in-memory selection only.
+  }
+}
+
+export function clearBrowserPlaySourcePreference(gameId: string, runtime: BrowserPlayRuntime) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(sourcePreferenceKey(gameId, runtime))
+  } catch {
+    // Ignore localStorage remove failures.
+  }
+}
+
+export function browserPlaySourceLabel(selection: BrowserPlaySelection): string {
+  return selection.sourceGame.raw_title || selection.sourceGame.external_id
+}
+
+export function browserPlaySourceContext(selection: BrowserPlaySelection): string {
+  const parts = [selection.sourceGame.plugin_id]
+  if (selection.sourceGame.platform && selection.sourceGame.platform !== 'unknown') {
+    parts.push(selection.sourceGame.platform)
+  }
+  if (selection.rootFile?.path) {
+    parts.push(selection.rootFile.path)
+  } else if (selection.sourceGame.root_path) {
+    parts.push(selection.sourceGame.root_path)
+  }
+  return parts.join(' · ')
+}
+
+export function browserPlaySourceOptionLabel(selection: BrowserPlaySelection): string {
+  const label = browserPlaySourceLabel(selection)
+  const context = browserPlaySourceContext(selection)
+  return context ? `${label} - ${context}` : label
+}
+
+export function listBrowserPlaySelections(game: GameDetailResponse): BrowserPlaySelection[] {
   const play = game.play
   if (!play?.available || !play.launch_sources || play.launch_sources.length === 0) {
-    return null
+    return []
   }
 
   const runtime = getBrowserPlayRuntime(game.platform)
-  if (!runtime) return null
+  if (!runtime) return []
+
+  const selections: BrowserPlaySelection[] = []
 
   for (const launchSource of play.launch_sources) {
     if (!launchSource.launchable) continue
@@ -133,10 +198,29 @@ export function selectBrowserPlaySelection(game: GameDetailResponse): BrowserPla
       ? sourceGame.files.find((file) => file.id === launchSource.root_file_id) ?? null
       : null
 
-    return { runtime, sourceGame, launchSource, rootFile }
+    selections.push({ runtime, sourceGame, launchSource, rootFile })
   }
 
-  return null
+  return selections
+}
+
+export function selectBrowserPlaySelection(
+  game: GameDetailResponse,
+  preferredSourceGameId?: string | null,
+): BrowserPlaySelection | null {
+  const selections = listBrowserPlaySelections(game)
+  if (selections.length === 0) {
+    return null
+  }
+
+  if (preferredSourceGameId) {
+    const preferred = selections.find((selection) => selection.sourceGame.id === preferredSourceGameId)
+    if (preferred) {
+      return preferred
+    }
+  }
+
+  return selections[0] ?? null
 }
 
 export function getBrowserPlaySelectionIssue(

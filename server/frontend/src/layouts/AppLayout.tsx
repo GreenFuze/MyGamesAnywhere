@@ -98,7 +98,13 @@ export function AppLayout() {
         <div className="mx-auto min-w-0 max-w-[96rem]">
           <div className="mx-auto lg:grid lg:grid-cols-[18rem,minmax(0,1fr)] lg:gap-6">
             <AppSidebar />
-            <div key={loc.pathname} className={cn('min-w-0', isWideRoute ? 'w-full' : 'max-w-5xl')}>
+            <div
+              key={loc.pathname}
+              className={cn(
+                'mga-page-enter min-w-0',
+                isWideRoute ? 'w-full' : 'max-w-5xl',
+              )}
+            >
               <Outlet />
             </div>
           </div>

@@ -254,6 +254,19 @@ func Operations() []OperationDoc {
 			ResponseDocs: map[string]string{"200": "IntegrationStatusEntry JSON", "400": "id is required", "404": "Integration not found", "500": "Internal server error"},
 		},
 		{
+			Method:      "POST",
+			Path:        "/api/integrations/{id}/authorize",
+			Summary:     "Start or resume OAuth for one integration",
+			Description: "Validates the saved config for one integration and either returns its current status or, when browser consent is still required, returns the same oauth_required payload used by create so the frontend can open the authorization URL.",
+			ResponseDocs: map[string]string{
+				"200": "IntegrationStatusEntry JSON when no browser auth step is needed",
+				"202": "OAuthRequiredResponse JSON with authorize_url and state",
+				"400": "Invalid id or saved config",
+				"404": "Integration not found",
+				"500": "Internal server error",
+			},
+		},
+		{
 			Method:       "GET",
 			Path:         "/api/integrations/{id}/games",
 			Summary:      "List games discovered by one source integration",
@@ -319,9 +332,15 @@ func Operations() []OperationDoc {
 			Method:         "PUT",
 			Path:           "/api/integrations/{id}",
 			Summary:        "Update one integration",
-			Description:    "Updates selected integration fields. Label and integration_type are merged when present; config is optional but, when supplied, must remain a JSON object that passes schema validation and plugin.check_config.",
+			Description:    "Updates selected integration fields. Label and integration_type are merged when present; config is optional but, when supplied, must remain a JSON object that passes schema validation and plugin.check_config. OAuth-backed plugins may return oauth_required so the frontend can complete consent before retrying the save.",
 			RequestBodyDoc: "JSON: { label?, integration_type?, config? }",
-			ResponseDocs:   map[string]string{"200": "Updated integration JSON", "400": "Invalid id, JSON body, or config", "404": "Integration not found", "500": "Internal server error"},
+			ResponseDocs: map[string]string{
+				"200": "Updated integration JSON",
+				"202": "OAuthRequiredResponse JSON with authorize_url and state",
+				"400": "Invalid id, JSON body, or config",
+				"404": "Integration not found",
+				"500": "Internal server error",
+			},
 		},
 		{
 			Method:       "DELETE",

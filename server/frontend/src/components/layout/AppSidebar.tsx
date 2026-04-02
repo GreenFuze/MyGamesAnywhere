@@ -3,7 +3,7 @@ import {
   ChevronDown,
   ChevronRight,
   PlayCircle,
-  X,
+  Trash2,
 } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -194,10 +194,17 @@ export function AppSidebar() {
     })
   }
 
+  const confirmRemoveRecentPlayed = (gameId: string, title: string) => {
+    if (!window.confirm(`Are you sure you want to remove "${title}" from Recent Played?`)) {
+      return
+    }
+    removeRecentPlayed(gameId)
+  }
+
   return (
     <aside className="hidden lg:block">
-      <div className="sticky top-[7.75rem] space-y-5 rounded-[1.25rem] border border-mga-border bg-mga-surface p-4 shadow-lg shadow-black/10">
-        <section className="space-y-3">
+      <div className="sticky top-[7.75rem] flex max-h-[calc(100vh-8.75rem)] flex-col overflow-hidden rounded-[1.25rem] border border-mga-border bg-mga-surface p-4 shadow-lg shadow-black/10">
+        <section className="mga-sidebar-scroll flex-1 space-y-5 overflow-y-auto pr-1">
           {recentPlayedEntries.length > 0 && (
             <div className="space-y-2 rounded-mga border border-mga-border bg-mga-bg/65 p-3">
               <div className="flex items-center gap-2 text-mga-accent">
@@ -256,12 +263,12 @@ export function AppSidebar() {
                       )}
                       <button
                         type="button"
-                        onClick={() => removeRecentPlayed(entry.gameId)}
-                        className="flex h-auto shrink-0 items-center justify-center rounded-mga border border-mga-border/70 bg-mga-bg/70 px-2 text-mga-muted transition-colors hover:border-mga-accent/50 hover:text-mga-text"
+                        onClick={() => confirmRemoveRecentPlayed(entry.gameId, title)}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-mga-muted transition-colors hover:text-rose-400"
                         aria-label={`Remove ${title} from recent played`}
                         title="Remove from recent played"
                       >
-                        <X size={14} />
+                        <Trash2 size={15} />
                       </button>
                     </div>
                   )

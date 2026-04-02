@@ -373,6 +373,84 @@ func TestPersistScanResultsDuplicateNaturalKeyInBatchKeepsLastEntryAndWarns(t *t
 	}
 }
 
+func TestPersistScanResultsDuplicateFilePathKeepsLatestValues(t *testing.T) {
+	ctx := context.Background()
+	logger := &warningCaptureLogger{}
+	db, store := newTestGameStoreWithLogger(t, logger)
+
+	err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:dupe-files",
+			IntegrationID: "integration-1",
+			PluginID:      "game-source-steam",
+			ExternalID:    "dupe-files",
+			RawTitle:      "Duplicate Files",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			Status:        "found",
+			Files: []core.GameFile{
+				{
+					Path:     `C:\Games\Duplicate Files\game.exe`,
+					FileName: "game-old.exe",
+					Role:     core.GameFileRoleOptional,
+					FileKind: "bin",
+					Size:     100,
+				},
+				{
+					Path:     `C:/Games/Duplicate Files/game.exe`,
+					FileName: "game.exe",
+					Role:     core.GameFileRoleRoot,
+					FileKind: "exe",
+					Size:     200,
+				},
+				{
+					Path:     `C:/Games/Duplicate Files/game.exe`,
+					FileName: "game.exe",
+					Role:     core.GameFileRoleRoot,
+					FileKind: "exe",
+					Size:     200,
+				},
+			},
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{},
+		MediaItems:      map[string][]core.MediaRef{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM game_files WHERE source_game_id = ?`, "scan:dupe-files").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("file_count = %d, want 1 after duplicate path normalization", count)
+	}
+
+	var path, fileName, role, fileKind string
+	var size int64
+	var isDir int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT path, file_name, role, file_kind, size, is_dir
+		FROM game_files WHERE source_game_id = ?`, "scan:dupe-files").Scan(&path, &fileName, &role, &fileKind, &size, &isDir); err != nil {
+		t.Fatal(err)
+	}
+	if path != "C:/Games/Duplicate Files/game.exe" {
+		t.Fatalf("path = %q, want normalized latest path", path)
+	}
+	if fileName != "game.exe" || role != string(core.GameFileRoleRoot) || fileKind != "exe" || size != 200 || isDir != 0 {
+		t.Fatalf("persisted file = {%q %q %q %d %d}, want latest values", fileName, role, fileKind, size, isDir)
+	}
+
+	if len(logger.warnings) != 1 {
+		t.Fatalf("warning count = %d, want 1 for differing duplicate file path", len(logger.warnings))
+	}
+	if !strings.Contains(logger.warnings[0], "duplicate game file in scan batch") {
+		t.Fatalf("warning = %q, want duplicate file warning", logger.warnings[0])
+	}
+}
+
 func TestGetCanonicalGameByIDDoesNotResolveLegacySourceID(t *testing.T) {
 	ctx := context.Background()
 	_, store := newTestGameStore(t)

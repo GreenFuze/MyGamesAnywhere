@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -378,4 +379,211 @@ func (f *fakePluginHost) GetPlugin(string) (*core.Plugin, bool) { return nil, fa
 func (f *fakePluginHost) ListPlugins() []plugins.PluginInfo     { return nil }
 func (f *fakePluginHost) GetPluginIDsProviding(method string) []string {
 	return f.provides[method]
+}
+
+func TestPluginControllerStartIntegrationAuthReturnsOAuthRequired(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{
+		byID: map[string]*core.Integration{
+			"int-1": {
+				ID:         "int-1",
+				PluginID:   "plugin.oauth",
+				Label:      "OAuth Integration",
+				ConfigJSON: `{"root_path":"games"}`,
+			},
+		},
+	}
+	host := &fakeControllerIntegrationPluginHost{
+		plugins: map[string]*core.Plugin{
+			"plugin.oauth": {
+				Manifest: core.PluginManifest{
+					ID:           "plugin.oauth",
+					ConfigSchema: map[string]any{},
+				},
+			},
+		},
+		checkResults: map[string]integrationCheckResult{
+			"plugin.oauth": {
+				Status:       "oauth_required",
+				Message:      "Sign in required",
+				AuthorizeURL: "https://example.com/auth",
+				State:        "state-123",
+			},
+		},
+	}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900"}}, noopLogger{}, nil)
+
+	router := chi.NewRouter()
+	router.Post("/api/integrations/{id}/authorize", controller.StartIntegrationAuth)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/integrations/int-1/authorize", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusAccepted)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if got := body["status"]; got != "oauth_required" {
+		t.Fatalf("status payload = %v, want oauth_required", got)
+	}
+	if got := body["plugin_id"]; got != "plugin.oauth" {
+		t.Fatalf("plugin_id = %v, want plugin.oauth", got)
+	}
+	if got := body["authorize_url"]; got != "https://example.com/auth" {
+		t.Fatalf("authorize_url = %v, want https://example.com/auth", got)
+	}
+}
+
+func TestPluginControllerUpdateIntegrationReturnsOAuthRequired(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{
+		byID: map[string]*core.Integration{
+			"int-1": {
+				ID:         "int-1",
+				PluginID:   "plugin.oauth",
+				Label:      "OAuth Integration",
+				ConfigJSON: `{}`,
+			},
+		},
+	}
+	host := &fakeControllerIntegrationPluginHost{
+		plugins: map[string]*core.Plugin{
+			"plugin.oauth": {
+				Manifest: core.PluginManifest{
+					ID:           "plugin.oauth",
+					ConfigSchema: map[string]any{},
+				},
+			},
+		},
+		checkResults: map[string]integrationCheckResult{
+			"plugin.oauth": {
+				Status:       "oauth_required",
+				Message:      "Need browser auth",
+				AuthorizeURL: "https://example.com/auth",
+				State:        "state-456",
+			},
+		},
+	}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900"}}, noopLogger{}, nil)
+
+	router := chi.NewRouter()
+	router.Put("/api/integrations/{id}", controller.UpdateIntegration)
+
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/integrations/int-1",
+		bytes.NewBufferString(`{"config":{"root_path":"updated"}}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusAccepted)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if got := body["status"]; got != "oauth_required" {
+		t.Fatalf("status payload = %v, want oauth_required", got)
+	}
+	if got := body["state"]; got != "state-456" {
+		t.Fatalf("state = %v, want state-456", got)
+	}
+	if repo.updated != nil {
+		t.Fatal("update should not persist while oauth is still required")
+	}
+}
+
+type staticConfig struct {
+	values map[string]string
+}
+
+func (c staticConfig) Get(key string) string { return c.values[key] }
+func (c staticConfig) GetInt(string) int     { return 0 }
+func (c staticConfig) GetBool(string) bool   { return false }
+func (c staticConfig) Validate() error       { return nil }
+
+type fakeControllerIntegrationRepo struct {
+	byID    map[string]*core.Integration
+	updated *core.Integration
+}
+
+func (r *fakeControllerIntegrationRepo) Create(context.Context, *core.Integration) error {
+	panic("unexpected call")
+}
+func (r *fakeControllerIntegrationRepo) Update(_ context.Context, integration *core.Integration) error {
+	copy := *integration
+	r.updated = &copy
+	if r.byID == nil {
+		r.byID = map[string]*core.Integration{}
+	}
+	r.byID[integration.ID] = &copy
+	return nil
+}
+func (r *fakeControllerIntegrationRepo) Delete(context.Context, string) error {
+	panic("unexpected call")
+}
+func (r *fakeControllerIntegrationRepo) List(context.Context) ([]*core.Integration, error) {
+	var integrations []*core.Integration
+	for _, integration := range r.byID {
+		copy := *integration
+		integrations = append(integrations, &copy)
+	}
+	return integrations, nil
+}
+func (r *fakeControllerIntegrationRepo) GetByID(_ context.Context, id string) (*core.Integration, error) {
+	if integration, ok := r.byID[id]; ok {
+		copy := *integration
+		return &copy, nil
+	}
+	return nil, nil
+}
+func (r *fakeControllerIntegrationRepo) ListByPluginID(_ context.Context, pluginID string) ([]*core.Integration, error) {
+	var integrations []*core.Integration
+	for _, integration := range r.byID {
+		if integration.PluginID != pluginID {
+			continue
+		}
+		copy := *integration
+		integrations = append(integrations, &copy)
+	}
+	return integrations, nil
+}
+
+type fakeControllerIntegrationPluginHost struct {
+	plugins      map[string]*core.Plugin
+	checkResults map[string]integrationCheckResult
+}
+
+func (f *fakeControllerIntegrationPluginHost) Discover(context.Context) error {
+	panic("unexpected call")
+}
+func (f *fakeControllerIntegrationPluginHost) Call(_ context.Context, pluginID, method string, _ any, result any) error {
+	if method != "plugin.check_config" {
+		panic("unexpected call")
+	}
+	payload := f.checkResults[pluginID]
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, result)
+}
+func (f *fakeControllerIntegrationPluginHost) Close() error { return nil }
+func (f *fakeControllerIntegrationPluginHost) GetPluginIDs() []string {
+	return nil
+}
+func (f *fakeControllerIntegrationPluginHost) GetPlugin(pluginID string) (*core.Plugin, bool) {
+	plugin, ok := f.plugins[pluginID]
+	return plugin, ok
+}
+func (f *fakeControllerIntegrationPluginHost) ListPlugins() []plugins.PluginInfo { return nil }
+func (f *fakeControllerIntegrationPluginHost) GetPluginIDsProviding(string) []string {
+	return nil
 }

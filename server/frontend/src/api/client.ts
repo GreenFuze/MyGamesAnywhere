@@ -426,9 +426,16 @@ export type OAuthRequiredResponse = {
 };
 
 export type CreateIntegrationResult = Integration | OAuthRequiredResponse;
+export type UpdateIntegrationResult = Integration | OAuthRequiredResponse;
+export type StartIntegrationAuthResult =
+  | IntegrationStatusEntry
+  | OAuthRequiredResponse;
 
 export function isOAuthRequired(
-  result: CreateIntegrationResult,
+  result:
+    | CreateIntegrationResult
+    | UpdateIntegrationResult
+    | StartIntegrationAuthResult,
 ): result is OAuthRequiredResponse {
   return "status" in result && result.status === "oauth_required";
 }
@@ -484,11 +491,45 @@ export async function updateIntegration(
     integration_type?: string;
     config?: Record<string, unknown>;
   },
-): Promise<Integration> {
-  return putJson<Integration>(
-    `/api/integrations/${encodeURIComponent(id)}`,
-    body,
-  );
+): Promise<UpdateIntegrationResult> {
+  const path = `/api/integrations/${encodeURIComponent(id)}`;
+  const res = await fetch(`${base}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (res.status === 202) {
+    return res.json() as Promise<OAuthRequiredResponse>;
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `${res.status} ${res.statusText}`);
+  }
+
+  return res.json() as Promise<Integration>;
+}
+
+export async function startIntegrationAuth(
+  id: string,
+): Promise<StartIntegrationAuthResult> {
+  const path = `/api/integrations/${encodeURIComponent(id)}/authorize`;
+  const res = await fetch(`${base}${path}`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+
+  if (res.status === 202) {
+    return res.json() as Promise<OAuthRequiredResponse>;
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `${res.status} ${res.statusText}`);
+  }
+
+  return res.json() as Promise<IntegrationStatusEntry>;
 }
 
 export async function deleteIntegration(id: string): Promise<void> {

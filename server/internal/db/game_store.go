@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -132,7 +133,13 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 			}
 			_, err := tx.ExecContext(ctx, `INSERT INTO game_files
 				(source_game_id, path, file_name, role, file_kind, size, is_dir)
-				VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				VALUES (?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(source_game_id, path) DO UPDATE SET
+					file_name = excluded.file_name,
+					role = excluded.role,
+					file_kind = excluded.file_kind,
+					size = excluded.size,
+					is_dir = excluded.is_dir`,
 				persistedID, f.Path, f.FileName, string(f.Role), nullEmpty(f.FileKind), f.Size, isDir)
 			if err != nil {
 				return fmt.Errorf("insert file for %s: %w", persistedID, err)
@@ -1500,16 +1507,21 @@ func sourceGameNaturalKey(pluginID, externalID string) string {
 }
 
 func (s *gameStore) normalizeDuplicateSourceGames(batch *core.ScanBatch) *core.ScanBatch {
-	if batch == nil || len(batch.SourceGames) < 2 {
+	if batch == nil || len(batch.SourceGames) == 0 {
 		return batch
 	}
 
+	changed := false
 	orderedKeys := make([]string, 0, len(batch.SourceGames))
 	latestByNaturalKey := make(map[string]*core.SourceGame, len(batch.SourceGames))
 
-	for _, sg := range batch.SourceGames {
+	for _, original := range batch.SourceGames {
+		sg, fileChanged := s.normalizeDuplicateFiles(batch.IntegrationID, original)
+		changed = changed || fileChanged
+
 		naturalKey := sourceGameNaturalKey(sg.PluginID, sg.ExternalID)
 		if prev, ok := latestByNaturalKey[naturalKey]; ok && prev.ID != sg.ID {
+			changed = true
 			s.logger.Warn(
 				"duplicate source game in scan batch; later entry overwriting earlier entry",
 				"integration_id", batch.IntegrationID,
@@ -1526,7 +1538,7 @@ func (s *gameStore) normalizeDuplicateSourceGames(batch *core.ScanBatch) *core.S
 		latestByNaturalKey[naturalKey] = sg
 	}
 
-	if len(orderedKeys) == len(batch.SourceGames) {
+	if !changed && len(orderedKeys) == len(batch.SourceGames) {
 		return batch
 	}
 
@@ -1551,6 +1563,71 @@ func (s *gameStore) normalizeDuplicateSourceGames(batch *core.ScanBatch) *core.S
 		ResolverMatches: dedupedResolverMatches,
 		MediaItems:      dedupedMediaItems,
 	}
+}
+
+func (s *gameStore) normalizeDuplicateFiles(integrationID string, sg *core.SourceGame) (*core.SourceGame, bool) {
+	if sg == nil || len(sg.Files) == 0 {
+		return sg, false
+	}
+
+	orderedPaths := make([]string, 0, len(sg.Files))
+	latestByPath := make(map[string]core.GameFile, len(sg.Files))
+	changed := false
+
+	for _, original := range sg.Files {
+		normalized := original
+		normalized.Path = filepath.ToSlash(strings.TrimSpace(normalized.Path))
+		if normalized.Path != original.Path {
+			changed = true
+		}
+
+		key := normalized.Path
+		if prev, ok := latestByPath[key]; ok {
+			changed = true
+			if !sameGameFile(prev, normalized) {
+				s.logger.Warn(
+					"duplicate game file in scan batch; later entry overwriting earlier entry",
+					"integration_id", integrationID,
+					"source_game_id", sg.ID,
+					"plugin_id", sg.PluginID,
+					"external_id", sg.ExternalID,
+					"path", key,
+					"discarded_file_name", prev.FileName,
+					"discarded_role", prev.Role,
+					"discarded_file_kind", prev.FileKind,
+					"discarded_size", prev.Size,
+					"kept_file_name", normalized.FileName,
+					"kept_role", normalized.Role,
+					"kept_file_kind", normalized.FileKind,
+					"kept_size", normalized.Size,
+				)
+			}
+		} else {
+			orderedPaths = append(orderedPaths, key)
+		}
+
+		latestByPath[key] = normalized
+	}
+
+	if !changed {
+		return sg, false
+	}
+
+	clone := *sg
+	clone.Files = make([]core.GameFile, 0, len(orderedPaths))
+	for _, key := range orderedPaths {
+		clone.Files = append(clone.Files, latestByPath[key])
+	}
+	return &clone, true
+}
+
+func sameGameFile(a, b core.GameFile) bool {
+	return filepath.ToSlash(strings.TrimSpace(a.Path)) == filepath.ToSlash(strings.TrimSpace(b.Path)) &&
+		a.FileName == b.FileName &&
+		a.Role == b.Role &&
+		a.FileKind == b.FileKind &&
+		a.Size == b.Size &&
+		a.IsDir == b.IsDir
 }
 
 func (s *gameStore) loadExistingSourceGames(ctx context.Context, tx *sql.Tx, integrationID string) ([]existingSourceGame, error) {

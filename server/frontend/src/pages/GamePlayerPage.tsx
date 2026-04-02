@@ -19,14 +19,20 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { PlatformIcon } from '@/components/ui/platform-icon'
 import { useRecentPlayed } from '@/hooks/useRecentPlayed'
 import {
+  browserPlaySourceContext,
+  browserPlaySourceLabel,
+  browserPlaySourceOptionLabel,
   browserPlayRuntimeLabel,
   buildBrowserPlaySession,
   buildBrowserPlayerUrl,
   clearBrowserPlaySession,
   getBrowserPlaySelectionIssue,
+  listBrowserPlaySelections,
   persistBrowserPlaySession,
+  readBrowserPlaySourcePreference,
   sessionSupportsSaveSync,
   selectBrowserPlaySelection,
+  writeBrowserPlaySourcePreference,
   type BrowserPlaySession,
 } from '@/lib/browserPlay'
 import { hasBrowserPlaySupport } from '@/lib/gameUtils'
@@ -86,6 +92,7 @@ export function GamePlayerPage() {
   const [baselineLocalHash, setBaselineLocalHash] = useState<string | null>(null)
   const [baselineRemoteManifestHash, setBaselineRemoteManifestHash] = useState<string | null>(null)
   const [runtimeError, setRuntimeError] = useState('')
+  const [pendingSourceGameId, setPendingSourceGameId] = useState<string | null>(null)
   const recordedRef = useRef<string | null>(null)
   const tokenRef = useRef<string | null>(null)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
@@ -111,9 +118,23 @@ export function GamePlayerPage() {
     enabled: id.length > 0,
   })
 
-  const selection = useMemo(
-    () => (game.data ? selectBrowserPlaySelection(game.data) : null),
+  const sourceParam = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    const value = params.get('source')
+    return value && value.trim().length > 0 ? value : null
+  }, [location.search])
+  const availableSelections = useMemo(
+    () => (game.data ? listBrowserPlaySelections(game.data) : []),
     [game.data],
+  )
+  const selection = useMemo(
+    () => {
+      if (!game.data) return null
+      const runtime = availableSelections[0]?.runtime ?? null
+      const storedSourceId = runtime ? readBrowserPlaySourcePreference(game.data.id, runtime) : null
+      return selectBrowserPlaySelection(game.data, sourceParam ?? storedSourceId)
+    },
+    [availableSelections, game.data, sourceParam],
   )
   const selectionIssue = useMemo(
     () => (game.data ? getBrowserPlaySelectionIssue(game.data, selection) : null),
@@ -128,9 +149,34 @@ export function GamePlayerPage() {
     return buildBrowserPlayerUrl(session.runtime, sessionToken)
   }, [session, sessionToken])
   const runtimeLabel = selection ? browserPlayRuntimeLabel(selection.runtime) : null
+  const hasPendingSourceChange = Boolean(
+    selection && pendingSourceGameId && pendingSourceGameId !== selection.sourceGame.id,
+  )
   const activeIntegrationId = activeSaveSyncIntegrationId(frontendConfig.data)
   const saveSyncRuntimeSupported = session ? sessionSupportsSaveSync(session) : false
   const saveSyncEnabled = Boolean(activeIntegrationId && session && saveSyncRuntimeSupported)
+
+  useEffect(() => {
+    setPendingSourceGameId(selection?.sourceGame.id ?? null)
+  }, [selection?.sourceGame.id])
+
+  useEffect(() => {
+    if (!game.data || !selection) return
+    writeBrowserPlaySourcePreference(game.data.id, selection.runtime, selection.sourceGame.id)
+  }, [game.data, selection])
+
+  useEffect(() => {
+    if (!selection || !sourceParam || sourceParam === selection.sourceGame.id) return
+    const params = new URLSearchParams(location.search)
+    params.set('source', selection.sourceGame.id)
+    navigate(
+      {
+        pathname: location.pathname,
+        search: `?${params.toString()}`,
+      },
+      { replace: true, state: location.state },
+    )
+  }, [location.pathname, location.search, location.state, navigate, selection, sourceParam])
 
   const slotsQuery = useQuery({
     queryKey: ['save-sync-slots', id, activeIntegrationId, session?.sourceGameId, session?.runtime],
@@ -144,6 +190,7 @@ export function GamePlayerPage() {
       })
     },
     enabled: saveSyncEnabled,
+    retry: false,
   })
 
   const currentSlot = useMemo<SaveSyncSlotSummary | null>(() => {
@@ -187,7 +234,7 @@ export function GamePlayerPage() {
       title: game.data.title,
       platform: game.data.platform,
       launchKind: 'browser',
-      launchUrl: `/game/${encodeURIComponent(game.data.id)}/play`,
+      launchUrl: `/game/${encodeURIComponent(game.data.id)}/play?source=${encodeURIComponent(session.sourceGameId)}`,
     })
   }, [game.data, playerUrl, recordLaunch, session])
 
@@ -282,6 +329,28 @@ export function GamePlayerPage() {
 
   const handleBack = () => {
     navigate(`/game/${encodeURIComponent(id)}`, { state: location.state })
+  }
+
+  const handleSourceChange = (sourceGameId: string) => {
+    setPendingSourceGameId(sourceGameId)
+  }
+
+  const handleSourceApply = () => {
+    if (!game.data || !selection || !pendingSourceGameId || pendingSourceGameId === selection.sourceGame.id) return
+    writeBrowserPlaySourcePreference(game.data.id, selection.runtime, pendingSourceGameId)
+    const params = new URLSearchParams(location.search)
+    params.set('source', pendingSourceGameId)
+    navigate(
+      {
+        pathname: location.pathname,
+        search: `?${params.toString()}`,
+      },
+      { state: location.state },
+    )
+  }
+
+  const handleSourceReset = () => {
+    setPendingSourceGameId(selection?.sourceGame.id ?? null)
   }
 
   const handleSave = async () => {
@@ -452,9 +521,46 @@ export function GamePlayerPage() {
             </p>
             {selection && (
               <p className="mt-2 text-xs text-mga-muted">
-                Source: {selection.sourceGame.raw_title || selection.sourceGame.external_id}
-                {selection.rootFile ? ` · Launch file: ${selection.rootFile.path}` : ''}
+                Source: {browserPlaySourceLabel(selection)}
+                {browserPlaySourceContext(selection) ? ` · ${browserPlaySourceContext(selection)}` : ''}
               </p>
+            )}
+            {availableSelections.length > 1 && selection && (
+              <div className="mt-4 max-w-xl">
+                <label className="mb-1 block text-xs uppercase tracking-wide text-mga-muted">Source</label>
+                <select
+                  value={pendingSourceGameId ?? selection.sourceGame.id}
+                  onChange={(event) => handleSourceChange(event.target.value)}
+                  className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text"
+                >
+                  {availableSelections.map((option) => (
+                    <option key={option.sourceGame.id} value={option.sourceGame.id}>
+                      {browserPlaySourceOptionLabel(option)}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSourceApply}
+                    disabled={!hasPendingSourceChange}
+                  >
+                    Apply Source
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleSourceReset}
+                    disabled={!hasPendingSourceChange}
+                  >
+                    Reset
+                  </Button>
+                  <span className="text-xs text-mga-muted">
+                    Applying a different source restarts the runtime.
+                  </span>
+                </div>
+              </div>
             )}
           </div>
         </section>

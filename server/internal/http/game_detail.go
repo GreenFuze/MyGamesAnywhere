@@ -99,7 +99,7 @@ func canonicalToGameDetail(cg *core.CanonicalGame) GameDetailResponse {
 		Play: &GamePlayDTO{
 			PlatformSupported: supportsBrowserPlayPlatform(cg.Platform),
 		},
-		SourceGames:     make([]SourceGameDetailDTO, 0, len(cg.SourceGames)),
+		SourceGames: make([]SourceGameDetailDTO, 0, len(cg.SourceGames)),
 	}
 	if cg.AchievementSummary != nil {
 		out.AchievementSummary = &AchievementSummaryDTO{
@@ -197,10 +197,7 @@ func sourceGameToDetailDTO(
 
 	playSource := &GameLaunchSourceDTO{SourceGameID: sg.ID}
 	dto.Play = &SourceGamePlayDTO{}
-	rootPlatform := sg.Platform
-	if rootPlatform == core.PlatformUnknown {
-		rootPlatform = canonicalPlatform
-	}
+	rootPlatform := core.EffectiveBrowserPlayPlatform(sg.Platform, canonicalPlatform)
 	var rootFileID string
 	var rootCandidate *GameLaunchCandidateDTO
 	for _, f := range sg.Files {
@@ -224,7 +221,7 @@ func sourceGameToDetailDTO(
 		}
 	}
 
-	if sg.Status == "found" && platformSupported && sg.GroupKind == core.GroupKindSelfContained && len(sg.Files) > 0 {
+	if sg.Status == "found" && platformSupported && supportsBrowserPlaySourceGame(sg) && sg.GroupKind == core.GroupKindSelfContained && len(sg.Files) > 0 {
 		launchable := rootFileID != ""
 		if !launchable && rootPlatform == core.PlatformScummVM {
 			launchable = supportsScummVMLaunchSource(sg.Files)

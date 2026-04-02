@@ -6,6 +6,7 @@ import {
   listPlugins,
   getIntegrationStatus,
   checkIntegrationStatus,
+  startIntegrationAuth,
   deleteIntegration,
   triggerScan,
   cancelScanJob,
@@ -19,6 +20,7 @@ import {
   getFrontendConfig,
   setFrontendConfig,
   startSaveSyncMigration,
+  isOAuthRequired,
   type Integration,
   type IntegrationStatusEntry,
   type PluginInfo,
@@ -547,6 +549,8 @@ export function IntegrationsTab() {
   const [checkingAll, setCheckingAll] = useState(false);
   const [checkProgress, setCheckProgress] = useState({ current: 0, total: 0 });
   const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
+  const [authPendingIds, setAuthPendingIds] = useState<Set<string>>(new Set());
+  const oauthStateToIntegrationIdRef = useRef<Map<string, string>>(new Map());
 
   // ── Scan state (absorbed from ScanTab) ──
 
@@ -791,7 +795,8 @@ export function IntegrationsTab() {
             integration_id: d.integration_id,
             plugin_id: d.plugin_id ?? "",
             label: d.label ?? "",
-            status: (d.status as "ok" | "error" | "unavailable") ?? "error",
+            status:
+              (d.status as IntegrationStatusEntry["status"]) ?? "error",
             message: d.message ?? "",
           };
           setStatusMap((prev) => {
@@ -1621,6 +1626,104 @@ export function IntegrationsTab() {
     }
   }, []);
 
+  const handleStartAuth = useCallback(async (integration: Integration) => {
+    let waitingForBrowser = false;
+    setAuthPendingIds((prev) => new Set([...prev, integration.id]));
+    try {
+      const result = await startIntegrationAuth(integration.id);
+      if (isOAuthRequired(result)) {
+        waitingForBrowser = true;
+        oauthStateToIntegrationIdRef.current.set(result.state, integration.id);
+        setStatusMap((prev) => {
+          const next = new Map(prev);
+          next.set(integration.id, {
+            integration_id: integration.id,
+            plugin_id: result.plugin_id || integration.plugin_id,
+            label: integration.label,
+            status: "oauth_required",
+            message:
+              "Waiting for sign-in in the browser to finish authentication.",
+          });
+          return next;
+        });
+        window.open(result.authorize_url, "_blank");
+        return;
+      }
+
+      setStatusMap((prev) => {
+        const next = new Map(prev);
+        next.set(result.integration_id, result);
+        return next;
+      });
+    } catch (err) {
+      setStatusMap((prev) => {
+        const next = new Map(prev);
+        next.set(integration.id, {
+          integration_id: integration.id,
+          plugin_id: integration.plugin_id,
+          label: integration.label,
+          status: "error",
+          message:
+            err instanceof Error
+              ? err.message
+              : "Failed to start integration authentication.",
+        });
+        return next;
+      });
+    } finally {
+      if (!waitingForBrowser) {
+        setAuthPendingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(integration.id);
+          return next;
+        });
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const unsubs = [
+      subscribe("oauth_complete", (data: unknown) => {
+        const d = data as { state?: string };
+        if (!d.state) return;
+        const integrationId = oauthStateToIntegrationIdRef.current.get(d.state);
+        if (!integrationId) return;
+        oauthStateToIntegrationIdRef.current.delete(d.state);
+        setAuthPendingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(integrationId);
+          return next;
+        });
+        void handleCheckOne(integrationId);
+      }),
+      subscribe("oauth_error", (data: unknown) => {
+        const d = data as { state?: string; error?: string };
+        if (!d.state) return;
+        const integrationId = oauthStateToIntegrationIdRef.current.get(d.state);
+        if (!integrationId) return;
+        oauthStateToIntegrationIdRef.current.delete(d.state);
+        setAuthPendingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(integrationId);
+          return next;
+        });
+        const integration = integrations.find((item) => item.id === integrationId);
+        setStatusMap((prev) => {
+          const next = new Map(prev);
+          next.set(integrationId, {
+            integration_id: integrationId,
+            plugin_id: integration?.plugin_id ?? "",
+            label: integration?.label ?? "",
+            status: "oauth_required",
+            message: d.error ?? "Authentication failed.",
+          });
+          return next;
+        });
+      }),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, [handleCheckOne, integrations, subscribe]);
+
   // ── Auto-check on first load ──
 
   const checkedOnceRef = useRef(false);
@@ -2205,6 +2308,7 @@ export function IntegrationsTab() {
                 cap === "metadata" ? handleRefreshMetadata : undefined
               }
               scanControlsDisabled={scanInProgress}
+              mutationControlsDisabled={scanInProgress}
               sourceScanActive={sourceScanActive}
               metadataRefreshActive={metadataRefreshActive}
               // Sync props.
@@ -2220,6 +2324,8 @@ export function IntegrationsTab() {
               onSetActiveSaveSync={
                 cap === "save_sync" ? handleSetActiveSaveSync : undefined
               }
+              onStartAuth={handleStartAuth}
+              authPendingIds={authPendingIds}
               saveSyncHeaderControls={
                 cap === "save_sync" ? (
                   <Button

@@ -62,14 +62,18 @@ export function CollectionShelf({
 
   return (
     <div className="space-y-8">
-      {visibleSections.map(({ section, games: sectionGames }) => {
+      {visibleSections.map(({ section, games: sectionGames }, sectionIndex) => {
         const expanded = expandedSectionId === section.id
         const hasMore = sectionGames.length > PREVIEW_SLOT_LIMIT
         const previewGames = sectionGames.slice(0, hasMore ? PREVIEW_SLOT_LIMIT - 1 : PREVIEW_SLOT_LIMIT)
         const hiddenCount = sectionGames.length - previewGames.length
 
         return (
-          <section key={section.id} className="space-y-3">
+          <section
+            key={section.id}
+            className="mga-stagger-item space-y-3"
+            style={{ animationDelay: `${Math.min(sectionIndex, 8) * 55}ms` }}
+          >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <button
                 type="button"

@@ -194,8 +194,10 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
   {
     id: 'gba',
     label: 'GBA',
-    description: 'Platform mark rendered in-app as a compact text badge until a proper square logo is added.',
-    creditNote: 'Wide wordmark removed from shipped icon credits; the UI now renders a compact in-app badge instead.',
+    iconPath: '/brands/gba.png',
+    description: 'Platform mark used for Game Boy Advance titles.',
+    creditNote: 'Icon sourced from the provided temp resource.',
+    tempResourceName: 'GBA-logo.png',
   },
   {
     id: 'arcade',
@@ -217,9 +219,10 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
   {
     id: 'emulatorjs',
     label: 'EmulatorJS',
+    iconPath: '/brands/emulatorjs.svg',
     websiteUrl: 'https://emulatorjs.org/',
     description: 'Browser runtime used for cartridge and console playback in the embedded player.',
-    creditNote: 'No bundled logo asset; rendered as a text badge in-app.',
+    creditNote: 'Logo based on the EmulatorJS mark provided for in-app attribution.',
   },
   {
     id: 'js-dos',

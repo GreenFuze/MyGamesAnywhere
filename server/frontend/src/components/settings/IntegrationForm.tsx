@@ -470,6 +470,7 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
   const { data: plugins = [] } = useQuery({ queryKey: ['plugins'], queryFn: listPlugins })
   const plugin = plugins.find((p) => p.plugin_id === integration.plugin_id)
   const { format: formatDT } = useDateTimeFormat()
+  const { subscribe } = useSSE()
 
   const schema = useMemo(
     () => parsePluginConfigSchema(plugin?.config as Record<string, unknown> | undefined),
@@ -496,6 +497,8 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
   const [configFields, setConfigFields] = useState<Record<string, string>>(existingConfig)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [oauthState, setOauthState] = useState<string | null>(null)
+  const [oauthError, setOauthError] = useState<string | null>(null)
 
   // Folder browsing for plugins that support source.browse.
   const editSupportsBrowse = plugin?.provides?.includes('source.browse') ?? false
@@ -517,11 +520,7 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
     setRevealedSecrets((prev) => new Set([...prev, key]))
   }
 
-  const handleSave = async () => {
-    setError('')
-    setSaving(true)
-
-    // Build typed config object.
+  const buildConfig = useCallback(() => {
     const config: Record<string, unknown> = {}
     for (const { key, field } of schema) {
       // Skip masked secrets — don't send them (keep server value).
@@ -541,16 +540,80 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
     for (const [k, v] of Object.entries(configFields)) {
       if (!(k in config) && !secretMask.has(k)) config[k] = v
     }
+    return config
+  }, [configFields, schema, secretMask])
 
+  const saveChanges = useCallback(async () => {
     try {
-      await updateIntegration(integration.id, {
+      const result = await updateIntegration(integration.id, {
         label,
         integration_type: integrationType,
-        config,
+        config: buildConfig(),
       })
+      if (isOAuthRequired(result)) {
+        setOauthState(result.state)
+        setOauthError(null)
+        window.open(result.authorize_url, '_blank')
+        return
+      }
       onSaved()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save')
+    }
+  }, [buildConfig, integration.id, integrationType, label, onSaved])
+
+  const retrySaveAfterOAuth = useCallback(async () => {
+    setSaving(true)
+    setOauthError(null)
+    setError('')
+    try {
+      const result = await updateIntegration(integration.id, {
+        label,
+        integration_type: integrationType,
+        config: buildConfig(),
+      })
+      if (isOAuthRequired(result)) {
+        setOauthError('Authentication incomplete. Please try again.')
+        return
+      }
+      onSaved()
+    } catch (err) {
+      setOauthError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }, [buildConfig, integration.id, integrationType, label, onSaved])
+
+  useEffect(() => {
+    if (!oauthState) return
+
+    const unsubComplete = subscribe('oauth_complete', (data: unknown) => {
+      const d = data as { state?: string }
+      if (d.state === oauthState) {
+        void retrySaveAfterOAuth()
+      }
+    })
+
+    const unsubError = subscribe('oauth_error', (data: unknown) => {
+      const d = data as { state?: string; error?: string }
+      if (d.state === oauthState) {
+        setSaving(false)
+        setOauthError(d.error ?? 'Authentication failed')
+      }
+    })
+
+    return () => {
+      unsubComplete()
+      unsubError()
+    }
+  }, [oauthState, retrySaveAfterOAuth, subscribe])
+
+  const handleSave = async () => {
+    setError('')
+    setOauthError(null)
+    setSaving(true)
+    try {
+      await saveChanges()
     } finally {
       setSaving(false)
     }
@@ -638,6 +701,17 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
                 }}
               />
             )}
+          </div>
+        )}
+
+        {oauthState && !oauthError && (
+          <div className="rounded-mga border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+            Waiting for sign-in in the browser. This dialog will retry the save automatically when authentication completes.
+          </div>
+        )}
+        {oauthError && (
+          <div className="rounded-mga border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+            {oauthError}
           </div>
         )}
 

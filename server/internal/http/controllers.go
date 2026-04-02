@@ -529,6 +529,62 @@ type IntegrationStatusEntry struct {
 	Message       string `json:"message"`
 }
 
+type integrationCheckResult struct {
+	Status       string `json:"status"`
+	Message      string `json:"message"`
+	AuthorizeURL string `json:"authorize_url,omitempty"`
+	State        string `json:"state,omitempty"`
+}
+
+func decodeIntegrationConfig(configJSON string) (map[string]any, error) {
+	if strings.TrimSpace(configJSON) == "" {
+		return map[string]any{}, nil
+	}
+	var configMap map[string]any
+	if err := json.Unmarshal([]byte(configJSON), &configMap); err != nil {
+		return nil, err
+	}
+	if configMap == nil {
+		configMap = map[string]any{}
+	}
+	return configMap, nil
+}
+
+func (c *PluginController) validateIntegrationConfig(ctx context.Context, pluginID string, configMap map[string]any) (*core.Plugin, integrationCheckResult, error) {
+	if configMap == nil {
+		configMap = map[string]any{}
+	}
+
+	plugin, ok := c.pluginHost.GetPlugin(pluginID)
+	if !ok {
+		return nil, integrationCheckResult{}, fmt.Errorf("plugin not found: %s", pluginID)
+	}
+	if err := plugins.ValidateConfig(configMap, plugin.Manifest.ConfigSchema); err != nil {
+		return nil, integrationCheckResult{}, err
+	}
+
+	var checkResult integrationCheckResult
+	if err := c.pluginHost.Call(ctx, pluginID, "plugin.check_config", map[string]any{
+		"config":       configMap,
+		"redirect_uri": c.oauthRedirectURI(pluginID),
+	}, &checkResult); err != nil {
+		return nil, integrationCheckResult{}, fmt.Errorf("plugin validation failed: %w", err)
+	}
+
+	return plugin, checkResult, nil
+}
+
+func (c *PluginController) writeOAuthRequired(w http.ResponseWriter, pluginID string, checkResult integrationCheckResult) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":        "oauth_required",
+		"plugin_id":     pluginID,
+		"authorize_url": checkResult.AuthorizeURL,
+		"state":         checkResult.State,
+	})
+}
+
 func (c *PluginController) Status(w http.ResponseWriter, r *http.Request) {
 	integrations, err := c.repo.List(r.Context())
 	if err != nil {
@@ -580,10 +636,7 @@ func (c *PluginController) Status(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		var checkResult struct {
-			Status  string `json:"status"`
-			Message string `json:"message"`
-		}
+		var checkResult integrationCheckResult
 		callErr := c.pluginHost.Call(r.Context(), integration.PluginID, "plugin.check_config", map[string]any{
 			"config":       configMap,
 			"redirect_uri": c.oauthRedirectURI(integration.PluginID),
@@ -643,10 +696,7 @@ func (c *PluginController) checkOneIntegration(ctx context.Context, integration 
 		}
 	}
 
-	var checkResult struct {
-		Status  string `json:"status"`
-		Message string `json:"message"`
-	}
+	var checkResult integrationCheckResult
 	callErr := c.pluginHost.Call(ctx, integration.PluginID, "plugin.check_config", map[string]any{
 		"config":       configMap,
 		"redirect_uri": c.oauthRedirectURI(integration.PluginID),
@@ -687,6 +737,63 @@ func (c *PluginController) StatusOne(w http.ResponseWriter, r *http.Request) {
 	entry := c.checkOneIntegration(r.Context(), integration)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(entry)
+}
+
+// StartIntegrationAuth validates one saved integration and returns either the
+// current status or the OAuth consent details needed to complete sign-in.
+func (c *PluginController) StartIntegrationAuth(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	integration, err := c.repo.GetByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if integration == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	configMap, err := decodeIntegrationConfig(integration.ConfigJSON)
+	if err != nil {
+		http.Error(w, "invalid saved config JSON", http.StatusBadRequest)
+		return
+	}
+
+	_, checkResult, err := c.validateIntegrationConfig(r.Context(), integration.PluginID, configMap)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if checkResult.Status == "oauth_required" {
+		c.writeOAuthRequired(w, integration.PluginID, checkResult)
+		return
+	}
+
+	status := "ok"
+	message := checkResult.Message
+	if checkResult.Status != "" && checkResult.Status != "ok" {
+		status = checkResult.Status
+		if message == "" {
+			message = checkResult.Status
+		}
+	}
+	if status == "ok" && message == "" {
+		message = "Integration is already connected."
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(IntegrationStatusEntry{
+		IntegrationID: integration.ID,
+		PluginID:      integration.PluginID,
+		Label:         integration.Label,
+		Status:        status,
+		Message:       message,
+	})
 }
 
 // IntegrationGames returns canonical games discovered by a source integration.
@@ -779,40 +886,15 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 	if configMap == nil {
 		configMap = map[string]any{}
 	}
-	plugin, ok := c.pluginHost.GetPlugin(body.PluginID)
-	if !ok {
-		http.Error(w, "unknown plugin_id: "+body.PluginID, http.StatusBadRequest)
-		return
-	}
-	if err := plugins.ValidateConfig(configMap, plugin.Manifest.ConfigSchema); err != nil {
+	_, checkResult, err := c.validateIntegrationConfig(r.Context(), body.PluginID, configMap)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	checkParams := map[string]any{
-		"config":       configMap,
-		"redirect_uri": c.oauthRedirectURI(body.PluginID),
-	}
-	var checkResult struct {
-		Status       string `json:"status"`
-		Message      string `json:"message"`
-		AuthorizeURL string `json:"authorize_url,omitempty"`
-		State        string `json:"state,omitempty"`
-	}
-	if err := c.pluginHost.Call(r.Context(), body.PluginID, "plugin.check_config", checkParams, &checkResult); err != nil {
-		http.Error(w, "plugin validation failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// OAuth consent required — return 202 with authorize URL for frontend to open.
 	if checkResult.Status == "oauth_required" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		json.NewEncoder(w).Encode(map[string]any{
-			"status":        "oauth_required",
-			"plugin_id":     body.PluginID,
-			"authorize_url": checkResult.AuthorizeURL,
-			"state":         checkResult.State,
-		})
+		c.writeOAuthRequired(w, body.PluginID, checkResult)
 		return
 	}
 
@@ -912,26 +994,13 @@ func (c *PluginController) UpdateIntegration(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		plugin, ok := c.pluginHost.GetPlugin(existing.PluginID)
-		if !ok {
-			http.Error(w, "plugin not found: "+existing.PluginID, http.StatusBadRequest)
-			return
-		}
-		if err := plugins.ValidateConfig(configMap, plugin.Manifest.ConfigSchema); err != nil {
+		_, checkResult, err := c.validateIntegrationConfig(r.Context(), existing.PluginID, configMap)
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-
-		// Validate via IPC
-		var checkResult struct {
-			Status  string `json:"status"`
-			Message string `json:"message"`
-		}
-		if err := c.pluginHost.Call(r.Context(), existing.PluginID, "plugin.check_config", map[string]any{
-			"config":       configMap,
-			"redirect_uri": c.oauthRedirectURI(existing.PluginID),
-		}, &checkResult); err != nil {
-			http.Error(w, "plugin validation failed: "+err.Error(), http.StatusBadRequest)
+		if checkResult.Status == "oauth_required" {
+			c.writeOAuthRequired(w, existing.PluginID, checkResult)
 			return
 		}
 		if checkResult.Status != "" && checkResult.Status != "ok" {

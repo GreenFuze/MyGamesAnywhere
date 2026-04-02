@@ -39,6 +39,12 @@
       const runtimeOrigin = window.location.origin
       let latestSaveBase64 = null
 
+      function scheduleResizePass() {
+        window.dispatchEvent(new Event('resize'))
+        window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
+        window.setTimeout(() => window.dispatchEvent(new Event('resize')), 150)
+      }
+
       function renderError(message) {
         mount.className = 'error'
         mount.textContent = message
@@ -152,8 +158,14 @@
           if (session.runtime !== 'emulatorjs') {
             renderError('Invalid EmulatorJS session payload.')
           } else {
+            const runtimeDataUrl = new URL('./data/', window.location.href)
+            const loaderUrl = new URL('./data/loader.js', window.location.href)
             window.EJS_ready = () => {
+              scheduleResizePass()
               postBridgeMessage({ type: 'ready', saveAdapter: true })
+            }
+            window.EJS_onGameStart = () => {
+              scheduleResizePass()
             }
             window.EJS_onSaveSave = (payload) => {
               if (payload?.save) {
@@ -169,12 +181,14 @@
             window.EJS_core = session.core
             window.EJS_gameUrl = session.gameUrl
             window.EJS_gameName = session.gameName
-            window.EJS_pathtodata = './data/'
-            window.EJS_startOnLoaded = true
-            window.EJS_fullscreenOnLoaded = true
+            window.EJS_pathtodata = runtimeDataUrl.href
+            window.EJS_startOnLoad = true
+            // Fullscreen-on-load usually gets blocked by the browser and leaves
+            // the runtime controls in the wrong state. Enter fullscreen manually.
+            window.EJS_fullscreenOnLoad = false
             window.EJS_disableAutoLang = false
-            window.EJS_DEBUG_XX = true
-            await import('./data/loader.js')
+            window.EJS_DEBUG_XX = false
+            await import(loaderUrl.href)
           }
         }
       }

@@ -3,18 +3,18 @@ package http
 import (
 	"encoding/base64"
 	"fmt"
-	"path/filepath"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
 type GamePlayDTO struct {
-	Available          bool                    `json:"available"`
-	PlatformSupported  bool                    `json:"platform_supported"`
-	LaunchSources      []GameLaunchSourceDTO   `json:"launch_sources,omitempty"`
-	LaunchCandidates   []GameLaunchCandidateDTO `json:"launch_candidates,omitempty"`
+	Available         bool                     `json:"available"`
+	PlatformSupported bool                     `json:"platform_supported"`
+	LaunchSources     []GameLaunchSourceDTO    `json:"launch_sources,omitempty"`
+	LaunchCandidates  []GameLaunchCandidateDTO `json:"launch_candidates,omitempty"`
 }
 
 type GameLaunchSourceDTO struct {
@@ -36,25 +36,20 @@ type GameLaunchCandidateDTO struct {
 	Size         int64  `json:"size"`
 }
 
-var browserPlayablePlatforms = map[core.Platform]bool{
-	core.PlatformNES:              true,
-	core.PlatformSNES:             true,
-	core.PlatformGB:               true,
-	core.PlatformGBC:              true,
-	core.PlatformGBA:              true,
-	core.PlatformGenesis:          true,
-	core.PlatformSegaMasterSystem: true,
-	core.PlatformGameGear:         true,
-	core.PlatformSegaCD:           true,
-	core.PlatformSega32X:          true,
-	core.PlatformPS1:              true,
-	core.PlatformArcade:           true,
-	core.PlatformMSDOS:            true,
-	core.PlatformScummVM:          true,
+func supportsBrowserPlayPlatform(platform core.Platform) bool {
+	_, ok := core.BrowserPlayRuntimeForPlatform(platform)
+	return ok
 }
 
-func supportsBrowserPlayPlatform(platform core.Platform) bool {
-	return browserPlayablePlatforms[platform]
+func supportsBrowserPlaySourceGame(sourceGame *core.SourceGame) bool {
+	if sourceGame == nil {
+		return false
+	}
+	if sourceGame.PluginID == "game-source-smb" {
+		return true
+	}
+	rootPath := strings.TrimSpace(sourceGame.RootPath)
+	return rootPath != "" && filepath.IsAbs(rootPath)
 }
 
 func supportsScummVMLaunchSource(files []core.GameFile) bool {

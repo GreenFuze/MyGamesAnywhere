@@ -35,6 +35,7 @@ interface IntegrationGroupSectionProps {
   onScanGroup?: () => void;
   onRefreshMetadata?: () => void;
   scanControlsDisabled?: boolean;
+  mutationControlsDisabled?: boolean;
   sourceScanActive?: boolean;
   metadataRefreshActive?: boolean;
 
@@ -55,6 +56,8 @@ interface IntegrationGroupSectionProps {
   activeSaveSyncIntegrationId?: string | null;
   onSetActiveSaveSync?: (integrationId: string) => void;
   saveSyncHeaderControls?: ReactNode;
+  onStartAuth?: (integration: Integration) => void;
+  authPendingIds?: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +80,7 @@ export function IntegrationGroupSection({
   onScanGroup,
   onRefreshMetadata,
   scanControlsDisabled,
+  mutationControlsDisabled,
   sourceScanActive,
   metadataRefreshActive,
   syncStatus,
@@ -88,6 +92,8 @@ export function IntegrationGroupSection({
   activeSaveSyncIntegrationId,
   onSetActiveSaveSync,
   saveSyncHeaderControls,
+  onStartAuth,
+  authPendingIds,
 }: IntegrationGroupSectionProps) {
   const [expanded, setExpanded] = useState(true);
 
@@ -183,6 +189,7 @@ export function IntegrationGroupSection({
               onCheck={onCheck}
               onEdit={onEdit}
               onDelete={onDelete}
+              mutationDisabled={mutationControlsDisabled}
               // Source-specific.
               scanState={scanStateByIntegrationId?.get(integ.id)}
               scanDisabled={
@@ -204,6 +211,8 @@ export function IntegrationGroupSection({
               onSetActiveSaveSync={
                 capability === "save_sync" ? onSetActiveSaveSync : undefined
               }
+              onStartAuth={onStartAuth}
+              authPending={authPendingIds?.has(integ.id)}
             />
           ))}
         </div>

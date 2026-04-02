@@ -39,6 +39,14 @@ import {
   resolveBrandDefinition,
   resolveBrandDefinitionFromUrl,
 } from '@/lib/brands'
+import {
+  browserPlaySourceContext,
+  browserPlaySourceOptionLabel,
+  listBrowserPlaySelections,
+  readBrowserPlaySourcePreference,
+  selectBrowserPlaySelection,
+  writeBrowserPlaySourcePreference,
+} from '@/lib/browserPlay'
 import { inferOriginLabel, readGameRouteState } from '@/lib/gameNavigation'
 import {
   formatHLTB,
@@ -834,8 +842,20 @@ export function GameDetailPage() {
   const heroMedia = useMemo(() => selectHeroMedia(imageMedia), [imageMedia])
   const heroUrl = heroMedia ? mediaUrl(heroMedia) : null
   const coverUrl = coverMedia ? mediaUrl(coverMedia) : null
+  const [selectedBrowserSourceId, setSelectedBrowserSourceId] = useState('')
   const playable = gameData ? isPlayable(gameData) : false
   const browserSupported = gameData ? hasBrowserPlaySupport(gameData) : false
+  const browserPlaySelections = useMemo(
+    () => (gameData ? listBrowserPlaySelections(gameData) : []),
+    [gameData],
+  )
+  const selectedBrowserSelection = useMemo(() => {
+    if (!gameData) return null
+    const runtime = browserPlaySelections[0]?.runtime ?? null
+    const storedSourceId = runtime ? readBrowserPlaySourcePreference(gameData.id, runtime) : null
+    const preferredSourceId = selectedBrowserSourceId || storedSourceId
+    return selectBrowserPlaySelection(gameData, preferredSourceId)
+  }, [browserPlaySelections, gameData, selectedBrowserSourceId])
   const sources = gameData ? selectSourcePlugins(gameData) : []
   const hltb = gameData ? formatHLTB(gameData.completion_time) : null
   const matchCount = gameData ? sourceMatchCount(gameData) : 0
@@ -876,6 +896,17 @@ export function GameDetailPage() {
   }, [achievements.isSuccess, queryClient])
 
   useEffect(() => {
+    const resolvedSourceId = selectedBrowserSelection?.sourceGame.id ?? ''
+    if (resolvedSourceId === selectedBrowserSourceId) return
+    setSelectedBrowserSourceId(resolvedSourceId)
+  }, [selectedBrowserSelection, selectedBrowserSourceId])
+
+  useEffect(() => {
+    if (!gameData || !selectedBrowserSelection) return
+    writeBrowserPlaySourcePreference(gameData.id, selectedBrowserSelection.runtime, selectedBrowserSelection.sourceGame.id)
+  }, [gameData, selectedBrowserSelection])
+
+  useEffect(() => {
     if (!game.data || id.length === 0 || game.data.id === id) return
     navigate(`/game/${encodeURIComponent(game.data.id)}`, {
       replace: true,
@@ -897,9 +928,17 @@ export function GameDetailPage() {
 
   const handleLaunchBrowser = () => {
     if (!game.data?.play?.available) return
-    navigate(`/game/${encodeURIComponent(game.data.id)}/play`, {
-      state: location.state,
-    })
+    const params = new URLSearchParams()
+    if (selectedBrowserSelection) {
+      params.set('source', selectedBrowserSelection.sourceGame.id)
+    }
+    navigate(
+      {
+        pathname: `/game/${encodeURIComponent(game.data.id)}/play`,
+        search: params.toString() ? `?${params.toString()}` : '',
+      },
+      { state: location.state },
+    )
   }
 
   const handleBack = () => {
@@ -1032,6 +1071,25 @@ export function GameDetailPage() {
                   {achievementSets.length > 0 ? <SectionJumpLink href="#achievements" label="Achievements" /> : null}
                 </div>
               </div>
+              {playable && browserPlaySelections.length > 1 && selectedBrowserSelection && (
+                <div className="rounded-mga border border-mga-border bg-mga-surface/60 p-3">
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-mga-muted">Source</label>
+                  <select
+                    value={selectedBrowserSelection.sourceGame.id}
+                    onChange={(event) => setSelectedBrowserSourceId(event.target.value)}
+                    className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text"
+                  >
+                    {browserPlaySelections.map((selection) => (
+                      <option key={selection.sourceGame.id} value={selection.sourceGame.id}>
+                        {browserPlaySourceOptionLabel(selection)}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs text-mga-muted">
+                    {browserPlaySourceContext(selectedBrowserSelection)}
+                  </p>
+                </div>
+              )}
               <div className="flex flex-wrap gap-3">
                 {data.xcloud_url && (
                   <a href={data.xcloud_url} target="_blank" rel="noreferrer" onClick={handleLaunchXcloud} className="inline-flex h-10 items-center justify-center gap-2 rounded-mga bg-mga-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90">
