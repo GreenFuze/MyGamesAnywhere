@@ -21,6 +21,7 @@ type RouteBuilder struct {
 	AchievementCtrl *AchievementController
 	SyncCtrl        *SyncController
 	SaveSyncCtrl    *SaveSyncController
+	CacheCtrl       *CacheController
 	SSECtrl         *SSEController
 	OAuthCtrl       *OAuthController
 }
@@ -56,6 +57,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Get("/games/{id}/detail", b.GameCtrl.GetDetail)
 				r.Get("/games/{id}/play", b.GameCtrl.ServePlayFile)
 				r.Head("/games/{id}/play", b.GameCtrl.ServePlayFile)
+				r.Post("/games/{id}/cache/prepare", b.CacheCtrl.PrepareGameCache)
 				r.Get("/games/{id}/save-sync/slots", b.SaveSyncCtrl.ListSlots)
 				r.Get("/games/{id}/save-sync/slots/{slot_id}", b.SaveSyncCtrl.GetSlot)
 				r.Put("/games/{id}/save-sync/slots/{slot_id}", b.SaveSyncCtrl.PutSlot)
@@ -94,6 +96,11 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Delete("/sync/key", b.SyncCtrl.ClearKey)
 				r.Post("/save-sync/migrations", b.SaveSyncCtrl.StartMigration)
 				r.Get("/save-sync/migrations/{job_id}", b.SaveSyncCtrl.GetMigrationStatus)
+				r.Get("/cache/jobs", b.CacheCtrl.ListJobs)
+				r.Get("/cache/jobs/{job_id}", b.CacheCtrl.GetJob)
+				r.Get("/cache/entries", b.CacheCtrl.ListEntries)
+				r.Delete("/cache/entries/{entry_id}", b.CacheCtrl.DeleteEntry)
+				r.Post("/cache/clear", b.CacheCtrl.Clear)
 
 				r.Get("/auth/callback/{plugin_id}", b.OAuthCtrl.Callback)
 			})
@@ -114,6 +121,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/games/{id}/detail", noopHandler())
 			api.Get("/games/{id}/play", noopHandler())
 			api.Head("/games/{id}/play", noopHandler())
+			api.Post("/games/{id}/cache/prepare", noopHandler())
 			api.Get("/games/{id}/save-sync/slots", noopHandler())
 			api.Get("/games/{id}/save-sync/slots/{slot_id}", noopHandler())
 			api.Put("/games/{id}/save-sync/slots/{slot_id}", noopHandler())
@@ -157,6 +165,11 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Delete("/sync/key", noopHandler())
 			api.Post("/save-sync/migrations", noopHandler())
 			api.Get("/save-sync/migrations/{job_id}", noopHandler())
+			api.Get("/cache/jobs", noopHandler())
+			api.Get("/cache/jobs/{job_id}", noopHandler())
+			api.Get("/cache/entries", noopHandler())
+			api.Delete("/cache/entries/{entry_id}", noopHandler())
+			api.Post("/cache/clear", noopHandler())
 			api.Get("/auth/callback/{plugin_id}", noopHandler())
 			api.Get("/events", noopHandler())
 		}

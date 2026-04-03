@@ -1196,3 +1196,97 @@ func containsString(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestPersistScanResultsHardDeletesOutOfScopeRowsAndSoftDeletesInScopeRows(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	initialBatch := &core.ScanBatch{
+		IntegrationID: "drive-1",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "sg-games-current",
+				IntegrationID: "drive-1",
+				PluginID:      "game-source-google-drive",
+				ExternalID:    "ext-games-current",
+				RawTitle:      "Current Game",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				RootPath:      "Games/Current Game",
+				Status:        "found",
+			},
+			{
+				ID:            "sg-games-missing",
+				IntegrationID: "drive-1",
+				PluginID:      "game-source-google-drive",
+				ExternalID:    "ext-games-missing",
+				RawTitle:      "Missing In Scope",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				RootPath:      "Games/Missing In Scope",
+				Status:        "found",
+			},
+			{
+				ID:            "sg-other",
+				IntegrationID: "drive-1",
+				PluginID:      "game-source-google-drive",
+				ExternalID:    "ext-other",
+				RawTitle:      "Outside Scope",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				RootPath:      "Other/Outside Scope",
+				Status:        "found",
+			},
+		},
+		ResolverMatches: map[string][]core.ResolverMatch{},
+		MediaItems:      map[string][]core.MediaRef{},
+	}
+	persistBatch(t, ctx, store, initialBatch)
+
+	refreshBatch := &core.ScanBatch{
+		IntegrationID: "drive-1",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "sg-games-current",
+				IntegrationID: "drive-1",
+				PluginID:      "game-source-google-drive",
+				ExternalID:    "ext-games-current",
+				RawTitle:      "Current Game",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				RootPath:      "Games/Current Game",
+				Status:        "found",
+			},
+		},
+		ResolverMatches: map[string][]core.ResolverMatch{},
+		MediaItems:      map[string][]core.MediaRef{},
+		FilesystemScope: &core.FilesystemScanScope{
+			PluginID: "game-source-google-drive",
+			IncludePaths: []core.FilesystemIncludePath{{
+				Path:      "Games",
+				Recursive: true,
+			}},
+		},
+	}
+	persistBatch(t, ctx, store, refreshBatch)
+
+	var status string
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT status FROM source_games WHERE id = ?`, "sg-games-missing").Scan(&status); err != nil {
+		t.Fatalf("load in-scope row: %v", err)
+	}
+	if status != "not_found" {
+		t.Fatalf("status = %q, want not_found", status)
+	}
+
+	var outsideCount int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM source_games WHERE id = ?`, "sg-other").Scan(&outsideCount); err != nil {
+		t.Fatalf("count out-of-scope row: %v", err)
+	}
+	if outsideCount != 0 {
+		t.Fatalf("out-of-scope row count = %d, want 0", outsideCount)
+	}
+}

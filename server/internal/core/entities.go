@@ -39,11 +39,13 @@ type Setting struct {
 
 // FileEntry is a single entry from a filesystem listing.
 type FileEntry struct {
-	Path    string
-	Name    string
-	IsDir   bool
-	Size    int64
-	ModTime time.Time
+	Path     string
+	Name     string
+	IsDir    bool
+	Size     int64
+	ModTime  time.Time
+	ObjectID string
+	Revision string
 }
 
 // GroupKind describes whether a game group is ready to play or needs action.
@@ -324,6 +326,17 @@ type ScanBatch struct {
 	SourceGames     []*SourceGame
 	ResolverMatches map[string][]ResolverMatch // keyed by source_game.ID
 	MediaItems      map[string][]MediaRef      // keyed by source_game.ID
+	FilesystemScope *FilesystemScanScope
+}
+
+type FilesystemIncludePath struct {
+	Path      string
+	Recursive bool
+}
+
+type FilesystemScanScope struct {
+	PluginID     string
+	IncludePaths []FilesystemIncludePath
 }
 
 // Validate checks the batch for internal consistency.
@@ -701,11 +714,104 @@ const (
 
 // GameFile is a file belonging to a game (persisted).
 type GameFile struct {
-	GameID   string
-	Path     string
-	FileName string
-	Role     GameFileRole
-	FileKind string
-	Size     int64
-	IsDir    bool
+	GameID     string
+	Path       string
+	FileName   string
+	Role       GameFileRole
+	FileKind   string
+	Size       int64
+	IsDir      bool
+	ObjectID   string
+	Revision   string
+	ModifiedAt *time.Time
+}
+
+type SourceDeliveryMode string
+
+const (
+	SourceDeliveryModeDirect       SourceDeliveryMode = "direct"
+	SourceDeliveryModeMaterialized SourceDeliveryMode = "materialized"
+	SourceDeliveryModeUnavailable  SourceDeliveryMode = "unavailable"
+)
+
+type SourceDeliveryProfile struct {
+	Profile         string             `json:"profile"`
+	Mode            SourceDeliveryMode `json:"mode"`
+	PrepareRequired bool               `json:"prepare_required,omitempty"`
+	Ready           bool               `json:"ready,omitempty"`
+	RootFilePath    string             `json:"root_file_path,omitempty"`
+}
+
+type SourceCacheEntryFile struct {
+	EntryID    string     `json:"entry_id"`
+	Path       string     `json:"path"`
+	LocalPath  string     `json:"local_path"`
+	ObjectID   string     `json:"object_id,omitempty"`
+	Revision   string     `json:"revision,omitempty"`
+	ModifiedAt *time.Time `json:"modified_at,omitempty"`
+	Size       int64      `json:"size"`
+}
+
+type SourceCacheEntry struct {
+	ID              string                 `json:"id"`
+	CacheKey        string                 `json:"cache_key"`
+	CanonicalGameID string                 `json:"canonical_game_id,omitempty"`
+	CanonicalTitle  string                 `json:"canonical_title,omitempty"`
+	SourceGameID    string                 `json:"source_game_id"`
+	SourceTitle     string                 `json:"source_title,omitempty"`
+	IntegrationID   string                 `json:"integration_id"`
+	PluginID        string                 `json:"plugin_id"`
+	Profile         string                 `json:"profile"`
+	Mode            string                 `json:"mode"`
+	Status          string                 `json:"status"`
+	SourcePath      string                 `json:"source_path,omitempty"`
+	FileCount       int                    `json:"file_count"`
+	Size            int64                  `json:"size"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
+	LastAccessedAt  *time.Time             `json:"last_accessed_at,omitempty"`
+	Files           []SourceCacheEntryFile `json:"files,omitempty"`
+}
+
+type SourceCacheJobStatus struct {
+	JobID           string     `json:"job_id"`
+	CacheKey        string     `json:"cache_key,omitempty"`
+	CanonicalGameID string     `json:"canonical_game_id,omitempty"`
+	CanonicalTitle  string     `json:"canonical_title,omitempty"`
+	SourceGameID    string     `json:"source_game_id"`
+	SourceTitle     string     `json:"source_title,omitempty"`
+	IntegrationID   string     `json:"integration_id,omitempty"`
+	PluginID        string     `json:"plugin_id,omitempty"`
+	Profile         string     `json:"profile"`
+	Status          string     `json:"status"`
+	Message         string     `json:"message,omitempty"`
+	Error           string     `json:"error,omitempty"`
+	EntryID         string     `json:"entry_id,omitempty"`
+	ProgressCurrent int        `json:"progress_current,omitempty"`
+	ProgressTotal   int        `json:"progress_total,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	FinishedAt      *time.Time `json:"finished_at,omitempty"`
+}
+
+type SourceCachePrepareRequest struct {
+	CanonicalGameID string `json:"canonical_game_id"`
+	CanonicalTitle  string `json:"canonical_title,omitempty"`
+	SourceGameID    string `json:"source_game_id"`
+	Profile         string `json:"profile"`
+}
+
+type SourceMaterializeRequest struct {
+	Config   map[string]any `json:"config"`
+	Path     string         `json:"path"`
+	ObjectID string         `json:"object_id,omitempty"`
+	Revision string         `json:"revision,omitempty"`
+	Profile  string         `json:"profile,omitempty"`
+	DestPath string         `json:"dest_path"`
+}
+
+type SourceMaterializeResult struct {
+	Size     int64  `json:"size,omitempty"`
+	Revision string `json:"revision,omitempty"`
+	ModTime  string `json:"mod_time,omitempty"`
 }

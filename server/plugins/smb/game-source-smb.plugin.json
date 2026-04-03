@@ -3,7 +3,7 @@
   "plugin_version": "1.0.0",
   "api_major": 1,
   "capabilities": ["source"],
-  "provides": ["source.filesystem.list"],
+  "provides": ["source.filesystem.list", "plugin.check_config"],
   "exec": "smb.exe",
   "default_timeout_ms": 60000,
   "max_concurrency": 2,
@@ -12,6 +12,16 @@
     "share": { "type": "string", "required": true },
     "username": { "type": "string", "required": true },
     "password": { "type": "string", "required": true, "x-secret": true },
-    "path": { "type": "string", "default": "" }
+    "include_paths": {
+      "type": "array",
+      "required": true,
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "required": true },
+          "recursive": { "type": "boolean" }
+        }
+      }
+    }
   }
 }

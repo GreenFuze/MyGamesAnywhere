@@ -4,10 +4,12 @@ import { IntegrationsTab } from '@/components/settings/IntegrationsTab'
 import { PluginsTab } from '@/components/settings/PluginsTab'
 import { AppearanceTab } from '@/components/settings/AppearanceTab'
 import { UndetectedGamesTab } from '@/components/settings/UndetectedGamesTab'
+import { CacheTab } from '@/components/settings/CacheTab'
 
 const TABS: Tab[] = [
   { id: 'integrations', label: 'Integrations' },
   { id: 'plugins', label: 'Plugins' },
+  { id: 'cache', label: 'Cache' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'undetected', label: 'Undetected Games' },
 ]
@@ -15,6 +17,7 @@ const TABS: Tab[] = [
 const TAB_COMPONENTS: Record<string, React.FC> = {
   integrations: IntegrationsTab,
   plugins: PluginsTab,
+  cache: CacheTab,
   appearance: AppearanceTab,
   undetected: UndetectedGamesTab,
 }
@@ -37,7 +40,7 @@ export function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold text-mga-text">Settings</h1>
         <p className="text-sm text-mga-muted mt-1">
-          Manage integrations, plugins, and appearance
+          Manage integrations, cached source data, plugins, and appearance
         </p>
       </div>
 

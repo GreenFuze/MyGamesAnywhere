@@ -14,6 +14,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -70,11 +71,12 @@ type GameFileDTO struct {
 type GameController struct {
 	gameStore       core.GameStore
 	integrationRepo core.IntegrationRepository
+	cacheSvc        core.SourceCacheService
 	logger          core.Logger
 }
 
-func NewGameController(gameStore core.GameStore, integrationRepo core.IntegrationRepository, logger core.Logger) *GameController {
-	return &GameController{gameStore: gameStore, integrationRepo: integrationRepo, logger: logger}
+func NewGameController(gameStore core.GameStore, integrationRepo core.IntegrationRepository, cacheSvc core.SourceCacheService, logger core.Logger) *GameController {
+	return &GameController{gameStore: gameStore, integrationRepo: integrationRepo, cacheSvc: cacheSvc, logger: logger}
 }
 
 func decodedPathParam(r *http.Request, key string) (string, error) {
@@ -171,7 +173,7 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 		if cg == nil {
 			continue
 		}
-		out = append(out, canonicalToGameDetail(cg))
+		out = append(out, c.canonicalToGameDetail(ctx, cg))
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(ListGamesResponse{
@@ -205,7 +207,7 @@ func (c *GameController) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(canonicalToGameDetail(game))
+	json.NewEncoder(w).Encode(c.canonicalToGameDetail(ctx, game))
 }
 
 // GetDetail returns full game metadata and per-source resolver data (GET /api/games/{id}/detail).
@@ -231,7 +233,7 @@ func (c *GameController) GetDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(canonicalToGameDetail(game))
+	json.NewEncoder(w).Encode(c.canonicalToGameDetail(ctx, game))
 }
 
 // Stats returns aggregate library statistics (GET /api/stats).
@@ -530,10 +532,11 @@ type IntegrationStatusEntry struct {
 }
 
 type integrationCheckResult struct {
-	Status       string `json:"status"`
-	Message      string `json:"message"`
-	AuthorizeURL string `json:"authorize_url,omitempty"`
-	State        string `json:"state,omitempty"`
+	Status         string `json:"status"`
+	Message        string `json:"message"`
+	AuthorizeURL   string `json:"authorize_url,omitempty"`
+	State          string `json:"state,omitempty"`
+	SourceIdentity string `json:"source_identity,omitempty"`
 }
 
 func decodeIntegrationConfig(configJSON string) (map[string]any, error) {
@@ -550,28 +553,29 @@ func decodeIntegrationConfig(configJSON string) (map[string]any, error) {
 	return configMap, nil
 }
 
-func (c *PluginController) validateIntegrationConfig(ctx context.Context, pluginID string, configMap map[string]any) (*core.Plugin, integrationCheckResult, error) {
+func (c *PluginController) validateIntegrationConfig(ctx context.Context, pluginID string, configMap map[string]any) (*core.Plugin, integrationCheckResult, map[string]any, error) {
 	if configMap == nil {
 		configMap = map[string]any{}
 	}
+	normalizedConfig := sourcescope.NormalizeConfig(pluginID, configMap)
 
 	plugin, ok := c.pluginHost.GetPlugin(pluginID)
 	if !ok {
-		return nil, integrationCheckResult{}, fmt.Errorf("plugin not found: %s", pluginID)
+		return nil, integrationCheckResult{}, nil, fmt.Errorf("plugin not found: %s", pluginID)
 	}
-	if err := plugins.ValidateConfig(configMap, plugin.Manifest.ConfigSchema); err != nil {
-		return nil, integrationCheckResult{}, err
+	if err := plugins.ValidateConfig(normalizedConfig, plugin.Manifest.ConfigSchema); err != nil {
+		return nil, integrationCheckResult{}, nil, err
 	}
 
 	var checkResult integrationCheckResult
 	if err := c.pluginHost.Call(ctx, pluginID, "plugin.check_config", map[string]any{
-		"config":       configMap,
+		"config":       normalizedConfig,
 		"redirect_uri": c.oauthRedirectURI(pluginID),
 	}, &checkResult); err != nil {
-		return nil, integrationCheckResult{}, fmt.Errorf("plugin validation failed: %w", err)
+		return nil, integrationCheckResult{}, nil, fmt.Errorf("plugin validation failed: %w", err)
 	}
 
-	return plugin, checkResult, nil
+	return plugin, checkResult, normalizedConfig, nil
 }
 
 func (c *PluginController) writeOAuthRequired(w http.ResponseWriter, pluginID string, checkResult integrationCheckResult) {
@@ -619,6 +623,7 @@ func (c *PluginController) Status(w http.ResponseWriter, r *http.Request) {
 		if configMap == nil {
 			configMap = map[string]any{}
 		}
+		configMap = sourcescope.NormalizeConfig(integration.PluginID, configMap)
 		_, pluginOk := c.pluginHost.GetPlugin(integration.PluginID)
 		if !pluginOk {
 			entry := IntegrationStatusEntry{
@@ -684,6 +689,7 @@ func (c *PluginController) checkOneIntegration(ctx context.Context, integration 
 	if configMap == nil {
 		configMap = map[string]any{}
 	}
+	configMap = sourcescope.NormalizeConfig(integration.PluginID, configMap)
 
 	_, pluginOk := c.pluginHost.GetPlugin(integration.PluginID)
 	if !pluginOk {
@@ -764,7 +770,7 @@ func (c *PluginController) StartIntegrationAuth(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	_, checkResult, err := c.validateIntegrationConfig(r.Context(), integration.PluginID, configMap)
+	_, checkResult, _, err := c.validateIntegrationConfig(r.Context(), integration.PluginID, configMap)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -853,6 +859,80 @@ func (c *PluginController) IntegrationEnrichedGames(w http.ResponseWriter, r *ht
 	json.NewEncoder(w).Encode(items)
 }
 
+func (c *PluginController) findDuplicateIntegration(ctx context.Context, pluginID string, configMap map[string]any, sourceIdentity, excludeIntegrationID string) (*core.Integration, string, error) {
+	existing, err := c.repo.ListByPluginID(ctx, pluginID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	candidateJSON, err := json.Marshal(sourcescope.NormalizeConfig(pluginID, configMap))
+	if err != nil {
+		return nil, "", err
+	}
+
+	for _, ex := range existing {
+		if ex.ID == excludeIntegrationID {
+			continue
+		}
+		existingConfig, err := decodeIntegrationConfig(ex.ConfigJSON)
+		if err != nil {
+			continue
+		}
+		existingJSON, err := json.Marshal(sourcescope.NormalizeConfig(pluginID, existingConfig))
+		if err != nil {
+			continue
+		}
+		if configJSONObjectDeepEqual(string(candidateJSON), string(existingJSON)) {
+			return ex, duplicateIntegrationMessage(pluginID, ex.Label, false), nil
+		}
+	}
+
+	if !sourcescope.IsFilesystemBackedPlugin(pluginID) || strings.TrimSpace(sourceIdentity) == "" {
+		return nil, "", nil
+	}
+
+	for _, ex := range existing {
+		if ex.ID == excludeIntegrationID {
+			continue
+		}
+		existingConfig, err := decodeIntegrationConfig(ex.ConfigJSON)
+		if err != nil {
+			continue
+		}
+		_, existingCheck, _, err := c.validateIntegrationConfig(ctx, pluginID, existingConfig)
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(existingCheck.SourceIdentity) == "" {
+			continue
+		}
+		if existingCheck.SourceIdentity == sourceIdentity {
+			return ex, duplicateIntegrationMessage(pluginID, ex.Label, true), nil
+		}
+	}
+
+	return nil, "", nil
+}
+
+func duplicateIntegrationMessage(pluginID, label string, sourceIdentityMatch bool) string {
+	existingLabel := strings.TrimSpace(label)
+	if existingLabel == "" {
+		existingLabel = "existing integration"
+	}
+	if !sourceIdentityMatch {
+		return fmt.Sprintf("An integration with identical configuration already exists: %q.", existingLabel)
+	}
+
+	switch pluginID {
+	case "game-source-smb":
+		return fmt.Sprintf("An SMB integration for this backend/share already exists: %q. Edit the existing integration and add include paths there.", existingLabel)
+	case "game-source-google-drive":
+		return fmt.Sprintf("A Google Drive integration for this account already exists: %q. Edit the existing integration and add include paths there.", existingLabel)
+	default:
+		return fmt.Sprintf("An integration for this source already exists: %q.", existingLabel)
+	}
+}
+
 func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		PluginID        string          `json:"plugin_id"`
@@ -886,7 +966,7 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 	if configMap == nil {
 		configMap = map[string]any{}
 	}
-	_, checkResult, err := c.validateIntegrationConfig(r.Context(), body.PluginID, configMap)
+	_, checkResult, normalizedConfig, err := c.validateIntegrationConfig(r.Context(), body.PluginID, configMap)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -906,27 +986,26 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "plugin validation failed: "+msg, http.StatusBadRequest)
 		return
 	}
-	configBytes, err := json.Marshal(configMap)
+	configBytes, err := json.Marshal(normalizedConfig)
 	if err != nil {
 		http.Error(w, "invalid integration config", http.StatusBadRequest)
 		return
 	}
-	existing, err := c.repo.ListByPluginID(r.Context(), body.PluginID)
+	duplicateIntegration, duplicateMessage, err := c.findDuplicateIntegration(r.Context(), body.PluginID, normalizedConfig, checkResult.SourceIdentity, "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	for _, ex := range existing {
-		if configJSONObjectDeepEqual(string(configBytes), ex.ConfigJSON) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"error":          "duplicate_integration",
-				"integration_id": ex.ID,
-				"integration":    ex,
-			})
-			return
-		}
+	if duplicateIntegration != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":          "duplicate_integration",
+			"message":        duplicateMessage,
+			"integration_id": duplicateIntegration.ID,
+			"integration":    duplicateIntegration,
+		})
+		return
 	}
 	integration := &core.Integration{
 		ID:              uuid.New().String(),
@@ -994,7 +1073,7 @@ func (c *PluginController) UpdateIntegration(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		_, checkResult, err := c.validateIntegrationConfig(r.Context(), existing.PluginID, configMap)
+		_, checkResult, normalizedConfig, err := c.validateIntegrationConfig(r.Context(), existing.PluginID, configMap)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -1012,7 +1091,24 @@ func (c *PluginController) UpdateIntegration(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		configBytes, err := json.Marshal(configMap)
+		duplicateIntegration, duplicateMessage, err := c.findDuplicateIntegration(r.Context(), existing.PluginID, normalizedConfig, checkResult.SourceIdentity, existing.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if duplicateIntegration != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":          "duplicate_integration",
+				"message":        duplicateMessage,
+				"integration_id": duplicateIntegration.ID,
+				"integration":    duplicateIntegration,
+			})
+			return
+		}
+
+		configBytes, err := json.Marshal(normalizedConfig)
 		if err != nil {
 			http.Error(w, "invalid config", http.StatusBadRequest)
 			return

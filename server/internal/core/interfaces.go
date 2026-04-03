@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 )
 
 var (
@@ -168,6 +169,34 @@ type SaveSyncService interface {
 	PutSlot(ctx context.Context, req SaveSyncPutRequest) (*SaveSyncPutResult, error)
 	StartMigration(ctx context.Context, req SaveSyncMigrationRequest) (*SaveSyncMigrationStatus, error)
 	GetMigrationStatus(ctx context.Context, jobID string) (*SaveSyncMigrationStatus, error)
+}
+
+type SourceCacheStore interface {
+	MarkInFlightJobsInterrupted(ctx context.Context) error
+	GetEntryBySourceProfile(ctx context.Context, sourceGameID, profile string) (*SourceCacheEntry, error)
+	GetEntryFileBySourceProfile(ctx context.Context, sourceGameID, profile, path string) (*SourceCacheEntry, *SourceCacheEntryFile, error)
+	UpsertEntry(ctx context.Context, entry *SourceCacheEntry) error
+	ReplaceEntryFiles(ctx context.Context, entryID string, files []SourceCacheEntryFile) error
+	TouchEntry(ctx context.Context, entryID string, at time.Time) error
+	ListEntries(ctx context.Context) ([]*SourceCacheEntry, error)
+	DeleteEntry(ctx context.Context, entryID string) error
+	ClearEntries(ctx context.Context) error
+	CreateJob(ctx context.Context, job *SourceCacheJobStatus) error
+	UpdateJob(ctx context.Context, job *SourceCacheJobStatus) error
+	GetJob(ctx context.Context, jobID string) (*SourceCacheJobStatus, error)
+	ListJobs(ctx context.Context, limit int) ([]*SourceCacheJobStatus, error)
+	FindActiveJobByCacheKey(ctx context.Context, cacheKey string) (*SourceCacheJobStatus, error)
+}
+
+type SourceCacheService interface {
+	DescribeSourceGame(ctx context.Context, canonicalPlatform Platform, sourceGame *SourceGame) []SourceDeliveryProfile
+	Prepare(ctx context.Context, req SourceCachePrepareRequest, canonicalPlatform Platform, sourceGame *SourceGame) (*SourceCacheJobStatus, bool, error)
+	GetJob(ctx context.Context, jobID string) (*SourceCacheJobStatus, error)
+	ListJobs(ctx context.Context, limit int) ([]*SourceCacheJobStatus, error)
+	ListEntries(ctx context.Context) ([]*SourceCacheEntry, error)
+	DeleteEntry(ctx context.Context, entryID string) error
+	ClearEntries(ctx context.Context) error
+	ResolveCachedFile(ctx context.Context, sourceGameID, profile, path string) (*SourceCacheEntry, *SourceCacheEntryFile, string, error)
 }
 
 // KeyStore persists the sync encryption key using OS-level protection.

@@ -12,6 +12,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan/scanner"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 )
 
 const (
@@ -252,6 +253,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 
 		switch {
 		case pluginProvides(plugin, sourceFilesystemListMethod):
+			config = sourcescope.NormalizeConfig(integ.PluginID, config)
 			o.publishEventWithContext(ctx, "scan_source_list_started", map[string]any{
 				"integration_id": integ.ID,
 				"plugin_id":      integ.PluginID,
@@ -399,6 +401,9 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			"source_game_count": len(games),
 		})
 		batch := gamesToScanBatch(integ.ID, integ.PluginID, games)
+		if scope := filesystemScanScope(integ.PluginID, config); scope != nil {
+			batch.FilesystemScope = scope
+		}
 		if err := o.gameStore.PersistScanResults(ctx, batch); err != nil {
 			o.publishScanError(ctx, integ.ID, err)
 			return nil, fmt.Errorf("persist scan results for integration %q: %w", integ.ID, err)
@@ -623,11 +628,13 @@ func (o *Orchestrator) buildScanReport(
 func (o *Orchestrator) fetchFiles(ctx context.Context, pluginID string, config map[string]any) ([]core.FileEntry, error) {
 	var result struct {
 		Files []struct {
-			Path    string `json:"path"`
-			Name    string `json:"name"`
-			IsDir   bool   `json:"is_dir"`
-			Size    int64  `json:"size"`
-			ModTime string `json:"mod_time"`
+			Path     string `json:"path"`
+			Name     string `json:"name"`
+			IsDir    bool   `json:"is_dir"`
+			Size     int64  `json:"size"`
+			ModTime  string `json:"mod_time"`
+			ObjectID string `json:"object_id"`
+			Revision string `json:"revision"`
 		} `json:"files"`
 	}
 	if err := o.pluginCaller.Call(ctx, pluginID, sourceFilesystemListMethod, config, &result); err != nil {
@@ -641,11 +648,13 @@ func (o *Orchestrator) fetchFiles(ctx context.Context, pluginID string, config m
 			modTime, _ = time.Parse(time.RFC3339, f.ModTime)
 		}
 		entries = append(entries, core.FileEntry{
-			Path:    f.Path,
-			Name:    f.Name,
-			IsDir:   f.IsDir,
-			Size:    f.Size,
-			ModTime: modTime,
+			Path:     f.Path,
+			Name:     f.Name,
+			IsDir:    f.IsDir,
+			Size:     f.Size,
+			ModTime:  modTime,
+			ObjectID: f.ObjectID,
+			Revision: f.Revision,
 		})
 	}
 	return entries, nil
@@ -766,14 +775,22 @@ func buildGames(integrationID, pluginID string, groups []scanner.GameGroup) []*c
 
 		files := make([]core.GameFile, 0, len(g.Files))
 		for _, af := range g.Files {
+			var modifiedAt *time.Time
+			if !af.ModTime.IsZero() {
+				t := af.ModTime.UTC()
+				modifiedAt = &t
+			}
 			files = append(files, core.GameFile{
-				GameID:   gameID,
-				Path:     af.Path,
-				FileName: af.Name,
-				Role:     af.Role,
-				FileKind: string(af.Kind),
-				Size:     af.Size,
-				IsDir:    af.IsDir,
+				GameID:     gameID,
+				Path:       af.Path,
+				FileName:   af.Name,
+				Role:       af.Role,
+				FileKind:   string(af.Kind),
+				Size:       af.Size,
+				IsDir:      af.IsDir,
+				ObjectID:   af.ObjectID,
+				Revision:   af.Revision,
+				ModifiedAt: modifiedAt,
 			})
 		}
 
@@ -865,6 +882,24 @@ func gamesToScanBatch(integrationID, pluginID string, games []*core.Game) *core.
 func deterministicID(integrationID, rootDir, name string) string {
 	h := sha256.Sum256([]byte(integrationID + "|" + rootDir + "|" + name))
 	return "scan:" + hex.EncodeToString(h[:])[:16]
+}
+
+func filesystemScanScope(pluginID string, config map[string]any) *core.FilesystemScanScope {
+	if !sourcescope.IsFilesystemBackedPlugin(pluginID) {
+		return nil
+	}
+	includes := sourcescope.ReadIncludePaths(pluginID, config)
+	scope := &core.FilesystemScanScope{
+		PluginID:     pluginID,
+		IncludePaths: make([]core.FilesystemIncludePath, 0, len(includes)),
+	}
+	for _, include := range includes {
+		scope.IncludePaths = append(scope.IncludePaths, core.FilesystemIncludePath{
+			Path:      include.Path,
+			Recursive: include.Recursive,
+		})
+	}
+	return scope
 }
 
 // findMetadataSources returns ordered metadata sources plus per-provider scan snapshots.

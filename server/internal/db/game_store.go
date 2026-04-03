@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 	"github.com/google/uuid"
 )
 
@@ -131,16 +132,23 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 			if f.IsDir {
 				isDir = 1
 			}
+			var modifiedAt any
+			if f.ModifiedAt != nil {
+				modifiedAt = f.ModifiedAt.Unix()
+			}
 			_, err := tx.ExecContext(ctx, `INSERT INTO game_files
-				(source_game_id, path, file_name, role, file_kind, size, is_dir)
-				VALUES (?, ?, ?, ?, ?, ?, ?)
+				(source_game_id, path, file_name, role, file_kind, size, is_dir, object_id, revision, modified_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(source_game_id, path) DO UPDATE SET
 					file_name = excluded.file_name,
 					role = excluded.role,
 					file_kind = excluded.file_kind,
 					size = excluded.size,
-					is_dir = excluded.is_dir`,
-				persistedID, f.Path, f.FileName, string(f.Role), nullEmpty(f.FileKind), f.Size, isDir)
+					is_dir = excluded.is_dir,
+					object_id = excluded.object_id,
+					revision = excluded.revision,
+					modified_at = excluded.modified_at`,
+				persistedID, f.Path, f.FileName, string(f.Role), nullEmpty(f.FileKind), f.Size, isDir, nullEmpty(f.ObjectID), nullEmpty(f.Revision), modifiedAt)
 			if err != nil {
 				return fmt.Errorf("insert file for %s: %w", persistedID, err)
 			}
@@ -218,9 +226,9 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 		}
 	}
 
-	// 6. Soft-delete source games from this integration not seen in this batch.
-	if err := s.softDeleteMissing(ctx, tx, batch.IntegrationID, seenIDs); err != nil {
-		return fmt.Errorf("soft delete: %w", err)
+	// 6. Reconcile source games from this integration not seen in this batch.
+	if err := s.reconcileMissingSourceGames(ctx, tx, batch.IntegrationID, seenIDs, batch.FilesystemScope); err != nil {
+		return fmt.Errorf("reconcile missing source games: %w", err)
 	}
 
 	// 7. Recompute canonical groupings.
@@ -1197,17 +1205,38 @@ func (s *gameStore) DeleteGamesByIntegrationID(ctx context.Context, integrationI
 		return tx.Commit()
 	}
 
-	// Build placeholders for the IN clause.
-	placeholders := make([]string, len(sgIDs))
-	args := make([]any, len(sgIDs))
-	for i, id := range sgIDs {
+	if err := s.deleteSourceGamesByID(ctx, tx, sgIDs); err != nil {
+		return err
+	}
+
+	// Clean up orphaned canonical IDs (canonical entries with no remaining source games).
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM canonical_source_games_link WHERE canonical_id NOT IN (
+			SELECT DISTINCT canonical_id FROM canonical_source_games_link
+		)`); err != nil {
+		return fmt.Errorf("clean orphaned canonical: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+func (s *gameStore) deleteSourceGamesByID(ctx context.Context, tx *sql.Tx, sourceGameIDs []string) error {
+	if len(sourceGameIDs) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(sourceGameIDs))
+	args := make([]any, len(sourceGameIDs))
+	for i, id := range sourceGameIDs {
 		placeholders[i] = "?"
 		args[i] = id
 	}
 	inClause := strings.Join(placeholders, ",")
 
-	// Delete from child tables in dependency order.
 	deleteQueries := []string{
+		fmt.Sprintf(`DELETE FROM source_cache_jobs WHERE source_game_id IN (%s)`, inClause),
+		fmt.Sprintf(`DELETE FROM source_cache_entry_files WHERE entry_id IN (SELECT id FROM source_cache_entries WHERE source_game_id IN (%s))`, inClause),
+		fmt.Sprintf(`DELETE FROM source_cache_entries WHERE source_game_id IN (%s)`, inClause),
 		fmt.Sprintf(`DELETE FROM achievements WHERE set_id IN (SELECT id FROM achievement_sets WHERE source_game_id IN (%s))`, inClause),
 		fmt.Sprintf(`DELETE FROM achievement_sets WHERE source_game_id IN (%s)`, inClause),
 		fmt.Sprintf(`DELETE FROM source_game_media WHERE source_game_id IN (%s)`, inClause),
@@ -1222,21 +1251,11 @@ func (s *gameStore) DeleteGamesByIntegrationID(ctx context.Context, integrationI
 		}
 	}
 
-	// Delete the source games themselves.
 	q := fmt.Sprintf(`DELETE FROM source_games WHERE id IN (%s)`, inClause)
 	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 		return fmt.Errorf("delete source games: %w", err)
 	}
-
-	// Clean up orphaned canonical IDs (canonical entries with no remaining source games).
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM canonical_source_games_link WHERE canonical_id NOT IN (
-			SELECT DISTINCT canonical_id FROM canonical_source_games_link
-		)`); err != nil {
-		return fmt.Errorf("clean orphaned canonical: %w", err)
-	}
-
-	return tx.Commit()
+	return nil
 }
 
 func (s *gameStore) SaveScanReport(ctx context.Context, report *core.ScanReport) error {
@@ -1627,7 +1646,9 @@ func sameGameFile(a, b core.GameFile) bool {
 		a.Role == b.Role &&
 		a.FileKind == b.FileKind &&
 		a.Size == b.Size &&
-		a.IsDir == b.IsDir
+		a.IsDir == b.IsDir &&
+		a.ObjectID == b.ObjectID &&
+		a.Revision == b.Revision
 }
 
 func (s *gameStore) loadExistingSourceGames(ctx context.Context, tx *sql.Tx, integrationID string) ([]existingSourceGame, error) {
@@ -1650,34 +1671,69 @@ func (s *gameStore) loadExistingSourceGames(ctx context.Context, tx *sql.Tx, int
 	return out, nil
 }
 
-func (s *gameStore) softDeleteMissing(ctx context.Context, tx *sql.Tx, integrationID string, seenIDs map[string]bool) error {
+func (s *gameStore) reconcileMissingSourceGames(ctx context.Context, tx *sql.Tx, integrationID string, seenIDs map[string]bool, scope *core.FilesystemScanScope) error {
 	rows, err := tx.QueryContext(ctx,
-		`SELECT id FROM source_games WHERE integration_id=? AND status='found'`, integrationID)
+		`SELECT id, COALESCE(root_path,''), status FROM source_games WHERE integration_id=?`, integrationID)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
-	var toDelete []string
+	var toSoftDelete []string
+	var toHardDelete []string
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var (
+			id       string
+			rootPath string
+			status   string
+		)
+		if err := rows.Scan(&id, &rootPath, &status); err != nil {
 			return err
 		}
-		if !seenIDs[id] {
-			toDelete = append(toDelete, id)
+		if seenIDs[id] {
+			continue
+		}
+		if scope != nil && !scopeContainsRootPath(rootPath, scope) {
+			toHardDelete = append(toHardDelete, id)
+			continue
+		}
+		if status != "not_found" {
+			toSoftDelete = append(toSoftDelete, id)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 
-	for _, id := range toDelete {
+	if len(toHardDelete) > 0 {
+		if err := s.deleteSourceGamesByID(ctx, tx, toHardDelete); err != nil {
+			return err
+		}
+		s.logger.Info("hard-deleted out-of-scope source games", "count", len(toHardDelete), "integration_id", integrationID)
+	}
+	for _, id := range toSoftDelete {
 		if _, err := tx.ExecContext(ctx, `UPDATE source_games SET status='not_found' WHERE id=?`, id); err != nil {
 			return err
 		}
 	}
-	if len(toDelete) > 0 {
-		s.logger.Info("soft-deleted missing source games", "count", len(toDelete), "integration_id", integrationID)
+	if len(toSoftDelete) > 0 {
+		s.logger.Info("soft-deleted missing source games", "count", len(toSoftDelete), "integration_id", integrationID)
 	}
 	return nil
+}
+
+func scopeContainsRootPath(rootPath string, scope *core.FilesystemScanScope) bool {
+	if scope == nil {
+		return true
+	}
+	includes := make([]sourcescope.IncludePath, 0, len(scope.IncludePaths))
+	for _, include := range scope.IncludePaths {
+		includes = append(includes, sourcescope.IncludePath{
+			Path:      include.Path,
+			Recursive: include.Recursive,
+		})
+	}
+	return sourcescope.ScopeContainsRootPath(rootPath, includes)
 }
 
 func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) error {
@@ -1989,7 +2045,7 @@ func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string)
 	}
 
 	// Load files.
-	fileRows, err := db.QueryContext(ctx, `SELECT path, file_name, role, file_kind, size, is_dir
+	fileRows, err := db.QueryContext(ctx, `SELECT path, file_name, role, file_kind, size, is_dir, object_id, revision, modified_at
 		FROM game_files WHERE source_game_id=?`, sgID)
 	if err != nil {
 		return nil, err
@@ -1998,11 +2054,19 @@ func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string)
 	for fileRows.Next() {
 		var f core.GameFile
 		var isDir int
-		if err := fileRows.Scan(&f.Path, &f.FileName, &f.Role, &f.FileKind, &f.Size, &isDir); err != nil {
+		var objectID, revision sql.NullString
+		var modifiedAt sql.NullInt64
+		if err := fileRows.Scan(&f.Path, &f.FileName, &f.Role, &f.FileKind, &f.Size, &isDir, &objectID, &revision, &modifiedAt); err != nil {
 			return nil, err
 		}
 		f.GameID = sgID
 		f.IsDir = isDir != 0
+		f.ObjectID = objectID.String
+		f.Revision = revision.String
+		if modifiedAt.Valid {
+			t := time.Unix(modifiedAt.Int64, 0).UTC()
+			f.ModifiedAt = &t
+		}
 		sg.Files = append(sg.Files, f)
 	}
 

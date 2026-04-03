@@ -84,6 +84,18 @@ export type GameFileDTO = {
   size: number;
 };
 
+export type SourceDeliveryProfileDTO = {
+  profile: string;
+  mode: "direct" | "materialized" | "unavailable";
+  prepare_required?: boolean;
+  ready?: boolean;
+  root_file_id?: string;
+};
+
+export type SourceDeliveryDTO = {
+  profiles?: SourceDeliveryProfileDTO[];
+};
+
 export type SourceGamePlayDTO = {
   launchable: boolean;
   root_file_id?: string;
@@ -302,6 +314,48 @@ export type SaveSyncMigrationStatus = {
   slots_migrated: number;
   slots_skipped: number;
   error?: string;
+};
+
+export type SourceCacheEntry = {
+  id: string;
+  cache_key: string;
+  canonical_game_id?: string;
+  canonical_title?: string;
+  source_game_id: string;
+  source_title?: string;
+  integration_id: string;
+  integration_label?: string;
+  plugin_id: string;
+  profile: string;
+  mode: string;
+  status: string;
+  source_path?: string;
+  file_count: number;
+  size: number;
+  created_at: string;
+  updated_at: string;
+  last_accessed_at?: string;
+};
+
+export type SourceCacheJobStatus = {
+  job_id: string;
+  cache_key?: string;
+  canonical_game_id?: string;
+  canonical_title?: string;
+  source_game_id: string;
+  source_title?: string;
+  integration_id?: string;
+  plugin_id?: string;
+  profile: string;
+  status: string;
+  message?: string;
+  error?: string;
+  entry_id?: string;
+  progress_current?: number;
+  progress_total?: number;
+  created_at: string;
+  updated_at: string;
+  finished_at?: string;
 };
 
 export type ManualReviewCandidateSummary = {

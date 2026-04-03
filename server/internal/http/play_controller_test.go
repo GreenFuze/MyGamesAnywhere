@@ -184,7 +184,7 @@ func TestGameControllerServePlayFileSupportsRange(t *testing.T) {
 			},
 		},
 	}
-	ctrl := NewGameController(store, nil, noopLogger{})
+	ctrl := NewGameController(store, nil, nil, noopLogger{})
 	r := chi.NewRouter()
 	r.Get("/api/games/{id}/play", ctrl.ServePlayFile)
 
@@ -230,7 +230,7 @@ func TestGameControllerServePlayFileSupportsHead(t *testing.T) {
 			},
 		},
 	}
-	ctrl := NewGameController(store, nil, noopLogger{})
+	ctrl := NewGameController(store, nil, nil, noopLogger{})
 	router := BuildRouter(
 		&RouteBuilder{
 			GameCtrl:        ctrl,
@@ -266,8 +266,53 @@ func TestGameControllerServePlayFileSupportsHead(t *testing.T) {
 	}
 }
 
+func TestGameControllerServePlayFileServesCachedMaterializedFile(t *testing.T) {
+	cacheRoot := t.TempDir()
+	cachedFile := filepath.Join(cacheRoot, "prepared", "roms", "game.gba")
+	if err := os.MkdirAll(filepath.Dir(cachedFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cachedFile, []byte("cached"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := &fakeGameStore{
+		game: &core.CanonicalGame{
+			ID:       "game-cache",
+			Platform: core.PlatformGBA,
+			SourceGames: []*core.SourceGame{
+				{
+					ID:        "source-cache",
+					PluginID:  "game-source-google-drive",
+					Platform:  core.PlatformGBA,
+					GroupKind: core.GroupKindSelfContained,
+					RootPath:  "Drive/Game",
+					Status:    "found",
+					Files: []core.GameFile{
+						{GameID: "source-cache", Path: "roms/game.gba", Role: core.GameFileRoleRoot, Size: 6},
+					},
+				},
+			},
+		},
+	}
+	ctrl := NewGameController(store, nil, &fakeCacheService{resolvedPath: cachedFile}, noopLogger{})
+	router := chi.NewRouter()
+	router.Get("/api/games/{id}/play", ctrl.ServePlayFile)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/games/game-cache/play?file_id="+encodeGameFileID("source-cache", "roms/game.gba")+"&profile=browser.emulatorjs", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%q", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "cached" {
+		t.Fatalf("unexpected body: %q", rec.Body.String())
+	}
+}
+
 func TestGameControllerServePlayFileRejectsInvalidFileID(t *testing.T) {
-	ctrl := NewGameController(&fakeGameStore{}, nil, noopLogger{})
+	ctrl := NewGameController(&fakeGameStore{}, nil, nil, noopLogger{})
 	r := chi.NewRouter()
 	r.Get("/api/games/{id}/play", ctrl.ServePlayFile)
 
@@ -300,7 +345,7 @@ func TestGameControllerServePlayFileRejectsUnknownOwnedFile(t *testing.T) {
 			},
 		},
 	}
-	ctrl := NewGameController(store, nil, noopLogger{})
+	ctrl := NewGameController(store, nil, nil, noopLogger{})
 	r := chi.NewRouter()
 	r.Get("/api/games/{id}/play", ctrl.ServePlayFile)
 
@@ -334,7 +379,7 @@ func TestGameControllerServePlayFileRejectsTraversal(t *testing.T) {
 			},
 		},
 	}
-	ctrl := NewGameController(store, nil, noopLogger{})
+	ctrl := NewGameController(store, nil, nil, noopLogger{})
 	r := chi.NewRouter()
 	r.Get("/api/games/{id}/play", ctrl.ServePlayFile)
 
@@ -385,6 +430,7 @@ func TestGameControllerOpenSMBPlayFileRejectsInvalidConfig(t *testing.T) {
 				},
 			},
 		},
+		nil,
 		noopLogger{},
 	)
 

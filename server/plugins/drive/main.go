@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/binary"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,10 +13,13 @@ import (
 	"log"
 	"os"
 	"path"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
@@ -198,76 +201,90 @@ func resolvePathToFolderID(srv *drive.Service, rootPath string) (string, error) 
 
 // --------------- File listing (source.filesystem.list) ---------------
 
-func listFiles(ctx context.Context, rootPath string) ([]map[string]any, error) {
+func listFiles(ctx context.Context, includes []sourcescope.IncludePath) ([]map[string]any, error) {
 	srv, err := getDriveService(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	folderID, err := resolvePathToFolderID(srv, rootPath)
-	if err != nil {
-		return nil, fmt.Errorf("resolve root path: %w", err)
-	}
-	log.Printf("scanning Drive folder ID %s (path=%q)", folderID, rootPath)
 
 	type folderItem struct {
 		id   string
 		path string
 	}
 
-	var files []map[string]any
-	queue := []folderItem{{id: folderID, path: ""}}
+	seen := make(map[string]map[string]any)
+	for _, include := range includes {
+		folderID, err := resolvePathToFolderID(srv, include.Path)
+		if err != nil {
+			return nil, fmt.Errorf("resolve root path %q: %w", include.Path, err)
+		}
+		log.Printf("scanning Drive folder ID %s (path=%q recursive=%t)", folderID, include.Path, include.Recursive)
 
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
+		queue := []folderItem{{id: folderID, path: include.Path}}
+		for len(queue) > 0 {
+			current := queue[0]
+			queue = queue[1:]
 
-		query := fmt.Sprintf("'%s' in parents and trashed = false", current.id)
-		pageToken := ""
-		for {
-			call := srv.Files.List().Q(query).
-				Fields("nextPageToken, files(id, name, mimeType, size, modifiedTime)").
-				PageSize(1000)
-			if pageToken != "" {
-				call = call.PageToken(pageToken)
-			}
-
-			result, err := call.Do()
-			if err != nil {
-				return nil, fmt.Errorf("list folder %q: %w", current.path, err)
-			}
-
-			for _, f := range result.Files {
-				isDir := f.MimeType == "application/vnd.google-apps.folder"
-				entryPath := f.Name
-				if current.path != "" {
-					entryPath = current.path + "/" + f.Name
+			query := fmt.Sprintf("'%s' in parents and trashed = false", current.id)
+			pageToken := ""
+			for {
+				call := srv.Files.List().Q(query).
+					Fields("nextPageToken, files(id, name, mimeType, size, modifiedTime)").
+					OrderBy("folder,name").
+					PageSize(1000)
+				if pageToken != "" {
+					call = call.PageToken(pageToken)
 				}
 
-				entry := map[string]any{
-					"path":   entryPath,
-					"name":   f.Name,
-					"is_dir": isDir,
-					"size":   f.Size,
-				}
-				if f.ModifiedTime != "" {
-					entry["mod_time"] = f.ModifiedTime
+				result, err := call.Do()
+				if err != nil {
+					return nil, fmt.Errorf("list folder %q: %w", current.path, err)
 				}
 
-				files = append(files, entry)
+				for _, f := range result.Files {
+					isDir := f.MimeType == "application/vnd.google-apps.folder"
+					entryPath := f.Name
+					if current.path != "" {
+						entryPath = current.path + "/" + f.Name
+					}
+					entryPath = sourcescope.NormalizeLogicalPath(entryPath)
 
-				if isDir {
-					queue = append(queue, folderItem{id: f.Id, path: entryPath})
+					entry := map[string]any{
+						"path":      entryPath,
+						"name":      f.Name,
+						"is_dir":    isDir,
+						"size":      f.Size,
+						"object_id": f.Id,
+					}
+					if f.ModifiedTime != "" {
+						entry["mod_time"] = f.ModifiedTime
+						entry["revision"] = fmt.Sprintf("%s:%d", f.ModifiedTime, f.Size)
+					}
+
+					seen[entryPath] = entry
+
+					if isDir && include.Recursive {
+						queue = append(queue, folderItem{id: f.Id, path: entryPath})
+					}
 				}
-			}
 
-			pageToken = result.NextPageToken
-			if pageToken == "" {
-				break
+				pageToken = result.NextPageToken
+				if pageToken == "" {
+					break
+				}
 			}
 		}
 	}
 
+	paths := make([]string, 0, len(seen))
+	for logicalPath := range seen {
+		paths = append(paths, logicalPath)
+	}
+	sort.Strings(paths)
+	files := make([]map[string]any, 0, len(paths))
+	for _, logicalPath := range paths {
+		files = append(files, seen[logicalPath])
+	}
 	return files, nil
 }
 
@@ -727,7 +744,13 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 	tokenMu.Unlock()
 
 	if tok != nil && tok.Valid() {
-		return map[string]any{"status": "ok"}, nil
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		identity, err := driveSourceIdentity(ctx)
+		if err != nil {
+			return map[string]any{"status": "ok"}, nil
+		}
+		return map[string]any{"status": "ok", "source_identity": identity}, nil
 	}
 
 	// Try silent refresh if we have a refresh token.
@@ -744,7 +767,11 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 			tokenMu.Unlock()
 			saveToken(newTok)
 			log.Printf("refreshed Google token (expires %s)", newTok.Expiry.Format(time.RFC3339))
-			return map[string]any{"status": "ok"}, nil
+			identity, identityErr := driveSourceIdentity(ctx)
+			if identityErr != nil {
+				return map[string]any{"status": "ok"}, nil
+			}
+			return map[string]any{"status": "ok", "source_identity": identity}, nil
 		}
 		log.Printf("refresh failed: %v, requesting consent", err)
 	}
@@ -769,6 +796,27 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 		"authorize_url": authorizeURL,
 		"state":         state,
 	}, nil
+}
+
+func driveSourceIdentity(ctx context.Context) (string, error) {
+	srv, err := getDriveService(ctx)
+	if err != nil {
+		return "", err
+	}
+	about, err := srv.About.Get().Fields("user(emailAddress,permissionId)").Do()
+	if err != nil {
+		return "", err
+	}
+	if about.User == nil {
+		return "", fmt.Errorf("drive account identity unavailable")
+	}
+	if about.User.PermissionId != "" {
+		return "gdrive:" + about.User.PermissionId, nil
+	}
+	if about.User.EmailAddress != "" {
+		return "gdrive:" + strings.ToLower(strings.TrimSpace(about.User.EmailAddress)), nil
+	}
+	return "", fmt.Errorf("drive account identity unavailable")
 }
 
 func handleOAuthCallback(params json.RawMessage) (any, *Error) {
@@ -864,28 +912,90 @@ func handleBrowse(params json.RawMessage) (any, *Error) {
 }
 
 func handleFileList(params json.RawMessage) (any, *Error) {
-	// Read root_path from the IPC params (passed by the orchestrator from integration config).
-	var p struct {
-		Config map[string]any `json:"config"`
+	var config map[string]any
+	if err := json.Unmarshal(params, &config); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 	}
-	json.Unmarshal(params, &p)
-
-	rootPath := ""
-	if p.Config != nil {
-		if v, ok := p.Config["root_path"].(string); ok {
-			rootPath = v
-		}
+	if nestedConfig, ok := config["config"].(map[string]any); ok {
+		config = nestedConfig
 	}
+	includes := filesystemIncludePathsFromConfig(config)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 540*time.Second)
 	defer cancel()
 
-	files, err := listFiles(ctx, rootPath)
+	files, err := listFiles(ctx, includes)
 	if err != nil {
 		return nil, &Error{Code: "SCAN_FAILED", Message: err.Error()}
 	}
-	log.Printf("listed %d files from Drive (root_path=%q)", len(files), rootPath)
+	log.Printf("listed %d files from Drive (include_paths=%d)", len(files), len(includes))
 	return map[string]any{"files": files}, nil
+}
+
+func filesystemIncludePathsFromConfig(config map[string]any) []sourcescope.IncludePath {
+	normalized := sourcescope.NormalizeConfig("game-source-google-drive", config)
+	return sourcescope.ReadIncludePaths("game-source-google-drive", normalized)
+}
+
+func handleFileMaterialize(params json.RawMessage) (any, *Error) {
+	var p struct {
+		Config   map[string]any `json:"config"`
+		Path     string         `json:"path"`
+		ObjectID string         `json:"object_id"`
+		Revision string         `json:"revision"`
+		Profile  string         `json:"profile"`
+		DestPath string         `json:"dest_path"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	if strings.TrimSpace(p.ObjectID) == "" {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "object_id is required"}
+	}
+	if strings.TrimSpace(p.DestPath) == "" {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "dest_path is required"}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	srv, err := getDriveService(ctx)
+	if err != nil {
+		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
+	}
+
+	if err := os.MkdirAll(filepath.Dir(p.DestPath), 0o755); err != nil {
+		return nil, &Error{Code: "WRITE_FAILED", Message: err.Error()}
+	}
+
+	resp, err := srv.Files.Get(p.ObjectID).Fields("id, modifiedTime, size").Download()
+	if err != nil {
+		return nil, &Error{Code: "DOWNLOAD_FAILED", Message: err.Error()}
+	}
+	defer resp.Body.Close()
+
+	out, err := os.Create(p.DestPath)
+	if err != nil {
+		return nil, &Error{Code: "WRITE_FAILED", Message: err.Error()}
+	}
+	defer out.Close()
+
+	size, err := io.Copy(out, resp.Body)
+	if err != nil {
+		return nil, &Error{Code: "WRITE_FAILED", Message: err.Error()}
+	}
+
+	meta, err := srv.Files.Get(p.ObjectID).Fields("modifiedTime, size").Do()
+	if err != nil {
+		return map[string]any{"size": size}, nil
+	}
+
+	result := map[string]any{"size": size}
+	if meta.ModifiedTime != "" {
+		result["mod_time"] = meta.ModifiedTime
+		result["revision"] = fmt.Sprintf("%s:%d", meta.ModifiedTime, meta.Size)
+	}
+	return result, nil
 }
 
 func handleSyncPush(params json.RawMessage) (any, *Error) {
@@ -994,6 +1104,14 @@ func main() {
 
 		case "source.filesystem.list":
 			result, errObj := handleFileList(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "source.file.materialize":
+			result, errObj := handleFileMaterialize(req.Params)
 			if errObj != nil {
 				resp.Error = errObj
 			} else {

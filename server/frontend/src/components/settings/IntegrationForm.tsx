@@ -13,6 +13,8 @@ import { FolderBrowser } from './FolderBrowser'
 import { useSSE } from '@/hooks/useSSE'
 import { useDateTimeFormat } from '@/hooks/useDateTimeFormat'
 import {
+  isFilesystemSourcePlugin,
+  normalizeFilesystemIncludePaths,
   pluginLabel,
   parsePluginConfigSchema,
   CAPABILITY_META,
@@ -45,7 +47,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
   const [step, setStep] = useState<WizardStep>('category')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null)
-  const [configFields, setConfigFields] = useState<Record<string, string>>({})
+  const [configFields, setConfigFields] = useState<Record<string, unknown>>({})
   const [label, setLabel] = useState('')
   const [integrationType, setIntegrationType] = useState('')
   const [saving, setSaving] = useState(false)
@@ -101,9 +103,12 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
 
     // Pre-fill defaults from schema.
     const parsed = parsePluginConfigSchema(plugin.config as Record<string, unknown> | undefined)
-    const defaults: Record<string, string> = {}
+    const defaults: Record<string, unknown> = {}
     for (const { key, field } of parsed) {
-      if (field.default != null) defaults[key] = String(field.default)
+      if (field.default != null) defaults[key] = field.default
+    }
+    if (isFilesystemSourcePlugin(plugin.plugin_id)) {
+      defaults.include_paths = normalizeFilesystemIncludePaths(plugin.plugin_id, {})
     }
     setConfigFields(defaults)
 
@@ -131,13 +136,15 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
   const buildConfig = useCallback(() => {
     const config: Record<string, unknown> = {}
     for (const { key, field } of schema) {
-      const raw = configFields[key] ?? ''
+      const raw = configFields[key]
       if (field.type === 'boolean') {
-        config[key] = raw === 'true' || raw === '1'
+        config[key] = raw === true || raw === 'true' || raw === '1'
       } else if (field.type === 'number' || field.type === 'integer') {
-        config[key] = Number(raw)
+        config[key] = typeof raw === 'number' ? raw : Number(raw ?? 0)
+      } else if (field.type === 'array') {
+        config[key] = Array.isArray(raw) ? raw : []
       } else {
-        config[key] = raw
+        config[key] = typeof raw === 'string' ? raw : (raw ?? '')
       }
     }
     return config
@@ -332,6 +339,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
             schema={schema}
             values={configFields}
             onChange={(key, value) => setConfigFields((prev) => ({ ...prev, [key]: value }))}
+            browsePluginId={supportsBrowse ? selectedPlugin.plugin_id : null}
           />
 
           {error && <p className="text-sm text-red-400">{error}</p>}
@@ -441,7 +449,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
             onSelect={async (path) => {
               try {
                 await updateIntegration(createdIntegrationId, {
-                  config: { root_path: path },
+                  config: { include_paths: [{ path, recursive: true }] },
                 })
               } catch {
                 // Non-fatal: integration was created, folder preference just wasn't saved.
@@ -478,23 +486,24 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
   )
 
   // Parse existing config.
-  const existingConfig = useMemo<Record<string, string>>(() => {
+  const existingConfig = useMemo<Record<string, unknown>>(() => {
     try {
-      const parsed = JSON.parse(integration.config_json)
-      const flat: Record<string, string> = {}
-      for (const [k, v] of Object.entries(parsed)) {
-        flat[k] = typeof v === 'string' ? v : JSON.stringify(v)
+      const parsed = JSON.parse(integration.config_json) as Record<string, unknown>
+      if (isFilesystemSourcePlugin(integration.plugin_id)) {
+        parsed.include_paths = normalizeFilesystemIncludePaths(integration.plugin_id, parsed)
+        delete parsed.path
+        delete parsed.root_path
       }
-      return flat
+      return parsed
     } catch {
       return {}
     }
-  }, [integration.config_json])
+  }, [integration.config_json, integration.plugin_id])
 
   // Form state.
   const [label, setLabel] = useState(integration.label)
   const [integrationType] = useState(integration.integration_type)
-  const [configFields, setConfigFields] = useState<Record<string, string>>(existingConfig)
+  const [configFields, setConfigFields] = useState<Record<string, unknown>>(existingConfig)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [oauthState, setOauthState] = useState<string | null>(null)
@@ -502,7 +511,6 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
 
   // Folder browsing for plugins that support source.browse.
   const editSupportsBrowse = plugin?.provides?.includes('source.browse') ?? false
-  const [showBrowser, setShowBrowser] = useState(false)
 
   // Secret fields — start masked, reveal on "Change" click.
   const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set())
@@ -528,17 +536,23 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
 
       const raw = configFields[key] ?? ''
       if (field.type === 'boolean') {
-        config[key] = raw === 'true' || raw === '1'
+        config[key] = raw === true || raw === 'true' || raw === '1'
       } else if (field.type === 'number' || field.type === 'integer') {
-        config[key] = Number(raw)
+        config[key] = typeof raw === 'number' ? raw : Number(raw)
+      } else if (field.type === 'array') {
+        config[key] = Array.isArray(raw) ? raw : []
       } else {
-        config[key] = raw
+        config[key] = typeof raw === 'string' ? raw : (raw ?? '')
       }
     }
 
     // Include config fields not in schema (preserve unknown fields).
     for (const [k, v] of Object.entries(configFields)) {
       if (!(k in config) && !secretMask.has(k)) config[k] = v
+    }
+    if (isFilesystemSourcePlugin(integration.plugin_id)) {
+      delete config.path
+      delete config.root_path
     }
     return config
   }, [configFields, schema, secretMask])
@@ -558,7 +572,11 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
       }
       onSaved()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save')
+      if (err instanceof DuplicateIntegrationError) {
+        setError(err.message)
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to save')
+      }
     }
   }, [buildConfig, integration.id, integrationType, label, onSaved])
 
@@ -669,38 +687,8 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
               onChange={(key, value) => setConfigFields((prev) => ({ ...prev, [key]: value }))}
               secretMask={secretMask}
               onRevealSecret={handleRevealSecret}
+              browsePluginId={editSupportsBrowse ? integration.plugin_id : null}
             />
-          </div>
-        )}
-
-        {/* Folder browser for source.browse-capable plugins */}
-        {editSupportsBrowse && (
-          <div>
-            <h4 className="text-xs uppercase tracking-wider text-mga-muted font-medium mb-3">
-              Source Folder
-            </h4>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-sm text-mga-text font-mono">
-                {configFields.root_path || '/ (entire Drive)'}
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowBrowser(!showBrowser)}
-                className="text-xs text-mga-accent hover:underline"
-              >
-                {showBrowser ? 'Hide' : 'Browse...'}
-              </button>
-            </div>
-            {showBrowser && (
-              <FolderBrowser
-                pluginId={integration.plugin_id}
-                initialPath={configFields.root_path ?? ''}
-                onSelect={(path) => {
-                  setConfigFields((prev) => ({ ...prev, root_path: path }))
-                  setShowBrowser(false)
-                }}
-              />
-            )}
           </div>
         )}
 

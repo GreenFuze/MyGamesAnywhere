@@ -136,8 +136,17 @@ func (m *scanJobManager) Cancel(jobID string) (*core.ScanJobStatus, scanCancelRe
 	m.mu.Unlock()
 
 	if cancel != nil {
+		events.PublishJSON(m.bus, "scan_cancel_requested", map[string]any{
+			"job_id":               jobID,
+			"integration_id":       status.CurrentIntegrationID,
+			"label":                status.CurrentIntegrationLabel,
+			"current_phase":        status.CurrentPhase,
+			"integrations_pending": maxInt(0, status.IntegrationCount-status.IntegrationsCompleted),
+		})
 		cancel()
+		return status, scanCancelAccepted
 	}
+
 	events.PublishJSON(m.bus, "scan_cancel_requested", map[string]any{
 		"job_id":               jobID,
 		"integration_id":       status.CurrentIntegrationID,

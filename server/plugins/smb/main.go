@@ -10,7 +10,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 	"github.com/hirochachacha/go-smb2"
 )
 
@@ -32,11 +35,12 @@ type Error struct {
 }
 
 type SMBConfig struct {
-	Host     string `json:"host"`
-	Share    string `json:"share"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Path     string `json:"path"`
+	Host         string                    `json:"host"`
+	Share        string                    `json:"share"`
+	Username     string                    `json:"username"`
+	Password     string                    `json:"password"`
+	Path         string                    `json:"path"`
+	IncludePaths []sourcescope.IncludePath `json:"include_paths"`
 }
 
 func main() {
@@ -81,7 +85,17 @@ func main() {
 					"share":    map[string]any{"type": "string", "required": true},
 					"username": map[string]any{"type": "string", "required": true},
 					"password": map[string]any{"type": "string", "required": true, "x-secret": true},
-					"path":     map[string]any{"type": "string", "default": ""},
+					"include_paths": map[string]any{
+						"type":     "array",
+						"required": true,
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"path":      map[string]any{"type": "string", "required": true},
+								"recursive": map[string]any{"type": "boolean"},
+							},
+						},
+					},
 				},
 			}
 		case "source.filesystem.list":
@@ -96,19 +110,22 @@ func main() {
 			} else {
 				resp.Result = map[string]any{"files": files}
 			}
-	case "plugin.check_config":
-		var params struct {
-			Config SMBConfig `json:"config"`
-		}
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			resp.Error = &Error{Code: "INVALID_PARAMS", Message: err.Error()}
-			break
-		}
-		if err := checkConfig(params.Config); err != nil {
-			resp.Result = map[string]any{"status": "error", "message": err.Error()}
-		} else {
-			resp.Result = map[string]any{"status": "ok"}
-		}
+		case "plugin.check_config":
+			var params struct {
+				Config SMBConfig `json:"config"`
+			}
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				resp.Error = &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+				break
+			}
+			if err := checkConfig(params.Config); err != nil {
+				resp.Result = map[string]any{"status": "error", "message": err.Error()}
+			} else {
+				resp.Result = map[string]any{
+					"status":          "ok",
+					"source_identity": sourceIdentity(params.Config),
+				}
+			}
 		default:
 			resp.Error = &Error{Code: "NOT_SUPPORTED", Message: "Method not supported"}
 		}
@@ -184,44 +201,120 @@ func listFiles(config SMBConfig) ([]map[string]any, error) {
 	}
 	defer remotefs.Umount()
 
-	searchPath := config.Path
-	if searchPath == "" {
-		searchPath = "."
-	}
+	seen := make(map[string]map[string]any)
+	for _, include := range normalizedIncludePaths(config) {
+		searchPath := include.Path
+		if searchPath == "" {
+			searchPath = "."
+		}
 
-	// Verify we can actually read the root directory.
-	entries, err := remotefs.ReadDir(searchPath)
-	if err != nil {
-		return nil, fmt.Errorf("readdir %q: %w", searchPath, err)
-	}
-	log.Printf("SMB readdir %q: %d top-level entries", searchPath, len(entries))
-
-	var files []map[string]any
-	rootFS := remotefs.DirFS(searchPath)
-	err = fs.WalkDir(rootFS, ".", func(path string, d fs.DirEntry, err error) error {
+		entries, err := remotefs.ReadDir(searchPath)
 		if err != nil {
-			log.Printf("walk error at %q: %v", path, err)
-			return nil
+			return nil, fmt.Errorf("readdir %q: %w", searchPath, err)
 		}
-		if path == "." {
-			return nil
-		}
-		entry := map[string]any{
-			"path":   filepath.ToSlash(path),
-			"name":   d.Name(),
-			"is_dir": d.IsDir(),
-		}
-		if !d.IsDir() {
-			if info, err := d.Info(); err == nil {
-				entry["size"] = info.Size()
+		log.Printf("SMB readdir %q: %d top-level entries", searchPath, len(entries))
+
+		if include.Recursive {
+			rootFS := remotefs.DirFS(searchPath)
+			err = fs.WalkDir(rootFS, ".", func(walkPath string, d fs.DirEntry, err error) error {
+				if err != nil {
+					log.Printf("walk error at %q: %v", walkPath, err)
+					return nil
+				}
+				if walkPath == "." {
+					return nil
+				}
+				logicalPath := joinLogicalPath(include.Path, walkPath)
+				recordSMBEntry(seen, logicalPath, d)
+				return nil
+			})
+			if err != nil {
+				return nil, err
 			}
+			continue
 		}
-		files = append(files, entry)
-		return nil
-	})
-	if err != nil {
-		return nil, err
+
+		for _, entry := range entries {
+			logicalPath := joinLogicalPath(include.Path, entry.Name())
+			recordSMBDirEntry(seen, logicalPath, entry)
+		}
 	}
 
+	files := make([]map[string]any, 0, len(seen))
+	paths := make([]string, 0, len(seen))
+	for logicalPath := range seen {
+		paths = append(paths, logicalPath)
+	}
+	sort.Strings(paths)
+	for _, logicalPath := range paths {
+		files = append(files, seen[logicalPath])
+	}
 	return files, nil
+}
+
+func normalizedIncludePaths(config SMBConfig) []sourcescope.IncludePath {
+	if len(config.IncludePaths) > 0 {
+		includes := make([]sourcescope.IncludePath, 0, len(config.IncludePaths))
+		for _, include := range config.IncludePaths {
+			includes = append(includes, sourcescope.IncludePath{
+				Path:      sourcescope.NormalizeLogicalPath(include.Path),
+				Recursive: include.Recursive,
+			})
+		}
+		return includes
+	}
+	return []sourcescope.IncludePath{{
+		Path:      sourcescope.NormalizeLogicalPath(config.Path),
+		Recursive: true,
+	}}
+}
+
+func sourceIdentity(config SMBConfig) string {
+	host := strings.ToLower(strings.TrimSpace(config.Host))
+	share := strings.ToLower(strings.TrimSpace(config.Share))
+	return "smb://" + host + "/" + share
+}
+
+func joinLogicalPath(basePath, child string) string {
+	base := sourcescope.NormalizeLogicalPath(basePath)
+	part := sourcescope.NormalizeLogicalPath(child)
+	if base == "" {
+		return part
+	}
+	if part == "" {
+		return base
+	}
+	return filepath.ToSlash(base + "/" + part)
+}
+
+func recordSMBEntry(seen map[string]map[string]any, logicalPath string, entry fs.DirEntry) {
+	if logicalPath == "" {
+		return
+	}
+	record := map[string]any{
+		"path":   logicalPath,
+		"name":   entry.Name(),
+		"is_dir": entry.IsDir(),
+	}
+	if !entry.IsDir() {
+		if info, err := entry.Info(); err == nil {
+			record["size"] = info.Size()
+		}
+	}
+	seen[logicalPath] = record
+}
+
+func recordSMBDirEntry(seen map[string]map[string]any, logicalPath string, entry os.FileInfo) {
+	if logicalPath == "" {
+		return
+	}
+	record := map[string]any{
+		"path":   logicalPath,
+		"name":   entry.Name(),
+		"is_dir": entry.IsDir(),
+	}
+	if !entry.IsDir() {
+		record["size"] = entry.Size()
+	}
+	seen[logicalPath] = record
 }

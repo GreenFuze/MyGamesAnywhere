@@ -47,6 +47,78 @@ paths:
         500:
           description: Internal server error
 
+  /api/cache/clear:
+    post:
+      summary: Clear all cached source entries
+      description: Deletes all reusable cache entries and removes the materialized cache root contents.
+      responses:
+        200:
+          description: Status ok JSON
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
+  /api/cache/entries:
+    get:
+      summary: List cached source entries
+      description: Returns all reusable cache entries with operator-facing metadata such as integration label, source context, profile, status, size, and timestamps.
+      responses:
+        200:
+          description: JSON object with entries[] of cache entry DTOs
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
+  /api/cache/entries/{entry_id}:
+    delete:
+      summary: Evict one cached source entry
+      description: Deletes one cache entry, its tracked files, and the materialized files on disk.
+      parameters:
+        - name: entry_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: entry_id is required
+        500:
+          description: Internal server error
+
+  /api/cache/jobs:
+    get:
+      summary: List recent cache prepare jobs
+      description: 'Returns recent cache prepare/materialization jobs in reverse-updated order. Query: limit (optional, defaults to 25).'
+      responses:
+        200:
+          description: JSON object with jobs[] of SourceCacheJobStatus
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
+  /api/cache/jobs/{job_id}:
+    get:
+      summary: Get one cache prepare job
+      description: Returns persisted status for one cache prepare/materialization job, including progress, terminal error, and entry linkage when ready.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: SourceCacheJobStatus JSON
+        400:
+          description: job_id is required
+        404:
+          description: Job not found
+        500:
+          description: Internal server error
+
   /api/config/frontend:
     get:
       summary: Get frontend preferences
@@ -173,10 +245,38 @@ paths:
         500:
           description: Internal server error
 
+  /api/games/{id}/cache/prepare:
+    post:
+      summary: Prepare cached source files for one delivery profile
+      description: Starts or reuses a cache/materialization job for one source record and delivery profile. Direct sources may return an immediate completed response; remote materializable sources return 202 while the job downloads into the reusable source cache.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: 'JSON: { source_game_id: string, profile: string }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: CachePrepareResponse JSON; source already ready or direct
+        202:
+          description: CachePrepareResponse JSON; job accepted
+        400:
+          description: Invalid game id, source_game_id, or profile
+        404:
+          description: Game not found
+        500:
+          description: Error response
+
   /api/games/{id}/detail:
     get:
       summary: Get game detail
-      description: Full metadata, media (with local_path/hash when known), external IDs, merged files, generic play metadata (play availability, launch sources, launch candidates, file ids), unified Xbox/xCloud fields (is_game_pass, xcloud_available, store_product_id, xcloud_url when present), and all source games with resolver_matches (including metadata_json).
+      description: Full metadata, media (with local_path/hash when known), external IDs, merged files, unified Xbox/xCloud fields (is_game_pass, xcloud_available, store_product_id, xcloud_url when present), and all source games with resolver_matches. Source records also include generic delivery metadata per profile (`delivery.profiles`) so clients can decide whether a source is direct, materialized, or unavailable. Legacy browser-play fields remain as a compatibility shim.
       parameters:
         - name: id
           in: path
@@ -196,7 +296,7 @@ paths:
   /api/games/{id}/play:
     get:
       summary: Stream one game file by file_id
-      description: Streams a single file that belongs to the requested canonical game. Requires query param file_id (stable id from game detail/list file metadata). Local-disk Phase 6 implementation only; rejects invalid ids, path traversal, and files outside the game's found source roots. Supports Range requests via http.ServeContent.
+      description: Streams a single file that belongs to the requested canonical game. Requires query param file_id (stable id from game detail/list file metadata). Direct SMB/local sources stream immediately; materialized remote sources require `profile` so the server can open the prepared cached file. Supports GET, HEAD, and Range requests via http.ServeContent.
       parameters:
         - name: id
           in: path
@@ -209,7 +309,7 @@ paths:
         400:
           description: Missing or invalid file_id
         404:
-          description: Game, file, or source path not found
+          description: Game, file, source path, or prepared cache file not found
         500:
           description: Internal server error
     head:

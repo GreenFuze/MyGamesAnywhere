@@ -456,7 +456,7 @@ function buildGameFileGroups(sourceGames: SourceGameDetailDTO[]) {
         sourceGameId: source.id,
         sourcePluginId: source.plugin_id,
         sourceTitle: source.raw_title || source.external_id,
-        isLaunchFile: source.play?.root_file_id === file.id || file.role === 'root',
+        isLaunchFile: sourcePrimaryRootFileID(source) === file.id || file.role === 'root',
         file,
       })),
     )
@@ -468,6 +468,17 @@ function buildGameFileGroups(sourceGames: SourceGameDetailDTO[]) {
     package: entries.filter((entry) => fileGroupKey(entry) === 'package'),
     other: entries.filter((entry) => fileGroupKey(entry) === 'other'),
   }
+}
+
+function sourcePrimaryRootFileID(source: SourceGameDetailDTO): string | null {
+  return source.delivery?.profiles?.[0]?.root_file_id ?? source.play?.root_file_id ?? null
+}
+
+function sourceHasBrowserPlayDelivery(source: SourceGameDetailDTO): boolean {
+  return (
+    source.delivery?.profiles?.some((profile) => profile.mode === 'direct' || profile.mode === 'materialized') ??
+    false
+  )
 }
 
 function GameFileRow({ entry }: { entry: GameFileDisplayRecord }) {
@@ -602,6 +613,8 @@ function ResolverMatchRow({ match }: { match: ResolverMatchDTO }) {
 }
 
 function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
+  const browserPlayable = sourceHasBrowserPlayDelivery(source)
+
   return (
     <article className="space-y-4 rounded-mga border border-mga-border bg-mga-bg/60 p-4 shadow-sm shadow-black/5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -610,7 +623,7 @@ function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
             <SourceBadge source={source.plugin_id} />
             <Badge variant="source">{source.status}</Badge>
             <Badge variant="platform"><PlatformIcon platform={source.platform} showLabel /></Badge>
-            {source.play?.launchable ? <Badge variant="accent">Launch Ready</Badge> : null}
+            {browserPlayable ? <Badge variant="accent">Browser Play</Badge> : null}
           </div>
           <div>
             <p className="text-sm font-semibold text-mga-text">{source.raw_title || source.external_id}</p>
@@ -667,7 +680,7 @@ function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
                   sourceGameId: source.id,
                   sourcePluginId: source.plugin_id,
                   sourceTitle: source.raw_title || source.external_id,
-                  isLaunchFile: source.play?.root_file_id === file.id || file.role === 'root',
+                  isLaunchFile: sourcePrimaryRootFileID(source) === file.id || file.role === 'root',
                   file,
                 }}
               />
@@ -882,9 +895,7 @@ export function GameDetailPage() {
   }, [gameData?.source_games])
   const achievementSets = useMemo(() => (achievements.data ?? []).map(sortAchievementSet), [achievements.data])
   const achievementSummary = useMemo(() => summarizeAchievements(achievementSets), [achievementSets])
-  const launchableSourceCount = gameData
-    ? gameData.source_games.filter((sourceGame) => sourceGame.play?.launchable).length
-    : 0
+  const launchableSourceCount = browserPlaySelections.length
 
   useEffect(() => {
     hasRetried404Ref.current = false
@@ -927,14 +938,15 @@ export function GameDetailPage() {
   }
 
   const handleLaunchBrowser = () => {
-    if (!game.data?.play?.available) return
+    const currentGame = game.data
+    if (!currentGame || !playable) return
     const params = new URLSearchParams()
     if (selectedBrowserSelection) {
       params.set('source', selectedBrowserSelection.sourceGame.id)
     }
     navigate(
       {
-        pathname: `/game/${encodeURIComponent(game.data.id)}/play`,
+        pathname: `/game/${encodeURIComponent(currentGame.id)}/play`,
         search: params.toString() ? `?${params.toString()}` : '',
       },
       { state: location.state },

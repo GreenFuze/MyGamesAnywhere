@@ -198,6 +198,60 @@ func (s *sqliteDatabase) EnsureSchema() error {
 			metadata_only INTEGER NOT NULL DEFAULT 0,
 			report_json TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS source_cache_entries (
+			id TEXT PRIMARY KEY,
+			cache_key TEXT NOT NULL,
+			canonical_game_id TEXT,
+			canonical_title TEXT,
+			source_game_id TEXT NOT NULL REFERENCES source_games(id),
+			source_title TEXT,
+			integration_id TEXT NOT NULL,
+			plugin_id TEXT NOT NULL,
+			profile TEXT NOT NULL,
+			mode TEXT NOT NULL,
+			status TEXT NOT NULL,
+			source_path TEXT,
+			file_count INTEGER NOT NULL DEFAULT 0,
+			size INTEGER NOT NULL DEFAULT 0,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			last_accessed_at INTEGER,
+			UNIQUE(source_game_id, profile)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_source_cache_entries_cache_key ON source_cache_entries(cache_key);`,
+		`CREATE TABLE IF NOT EXISTS source_cache_entry_files (
+			entry_id TEXT NOT NULL REFERENCES source_cache_entries(id) ON DELETE CASCADE,
+			path TEXT NOT NULL,
+			local_path TEXT NOT NULL,
+			object_id TEXT,
+			revision TEXT,
+			modified_at INTEGER,
+			size INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY(entry_id, path)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_source_cache_entry_files_entry ON source_cache_entry_files(entry_id);`,
+		`CREATE TABLE IF NOT EXISTS source_cache_jobs (
+			job_id TEXT PRIMARY KEY,
+			cache_key TEXT,
+			canonical_game_id TEXT,
+			canonical_title TEXT,
+			source_game_id TEXT NOT NULL REFERENCES source_games(id),
+			source_title TEXT,
+			integration_id TEXT,
+			plugin_id TEXT,
+			profile TEXT NOT NULL,
+			status TEXT NOT NULL,
+			message TEXT,
+			error TEXT,
+			entry_id TEXT,
+			progress_current INTEGER NOT NULL DEFAULT 0,
+			progress_total INTEGER NOT NULL DEFAULT 0,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			finished_at INTEGER
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_source_cache_jobs_cache_key ON source_cache_jobs(cache_key);`,
+		`CREATE INDEX IF NOT EXISTS idx_source_cache_jobs_updated_at ON source_cache_jobs(updated_at DESC);`,
 	}
 
 	for _, q := range statements {
@@ -206,6 +260,9 @@ func (s *sqliteDatabase) EnsureSchema() error {
 		}
 	}
 	if err := s.ensureManualReviewSchema(); err != nil {
+		return err
+	}
+	if err := s.ensureGameFileIdentitySchema(); err != nil {
 		return err
 	}
 	if err := s.backfillCanonicalGames(); err != nil {
@@ -329,6 +386,25 @@ func (s *sqliteDatabase) ensureManualReviewSchema() error {
 	}
 	if err := s.ensureColumn("metadata_resolver_matches", "manual_selection",
 		`ALTER TABLE metadata_resolver_matches ADD COLUMN manual_selection INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *sqliteDatabase) ensureGameFileIdentitySchema() error {
+	if s.db == nil {
+		return fmt.Errorf("database not connected")
+	}
+	if err := s.ensureColumn("game_files", "object_id",
+		`ALTER TABLE game_files ADD COLUMN object_id TEXT`); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("game_files", "revision",
+		`ALTER TABLE game_files ADD COLUMN revision TEXT`); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("game_files", "modified_at",
+		`ALTER TABLE game_files ADD COLUMN modified_at INTEGER`); err != nil {
 		return err
 	}
 	return nil

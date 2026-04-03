@@ -21,6 +21,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
 	saveSync "github.com/GreenFuze/MyGamesAnywhere/server/internal/save_sync"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcecache"
 	mgasync "github.com/GreenFuze/MyGamesAnywhere/server/internal/sync"
 )
 
@@ -44,6 +45,7 @@ func main() {
 	settingRepo := db.NewSettingRepository(dbSvc)
 	integrationRepo := db.NewIntegrationRepository(dbSvc)
 	gameStore := db.NewGameStore(dbSvc, logSvc)
+	cacheStore := db.NewSourceCacheStore(dbSvc)
 
 	processManager := plugins.NewProcessManager()
 	eventBus := events.New()
@@ -52,11 +54,12 @@ func main() {
 	ks := keystore.New()
 	syncSvc := mgasync.NewSyncService(integrationRepo, settingRepo, pluginHost, ks, logSvc)
 	saveSyncSvc := saveSync.NewService(integrationRepo, gameStore, pluginHost, logSvc, eventBus)
+	cacheSvc := sourcecache.NewService(cacheStore, integrationRepo, pluginHost, configSvc, logSvc)
 	orchestrator := scan.NewOrchestrator(pluginHost, pluginHost, integrationRepo, gameStore, logSvc)
 	orchestrator.SetEventBus(eventBus)
 	manualReviewSvc := scan.NewManualReviewService(pluginHost, pluginHost, integrationRepo, gameStore, logSvc)
 
-	gameCtrl := http.NewGameController(gameStore, integrationRepo, logSvc)
+	gameCtrl := http.NewGameController(gameStore, integrationRepo, cacheSvc, logSvc)
 	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc)
 	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc, eventBus)
 	aboutCtrl := http.NewAboutController(logSvc)
@@ -66,10 +69,11 @@ func main() {
 	achievementCtrl := http.NewAchievementController(gameStore, pluginHost, logSvc, eventBus)
 	syncCtrl := http.NewSyncController(syncSvc, logSvc, eventBus)
 	saveSyncCtrl := http.NewSaveSyncController(saveSyncSvc, logSvc)
+	cacheCtrl := http.NewCacheController(gameStore, integrationRepo, cacheSvc, logSvc)
 	sseCtrl := http.NewSSEController(eventBus, logSvc)
 	oauthCtrl := http.NewOAuthController(pluginHost, configSvc, logSvc, eventBus)
 
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, reviewCtrl, achievementCtrl, syncCtrl, saveSyncCtrl, sseCtrl, oauthCtrl)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, reviewCtrl, achievementCtrl, syncCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl)
 
 	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost, eventBus)
 

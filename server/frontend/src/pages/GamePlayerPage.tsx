@@ -4,11 +4,13 @@ import { ArrowLeft, Download, ExternalLink, PlayCircle, Upload } from 'lucide-re
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
+  getCacheJob,
   type FrontendConfig,
   getFrontendConfig,
   getGame,
   getGameSaveSyncSlot,
   listGameSaveSyncSlots,
+  prepareGameCache,
   putGameSaveSyncSlot,
   type SaveSyncSlotSummary,
 } from '@/api/client'
@@ -23,6 +25,8 @@ import {
   browserPlaySourceLabel,
   browserPlaySourceOptionLabel,
   browserPlayRuntimeLabel,
+  browserPlaySelectionIsReady,
+  browserPlaySelectionRequiresPrepare,
   buildBrowserPlaySession,
   buildBrowserPlayerUrl,
   clearBrowserPlaySession,
@@ -92,6 +96,12 @@ export function GamePlayerPage() {
   const [baselineLocalHash, setBaselineLocalHash] = useState<string | null>(null)
   const [baselineRemoteManifestHash, setBaselineRemoteManifestHash] = useState<string | null>(null)
   const [runtimeError, setRuntimeError] = useState('')
+  const [prepareBusy, setPrepareBusy] = useState(false)
+  const [prepareReady, setPrepareReady] = useState(false)
+  const [prepareError, setPrepareError] = useState('')
+  const [prepareJobId, setPrepareJobId] = useState<string | null>(null)
+  const [prepareStatusMessage, setPrepareStatusMessage] = useState('')
+  const [prepareProgress, setPrepareProgress] = useState<{ current: number; total: number } | null>(null)
   const [pendingSourceGameId, setPendingSourceGameId] = useState<string | null>(null)
   const recordedRef = useRef<string | null>(null)
   const tokenRef = useRef<string | null>(null)
@@ -140,15 +150,17 @@ export function GamePlayerPage() {
     () => (game.data ? getBrowserPlaySelectionIssue(game.data, selection) : null),
     [game.data, selection],
   )
+  const runtimeLabel = selection ? browserPlayRuntimeLabel(selection.runtime) : null
+  const requiresPrepare = selection ? browserPlaySelectionRequiresPrepare(selection) : false
+  const selectionReady = selection ? (browserPlaySelectionIsReady(selection) || prepareReady) : false
   const session = useMemo<BrowserPlaySession | null>(
-    () => (game.data && selection ? buildBrowserPlaySession(game.data, selection) : null),
-    [game.data, selection],
+    () => (game.data && selection && selectionReady ? buildBrowserPlaySession(game.data, selection) : null),
+    [game.data, selection, selectionReady],
   )
   const playerUrl = useMemo(() => {
     if (!sessionToken || !session) return null
     return buildBrowserPlayerUrl(session.runtime, sessionToken)
   }, [session, sessionToken])
-  const runtimeLabel = selection ? browserPlayRuntimeLabel(selection.runtime) : null
   const hasPendingSourceChange = Boolean(
     selection && pendingSourceGameId && pendingSourceGameId !== selection.sourceGame.id,
   )
@@ -159,6 +171,101 @@ export function GamePlayerPage() {
   useEffect(() => {
     setPendingSourceGameId(selection?.sourceGame.id ?? null)
   }, [selection?.sourceGame.id])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function prepareSelection() {
+      if (!game.data || !selection) {
+        setPrepareBusy(false)
+        setPrepareReady(false)
+        setPrepareError('')
+        setPrepareJobId(null)
+        setPrepareStatusMessage('')
+        setPrepareProgress(null)
+        return
+      }
+      if (!browserPlaySelectionRequiresPrepare(selection)) {
+        setPrepareBusy(false)
+        setPrepareReady(true)
+        setPrepareError('')
+        setPrepareJobId(null)
+        setPrepareStatusMessage('')
+        setPrepareProgress(null)
+        return
+      }
+
+      if (browserPlaySelectionIsReady(selection)) {
+        setPrepareBusy(false)
+        setPrepareReady(true)
+        setPrepareError('')
+        setPrepareJobId(null)
+        setPrepareStatusMessage('Cached source is ready.')
+        setPrepareProgress(null)
+        return
+      }
+
+      setPrepareBusy(true)
+      setPrepareReady(false)
+      setPrepareError('')
+      setPrepareJobId(null)
+      setPrepareStatusMessage('Preparing cached source...')
+      setPrepareProgress(null)
+
+      try {
+        const result = await prepareGameCache({
+          gameId: game.data.id,
+          sourceGameId: selection.sourceGame.id,
+          profile: selection.profile,
+        })
+        if (cancelled) return
+        if (result.immediate || result.job?.status === 'completed') {
+          setPrepareBusy(false)
+          setPrepareReady(true)
+          setPrepareJobId(result.job?.job_id ?? null)
+          setPrepareStatusMessage(result.job?.message ?? 'Cached source is ready.')
+          setPrepareProgress(
+            result.job
+              ? { current: result.job.progress_current ?? 0, total: result.job.progress_total ?? 0 }
+              : null,
+          )
+          return
+        }
+        const jobId = result.job?.job_id
+        if (!jobId) {
+          throw new Error('Cache prepare did not return a job id.')
+        }
+        setPrepareJobId(jobId)
+        while (!cancelled) {
+          const status = await getCacheJob(jobId)
+          if (cancelled) return
+          setPrepareStatusMessage(status.message ?? 'Preparing cached source...')
+          setPrepareProgress({ current: status.progress_current ?? 0, total: status.progress_total ?? 0 })
+          if (status.status === 'completed') {
+            setPrepareBusy(false)
+            setPrepareReady(true)
+            setPrepareStatusMessage(status.message ?? 'Cached source is ready.')
+            return
+          }
+          if (status.status === 'failed') {
+            throw new Error(status.error || status.message || 'Cache prepare failed.')
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 750))
+        }
+      } catch (error) {
+        if (cancelled) return
+        setPrepareBusy(false)
+        setPrepareReady(false)
+        setPrepareError(error instanceof Error ? error.message : 'Cache prepare failed.')
+      }
+    }
+
+    void prepareSelection()
+
+    return () => {
+      cancelled = true
+    }
+  }, [game.data, selection])
 
   useEffect(() => {
     if (!game.data || !selection) return
@@ -565,13 +672,25 @@ export function GamePlayerPage() {
           </div>
         </section>
 
-        {!data.play?.platform_supported ? (
+        {!hasBrowserPlaySupport(data) ? (
           <section className="rounded-mga border border-mga-border bg-mga-surface p-6 text-sm text-mga-muted">
             {selectionIssue?.message ?? 'This platform is not part of the supported browser-play set for Phase 6.'}
           </section>
-        ) : !data.play?.available || !selection ? (
+        ) : !selection ? (
           <section className="rounded-mga border border-mga-border bg-mga-surface p-6 text-sm text-mga-muted">
             {selectionIssue?.message ?? 'Browser Play is supported for this platform, but no launchable source file was found for this game yet.'}
+          </section>
+        ) : requiresPrepare && !selectionReady ? (
+          <section className="rounded-mga border border-mga-border bg-mga-surface p-6 text-sm text-mga-muted">
+            <p className="font-medium text-mga-text">{prepareBusy ? 'Preparing cached source...' : 'Cached source is not ready yet.'}</p>
+            <p className="mt-2">{prepareStatusMessage || 'Preparing remote source files before launch.'}</p>
+            {prepareProgress && prepareProgress.total > 0 && (
+              <p className="mt-2 text-xs text-mga-muted">
+                {prepareProgress.current}/{prepareProgress.total} files prepared
+              </p>
+            )}
+            {prepareJobId && <p className="mt-2 text-xs text-mga-muted">Job: {prepareJobId}</p>}
+            {prepareError && <p className="mt-3 text-xs text-red-400">{prepareError}</p>}
           </section>
         ) : !session || !playerUrl ? (
           <section className="rounded-mga border border-red-500/30 bg-red-500/10 p-6 text-sm text-red-200">

@@ -501,6 +501,21 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] Browser-play manual proof: ScummVM launches a real title end-to-end, including save import/export where supported
 - [x] Playable-games sidebar now uses compact platform icon rendering without duplicating text-style badges like the in-app GBA mark
 - [x] The playable games sidebar now has its own desktop-only scrolling container, separate from the main page scroller, with a theme-colored thumb and transparent track.
+- [ ] EmulatorJS is NOT expanded on the whole parent component in the frontend UI. I think its the resolution settings when initializing the game.
+- [ ] Unknown/undetected games are shown in "Library". The library should contain only detected games.
+- [x] Google Drive source integrations now scope traversal to the selected `root_path` for new scans.
+- [ ] Filesystem-backed scope edits still collapse "no longer returned by this integration" into `not_found`, which is semantically wrong for titles that are merely outside the configured scan scope. Add explicit `out_of_scope` handling for filesystem-backed sources.
+- [ ] Filesystem-backed scope changes should support safe hard cleanup of source-owned rows that are no longer covered by the configured scan scope, instead of accumulating long-lived `not_found` trash from prior scope bugs or edits.
+- [ ] Rework filesystem-backed source config away from "many integrations to the same backend connection" toward one backend connection with explicit scan scopes:
+  - include paths
+  - recursive flag per include
+  - no full exclude rule engine in v1
+- [ ] Defer exclude rules until there is a concrete need after multi-include lands. If excludes are later required, prefer a normalized path-glob design over a single ad hoc `exclude_glob` string, so behavior stays deterministic across SMB/local/Drive path forms.
+- [ ] If the multi-scope filesystem model is adopted, define scope-aware persistence rules so MGA can deterministically classify rows as `found`, `out_of_scope`, or truly missing, and hard-delete `out_of_scope` rows when safe.
+- [ ] Revisit duplicate-integration rules after the filesystem scope model decision:
+  - filesystem-backed backends should likely forbid duplicate connections to the same underlying source/account/share and use multiple scan scopes instead
+  - storefront/account-backed plugins should still allow multiple distinct accounts, but should block duplicates of the same account identity
+
 
 ### Additional Ideas
 - [ ] Keyboard shortcuts (Vim-style navigation, quick actions)

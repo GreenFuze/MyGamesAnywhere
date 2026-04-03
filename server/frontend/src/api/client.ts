@@ -10,6 +10,9 @@ import type {
   ManualReviewSearchResponse,
   ManualReviewSearchResult,
   ResolverMatchDTO,
+  SourceCacheEntry,
+  SourceCacheJobStatus,
+  SourceDeliveryDTO,
   SaveSyncMigrationRequest,
   SaveSyncMigrationStatus,
   SaveSyncPutResult,
@@ -43,6 +46,9 @@ export type {
   ManualReviewSearchResult,
   RecentPlayedEntry,
   ResolverMatchDTO,
+  SourceCacheEntry,
+  SourceCacheJobStatus,
+  SourceDeliveryDTO,
   SaveSyncConflict,
   SaveSyncMigrationRequest,
   SaveSyncMigrationScope,
@@ -192,6 +198,7 @@ export type SourceGameDetailDTO = {
   last_seen_at?: string;
   created_at: string;
   files: GameFileDTO[];
+  delivery?: SourceDeliveryDTO;
   play?: SourceGamePlayDTO;
   resolver_matches: ResolverMatchDTO[];
 };
@@ -453,10 +460,10 @@ export async function createIntegration(body: {
   });
 
   if (res.status === 409) {
-    // Backend returns { error, integration_id, integration } on duplicate.
+    // Backend returns { error, message, integration_id, integration } on duplicate.
     const data = await res.json().catch(() => null);
     const existingLabel = data?.integration?.label;
-    throw new DuplicateIntegrationError(existingLabel);
+    throw new DuplicateIntegrationError(existingLabel, data?.message);
   }
 
   // 202 = OAuth consent required before integration can be created.
@@ -474,11 +481,13 @@ export async function createIntegration(body: {
 
 /** Thrown when creating an integration that already exists with the same config. */
 export class DuplicateIntegrationError extends Error {
-  constructor(public existingLabel?: string) {
+  constructor(public existingLabel?: string, message?: string) {
     super(
+      message ?? (
       existingLabel
         ? `An integration with identical configuration already exists: "${existingLabel}"`
-        : "An integration with identical configuration already exists.",
+        : "An integration with identical configuration already exists."
+      ),
     );
     this.name = "DuplicateIntegrationError";
   }
@@ -501,6 +510,12 @@ export async function updateIntegration(
 
   if (res.status === 202) {
     return res.json() as Promise<OAuthRequiredResponse>;
+  }
+
+  if (res.status === 409) {
+    const data = await res.json().catch(() => null);
+    const existingLabel = data?.integration?.label;
+    throw new DuplicateIntegrationError(existingLabel, data?.message);
   }
 
   if (!res.ok) {
@@ -807,4 +822,45 @@ export async function getSaveSyncMigrationStatus(
   return getJson<SaveSyncMigrationStatus>(
     `/api/save-sync/migrations/${encodeURIComponent(jobId)}`,
   );
+}
+
+export async function prepareGameCache(params: {
+  gameId: string;
+  sourceGameId: string;
+  profile: string;
+}): Promise<{ accepted: boolean; immediate: boolean; job?: SourceCacheJobStatus }> {
+  const res = await fetch(`${base}/api/games/${encodeURIComponent(params.gameId)}/cache/prepare`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      source_game_id: params.sourceGameId,
+      profile: params.profile,
+    }),
+  });
+  if (res.status !== 200 && res.status !== 202) {
+    throw await buildApiError(`/api/games/${params.gameId}/cache/prepare`, res);
+  }
+  return res.json() as Promise<{ accepted: boolean; immediate: boolean; job?: SourceCacheJobStatus }>;
+}
+
+export async function getCacheJob(jobId: string): Promise<SourceCacheJobStatus> {
+  return getJson<SourceCacheJobStatus>(`/api/cache/jobs/${encodeURIComponent(jobId)}`);
+}
+
+export async function listCacheJobs(limit = 25): Promise<SourceCacheJobStatus[]> {
+  const result = await getJson<{ jobs: SourceCacheJobStatus[] }>(`/api/cache/jobs?limit=${limit}`);
+  return result.jobs;
+}
+
+export async function listCacheEntries(): Promise<SourceCacheEntry[]> {
+  const result = await getJson<{ entries: SourceCacheEntry[] }>(`/api/cache/entries`);
+  return result.entries;
+}
+
+export async function deleteCacheEntry(entryId: string): Promise<void> {
+  await deleteRequest(`/api/cache/entries/${encodeURIComponent(entryId)}`);
+}
+
+export async function clearCacheEntries(): Promise<void> {
+  await postJson(`/api/cache/clear`, {});
 }

@@ -30,6 +30,7 @@ func (c *GameController) ServePlayFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fileID := r.URL.Query().Get("file_id")
+	profile := strings.TrimSpace(r.URL.Query().Get("profile"))
 	sourceGameID, filePath, err := decodeGameFileID(fileID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -53,7 +54,7 @@ func (c *GameController) ServePlayFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	playFile, contentName, err := c.openPlayFile(r.Context(), sourceGame, gameFile)
+	playFile, contentName, err := c.openPlayFile(r.Context(), sourceGame, gameFile, profile)
 	if err != nil {
 		c.logger.Warn("open play file rejected", "game_id", id, "source_game_id", sourceGameID, "path", filePath, "err", err.Error())
 		http.NotFound(w, r)
@@ -133,21 +134,48 @@ func (c *GameController) openPlayFile(
 	ctx context.Context,
 	sourceGame *core.SourceGame,
 	gameFile *core.GameFile,
+	profile string,
 ) (playReadSeekCloser, string, error) {
 	if sourceGame == nil || gameFile == nil {
 		return nil, "", fmt.Errorf("missing source game or file")
 	}
 
-	if sourceGame.PluginID == "game-source-smb" {
-		return c.openSMBPlayFile(ctx, sourceGame, gameFile)
+	if supportsDirectSourceGame(sourceGame) {
+		if sourceGame.PluginID == "game-source-smb" {
+			return c.openSMBPlayFile(ctx, sourceGame, gameFile)
+		}
+		fullAbs, err := resolveUnderGameRoot(sourceGame.RootPath, gameFile.Path)
+		if err != nil {
+			return nil, "", err
+		}
+
+		f, err := os.Open(fullAbs)
+		if err != nil {
+			return nil, "", err
+		}
+		return f, filepath.Base(gameFile.Path), nil
 	}
 
-	fullAbs, err := resolveUnderGameRoot(sourceGame.RootPath, gameFile.Path)
-	if err != nil {
-		return nil, "", err
+	if strings.TrimSpace(profile) == "" {
+		return nil, "", fmt.Errorf("profile is required for materialized sources")
 	}
+	return c.openCachedPlayFile(ctx, sourceGame, gameFile, profile)
+}
 
-	f, err := os.Open(fullAbs)
+func (c *GameController) openCachedPlayFile(
+	ctx context.Context,
+	sourceGame *core.SourceGame,
+	gameFile *core.GameFile,
+	profile string,
+) (playReadSeekCloser, string, error) {
+	if c.cacheSvc == nil {
+		return nil, "", fmt.Errorf("cache service unavailable")
+	}
+	_, _, fullPath, err := c.cacheSvc.ResolveCachedFile(ctx, sourceGame.ID, profile, gameFile.Path)
+	if err != nil || strings.TrimSpace(fullPath) == "" {
+		return nil, "", fmt.Errorf("cached file not ready")
+	}
+	f, err := os.Open(fullPath)
 	if err != nil {
 		return nil, "", err
 	}

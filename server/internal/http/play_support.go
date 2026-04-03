@@ -41,7 +41,7 @@ func supportsBrowserPlayPlatform(platform core.Platform) bool {
 	return ok
 }
 
-func supportsBrowserPlaySourceGame(sourceGame *core.SourceGame) bool {
+func supportsDirectSourceGame(sourceGame *core.SourceGame) bool {
 	if sourceGame == nil {
 		return false
 	}
@@ -50,6 +50,10 @@ func supportsBrowserPlaySourceGame(sourceGame *core.SourceGame) bool {
 	}
 	rootPath := strings.TrimSpace(sourceGame.RootPath)
 	return rootPath != "" && filepath.IsAbs(rootPath)
+}
+
+func supportsBrowserPlaySourceGame(sourceGame *core.SourceGame) bool {
+	return supportsDirectSourceGame(sourceGame)
 }
 
 func supportsScummVMLaunchSource(files []core.GameFile) bool {

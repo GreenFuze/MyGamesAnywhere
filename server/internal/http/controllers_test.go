@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -497,6 +498,110 @@ func TestPluginControllerUpdateIntegrationReturnsOAuthRequired(t *testing.T) {
 	}
 	if repo.updated != nil {
 		t.Fatal("update should not persist while oauth is still required")
+	}
+}
+
+func TestPluginControllerCreateRejectsDuplicateFilesystemSourceIdentity(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{
+		byID: map[string]*core.Integration{
+			"existing-drive": {
+				ID:         "existing-drive",
+				PluginID:   "game-source-google-drive",
+				Label:      "Primary Drive",
+				ConfigJSON: `{"include_paths":[{"path":"Games","recursive":true}]}`,
+			},
+		},
+	}
+	host := &fakeControllerIntegrationPluginHost{
+		plugins: map[string]*core.Plugin{
+			"game-source-google-drive": {
+				Manifest: core.PluginManifest{
+					ID:           "game-source-google-drive",
+					ConfigSchema: map[string]any{},
+				},
+			},
+		},
+		checkResults: map[string]integrationCheckResult{
+			"game-source-google-drive": {
+				Status:         "ok",
+				SourceIdentity: "gdrive:acct-123",
+			},
+		},
+	}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900"}}, noopLogger{}, nil)
+
+	router := chi.NewRouter()
+	router.Post("/api/integrations", controller.Create)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/integrations",
+		bytes.NewBufferString(`{"plugin_id":"game-source-google-drive","label":"Second Drive","integration_type":"source","config":{"include_paths":[{"path":"Retro","recursive":false}]}}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+	if !strings.Contains(rec.Body.String(), "Edit the existing integration and add include paths there.") {
+		t.Fatalf("body = %q, want duplicate guidance", rec.Body.String())
+	}
+}
+
+func TestPluginControllerUpdateRejectsDuplicateFilesystemSourceIdentity(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{
+		byID: map[string]*core.Integration{
+			"existing-drive": {
+				ID:         "existing-drive",
+				PluginID:   "game-source-google-drive",
+				Label:      "Primary Drive",
+				ConfigJSON: `{"include_paths":[{"path":"Games","recursive":true}]}`,
+			},
+			"editing-drive": {
+				ID:         "editing-drive",
+				PluginID:   "game-source-google-drive",
+				Label:      "Other Drive",
+				ConfigJSON: `{"include_paths":[{"path":"Arcade","recursive":true}]}`,
+			},
+		},
+	}
+	host := &fakeControllerIntegrationPluginHost{
+		plugins: map[string]*core.Plugin{
+			"game-source-google-drive": {
+				Manifest: core.PluginManifest{
+					ID:           "game-source-google-drive",
+					ConfigSchema: map[string]any{},
+				},
+			},
+		},
+		checkResults: map[string]integrationCheckResult{
+			"game-source-google-drive": {
+				Status:         "ok",
+				SourceIdentity: "gdrive:acct-123",
+			},
+		},
+	}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900"}}, noopLogger{}, nil)
+
+	router := chi.NewRouter()
+	router.Put("/api/integrations/{id}", controller.UpdateIntegration)
+
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/integrations/editing-drive",
+		bytes.NewBufferString(`{"config":{"include_paths":[{"path":"Retro","recursive":false}]}}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+	if repo.updated != nil {
+		t.Fatal("update should not persist duplicate source identities")
 	}
 }
 

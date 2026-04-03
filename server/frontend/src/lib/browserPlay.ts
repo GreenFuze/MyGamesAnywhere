@@ -1,7 +1,6 @@
 import type {
   GameDetailResponse,
   GameFileDTO,
-  GameLaunchSourceDTO,
   SourceGameDetailDTO,
 } from '@/api/client'
 
@@ -43,10 +42,22 @@ export type BrowserPlaySession =
 
 export type BrowserPlaySelection = {
   runtime: BrowserPlayRuntime
+  profile: BrowserSourceProfile
   sourceGame: SourceGameDetailDTO
-  launchSource: GameLaunchSourceDTO
+  deliveryProfile: {
+    profile: string
+    mode: 'direct' | 'materialized' | 'unavailable'
+    prepare_required?: boolean
+    ready?: boolean
+    root_file_id?: string
+  }
   rootFile: GameFileDTO | null
 }
+
+export type BrowserSourceProfile =
+  | 'browser.emulatorjs'
+  | 'browser.jsdos'
+  | 'browser.scummvm'
 
 export type BrowserPlaySelectionIssue = {
   code:
@@ -100,6 +111,17 @@ export function runtimeSupportsSaveSync(runtime: BrowserPlayRuntime): boolean {
   return runtime === 'emulatorjs' || runtime === 'jsdos' || runtime === 'scummvm'
 }
 
+export function browserPlayProfileForRuntime(runtime: BrowserPlayRuntime): BrowserSourceProfile {
+  switch (runtime) {
+    case 'emulatorjs':
+      return 'browser.emulatorjs'
+    case 'jsdos':
+      return 'browser.jsdos'
+    case 'scummvm':
+      return 'browser.scummvm'
+  }
+}
+
 export function sessionSupportsSaveSync(session: BrowserPlaySession): boolean {
   if (session.runtime === 'jsdos') {
     return typeof session.bundleUrl === 'string' && session.bundleUrl.length > 0
@@ -111,8 +133,10 @@ export function getEmulatorJsCore(platform: string): string | null {
   return EMULATORJS_CORES[platform] ?? null
 }
 
-export function buildPlayFileUrl(gameId: string, fileId: string): string {
-  return `/api/games/${encodeURIComponent(gameId)}/play?file_id=${encodeURIComponent(fileId)}`
+export function buildPlayFileUrl(gameId: string, fileId: string, profile?: string): string {
+  const query = new URLSearchParams({ file_id: fileId })
+  if (profile) query.set('profile', profile)
+  return `/api/games/${encodeURIComponent(gameId)}/play?${query.toString()}`
 }
 
 function sourcePreferenceKey(gameId: string, runtime: BrowserPlayRuntime): string {
@@ -178,27 +202,22 @@ export function browserPlaySourceOptionLabel(selection: BrowserPlaySelection): s
 }
 
 export function listBrowserPlaySelections(game: GameDetailResponse): BrowserPlaySelection[] {
-  const play = game.play
-  if (!play?.available || !play.launch_sources || play.launch_sources.length === 0) {
-    return []
-  }
-
   const runtime = getBrowserPlayRuntime(game.platform)
   if (!runtime) return []
+  const profile = browserPlayProfileForRuntime(runtime)
 
   const selections: BrowserPlaySelection[] = []
 
-  for (const launchSource of play.launch_sources) {
-    if (!launchSource.launchable) continue
+  for (const sourceGame of game.source_games) {
+    const deliveryProfile = sourceGame.delivery?.profiles?.find((candidate) => candidate.profile === profile)
+    if (!deliveryProfile || deliveryProfile.mode === 'unavailable') continue
 
-    const sourceGame = game.source_games.find((candidate) => candidate.id === launchSource.source_game_id)
-    if (!sourceGame) continue
-
-    const rootFile = launchSource.root_file_id
-      ? sourceGame.files.find((file) => file.id === launchSource.root_file_id) ?? null
+    const rootFileId = deliveryProfile.root_file_id ?? sourceGame.play?.root_file_id
+    const rootFile = rootFileId
+      ? sourceGame.files.find((file) => file.id === rootFileId) ?? null
       : null
 
-    selections.push({ runtime, sourceGame, launchSource, rootFile })
+    selections.push({ runtime, profile, sourceGame, deliveryProfile, rootFile })
   }
 
   return selections
@@ -227,14 +246,14 @@ export function getBrowserPlaySelectionIssue(
   game: GameDetailResponse,
   selection: BrowserPlaySelection | null,
 ): BrowserPlaySelectionIssue | null {
-  if (!game.play?.platform_supported) {
+  if (!getBrowserPlayRuntime(game.platform)) {
     return {
       code: 'unsupported_platform',
       message: `Browser Play is not enabled for ${game.platform}.`,
     }
   }
 
-  if (!game.play?.available || !game.play.launch_sources || game.play.launch_sources.length === 0) {
+  if (listBrowserPlaySelections(game).length === 0) {
     return {
       code: 'missing_launch_source',
       message: 'No launchable source file was found for this game yet.',
@@ -293,6 +312,7 @@ export function getBrowserPlaySelectionIssue(
 function buildSourceSessionFiles(
   game: GameDetailResponse,
   sourceGame: SourceGameDetailDTO,
+  profile: BrowserSourceProfile,
 ): BrowserPlaySessionFile[] {
   return sourceGame.files.map((file) => ({
     id: file.id,
@@ -300,7 +320,7 @@ function buildSourceSessionFiles(
     role: file.role,
     size: file.size,
     fileKind: file.file_kind,
-    url: buildPlayFileUrl(game.id, file.id),
+    url: buildPlayFileUrl(game.id, file.id, profile),
   }))
 }
 
@@ -346,7 +366,7 @@ export function buildBrowserPlaySession(
       title: game.title,
       sourceGameId: selection.sourceGame.id,
       gameName: game.title,
-      gameUrl: buildPlayFileUrl(game.id, selection.rootFile.id),
+      gameUrl: buildPlayFileUrl(game.id, selection.rootFile.id, selection.profile),
       core,
     }
   }
@@ -362,8 +382,8 @@ export function buildBrowserPlaySession(
       title: game.title,
       sourceGameId: selection.sourceGame.id,
       rootFilePath: selection.rootFile.path,
-      files: buildSourceSessionFiles(game, selection.sourceGame),
-      bundleUrl: isBundle ? buildPlayFileUrl(game.id, selection.rootFile.id) : undefined,
+      files: buildSourceSessionFiles(game, selection.sourceGame, selection.profile),
+      bundleUrl: isBundle ? buildPlayFileUrl(game.id, selection.rootFile.id, selection.profile) : undefined,
     }
   }
 
@@ -372,8 +392,16 @@ export function buildBrowserPlaySession(
     title: game.title,
     sourceGameId: selection.sourceGame.id,
     launchDirectoryPath: commonDirectoryPath(selection.sourceGame.files.map((file) => file.path)),
-    files: buildSourceSessionFiles(game, selection.sourceGame),
+    files: buildSourceSessionFiles(game, selection.sourceGame, selection.profile),
   }
+}
+
+export function browserPlaySelectionRequiresPrepare(selection: BrowserPlaySelection): boolean {
+  return selection.deliveryProfile.mode === 'materialized'
+}
+
+export function browserPlaySelectionIsReady(selection: BrowserPlaySelection): boolean {
+  return selection.deliveryProfile.mode === 'direct' || selection.deliveryProfile.ready === true
 }
 
 export function persistBrowserPlaySession(session: BrowserPlaySession): string {

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
@@ -71,11 +72,28 @@ type SourceGameDetailDTO struct {
 	LastSeenAt      *string              `json:"last_seen_at,omitempty"`
 	CreatedAt       string               `json:"created_at"`
 	Files           []GameFileDTO        `json:"files"`
+	Delivery        *SourceDeliveryDTO   `json:"delivery,omitempty"`
 	Play            *SourceGamePlayDTO   `json:"play,omitempty"`
 	ResolverMatches []core.ResolverMatch `json:"resolver_matches"`
 }
 
+type SourceDeliveryDTO struct {
+	Profiles []SourceDeliveryProfileDTO `json:"profiles,omitempty"`
+}
+
+type SourceDeliveryProfileDTO struct {
+	Profile        string `json:"profile"`
+	Mode           string `json:"mode"`
+	PrepareRequired bool  `json:"prepare_required,omitempty"`
+	Ready          bool   `json:"ready,omitempty"`
+	RootFileID     string `json:"root_file_id,omitempty"`
+}
+
 func canonicalToGameDetail(cg *core.CanonicalGame) GameDetailResponse {
+	return (&GameController{}).canonicalToGameDetail(context.Background(), cg)
+}
+
+func (c *GameController) canonicalToGameDetail(ctx context.Context, cg *core.CanonicalGame) GameDetailResponse {
 	if cg == nil {
 		return GameDetailResponse{SourceGames: []SourceGameDetailDTO{}}
 	}
@@ -132,7 +150,7 @@ func canonicalToGameDetail(cg *core.CanonicalGame) GameDetailResponse {
 				})
 			}
 		}
-		sourceDTO, launchSource, launchCandidate := sourceGameToDetailDTO(sg, cg.Platform, out.Play.PlatformSupported)
+		sourceDTO, launchSource, launchCandidate := c.sourceGameToDetailDTO(ctx, sg, cg.Platform, out.Play.PlatformSupported)
 		if launchSource != nil {
 			out.Play.LaunchSources = append(out.Play.LaunchSources, *launchSource)
 			if launchSource.Launchable {
@@ -169,7 +187,8 @@ func canonicalToGameDetail(cg *core.CanonicalGame) GameDetailResponse {
 	return out
 }
 
-func sourceGameToDetailDTO(
+func (c *GameController) sourceGameToDetailDTO(
+	ctx context.Context,
 	sg *core.SourceGame,
 	canonicalPlatform core.Platform,
 	platformSupported bool,
@@ -197,6 +216,7 @@ func sourceGameToDetailDTO(
 
 	playSource := &GameLaunchSourceDTO{SourceGameID: sg.ID}
 	dto.Play = &SourceGamePlayDTO{}
+	dto.Delivery = &SourceDeliveryDTO{}
 	rootPlatform := core.EffectiveBrowserPlayPlatform(sg.Platform, canonicalPlatform)
 	var rootFileID string
 	var rootCandidate *GameLaunchCandidateDTO
@@ -221,22 +241,79 @@ func sourceGameToDetailDTO(
 		}
 	}
 
-	if sg.Status == "found" && platformSupported && supportsBrowserPlaySourceGame(sg) && sg.GroupKind == core.GroupKindSelfContained && len(sg.Files) > 0 {
-		launchable := rootFileID != ""
-		if !launchable && rootPlatform == core.PlatformScummVM {
-			launchable = supportsScummVMLaunchSource(sg.Files)
+	deliveryProfiles := c.describeSourceGameDelivery(ctx, canonicalPlatform, sg)
+	for _, profile := range deliveryProfiles {
+		profileDTO := SourceDeliveryProfileDTO{
+			Profile:         profile.Profile,
+			Mode:            string(profile.Mode),
+			PrepareRequired: profile.PrepareRequired,
+			Ready:           profile.Ready,
 		}
-		dto.Play.Launchable = launchable
-		dto.Play.RootFileID = rootFileID
-		playSource.Launchable = launchable
-		playSource.RootFileID = rootFileID
-	} else {
-		dto.Play.Launchable = false
-		playSource.Launchable = false
+		if rootFileID != "" {
+			profileDTO.RootFileID = rootFileID
+		}
+		dto.Delivery.Profiles = append(dto.Delivery.Profiles, profileDTO)
 	}
+
+	launchable := false
+	if sg.Status == "found" && platformSupported && sg.GroupKind == core.GroupKindSelfContained && len(sg.Files) > 0 {
+		for _, profile := range deliveryProfiles {
+			if profile.Mode == core.SourceDeliveryModeUnavailable {
+				continue
+			}
+			launchable = rootFileID != ""
+			if !launchable && rootPlatform == core.PlatformScummVM {
+				launchable = supportsScummVMLaunchSource(sg.Files)
+			}
+			if launchable {
+				break
+			}
+		}
+	}
+	dto.Play.Launchable = launchable
+	dto.Play.RootFileID = rootFileID
+	playSource.Launchable = launchable
+	playSource.RootFileID = rootFileID
 
 	if dto.ResolverMatches == nil {
 		dto.ResolverMatches = []core.ResolverMatch{}
 	}
 	return dto, playSource, rootCandidate
+}
+
+func (c *GameController) describeSourceGameDelivery(ctx context.Context, canonicalPlatform core.Platform, sg *core.SourceGame) []core.SourceDeliveryProfile {
+	if c != nil && c.cacheSvc != nil {
+		return c.cacheSvc.DescribeSourceGame(ctx, canonicalPlatform, sg)
+	}
+	if sg == nil {
+		return nil
+	}
+	profile, ok := core.BrowserPlayProfileForSourceGame(sg.Platform, canonicalPlatform)
+	if !ok {
+		return nil
+	}
+	mode := core.SourceDeliveryModeUnavailable
+	ready := false
+	if supportsDirectSourceGame(sg) {
+		mode = core.SourceDeliveryModeDirect
+		ready = true
+	}
+	delivery := core.SourceDeliveryProfile{
+		Profile: profile,
+		Mode:    mode,
+		Ready:   ready,
+	}
+	if rootFile := selectRootGameFile(sg.Files); rootFile != nil {
+		delivery.RootFilePath = rootFile.Path
+	}
+	return []core.SourceDeliveryProfile{delivery}
+}
+
+func selectRootGameFile(files []core.GameFile) *core.GameFile {
+	for i := range files {
+		if files[i].Role == core.GameFileRoleRoot {
+			return &files[i]
+		}
+	}
+	return nil
 }

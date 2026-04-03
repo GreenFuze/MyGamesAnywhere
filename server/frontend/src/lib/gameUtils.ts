@@ -1,5 +1,6 @@
 import type { CompletionTime, GameDetailResponse, GameMediaDetailDTO } from '@/api/client'
 import { brandLabel } from '@/lib/brands'
+import { getBrowserPlayRuntime, listBrowserPlaySelections } from '@/lib/browserPlay'
 
 // ---------------------------------------------------------------------------
 // Cover art selection
@@ -22,16 +23,16 @@ export function selectCoverUrl(media: GameMediaDetailDTO[] | undefined): string 
 // Browser play
 // ---------------------------------------------------------------------------
 
-export function hasBrowserPlaySupport(game: Pick<GameDetailResponse, 'play'>): boolean {
-  return game.play?.platform_supported === true
+export function hasBrowserPlaySupport(game: Pick<GameDetailResponse, 'play' | 'platform'>): boolean {
+  return getBrowserPlayRuntime(game.platform) !== null
 }
 
-export function isPlayable(game: Pick<GameDetailResponse, 'play'>): boolean {
-  return game.play?.available === true
+export function isPlayable(game: Pick<GameDetailResponse, 'play' | 'platform' | 'source_games'>): boolean {
+  return listBrowserPlaySelections(game as GameDetailResponse).length > 0
 }
 
 export function isActionable(
-  game: Pick<GameDetailResponse, 'play' | 'xcloud_available'>,
+  game: Pick<GameDetailResponse, 'play' | 'platform' | 'source_games' | 'xcloud_available'>,
 ): boolean {
   return isPlayable(game) || game.xcloud_available === true
 }
@@ -172,8 +173,15 @@ export type PluginConfigField = {
   required?: boolean
   default?: unknown
   description?: string
+  items?: PluginConfigField
+  properties?: Record<string, PluginConfigField>
   'x-secret'?: boolean
   'x-help-url'?: string
+}
+
+export type FilesystemIncludePath = {
+  path: string
+  recursive: boolean
 }
 
 /**
@@ -190,6 +198,49 @@ export function parsePluginConfigSchema(
   }))
 }
 
+export function isFilesystemSourcePlugin(pluginId: string): boolean {
+  return pluginId === 'game-source-smb' || pluginId === 'game-source-google-drive'
+}
+
+export function normalizeFilesystemIncludePaths(
+  pluginId: string,
+  config: Record<string, unknown> | undefined,
+): FilesystemIncludePath[] {
+  if (!isFilesystemSourcePlugin(pluginId)) return []
+
+  const includePaths = config?.include_paths
+  if (Array.isArray(includePaths)) {
+    const normalized = includePaths
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') return null
+        const value = entry as Record<string, unknown>
+        return {
+          path: typeof value.path === 'string' ? normalizeLogicalPath(value.path) : '',
+          recursive: typeof value.recursive === 'boolean' ? value.recursive : true,
+        }
+      })
+      .filter((entry): entry is FilesystemIncludePath => entry !== null)
+    if (normalized.length > 0) {
+      return normalized
+    }
+  }
+
+  const legacyKey = pluginId === 'game-source-smb' ? 'path' : 'root_path'
+  const legacyValue = config?.[legacyKey]
+  if (typeof legacyValue === 'string') {
+    return [{ path: normalizeLogicalPath(legacyValue), recursive: true }]
+  }
+
+  return [{ path: '', recursive: true }]
+}
+
+function normalizeLogicalPath(value: string): string {
+  return value
+    .trim()
+    .replaceAll('\\', '/')
+    .replace(/^\/+|\/+$/g, '')
+}
+
 // ---------------------------------------------------------------------------
 // Config summary builder (for integration cards)
 // ---------------------------------------------------------------------------
@@ -200,8 +251,9 @@ export class ConfigSummaryBuilder {
     'game-source-smb': (c) => {
       const host = c.host ?? ''
       const share = c.share ?? ''
-      const path = c.path ?? ''
-      return `\\\\${host}\\${share}${path ? '\\' + path : ''}`
+      const paths = normalizeFilesystemIncludePaths('game-source-smb', c)
+      const summary = summarizeIncludePaths(paths, '\\')
+      return `\\\\${host}\\${share}${summary}`
     },
     'game-source-steam': (c) => {
       if (c.vanity_url) return `Vanity: ${c.vanity_url}`
@@ -212,8 +264,8 @@ export class ConfigSummaryBuilder {
     'metadata-igdb': (c) => ConfigSummaryBuilder.hintSecret(c, 'client_id'),
     'metadata-rawg': (c) => ConfigSummaryBuilder.hintSecret(c, 'api_key'),
     'retroachievements': (c) => (c.username ? `User: ${c.username}` : ''),
-    'game-source-google-drive': (c) => (c.root_path ? `Path: ${c.root_path}` : 'Root'),
-    'game-source-gdrive': (c) => (c.root_path ? `Path: ${c.root_path}` : 'Root'),
+    'game-source-google-drive': (c) => summarizeDriveIncludePaths(c),
+    'game-source-gdrive': (c) => summarizeDriveIncludePaths(c),
     'sync-settings-google-drive': (c) => (c.sync_path ? `Path: ${c.sync_path}` : ''),
     'save-sync-google-drive': (c) => (c.root_path ? `Path: ${c.root_path}` : 'Root'),
     'save-sync-local-disk': () => 'Server-managed root',
@@ -255,6 +307,24 @@ export class ConfigSummaryBuilder {
   private static looksSecret(key: string): boolean {
     return /password|secret|token|key/i.test(key)
   }
+}
+
+function summarizeIncludePaths(paths: FilesystemIncludePath[], separator = '/'): string {
+  if (paths.length === 0) return ''
+  if (paths.length === 1) {
+    return paths[0].path ? `${separator}${paths[0].path.replaceAll('/', separator)}` : ''
+  }
+  const first = paths[0].path ? paths[0].path.replaceAll('/', separator) : '(root)'
+  return ` [${first} +${paths.length - 1} more]`
+}
+
+function summarizeDriveIncludePaths(config: Record<string, unknown>): string {
+  const paths = normalizeFilesystemIncludePaths('game-source-google-drive', config)
+  if (paths.length === 1) {
+    return paths[0].path ? `Path: ${paths[0].path}` : 'Root'
+  }
+  const first = paths[0]?.path || '(root)'
+  return `Paths: ${first} +${paths.length - 1} more`
 }
 
 /** Unique source plugin IDs for a game. */
