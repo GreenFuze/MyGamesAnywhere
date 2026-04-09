@@ -38,6 +38,7 @@ export type BrowserPlaySession =
       sourceGameId: string
       launchDirectoryPath: string
       files: BrowserPlaySessionFile[]
+      enginePluginFileName?: string
     }
 
 export type BrowserPlaySelection = {
@@ -353,6 +354,63 @@ function commonDirectoryPath(paths: string[]): string {
   return prefix.join('/')
 }
 
+function inferScummvmEnginePlugin(files: Array<{ path: string }>): string | null {
+  const names = new Set(
+    files.map((file) => normalizePlayPath(file.path).split('/').pop()?.toLowerCase() ?? '').filter(Boolean),
+  )
+  const hasAny = (...candidates: string[]) => candidates.some((candidate) => names.has(candidate))
+  const hasPrefix = (prefix: string, suffix = '') =>
+    Array.from(names).some((name) => name.startsWith(prefix) && name.endsWith(suffix))
+  const hasExtension = (extension: string) => Array.from(names).some((name) => name.endsWith(extension))
+
+  if (names.has('resource.map') && hasAny('resource.000', 'resource.001')) {
+    return 'libsci.so'
+  }
+  if (
+    names.has('monster.sou') ||
+    (names.has('atlantis.000') && names.has('atlantis.001')) ||
+    names.has('comi.la0') ||
+    hasPrefix('monkey.')
+  ) {
+    return 'libscumm.so'
+  }
+  if ((names.has('english.smp') && names.has('english.idx')) || (names.has('dw.scn') && hasExtension('.scn'))) {
+    return 'libtinsel.so'
+  }
+  if (names.has('hd.blb') && hasAny('a.blb', 'c.blb', 't.blb')) {
+    return 'libneverhood.so'
+  }
+  if (hasAny('intro.stk', 'gobnew.lic')) {
+    return 'libgob.so'
+  }
+  if (hasAny('dragon.res', 'dragon.sph')) {
+    return 'libdragons.so'
+  }
+  if ((hasPrefix('bb', '.000') || hasPrefix('game', '.vnm')) && hasAny('bbloogie.000', 'bbtennis.000')) {
+    return 'libbbvs.so'
+  }
+  if (names.has('sky.dnr') && names.has('sky.dsk')) {
+    return 'libsky.so'
+  }
+  if (names.has('queen.1') && names.has('queen.1c')) {
+    return 'libqueen.so'
+  }
+  if (names.has('toon.dat')) {
+    return 'libtoon.so'
+  }
+  if (names.has('touche.dat')) {
+    return 'libtouche.so'
+  }
+  if (names.has('drascula.dat')) {
+    return 'libdrascula.so'
+  }
+  if (names.has('lure.dat')) {
+    return 'liblure.so'
+  }
+
+  return null
+}
+
 export function buildBrowserPlaySession(
   game: GameDetailResponse,
   selection: BrowserPlaySelection,
@@ -393,6 +451,7 @@ export function buildBrowserPlaySession(
     sourceGameId: selection.sourceGame.id,
     launchDirectoryPath: commonDirectoryPath(selection.sourceGame.files.map((file) => file.path)),
     files: buildSourceSessionFiles(game, selection.sourceGame, selection.profile),
+    enginePluginFileName: inferScummvmEnginePlugin(selection.sourceGame.files) ?? undefined,
   }
 }
 

@@ -1,9 +1,8 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ScummVM Player</title>
+<!DOCTYPE html>
+<html lang="en"><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>The Neverhood Chronicles</title>
     <style>
       html, body {
         margin: 0;
@@ -14,17 +13,11 @@
       }
       body {
         overflow: hidden;
-        display: flex;
-        align-items: center;
-        justify-content: center;
       }
       #canvas {
         display: block;
-        width: auto;
+        width: 100%;
         height: 100%;
-        max-width: 100%;
-        max-height: 100%;
-        aspect-ratio: 4 / 3;
         background:
           radial-gradient(circle at top, rgba(245, 158, 11, 0.2), transparent 40%),
           linear-gradient(180deg, #1d1102 0%, #000 65%);
@@ -71,9 +64,9 @@
     </style>
   </head>
   <body>
-    <progress id="progress" hidden max="100" value="0"></progress>
-    <div id="status">Preparing ScummVM...</div>
-    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+    <progress id="progress" hidden="" max="100" value="0"></progress>
+    <div id="status" class="" hidden=""></div>
+    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1" width="640" height="480" style="cursor: none;"></canvas>
 
     <script type="module">
       const CONFIG_TEXT = `[scummvm]
@@ -94,54 +87,8 @@ gui_launcher_chooser=grid
       const sessionKey = sessionId ? `mga.browserPlaySession.${sessionId}` : null
       const rawSession = sessionKey ? sessionStorage.getItem(sessionKey) : null
       const runtimeAssetVersion = sessionId ? encodeURIComponent(sessionId) : `${Date.now()}`
-      const SCUMMVM_ASPECT_RATIO = 4 / 3
       let ScummvmFS = null
       let hasPersistentLocalStorage = false
-      let removeCanvasResolutionListeners = null
-
-      function computeCanvasResolution() {
-        const viewportWidth = Math.max(1, Math.floor(window.innerWidth || document.documentElement.clientWidth || 1))
-        const viewportHeight = Math.max(1, Math.floor(window.innerHeight || document.documentElement.clientHeight || 1))
-        let height = viewportHeight
-        let width = Math.round(height * SCUMMVM_ASPECT_RATIO)
-
-        // Prefer a height-driven 4:3 surface, but clamp on narrow viewports.
-        if (width > viewportWidth) {
-          width = viewportWidth
-          height = Math.max(1, Math.round(width / SCUMMVM_ASPECT_RATIO))
-        }
-
-        return { width, height }
-      }
-
-      function syncCanvasResolution() {
-        const { width, height } = computeCanvasResolution()
-        if (canvas.width !== width) {
-          canvas.width = width
-        }
-        if (canvas.height !== height) {
-          canvas.height = height
-        }
-        canvas.style.aspectRatio = `${width} / ${height}`
-      }
-
-      function installCanvasResolutionSync() {
-        const onResize = () => {
-          window.requestAnimationFrame(syncCanvasResolution)
-        }
-
-        syncCanvasResolution()
-        window.addEventListener('resize', onResize)
-        window.addEventListener('orientationchange', onResize)
-        document.addEventListener('fullscreenchange', onResize)
-        window.visualViewport?.addEventListener('resize', onResize)
-        return () => {
-          window.removeEventListener('resize', onResize)
-          window.removeEventListener('orientationchange', onResize)
-          document.removeEventListener('fullscreenchange', onResize)
-          window.visualViewport?.removeEventListener('resize', onResize)
-        }
-      }
 
       function setStatus(text, isError = false) {
         const normalizedText = typeof text === 'string' ? text.trim() : ''
@@ -399,7 +346,6 @@ gui_launcher_chooser=grid
         setStatus('Unable to launch ScummVM: browser-play session was not found.', true)
       } else {
         ;({ ScummvmFS } = await import(`./scummvm_fs.js?v=${runtimeAssetVersion}`))
-        removeCanvasResolutionListeners = installCanvasResolutionSync()
         const session = JSON.parse(rawSession)
         if (session.runtime !== 'scummvm') {
           progressElement.hidden = true
@@ -503,7 +449,6 @@ gui_launcher_chooser=grid
           }
 
           window.addEventListener('beforeunload', () => {
-            removeCanvasResolutionListeners?.()
             if (typeof FS !== 'undefined' && FS && typeof FS.syncfs === 'function') {
               syncLocal(FS.syncfs.bind(FS))
             }
@@ -551,5 +496,6 @@ gui_launcher_chooser=grid
         }
       }
     </script>
-  </body>
-</html>
+  
+
+<script src="./scummvm.js?v=mga-harness-session" async=""></script></body></html>

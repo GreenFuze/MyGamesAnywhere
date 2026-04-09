@@ -27,6 +27,38 @@ const ERRNO_CODES = {
 
 const DEBUG = false
 
+function getRuntimeModule() {
+    if (typeof Module !== "undefined" && Module) {
+        return Module;
+    }
+    if (typeof globalThis !== "undefined" && globalThis.Module) {
+        return globalThis.Module;
+    }
+    return null;
+}
+
+function getHeap8() {
+    const runtimeModule = getRuntimeModule();
+    if (runtimeModule && runtimeModule.HEAP8) {
+        return runtimeModule.HEAP8;
+    }
+    if (typeof HEAP8 !== "undefined") {
+        return HEAP8;
+    }
+    return null;
+}
+
+function allocateMmap(size) {
+    const runtimeModule = getRuntimeModule();
+    if (runtimeModule && typeof runtimeModule.mmapAlloc === "function") {
+        return runtimeModule.mmapAlloc(size);
+    }
+    if (typeof mmapAlloc === "function") {
+        return mmapAlloc(size);
+    }
+    return 0;
+}
+
 
 export class ScummvmFS {
     url;
@@ -34,33 +66,63 @@ export class ScummvmFS {
     stream_ops;
     node_ops;
     FS;
-    constructor(_FS, _url) {
+    constructor(_FS, source) {
         this.FS = _FS;
-        this.url = _url
-        var req = new XMLHttpRequest(); // a new request
-        req.open("GET", _url + "/index.json", false);
-        req.send(null);
-        var json_index = JSON.parse(req.responseText)
         this.fs_index = {}
-        var walk_index = function (path, dir) {
-            logger(path, "walk_index")
-            this.fs_index[path] = null
-            if (path != "/") {
-                path = path + "/"
-            }
-            for (var key in dir) {
-                if (typeof dir[key] === 'object') {
-                    walk_index(path + key, dir[key]) // toLowerCase to simulate a case-insensitive filesystem
-                } else {
-                    if (key !== "index.json") {
-                        this.fs_index[path + key] = dir[key] // toLowerCase to simulate a case-insensitive filesystem
+        if (source && typeof source === "object" && !Array.isArray(source) && Object.prototype.hasOwnProperty.call(source, "files")) {
+            this.url = ""
+            this.fs_index["/"] = null
+            const files = Array.isArray(source.files) ? source.files : []
+            files.forEach((file) => {
+                const normalized = ("/" + file.path).replace(/\/+/g, "/")
+                const parts = normalized.split("/").filter(Boolean)
+                let current = ""
+                for (let index = 0; index < parts.length - 1; index += 1) {
+                    current += "/" + parts[index]
+                    if (!(current in this.fs_index)) {
+                        this.fs_index[current] = null
                     }
                 }
-
+                this.fs_index[normalized] = {
+                    size: file.size,
+                    url: file.url,
+                    data: undefined,
+                }
+            })
+        } else if (typeof source === "string") {
+            this.url = source
+            var req = new XMLHttpRequest(); // a new request
+            req.open("GET", source + "/index.json", false);
+            req.send(null);
+            var json_index
+            try {
+                json_index = JSON.parse(req.responseText)
+            } catch (error) {
+                const responsePreview = typeof req.responseText === "string" ? req.responseText.slice(0, 120) : ""
+                throw new Error(`Unable to load ScummVM index from ${source}/index.json: ${responsePreview}`)
             }
-        }.bind(this)
+            var walk_index = function (path, dir) {
+                logger(path, "walk_index")
+                this.fs_index[path] = null
+                if (path != "/") {
+                    path = path + "/"
+                }
+                for (var key in dir) {
+                    if (typeof dir[key] === 'object') {
+                        walk_index(path + key, dir[key]) // toLowerCase to simulate a case-insensitive filesystem
+                    } else {
+                        if (key !== "index.json") {
+                            this.fs_index[path + key] = dir[key] // toLowerCase to simulate a case-insensitive filesystem
+                        }
+                    }
 
-        walk_index("/", json_index)
+                }
+            }.bind(this)
+
+            walk_index("/", json_index)
+        } else {
+            throw new Error("ScummvmFS requires either a base URL or a file list")
+        }
     }
 
     listDirectory(_path) {
@@ -85,9 +147,12 @@ export class ScummvmFS {
                 var data;
                 data = new Array(Math.ceil(size / RANGE_REQUEST_BLOCK_SIZE)) // data will be an array of blocks
 
-                this.fs_index[path] = { size: this.fs_index[path], data: data }
+                this.fs_index[path] = { size: this.fs_index[path], data: data, url: null }
                 return { ok: true, data: data, size: size };
             } else if (typeof this.fs_index[path] == "object" && this.fs_index[path] !== null) {
+                if (!Array.isArray(this.fs_index[path].data)) {
+                    this.fs_index[path].data = new Array(Math.ceil(this.fs_index[path].size / RANGE_REQUEST_BLOCK_SIZE))
+                }
                 return { ok: true, data: this.fs_index[path].data, size: this.fs_index[path].size }; // already initialized
             } else {
                 return { ok: true, data: null }; // directory
@@ -158,7 +223,8 @@ export class ScummvmFS {
         self = this;
         let data = null;
         const req = new XMLHttpRequest();
-        const url = _url + path;
+        const entry = this.fs_index[path];
+        const url = entry && entry.url ? entry.url : _url + path;
         req.open('GET', url, false);
 
         let err = null;
@@ -463,6 +529,43 @@ export class ScummvmFS {
             }
             stream.position = position
             return position;
+        },
+
+        mmap: (stream, address, length, position, prot, flags) => {
+            if (address !== 0) {
+                throw new FS.ErrnoError(ERRNO_CODES.EINVAL);
+            }
+            if (!FS.isFile(stream.node.mode)) {
+                throw new FS.ErrnoError(ERRNO_CODES.EPERM);
+            }
+
+            const heap8 = getHeap8();
+            if (!heap8) {
+                throw new Error("ScummVM runtime HEAP8 is not available for mmap.");
+            }
+
+            const data = this.convertResult(
+                this.read({
+                    path: realPath(stream.node),
+                    start: position,
+                    end: position + length - 1,
+                }),
+            );
+
+            const ptr = allocateMmap(length);
+            if (!ptr) {
+                throw new FS.ErrnoError(ERRNO_CODES.EPERM);
+            }
+
+            heap8.set(data, ptr);
+            return { ptr, allocated: true };
+        },
+
+        msync: (stream, buffer, offset, length, mmapFlags) => {
+            if (!FS.isFile(stream.node.mode)) {
+                throw new FS.ErrnoError(ERRNO_CODES.EPERM);
+            }
+            return 0;
         }
     }
 
@@ -475,12 +578,27 @@ function realPath(node, fileName) {
         parts.push(node.name);
         node = node.parent;
     }
-    parts.push(node.mount.opts.root);
-    parts.reverse();
-    if (fileName !== undefined && fileName !== null) {
-        parts.push(fileName);
+    const root = typeof node.mount?.opts?.root === "string" ? node.mount.opts.root : "";
+    const normalized = [];
+    const normalizedRoot = root.replace(/^\/+|\/+$/g, "");
+    if (normalizedRoot.length > 0) {
+        normalized.push(normalizedRoot);
     }
-    return parts.join("/");
+    const nodeParts = parts
+        .reverse()
+        .map((part) => String(part).replace(/^\/+|\/+$/g, ""))
+        .filter((part) => part.length > 0);
+    normalized.push(...nodeParts);
+    if (fileName !== undefined && fileName !== null) {
+        const normalizedFileName = String(fileName).replace(/^\/+|\/+$/g, "");
+        if (normalizedFileName.length > 0) {
+            normalized.push(normalizedFileName);
+        }
+    }
+    if (normalized.length === 0) {
+        return "/";
+    }
+    return `/${normalized.join("/")}`;
 }
 
 

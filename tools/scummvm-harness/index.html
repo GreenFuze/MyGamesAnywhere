@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ScummVM Harness</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #080808;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #080808;
+        color: #f2f2f2;
+      }
+      body {
+        display: grid;
+        grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+      }
+      aside {
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(180deg, rgba(31, 24, 16, 0.98), rgba(11, 11, 11, 0.98));
+        padding: 16px;
+        overflow: auto;
+      }
+      main {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        background: #000;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 1.1rem;
+      }
+      p {
+        margin: 0 0 12px;
+        color: rgba(255, 255, 255, 0.72);
+      }
+      #status {
+        margin-bottom: 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: rgba(250, 204, 21, 0.16);
+        color: #fde68a;
+        white-space: pre-wrap;
+      }
+      #status.error {
+        background: rgba(185, 28, 28, 0.24);
+        color: #fecaca;
+      }
+      dl {
+        margin: 0 0 12px;
+      }
+      dt {
+        margin-top: 10px;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: rgba(255, 255, 255, 0.56);
+      }
+      dd {
+        margin: 4px 0 0;
+        word-break: break-word;
+        color: rgba(255, 255, 255, 0.9);
+      }
+      #log {
+        margin: 0;
+        min-height: 220px;
+        padding: 12px;
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.42);
+        overflow: auto;
+        white-space: pre-wrap;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        outline: none;
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h1>Standalone ScummVM Harness</h1>
+      <p>Loads the existing MGA ScummVM web runtime directly against a local HTTP manifest of the UNC game directory.</p>
+      <div id="status">Preparing harness...</div>
+      <dl>
+        <dt>Manifest</dt>
+        <dd id="manifest-path">/manifest</dd>
+        <dt>Runtime</dt>
+        <dd id="runtime-path">/runtime</dd>
+        <dt>Game Files</dt>
+        <dd id="game-path">/game</dd>
+        <dt>Arguments</dt>
+        <dd id="args"></dd>
+      </dl>
+      <pre id="log"></pre>
+    </aside>
+    <main>
+      <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+    </main>
+    <script type="module">
+      const statusElement = document.getElementById('status')
+      const logElement = document.getElementById('log')
+      const argsElement = document.getElementById('args')
+      const canvas = document.getElementById('canvas')
+      const runtimeAssetVersion = `${Date.now()}`
+
+      function appendLog(prefix, message) {
+        const line = `${new Date().toISOString()} ${prefix} ${message}`
+        console.log(line)
+        logElement.textContent += `${line}\n`
+        logElement.scrollTop = logElement.scrollHeight
+      }
+
+      function setStatus(text, isError = false) {
+        statusElement.textContent = text
+        statusElement.className = isError ? 'error' : ''
+      }
+
+      function normalizePath(value) {
+        return value.replaceAll('\\', '/').replace(/^\.\/+/, '').replace(/^\/+/, '')
+      }
+
+      function stripLaunchPrefix(path, prefix) {
+        const normalizedPath = normalizePath(path)
+        const normalizedPrefix = normalizePath(prefix)
+        if (!normalizedPrefix) return normalizedPath
+        if (normalizedPath === normalizedPrefix) return ''
+        if (normalizedPath.startsWith(`${normalizedPrefix}/`)) {
+          return normalizedPath.slice(normalizedPrefix.length + 1)
+        }
+        return normalizedPath
+      }
+
+      function ensureDir(targetPath) {
+        const normalized = targetPath.replace(/\/+/g, '/')
+        const parts = normalized.split('/').filter(Boolean)
+        let current = ''
+        for (const part of parts) {
+          current += `/${part}`
+          if (!FS.analyzePath(current).exists) {
+            FS.mkdir(current)
+          }
+        }
+      }
+
+      const CONFIG_TEXT = `[scummvm]
+pluginspath=/plugins
+extrapath=/data
+iconspath=/data
+themepath=/data
+savepath=/local/saves
+gui_launcher_chooser=grid
+`
+
+      try {
+        setStatus('Loading ScummVM harness manifest...')
+        const manifestResponse = await fetch(`/manifest?v=${runtimeAssetVersion}`, {
+          cache: 'no-store',
+        })
+        if (!manifestResponse.ok) {
+          throw new Error(`Manifest request failed: ${manifestResponse.status}`)
+        }
+
+        const manifest = await manifestResponse.json()
+        appendLog('INFO', `Loaded manifest with ${manifest.files.length} files.`)
+        if (manifest.enginePluginFileName) {
+          appendLog('INFO', `Inferred engine plugin ${manifest.enginePluginFileName}.`)
+        } else {
+          appendLog('WARN', 'No engine plugin was inferred; runtime will fall back to HTTP-backed plugin loading.')
+        }
+
+        const runtimeSupportAssets = [
+          { source: '/runtime/data/translations.dat', target: '/data/translations.dat' },
+          { source: '/runtime/data/gui-icons.dat', target: '/data/gui-icons.dat' },
+          { source: '/runtime/data/scummremastered.zip', target: '/data/scummremastered.zip' },
+        ]
+        if (typeof manifest.enginePluginFileName === 'string' && manifest.enginePluginFileName.length > 0) {
+          runtimeSupportAssets.push({
+            source: `/runtime/plugins/${manifest.enginePluginFileName}`,
+            target: `/plugins/${manifest.enginePluginFileName}`,
+          })
+        }
+        const runtimeSupportPayloads = await Promise.all(
+          runtimeSupportAssets.map(async (asset) => {
+            setStatus(`Fetching ${asset.target}...`)
+            const response = await fetch(`${asset.source}?v=${runtimeAssetVersion}`, {
+              cache: 'no-store',
+            })
+            if (!response.ok) {
+              throw new Error(`Unable to fetch ${asset.source}: ${response.status}`)
+            }
+            const buffer = new Uint8Array(await response.arrayBuffer())
+            appendLog('INFO', `Fetched ${asset.target} (${buffer.length} bytes).`)
+            return { ...asset, buffer }
+          }),
+        )
+
+        const { ScummvmFS } = await import(`/runtime/scummvm_fs.js?v=${runtimeAssetVersion}`)
+        const launchRoot = '/games/game'
+        const launchPrefix = normalizePath(manifest.launchDirectoryPath ?? '')
+        const launchFiles = manifest.files.map((file) => ({
+          ...file,
+          relativePath: stripLaunchPrefix(file.path, launchPrefix),
+        }))
+        const launchArgs = [
+          `--path=${launchRoot}`,
+          '--auto-detect',
+          '--extrapath=/data',
+          '--iconspath=/data',
+          '--themepath=/data',
+          '--savepath=/local/saves',
+        ]
+        argsElement.textContent = launchArgs.join(' ')
+        window.location.hash = encodeURI(launchArgs.join(' '))
+
+        window.Module = {
+          canvas,
+          print: (...parts) => appendLog('OUT ', parts.join(' ')),
+          printErr: (...parts) => appendLog('ERR ', parts.join(' ')),
+          setStatus(text) {
+            setStatus(text && text.length > 0 ? text : 'Ready.')
+          },
+          monitorRunDependencies(count) {
+            setStatus(count > 0 ? `Downloading ScummVM (${count} remaining)` : 'Ready.')
+          },
+          locateFile(file) {
+            return `/runtime/${file}?v=${runtimeAssetVersion}`
+          },
+          preRun: [
+            () => {
+              setStatus(`Mounting runtime and ${launchFiles.length} game files...`)
+              ensureDir('/data')
+              ensureDir('/plugins')
+              ensureDir('/games')
+              ensureDir('/local/saves')
+
+              for (const asset of runtimeSupportPayloads) {
+                const parentPath = asset.target.replace(/\/[^/]+$/, '')
+                if (parentPath) {
+                  ensureDir(parentPath)
+                }
+                FS.writeFile(asset.target, asset.buffer, { canOwn: true })
+              }
+              if (!(typeof manifest.enginePluginFileName === 'string' && manifest.enginePluginFileName.length > 0)) {
+                FS.mount(new ScummvmFS(FS, '/runtime/plugins'), { root: '/' }, '/plugins')
+              }
+              FS.mount(
+                new ScummvmFS(FS, {
+                  files: launchFiles.map((file) => ({
+                    path: `game/${normalizePath(file.relativePath)}`.replace(/\/+/g, '/'),
+                    size: file.size,
+                    url: file.url,
+                  })),
+                }),
+                { root: '/' },
+                '/games',
+              )
+
+              if (!FS.analyzePath('/local/scummvm.ini').exists) {
+                FS.writeFile('/local/scummvm.ini', CONFIG_TEXT)
+              }
+
+              appendLog('INFO', `Mounted ${launchRoot} and preloaded runtime support assets into MEMFS.`)
+              appendLog('INFO', `Top-level game files: ${FS.readdir('/games/game').join(', ')}`)
+            },
+          ],
+          onAbort(reason) {
+            setStatus(`ScummVM aborted: ${reason}`, true)
+            appendLog('ABRT', String(reason))
+          },
+        }
+
+        const script = document.createElement('script')
+        script.src = `/runtime/scummvm.js?v=${runtimeAssetVersion}`
+        script.async = true
+        script.onerror = () => {
+          setStatus('Unable to load ScummVM runtime script.', true)
+        }
+        document.body.append(script)
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : String(error), true)
+        appendLog('FAIL', error instanceof Error ? error.stack ?? error.message : String(error))
+      }
+    </script>
+  </body>
+</html>

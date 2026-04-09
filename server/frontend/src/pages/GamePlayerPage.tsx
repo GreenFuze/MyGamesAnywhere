@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type LegacyRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Download, ExternalLink, PlayCircle, Upload } from 'lucide-react'
+import { ArrowLeft, Download, ExternalLink, Maximize2, Minimize2, PlayCircle, Upload } from 'lucide-react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
@@ -50,22 +50,32 @@ import {
   type RuntimeSaveSnapshot,
 } from '@/lib/saveSync'
 
-function LaunchFrame({
+function BrowserRuntimeFrame({
+  runtime,
   iframeRef,
   src,
   title,
 }: {
+  runtime: BrowserPlaySession['runtime']
   iframeRef: LegacyRef<HTMLIFrameElement>
   src: string
   title: string
 }) {
+  // Absolute positioning ensures the iframe fills its wrapper's physical
+  // dimensions without depending on CSS percentage height resolution through
+  // the flex chain. Runtime-specific classes can be added per branch later.
+  const className =
+    runtime === 'emulatorjs'
+      ? 'absolute inset-0 h-full w-full border-0 bg-black'
+      : 'absolute inset-0 h-full w-full border-0 bg-black'
+
   return (
     <iframe
       ref={iframeRef}
       src={src}
       title={title}
       allow="autoplay; fullscreen; gamepad"
-      className="h-full w-full border-0 bg-black"
+      className={className}
     />
   )
 }
@@ -106,7 +116,9 @@ export function GamePlayerPage() {
   const recordedRef = useRef<string | null>(null)
   const tokenRef = useRef<string | null>(null)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
+  const playerShellRef = useRef<HTMLElement | null>(null)
   const pendingBridgeRef = useRef<Map<string, PendingBridgeRequest>>(new Map())
+  const [playerFullscreen, setPlayerFullscreen] = useState(false)
 
   const frontendConfig = useQuery({
     queryKey: ['frontend-config'],
@@ -167,10 +179,21 @@ export function GamePlayerPage() {
   const activeIntegrationId = activeSaveSyncIntegrationId(frontendConfig.data)
   const saveSyncRuntimeSupported = session ? sessionSupportsSaveSync(session) : false
   const saveSyncEnabled = Boolean(activeIntegrationId && session && saveSyncRuntimeSupported)
+  const saveSyncSlotsEnabled = saveSyncEnabled && bridgeReady && bridgeSupportsSaveSync
 
   useEffect(() => {
     setPendingSourceGameId(selection?.sourceGame.id ?? null)
   }, [selection?.sourceGame.id])
+
+  useEffect(() => {
+    function syncFullscreenState() {
+      setPlayerFullscreen(document.fullscreenElement === playerShellRef.current)
+    }
+
+    document.addEventListener('fullscreenchange', syncFullscreenState)
+    syncFullscreenState()
+    return () => document.removeEventListener('fullscreenchange', syncFullscreenState)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -296,13 +319,31 @@ export function GamePlayerPage() {
         runtime: session.runtime,
       })
     },
-    enabled: saveSyncEnabled,
+    enabled: saveSyncSlotsEnabled,
     retry: false,
   })
 
   const currentSlot = useMemo<SaveSyncSlotSummary | null>(() => {
     return slotsQuery.data?.find((slot) => slot.slot_id === selectedSlot) ?? null
   }, [selectedSlot, slotsQuery.data])
+
+  const togglePlayerFullscreen = async () => {
+    const playerShell = playerShellRef.current
+    if (!playerShell) return
+
+    try {
+      if (document.fullscreenElement === playerShell) {
+        await document.exitFullscreen()
+        return
+      }
+      if (document.fullscreenElement && document.fullscreenElement !== playerShell) {
+        await document.exitFullscreen()
+      }
+      await playerShell.requestFullscreen()
+    } catch (error) {
+      console.warn('Unable to toggle browser-player fullscreen.', error)
+    }
+  }
 
   useEffect(() => {
     if (tokenRef.current) {
@@ -596,8 +637,8 @@ export function GamePlayerPage() {
   const data = game.data
 
   return (
-    <div className="min-h-screen bg-mga-bg text-mga-text">
-      <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 p-4 md:p-6">
+    <div className="h-screen overflow-hidden bg-mga-bg text-mga-text">
+      <div className="mx-auto flex h-full min-h-0 max-w-[1600px] flex-col gap-4 overflow-y-auto p-4 md:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Button variant="outline" size="sm" onClick={handleBack}>
             <ArrowLeft size={14} />
@@ -756,16 +797,39 @@ export function GamePlayerPage() {
               {runtimeError && <p className="mt-3 text-xs text-red-400">{runtimeError}</p>}
             </section>
 
-            <section className="flex min-h-[70vh] flex-1 flex-col overflow-hidden rounded-[1.25rem] border border-mga-border bg-black shadow-lg shadow-black/25">
+            <section
+              ref={playerShellRef}
+              className="flex min-h-[70vh] min-w-0 flex-1 flex-col overflow-hidden rounded-[1.25rem] border border-mga-border bg-black shadow-lg shadow-black/25"
+            >
               <div className="flex items-center justify-between border-b border-white/10 bg-black/80 px-4 py-3 text-sm text-white/80">
                 <div className="flex items-center gap-2">
                   <PlayCircle size={16} />
                   <span>{data.title}</span>
                 </div>
-                <span className="text-xs uppercase tracking-wide text-white/50">{runtimeLabel}</span>
+                <div className="flex items-center gap-2">
+                  {session.runtime === 'scummvm' && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      type="button"
+                      onClick={togglePlayerFullscreen}
+                      aria-label={playerFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                      title={playerFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                      className="h-8 w-8 rounded-full text-white/60 hover:bg-white/10 hover:text-white"
+                    >
+                      {playerFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                    </Button>
+                  )}
+                  <span className="text-xs uppercase tracking-wide text-white/50">{runtimeLabel}</span>
+                </div>
               </div>
-              <div className="flex-1">
-                <LaunchFrame iframeRef={iframeRef} src={playerUrl} title={`${data.title} browser player`} />
+              <div className="relative min-h-0 min-w-0 flex-1">
+                <BrowserRuntimeFrame
+                  runtime={session.runtime}
+                  iframeRef={iframeRef}
+                  src={playerUrl}
+                  title={`${data.title} browser player`}
+                />
               </div>
             </section>
           </>

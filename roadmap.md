@@ -504,8 +504,8 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] EmulatorJS is NOT expanded on the whole parent component in the frontend UI. I think its the resolution settings when initializing the game.
 - [ ] Unknown/undetected games are shown in "Library". The library should contain only detected games.
 - [x] Google Drive source integrations now scope traversal to the selected `root_path` for new scans.
-- [ ] Filesystem-backed scope edits still collapse "no longer returned by this integration" into `not_found`, which is semantically wrong for titles that are merely outside the configured scan scope. Add explicit `out_of_scope` handling for filesystem-backed sources.
-- [ ] Filesystem-backed scope changes should support safe hard cleanup of source-owned rows that are no longer covered by the configured scan scope, instead of accumulating long-lived `not_found` trash from prior scope bugs or edits.
+- [x] Filesystem-backed scope edits still collapse "no longer returned by this integration" into `not_found`, which is semantically wrong for titles that are merely outside the configured scan scope. Add explicit `out_of_scope` handling for filesystem-backed sources.
+- [x] Filesystem-backed scope changes should support safe hard cleanup of source-owned rows that are no longer covered by the configured scan scope, instead of accumulating long-lived `not_found` trash from prior scope bugs or edits.
 - [ ] Rework filesystem-backed source config away from "many integrations to the same backend connection" toward one backend connection with explicit scan scopes:
   - include paths
   - recursive flag per include

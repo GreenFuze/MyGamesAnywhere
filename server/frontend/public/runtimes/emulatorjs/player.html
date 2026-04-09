@@ -38,7 +38,6 @@
       const mount = document.getElementById('game')
       const runtimeOrigin = window.location.origin
       let latestSaveBase64 = null
-
       function scheduleResizePass() {
         window.dispatchEvent(new Event('resize'))
         window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
@@ -182,10 +181,10 @@
             window.EJS_gameUrl = session.gameUrl
             window.EJS_gameName = session.gameName
             window.EJS_pathtodata = runtimeDataUrl.href
-            window.EJS_startOnLoad = true
+            window.EJS_startOnLoaded = true
             // Fullscreen-on-load usually gets blocked by the browser and leaves
             // the runtime controls in the wrong state. Enter fullscreen manually.
-            window.EJS_fullscreenOnLoad = false
+            window.EJS_fullscreenOnLoaded = false
             window.EJS_disableAutoLang = false
             window.EJS_DEBUG_XX = false
             await import(loaderUrl.href)

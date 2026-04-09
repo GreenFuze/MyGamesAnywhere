@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Discworld</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #080808;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #080808;
+        color: #f2f2f2;
+      }
+      body {
+        display: grid;
+        grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+      }
+      aside {
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(180deg, rgba(31, 24, 16, 0.98), rgba(11, 11, 11, 0.98));
+        padding: 16px;
+        overflow: auto;
+      }
+      main {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        background: #000;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 1.1rem;
+      }
+      p {
+        margin: 0 0 12px;
+        color: rgba(255, 255, 255, 0.72);
+      }
+      #status {
+        margin-bottom: 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: rgba(250, 204, 21, 0.16);
+        color: #fde68a;
+        white-space: pre-wrap;
+      }
+      #status.error {
+        background: rgba(185, 28, 28, 0.24);
+        color: #fecaca;
+      }
+      dl {
+        margin: 0 0 12px;
+      }
+      dt {
+        margin-top: 10px;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: rgba(255, 255, 255, 0.56);
+      }
+      dd {
+        margin: 4px 0 0;
+        word-break: break-word;
+        color: rgba(255, 255, 255, 0.9);
+      }
+      #log {
+        margin: 0;
+        min-height: 220px;
+        padding: 12px;
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.42);
+        overflow: auto;
+        white-space: pre-wrap;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        outline: none;
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h1>Standalone ScummVM Harness</h1>
+      <p>Loads the existing MGA ScummVM web runtime directly against a local HTTP manifest of the UNC game directory.</p>
+      <div id="status" class="">Ready.</div>
+      <dl>
+        <dt>Manifest</dt>
+        <dd id="manifest-path">/manifest</dd>
+        <dt>Runtime</dt>
+        <dd id="runtime-path">/runtime</dd>
+        <dt>Game Files</dt>
+        <dd id="game-path">/game</dd>
+        <dt>Arguments</dt>
+        <dd id="args">--path=/games/game --auto-detect --extrapath=/data --iconspath=/data --themepath=/data --savepath=/local/saves</dd>
+      </dl>
+      <pre id="log">2026-04-04T08:04:19.936Z INFO Loaded manifest with 188 files.
+2026-04-04T08:04:19.936Z INFO Inferred engine plugin libtinsel.so.
+2026-04-04T08:04:19.946Z INFO Fetched /data/scummremastered.zip (87520 bytes).
+2026-04-04T08:04:19.946Z INFO Fetched /plugins/libtinsel.so (1293134 bytes).
+2026-04-04T08:04:19.946Z INFO Fetched /data/translations.dat (1942134 bytes).
+2026-04-04T08:04:19.946Z INFO Fetched /data/gui-icons.dat (102082520 bytes).
+2026-04-04T08:04:19.976Z INFO Mounted /games/game and preloaded runtime support assets into MEMFS.
+2026-04-04T08:04:19.976Z INFO Top-level game files: ACT1.SCN, ACT2.SCN, ACT3.SCN, ACT4.SCN, ADLIB.MDI, ADLIBG.MDI, ADRV688.DIG, AILDRVR.LST, ALLEY.SCN, ALSHOP.SCN, ALTAR.SCN, ANKHMAP.SCN, ARCH.SCN, ATUIN.SCN, BAR.SCN, BARBER.SCN, BARN.SCN, BOOK.SCN, BRETHREN.SCN, CAMERA.SCN, CATHOUSE.SCN, CELLAR.SCN, CITYGATE.SCN, CLAWS1.SCN, CLAWS2.SCN, CLEAVAGE.SCN, CLIMAX.SCN, CLOSET.SCN, CLOSEUP.SCN, CREDITS.SCN, CUSTARD.SCN, CUTALLEY.SCN, CUTALSHO.SCN, CUTANKHM.SCN, CUTBAR.SCN, CUTBARN.SCN, CUTHIDEO.SCN, CUTMONKC.SCN, CUTPALEN.SCN, CUTPUB.SCN, CUTROOFT.SCN, CUTSQUAR.SCN, CUTTEMPL.SCN, CUTTHRON.SCN, CUTTOILE.SCN, DEATHDUN.SCN, DEATHFIS.SCN, DEATHFOO.SCN, DEATHROO.SCN, DEATHSHA.SCN, DEATHTHI.SCN, DETECTOR.SCN, DIG.INI, DINING.SCN, DISCMAP.SCN, DONKCART.SCN, DRAGCAGE.SCN, DRAGON.SCN, DUNGEON.SCN, DUNNYMAN.SCN, DW.SCN, DWCONF, ENDGAME.SCN, ENGLISH.idx, ENGLISH.smp, ENGLISH.TXT, ENSUITE.SCN, FINALE.SCN, FISHMONG.SCN, FOOL.SCN, GODS.SCN, GORGE.SCN, HAT.SCN, HIDEOUT.SCN, HOLRECEP.SCN, HOLRETRO.SCN, INDEX, INN.SCN, INNROOM.SCN, INTROARC.SCN, INTROHID.SCN, INTROSHA.SCN, INTROUNI.SCN, ISLAND.SCN, JAMMER.DIG, KITCHEN.SCN, LIBRARY.SCN, LIGHTNIN.SCN, LIVERY.SCN, LSPACE.SCN, LWOOD.SCN, MAGBOOK.SCN, MAMBO.SCN, MDI.INI, MIDI.DAT, MINE.SCN, MINEENT.SCN, MIRROR.SCN, MISSILE.SCN, MONK1.SCN, MONK2.SCN, MONK2B.SCN, MONK3.SCN, MONK4.SCN, MONK5.SCN, MONKCORN.SCN, MOUNTPAS.SCN, MPU401.MDI, MT32MPU.MDI, MYSTWOOD.SCN, NULL.MDI, OBJECTS.SCN, OPL3.MDI, OVEREDGE.SCN, PALENT.SCN, PARK.SCN, PAS.MDI, PASPLUS.MDI, PASTANKH.SCN, PASTBAR.SCN, PASTCATH.SCN, PASTCITY.SCN, PASTENSU.SCN, PASTFISH.SCN, PASTHIDE.SCN, PASTINN.SCN, PASTINNR.SCN, PASTLIBR.SCN, PASTMONK.SCN, PASTPARK.SCN, PASTPUB.SCN, PASTSHAD.SCN, PASTSTRE.SCN, PASTTHIE.SCN, PASTTOIL.SCN, PAVEMENT.SCN, PCSPKR.MDI, PERFECT1.SCN, PROAUDIO.DIG, PSYGNOSI.SCN, PUB.SCN, RAMKIN.SCN, RAP10.DIG, REAR.SCN, RECEPTIO.SCN, RETRO.SCN, RINCEROO.SCN, RM.DRV, ROCKROLL.SCN, ROOFTOPS.SCN, SAMPLE.AD, SAMPLE.BNK, SAMPLE.CAT, SAMPLE.OPL, SB16.DIG, SBAWE32.MDI, SBLASTER.DIG, SBLASTER.MDI, SBPRO.DIG, SBPRO1.MDI, SBPRO2.MDI, SHADES.SCN, SHEEP.SCN, SNDSCAPE.DIG, SNDSCAPE.MDI, SPACE.SCN, SPIRE.SCN, SQUARE.SCN, SQUARE2.SCN, SQUARE3.SCN, STREET.SCN, SUNSET.SCN, TANDY.MDI, TEMPLE.SCN, THIEF.SCN, THRONE.SCN, TITLE.SCN, TOILET.SCN, TOYSHOP.SCN, TURTLE.SCN, TURTLE2.SCN, TWG.SCN, ULTRA.DIG, ULTRA.MDI, UNIGARD.SCN, UNSEEN.SCN, WITCH.SCN, WORLDEDG.SCN, ., ..
+2026-04-04T08:04:19.977Z OUT  Using configuration file: /local/scummvm.ini
+2026-04-04T08:04:19.987Z ERR  WARNING: SCI: Fallback detection is disabled.!
+2026-04-04T08:04:20.017Z ERR  WARNING: WINTERMUTE: Fallback detection is disabled.!
+2026-04-04T08:04:20.017Z OUT  GameID                         Description                                                Full Path
+2026-04-04T08:04:20.017Z OUT  ------------------------------ ---------------------------------------------------------- ---------------------------------------------------------
+2026-04-04T08:04:20.017Z OUT  tinsel:dw                      Discworld (CD/DOS/English)                                 /games/game
+2026-04-04T08:04:20.017Z OUT  User picked target 'dw' (engine ID 'tinsel', game ID 'dw')...
+2026-04-04T08:04:20.017Z OUT     Looking for a plugin supporting this target... Tinsel
+2026-04-04T08:04:20.417Z OUT  Running Discworld (CD/DOS/English)
+2026-04-04T08:04:20.417Z OUT  dw.scn: 70955425870c7720d6eebed903b2ef41, 776188 bytes.
+2026-04-04T08:04:20.417Z OUT  english.smp: 8a620fd83f89276f434a823ebd940b4c, 144267296 bytes.
+2026-04-04T08:04:20.417Z ERR  WARNING: SearchSet::add: archive '/data' already present!
+2026-04-04T08:04:20.627Z ERR  WARNING: SearchSet::add: archive 'gui-icons.dat' already present!
+</pre>
+    </aside>
+    <main>
+      <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1" width="330" height="451" style="cursor: none;"></canvas>
+    </main>
+    <script type="module">
+      const statusElement = document.getElementById('status')
+      const logElement = document.getElementById('log')
+      const argsElement = document.getElementById('args')
+      const canvas = document.getElementById('canvas')
+      const runtimeAssetVersion = `${Date.now()}`
+
+      function appendLog(prefix, message) {
+        const line = `${new Date().toISOString()} ${prefix} ${message}`
+        console.log(line)
+        logElement.textContent += `${line}\n`
+        logElement.scrollTop = logElement.scrollHeight
+      }
+
+      function setStatus(text, isError = false) {
+        statusElement.textContent = text
+        statusElement.className = isError ? 'error' : ''
+      }
+
+      function normalizePath(value) {
+        return value.replaceAll('\\', '/').replace(/^\.\/+/, '').replace(/^\/+/, '')
+      }
+
+      function stripLaunchPrefix(path, prefix) {
+        const normalizedPath = normalizePath(path)
+        const normalizedPrefix = normalizePath(prefix)
+        if (!normalizedPrefix) return normalizedPath
+        if (normalizedPath === normalizedPrefix) return ''
+        if (normalizedPath.startsWith(`${normalizedPrefix}/`)) {
+          return normalizedPath.slice(normalizedPrefix.length + 1)
+        }
+        return normalizedPath
+      }
+
+      function ensureDir(targetPath) {
+        const normalized = targetPath.replace(/\/+/g, '/')
+        const parts = normalized.split('/').filter(Boolean)
+        let current = ''
+        for (const part of parts) {
+          current += `/${part}`
+          if (!FS.analyzePath(current).exists) {
+            FS.mkdir(current)
+          }
+        }
+      }
+
+      const CONFIG_TEXT = `[scummvm]
+pluginspath=/plugins
+extrapath=/data
+iconspath=/data
+themepath=/data
+savepath=/local/saves
+gui_launcher_chooser=grid
+`
+
+      try {
+        setStatus('Loading ScummVM harness manifest...')
+        const manifestResponse = await fetch(`/manifest?v=${runtimeAssetVersion}`, {
+          cache: 'no-store',
+        })
+        if (!manifestResponse.ok) {
+          throw new Error(`Manifest request failed: ${manifestResponse.status}`)
+        }
+
+        const manifest = await manifestResponse.json()
+        appendLog('INFO', `Loaded manifest with ${manifest.files.length} files.`)
+        if (manifest.enginePluginFileName) {
+          appendLog('INFO', `Inferred engine plugin ${manifest.enginePluginFileName}.`)
+        } else {
+          appendLog('WARN', 'No engine plugin was inferred; runtime will fall back to HTTP-backed plugin loading.')
+        }
+
+        const runtimeSupportAssets = [
+          { source: '/runtime/data/translations.dat', target: '/data/translations.dat' },
+          { source: '/runtime/data/gui-icons.dat', target: '/data/gui-icons.dat' },
+          { source: '/runtime/data/scummremastered.zip', target: '/data/scummremastered.zip' },
+        ]
+        if (typeof manifest.enginePluginFileName === 'string' && manifest.enginePluginFileName.length > 0) {
+          runtimeSupportAssets.push({
+            source: `/runtime/plugins/${manifest.enginePluginFileName}`,
+            target: `/plugins/${manifest.enginePluginFileName}`,
+          })
+        }
+        const runtimeSupportPayloads = await Promise.all(
+          runtimeSupportAssets.map(async (asset) => {
+            setStatus(`Fetching ${asset.target}...`)
+            const response = await fetch(`${asset.source}?v=${runtimeAssetVersion}`, {
+              cache: 'no-store',
+            })
+            if (!response.ok) {
+              throw new Error(`Unable to fetch ${asset.source}: ${response.status}`)
+            }
+            const buffer = new Uint8Array(await response.arrayBuffer())
+            appendLog('INFO', `Fetched ${asset.target} (${buffer.length} bytes).`)
+            return { ...asset, buffer }
+          }),
+        )
+
+        const { ScummvmFS } = await import(`/runtime/scummvm_fs.js?v=${runtimeAssetVersion}`)
+        const launchRoot = '/games/game'
+        const launchPrefix = normalizePath(manifest.launchDirectoryPath ?? '')
+        const launchFiles = manifest.files.map((file) => ({
+          ...file,
+          relativePath: stripLaunchPrefix(file.path, launchPrefix),
+        }))
+        const launchArgs = [
+          `--path=${launchRoot}`,
+          '--auto-detect',
+          '--extrapath=/data',
+          '--iconspath=/data',
+          '--themepath=/data',
+          '--savepath=/local/saves',
+        ]
+        argsElement.textContent = launchArgs.join(' ')
+        window.location.hash = encodeURI(launchArgs.join(' '))
+
+        window.Module = {
+          canvas,
+          print: (...parts) => appendLog('OUT ', parts.join(' ')),
+          printErr: (...parts) => appendLog('ERR ', parts.join(' ')),
+          setStatus(text) {
+            setStatus(text && text.length > 0 ? text : 'Ready.')
+          },
+          monitorRunDependencies(count) {
+            setStatus(count > 0 ? `Downloading ScummVM (${count} remaining)` : 'Ready.')
+          },
+          locateFile(file) {
+            return `/runtime/${file}?v=${runtimeAssetVersion}`
+          },
+          preRun: [
+            () => {
+              setStatus(`Mounting runtime and ${launchFiles.length} game files...`)
+              ensureDir('/data')
+              ensureDir('/plugins')
+              ensureDir('/games')
+              ensureDir('/local/saves')
+
+              for (const asset of runtimeSupportPayloads) {
+                const parentPath = asset.target.replace(/\/[^/]+$/, '')
+                if (parentPath) {
+                  ensureDir(parentPath)
+                }
+                FS.writeFile(asset.target, asset.buffer, { canOwn: true })
+              }
+              if (!(typeof manifest.enginePluginFileName === 'string' && manifest.enginePluginFileName.length > 0)) {
+                FS.mount(new ScummvmFS(FS, '/runtime/plugins'), { root: '/' }, '/plugins')
+              }
+              FS.mount(
+                new ScummvmFS(FS, {
+                  files: launchFiles.map((file) => ({
+                    path: `game/${normalizePath(file.relativePath)}`.replace(/\/+/g, '/'),
+                    size: file.size,
+                    url: file.url,
+                  })),
+                }),
+                { root: '/' },
+                '/games',
+              )
+
+              if (!FS.analyzePath('/local/scummvm.ini').exists) {
+                FS.writeFile('/local/scummvm.ini', CONFIG_TEXT)
+              }
+
+              appendLog('INFO', `Mounted ${launchRoot} and preloaded runtime support assets into MEMFS.`)
+              appendLog('INFO', `Top-level game files: ${FS.readdir('/games/game').join(', ')}`)
+            },
+          ],
+          onAbort(reason) {
+            setStatus(`ScummVM aborted: ${reason}`, true)
+            appendLog('ABRT', String(reason))
+          },
+        }
+
+        const script = document.createElement('script')
+        script.src = `/runtime/scummvm.js?v=${runtimeAssetVersion}`
+        script.async = true
+        script.onerror = () => {
+          setStatus('Unable to load ScummVM runtime script.', true)
+        }
+        document.body.append(script)
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : String(error), true)
+        appendLog('FAIL', error instanceof Error ? error.stack ?? error.message : String(error))
+      }
+    </script>
+  
+
+<script src="/runtime/scummvm.js?v=1775289859887" async=""></script></body></html>
