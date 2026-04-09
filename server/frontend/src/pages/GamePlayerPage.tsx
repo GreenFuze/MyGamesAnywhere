@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { PlatformIcon } from '@/components/ui/platform-icon'
 import { useRecentPlayed } from '@/hooks/useRecentPlayed'
 import {
+  browserPlayJsdosExecutableLabel,
   browserPlaySourceContext,
   browserPlaySourceLabel,
   browserPlaySourceOptionLabel,
@@ -31,11 +32,14 @@ import {
   buildBrowserPlayerUrl,
   clearBrowserPlaySession,
   getBrowserPlaySelectionIssue,
+  listBrowserPlayJsdosExecutables,
   listBrowserPlaySelections,
   persistBrowserPlaySession,
+  readBrowserPlayJsdosExecutablePreference,
   readBrowserPlaySourcePreference,
   sessionSupportsSaveSync,
   selectBrowserPlaySelection,
+  writeBrowserPlayJsdosExecutablePreference,
   writeBrowserPlaySourcePreference,
   type BrowserPlaySession,
 } from '@/lib/browserPlay'
@@ -113,6 +117,8 @@ export function GamePlayerPage() {
   const [prepareStatusMessage, setPrepareStatusMessage] = useState('')
   const [prepareProgress, setPrepareProgress] = useState<{ current: number; total: number } | null>(null)
   const [pendingSourceGameId, setPendingSourceGameId] = useState<string | null>(null)
+  const [appliedJsdosExecutablePath, setAppliedJsdosExecutablePath] = useState<string | null>(null)
+  const [pendingJsdosExecutablePath, setPendingJsdosExecutablePath] = useState<string | null>(null)
   const recordedRef = useRef<string | null>(null)
   const tokenRef = useRef<string | null>(null)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
@@ -163,11 +169,20 @@ export function GamePlayerPage() {
     [game.data, selection],
   )
   const runtimeLabel = selection ? browserPlayRuntimeLabel(selection.runtime) : null
+  const jsdosExecutableOptions = useMemo(
+    () => (selection?.runtime === 'jsdos' ? listBrowserPlayJsdosExecutables(selection.sourceGame.files) : []),
+    [selection],
+  )
   const requiresPrepare = selection ? browserPlaySelectionRequiresPrepare(selection) : false
   const selectionReady = selection ? (browserPlaySelectionIsReady(selection) || prepareReady) : false
   const session = useMemo<BrowserPlaySession | null>(
-    () => (game.data && selection && selectionReady ? buildBrowserPlaySession(game.data, selection) : null),
-    [game.data, selection, selectionReady],
+    () =>
+      game.data && selection && selectionReady
+        ? buildBrowserPlaySession(game.data, selection, {
+            jsdosExecutablePath: appliedJsdosExecutablePath,
+          })
+        : null,
+    [appliedJsdosExecutablePath, game.data, selection, selectionReady],
   )
   const playerUrl = useMemo(() => {
     if (!sessionToken || !session) return null
@@ -175,6 +190,13 @@ export function GamePlayerPage() {
   }, [session, sessionToken])
   const hasPendingSourceChange = Boolean(
     selection && pendingSourceGameId && pendingSourceGameId !== selection.sourceGame.id,
+  )
+  const hasPendingJsdosExecutableChange = Boolean(
+    selection?.runtime === 'jsdos' &&
+      (!session || (session.runtime === 'jsdos' && !session.bundleUrl)) &&
+      appliedJsdosExecutablePath &&
+      pendingJsdosExecutablePath &&
+      pendingJsdosExecutablePath !== appliedJsdosExecutablePath,
   )
   const activeIntegrationId = activeSaveSyncIntegrationId(frontendConfig.data)
   const saveSyncRuntimeSupported = session ? sessionSupportsSaveSync(session) : false
@@ -184,6 +206,28 @@ export function GamePlayerPage() {
   useEffect(() => {
     setPendingSourceGameId(selection?.sourceGame.id ?? null)
   }, [selection?.sourceGame.id])
+
+  useEffect(() => {
+    if (!game.data || !selection || selection.runtime !== 'jsdos') {
+      setAppliedJsdosExecutablePath(null)
+      setPendingJsdosExecutablePath(null)
+      return
+    }
+
+    const storedExecutablePath = readBrowserPlayJsdosExecutablePreference(game.data.id, selection.sourceGame.id)
+    const availableExecutablePaths = listBrowserPlayJsdosExecutables(selection.sourceGame.files)
+    const normalizedExecutablePaths = new Set(availableExecutablePaths)
+    const preferredExecutablePath =
+      storedExecutablePath && normalizedExecutablePaths.has(storedExecutablePath) ? storedExecutablePath : null
+    const nextExecutablePath =
+      preferredExecutablePath ??
+      (availableExecutablePaths.includes(selection.rootFile?.path ?? '')
+        ? (selection.rootFile?.path ?? null)
+        : (availableExecutablePaths[0] ?? selection.rootFile?.path ?? null))
+
+    setAppliedJsdosExecutablePath(nextExecutablePath)
+    setPendingJsdosExecutablePath(nextExecutablePath)
+  }, [game.data, selection])
 
   useEffect(() => {
     function syncFullscreenState() {
@@ -501,6 +545,38 @@ export function GamePlayerPage() {
     setPendingSourceGameId(selection?.sourceGame.id ?? null)
   }
 
+  const handleJsdosExecutableChange = (executablePath: string) => {
+    setPendingJsdosExecutablePath(executablePath)
+  }
+
+  const handleJsdosExecutableApply = () => {
+    if (
+      !game.data ||
+      !selection ||
+      selection.runtime !== 'jsdos' ||
+      !pendingJsdosExecutablePath ||
+      pendingJsdosExecutablePath === appliedJsdosExecutablePath
+    ) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      'Changing the DOS executable will restart the emulator. Continue?',
+    )
+    if (!confirmed) return
+
+    writeBrowserPlayJsdosExecutablePreference(
+      game.data.id,
+      selection.sourceGame.id,
+      pendingJsdosExecutablePath,
+    )
+    setAppliedJsdosExecutablePath(pendingJsdosExecutablePath)
+  }
+
+  const handleJsdosExecutableReset = () => {
+    setPendingJsdosExecutablePath(appliedJsdosExecutablePath)
+  }
+
   const handleSave = async () => {
     if (!session || !activeIntegrationId) return
     setSaveSyncBusy(true)
@@ -706,6 +782,48 @@ export function GamePlayerPage() {
                   </Button>
                   <span className="text-xs text-mga-muted">
                     Applying a different source restarts the runtime.
+                  </span>
+                </div>
+              </div>
+            )}
+            {selection &&
+              selection.runtime === 'jsdos' &&
+              (!session || (session.runtime === 'jsdos' && !session.bundleUrl)) &&
+              jsdosExecutableOptions.length > 0 && (
+              <div className="mt-4 max-w-xl">
+                <label className="mb-1 block text-xs uppercase tracking-wide text-mga-muted">
+                  DOS Executable
+                </label>
+                <select
+                  value={pendingJsdosExecutablePath ?? appliedJsdosExecutablePath ?? ''}
+                  onChange={(event) => handleJsdosExecutableChange(event.target.value)}
+                  className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text"
+                >
+                  {jsdosExecutableOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {browserPlayJsdosExecutableLabel(option, selection.sourceGame.files)}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleJsdosExecutableApply}
+                    disabled={!hasPendingJsdosExecutableChange}
+                  >
+                    Apply Executable
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleJsdosExecutableReset}
+                    disabled={!hasPendingJsdosExecutableChange}
+                  >
+                    Reset
+                  </Button>
+                  <span className="text-xs text-mga-muted">
+                    Applying a different executable restarts the runtime.
                   </span>
                 </div>
               </div>

@@ -29,6 +29,8 @@ export type BrowserPlaySession =
       title: string
       sourceGameId: string
       rootFilePath: string
+      executablePath?: string
+      launchDirectoryPath?: string
       files: BrowserPlaySessionFile[]
       bundleUrl?: string
     }
@@ -74,6 +76,7 @@ export type BrowserPlaySelectionIssue = {
 
 const SESSION_PREFIX = 'mga.browserPlaySession.'
 const SOURCE_PREFERENCE_PREFIX = 'mga.browserPlaySource.'
+const JSDOS_EXECUTABLE_PREFERENCE_PREFIX = 'mga.browserPlayJsdosExecutable.'
 
 const EMULATORJS_CORES: Record<string, string> = {
   nes: 'fceumm',
@@ -144,6 +147,10 @@ function sourcePreferenceKey(gameId: string, runtime: BrowserPlayRuntime): strin
   return `${SOURCE_PREFERENCE_PREFIX}${gameId}.${runtime}`
 }
 
+function jsdosExecutablePreferenceKey(gameId: string, sourceGameId: string): string {
+  return `${JSDOS_EXECUTABLE_PREFERENCE_PREFIX}${gameId}.${sourceGameId}`
+}
+
 export function readBrowserPlaySourcePreference(
   gameId: string,
   runtime: BrowserPlayRuntime,
@@ -174,6 +181,41 @@ export function clearBrowserPlaySourcePreference(gameId: string, runtime: Browse
   if (typeof window === 'undefined') return
   try {
     window.localStorage.removeItem(sourcePreferenceKey(gameId, runtime))
+  } catch {
+    // Ignore localStorage remove failures.
+  }
+}
+
+export function readBrowserPlayJsdosExecutablePreference(
+  gameId: string,
+  sourceGameId: string,
+): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const value = window.localStorage.getItem(jsdosExecutablePreferenceKey(gameId, sourceGameId))
+    return value && value.trim().length > 0 ? value : null
+  } catch {
+    return null
+  }
+}
+
+export function writeBrowserPlayJsdosExecutablePreference(
+  gameId: string,
+  sourceGameId: string,
+  executablePath: string,
+) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(jsdosExecutablePreferenceKey(gameId, sourceGameId), executablePath)
+  } catch {
+    // Ignore localStorage write failures and keep the in-memory selection only.
+  }
+}
+
+export function clearBrowserPlayJsdosExecutablePreference(gameId: string, sourceGameId: string) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(jsdosExecutablePreferenceKey(gameId, sourceGameId))
   } catch {
     // Ignore localStorage remove failures.
   }
@@ -329,6 +371,11 @@ function normalizePlayPath(path: string): string {
   return path.replaceAll('\\', '/').replace(/^\.\/+/, '').replace(/^\/+/, '')
 }
 
+function isJsdosExecutablePath(path: string): boolean {
+  const normalized = normalizePlayPath(path).toLowerCase()
+  return normalized.endsWith('.exe') || normalized.endsWith('.com') || normalized.endsWith('.bat')
+}
+
 function commonDirectoryPath(paths: string[]): string {
   const normalized = paths
     .map((path) => normalizePlayPath(path))
@@ -411,9 +458,37 @@ function inferScummvmEnginePlugin(files: Array<{ path: string }>): string | null
   return null
 }
 
+export function listBrowserPlayJsdosExecutables(files: Array<{ path: string }>): string[] {
+  return files
+    .filter((file) => isJsdosExecutablePath(file.path))
+    .sort((left, right) => normalizePlayPath(left.path).localeCompare(normalizePlayPath(right.path)))
+    .map((file) => file.path)
+}
+
+export function browserPlayJsdosExecutableLabel(
+  executablePath: string,
+  files: Array<{ path: string }>,
+): string {
+  const launchDirectoryPath = commonDirectoryPath(files.map((file) => file.path))
+  const normalizedPath = normalizePlayPath(executablePath)
+  const normalizedLaunchDirectoryPath = normalizePlayPath(launchDirectoryPath)
+  if (
+    normalizedLaunchDirectoryPath &&
+    normalizedPath.startsWith(`${normalizedLaunchDirectoryPath}/`)
+  ) {
+    return normalizedPath.slice(normalizedLaunchDirectoryPath.length + 1)
+  }
+  return normalizedPath
+}
+
+type BuildBrowserPlaySessionOptions = {
+  jsdosExecutablePath?: string | null
+}
+
 export function buildBrowserPlaySession(
   game: GameDetailResponse,
   selection: BrowserPlaySelection,
+  options?: BuildBrowserPlaySessionOptions,
 ): BrowserPlaySession | null {
   if (selection.runtime === 'emulatorjs') {
     const core = getEmulatorJsCore(game.platform)
@@ -434,12 +509,26 @@ export function buildBrowserPlaySession(
 
     const rootPath = selection.rootFile.path.toLowerCase()
     const isBundle = rootPath.endsWith('.jsdos') || rootPath.endsWith('.zip')
+    const launchDirectoryPath = commonDirectoryPath(selection.sourceGame.files.map((file) => file.path))
+    const availableExecutables = listBrowserPlayJsdosExecutables(selection.sourceGame.files)
+    const normalizedAvailableExecutables = new Set(availableExecutables.map((path) => normalizePlayPath(path)))
+    const preferredExecutablePath =
+      options?.jsdosExecutablePath && normalizedAvailableExecutables.has(normalizePlayPath(options.jsdosExecutablePath))
+        ? options.jsdosExecutablePath
+        : null
+    const executablePath =
+      preferredExecutablePath ??
+      (normalizedAvailableExecutables.has(normalizePlayPath(selection.rootFile.path))
+        ? selection.rootFile.path
+        : (availableExecutables[0] ?? selection.rootFile.path))
 
     return {
       runtime: 'jsdos',
       title: game.title,
       sourceGameId: selection.sourceGame.id,
-      rootFilePath: selection.rootFile.path,
+      rootFilePath: executablePath,
+      executablePath,
+      launchDirectoryPath,
       files: buildSourceSessionFiles(game, selection.sourceGame, selection.profile),
       bundleUrl: isBundle ? buildPlayFileUrl(game.id, selection.rootFile.id, selection.profile) : undefined,
     }

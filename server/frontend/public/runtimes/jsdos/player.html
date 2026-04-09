@@ -142,8 +142,23 @@
         }
       })
 
+      function normalizePath(path) {
+        return path.replaceAll('\\', '/').replace(/^\.\/+/, '').replace(/^\/+/, '')
+      }
+
+      function stripLaunchPrefix(path, prefix) {
+        const normalizedPath = normalizePath(path)
+        const normalizedPrefix = normalizePath(prefix)
+        if (!normalizedPrefix) return normalizedPath
+        if (normalizedPath === normalizedPrefix) return ''
+        if (normalizedPath.startsWith(`${normalizedPrefix}/`)) {
+          return normalizedPath.slice(normalizedPrefix.length + 1)
+        }
+        return normalizedPath
+      }
+
       function normalizeDosPath(path) {
-        return path.replaceAll('/', '\\')
+        return normalizePath(path).replaceAll('/', '\\')
       }
 
       function splitDosPath(path) {
@@ -158,14 +173,15 @@
         }
       }
 
-      async function fetchFile(file, index, total) {
+      async function fetchFile(file, index, total, launchPrefix) {
         setStatus('Preparing DOS runtime...', `Downloading ${index + 1}/${total}: ${file.path}`)
         const response = await fetch(file.url)
         if (!response.ok) {
           throw new Error(`Failed to load ${file.path}: HTTP ${response.status}`)
         }
+        const relativePath = stripLaunchPrefix(file.path, launchPrefix)
         return {
-          path: normalizeDosPath(file.path),
+          path: normalizePath(relativePath),
           contents: new Uint8Array(await response.arrayBuffer()),
         }
       }
@@ -222,18 +238,20 @@
           return
         }
 
+        const launchPrefix = normalizePath(session.launchDirectoryPath ?? '')
         const files = []
         for (let i = 0; i < session.files.length; i += 1) {
-          files.push(await fetchFile(session.files[i], i, session.files.length))
+          files.push(await fetchFile(session.files[i], i, session.files.length, launchPrefix))
         }
 
-        const launch = splitDosPath(session.rootFilePath)
+        const launchPath = stripLaunchPrefix(session.executablePath ?? session.rootFilePath, launchPrefix)
+        const launch = splitDosPath(launchPath)
         const autoexec = [
           '@echo off',
           'mount c .',
           'c:',
-          launch.dir ? `cd "${launch.dir}"` : null,
-          `"${launch.file}"`,
+          launch.dir ? `cd ${launch.dir}` : null,
+          launch.file,
         ].filter(Boolean).join('\n')
 
         setStatus('Preparing DOS runtime...', 'Starting DOS session.')
