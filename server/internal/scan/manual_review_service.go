@@ -9,11 +9,12 @@ import (
 )
 
 type manualReviewService struct {
-	pluginDiscovery  PluginDiscovery
-	integrationRepo  core.IntegrationRepository
-	gameStore        core.GameStore
-	metadataResolver *MetadataResolver
-	logger           core.Logger
+	pluginDiscovery    PluginDiscovery
+	integrationRepo    core.IntegrationRepository
+	gameStore          core.GameStore
+	mediaDownloadQueue core.MediaDownloadQueue
+	metadataResolver   *MetadataResolver
+	logger             core.Logger
 }
 
 func NewManualReviewService(
@@ -21,14 +22,16 @@ func NewManualReviewService(
 	discovery PluginDiscovery,
 	integrationRepo core.IntegrationRepository,
 	gameStore core.GameStore,
+	mediaDownloadQueue core.MediaDownloadQueue,
 	logger core.Logger,
 ) core.ManualReviewService {
 	return &manualReviewService{
-		pluginDiscovery:  discovery,
-		integrationRepo:  integrationRepo,
-		gameStore:        gameStore,
-		metadataResolver: NewMetadataResolver(caller, logger),
-		logger:           logger,
+		pluginDiscovery:    discovery,
+		integrationRepo:    integrationRepo,
+		gameStore:          gameStore,
+		mediaDownloadQueue: mediaDownloadQueue,
+		metadataResolver:   NewMetadataResolver(caller, logger),
+		logger:             logger,
 	}
 }
 
@@ -89,6 +92,11 @@ func (s *manualReviewService) Apply(ctx context.Context, candidateID string, sel
 
 	if err := s.gameStore.SaveManualReviewResult(ctx, sourceGame, game.ResolverMatches, gameMediaToRefs(game)); err != nil {
 		return fmt.Errorf("save manual review result: %w", err)
+	}
+	if s.mediaDownloadQueue != nil {
+		if err := s.mediaDownloadQueue.EnqueuePending(ctx); err != nil {
+			s.logger.Warn("manual review: enqueue pending media downloads failed", "candidate_id", candidateID, "error", err)
+		}
 	}
 	return nil
 }

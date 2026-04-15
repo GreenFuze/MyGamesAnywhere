@@ -68,6 +68,16 @@ func (r manualReviewTestIntegrationRepo) ListByPluginID(_ context.Context, plugi
 	return out, nil
 }
 
+type countingMediaDownloadQueue struct {
+	calls int
+	err   error
+}
+
+func (q *countingMediaDownloadQueue) EnqueuePending(context.Context) error {
+	q.calls++
+	return q.err
+}
+
 func newManualReviewTestStore(t *testing.T) core.GameStore {
 	t.Helper()
 
@@ -131,6 +141,7 @@ func TestManualReviewServiceApplyPersistsSelectedMatchAndFillResult(t *testing.T
 		},
 	}
 
+	queue := &countingMediaDownloadQueue{}
 	service := NewManualReviewService(
 		caller,
 		manualReviewTestDiscovery{pluginIDs: []string{"metadata-manual", "metadata-other"}},
@@ -139,6 +150,7 @@ func TestManualReviewServiceApplyPersistsSelectedMatchAndFillResult(t *testing.T
 			{ID: "meta-other", PluginID: "metadata-other", Label: "Other Source", ConfigJSON: `{}`},
 		}},
 		store,
+		queue,
 		testLogger{},
 	)
 
@@ -154,6 +166,9 @@ func TestManualReviewServiceApplyPersistsSelectedMatchAndFillResult(t *testing.T
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if queue.calls != 1 {
+		t.Fatalf("enqueue calls = %d, want 1", queue.calls)
 	}
 
 	candidate, err := store.GetManualReviewCandidate(ctx, "scan:manual-review-1")
@@ -213,6 +228,7 @@ func TestManualReviewServiceApplyRejectsInvalidSelection(t *testing.T) {
 		manualReviewTestDiscovery{},
 		manualReviewTestIntegrationRepo{},
 		newManualReviewTestStore(t),
+		nil,
 		testLogger{},
 	)
 

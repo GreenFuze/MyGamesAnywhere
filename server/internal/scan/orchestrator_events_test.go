@@ -18,6 +18,15 @@ func (eventTestLogger) Error(string, error, ...any) {}
 func (eventTestLogger) Debug(string, ...any)        {}
 func (eventTestLogger) Warn(string, ...any)         {}
 
+type eventTestMediaDownloadQueue struct {
+	calls int
+}
+
+func (q *eventTestMediaDownloadQueue) EnqueuePending(context.Context) error {
+	q.calls++
+	return nil
+}
+
 func TestPublishEventWithContextInjectsJobID(t *testing.T) {
 	bus := events.New()
 	defer bus.Close()
@@ -153,7 +162,8 @@ func TestRunScanContinuesAfterStorefrontSourceAuthError(t *testing.T) {
 		{ID: "epic-1", PluginID: "game-source-epic", Label: "Epic", IntegrationType: "source", ConfigJSON: `{}`},
 	}}
 
-	orchestrator := NewOrchestrator(caller, discovery, repo, store, eventTestLogger{})
+	queue := &eventTestMediaDownloadQueue{}
+	orchestrator := NewOrchestrator(caller, discovery, repo, store, queue, eventTestLogger{})
 	orchestrator.SetEventBus(bus)
 
 	games, err := orchestrator.RunScan(ctx, nil)
@@ -162,6 +172,9 @@ func TestRunScanContinuesAfterStorefrontSourceAuthError(t *testing.T) {
 	}
 	if len(games) != 1 || games[0].Title != "Control" {
 		t.Fatalf("games = %+v, want one Epic game", games)
+	}
+	if queue.calls != 1 {
+		t.Fatalf("enqueue calls = %d, want 1", queue.calls)
 	}
 
 	reports, err := store.GetScanReports(ctx, 1)

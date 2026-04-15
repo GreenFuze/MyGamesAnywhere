@@ -56,9 +56,8 @@ import {
   selectSourcePlugins,
   sourceMatchCount,
 } from '@/lib/gameUtils'
+import { GameMediaCollection, mediaUrl, youtubeEmbedUrl } from '@/lib/gameMedia'
 import { cn } from '@/lib/utils'
-
-const HERO_MEDIA_TYPES = ['screenshot', 'background', 'banner', 'artwork', 'hero', 'cover']
 
 type MetadataField =
   | 'title'
@@ -151,79 +150,6 @@ function mediaTypeLabel(type: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
-}
-
-function urlHasExtension(url: string, extensions: string[]): boolean {
-  return extensions.some((extension) => url.toLowerCase().includes(extension))
-}
-
-function mediaUrl(media: GameMediaDetailDTO): string {
-  if (media.local_path) return `/api/media/${media.asset_id}`
-  return media.url
-}
-
-function isImageMedia(media: GameMediaDetailDTO): boolean {
-  if (media.mime_type?.startsWith('image/')) return true
-  if (media.mime_type?.startsWith('video/') || media.mime_type?.startsWith('audio/')) return false
-  return !['video', 'trailer', 'manual', 'document', 'audio', 'soundtrack'].includes(media.type)
-}
-
-function isInlineVideoMedia(media: GameMediaDetailDTO): boolean {
-  if (media.mime_type?.startsWith('video/')) return true
-  return urlHasExtension(mediaUrl(media), ['.mp4', '.webm', '.ogg', '.mov'])
-}
-
-function isInlineAudioMedia(media: GameMediaDetailDTO): boolean {
-  if (media.mime_type?.startsWith('audio/')) return true
-  return urlHasExtension(mediaUrl(media), ['.mp3', '.wav', '.ogg', '.m4a', '.flac'])
-}
-
-function isPdfMedia(media: GameMediaDetailDTO): boolean {
-  const source = media.local_path ?? media.url
-  return media.mime_type === 'application/pdf' || source.toLowerCase().endsWith('.pdf')
-}
-
-function youtubeEmbedUrl(media: GameMediaDetailDTO): string | null {
-  try {
-    const parsed = new URL(mediaUrl(media))
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
-    if (host === 'youtu.be') {
-      const id = parsed.pathname.split('/').filter(Boolean)[0]
-      return id ? `https://www.youtube.com/embed/${id}` : null
-    }
-    if (host === 'youtube.com' || host === 'm.youtube.com') {
-      if (parsed.pathname === '/watch') {
-        const id = parsed.searchParams.get('v')
-        return id ? `https://www.youtube.com/embed/${id}` : null
-      }
-      if (parsed.pathname.startsWith('/embed/')) {
-        return parsed.toString()
-      }
-    }
-  } catch {
-    return null
-  }
-  return null
-}
-
-function isInlineDocumentMedia(media: GameMediaDetailDTO): boolean {
-  const source = (media.local_path ?? media.url).toLowerCase()
-  const mime = media.mime_type?.toLowerCase() ?? ''
-  if (mime.startsWith('text/')) return true
-  if (mime === 'application/json' || mime === 'application/xml') return true
-  return urlHasExtension(source, ['.txt', '.md', '.markdown', '.html', '.htm', '.json', '.xml', '.csv'])
-}
-
-function selectCoverMedia(media: GameMediaDetailDTO[]): GameMediaDetailDTO | null {
-  return media.find((item) => item.type === 'cover') ?? media[0] ?? null
-}
-
-function selectHeroMedia(media: GameMediaDetailDTO[]): GameMediaDetailDTO | null {
-  for (const type of HERO_MEDIA_TYPES) {
-    const match = media.find((item) => item.type === type)
-    if (match) return match
-  }
-  return media[0] ?? null
 }
 
 function buildExternalLinks(externalIds: ExternalIDDTO[] | undefined): ExternalLinkItem[] {
@@ -695,6 +621,7 @@ function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
 function MediaPreview({ media }: { media: GameMediaDetailDTO }) {
   const url = mediaUrl(media)
   const youtubeUrl = youtubeEmbedUrl(media)
+  const mediaCollection = new GameMediaCollection([media])
 
   if (youtubeUrl) {
     return (
@@ -707,14 +634,14 @@ function MediaPreview({ media }: { media: GameMediaDetailDTO }) {
       />
     )
   }
-  if (isInlineVideoMedia(media)) {
+  if (mediaCollection.isInlineVideo(media)) {
     return (
       <video controls preload="metadata" className="max-h-[360px] w-full rounded-mga border border-mga-border bg-black">
         <source src={url} type={media.mime_type} />
       </video>
     )
   }
-  if (isInlineAudioMedia(media)) {
+  if (mediaCollection.isInlineAudio(media)) {
     return (
       <div className="rounded-mga border border-mga-border bg-mga-surface p-4">
         <audio controls preload="metadata" className="w-full">
@@ -723,10 +650,10 @@ function MediaPreview({ media }: { media: GameMediaDetailDTO }) {
       </div>
     )
   }
-  if (isPdfMedia(media)) {
+  if (mediaCollection.isPdf(media)) {
     return <iframe src={url} title={`${mediaTypeLabel(media.type)} preview`} className="h-[360px] w-full rounded-mga border border-mga-border bg-white" />
   }
-  if (isInlineDocumentMedia(media)) {
+  if (mediaCollection.isInlineDocument(media)) {
     return <iframe src={url} title={`${mediaTypeLabel(media.type)} preview`} className="h-[360px] w-full rounded-mga border border-mga-border bg-mga-surface" />
   }
   return (
@@ -849,10 +776,11 @@ export function GameDetailPage() {
   })
 
   const gameData = game.data ?? null
-  const imageMedia = useMemo(() => (gameData?.media ?? []).filter(isImageMedia), [gameData?.media])
-  const nonImageMedia = useMemo(() => (gameData?.media ?? []).filter((media) => !isImageMedia(media)), [gameData?.media])
-  const coverMedia = useMemo(() => selectCoverMedia(imageMedia), [imageMedia])
-  const heroMedia = useMemo(() => selectHeroMedia(imageMedia), [imageMedia])
+  const mediaCollection = useMemo(() => new GameMediaCollection(gameData?.media), [gameData?.media])
+  const imageMedia = useMemo(() => mediaCollection.imageMedia(), [mediaCollection])
+  const nonImageMedia = useMemo(() => mediaCollection.nonImageMedia(), [mediaCollection])
+  const coverMedia = useMemo(() => mediaCollection.cover(), [mediaCollection])
+  const heroMedia = useMemo(() => mediaCollection.hero(), [mediaCollection])
   const heroUrl = heroMedia ? mediaUrl(heroMedia) : null
   const coverUrl = coverMedia ? mediaUrl(coverMedia) : null
   const [selectedBrowserSourceId, setSelectedBrowserSourceId] = useState('')

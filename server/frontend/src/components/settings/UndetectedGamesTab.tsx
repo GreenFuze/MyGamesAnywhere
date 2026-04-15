@@ -26,6 +26,14 @@ import { pluginLabel } from '@/lib/gameUtils'
 
 const CANDIDATE_LIMIT = 200
 
+function safeText(value: string | null | undefined): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function safeList<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : []
+}
+
 function formatDateTime(value: string | undefined): string {
   if (!value) return 'Unknown'
   const date = new Date(value)
@@ -95,7 +103,7 @@ function statusTone(status: string): 'accent' | 'muted' | 'default' {
 
 function preferredSearchQuery(candidate: ManualReviewCandidateDetail | undefined): string {
   if (!candidate) return ''
-  return candidate.current_title.trim() || candidate.raw_title.trim()
+  return safeText(candidate.current_title).trim() || safeText(candidate.raw_title).trim()
 }
 
 function selectInitialCandidate(
@@ -111,10 +119,10 @@ function selectInitialCandidate(
   const normalizedPlatform = legacy.platform?.trim().toLowerCase()
   const normalizedSource = legacy.source?.trim().toLowerCase()
   const exact = candidates.find((candidate) => {
-    const current = candidate.current_title.trim().toLowerCase()
-    const raw = candidate.raw_title.trim().toLowerCase()
-    const platformMatches = !normalizedPlatform || candidate.platform.trim().toLowerCase() === normalizedPlatform
-    const sourceMatches = !normalizedSource || candidate.plugin_id.trim().toLowerCase() === normalizedSource
+    const current = safeText(candidate.current_title).trim().toLowerCase()
+    const raw = safeText(candidate.raw_title).trim().toLowerCase()
+    const platformMatches = !normalizedPlatform || safeText(candidate.platform).trim().toLowerCase() === normalizedPlatform
+    const sourceMatches = !normalizedSource || safeText(candidate.plugin_id).trim().toLowerCase() === normalizedSource
     const titleMatches = normalizedTitle && (current === normalizedTitle || raw === normalizedTitle)
     return Boolean(titleMatches && platformMatches && sourceMatches)
   })
@@ -183,12 +191,12 @@ export function UndetectedGamesTab() {
     if (!filter) return items
     return items.filter((candidate) => {
       const haystack = [
-        candidate.current_title,
-        candidate.raw_title,
-        candidate.integration_label,
-        candidate.platform,
-        candidate.plugin_id,
-        candidate.root_path,
+        safeText(candidate.current_title),
+        safeText(candidate.raw_title),
+        safeText(candidate.integration_label),
+        safeText(candidate.platform),
+        safeText(candidate.plugin_id),
+        safeText(candidate.root_path),
       ]
         .filter(Boolean)
         .join(' ')
@@ -286,11 +294,21 @@ export function UndetectedGamesTab() {
     setSeededCandidateId(candidateQuery.data.id)
   }, [candidateQuery.data, seededCandidateId])
 
-  const activeManualMatch = candidateQuery.data?.resolver_matches.find((match) => match.manual_selection)
+  const activeManualMatch = safeList(candidateQuery.data?.resolver_matches).find((match) => match.manual_selection)
   const mutationError = applyMutation.error ?? notAGameMutation.error ?? unarchiveMutation.error
   const applyBusyKey = applyMutation.isPending && applyMutation.variables
     ? `${applyMutation.variables.result.provider_plugin_id}:${applyMutation.variables.result.external_id}`
     : null
+  const candidateTitle =
+    (candidateQuery.data && (safeText(candidateQuery.data.current_title) || safeText(candidateQuery.data.raw_title))) ||
+    'Unknown title'
+  const candidateIntegrationLabel =
+    (candidateQuery.data &&
+      (safeText(candidateQuery.data.integration_label) || safeText(candidateQuery.data.integration_id))) ||
+    ''
+  const candidateReviewReasons = safeList(candidateQuery.data?.review_reasons)
+  const candidateFiles = safeList(candidateQuery.data?.files)
+  const candidateResolverMatches = safeList(candidateQuery.data?.resolver_matches)
 
   const submitSearch = () => {
     const nextQuery = searchQuery.trim()
@@ -381,6 +399,9 @@ export function UndetectedGamesTab() {
 
             {filteredCandidates.map((candidate) => {
               const isActive = candidate.id === activeCandidateId
+              const currentTitle = safeText(candidate.current_title) || safeText(candidate.raw_title) || 'Unknown title'
+              const rawTitle = safeText(candidate.raw_title)
+              const reviewReasons = safeList(candidate.review_reasons)
               return (
                 <button
                   key={candidate.id}
@@ -395,9 +416,9 @@ export function UndetectedGamesTab() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-2">
                       <div>
-                        <p className="font-semibold text-mga-text">{candidate.current_title}</p>
-                        {candidate.current_title !== candidate.raw_title ? (
-                          <p className="text-xs text-mga-muted">Raw title: {candidate.raw_title}</p>
+                        <p className="font-semibold text-mga-text">{currentTitle}</p>
+                        {rawTitle && currentTitle !== rawTitle ? (
+                          <p className="text-xs text-mga-muted">Raw title: {rawTitle}</p>
                         ) : null}
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -420,8 +441,8 @@ export function UndetectedGamesTab() {
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {candidate.review_reasons.length > 0 ? (
-                      candidate.review_reasons.map((reason) => (
+                    {reviewReasons.length > 0 ? (
+                      reviewReasons.map((reason) => (
                         <Badge key={`${candidate.id}:${reason}`} variant="accent">
                           {reviewReasonLabel(reason)}
                         </Badge>
@@ -468,14 +489,14 @@ export function UndetectedGamesTab() {
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-xl font-semibold text-mga-text">{candidateQuery.data.current_title}</h3>
+                      <h3 className="text-xl font-semibold text-mga-text">{candidateTitle}</h3>
                       <Badge variant={reviewStateVariant(candidateQuery.data.review_state)}>
                         {reviewStateLabel(candidateQuery.data.review_state)}
                       </Badge>
                       {!selectedInScope ? <Badge variant="muted">Direct reclassify target</Badge> : null}
                     </div>
                     <p className="text-sm text-mga-muted">
-                      {candidateQuery.data.integration_label || candidateQuery.data.integration_id}
+                      {candidateIntegrationLabel}
                       {' · '}
                       {brandLabel(candidateQuery.data.plugin_id, pluginLabel(candidateQuery.data.plugin_id))}
                     </p>
@@ -489,8 +510,8 @@ export function UndetectedGamesTab() {
                       <Badge variant="muted">{candidateQuery.data.resolver_match_count} resolver matches</Badge>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {candidateQuery.data.review_reasons.length > 0 ? (
-                        candidateQuery.data.review_reasons.map((reason) => (
+                      {candidateReviewReasons.length > 0 ? (
+                        candidateReviewReasons.map((reason) => (
                           <Badge key={`${candidateQuery.data.id}:${reason}`} variant="accent">
                             {reviewReasonLabel(reason)}
                           </Badge>
@@ -631,7 +652,7 @@ export function UndetectedGamesTab() {
                     {!searchResultsQuery.isFetching &&
                     !searchResultsQuery.isError &&
                     searchResultsQuery.data &&
-                    searchResultsQuery.data.results.length === 0 ? (
+                    safeList(searchResultsQuery.data.results).length === 0 ? (
                       <div className="mt-4 rounded-mga border border-dashed border-mga-border p-4 text-sm text-mga-muted">
                         No metadata matches were returned for “{searchResultsQuery.data.query}”.
                       </div>
@@ -717,10 +738,10 @@ export function UndetectedGamesTab() {
                     <h4 className="text-sm font-semibold uppercase tracking-wide text-mga-text">Source Files</h4>
                   </div>
                   <div className="mt-4 space-y-3">
-                    {candidateQuery.data.files.length === 0 ? (
+                    {candidateFiles.length === 0 ? (
                       <p className="text-sm text-mga-muted">No source files were recorded for this candidate.</p>
                     ) : (
-                      candidateQuery.data.files.map((file) => (
+                      candidateFiles.map((file) => (
                         <div key={file.id} className="rounded-mga border border-mga-border bg-mga-bg p-3">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
@@ -744,14 +765,14 @@ export function UndetectedGamesTab() {
                     <h4 className="text-sm font-semibold uppercase tracking-wide text-mga-text">Existing Resolver Matches</h4>
                   </div>
                   <div className="mt-4 space-y-3">
-                    {candidateQuery.data.resolver_matches.length === 0 ? (
+                    {candidateResolverMatches.length === 0 ? (
                       <p className="text-sm text-mga-muted">No resolver matches are currently attached to this candidate.</p>
                     ) : (
-                      candidateQuery.data.resolver_matches.map((match) => (
+                      candidateResolverMatches.map((match) => (
                         <div key={`${match.plugin_id}:${match.external_id}`} className="rounded-mga border border-mga-border bg-mga-bg p-3">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
-                              <p className="text-sm font-medium text-mga-text">{match.title || candidateQuery.data.raw_title}</p>
+                              <p className="text-sm font-medium text-mga-text">{match.title || safeText(candidateQuery.data.raw_title) || candidateTitle}</p>
                               <p className="mt-1 text-xs text-mga-muted">
                                 {brandLabel(match.plugin_id, pluginLabel(match.plugin_id))}
                                 {' · '}

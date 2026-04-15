@@ -500,7 +500,7 @@ func (s *gameStore) GetSourceGamesForCanonical(ctx context.Context, canonicalID 
 		if err != nil {
 			return nil, err
 		}
-		if sg != nil {
+		if isVisibleSourceGame(sg) {
 			out = append(out, sg)
 		}
 	}
@@ -832,7 +832,7 @@ func (s *gameStore) ListManualReviewCandidates(ctx context.Context, scope core.M
 	if limit <= 0 {
 		limit = 10000
 	}
-	whereClause := "sg.status = 'found' AND IFNULL(sg.review_state, 'pending') = 'pending'"
+	whereClause := activeUndetectedSourceGameWhere("sg")
 	if scope == core.ManualReviewScopeArchive {
 		whereClause = "sg.status = 'found' AND IFNULL(sg.review_state, 'pending') = 'not_a_game'"
 	}
@@ -1141,7 +1141,7 @@ func (s *gameStore) GetFoundSourceGames(ctx context.Context, integrationIDs []st
 	if len(integrationIDs) == 0 {
 		rows, err = db.QueryContext(ctx,
 			`SELECT id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, COALESCE(root_path,'')
-			 FROM source_games WHERE status = 'found' AND IFNULL(review_state, 'pending') != 'not_a_game'`)
+			 FROM source_games WHERE `+visibleSourceGameWhere("source_games"))
 	} else {
 		// Build placeholders for the IN clause.
 		placeholders := make([]string, len(integrationIDs))
@@ -1152,7 +1152,8 @@ func (s *gameStore) GetFoundSourceGames(ctx context.Context, integrationIDs []st
 		}
 		q := fmt.Sprintf(
 			`SELECT id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, COALESCE(root_path,'')
-			 FROM source_games WHERE status = 'found' AND IFNULL(review_state, 'pending') != 'not_a_game' AND integration_id IN (%s)`,
+			 FROM source_games WHERE %s AND integration_id IN (%s)`,
+			visibleSourceGameWhere("source_games"),
 			strings.Join(placeholders, ","))
 		rows, err = db.QueryContext(ctx, q, args...)
 	}
@@ -1382,11 +1383,48 @@ func visibleSourceGameWhere(alias string) string {
 	if alias == "" {
 		alias = "source_games"
 	}
-	return fmt.Sprintf("%s.status = 'found' AND IFNULL(%s.review_state, 'pending') != 'not_a_game'", alias, alias)
+	return fmt.Sprintf(
+		"%s.status = 'found' AND IFNULL(%s.review_state, 'pending') != 'not_a_game' AND NOT (%s)",
+		alias,
+		alias,
+		activeUndetectedSourceGameWhere(alias),
+	)
+}
+
+func activeUndetectedSourceGameWhere(alias string) string {
+	if alias == "" {
+		alias = "source_games"
+	}
+	resolverMatchCountExpr := fmt.Sprintf(`(SELECT COUNT(*) FROM metadata_resolver_matches m WHERE m.source_game_id = %s.id)`, alias)
+	resolverTitleCountExpr := fmt.Sprintf(`(SELECT COUNT(*) FROM metadata_resolver_matches m WHERE m.source_game_id = %s.id AND m.outvoted = 0 AND IFNULL(m.title, '') != '')`, alias)
+	return fmt.Sprintf(
+		"%s.status = 'found' AND IFNULL(%s.review_state, 'pending') = 'pending' AND ((%s) = 0 OR (%s) = 0 OR %s.platform = '%s' OR %s.group_kind = '%s')",
+		alias,
+		alias,
+		resolverMatchCountExpr,
+		resolverTitleCountExpr,
+		alias,
+		core.PlatformUnknown,
+		alias,
+		core.GroupKindUnknown,
+	)
 }
 
 func isVisibleSourceGame(sg *core.SourceGame) bool {
-	return sg != nil && sg.Status == "found" && sg.ReviewState != core.ManualReviewStateNotAGame
+	return sg != nil && sg.Status == "found" && sg.ReviewState != core.ManualReviewStateNotAGame && !isActiveUndetectedSourceGame(sg)
+}
+
+func isActiveUndetectedSourceGame(sg *core.SourceGame) bool {
+	if sg == nil || sg.Status != "found" || sg.ReviewState != core.ManualReviewStatePending {
+		return false
+	}
+	resolverTitleCount := 0
+	for _, match := range sg.ResolverMatches {
+		if !match.Outvoted && strings.TrimSpace(match.Title) != "" {
+			resolverTitleCount++
+		}
+	}
+	return len(reviewReasonsForCandidate(sg.Platform, sg.GroupKind, len(sg.ResolverMatches), resolverTitleCount)) > 0
 }
 
 func resolveManualReviewPersistence(sg *core.SourceGame, existing existingSourceGame) (core.ManualReviewState, string, error) {
@@ -2113,12 +2151,10 @@ func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonica
 		if err != nil {
 			return nil, err
 		}
-		if sg == nil {
+		if !isVisibleSourceGame(sg) {
 			continue
 		}
-		if isVisibleSourceGame(sg) {
-			hasVisible = true
-		}
+		hasVisible = true
 		cg.SourceGames = append(cg.SourceGames, sg)
 	}
 

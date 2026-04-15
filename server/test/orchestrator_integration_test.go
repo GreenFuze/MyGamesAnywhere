@@ -184,7 +184,7 @@ func TestOrchestrator_FullPipeline(t *testing.T) {
 	discovery := &discoveryWrapper{host: host}
 	repo := &mockIntegrationRepo{integrations: integrations}
 
-	orch := scan.NewOrchestrator(caller, discovery, repo, gameStore, log)
+	orch := scan.NewOrchestrator(caller, discovery, repo, gameStore, nil, log)
 
 	t.Log("Starting full pipeline run (this may take 15-30 minutes)...")
 	start := time.Now()

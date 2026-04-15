@@ -171,6 +171,21 @@ type SaveSyncService interface {
 	GetMigrationStatus(ctx context.Context, jobID string) (*SaveSyncMigrationStatus, error)
 }
 
+// BackgroundService starts long-lived background work that stops when ctx is cancelled.
+type BackgroundService interface {
+	Start(ctx context.Context) error
+}
+
+// MediaDownloadQueue schedules pending media_assets rows for background download.
+type MediaDownloadQueue interface {
+	EnqueuePending(ctx context.Context) error
+}
+
+type MediaDownloadService interface {
+	BackgroundService
+	MediaDownloadQueue
+}
+
 type SourceCacheStore interface {
 	MarkInFlightJobsInterrupted(ctx context.Context) error
 	GetEntryBySourceProfile(ctx context.Context, sourceGameID, profile string) (*SourceCacheEntry, error)

@@ -1,6 +1,7 @@
 import type { CompletionTime, GameDetailResponse, GameMediaDetailDTO } from '@/api/client'
 import { brandLabel } from '@/lib/brands'
 import { getBrowserPlayRuntime, listBrowserPlaySelections } from '@/lib/browserPlay'
+import { GameMediaCollection } from '@/lib/gameMedia'
 
 // ---------------------------------------------------------------------------
 // Cover art selection
@@ -8,15 +9,7 @@ import { getBrowserPlayRuntime, listBrowserPlaySelections } from '@/lib/browserP
 
 /** Pick the best cover URL from a game's media array. */
 export function selectCoverUrl(media: GameMediaDetailDTO[] | undefined): string | null {
-  if (!media || media.length === 0) return null
-
-  const cover = media.find((m) => m.type === 'cover')
-  if (!cover) return null
-
-  // Prefer locally-cached file served by the Go media endpoint
-  if (cover.local_path) return `/api/media/${cover.asset_id}`
-
-  return cover.url || null
+  return new GameMediaCollection(media).coverUrl()
 }
 
 // ---------------------------------------------------------------------------

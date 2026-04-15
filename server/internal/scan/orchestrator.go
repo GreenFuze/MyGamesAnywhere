@@ -36,14 +36,15 @@ type PluginDiscovery interface {
 // source plugin, runs the scanner pipeline, enriches with metadata,
 // and persists results via GameStore.
 type Orchestrator struct {
-	pluginCaller     PluginCaller
-	pluginDiscovery  PluginDiscovery
-	integrationRepo  core.IntegrationRepository
-	gameStore        core.GameStore
-	scanner          *scanner.Scanner
-	metadataResolver *MetadataResolver
-	logger           core.Logger
-	eventBus         *events.EventBus
+	pluginCaller       PluginCaller
+	pluginDiscovery    PluginDiscovery
+	integrationRepo    core.IntegrationRepository
+	gameStore          core.GameStore
+	mediaDownloadQueue core.MediaDownloadQueue
+	scanner            *scanner.Scanner
+	metadataResolver   *MetadataResolver
+	logger             core.Logger
+	eventBus           *events.EventBus
 }
 
 func NewOrchestrator(
@@ -51,16 +52,18 @@ func NewOrchestrator(
 	discovery PluginDiscovery,
 	integrationRepo core.IntegrationRepository,
 	gameStore core.GameStore,
+	mediaDownloadQueue core.MediaDownloadQueue,
 	logger core.Logger,
 ) *Orchestrator {
 	return &Orchestrator{
-		pluginCaller:     caller,
-		pluginDiscovery:  discovery,
-		integrationRepo:  integrationRepo,
-		gameStore:        gameStore,
-		scanner:          scanner.New(logger),
-		metadataResolver: NewMetadataResolver(caller, logger),
-		logger:           logger,
+		pluginCaller:       caller,
+		pluginDiscovery:    discovery,
+		integrationRepo:    integrationRepo,
+		gameStore:          gameStore,
+		mediaDownloadQueue: mediaDownloadQueue,
+		scanner:            scanner.New(logger),
+		metadataResolver:   NewMetadataResolver(caller, logger),
+		logger:             logger,
 	}
 }
 
@@ -408,6 +411,11 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			o.publishScanError(ctx, integ.ID, err)
 			return nil, fmt.Errorf("persist scan results for integration %q: %w", integ.ID, err)
 		}
+		if o.mediaDownloadQueue != nil {
+			if err := o.mediaDownloadQueue.EnqueuePending(ctx); err != nil {
+				o.logger.Warn("orchestrator: enqueue pending media downloads failed", "integration_id", integ.ID, "error", err)
+			}
+		}
 		o.logger.Info("orchestrator: persisted", "integration_id", integ.ID, "source_games", len(batch.SourceGames))
 		o.publishEventWithContext(ctx, "scan_integration_complete", map[string]any{
 			"integration_id": integ.ID,
@@ -544,6 +552,11 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 		if err := o.gameStore.PersistScanResults(ctx, batch); err != nil {
 			o.publishScanError(ctx, integrationID, err)
 			return nil, fmt.Errorf("persist metadata refresh for %q: %w", integrationID, err)
+		}
+		if o.mediaDownloadQueue != nil {
+			if err := o.mediaDownloadQueue.EnqueuePending(ctx); err != nil {
+				o.logger.Warn("orchestrator: enqueue pending media downloads failed", "integration_id", integrationID, "error", err)
+			}
 		}
 
 		o.publishEventWithContext(ctx, "scan_integration_complete", map[string]any{

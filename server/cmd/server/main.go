@@ -18,6 +18,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/http"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/keystore"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/logger"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/media"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
 	saveSync "github.com/GreenFuze/MyGamesAnywhere/server/internal/save_sync"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
@@ -55,9 +56,10 @@ func main() {
 	syncSvc := mgasync.NewSyncService(integrationRepo, settingRepo, pluginHost, ks, logSvc)
 	saveSyncSvc := saveSync.NewService(integrationRepo, gameStore, pluginHost, logSvc, eventBus)
 	cacheSvc := sourcecache.NewService(cacheStore, integrationRepo, pluginHost, configSvc, logSvc)
-	orchestrator := scan.NewOrchestrator(pluginHost, pluginHost, integrationRepo, gameStore, logSvc)
+	mediaSvc := media.NewService(gameStore, configSvc, logSvc)
+	orchestrator := scan.NewOrchestrator(pluginHost, pluginHost, integrationRepo, gameStore, mediaSvc, logSvc)
 	orchestrator.SetEventBus(eventBus)
-	manualReviewSvc := scan.NewManualReviewService(pluginHost, pluginHost, integrationRepo, gameStore, logSvc)
+	manualReviewSvc := scan.NewManualReviewService(pluginHost, pluginHost, integrationRepo, gameStore, mediaSvc, logSvc)
 
 	gameCtrl := http.NewGameController(gameStore, integrationRepo, cacheSvc, logSvc)
 	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc)
@@ -75,7 +77,7 @@ func main() {
 
 	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, reviewCtrl, achievementCtrl, syncCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl)
 
-	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost, eventBus)
+	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost, eventBus, mediaSvc)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

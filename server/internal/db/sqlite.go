@@ -46,6 +46,11 @@ func (s *sqliteDatabase) Connect() error {
 	if err != nil {
 		return fmt.Errorf("failed to open sqlite database: %w", err)
 	}
+	// SQLite behaves more predictably for this app when all goroutines share
+	// one pooled connection instead of opening multiple writer-capable handles
+	// that race into SQLITE_BUSY.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	if err := db.Ping(); err != nil {
 		return fmt.Errorf("failed to ping sqlite database: %w", err)
@@ -54,6 +59,11 @@ func (s *sqliteDatabase) Connect() error {
 	// Enable WAL mode for better concurrent read/write performance.
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		s.logger.Warn("could not enable WAL mode", "error", err)
+	}
+	// Wait for a short window when another write transaction is active instead
+	// of immediately surfacing SQLITE_BUSY to callers.
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		s.logger.Warn("could not enable busy timeout", "error", err)
 	}
 	// Enforce foreign key constraints.
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {

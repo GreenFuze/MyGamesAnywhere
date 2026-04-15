@@ -53,9 +53,9 @@ export function GameCard({ game }: GameCardProps) {
         <CoverImage
           src={coverUrl}
           alt={game.title}
-          fit="contain"
+          fit="cover"
           variant="card"
-          className="aspect-[2/3] w-full"
+          className="aspect-square w-full"
         />
 
         <div className="absolute left-2 top-2 flex max-w-[calc(100%-1rem)] flex-wrap gap-1">

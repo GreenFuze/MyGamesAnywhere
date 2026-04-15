@@ -15,13 +15,14 @@ import (
 )
 
 type App struct {
-	logger     core.Logger
-	config     core.Configuration
-	db         core.Database
-	server     core.Server
-	authSvc    auth.AuthService
-	pluginHost plugins.PluginHost
-	eventBus   *events.EventBus
+	logger             core.Logger
+	config             core.Configuration
+	db                 core.Database
+	server             core.Server
+	authSvc            auth.AuthService
+	pluginHost         plugins.PluginHost
+	eventBus           *events.EventBus
+	backgroundServices []core.BackgroundService
 }
 
 func NewApp(
@@ -32,15 +33,17 @@ func NewApp(
 	authSvc auth.AuthService,
 	pluginHost plugins.PluginHost,
 	eventBus *events.EventBus,
+	backgroundServices ...core.BackgroundService,
 ) *App {
 	return &App{
-		logger:     logger,
-		config:     config,
-		db:         db,
-		server:     server,
-		authSvc:    authSvc,
-		pluginHost: pluginHost,
-		eventBus:   eventBus,
+		logger:             logger,
+		config:             config,
+		db:                 db,
+		server:             server,
+		authSvc:            authSvc,
+		pluginHost:         pluginHost,
+		eventBus:           eventBus,
+		backgroundServices: backgroundServices,
 	}
 }
 
@@ -82,6 +85,15 @@ func (a *App) Run(ctx context.Context) error {
 			errChan <- err
 		}
 	}()
+
+	for _, svc := range a.backgroundServices {
+		if svc == nil {
+			continue
+		}
+		if err := svc.Start(ctx); err != nil {
+			return fmt.Errorf("background service start failed: %w", err)
+		}
+	}
 
 	select {
 	case err := <-errChan:

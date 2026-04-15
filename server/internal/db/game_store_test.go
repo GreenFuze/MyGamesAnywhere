@@ -101,6 +101,13 @@ func TestEnsureSchemaMigratesLegacyScanCanonicalIDsToUUIDs(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.GetDB().ExecContext(ctx, `INSERT INTO metadata_resolver_matches
+		(source_game_id, plugin_id, external_id, title, platform, outvoted, manual_selection, rating, created_at)
+		VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?)`,
+		"scan:legacy-source", "metadata-igdb", "legacy-match", "Legacy Game", "windows_pc", 1700000000,
+	); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := db.EnsureSchema(); err != nil {
 		t.Fatal(err)
@@ -722,6 +729,177 @@ func TestListManualReviewCandidatesFiltersToNeedsReview(t *testing.T) {
 	}
 	if !containsString(reasonsByID["scan:review-no-title"], "no_resolved_title") {
 		t.Fatalf("review-no-title reasons = %+v, want no_resolved_title", reasonsByID["scan:review-no-title"])
+	}
+}
+
+func TestUndetectedCandidatesAreHiddenFromLibraryVisibilityAndBecomeVisibleWhenMatched(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "scan:review-no-match",
+				IntegrationID: "integration-1",
+				PluginID:      "game-source-steam",
+				ExternalID:    "review-no-match",
+				RawTitle:      "Unidentified Game",
+				Platform:      core.PlatformUnknown,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindUnknown,
+				Status:        "found",
+			},
+			{
+				ID:            "scan:clean",
+				IntegrationID: "integration-1",
+				PluginID:      "game-source-steam",
+				ExternalID:    "clean",
+				RawTitle:      "Resolved Game",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			},
+		},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:clean": {{
+				PluginID:   "metadata-igdb",
+				Title:      "Resolved Game",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "clean-match",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if n, err := store.CountVisibleCanonicalGames(ctx); err != nil {
+		t.Fatal(err)
+	} else if n != 1 {
+		t.Fatalf("count visible canonical = %d, want 1", n)
+	}
+
+	visibleIDs, err := store.GetVisibleCanonicalIDs(ctx, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(visibleIDs) != 1 {
+		t.Fatalf("len(visible_ids) = %d, want 1", len(visibleIDs))
+	}
+	cleanCanonicalID := canonicalIDForSource(t, ctx, db, "scan:clean")
+	if visibleIDs[0] != cleanCanonicalID {
+		t.Fatalf("visible canonical id = %q, want %q", visibleIDs[0], cleanCanonicalID)
+	}
+
+	games, err := store.GetCanonicalGames(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(games) != 1 {
+		t.Fatalf("len(canonical games) = %d, want 1", len(games))
+	}
+	if len(games[0].SourceGames) != 1 || games[0].SourceGames[0].ID != "scan:clean" {
+		t.Fatalf("canonical source games = %+v, want only clean source", games[0].SourceGames)
+	}
+
+	foundGames, err := store.GetFoundSourceGames(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(foundGames) != 1 || foundGames[0].ID != "scan:clean" {
+		t.Fatalf("found games = %+v, want only clean source", foundGames)
+	}
+
+	stats, err := store.GetLibraryStats(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.CanonicalGameCount != 1 {
+		t.Fatalf("canonical_game_count = %d, want 1", stats.CanonicalGameCount)
+	}
+	if stats.SourceGameFoundCount != 1 {
+		t.Fatalf("source_game_found_count = %d, want 1", stats.SourceGameFoundCount)
+	}
+	if stats.ByIntegrationID["integration-1"] != 1 {
+		t.Fatalf("by_integration = %+v, want integration-1 => 1", stats.ByIntegrationID)
+	}
+	if stats.ByPluginID["game-source-steam"] != 1 {
+		t.Fatalf("by_plugin = %+v, want game-source-steam => 1", stats.ByPluginID)
+	}
+
+	integrationGames, err := store.GetGamesByIntegrationID(ctx, "integration-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(integrationGames) != 1 || integrationGames[0].Title != "Resolved Game" {
+		t.Fatalf("integration games = %+v, want only resolved game", integrationGames)
+	}
+
+	counts, err := store.GetSourceGameCountsByIntegration(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts["integration-1"] != 1 {
+		t.Fatalf("source game counts = %+v, want integration-1 => 1", counts)
+	}
+
+	if err := store.SaveManualReviewResult(ctx, &core.SourceGame{
+		ID:            "scan:review-no-match",
+		IntegrationID: "integration-1",
+		PluginID:      "game-source-steam",
+		ExternalID:    "review-no-match",
+		RawTitle:      "Unidentified Game",
+		Platform:      core.PlatformWindowsPC,
+		Kind:          core.GameKindBaseGame,
+		GroupKind:     core.GroupKindSelfContained,
+		Status:        "found",
+		ReviewState:   core.ManualReviewStateMatched,
+		ManualReview: &core.ManualReviewDecision{
+			State: core.ManualReviewStateMatched,
+			Selected: &core.ManualReviewSelection{
+				ProviderPluginID: "metadata-igdb",
+				ExternalID:       "review-match",
+				Title:            "Identified Game",
+				Platform:         string(core.PlatformWindowsPC),
+				Kind:             string(core.GameKindBaseGame),
+			},
+		},
+	}, []core.ResolverMatch{{
+		PluginID:        "metadata-igdb",
+		ExternalID:      "review-match",
+		Title:           "Identified Game",
+		Platform:        string(core.PlatformWindowsPC),
+		ManualSelection: true,
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if n, err := store.CountVisibleCanonicalGames(ctx); err != nil {
+		t.Fatal(err)
+	} else if n != 2 {
+		t.Fatalf("count visible canonical after match = %d, want 2", n)
+	}
+
+	foundGames, err = store.GetFoundSourceGames(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(foundGames) != 2 {
+		t.Fatalf("len(found games after match) = %d, want 2", len(foundGames))
+	}
+
+	reviewCanonicalID := canonicalIDForSource(t, ctx, db, "scan:review-no-match")
+	game, err := store.GetCanonicalGameByID(ctx, reviewCanonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil {
+		t.Fatal("expected canonical game for matched review candidate")
+	}
+	if game.Title != "Identified Game" {
+		t.Fatalf("canonical title = %q, want %q", game.Title, "Identified Game")
 	}
 }
 
