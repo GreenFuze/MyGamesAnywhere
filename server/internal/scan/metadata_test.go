@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
@@ -394,6 +395,58 @@ func TestEnrich_FillPhase(t *testing.T) {
 	// Plugin B: called in phase 1 (miss) + phase 3 (fill with canonical title).
 	if callCount["plugin-b"] != 2 {
 		t.Errorf("plugin-b call count: got %d, want 2", callCount["plugin-b"])
+	}
+}
+
+func TestIdentifyStrictRunsSourcesConcurrently(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
+
+	caller := &mockCaller{
+		callFn: func(pluginID, method string, params any) (any, error) {
+			if method != metadataGameLookupMethod {
+				return nil, nil
+			}
+			started <- pluginID
+			<-release
+			return metadataLookupResponse{
+				Results: []metadataMatch{{
+					Index:      0,
+					Title:      pluginID,
+					ExternalID: pluginID,
+				}},
+			}, nil
+		},
+	}
+
+	resolver := NewMetadataResolver(caller, testLogger{})
+	games := []*core.Game{
+		{Title: "proof", RawTitle: "proof", Platform: core.PlatformUnknown, Kind: core.GameKindBaseGame},
+	}
+	sources := []MetadataSource{
+		{PluginID: "plugin-a", Config: map[string]any{}},
+		{PluginID: "plugin-b", Config: map[string]any{}},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- resolver.identifyStrict(context.Background(), "integration-proof", games, sources)
+	}()
+
+	seen := map[string]bool{}
+	timeout := time.After(2 * time.Second)
+	for len(seen) < 2 {
+		select {
+		case pluginID := <-started:
+			seen[pluginID] = true
+		case <-timeout:
+			t.Fatalf("identifyStrict did not start both metadata providers concurrently; saw=%v", seen)
+		}
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("identifyStrict returned error: %v", err)
 	}
 }
 

@@ -18,6 +18,7 @@ import {
   ApiError,
   getGame,
   getGameAchievements,
+  refreshGameMetadata,
   type AchievementDTO,
   type AchievementSetDTO,
   type ExternalIDDTO,
@@ -40,18 +41,18 @@ import {
   resolveBrandDefinitionFromUrl,
 } from '@/lib/brands'
 import {
+  clearBrowserPlaySourcePreference,
   browserPlaySourceContext,
   browserPlaySourceOptionLabel,
-  listBrowserPlaySelections,
+  getBrowserPlayRuntime,
   readBrowserPlaySourcePreference,
-  selectBrowserPlaySelection,
+  resolveBrowserPlaySelection,
   writeBrowserPlaySourcePreference,
 } from '@/lib/browserPlay'
 import { inferOriginLabel, readGameRouteState } from '@/lib/gameNavigation'
 import {
   formatHLTB,
   hasBrowserPlaySupport,
-  isPlayable,
   pluginLabel,
   selectSourcePlugins,
   sourceMatchCount,
@@ -742,6 +743,9 @@ export function GameDetailPage() {
   const queryClient = useQueryClient()
   const { recordLaunch } = useRecentPlayed()
   const [selectedMedia, setSelectedMedia] = useState<GameMediaDetailDTO | null>(null)
+  const [refreshBusy, setRefreshBusy] = useState(false)
+  const [refreshNotice, setRefreshNotice] = useState('')
+  const [refreshError, setRefreshError] = useState('')
   const hasRetried404Ref = useRef(false)
 
   const routeState = readGameRouteState(location.state)
@@ -784,19 +788,23 @@ export function GameDetailPage() {
   const heroUrl = heroMedia ? mediaUrl(heroMedia) : null
   const coverUrl = coverMedia ? mediaUrl(coverMedia) : null
   const [selectedBrowserSourceId, setSelectedBrowserSourceId] = useState('')
-  const playable = gameData ? isPlayable(gameData) : false
   const browserSupported = gameData ? hasBrowserPlaySupport(gameData) : false
-  const browserPlaySelections = useMemo(
-    () => (gameData ? listBrowserPlaySelections(gameData) : []),
-    [gameData],
-  )
-  const selectedBrowserSelection = useMemo(() => {
+  const browserPlayResolution = useMemo(() => {
     if (!gameData) return null
-    const runtime = browserPlaySelections[0]?.runtime ?? null
-    const storedSourceId = runtime ? readBrowserPlaySourcePreference(gameData.id, runtime) : null
-    const preferredSourceId = selectedBrowserSourceId || storedSourceId
-    return selectBrowserPlaySelection(gameData, preferredSourceId)
-  }, [browserPlaySelections, gameData, selectedBrowserSourceId])
+    const runtime = getBrowserPlayRuntime(gameData.platform)
+    const rememberedSourceId = selectedBrowserSourceId
+      ? null
+      : (runtime ? readBrowserPlaySourcePreference(gameData.id, runtime) : null)
+    return resolveBrowserPlaySelection(gameData, {
+      requestedSourceGameId: selectedBrowserSourceId || null,
+      rememberedSourceGameId: rememberedSourceId,
+    })
+  }, [gameData, selectedBrowserSourceId])
+  const browserPlaySelections = browserPlayResolution?.selections ?? []
+  const selectedBrowserSelection = browserPlayResolution?.selection ?? null
+  const browserPlayable = browserPlaySelections.length > 0
+  const browserPlayIssue = browserPlayResolution?.issue ?? null
+  const browserPlayRuntime = browserPlayResolution?.runtime ?? null
   const sources = gameData ? selectSourcePlugins(gameData) : []
   const hltb = gameData ? formatHLTB(gameData.completion_time) : null
   const matchCount = gameData ? sourceMatchCount(gameData) : 0
@@ -824,9 +832,14 @@ export function GameDetailPage() {
   const achievementSets = useMemo(() => (achievements.data ?? []).map(sortAchievementSet), [achievements.data])
   const achievementSummary = useMemo(() => summarizeAchievements(achievementSets), [achievementSets])
   const launchableSourceCount = browserPlaySelections.length
+  const hasFileBackedSourceRecords = (gameData?.source_games ?? []).some((source) => source.files.length > 0)
 
   useEffect(() => {
     hasRetried404Ref.current = false
+  }, [id])
+
+  useEffect(() => {
+    setSelectedBrowserSourceId('')
   }, [id])
 
   useEffect(() => {
@@ -835,15 +848,9 @@ export function GameDetailPage() {
   }, [achievements.isSuccess, queryClient])
 
   useEffect(() => {
-    const resolvedSourceId = selectedBrowserSelection?.sourceGame.id ?? ''
-    if (resolvedSourceId === selectedBrowserSourceId) return
-    setSelectedBrowserSourceId(resolvedSourceId)
-  }, [selectedBrowserSelection, selectedBrowserSourceId])
-
-  useEffect(() => {
-    if (!gameData || !selectedBrowserSelection) return
-    writeBrowserPlaySourcePreference(gameData.id, selectedBrowserSelection.runtime, selectedBrowserSelection.sourceGame.id)
-  }, [gameData, selectedBrowserSelection])
+    if (!gameData || !browserPlayRuntime || !browserPlayResolution?.invalidRememberedSourceGameId) return
+    clearBrowserPlaySourcePreference(gameData.id, browserPlayRuntime)
+  }, [browserPlayResolution?.invalidRememberedSourceGameId, browserPlayRuntime, gameData])
 
   useEffect(() => {
     if (!game.data || id.length === 0 || game.data.id === id) return
@@ -867,11 +874,9 @@ export function GameDetailPage() {
 
   const handleLaunchBrowser = () => {
     const currentGame = game.data
-    if (!currentGame || !playable) return
+    if (!currentGame || !browserPlayResolution?.canLaunch || !selectedBrowserSelection) return
     const params = new URLSearchParams()
-    if (selectedBrowserSelection) {
-      params.set('source', selectedBrowserSelection.sourceGame.id)
-    }
+    params.set('source', selectedBrowserSelection.sourceGame.id)
     navigate(
       {
         pathname: `/game/${encodeURIComponent(currentGame.id)}/play`,
@@ -884,6 +889,12 @@ export function GameDetailPage() {
   const handleBack = () => {
     const shouldRestoreScroll = from.startsWith('/play') || from.startsWith('/library')
     navigate(from, shouldRestoreScroll ? { state: { restoreScroll: true } } : undefined)
+  }
+
+  const handleBrowserSourceChange = (sourceGameId: string) => {
+    setSelectedBrowserSourceId(sourceGameId)
+    if (!gameData || !browserPlayRuntime || !sourceGameId) return
+    writeBrowserPlaySourcePreference(gameData.id, browserPlayRuntime, sourceGameId)
   }
 
   const handleReclassify = () => {
@@ -902,6 +913,30 @@ export function GameDetailPage() {
       params.set('reclassify_source', primarySource)
     }
     navigate({ pathname: '/settings', search: params.toString() })
+  }
+
+  const handleRefreshMetadata = async () => {
+    if (!game.data || refreshBusy) return
+    setRefreshBusy(true)
+    setRefreshNotice('')
+    setRefreshError('')
+    try {
+      const refreshed = await refreshGameMetadata(game.data.id)
+      queryClient.setQueryData(['game', refreshed.id], refreshed)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['games'] }),
+        queryClient.invalidateQueries({ queryKey: ['game', refreshed.id, 'achievements'] }),
+      ])
+      setRefreshNotice('Metadata and media refresh completed.')
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.responseText?.trim() || error.message
+          : (error instanceof Error ? error.message : 'Refresh failed.')
+      setRefreshError(message)
+    } finally {
+      setRefreshBusy(false)
+    }
   }
 
   if (game.isPending) {
@@ -975,7 +1010,7 @@ export function GameDetailPage() {
                 <Badge variant="platform"><PlatformIcon platform={data.platform} showLabel /></Badge>
                 {data.xcloud_available && <BrandBadge brand="xcloud" label="xCloud" />}
                 {data.is_game_pass && <Badge variant="gamepass">Game Pass</Badge>}
-                {playable && <Badge variant="playable">Browser Play</Badge>}
+                {browserPlayable && <Badge variant="playable">Browser Play</Badge>}
                 {hltb && <Badge>{hltb}</Badge>}
                 {matchCount > 0 && <Badge>{matchCount} source{matchCount === 1 ? '' : 's'}</Badge>}
               </div>
@@ -1011,14 +1046,19 @@ export function GameDetailPage() {
                   {achievementSets.length > 0 ? <SectionJumpLink href="#achievements" label="Achievements" /> : null}
                 </div>
               </div>
-              {playable && browserPlaySelections.length > 1 && selectedBrowserSelection && (
+              {browserPlayable && browserPlaySelections.length > 1 && (
                 <div className="rounded-mga border border-mga-border bg-mga-surface/60 p-3">
                   <label className="mb-1 block text-xs uppercase tracking-wide text-mga-muted">Source</label>
                   <select
-                    value={selectedBrowserSelection.sourceGame.id}
-                    onChange={(event) => setSelectedBrowserSourceId(event.target.value)}
+                    value={selectedBrowserSelection?.sourceGame.id ?? selectedBrowserSourceId}
+                    onChange={(event) => handleBrowserSourceChange(event.target.value)}
                     className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text"
                   >
+                    {!selectedBrowserSelection && (
+                      <option value="" disabled>
+                        Choose a source to enable launch
+                      </option>
+                    )}
                     {browserPlaySelections.map((selection) => (
                       <option key={selection.sourceGame.id} value={selection.sourceGame.id}>
                         {browserPlaySourceOptionLabel(selection)}
@@ -1026,7 +1066,9 @@ export function GameDetailPage() {
                     ))}
                   </select>
                   <p className="mt-2 text-xs text-mga-muted">
-                    {browserPlaySourceContext(selectedBrowserSelection)}
+                    {selectedBrowserSelection
+                      ? browserPlaySourceContext(selectedBrowserSelection)
+                      : (browserPlayIssue?.message ?? 'Choose the source or version to launch.')}
                   </p>
                 </div>
               )}
@@ -1037,11 +1079,12 @@ export function GameDetailPage() {
                     Play on xCloud
                   </a>
                 )}
-                {playable && (
+                {browserPlayable && (
                   <button
                     type="button"
                     onClick={handleLaunchBrowser}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-4 py-2 text-sm font-medium text-mga-text transition-colors hover:bg-mga-elevated"
+                    disabled={!browserPlayResolution?.canLaunch}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-4 py-2 text-sm font-medium text-mga-text transition-colors hover:bg-mga-elevated disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <PlayCircle size={16} />
                     Play in Browser
@@ -1067,13 +1110,39 @@ export function GameDetailPage() {
                   <ArrowRightLeft size={16} />
                   Reclassify
                 </button>
+                <button
+                  type="button"
+                  onClick={handleRefreshMetadata}
+                  disabled={refreshBusy}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-4 py-2 text-sm font-medium text-mga-text transition-colors hover:bg-mga-elevated disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Database size={16} />
+                  {refreshBusy ? 'Refreshing...' : 'Refresh Metadata & Media'}
+                </button>
+                {hasFileBackedSourceRecords && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled
+                    title="Hard delete for file-backed source records is not implemented yet."
+                    className="border-red-500/30 text-red-200 opacity-70"
+                  >
+                    <FileText size={16} />
+                    Hard Delete (Not Yet Implemented)
+                  </Button>
+                )}
               </div>
               {data.xcloud_url && <AttributionNote sources={['xcloud']} prefix="Streaming target" />}
-              {browserSupported && !playable && (
+              {browserSupported && !browserPlayable && (
                 <p className="text-xs text-mga-muted">
-                  Browser Play is supported for this platform, but no launchable source file was found yet.
+                  {browserPlayIssue?.message ?? 'Browser Play is supported for this platform, but no launchable source file was found yet.'}
                 </p>
               )}
+              {browserSupported && browserPlayable && !browserPlayResolution?.canLaunch && browserPlayIssue && (
+                <p className="text-xs text-amber-300">{browserPlayIssue.message}</p>
+              )}
+              {refreshNotice && <p className="text-xs text-green-400">{refreshNotice}</p>}
+              {refreshError && <p className="text-xs text-red-400">{refreshError}</p>}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

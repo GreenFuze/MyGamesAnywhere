@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { BrandIcon } from '@/components/ui/brand-icon'
+import { PLATFORM_META, platformEmoji, platformLabel } from '@/lib/displayText'
 import { cn } from '@/lib/utils'
-import { PLATFORM_META, platformEmoji, platformLabel } from '@/lib/gameUtils'
 
 // ---------------------------------------------------------------------------
 // Icon registry — swap in real SVG imports here later

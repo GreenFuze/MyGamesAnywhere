@@ -38,6 +38,94 @@ func TestDecodedPathParamUnescapesLegacyGameIDs(t *testing.T) {
 	}
 }
 
+type fakeGameMetadataRefreshService struct {
+	game *core.CanonicalGame
+	err  error
+}
+
+func (f *fakeGameMetadataRefreshService) RefreshGameMetadata(context.Context, string) (*core.CanonicalGame, error) {
+	return f.game, f.err
+}
+
+func TestGameControllerRefreshMetadataReturnsRefreshedGame(t *testing.T) {
+	controller := NewGameController(
+		&fakeGameStore{},
+		&fakeGameMetadataRefreshService{
+			game: &core.CanonicalGame{
+				ID:    "game-1",
+				Title: "Refreshed Game",
+			},
+		},
+		nil,
+		nil,
+		noopLogger{},
+	)
+
+	router := chi.NewRouter()
+	router.Post("/api/games/{id}/refresh-metadata", controller.RefreshMetadata)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/games/game-1/refresh-metadata", bytes.NewBufferString(`{}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var item GameDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &item); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if item.ID != "game-1" {
+		t.Fatalf("id = %q, want %q", item.ID, "game-1")
+	}
+	if item.Title != "Refreshed Game" {
+		t.Fatalf("title = %q, want %q", item.Title, "Refreshed Game")
+	}
+}
+
+func TestGameControllerRefreshMetadataMapsFastFailErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		serviceErr error
+		wantStatus int
+	}{
+		{
+			name:       "no eligible source records",
+			serviceErr: core.ErrMetadataRefreshNoEligible,
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name:       "providers unavailable",
+			serviceErr: core.ErrMetadataProvidersUnavailable,
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			controller := NewGameController(
+				&fakeGameStore{},
+				&fakeGameMetadataRefreshService{err: tc.serviceErr},
+				nil,
+				nil,
+				noopLogger{},
+			)
+
+			router := chi.NewRouter()
+			router.Post("/api/games/{id}/refresh-metadata", controller.RefreshMetadata)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/games/game-1/refresh-metadata", bytes.NewBufferString(`{}`))
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.wantStatus)
+			}
+		})
+	}
+}
+
 func TestNormalizeAchievementResultRecomputesCountsAndClearsLockedTimestamps(t *testing.T) {
 	fetchedAt := time.Unix(1710000000, 0).UTC()
 	raw := rawAchievementPluginResult{
@@ -317,6 +405,9 @@ func (f *fakeGameStore) SetManualReviewState(_ context.Context, candidateID stri
 	return nil
 }
 func (f *fakeGameStore) GetFoundSourceGames(context.Context, []string) ([]*core.FoundSourceGame, error) {
+	panic("unexpected call")
+}
+func (f *fakeGameStore) GetFoundSourceGameRecords(context.Context, []string) ([]*core.SourceGame, error) {
 	panic("unexpected call")
 }
 func (f *fakeGameStore) DeleteGamesByIntegrationID(context.Context, string) error {

@@ -1,21 +1,26 @@
 # MyGamesAnywhere — Roadmap
 
-## Current Status — 2026-04-15
+## Current Status — 2026-04-17
 - Working tree now includes the April 15 session changes on top of `19cd0dc` (`dosbox fix`): active Undetected Games candidates are hidden from Library / Play-facing surfaces and library-facing counts.
-- Browser play still has working launch plumbing for EmulatorJS, js-dos, and ScummVM; save import/export manual proof remains open because this session did not have a browser binary on `PATH`, the repo does not bundle EmulatorJS/js-dos proof fixtures, and the ScummVM harness still depends on an external game tree.
+- Browser play now has automated end-to-end save import/export proof for EmulatorJS, js-dos, and ScummVM via `tools/browser-play`, including the bundle-backed js-dos path and the explicit unsupported-state fast-fail for plain-file js-dos launches.
 - Filesystem-backed SMB/Google Drive integrations use `include_paths[]` with per-include `recursive`, source-identity duplicate detection, and scope-aware final-scan cleanup.
-- Undetected Games manual apply still runs configured metadata lookup/fill and persists resolver/media refs.
+- Undetected Games manual apply now reuses the shared refresh/persist/media-enqueue path used by metadata refresh flows, preserving manual-selection precedence while avoiding a second enrichment pipeline.
 - Media URL refs are now downloaded by a background worker into `MEDIA_ROOT` from existing pending rows at startup and after scan/manual-review persistence.
 - HLTB-hosted cover downloads now use browser-style request headers in the media worker so `howlongtobeat.com/games/*.jpg` assets no longer fail with `403` during background caching.
 - Shared frontend media selection is now centralized, so Library / Play cards and the game detail page agree on cover fallback behavior when a game has screenshots/artwork but no explicit `cover` media row.
 - The Settings → Undetected Games reclassify path now normalizes nullable candidate fields before rendering, so direct `Reclassify` deep-links from the game page no longer crash on `null` arrays/text fields.
+- Game detail now exposes `Refresh Metadata & Media`, backed by a shared game-scoped metadata refresh path that persists refreshed matches/media refs before enqueueing background media downloads.
+- Frontend build vulnerabilities are addressed by the Vite 7 toolchain upgrade and lockfile refresh; `npm audit` is clean again.
+- Shared title normalization now strips common dump/region suffix noise such as trailing `(...)` and `[...]`, with regression coverage for cases like `aladdin (u) [!]`.
+- TGDB has been removed from plugin/runtime discovery and product-facing branding/about references.
+- Scan preparation and metadata-provider fetching now run with bounded concurrency, while persistence remains serialized on the shared scan path to avoid partial-write races and SQLite lock churn.
 
 ## Completed
 
 ### Server Core
 - [x] Plugin architecture (IPC, length-prefixed JSON over stdin/stdout)
 - [x] Game source plugins: SMB, Steam, Xbox, Epic, Google Drive
-- [x] Metadata resolver plugins: IGDB, RAWG, Steam, GOG, LaunchBox, MAME DAT, HLTB, RetroAchievements, TGDB (disabled)
+- [x] Metadata resolver plugins: IGDB, RAWG, Steam, GOG, LaunchBox, MAME DAT, HLTB, RetroAchievements
 - [x] 3-phase metadata orchestrator (Identify → Consensus → Fill)
 - [x] Scanner pipeline (file detection, platform detection, title normalization, role classification, grouping)
 - [x] Achievement support (Steam, Xbox, RetroAchievements — on-demand)
@@ -478,7 +483,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] MGA version, build date, author credits
 - [x] "Powered By" grid with logos and one-liner descriptions for currently integrated services:
   IGDB, RAWG, Steam, GOG, LaunchBox, MAME, HowLongToBeat, RetroAchievements,
-  TheGamesDB, ScummVM, Xbox/xCloud, Epic Games, Google Drive, SMB
+  ScummVM, Xbox/xCloud, Epic Games, Google Drive, SMB
 - [x] Extend "Powered By" coverage for future emulation/runtime services:
   EmulatorJS/RetroArch, js-dos/DOSBox
 - [x] "View Open Source Licenses" link
@@ -504,17 +509,18 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] HLTB lookup now uses the current live auth/init + `/api/find` flow, with legacy fallback and clearer diagnostics on provider failures
 - [x] HLTB image downloads now use browser-style `User-Agent` / `Referer` headers in the background media worker so direct `howlongtobeat.com/games/*.jpg` fetches do not fail with `403`
 - [x] RetroAchievements integration config already requires `username` in the plugin manifest/code and the settings UI schema-driven forms expose/persist it
-- [ ] remove TGDB - it has too low API quota
+- [x] remove TGDB - it has too low API quota
 - [x] Media download background worker (pending `media_assets` rows are swept at startup and enqueued again after scan/manual-review persistence; successful downloads write relative `local_path` + `hash` under `MEDIA_ROOT`)
 - [ ] Schema migration strategy (deferred until after first release)
 - [ ] Add Metacritic scoring
-- [ ] Fix npm build vulnerabilities detected during build
-- [ ] Concurrency on scanning/metadata-fetching
+- [x] Fix npm build vulnerabilities detected during build
+- [x] Concurrency on scanning/metadata-fetching
 - [x] Browser-play launch proof: EmulatorJS launches with corrected full-parent sizing after the definite-height shell/absolute iframe fix
 - [x] Browser-play launch proof: js-dos launches plain-file games from the corrected launch-root-relative mount and executable selection flow
 - [x] Browser-play launch proof: ScummVM launches through the generic file-list runtime with plugin preload and HTTP-backed FS
-- [ ] Browser-play manual proof: save import/export across EmulatorJS, js-dos, and ScummVM where supported
+- [x] Browser-play manual proof: save import/export across EmulatorJS, js-dos, and ScummVM where supported
   - 2026-04-15 session result: not executable in-session. There was no browser binary/automation path available, the repo does not bundle EmulatorJS/js-dos save-proof fixtures, and `tools/scummvm-harness` still requires an external ScummVM game tree.
+  - 2026-04-17 follow-up: automated end-to-end proof now runs from `tools/browser-play/proof-runner.mjs` via `npm run proof:e2e` against the built frontend and real runtime bridge.
 - [x] Playable-games sidebar now uses compact platform icon rendering without duplicating text-style badges like the in-app GBA mark
 - [x] The playable games sidebar now has its own desktop-only scrolling container, separate from the main page scroller, with a theme-colored thumb and transparent track.
 - [x] EmulatorJS expands to the whole parent player component after repairing the definite-height layout chain and absolute iframe/runtime sizing.
@@ -530,15 +536,17 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Scope-aware persistence rules are implemented for the current filesystem model: `found` rows remain, in-scope missing rows are soft-deleted, and out-of-scope rows are hard-deleted instead of being persisted with an explicit `out_of_scope` status.
 - [x] Duplicate-integration rules were revisited for filesystem-backed plugins: SMB/Google Drive use plugin-reported `source_identity` to prevent duplicate backend connections while scan scope is modeled through `include_paths[]`.
 - [ ] Add timeline view (library by release year)
-- [ ] in platforms view, it shows "ms_dos" and "ps1" and such. It should have a "display text". Maybe the DB should hold also a "display name" for some tables? think critically! I'm not sure this is the right solution.
-- [ ] I think we should add to the flow of detecting a game, running the whole metadata/media etc workflow. you should reuse the same code used while detecting game via scanning. if you need - refactor.
-- [ ] also to "game page" add "refresh metadata and media" to manually trigger this workflow for that game.
-- [ ] I think the automatic detection algorithm of a game can also try, as part of the "tryouts to detect a game" remove parenthesis "()" and brackets "[]". for example, the non-detected game `aladdin (u) [!]`, would become "aladdin" if we remove (u) and [!] and trim the whitespaces.
+- [x] in platforms view, it shows "ms_dos" and "ps1" and such. It should have a "display text". Maybe the DB should hold also a "display name" for some tables? think critically! I'm not sure this is the right solution.
+- [x] I think we should add to the flow of detecting a game, running the whole metadata/media etc workflow. you should reuse the same code used while detecting game via scanning. if you need - refactor.
+- [x] also to "game page" add "refresh metadata and media" to manually trigger this workflow for that game.
+- [x] I think the automatic detection algorithm of a game can also try, as part of the "tryouts to detect a game" remove parenthesis "()" and brackets "[]". for example, the non-detected game `aladdin (u) [!]`, would become "aladdin" if we remove (u) and [!] and trim the whitespaces.
 - [x] undetected game should not be shown in the library (or "playable games")
 - [x] Game-page `Reclassify` deep-links no longer crash when the selected Undetected Games candidate contains nullable arrays or text fields; the Settings manual-review UI now normalizes that payload before reading `.length`, `.find()`, or `.trim()`
 - [x] Library / Play cards now use a squarer full-bleed cover area and share the same cover fallback selection as the game detail page when no explicit `cover` media item exists
 - [ ] in some cases, there might be multiple games but in different versions (in the same source). we need to mind that when Playing in browser.
-- [ ] we should support "hard-delete" of a game (including files). Notice, same game can appear in multiple sources.
+- [ ] we should support "hard-delete" of a game (including files) from the game page (with a strict Are You Sure dialog!). Notice, same game can appear in multiple sources. This would delete the files. It is only for files-backed sources.
+  - 2026-04-17 follow-up: game detail now exposes a file-backed-only disabled placeholder action so the eligibility/capability gating is visible, but destructive behavior is intentionally still not implemented.
 - [ ] In library, we can use "right click" to open a menu with game specific actions (same actions available in the games page, but also add "change cover photo").
-- [ ] Collapsed shelves in library should take almost the whole row. the "..." card should not look like a card, but as text, without the background and frame of a card. also it should be much smaller (and centerlized vertically).
-  Partial 2026-04-15 follow-up: Library / Play card image areas are now squarer and use full-bleed cover cropping, but the broader collapsed-shelf sizing / `...` presentation cleanup remains open.
+- [x] Collapsed shelves in library should take almost the whole row. the "..." card should not look like a card, but as text, without the background and frame of a card. also it should be much smaller (and centerlized vertically).
+  - 2026-04-17 follow-up: the overflow affordance now renders as compact text/expander UI rather than a peer card.
+- [ ] Library shelfs: Make the shelfs in the library scroll horizontally (like in netflix/game pass UI), but not using a scroller, but a "right arrow" button. It click on it would scroll to the next "page" in the shelf. This replaces the "..." button. If the user still clicks on the shelf's title (like today) it would open all the games in the shelf, like it is today. Also, notice, today's shelf doesn't use the entire available horizontal space to show games on each shelf.

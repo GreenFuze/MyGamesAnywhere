@@ -14,7 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
+
+	"github.com/GreenFuze/MyGamesAnywhere/server/pkg/titlematch"
 )
 
 // IPC protocol types.
@@ -114,14 +115,14 @@ type hltbSearchOptions struct {
 }
 
 type hltbGameOptions struct {
-	UserID        int            `json:"userId"`
-	Platform      string         `json:"platform"`
-	SortCategory  string         `json:"sortCategory"`
-	RangeCategory string         `json:"rangeCategory"`
-	RangeTime     hltbRange      `json:"rangeTime"`
-	Gameplay      hltbGameplay   `json:"gameplay"`
-	RangeYear     hltbRangeYear  `json:"rangeYear"`
-	Modifier      string         `json:"modifier"`
+	UserID        int           `json:"userId"`
+	Platform      string        `json:"platform"`
+	SortCategory  string        `json:"sortCategory"`
+	RangeCategory string        `json:"rangeCategory"`
+	RangeTime     hltbRange     `json:"rangeTime"`
+	Gameplay      hltbGameplay  `json:"gameplay"`
+	RangeYear     hltbRangeYear `json:"rangeYear"`
+	Modifier      string        `json:"modifier"`
 }
 
 type hltbRange struct {
@@ -150,40 +151,40 @@ type hltbListOptions struct {
 }
 
 type hltbSearchResponse struct {
-	Color    string     `json:"color"`
-	Title    string     `json:"title"`
-	Category string     `json:"category"`
-	Count    int        `json:"count"`
-	PageCurrent int    `json:"pageCurrent"`
-	PageTotal   int    `json:"pageTotal"`
-	PageSize    int    `json:"pageSize"`
-	Data     []hltbGame `json:"data"`
+	Color       string     `json:"color"`
+	Title       string     `json:"title"`
+	Category    string     `json:"category"`
+	Count       int        `json:"count"`
+	PageCurrent int        `json:"pageCurrent"`
+	PageTotal   int        `json:"pageTotal"`
+	PageSize    int        `json:"pageSize"`
+	Data        []hltbGame `json:"data"`
 }
 
 type hltbGame struct {
-	GameID           int    `json:"game_id"`
-	GameName         string `json:"game_name"`
-	GameNameDate     int    `json:"game_name_date"`
-	GameAlias        string `json:"game_alias"`
-	GameType         string `json:"game_type"`
-	GameImage        string `json:"game_image"`
-	CompMain         int    `json:"comp_main"`         // seconds
-	CompPlus         int    `json:"comp_plus"`         // seconds
-	CompComplete     int    `json:"comp_100"`          // seconds
-	CompAll          int    `json:"comp_all"`          // seconds
-	InvestedCo       int    `json:"invested_co"`       // seconds
-	InvestedMp       int    `json:"invested_mp"`       // seconds
-	CountComp        int    `json:"count_comp"`
-	CountPlaying     int    `json:"count_playing"`
-	CountBacklog     int    `json:"count_backlog"`
-	CountReview      int    `json:"count_review"`
-	ReviewScore      int    `json:"review_score"`
-	CountRetired     int    `json:"count_retired"`
-	ProfileDev       string `json:"profile_dev"`
-	ProfilePopular   int    `json:"profile_popular"`
-	ProfileSteam     int    `json:"profile_steam"`
-	ProfilePlatform  string `json:"profile_platform"`
-	ReleaseWorld     int    `json:"release_world"`
+	GameID          int    `json:"game_id"`
+	GameName        string `json:"game_name"`
+	GameNameDate    int    `json:"game_name_date"`
+	GameAlias       string `json:"game_alias"`
+	GameType        string `json:"game_type"`
+	GameImage       string `json:"game_image"`
+	CompMain        int    `json:"comp_main"`   // seconds
+	CompPlus        int    `json:"comp_plus"`   // seconds
+	CompComplete    int    `json:"comp_100"`    // seconds
+	CompAll         int    `json:"comp_all"`    // seconds
+	InvestedCo      int    `json:"invested_co"` // seconds
+	InvestedMp      int    `json:"invested_mp"` // seconds
+	CountComp       int    `json:"count_comp"`
+	CountPlaying    int    `json:"count_playing"`
+	CountBacklog    int    `json:"count_backlog"`
+	CountReview     int    `json:"count_review"`
+	ReviewScore     int    `json:"review_score"`
+	CountRetired    int    `json:"count_retired"`
+	ProfileDev      string `json:"profile_dev"`
+	ProfilePopular  int    `json:"profile_popular"`
+	ProfileSteam    int    `json:"profile_steam"`
+	ProfilePlatform string `json:"profile_platform"`
+	ReleaseWorld    int    `json:"release_world"`
 }
 
 // HLTB API calls.
@@ -402,22 +403,11 @@ func searchHLTB(query string) (*hltbSearchResponse, error) {
 var multiSpace = regexp.MustCompile(`\s+`)
 
 func normalizeTitle(s string) string {
-	s = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsSpace(r) {
-			return unicode.ToLower(r)
-		}
-		return ' '
-	}, s)
-	s = multiSpace.ReplaceAllString(s, " ")
-	return strings.TrimSpace(s)
+	return titlematch.NormalizeLookupTitle(s)
 }
 
 func tokenize(s string) map[string]bool {
-	tokens := make(map[string]bool)
-	for _, t := range strings.Fields(normalizeTitle(s)) {
-		tokens[t] = true
-	}
-	return tokens
+	return titlematch.TokenizeLookupTitle(s)
 }
 
 func jaccardSimilarity(a, b map[string]bool) float64 {

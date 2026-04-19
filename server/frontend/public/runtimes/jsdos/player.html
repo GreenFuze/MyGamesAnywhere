@@ -124,10 +124,10 @@
         if (message.type === 'import-save-snapshot') {
           try {
             const file = Array.isArray(message.files) ? message.files[0] : null
-            if (!file?.base64 || !currentSession?.bundleUrl) {
+            if (!currentSession?.bundleUrl) {
               throw new Error('This js-dos session requires a bundle-backed launch to import saves.')
             }
-            currentSession.importedBundleBase64 = file.base64
+            currentSession.importedBundleBase64 = file?.base64 ?? ''
             sessionStorage.setItem(`mga.browserPlaySession.${sessionId}`, JSON.stringify(currentSession))
             postBridgeMessage({ type: 'import-result', requestId: message.requestId, ok: true })
             window.setTimeout(() => window.location.reload(), 50)

@@ -14,6 +14,7 @@ type manualReviewService struct {
 	gameStore          core.GameStore
 	mediaDownloadQueue core.MediaDownloadQueue
 	metadataResolver   *MetadataResolver
+	refreshCoordinator *metadataRefreshCoordinator
 	logger             core.Logger
 }
 
@@ -25,12 +26,14 @@ func NewManualReviewService(
 	mediaDownloadQueue core.MediaDownloadQueue,
 	logger core.Logger,
 ) core.ManualReviewService {
+	resolver := NewMetadataResolver(caller, logger)
 	return &manualReviewService{
 		pluginDiscovery:    discovery,
 		integrationRepo:    integrationRepo,
 		gameStore:          gameStore,
 		mediaDownloadQueue: mediaDownloadQueue,
-		metadataResolver:   NewMetadataResolver(caller, logger),
+		metadataResolver:   resolver,
+		refreshCoordinator: newMetadataRefreshCoordinator(gameStore, mediaDownloadQueue, resolver, logger),
 		logger:             logger,
 	}
 }
@@ -62,12 +65,6 @@ func (s *manualReviewService) Apply(ctx context.Context, candidateID string, sel
 
 	game := manualReviewCandidateToGame(candidate)
 	game.ResolverMatches = []core.ResolverMatch{manualReviewSelectionToResolverMatch(selection)}
-	applyUnifiedFields(game, metaSources)
-	game.Status = "identified"
-	if len(metaSources) > 0 {
-		s.metadataResolver.fill(ctx, candidate.IntegrationID, []*core.Game{game}, metaSources)
-		runConsensus(game, metaSources)
-	}
 
 	sourceGame := &core.SourceGame{
 		ID:            candidate.ID,
@@ -90,13 +87,8 @@ func (s *manualReviewService) Apply(ctx context.Context, candidateID string, sel
 		Files: append([]core.GameFile(nil), candidate.Files...),
 	}
 
-	if err := s.gameStore.SaveManualReviewResult(ctx, sourceGame, game.ResolverMatches, gameMediaToRefs(game)); err != nil {
+	if err := s.refreshCoordinator.applyManualReviewSelection(ctx, candidate.IntegrationID, sourceGame, game, metaSources); err != nil {
 		return fmt.Errorf("save manual review result: %w", err)
-	}
-	if s.mediaDownloadQueue != nil {
-		if err := s.mediaDownloadQueue.EnqueuePending(ctx); err != nil {
-			s.logger.Warn("manual review: enqueue pending media downloads failed", "candidate_id", candidateID, "error", err)
-		}
 	}
 	return nil
 }

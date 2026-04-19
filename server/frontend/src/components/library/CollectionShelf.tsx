@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Ellipsis } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { CollectionSectionConfig, GameDetailResponse } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -120,16 +120,11 @@ export function CollectionShelf({
                   <button
                     type="button"
                     onClick={() => onExpandedSectionChange(section.id)}
-                    className="group relative flex w-16 shrink-0 items-center justify-center overflow-hidden rounded-[1.1rem] border border-dashed border-mga-border bg-gradient-to-b from-mga-surface via-mga-bg to-mga-surface text-mga-muted transition-colors hover:border-mga-accent/60 hover:text-mga-text"
+                    className="group flex shrink-0 items-center gap-1 self-center rounded-full border border-mga-border bg-mga-bg/90 px-3 py-2 text-xs font-medium text-mga-muted transition-colors hover:border-mga-accent/60 hover:text-mga-text"
                     aria-label={`Show more games in ${section.label}`}
                   >
-                    <div className="absolute inset-0 bg-gradient-to-l from-mga-elevated/40 to-transparent opacity-70 transition-opacity group-hover:opacity-100" />
-                    <div className="relative flex flex-col items-center justify-center gap-2 py-4">
-                      <Ellipsis size={18} />
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em]">
-                        +{hiddenCount}
-                      </span>
-                    </div>
+                    <span>+{hiddenCount} more</span>
+                    <ChevronRight size={14} className="transition-transform group-hover:translate-x-0.5" />
                   </button>
                 )}
               </div>

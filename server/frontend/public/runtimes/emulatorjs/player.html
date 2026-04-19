@@ -38,6 +38,7 @@
       const mount = document.getElementById('game')
       const runtimeOrigin = window.location.origin
       let latestSaveBase64 = null
+      let latestSavePath = null
       function scheduleResizePass() {
         window.dispatchEvent(new Event('resize'))
         window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
@@ -78,10 +79,21 @@
         try {
           const path = saveFilePath()
           const save = window.EJS_emulator?.gameManager?.getSaveFile?.(true)
+          if ((!path || !save) && latestSavePath && latestSaveBase64) {
+            postBridgeMessage({
+              type: 'export-result',
+              requestId,
+              snapshot: {
+                files: [{ path: latestSavePath, base64: latestSaveBase64 }],
+              },
+            })
+            return
+          }
           if (!path || !save) {
             postBridgeMessage({ type: 'export-result', requestId, snapshot: { files: [] } })
             return
           }
+          latestSavePath = path
           latestSaveBase64 = bytesToBase64(save)
           postBridgeMessage({
             type: 'export-result',
@@ -123,6 +135,7 @@
           }
           window.EJS_emulator.gameManager.FS.writeFile(path, bytes)
           window.EJS_emulator.gameManager.loadSaveFiles()
+          latestSavePath = path
           latestSaveBase64 = file.base64
           postBridgeMessage({ type: 'import-result', requestId, ok: true })
         } catch (error) {

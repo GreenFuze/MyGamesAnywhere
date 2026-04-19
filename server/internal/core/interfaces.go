@@ -10,6 +10,8 @@ import (
 var (
 	ErrManualReviewCandidateNotFound = errors.New("manual review candidate not found")
 	ErrManualReviewSelectionInvalid  = errors.New("manual review selection invalid")
+	ErrMetadataProvidersUnavailable  = errors.New("metadata providers unavailable")
+	ErrMetadataRefreshNoEligible     = errors.New("metadata refresh has no eligible source records")
 )
 
 // Logger defines the interface for structured logging.
@@ -137,6 +139,11 @@ type GameStore interface {
 	// by integration IDs. Used by metadata-only refresh to re-enrich existing games.
 	GetFoundSourceGames(ctx context.Context, integrationIDs []string) ([]*FoundSourceGame, error)
 
+	// GetFoundSourceGameRecords returns full source game records with status='found',
+	// optionally filtered by integration IDs. Used by refresh paths that must preserve
+	// files, manual-review state, and source identity while replacing metadata state.
+	GetFoundSourceGameRecords(ctx context.Context, integrationIDs []string) ([]*SourceGame, error)
+
 	// DeleteGamesByIntegrationID removes all source games and related data for an integration.
 	DeleteGamesByIntegrationID(ctx context.Context, integrationID string) error
 
@@ -231,4 +238,9 @@ type Server interface {
 // ManualReviewService handles inline manual metadata selection workflows.
 type ManualReviewService interface {
 	Apply(ctx context.Context, candidateID string, selection ManualReviewSelection) error
+}
+
+// GameMetadataRefreshService handles explicit metadata/media refresh for one canonical game.
+type GameMetadataRefreshService interface {
+	RefreshGameMetadata(ctx context.Context, canonicalID string) (*CanonicalGame, error)
 }

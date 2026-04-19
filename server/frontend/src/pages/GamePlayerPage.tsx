@@ -22,6 +22,7 @@ import { PlatformIcon } from '@/components/ui/platform-icon'
 import { useRecentPlayed } from '@/hooks/useRecentPlayed'
 import {
   browserPlayJsdosExecutableLabel,
+  clearBrowserPlaySourcePreference,
   browserPlaySourceContext,
   browserPlaySourceLabel,
   browserPlaySourceOptionLabel,
@@ -31,14 +32,13 @@ import {
   buildBrowserPlaySession,
   buildBrowserPlayerUrl,
   clearBrowserPlaySession,
-  getBrowserPlaySelectionIssue,
+  getBrowserPlayRuntime,
   listBrowserPlayJsdosExecutables,
-  listBrowserPlaySelections,
   persistBrowserPlaySession,
   readBrowserPlayJsdosExecutablePreference,
   readBrowserPlaySourcePreference,
+  resolveBrowserPlaySelection,
   sessionSupportsSaveSync,
-  selectBrowserPlaySelection,
   writeBrowserPlayJsdosExecutablePreference,
   writeBrowserPlaySourcePreference,
   type BrowserPlaySession,
@@ -151,24 +151,22 @@ export function GamePlayerPage() {
     const value = params.get('source')
     return value && value.trim().length > 0 ? value : null
   }, [location.search])
-  const availableSelections = useMemo(
-    () => (game.data ? listBrowserPlaySelections(game.data) : []),
-    [game.data],
-  )
-  const selection = useMemo(
-    () => {
-      if (!game.data) return null
-      const runtime = availableSelections[0]?.runtime ?? null
-      const storedSourceId = runtime ? readBrowserPlaySourcePreference(game.data.id, runtime) : null
-      return selectBrowserPlaySelection(game.data, sourceParam ?? storedSourceId)
-    },
-    [availableSelections, game.data, sourceParam],
-  )
-  const selectionIssue = useMemo(
-    () => (game.data ? getBrowserPlaySelectionIssue(game.data, selection) : null),
-    [game.data, selection],
-  )
-  const runtimeLabel = selection ? browserPlayRuntimeLabel(selection.runtime) : null
+  const browserPlayResolution = useMemo(() => {
+    if (!game.data) return null
+    const runtime = getBrowserPlayRuntime(game.data.platform)
+    const rememberedSourceId =
+      sourceParam || !runtime ? null : readBrowserPlaySourcePreference(game.data.id, runtime)
+    return resolveBrowserPlaySelection(game.data, {
+      requestedSourceGameId: sourceParam,
+      rememberedSourceGameId: rememberedSourceId,
+    })
+  }, [game.data, sourceParam])
+  const availableSelections = browserPlayResolution?.selections ?? []
+  const selection = browserPlayResolution?.selection ?? null
+  const selectionIssue = browserPlayResolution?.issue ?? null
+  const runtimeLabel = browserPlayResolution?.runtime
+    ? browserPlayRuntimeLabel(browserPlayResolution.runtime)
+    : null
   const jsdosExecutableOptions = useMemo(
     () => (selection?.runtime === 'jsdos' ? listBrowserPlayJsdosExecutables(selection.sourceGame.files) : []),
     [selection],
@@ -189,7 +187,7 @@ export function GamePlayerPage() {
     return buildBrowserPlayerUrl(session.runtime, sessionToken)
   }, [session, sessionToken])
   const hasPendingSourceChange = Boolean(
-    selection && pendingSourceGameId && pendingSourceGameId !== selection.sourceGame.id,
+    pendingSourceGameId && pendingSourceGameId !== (selection?.sourceGame.id ?? null),
   )
   const hasPendingJsdosExecutableChange = Boolean(
     selection?.runtime === 'jsdos' &&
@@ -206,6 +204,13 @@ export function GamePlayerPage() {
   useEffect(() => {
     setPendingSourceGameId(selection?.sourceGame.id ?? null)
   }, [selection?.sourceGame.id])
+
+  useEffect(() => {
+    if (!game.data || !browserPlayResolution?.runtime || !browserPlayResolution.invalidRememberedSourceGameId) {
+      return
+    }
+    clearBrowserPlaySourcePreference(game.data.id, browserPlayResolution.runtime)
+  }, [browserPlayResolution, game.data])
 
   useEffect(() => {
     if (!game.data || !selection || selection.runtime !== 'jsdos') {
@@ -333,24 +338,6 @@ export function GamePlayerPage() {
       cancelled = true
     }
   }, [game.data, selection])
-
-  useEffect(() => {
-    if (!game.data || !selection) return
-    writeBrowserPlaySourcePreference(game.data.id, selection.runtime, selection.sourceGame.id)
-  }, [game.data, selection])
-
-  useEffect(() => {
-    if (!selection || !sourceParam || sourceParam === selection.sourceGame.id) return
-    const params = new URLSearchParams(location.search)
-    params.set('source', selection.sourceGame.id)
-    navigate(
-      {
-        pathname: location.pathname,
-        search: `?${params.toString()}`,
-      },
-      { replace: true, state: location.state },
-    )
-  }, [location.pathname, location.search, location.state, navigate, selection, sourceParam])
 
   const slotsQuery = useQuery({
     queryKey: ['save-sync-slots', id, activeIntegrationId, session?.sourceGameId, session?.runtime],
@@ -528,8 +515,15 @@ export function GamePlayerPage() {
   }
 
   const handleSourceApply = () => {
-    if (!game.data || !selection || !pendingSourceGameId || pendingSourceGameId === selection.sourceGame.id) return
-    writeBrowserPlaySourcePreference(game.data.id, selection.runtime, pendingSourceGameId)
+    if (
+      !game.data ||
+      !browserPlayResolution?.runtime ||
+      !pendingSourceGameId ||
+      pendingSourceGameId === selection?.sourceGame.id
+    ) {
+      return
+    }
+    writeBrowserPlaySourcePreference(game.data.id, browserPlayResolution.runtime, pendingSourceGameId)
     const params = new URLSearchParams(location.search)
     params.set('source', pendingSourceGameId)
     navigate(
@@ -749,14 +743,19 @@ export function GamePlayerPage() {
                 {browserPlaySourceContext(selection) ? ` · ${browserPlaySourceContext(selection)}` : ''}
               </p>
             )}
-            {availableSelections.length > 1 && selection && (
+            {availableSelections.length > 1 && (
               <div className="mt-4 max-w-xl">
                 <label className="mb-1 block text-xs uppercase tracking-wide text-mga-muted">Source</label>
                 <select
-                  value={pendingSourceGameId ?? selection.sourceGame.id}
+                  value={pendingSourceGameId ?? selection?.sourceGame.id ?? ''}
                   onChange={(event) => handleSourceChange(event.target.value)}
                   className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text"
                 >
+                  {!selection && (
+                    <option value="" disabled>
+                      Choose a source to start browser play
+                    </option>
+                  )}
                   {availableSelections.map((option) => (
                     <option key={option.sourceGame.id} value={option.sourceGame.id}>
                       {browserPlaySourceOptionLabel(option)}
@@ -781,7 +780,9 @@ export function GamePlayerPage() {
                     Reset
                   </Button>
                   <span className="text-xs text-mga-muted">
-                    Applying a different source restarts the runtime.
+                    {selection
+                      ? 'Applying a different source restarts the runtime.'
+                      : 'Choose a source, then apply it to continue.'}
                   </span>
                 </div>
               </div>
@@ -894,7 +895,15 @@ export function GamePlayerPage() {
                 <div className="min-w-[14rem] text-xs text-mga-muted">
                   {!activeIntegrationId && 'Choose an active Save Sync integration in Settings to enable remote saves.'}
                   {activeIntegrationId && !bridgeReady && 'Waiting for runtime bridge...'}
-                  {activeIntegrationId && bridgeReady && !bridgeSupportsSaveSync && 'This runtime page does not support save import/export yet.'}
+                  {activeIntegrationId &&
+                    bridgeReady &&
+                    selection?.runtime !== 'jsdos' &&
+                    !bridgeSupportsSaveSync &&
+                    'This runtime page does not support save import/export yet.'}
+                  {activeIntegrationId &&
+                    bridgeReady &&
+                    !saveSyncRuntimeSupported &&
+                    'This launch does not support save import/export. js-dos save sync requires a bundle-backed session.'}
                   {activeIntegrationId && bridgeReady && bridgeSupportsSaveSync && currentSlot?.exists && (
                     <>
                       Remote {selectedSlot}: {currentSlot.file_count ?? 0} files, {currentSlot.total_size ?? 0} bytes

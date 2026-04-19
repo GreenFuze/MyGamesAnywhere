@@ -3,6 +3,7 @@ import type {
   GameFileDTO,
   SourceGameDetailDTO,
 } from '@/api/client'
+import { platformLabel, sourceLabel } from '@/lib/displayText'
 
 export type BrowserPlayRuntime = 'emulatorjs' | 'jsdos' | 'scummvm'
 
@@ -66,13 +67,40 @@ export type BrowserPlaySelectionIssue = {
   code:
     | 'unsupported_platform'
     | 'missing_launch_source'
-    | 'missing_source_game'
+    | 'ambiguous_launch_source'
+    | 'invalid_requested_source'
     | 'missing_root_file'
     | 'missing_runtime_core'
     | 'missing_source_files'
     | 'missing_scummvm_files'
   message: string
 }
+
+export type BrowserPlaySelectionResolution =
+  | {
+      kind: 'resolved'
+      runtime: BrowserPlayRuntime
+      selections: BrowserPlaySelection[]
+      selection: BrowserPlaySelection
+      reason: 'single_source' | 'remembered_source' | 'requested_source'
+      issue: BrowserPlaySelectionIssue | null
+      canLaunch: boolean
+      invalidRememberedSourceGameId: string | null
+    }
+  | {
+      kind:
+        | 'unsupported_platform'
+        | 'missing_launch_source'
+        | 'ambiguous_launch_source'
+        | 'invalid_requested_source'
+      runtime: BrowserPlayRuntime | null
+      selections: BrowserPlaySelection[]
+      selection: null
+      reason: null
+      issue: BrowserPlaySelectionIssue
+      canLaunch: false
+      invalidRememberedSourceGameId: string | null
+    }
 
 const SESSION_PREFIX = 'mga.browserPlaySession.'
 const SOURCE_PREFERENCE_PREFIX = 'mga.browserPlaySource.'
@@ -222,26 +250,32 @@ export function clearBrowserPlayJsdosExecutablePreference(gameId: string, source
 }
 
 export function browserPlaySourceLabel(selection: BrowserPlaySelection): string {
-  return selection.sourceGame.raw_title || selection.sourceGame.external_id
+  return sourceLabel(selection.sourceGame.plugin_id)
 }
 
 export function browserPlaySourceContext(selection: BrowserPlaySelection): string {
-  const parts = [selection.sourceGame.plugin_id]
+  const parts: string[] = []
   if (selection.sourceGame.platform && selection.sourceGame.platform !== 'unknown') {
-    parts.push(selection.sourceGame.platform)
+    parts.push(platformLabel(selection.sourceGame.platform))
+  }
+  const rawTitle = selection.sourceGame.raw_title?.trim()
+  if (rawTitle && rawTitle !== browserPlaySourceLabel(selection)) {
+    parts.push(rawTitle)
   }
   if (selection.rootFile?.path) {
-    parts.push(selection.rootFile.path)
+    parts.push(lastPathSegment(selection.rootFile.path))
   } else if (selection.sourceGame.root_path) {
-    parts.push(selection.sourceGame.root_path)
+    parts.push(lastPathSegment(selection.sourceGame.root_path))
+  } else if (selection.sourceGame.external_id) {
+    parts.push(selection.sourceGame.external_id)
   }
-  return parts.join(' · ')
+  return Array.from(new Set(parts.filter((part) => part.trim().length > 0))).join(' · ')
 }
 
 export function browserPlaySourceOptionLabel(selection: BrowserPlaySelection): string {
   const label = browserPlaySourceLabel(selection)
   const context = browserPlaySourceContext(selection)
-  return context ? `${label} - ${context}` : label
+  return context ? `${label} · ${context}` : label
 }
 
 export function listBrowserPlaySelections(game: GameDetailResponse): BrowserPlaySelection[] {
@@ -266,50 +300,152 @@ export function listBrowserPlaySelections(game: GameDetailResponse): BrowserPlay
   return selections
 }
 
+class BrowserPlaySelectionController {
+  private readonly runtime: BrowserPlayRuntime | null
+
+  private readonly selections: BrowserPlaySelection[]
+
+  constructor(
+    private readonly game: GameDetailResponse,
+    private readonly requestedSourceGameId: string | null,
+    private readonly rememberedSourceGameId: string | null,
+  ) {
+    this.runtime = getBrowserPlayRuntime(game.platform)
+    this.selections = this.runtime ? listBrowserPlaySelections(game) : []
+  }
+
+  resolve(): BrowserPlaySelectionResolution {
+    if (!this.runtime) {
+      return this.blocked('unsupported_platform')
+    }
+
+    if (this.selections.length === 0) {
+      return this.blocked('missing_launch_source')
+    }
+
+    if (this.requestedSourceGameId) {
+      const requestedSelection = this.findSelection(this.requestedSourceGameId)
+      if (!requestedSelection) {
+        return this.blocked('invalid_requested_source')
+      }
+      return this.resolved(requestedSelection, 'requested_source')
+    }
+
+    const rememberedSelection = this.rememberedSourceGameId
+      ? this.findSelection(this.rememberedSourceGameId)
+      : null
+    const invalidRememberedSourceGameId =
+      this.rememberedSourceGameId && !rememberedSelection ? this.rememberedSourceGameId : null
+
+    if (rememberedSelection) {
+      return this.resolved(rememberedSelection, 'remembered_source', invalidRememberedSourceGameId)
+    }
+
+    if (this.selections.length === 1) {
+      return this.resolved(this.selections[0], 'single_source', invalidRememberedSourceGameId)
+    }
+
+    return this.blocked('ambiguous_launch_source', invalidRememberedSourceGameId)
+  }
+
+  private findSelection(sourceGameId: string): BrowserPlaySelection | null {
+    return this.selections.find((selection) => selection.sourceGame.id === sourceGameId) ?? null
+  }
+
+  private resolved(
+    selection: BrowserPlaySelection,
+    reason: BrowserPlaySelectionResolution['reason'],
+    invalidRememberedSourceGameId: string | null = null,
+  ): BrowserPlaySelectionResolution {
+    const issue = selectionIssueForSelection(this.game, selection)
+    return {
+      kind: 'resolved',
+      runtime: this.runtime!,
+      selections: this.selections,
+      selection,
+      reason: reason!,
+      issue,
+      canLaunch: issue === null,
+      invalidRememberedSourceGameId,
+    }
+  }
+
+  private blocked(
+    kind: Exclude<BrowserPlaySelectionResolution['kind'], 'resolved'>,
+    invalidRememberedSourceGameId: string | null = null,
+  ): BrowserPlaySelectionResolution {
+    return {
+      kind,
+      runtime: this.runtime,
+      selections: this.selections,
+      selection: null,
+      reason: null,
+      issue: blockedSelectionIssue(kind, this.game, this.requestedSourceGameId),
+      canLaunch: false,
+      invalidRememberedSourceGameId,
+    }
+  }
+}
+
+export function resolveBrowserPlaySelection(
+  game: GameDetailResponse,
+  options?: {
+    requestedSourceGameId?: string | null
+    rememberedSourceGameId?: string | null
+  },
+): BrowserPlaySelectionResolution {
+  return new BrowserPlaySelectionController(
+    game,
+    options?.requestedSourceGameId ?? null,
+    options?.rememberedSourceGameId ?? null,
+  ).resolve()
+}
+
 export function selectBrowserPlaySelection(
   game: GameDetailResponse,
   preferredSourceGameId?: string | null,
 ): BrowserPlaySelection | null {
-  const selections = listBrowserPlaySelections(game)
-  if (selections.length === 0) {
-    return null
-  }
-
-  if (preferredSourceGameId) {
-    const preferred = selections.find((selection) => selection.sourceGame.id === preferredSourceGameId)
-    if (preferred) {
-      return preferred
-    }
-  }
-
-  return selections[0] ?? null
+  const resolution = resolveBrowserPlaySelection(game, {
+    requestedSourceGameId: preferredSourceGameId ?? null,
+  })
+  return resolution.selection
 }
 
-export function getBrowserPlaySelectionIssue(
+function blockedSelectionIssue(
+  kind: Exclude<BrowserPlaySelectionResolution['kind'], 'resolved'>,
   game: GameDetailResponse,
-  selection: BrowserPlaySelection | null,
+  requestedSourceGameId: string | null,
+): BrowserPlaySelectionIssue {
+  switch (kind) {
+    case 'unsupported_platform':
+      return {
+        code: 'unsupported_platform',
+        message: `Browser Play is not enabled for ${game.platform}.`,
+      }
+    case 'missing_launch_source':
+      return {
+        code: 'missing_launch_source',
+        message: 'No launchable source file was found for this game yet.',
+      }
+    case 'ambiguous_launch_source':
+      return {
+        code: 'ambiguous_launch_source',
+        message: 'Multiple browser-play sources or versions are available. Choose one before launching.',
+      }
+    case 'invalid_requested_source':
+      return {
+        code: 'invalid_requested_source',
+        message: requestedSourceGameId
+          ? `The requested source "${requestedSourceGameId}" is no longer available for this game. Choose a current source before launching.`
+          : 'The requested browser-play source could not be resolved for this game.',
+      }
+  }
+}
+
+function selectionIssueForSelection(
+  game: GameDetailResponse,
+  selection: BrowserPlaySelection,
 ): BrowserPlaySelectionIssue | null {
-  if (!getBrowserPlayRuntime(game.platform)) {
-    return {
-      code: 'unsupported_platform',
-      message: `Browser Play is not enabled for ${game.platform}.`,
-    }
-  }
-
-  if (listBrowserPlaySelections(game).length === 0) {
-    return {
-      code: 'missing_launch_source',
-      message: 'No launchable source file was found for this game yet.',
-    }
-  }
-
-  if (!selection) {
-    return {
-      code: 'missing_source_game',
-      message: 'The selected browser-play source record could not be resolved from the game detail payload.',
-    }
-  }
-
   if (selection.runtime === 'emulatorjs') {
     if (!selection.rootFile) {
       return {
@@ -352,6 +488,17 @@ export function getBrowserPlaySelectionIssue(
   return null
 }
 
+export function getBrowserPlaySelectionIssue(
+  game: GameDetailResponse,
+  selection: BrowserPlaySelection | null,
+): BrowserPlaySelectionIssue | null {
+  if (!selection) {
+    const resolution = resolveBrowserPlaySelection(game)
+    return resolution.issue
+  }
+  return selectionIssueForSelection(game, selection)
+}
+
 function buildSourceSessionFiles(
   game: GameDetailResponse,
   sourceGame: SourceGameDetailDTO,
@@ -369,6 +516,13 @@ function buildSourceSessionFiles(
 
 function normalizePlayPath(path: string): string {
   return path.replaceAll('\\', '/').replace(/^\.\/+/, '').replace(/^\/+/, '')
+}
+
+function lastPathSegment(path: string): string {
+  const normalized = normalizePlayPath(path)
+  if (!normalized) return ''
+  const parts = normalized.split('/').filter(Boolean)
+  return parts[parts.length - 1] ?? normalized
 }
 
 function isJsdosExecutablePath(path: string): boolean {

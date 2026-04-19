@@ -1,0 +1,11 @@
+{
+  "name": "mga-browser-play-proof",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "proof:e2e": "node ./proof-runner.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.54.2"
+  }
+}

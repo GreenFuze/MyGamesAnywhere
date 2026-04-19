@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/GreenFuze/MyGamesAnywhere/server/pkg/titlematch"
 )
 
 // IPC protocol types.
@@ -99,19 +101,11 @@ var (
 )
 
 func normalizeTitle(s string) string {
-	s = strings.ToLower(s)
-	for trailingParensRE.MatchString(s) {
-		s = trailingParensRE.ReplaceAllString(s, "")
-	}
-	s = setupPrefixRE.ReplaceAllString(s, "")
-	s = versionSuffixRE.ReplaceAllString(s, "")
-	s = nonAlphaNumRE.ReplaceAllString(s, " ")
-	s = multiSpaceRE.ReplaceAllString(s, " ")
-	return strings.TrimSpace(s)
+	return titlematch.NormalizeLookupTitle(s)
 }
 
 func tokenize(s string) map[string]bool {
-	words := strings.Fields(normalizeTitle(s))
+	words := strings.Fields(titlematch.NormalizeLookupTitle(s))
 	tokens := make(map[string]bool, len(words))
 	for _, w := range words {
 		if arabic, ok := romanToArabic[w]; ok {

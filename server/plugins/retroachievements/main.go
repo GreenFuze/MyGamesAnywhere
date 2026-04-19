@@ -13,7 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
+
+	"github.com/GreenFuze/MyGamesAnywhere/server/pkg/titlematch"
 )
 
 // IPC protocol types.
@@ -237,22 +238,11 @@ func fetchUserGameProgress(gameID int) (*raGameExtended, error) {
 var multiSpace = regexp.MustCompile(`\s+`)
 
 func normalizeTitle(s string) string {
-	s = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsSpace(r) {
-			return unicode.ToLower(r)
-		}
-		return ' '
-	}, s)
-	s = multiSpace.ReplaceAllString(s, " ")
-	return strings.TrimSpace(s)
+	return titlematch.NormalizeLookupTitle(s)
 }
 
 func tokenize(s string) map[string]bool {
-	tokens := make(map[string]bool)
-	for _, t := range strings.Fields(normalizeTitle(s)) {
-		tokens[t] = true
-	}
-	return tokens
+	return titlematch.TokenizeLookupTitle(s)
 }
 
 func jaccardSimilarity(a, b map[string]bool) float64 {

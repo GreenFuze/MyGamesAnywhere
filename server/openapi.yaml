@@ -325,6 +325,20 @@ paths:
         500:
           description: Error response
 
+  /api/games/{id}/refresh-metadata:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/games/{id}/save-sync/slots:
     get:
       summary: List save-sync slots for one browser runtime source

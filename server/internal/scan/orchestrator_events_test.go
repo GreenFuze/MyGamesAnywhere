@@ -211,3 +211,82 @@ func TestRunScanContinuesAfterStorefrontSourceAuthError(t *testing.T) {
 		}
 	}
 }
+
+func TestRunScanPreparesMultipleIntegrationsConcurrently(t *testing.T) {
+	ctx := context.Background()
+	store := newManualReviewTestStore(t)
+
+	started := make(chan string, 2)
+	release := make(chan struct{})
+
+	caller := &mockCaller{
+		callFn: func(pluginID, method string, params any) (any, error) {
+			if method != sourceGamesListMethod {
+				return nil, nil
+			}
+			started <- pluginID
+			<-release
+			return map[string]any{
+				"games": []map[string]any{{
+					"external_id": fmt.Sprintf("%s-game", pluginID),
+					"title":       fmt.Sprintf("Title %s", pluginID),
+					"platform":    "windows_pc",
+				}},
+			}, nil
+		},
+	}
+
+	discovery := sourceFilterTestDiscovery{
+		plugins: map[string]*core.Plugin{
+			"game-source-alpha": {
+				Manifest: core.PluginManifest{
+					ID:       "game-source-alpha",
+					Provides: []string{sourceGamesListMethod},
+				},
+			},
+			"game-source-beta": {
+				Manifest: core.PluginManifest{
+					ID:       "game-source-beta",
+					Provides: []string{sourceGamesListMethod},
+				},
+			},
+		},
+	}
+
+	repo := manualReviewTestIntegrationRepo{items: []*core.Integration{
+		{ID: "alpha-1", PluginID: "game-source-alpha", Label: "Alpha", IntegrationType: "source", ConfigJSON: `{}`},
+		{ID: "beta-1", PluginID: "game-source-beta", Label: "Beta", IntegrationType: "source", ConfigJSON: `{}`},
+	}}
+
+	orchestrator := NewOrchestrator(caller, discovery, repo, store, &eventTestMediaDownloadQueue{}, eventTestLogger{})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := orchestrator.RunScan(ctx, nil)
+		done <- err
+	}()
+
+	seen := map[string]bool{}
+	timeout := time.After(2 * time.Second)
+	for len(seen) < 2 {
+		select {
+		case pluginID := <-started:
+			seen[pluginID] = true
+		case <-timeout:
+			t.Fatalf("RunScan did not start both source integrations concurrently; saw=%v", seen)
+		}
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("RunScan returned error: %v", err)
+	}
+
+	games, err := store.GetCanonicalGames(ctx)
+	if err != nil {
+		t.Fatalf("GetCanonicalGames: %v", err)
+	}
+	if len(games) != 2 {
+		t.Fatalf("canonical games = %d, want 2", len(games))
+	}
+}

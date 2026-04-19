@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
@@ -16,8 +17,9 @@ import (
 )
 
 const (
-	sourceFilesystemListMethod = "source.filesystem.list"
-	sourceGamesListMethod      = "source.games.list"
+	sourceFilesystemListMethod    = "source.filesystem.list"
+	sourceGamesListMethod         = "source.games.list"
+	maxScanPreparationConcurrency = 2
 )
 
 // PluginCaller is the subset of PluginHost that the orchestrator needs.
@@ -43,8 +45,19 @@ type Orchestrator struct {
 	mediaDownloadQueue core.MediaDownloadQueue
 	scanner            *scanner.Scanner
 	metadataResolver   *MetadataResolver
+	refreshCoordinator *metadataRefreshCoordinator
 	logger             core.Logger
 	eventBus           *events.EventBus
+}
+
+type preparedScanIntegration struct {
+	index           int
+	integration     *core.Integration
+	config          map[string]any
+	games           []*core.Game
+	result          core.ScanIntegrationResult
+	skipped         bool
+	filesystemScope *core.FilesystemScanScope
 }
 
 func NewOrchestrator(
@@ -55,6 +68,7 @@ func NewOrchestrator(
 	mediaDownloadQueue core.MediaDownloadQueue,
 	logger core.Logger,
 ) *Orchestrator {
+	resolver := NewMetadataResolver(caller, logger)
 	return &Orchestrator{
 		pluginCaller:       caller,
 		pluginDiscovery:    discovery,
@@ -62,7 +76,8 @@ func NewOrchestrator(
 		gameStore:          gameStore,
 		mediaDownloadQueue: mediaDownloadQueue,
 		scanner:            scanner.New(logger),
-		metadataResolver:   NewMetadataResolver(caller, logger),
+		metadataResolver:   resolver,
+		refreshCoordinator: newMetadataRefreshCoordinator(gameStore, mediaDownloadQueue, resolver, logger),
 		logger:             logger,
 	}
 }
@@ -217,219 +232,50 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 	var integResults []core.ScanIntegrationResult
 	var scannedIDs []string
 
-	for _, integ := range filteredIntegrations {
-		if err := ctx.Err(); err != nil {
-			return nil, err
+	prepared, err := o.prepareScanIntegrations(ctx, filteredIntegrations, metaSources, metadataProviders)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, item := range prepared {
+		if item == nil {
+			continue
 		}
-		plugin, ok := o.pluginDiscovery.GetPlugin(integ.PluginID)
-		if !ok {
-			o.logger.Warn("orchestrator: plugin not found", "integration_id", integ.ID, "plugin_id", integ.PluginID)
-			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
-				"integration_id": integ.ID,
-				"plugin_id":      integ.PluginID,
-				"label":          integ.Label,
-				"reason":         "plugin_not_found",
-			})
+		if item.skipped {
+			integResults = append(integResults, item.result)
 			continue
 		}
 
-		config, err := parseConfig(integ.ConfigJSON)
-		if err != nil {
-			o.logger.Warn("orchestrator: bad config", "integration_id", integ.ID, "error", err)
-			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
-				"integration_id": integ.ID,
-				"plugin_id":      integ.PluginID,
-				"label":          integ.Label,
-				"reason":         "invalid_config",
-				"error":          err.Error(),
-			})
-			continue
-		}
+		scannedIDs = append(scannedIDs, item.integration.ID)
 
-		o.publishEventWithContext(ctx, "scan_integration_started", map[string]any{
-			"integration_id": integ.ID,
-			"plugin_id":      integ.PluginID,
-			"label":          integ.Label,
-		})
-
-		var games []*core.Game
-
-		switch {
-		case pluginProvides(plugin, sourceFilesystemListMethod):
-			config = sourcescope.NormalizeConfig(integ.PluginID, config)
-			o.publishEventWithContext(ctx, "scan_source_list_started", map[string]any{
-				"integration_id": integ.ID,
-				"plugin_id":      integ.PluginID,
-			})
-			files, err := o.fetchFiles(ctx, integ.PluginID, config)
-			if err != nil {
-				o.logger.Warn("orchestrator: source listing failed", "integration_id", integ.ID, "plugin_id", integ.PluginID, "error", err)
-				o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
-					"integration_id": integ.ID,
-					"plugin_id":      integ.PluginID,
-					"label":          integ.Label,
-					"reason":         scanSkipReasonForSourceError(err),
-					"error":          err.Error(),
-				})
-				integResults = append(integResults, core.ScanIntegrationResult{
-					IntegrationID: integ.ID,
-					Label:         integ.Label,
-					PluginID:      integ.PluginID,
-					Error:         err.Error(),
-				})
-				continue
-			}
-			o.logger.Info("orchestrator: fetched files", "integration_id", integ.ID, "count", len(files))
-			o.publishEventWithContext(ctx, "scan_source_list_complete", map[string]any{
-				"integration_id": integ.ID,
-				"plugin_id":      integ.PluginID,
-				"file_count":     len(files),
-			})
-
-			o.publishEventWithContext(ctx, "scan_scanner_started", map[string]any{
-				"integration_id": integ.ID,
-				"plugin_id":      integ.PluginID,
-				"file_count":     len(files),
-			})
-			o.scanner.SetProgressReporter(func(scanCtx context.Context, update scanner.ProgressUpdate) {
-				o.publishEventWithContext(scanCtx, "scan_scanner_progress", map[string]any{
-					"integration_id":  integ.ID,
-					"plugin_id":       integ.PluginID,
-					"processed_count": update.ProcessedCount,
-					"file_count":      update.FileCount,
-				})
-			})
-			groups, err := o.scanner.ScanFiles(ctx, files)
-			o.scanner.SetProgressReporter(nil)
-			if err != nil {
-				o.logger.Warn("orchestrator: file scanner failed", "integration_id", integ.ID, "plugin_id", integ.PluginID, "error", err)
-				o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
-					"integration_id": integ.ID,
-					"plugin_id":      integ.PluginID,
-					"label":          integ.Label,
-					"reason":         "source_error",
-					"error":          err.Error(),
-				})
-				integResults = append(integResults, core.ScanIntegrationResult{
-					IntegrationID: integ.ID,
-					Label:         integ.Label,
-					PluginID:      integ.PluginID,
-					Error:         err.Error(),
-				})
-				continue
-			}
-			o.publishEventWithContext(ctx, "scan_scanner_complete", map[string]any{
-				"integration_id": integ.ID,
-				"plugin_id":      integ.PluginID,
-				"group_count":    len(groups),
-			})
-
-			games = buildGames(integ.ID, integ.PluginID, groups)
-			o.logger.Info("orchestrator: built games", "integration_id", integ.ID, "games", len(games))
-
-		case pluginProvides(plugin, sourceGamesListMethod):
-			o.publishEventWithContext(ctx, "scan_source_list_started", map[string]any{
-				"integration_id": integ.ID,
-				"plugin_id":      integ.PluginID,
-			})
-			games, err = o.fetchGames(ctx, integ.ID, integ.PluginID, config)
-			if err != nil {
-				o.logger.Warn("orchestrator: storefront source listing failed", "integration_id", integ.ID, "plugin_id", integ.PluginID, "error", err)
-				o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
-					"integration_id": integ.ID,
-					"plugin_id":      integ.PluginID,
-					"label":          integ.Label,
-					"reason":         scanSkipReasonForSourceError(err),
-					"error":          err.Error(),
-				})
-				integResults = append(integResults, core.ScanIntegrationResult{
-					IntegrationID: integ.ID,
-					Label:         integ.Label,
-					PluginID:      integ.PluginID,
-					Error:         err.Error(),
-				})
-				continue
-			}
-			o.logger.Info("orchestrator: fetched storefront games", "integration_id", integ.ID, "count", len(games))
-			o.publishEventWithContext(ctx, "scan_source_list_complete", map[string]any{
-				"integration_id": integ.ID,
-				"plugin_id":      integ.PluginID,
-				"game_count":     len(games),
-			})
-
-		default:
-			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
-				"integration_id": integ.ID,
-				"plugin_id":      integ.PluginID,
-				"label":          integ.Label,
-				"reason":         "no_source_capability",
-			})
-			continue
-		}
-
-		scannedIDs = append(scannedIDs, integ.ID)
-
-		if len(games) == 0 {
-			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
-				"integration_id": integ.ID,
-				"plugin_id":      integ.PluginID,
-				"label":          integ.Label,
-				"reason":         "no_games",
-			})
-			integResults = append(integResults, core.ScanIntegrationResult{
-				IntegrationID: integ.ID,
-				Label:         integ.Label,
-				PluginID:      integ.PluginID,
-				GamesFound:    0,
-			})
-			continue
-		}
-
-		// Metadata enrichment per-integration.
-		if len(metaSources) > 0 {
-			o.publishEventWithContext(ctx, "scan_metadata_started", map[string]any{
-				"integration_id":     integ.ID,
-				"plugin_id":          integ.PluginID,
-				"game_count":         len(games),
-				"resolver_count":     len(metaSources),
-				"metadata_providers": metadataProviders,
-			})
-			o.metadataResolver.Enrich(ctx, integ.ID, games, metaSources)
-		}
-
-		// Convert enriched games → ScanBatch and persist.
 		o.publishEventWithContext(ctx, "scan_persist_started", map[string]any{
-			"integration_id":    integ.ID,
-			"plugin_id":         integ.PluginID,
-			"source_game_count": len(games),
+			"integration_id":    item.integration.ID,
+			"plugin_id":         item.integration.PluginID,
+			"source_game_count": len(item.games),
 		})
-		batch := gamesToScanBatch(integ.ID, integ.PluginID, games)
-		if scope := filesystemScanScope(integ.PluginID, config); scope != nil {
-			batch.FilesystemScope = scope
+		batch := gamesToScanBatch(item.integration.ID, item.integration.PluginID, item.games)
+		if item.filesystemScope != nil {
+			batch.FilesystemScope = item.filesystemScope
 		}
 		if err := o.gameStore.PersistScanResults(ctx, batch); err != nil {
-			o.publishScanError(ctx, integ.ID, err)
-			return nil, fmt.Errorf("persist scan results for integration %q: %w", integ.ID, err)
+			o.publishScanError(ctx, item.integration.ID, err)
+			return nil, fmt.Errorf("persist scan results for integration %q: %w", item.integration.ID, err)
 		}
 		if o.mediaDownloadQueue != nil {
 			if err := o.mediaDownloadQueue.EnqueuePending(ctx); err != nil {
-				o.logger.Warn("orchestrator: enqueue pending media downloads failed", "integration_id", integ.ID, "error", err)
+				o.logger.Warn("orchestrator: enqueue pending media downloads failed", "integration_id", item.integration.ID, "error", err)
 			}
 		}
-		o.logger.Info("orchestrator: persisted", "integration_id", integ.ID, "source_games", len(batch.SourceGames))
+		o.logger.Info("orchestrator: persisted", "integration_id", item.integration.ID, "source_games", len(batch.SourceGames))
 		o.publishEventWithContext(ctx, "scan_integration_complete", map[string]any{
-			"integration_id": integ.ID,
-			"plugin_id":      integ.PluginID,
-			"label":          integ.Label,
+			"integration_id": item.integration.ID,
+			"plugin_id":      item.integration.PluginID,
+			"label":          item.integration.Label,
 			"games_found":    len(batch.SourceGames),
 		})
 
-		integResults = append(integResults, core.ScanIntegrationResult{
-			IntegrationID: integ.ID,
-			Label:         integ.Label,
-			PluginID:      integ.PluginID,
-			GamesFound:    len(batch.SourceGames),
-		})
+		item.result.GamesFound = len(batch.SourceGames)
+		integResults = append(integResults, item.result)
 	}
 
 	// Return the canonical game views.
@@ -471,19 +317,18 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 
 	metaSources, metadataProviders := o.findMetadataSources(integrations)
 	if len(metaSources) == 0 {
-		o.logger.Info("orchestrator: no metadata providers configured, nothing to refresh")
-		return o.gameStore.GetCanonicalGames(ctx)
+		return nil, core.ErrMetadataProvidersUnavailable
 	}
 
 	// Load existing found source games from the DB.
-	foundGames, err := o.gameStore.GetFoundSourceGames(ctx, integrationIDs)
+	foundGames, err := o.gameStore.GetFoundSourceGameRecords(ctx, integrationIDs)
 	if err != nil {
 		o.publishScanError(ctx, "", err)
 		return nil, fmt.Errorf("get found source games: %w", err)
 	}
 
 	// Group by integration ID.
-	byIntegration := make(map[string][]*core.FoundSourceGame)
+	byIntegration := make(map[string][]*core.SourceGame)
 	for _, sg := range foundGames {
 		byIntegration[sg.IntegrationID] = append(byIntegration[sg.IntegrationID], sg)
 	}
@@ -511,25 +356,6 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 		}
 		integrationID := integ.ID
 		sourceGames := byIntegration[integrationID]
-		// Convert FoundSourceGame → core.Game for the enrichment pipeline.
-		games := make([]*core.Game, 0, len(sourceGames))
-		for _, sg := range sourceGames {
-			games = append(games, &core.Game{
-				ID:            sg.ID,
-				Title:         sg.RawTitle,
-				RawTitle:      sg.RawTitle,
-				Platform:      sg.Platform,
-				Kind:          sg.Kind,
-				GroupKind:     sg.GroupKind,
-				RootPath:      sg.RootPath,
-				IntegrationID: sg.IntegrationID,
-				Status:        "found",
-				ExternalIDs: []core.ExternalID{{
-					Source:     sg.PluginID,
-					ExternalID: sg.ExternalID,
-				}},
-			})
-		}
 
 		o.publishEventWithContext(ctx, "scan_integration_started", map[string]any{
 			"integration_id": integrationID,
@@ -540,30 +366,21 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 		o.publishEventWithContext(ctx, "scan_metadata_started", map[string]any{
 			"integration_id":     integrationID,
 			"plugin_id":          integ.PluginID,
-			"game_count":         len(games),
+			"game_count":         len(sourceGames),
 			"resolver_count":     len(metaSources),
 			"metadata_providers": metadataProviders,
 		})
 
-		o.metadataResolver.Enrich(ctx, integrationID, games, metaSources)
-
-		// Re-persist the enriched resolver matches + media.
-		batch := gamesToScanBatch(integrationID, sourceGames[0].PluginID, games)
-		if err := o.gameStore.PersistScanResults(ctx, batch); err != nil {
+		if _, err := o.refreshCoordinator.refreshExistingSourceGames(ctx, integrationID, sourceGames, metaSources, true); err != nil {
 			o.publishScanError(ctx, integrationID, err)
 			return nil, fmt.Errorf("persist metadata refresh for %q: %w", integrationID, err)
-		}
-		if o.mediaDownloadQueue != nil {
-			if err := o.mediaDownloadQueue.EnqueuePending(ctx); err != nil {
-				o.logger.Warn("orchestrator: enqueue pending media downloads failed", "integration_id", integrationID, "error", err)
-			}
 		}
 
 		o.publishEventWithContext(ctx, "scan_integration_complete", map[string]any{
 			"integration_id": integrationID,
 			"plugin_id":      integ.PluginID,
 			"label":          integ.Label,
-			"games_found":    len(games),
+			"games_found":    len(sourceGames),
 		})
 	}
 
@@ -591,6 +408,57 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 		"report_id":       report.ID,
 	})
 	return result, nil
+}
+
+func (o *Orchestrator) RefreshGameMetadata(ctx context.Context, canonicalID string) (*core.CanonicalGame, error) {
+	if canonicalID == "" {
+		return nil, nil
+	}
+
+	current, err := o.gameStore.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		return nil, fmt.Errorf("get canonical game: %w", err)
+	}
+	if current == nil {
+		return nil, nil
+	}
+
+	sourceGames, err := o.gameStore.GetSourceGamesForCanonical(ctx, canonicalID)
+	if err != nil {
+		return nil, fmt.Errorf("get source games for canonical: %w", err)
+	}
+	if len(sourceGames) == 0 {
+		return nil, core.ErrMetadataRefreshNoEligible
+	}
+
+	integrations, err := o.integrationRepo.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list integrations: %w", err)
+	}
+
+	metaSources, _ := o.findMetadataSources(integrations)
+	if len(metaSources) == 0 {
+		return nil, core.ErrMetadataProvidersUnavailable
+	}
+
+	grouped := make(map[string][]*core.SourceGame)
+	for _, sourceGame := range sourceGames {
+		if sourceGame == nil {
+			continue
+		}
+		grouped[sourceGame.IntegrationID] = append(grouped[sourceGame.IntegrationID], sourceGame)
+	}
+	if len(grouped) == 0 {
+		return nil, core.ErrMetadataRefreshNoEligible
+	}
+
+	for integrationID, records := range grouped {
+		if _, err := o.refreshCoordinator.refreshExistingSourceGames(ctx, integrationID, records, metaSources, true); err != nil {
+			return nil, fmt.Errorf("refresh source records for %q: %w", integrationID, err)
+		}
+	}
+
+	return o.gameStore.GetCanonicalGameByID(ctx, canonicalID)
 }
 
 // buildScanReport computes diff between pre- and post-scan game counts and
@@ -671,6 +539,256 @@ func (o *Orchestrator) fetchFiles(ctx context.Context, pluginID string, config m
 		})
 	}
 	return entries, nil
+}
+
+func (o *Orchestrator) prepareScanIntegrations(
+	ctx context.Context,
+	integrations []*core.Integration,
+	metaSources []MetadataSource,
+	metadataProviders []map[string]any,
+) ([]*preparedScanIntegration, error) {
+	if len(integrations) == 0 {
+		return nil, nil
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	prepared := make([]*preparedScanIntegration, len(integrations))
+	sem := make(chan struct{}, scanPreparationConcurrency(len(integrations)))
+	errCh := make(chan error, 1)
+	var wg sync.WaitGroup
+
+	for index, integration := range integrations {
+		idx := index
+		integ := integration
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+			case <-runCtx.Done():
+				return
+			}
+			defer func() { <-sem }()
+
+			item, err := o.prepareScanIntegration(runCtx, idx, integ, metaSources, metadataProviders)
+			if err != nil {
+				select {
+				case errCh <- err:
+				default:
+				}
+				cancel()
+				return
+			}
+			prepared[idx] = item
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			return nil, err
+		}
+	}
+	return prepared, nil
+}
+
+func (o *Orchestrator) prepareScanIntegration(
+	ctx context.Context,
+	index int,
+	integ *core.Integration,
+	metaSources []MetadataSource,
+	metadataProviders []map[string]any,
+) (*preparedScanIntegration, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	item := &preparedScanIntegration{
+		index:       index,
+		integration: integ,
+		result: core.ScanIntegrationResult{
+			IntegrationID: integ.ID,
+			Label:         integ.Label,
+			PluginID:      integ.PluginID,
+		},
+	}
+
+	plugin, ok := o.pluginDiscovery.GetPlugin(integ.PluginID)
+	if !ok {
+		o.logger.Warn("orchestrator: plugin not found", "integration_id", integ.ID, "plugin_id", integ.PluginID)
+		o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
+			"integration_id": integ.ID,
+			"plugin_id":      integ.PluginID,
+			"label":          integ.Label,
+			"reason":         "plugin_not_found",
+		})
+		item.skipped = true
+		return item, nil
+	}
+
+	config, err := parseConfig(integ.ConfigJSON)
+	if err != nil {
+		o.logger.Warn("orchestrator: bad config", "integration_id", integ.ID, "error", err)
+		o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
+			"integration_id": integ.ID,
+			"plugin_id":      integ.PluginID,
+			"label":          integ.Label,
+			"reason":         "invalid_config",
+			"error":          err.Error(),
+		})
+		item.skipped = true
+		item.result.Error = err.Error()
+		return item, nil
+	}
+	item.config = config
+
+	o.publishEventWithContext(ctx, "scan_integration_started", map[string]any{
+		"integration_id": integ.ID,
+		"plugin_id":      integ.PluginID,
+		"label":          integ.Label,
+	})
+
+	switch {
+	case pluginProvides(plugin, sourceFilesystemListMethod):
+		item.config = sourcescope.NormalizeConfig(integ.PluginID, item.config)
+		item.filesystemScope = filesystemScanScope(integ.PluginID, item.config)
+		o.publishEventWithContext(ctx, "scan_source_list_started", map[string]any{
+			"integration_id": integ.ID,
+			"plugin_id":      integ.PluginID,
+		})
+		files, err := o.fetchFiles(ctx, integ.PluginID, item.config)
+		if err != nil {
+			o.logger.Warn("orchestrator: source listing failed", "integration_id", integ.ID, "plugin_id", integ.PluginID, "error", err)
+			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
+				"integration_id": integ.ID,
+				"plugin_id":      integ.PluginID,
+				"label":          integ.Label,
+				"reason":         scanSkipReasonForSourceError(err),
+				"error":          err.Error(),
+			})
+			item.skipped = true
+			item.result.Error = err.Error()
+			return item, nil
+		}
+		o.logger.Info("orchestrator: fetched files", "integration_id", integ.ID, "count", len(files))
+		o.publishEventWithContext(ctx, "scan_source_list_complete", map[string]any{
+			"integration_id": integ.ID,
+			"plugin_id":      integ.PluginID,
+			"file_count":     len(files),
+		})
+
+		o.publishEventWithContext(ctx, "scan_scanner_started", map[string]any{
+			"integration_id": integ.ID,
+			"plugin_id":      integ.PluginID,
+			"file_count":     len(files),
+		})
+		localScanner := scanner.New(o.logger)
+		localScanner.SetProgressReporter(func(scanCtx context.Context, update scanner.ProgressUpdate) {
+			o.publishEventWithContext(scanCtx, "scan_scanner_progress", map[string]any{
+				"integration_id":  integ.ID,
+				"plugin_id":       integ.PluginID,
+				"processed_count": update.ProcessedCount,
+				"file_count":      update.FileCount,
+			})
+		})
+		groups, err := localScanner.ScanFiles(ctx, files)
+		if err != nil {
+			o.logger.Warn("orchestrator: file scanner failed", "integration_id", integ.ID, "plugin_id", integ.PluginID, "error", err)
+			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
+				"integration_id": integ.ID,
+				"plugin_id":      integ.PluginID,
+				"label":          integ.Label,
+				"reason":         "source_error",
+				"error":          err.Error(),
+			})
+			item.skipped = true
+			item.result.Error = err.Error()
+			return item, nil
+		}
+		o.publishEventWithContext(ctx, "scan_scanner_complete", map[string]any{
+			"integration_id": integ.ID,
+			"plugin_id":      integ.PluginID,
+			"group_count":    len(groups),
+		})
+		item.games = buildGames(integ.ID, integ.PluginID, groups)
+		o.logger.Info("orchestrator: built games", "integration_id", integ.ID, "games", len(item.games))
+
+	case pluginProvides(plugin, sourceGamesListMethod):
+		o.publishEventWithContext(ctx, "scan_source_list_started", map[string]any{
+			"integration_id": integ.ID,
+			"plugin_id":      integ.PluginID,
+		})
+		games, err := o.fetchGames(ctx, integ.ID, integ.PluginID, item.config)
+		if err != nil {
+			o.logger.Warn("orchestrator: storefront source listing failed", "integration_id", integ.ID, "plugin_id", integ.PluginID, "error", err)
+			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
+				"integration_id": integ.ID,
+				"plugin_id":      integ.PluginID,
+				"label":          integ.Label,
+				"reason":         scanSkipReasonForSourceError(err),
+				"error":          err.Error(),
+			})
+			item.skipped = true
+			item.result.Error = err.Error()
+			return item, nil
+		}
+		o.logger.Info("orchestrator: fetched storefront games", "integration_id", integ.ID, "count", len(games))
+		o.publishEventWithContext(ctx, "scan_source_list_complete", map[string]any{
+			"integration_id": integ.ID,
+			"plugin_id":      integ.PluginID,
+			"game_count":     len(games),
+		})
+		item.games = games
+
+	default:
+		o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
+			"integration_id": integ.ID,
+			"plugin_id":      integ.PluginID,
+			"label":          integ.Label,
+			"reason":         "no_source_capability",
+		})
+		item.skipped = true
+		return item, nil
+	}
+
+	if len(item.games) == 0 {
+		o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
+			"integration_id": integ.ID,
+			"plugin_id":      integ.PluginID,
+			"label":          integ.Label,
+			"reason":         "no_games",
+		})
+		item.skipped = true
+		item.result.GamesFound = 0
+		return item, nil
+	}
+
+	if len(metaSources) > 0 {
+		o.publishEventWithContext(ctx, "scan_metadata_started", map[string]any{
+			"integration_id":     integ.ID,
+			"plugin_id":          integ.PluginID,
+			"game_count":         len(item.games),
+			"resolver_count":     len(metaSources),
+			"metadata_providers": metadataProviders,
+		})
+		o.metadataResolver.Enrich(ctx, integ.ID, item.games, metaSources)
+	}
+
+	return item, nil
+}
+
+func scanPreparationConcurrency(total int) int {
+	if total <= 1 {
+		return 1
+	}
+	if total < maxScanPreparationConcurrency {
+		return total
+	}
+	return maxScanPreparationConcurrency
 }
 
 // fetchGames calls source.games.list on a storefront plugin and converts

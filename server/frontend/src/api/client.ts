@@ -306,6 +306,19 @@ export async function getGameAchievements(
   );
 }
 
+export async function refreshGameMetadata(
+  id: string,
+): Promise<GameDetailResponse> {
+  const response = await postJson<GameDetailResponse>(
+    `/api/games/${encodeURIComponent(id)}/refresh-metadata`,
+    {},
+  );
+  if (!response) {
+    throw new Error("Refresh metadata request returned no response body.");
+  }
+  return response;
+}
+
 export async function getFrontendConfig(): Promise<FrontendConfig> {
   return getJson<FrontendConfig>("/api/config/frontend");
 }

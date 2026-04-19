@@ -4,6 +4,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -70,13 +71,14 @@ type GameFileDTO struct {
 // GameController serves GET /api/games (list) and GET /api/games/{id} (single game).
 type GameController struct {
 	gameStore       core.GameStore
+	refreshSvc      core.GameMetadataRefreshService
 	integrationRepo core.IntegrationRepository
 	cacheSvc        core.SourceCacheService
 	logger          core.Logger
 }
 
-func NewGameController(gameStore core.GameStore, integrationRepo core.IntegrationRepository, cacheSvc core.SourceCacheService, logger core.Logger) *GameController {
-	return &GameController{gameStore: gameStore, integrationRepo: integrationRepo, cacheSvc: cacheSvc, logger: logger}
+func NewGameController(gameStore core.GameStore, refreshSvc core.GameMetadataRefreshService, integrationRepo core.IntegrationRepository, cacheSvc core.SourceCacheService, logger core.Logger) *GameController {
+	return &GameController{gameStore: gameStore, refreshSvc: refreshSvc, integrationRepo: integrationRepo, cacheSvc: cacheSvc, logger: logger}
 }
 
 func decodedPathParam(r *http.Request, key string) (string, error) {
@@ -234,6 +236,43 @@ func (c *GameController) GetDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(c.canonicalToGameDetail(ctx, game))
+}
+
+func (c *GameController) RefreshMetadata(w http.ResponseWriter, r *http.Request) {
+	id, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if id == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+	if c.refreshSvc == nil {
+		http.Error(w, "metadata refresh is not available", http.StatusNotImplemented)
+		return
+	}
+
+	game, err := c.refreshSvc.RefreshGameMetadata(r.Context(), id)
+	if err != nil {
+		switch {
+		case errors.Is(err, core.ErrMetadataRefreshNoEligible):
+			http.Error(w, err.Error(), http.StatusConflict)
+		case errors.Is(err, core.ErrMetadataProvidersUnavailable):
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		default:
+			c.logger.Error("refresh game metadata", err, "game_id", id)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	if game == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(c.canonicalToGameDetail(r.Context(), game))
 }
 
 // Stats returns aggregate library statistics (GET /api/stats).

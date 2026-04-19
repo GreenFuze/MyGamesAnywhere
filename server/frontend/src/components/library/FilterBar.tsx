@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { sourceLabel } from '@/lib/gameUtils'
+import { platformLabel, sourceLabel } from '@/lib/displayText'
 import type { FilterState } from '@/lib/libraryFilter'
 import { cn } from '@/lib/utils'
 
@@ -106,7 +106,7 @@ export function FilterBar({
                         : 'border-mga-border bg-mga-bg text-mga-muted hover:text-mga-text',
                     )}
                   >
-                    {p}
+                    {platformLabel(p)}
                   </button>
                 ))}
               </div>

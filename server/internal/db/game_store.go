@@ -1175,6 +1175,50 @@ func (s *gameStore) GetFoundSourceGames(ctx context.Context, integrationIDs []st
 	return games, rows.Err()
 }
 
+func (s *gameStore) GetFoundSourceGameRecords(ctx context.Context, integrationIDs []string) ([]*core.SourceGame, error) {
+	db := s.db.GetDB()
+
+	var rows *sql.Rows
+	var err error
+
+	if len(integrationIDs) == 0 {
+		rows, err = db.QueryContext(ctx, `SELECT id FROM source_games WHERE `+visibleSourceGameWhere("source_games"))
+	} else {
+		placeholders := make([]string, len(integrationIDs))
+		args := make([]any, len(integrationIDs))
+		for i, id := range integrationIDs {
+			placeholders[i] = "?"
+			args[i] = id
+		}
+		query := fmt.Sprintf(
+			`SELECT id FROM source_games WHERE %s AND integration_id IN (%s)`,
+			visibleSourceGameWhere("source_games"),
+			strings.Join(placeholders, ","),
+		)
+		rows, err = db.QueryContext(ctx, query, args...)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get found source game records: %w", err)
+	}
+	defer rows.Close()
+
+	var records []*core.SourceGame
+	for rows.Next() {
+		var sourceGameID string
+		if err := rows.Scan(&sourceGameID); err != nil {
+			return nil, err
+		}
+		record, err := s.loadSourceGame(ctx, db, sourceGameID)
+		if err != nil {
+			return nil, err
+		}
+		if isVisibleSourceGame(record) {
+			records = append(records, record)
+		}
+	}
+	return records, rows.Err()
+}
+
 func (s *gameStore) DeleteGamesByIntegrationID(ctx context.Context, integrationID string) error {
 	db := s.db.GetDB()
 	tx, err := db.BeginTx(ctx, nil)

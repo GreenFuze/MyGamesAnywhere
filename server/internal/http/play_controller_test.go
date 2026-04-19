@@ -184,7 +184,7 @@ func TestGameControllerServePlayFileSupportsRange(t *testing.T) {
 			},
 		},
 	}
-	ctrl := NewGameController(store, nil, nil, noopLogger{})
+	ctrl := NewGameController(store, nil, nil, nil, noopLogger{})
 	r := chi.NewRouter()
 	r.Get("/api/games/{id}/play", ctrl.ServePlayFile)
 
@@ -230,7 +230,7 @@ func TestGameControllerServePlayFileSupportsHead(t *testing.T) {
 			},
 		},
 	}
-	ctrl := NewGameController(store, nil, nil, noopLogger{})
+	ctrl := NewGameController(store, nil, nil, nil, noopLogger{})
 	router := BuildRouter(
 		&RouteBuilder{
 			GameCtrl:        ctrl,
@@ -295,7 +295,7 @@ func TestGameControllerServePlayFileServesCachedMaterializedFile(t *testing.T) {
 			},
 		},
 	}
-	ctrl := NewGameController(store, nil, &fakeCacheService{resolvedPath: cachedFile}, noopLogger{})
+	ctrl := NewGameController(store, nil, nil, &fakeCacheService{resolvedPath: cachedFile}, noopLogger{})
 	router := chi.NewRouter()
 	router.Get("/api/games/{id}/play", ctrl.ServePlayFile)
 
@@ -312,7 +312,7 @@ func TestGameControllerServePlayFileServesCachedMaterializedFile(t *testing.T) {
 }
 
 func TestGameControllerServePlayFileRejectsInvalidFileID(t *testing.T) {
-	ctrl := NewGameController(&fakeGameStore{}, nil, nil, noopLogger{})
+	ctrl := NewGameController(&fakeGameStore{}, nil, nil, nil, noopLogger{})
 	r := chi.NewRouter()
 	r.Get("/api/games/{id}/play", ctrl.ServePlayFile)
 
@@ -345,7 +345,7 @@ func TestGameControllerServePlayFileRejectsUnknownOwnedFile(t *testing.T) {
 			},
 		},
 	}
-	ctrl := NewGameController(store, nil, nil, noopLogger{})
+	ctrl := NewGameController(store, nil, nil, nil, noopLogger{})
 	r := chi.NewRouter()
 	r.Get("/api/games/{id}/play", ctrl.ServePlayFile)
 
@@ -379,7 +379,7 @@ func TestGameControllerServePlayFileRejectsTraversal(t *testing.T) {
 			},
 		},
 	}
-	ctrl := NewGameController(store, nil, nil, noopLogger{})
+	ctrl := NewGameController(store, nil, nil, nil, noopLogger{})
 	r := chi.NewRouter()
 	r.Get("/api/games/{id}/play", ctrl.ServePlayFile)
 
@@ -421,6 +421,7 @@ func TestGameControllerOpenSMBPlayFileRejectsInvalidConfig(t *testing.T) {
 
 	ctrl := NewGameController(
 		&fakeGameStore{},
+		nil,
 		&fakePlayIntegrationRepo{
 			byID: map[string]*core.Integration{
 				"integ-1": {
