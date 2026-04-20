@@ -284,6 +284,58 @@ async function runScummvmProof(page, baseUrl, slotStore) {
   return 'ScummVM restored the imported save snapshot after a UI-driven save/load cycle.'
 }
 
+async function runAmbiguousSelectionProof(page, baseUrl) {
+  await page.goto(`${baseUrl}/game/proof-browser-ambiguity/play`, { waitUntil: 'networkidle' })
+  await waitForUnsupportedMessage(
+    page,
+    'Multiple browser-play sources or versions are available. Choose one before launching.',
+  )
+
+  const optionTexts = (await page.locator('select option').allTextContents())
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .filter((value) => !value.startsWith('Choose a source'))
+
+  if (optionTexts.length < 2) {
+    throw new Error(`Expected at least two source options, found: ${optionTexts.join(', ')}`)
+  }
+  if (new Set(optionTexts).size !== optionTexts.length) {
+    throw new Error(`Expected distinct source labels, found duplicates: ${optionTexts.join(', ')}`)
+  }
+  if (!optionTexts.some((value) => value.includes('Proof/Version A'))) {
+    throw new Error(`Expected a Version A option label, found: ${optionTexts.join(', ')}`)
+  }
+  if (!optionTexts.some((value) => value.includes('Proof/Version B'))) {
+    throw new Error(`Expected a Version B option label, found: ${optionTexts.join(', ')}`)
+  }
+
+  return 'Ambiguous browser-play sources required explicit choice and rendered distinct option labels.'
+}
+
+async function runInvalidRememberedSourceProof(page, baseUrl) {
+  await page.goto(baseUrl, { waitUntil: 'networkidle' })
+  await page.evaluate(() => {
+    window.localStorage.setItem(
+      'mga.browserPlaySource.proof-invalid-remembered.jsdos',
+      'missing-source-record',
+    )
+  })
+
+  await page.goto(`${baseUrl}/game/proof-invalid-remembered/play`, { waitUntil: 'networkidle' })
+  await waitForUnsupportedMessage(
+    page,
+    'The remembered browser-play source is no longer available. Choose a current source before launching.',
+  )
+
+  const sourceSelect = page.locator('select').first()
+  await sourceSelect.waitFor({ state: 'visible', timeout: 20000 })
+  await sourceSelect.selectOption('source-remembered-current')
+  await page.getByRole('button', { name: 'Apply Source' }).click()
+  await waitForRuntimeReady(page)
+
+  return 'Invalid remembered source blocked auto-launch until the user explicitly chose the current source.'
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2))
   const scriptDir = path.dirname(fileURLToPath(import.meta.url))
@@ -305,6 +357,8 @@ async function main() {
       ['EmulatorJS', () => runEmulatorJsProof(page, server.baseUrl, server.slotStore)],
       ['js-dos bundle-backed', () => runJsdosBundleProof(page, server.baseUrl, server.slotStore)],
       ['js-dos plain-file unsupported', () => runJsdosPlainProof(page, server.baseUrl)],
+      ['Browser source ambiguity', () => runAmbiguousSelectionProof(page, server.baseUrl)],
+      ['Invalid remembered source', () => runInvalidRememberedSourceProof(page, server.baseUrl)],
       ['ScummVM', () => runScummvmProof(page, server.baseUrl, server.slotStore)],
     ]) {
       try {

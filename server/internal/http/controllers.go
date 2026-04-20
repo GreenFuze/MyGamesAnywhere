@@ -72,13 +72,20 @@ type GameFileDTO struct {
 type GameController struct {
 	gameStore       core.GameStore
 	refreshSvc      core.GameMetadataRefreshService
+	deleteSvc       core.GameDeletionService
 	integrationRepo core.IntegrationRepository
 	cacheSvc        core.SourceCacheService
 	logger          core.Logger
 }
 
-func NewGameController(gameStore core.GameStore, refreshSvc core.GameMetadataRefreshService, integrationRepo core.IntegrationRepository, cacheSvc core.SourceCacheService, logger core.Logger) *GameController {
-	return &GameController{gameStore: gameStore, refreshSvc: refreshSvc, integrationRepo: integrationRepo, cacheSvc: cacheSvc, logger: logger}
+type DeleteSourceGameResponse struct {
+	DeletedSourceGameID string              `json:"deleted_source_game_id"`
+	CanonicalExists     bool                `json:"canonical_exists"`
+	Game                *GameDetailResponse `json:"game,omitempty"`
+}
+
+func NewGameController(gameStore core.GameStore, refreshSvc core.GameMetadataRefreshService, deleteSvc core.GameDeletionService, integrationRepo core.IntegrationRepository, cacheSvc core.SourceCacheService, logger core.Logger) *GameController {
+	return &GameController{gameStore: gameStore, refreshSvc: refreshSvc, deleteSvc: deleteSvc, integrationRepo: integrationRepo, cacheSvc: cacheSvc, logger: logger}
 }
 
 func decodedPathParam(r *http.Request, key string) (string, error) {
@@ -91,6 +98,29 @@ func decodedPathParam(r *http.Request, key string) (string, error) {
 		return "", fmt.Errorf("invalid path parameter %q: %w", key, err)
 	}
 	return decoded, nil
+}
+
+func (c *GameController) loadIntegrationLabels(ctx context.Context) map[string]string {
+	if c == nil || c.integrationRepo == nil {
+		return nil
+	}
+	integrations, err := c.integrationRepo.List(ctx)
+	if err != nil {
+		c.logger.Warn("list integrations for labels failed", "error", err)
+		return nil
+	}
+	labels := make(map[string]string, len(integrations))
+	for _, integration := range integrations {
+		if integration == nil {
+			continue
+		}
+		labels[integration.ID] = integration.Label
+	}
+	return labels
+}
+
+func writeActionError(w http.ResponseWriter, status int, message string) {
+	http.Error(w, strings.TrimSpace(message), status)
 }
 
 // ListGames returns a page of canonical games as full detail rows (GET /api/games).
@@ -169,13 +199,14 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	integrationLabels := c.loadIntegrationLabels(ctx)
 
 	out := make([]GameDetailResponse, 0, len(games))
 	for _, cg := range games {
 		if cg == nil {
 			continue
 		}
-		out = append(out, c.canonicalToGameDetail(ctx, cg))
+		out = append(out, c.canonicalToGameDetailWithIntegrationLabels(ctx, cg, integrationLabels))
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(ListGamesResponse{
@@ -209,7 +240,7 @@ func (c *GameController) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(c.canonicalToGameDetail(ctx, game))
+	json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx)))
 }
 
 // GetDetail returns full game metadata and per-source resolver data (GET /api/games/{id}/detail).
@@ -235,7 +266,7 @@ func (c *GameController) GetDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(c.canonicalToGameDetail(ctx, game))
+	json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx)))
 }
 
 func (c *GameController) RefreshMetadata(w http.ResponseWriter, r *http.Request) {
@@ -257,12 +288,12 @@ func (c *GameController) RefreshMetadata(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		switch {
 		case errors.Is(err, core.ErrMetadataRefreshNoEligible):
-			http.Error(w, err.Error(), http.StatusConflict)
+			writeActionError(w, http.StatusConflict, err.Error())
 		case errors.Is(err, core.ErrMetadataProvidersUnavailable):
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			writeActionError(w, http.StatusUnprocessableEntity, err.Error())
 		default:
 			c.logger.Error("refresh game metadata", err, "game_id", id)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeActionError(w, http.StatusInternalServerError, err.Error())
 		}
 		return
 	}
@@ -272,7 +303,53 @@ func (c *GameController) RefreshMetadata(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(c.canonicalToGameDetail(r.Context(), game))
+	_ = json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(r.Context(), game, c.loadIntegrationLabels(r.Context())))
+}
+
+func (c *GameController) DeleteSourceGame(w http.ResponseWriter, r *http.Request) {
+	canonicalID, err := decodedPathParam(r, "id")
+	if err != nil {
+		writeActionError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	sourceGameID, err := decodedPathParam(r, "source_game_id")
+	if err != nil {
+		writeActionError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if canonicalID == "" || sourceGameID == "" {
+		writeActionError(w, http.StatusBadRequest, "id and source_game_id are required")
+		return
+	}
+	if c.deleteSvc == nil {
+		writeActionError(w, http.StatusNotImplemented, "source record hard delete is not available")
+		return
+	}
+
+	result, err := c.deleteSvc.DeleteSourceGame(r.Context(), canonicalID, sourceGameID)
+	if err != nil {
+		switch {
+		case errors.Is(err, core.ErrSourceGameDeleteNotFound):
+			http.NotFound(w, r)
+		case errors.Is(err, core.ErrSourceGameDeleteNotEligible):
+			writeActionError(w, http.StatusConflict, err.Error())
+		default:
+			c.logger.Error("delete source game", err, "game_id", canonicalID, "source_game_id", sourceGameID)
+			writeActionError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	resp := DeleteSourceGameResponse{
+		DeletedSourceGameID: result.DeletedSourceGameID,
+		CanonicalExists:     result.CanonicalExists,
+	}
+	if result.CanonicalGame != nil {
+		detail := c.canonicalToGameDetailWithIntegrationLabels(r.Context(), result.CanonicalGame, c.loadIntegrationLabels(r.Context()))
+		resp.Game = &detail
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // Stats returns aggregate library statistics (GET /api/stats).

@@ -1375,6 +1375,89 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
+func TestDeleteSourceGameByIDKeepsSiblingSourceRecordsAndRecomputesCanonical(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	persistBatch(t, ctx, store, makeTestBatch("integration-1", "scan:source-a", "source-a", "Alpha", "match-alpha"))
+	persistBatch(t, ctx, store, makeTestBatch("integration-2", "scan:source-b", "source-b", "Alpha Alt", "match-alpha"))
+
+	if err := store.CacheAchievements(ctx, "scan:source-a", &core.AchievementSet{
+		GameID:         "scan:source-a",
+		Source:         "metadata-steam",
+		ExternalGameID: "match-alpha",
+		TotalCount:     1,
+		UnlockedCount:  1,
+		Achievements: []core.Achievement{{
+			ExternalID: "achievement-1",
+			Title:      "Done",
+			Unlocked:   true,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	canonicalID := canonicalIDForSource(t, ctx, db, "scan:source-a")
+	if canonicalIDForSource(t, ctx, db, "scan:source-b") != canonicalID {
+		t.Fatal("expected both source games to share one canonical id before delete")
+	}
+
+	if err := store.DeleteSourceGameByID(ctx, "scan:source-a"); err != nil {
+		t.Fatalf("DeleteSourceGameByID: %v", err)
+	}
+
+	if _, err := store.GetCachedAchievements(ctx, "scan:source-a", "metadata-steam"); err != nil {
+		t.Fatalf("GetCachedAchievements deleted source: %v", err)
+	}
+
+	game, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatalf("GetCanonicalGameByID: %v", err)
+	}
+	if game == nil {
+		t.Fatal("expected canonical game to remain after deleting one sibling source")
+	}
+	if len(game.SourceGames) != 1 || game.SourceGames[0].ID != "scan:source-b" {
+		t.Fatalf("remaining source games = %+v, want only scan:source-b", game.SourceGames)
+	}
+
+	var deletedCount int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM source_games WHERE id = ?`, "scan:source-a").Scan(&deletedCount); err != nil {
+		t.Fatal(err)
+	}
+	if deletedCount != 0 {
+		t.Fatalf("deleted source row count = %d, want 0", deletedCount)
+	}
+}
+
+func TestDeleteSourceGameByIDRemovesSoloCanonicalMembership(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	persistBatch(t, ctx, store, makeTestBatch("integration-1", "scan:solo", "source-solo", "Solo", "match-solo"))
+	canonicalID := canonicalIDForSource(t, ctx, db, "scan:solo")
+
+	if err := store.DeleteSourceGameByID(ctx, "scan:solo"); err != nil {
+		t.Fatalf("DeleteSourceGameByID: %v", err)
+	}
+
+	game, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatalf("GetCanonicalGameByID: %v", err)
+	}
+	if game != nil {
+		t.Fatalf("expected canonical game to disappear after deleting its only source, got %+v", game)
+	}
+
+	var linkCount int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM canonical_source_games_link WHERE canonical_id = ?`, canonicalID).Scan(&linkCount); err != nil {
+		t.Fatal(err)
+	}
+	if linkCount != 0 {
+		t.Fatalf("canonical link count = %d, want 0", linkCount)
+	}
+}
+
 func TestPersistScanResultsHardDeletesOutOfScopeRowsAndSoftDeletesInScopeRows(t *testing.T) {
 	ctx := context.Background()
 	db, store := newTestGameStore(t)

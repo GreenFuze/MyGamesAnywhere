@@ -7,6 +7,12 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
+var (
+	fullScanMetadataFailurePolicy     = MetadataFailurePolicy{Name: "full_scan", Strict: false}
+	refreshMetadataFailurePolicy      = MetadataFailurePolicy{Name: "refresh", Strict: true}
+	manualReviewMetadataFailurePolicy = MetadataFailurePolicy{Name: "manual_review", Strict: true}
+)
+
 type metadataRefreshCoordinator struct {
 	gameStore          core.GameStore
 	mediaDownloadQueue core.MediaDownloadQueue
@@ -28,24 +34,28 @@ func newMetadataRefreshCoordinator(
 	}
 }
 
+func (c *metadataRefreshCoordinator) enrichDiscoveredGames(
+	ctx context.Context,
+	integrationID string,
+	games []*core.Game,
+	metadataSources []MetadataSource,
+) (*MetadataExecutionSummary, error) {
+	return c.metadataResolver.EnrichWithPolicy(ctx, integrationID, games, metadataSources, fullScanMetadataFailurePolicy)
+}
+
 func (c *metadataRefreshCoordinator) refreshExistingSourceGames(
 	ctx context.Context,
 	integrationID string,
 	sourceGames []*core.SourceGame,
 	metadataSources []MetadataSource,
-	strict bool,
 ) ([]*core.Game, error) {
 	games, err := gamesForSourceRefresh(sourceGames)
 	if err != nil {
 		return nil, err
 	}
 
-	if strict {
-		if err := c.metadataResolver.EnrichStrict(ctx, integrationID, games, metadataSources); err != nil {
-			return nil, err
-		}
-	} else {
-		c.metadataResolver.Enrich(ctx, integrationID, games, metadataSources)
+	if _, err := c.metadataResolver.EnrichWithPolicy(ctx, integrationID, games, metadataSources, refreshMetadataFailurePolicy); err != nil {
+		return nil, err
 	}
 
 	if err := c.persistRefreshedSourceGames(ctx, sourceGames, games); err != nil {
@@ -68,7 +78,9 @@ func (c *metadataRefreshCoordinator) applyManualReviewSelection(
 	applyUnifiedFields(game, metadataSources)
 	game.Status = "identified"
 	if len(metadataSources) > 0 {
-		c.metadataResolver.fill(ctx, integrationID, []*core.Game{game}, metadataSources)
+		if _, err := c.metadataResolver.FillWithPolicy(ctx, integrationID, []*core.Game{game}, metadataSources, manualReviewMetadataFailurePolicy); err != nil {
+			return err
+		}
 		runConsensus(game, metadataSources)
 	}
 

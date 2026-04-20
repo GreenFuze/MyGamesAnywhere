@@ -57,6 +57,20 @@ func Operations() []OperationDoc {
 			ResponseDocs: map[string]string{"200": "Game detail object", "404": "Game not found", "500": "Internal server error"},
 		},
 		{
+			Method:       "POST",
+			Path:         "/api/games/{id}/refresh-metadata",
+			Summary:      "Refresh metadata for one canonical game",
+			Description:  "Runs the strict metadata/media refresh flow for one canonical game. Provider failures abort the refresh and return a fast-fail error instead of partial persistence.",
+			ResponseDocs: map[string]string{"200": "Updated GameDetailResponse", "404": "Game not found", "409": "No eligible source records remain for refresh", "422": "Metadata providers unavailable or refresh failed fast", "500": "Internal server error"},
+		},
+		{
+			Method:       "DELETE",
+			Path:         "/api/games/{id}/sources/{source_game_id}",
+			Summary:      "Hard delete one source record",
+			Description:  "Deletes exactly one eligible file-backed source record, including provider-backed files and dependent database rows, then recomputes canonical grouping. The action never deletes sibling source records implicitly.",
+			ResponseDocs: map[string]string{"200": "DeleteSourceGameResponse", "404": "Game or source record not found", "409": "Source record is not eligible for hard delete", "500": "Internal server error"},
+		},
+		{
 			Method:       "GET",
 			Path:         "/api/games/{id}/play",
 			Summary:      "Stream one game file by file_id",

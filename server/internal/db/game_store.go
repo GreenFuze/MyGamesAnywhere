@@ -488,14 +488,24 @@ func (s *gameStore) GetSourceGamesForCanonical(ctx context.Context, canonicalID 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var out []*core.SourceGame
+	var sgIDs []string
 	for rows.Next() {
 		var sgid string
 		if err := rows.Scan(&sgid); err != nil {
+			rows.Close()
 			return nil, err
 		}
+		sgIDs = append(sgIDs, sgid)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	var out []*core.SourceGame
+	for _, sgid := range sgIDs {
 		sg, err := s.loadSourceGame(ctx, db, sgid)
 		if err != nil {
 			return nil, err
@@ -1200,14 +1210,24 @@ func (s *gameStore) GetFoundSourceGameRecords(ctx context.Context, integrationID
 	if err != nil {
 		return nil, fmt.Errorf("get found source game records: %w", err)
 	}
-	defer rows.Close()
 
-	var records []*core.SourceGame
+	var sourceGameIDs []string
 	for rows.Next() {
 		var sourceGameID string
 		if err := rows.Scan(&sourceGameID); err != nil {
+			rows.Close()
 			return nil, err
 		}
+		sourceGameIDs = append(sourceGameIDs, sourceGameID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	var records []*core.SourceGame
+	for _, sourceGameID := range sourceGameIDs {
 		record, err := s.loadSourceGame(ctx, db, sourceGameID)
 		if err != nil {
 			return nil, err
@@ -1216,7 +1236,7 @@ func (s *gameStore) GetFoundSourceGameRecords(ctx context.Context, integrationID
 			records = append(records, record)
 		}
 	}
-	return records, rows.Err()
+	return records, nil
 }
 
 func (s *gameStore) DeleteGamesByIntegrationID(ctx context.Context, integrationID string) error {
@@ -1254,14 +1274,39 @@ func (s *gameStore) DeleteGamesByIntegrationID(ctx context.Context, integrationI
 		return err
 	}
 
-	// Clean up orphaned canonical IDs (canonical entries with no remaining source games).
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM canonical_source_games_link WHERE canonical_id NOT IN (
-			SELECT DISTINCT canonical_id FROM canonical_source_games_link
-		)`); err != nil {
-		return fmt.Errorf("clean orphaned canonical: %w", err)
+	if err := s.recomputeCanonicalGroups(ctx, tx); err != nil {
+		return fmt.Errorf("recompute canonical after integration delete: %w", err)
 	}
 
+	return tx.Commit()
+}
+
+func (s *gameStore) DeleteSourceGameByID(ctx context.Context, sourceGameID string) error {
+	if strings.TrimSpace(sourceGameID) == "" {
+		return fmt.Errorf("source game id is required")
+	}
+
+	db := s.db.GetDB()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var existingID string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM source_games WHERE id = ?`, sourceGameID).Scan(&existingID); err != nil {
+		if err == sql.ErrNoRows {
+			return core.ErrSourceGameDeleteNotFound
+		}
+		return fmt.Errorf("load source game %s: %w", sourceGameID, err)
+	}
+
+	if err := s.deleteSourceGamesByID(ctx, tx, []string{sourceGameID}); err != nil {
+		return err
+	}
+	if err := s.recomputeCanonicalGroups(ctx, tx); err != nil {
+		return fmt.Errorf("recompute canonical after source delete: %w", err)
+	}
 	return tx.Commit()
 }
 

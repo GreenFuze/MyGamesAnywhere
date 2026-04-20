@@ -69,6 +69,7 @@ export type BrowserPlaySelectionIssue = {
     | 'missing_launch_source'
     | 'ambiguous_launch_source'
     | 'invalid_requested_source'
+    | 'invalid_remembered_source'
     | 'missing_root_file'
     | 'missing_runtime_core'
     | 'missing_source_files'
@@ -93,6 +94,7 @@ export type BrowserPlaySelectionResolution =
         | 'missing_launch_source'
         | 'ambiguous_launch_source'
         | 'invalid_requested_source'
+        | 'invalid_remembered_source'
       runtime: BrowserPlayRuntime | null
       selections: BrowserPlaySelection[]
       selection: null
@@ -255,6 +257,10 @@ export function browserPlaySourceLabel(selection: BrowserPlaySelection): string 
 
 export function browserPlaySourceContext(selection: BrowserPlaySelection): string {
   const parts: string[] = []
+  const integrationLabel = selection.sourceGame.integration_label?.trim()
+  if (integrationLabel && integrationLabel !== browserPlaySourceLabel(selection)) {
+    parts.push(integrationLabel)
+  }
   if (selection.sourceGame.platform && selection.sourceGame.platform !== 'unknown') {
     parts.push(platformLabel(selection.sourceGame.platform))
   }
@@ -272,10 +278,29 @@ export function browserPlaySourceContext(selection: BrowserPlaySelection): strin
   return Array.from(new Set(parts.filter((part) => part.trim().length > 0))).join(' · ')
 }
 
-export function browserPlaySourceOptionLabel(selection: BrowserPlaySelection): string {
+function browserPlaySourceDisambiguator(selection: BrowserPlaySelection): string {
+  const rootPath = selection.sourceGame.root_path?.trim()
+  if (rootPath) return rootPath
+  const externalID = selection.sourceGame.external_id?.trim()
+  if (externalID) return externalID
+  return selection.sourceGame.id.slice(-8)
+}
+
+export function browserPlaySourceOptionLabel(
+  selection: BrowserPlaySelection,
+  selections: BrowserPlaySelection[] = [selection],
+): string {
   const label = browserPlaySourceLabel(selection)
   const context = browserPlaySourceContext(selection)
-  return context ? `${label} · ${context}` : label
+  const base = context ? `${label} · ${context}` : label
+  const duplicateCount = selections.filter((candidate) => {
+    return (
+      browserPlaySourceLabel(candidate) === label &&
+      browserPlaySourceContext(candidate) === context
+    )
+  }).length
+  if (duplicateCount <= 1) return base
+  return `${base} · ${browserPlaySourceDisambiguator(selection)}`
 }
 
 export function listBrowserPlaySelections(game: GameDetailResponse): BrowserPlaySelection[] {
@@ -339,6 +364,10 @@ class BrowserPlaySelectionController {
 
     if (rememberedSelection) {
       return this.resolved(rememberedSelection, 'remembered_source', invalidRememberedSourceGameId)
+    }
+
+    if (invalidRememberedSourceGameId) {
+      return this.blocked('invalid_remembered_source', invalidRememberedSourceGameId)
     }
 
     if (this.selections.length === 1) {
@@ -438,6 +467,11 @@ function blockedSelectionIssue(
         message: requestedSourceGameId
           ? `The requested source "${requestedSourceGameId}" is no longer available for this game. Choose a current source before launching.`
           : 'The requested browser-play source could not be resolved for this game.',
+      }
+    case 'invalid_remembered_source':
+      return {
+        code: 'invalid_remembered_source',
+        message: 'The remembered browser-play source is no longer available. Choose a current source before launching.',
       }
   }
 }

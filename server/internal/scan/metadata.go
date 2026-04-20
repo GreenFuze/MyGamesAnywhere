@@ -90,6 +90,79 @@ type MetadataResolver struct {
 	publisher ScanEventFunc
 }
 
+type MetadataFailurePolicy struct {
+	Name   string
+	Strict bool
+}
+
+type MetadataProviderFailure struct {
+	IntegrationID string
+	Label         string
+	PluginID      string
+	Phase         string
+	Error         string
+}
+
+type MetadataExecutionSummary struct {
+	mu               sync.Mutex
+	ProviderFailures []MetadataProviderFailure
+	Identified       int
+	Unidentified     int
+}
+
+func (s *MetadataExecutionSummary) Degraded() bool {
+	return s != nil && len(s.ProviderFailures) > 0
+}
+
+func (s *MetadataExecutionSummary) Error() string {
+	if s == nil || len(s.ProviderFailures) == 0 {
+		return ""
+	}
+	failures := make([]string, 0, len(s.ProviderFailures))
+	for _, failure := range s.ProviderFailures {
+		provider := strings.TrimSpace(failure.Label)
+		if provider == "" {
+			provider = strings.TrimSpace(failure.PluginID)
+		}
+		if provider == "" {
+			provider = "metadata provider"
+		}
+		failures = append(failures, fmt.Sprintf("%s %s failed: %s", provider, failure.Phase, failure.Error))
+	}
+	return strings.Join(failures, "; ")
+}
+
+func (s *MetadataExecutionSummary) recordFailure(src MetadataSource, phase string, err error) {
+	if s == nil || err == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ProviderFailures = append(s.ProviderFailures, MetadataProviderFailure{
+		IntegrationID: src.IntegrationID,
+		Label:         src.Label,
+		PluginID:      src.PluginID,
+		Phase:         phase,
+		Error:         err.Error(),
+	})
+}
+
+func (s *MetadataExecutionSummary) setCounts(games []*core.Game) {
+	if s == nil {
+		return
+	}
+	identified, unidentified := 0, 0
+	for _, g := range games {
+		if g.Status == "identified" {
+			identified++
+			continue
+		}
+		unidentified++
+	}
+	s.Identified = identified
+	s.Unidentified = unidentified
+}
+
 func NewMetadataResolver(caller PluginCaller, logger core.Logger) *MetadataResolver {
 	return &MetadataResolver{caller: caller, logger: logger}
 }
@@ -121,67 +194,93 @@ func metadataSourceFields(src MetadataSource) map[string]any {
 
 // Enrich runs the three-phase enrichment pipeline on the provided games.
 func (r *MetadataResolver) Enrich(ctx context.Context, integrationID string, games []*core.Game, sources []MetadataSource) {
-	if len(games) == 0 || len(sources) == 0 {
-		return
-	}
-
-	r.logger.Info("metadata: starting enrichment", "games", len(games), "sources", len(sources))
-
-	// Phase 1: call every resolver with raw scan titles.
-	r.identify(ctx, integrationID, games, sources)
-
-	// Phase 2: consensus vote + compute unified fields.
-	r.consensus(ctx, integrationID, games, sources)
-
-	// Phase 3: re-query missed/outvoted resolvers with the consensus title.
-	r.fill(ctx, integrationID, games, sources)
-
-	r.logSummary(games)
-	r.emitMetadataFinished(ctx, integrationID, games)
+	_, _ = r.EnrichWithPolicy(ctx, integrationID, games, sources, MetadataFailurePolicy{Name: "tolerant"})
 }
 
 func (r *MetadataResolver) EnrichStrict(ctx context.Context, integrationID string, games []*core.Game, sources []MetadataSource) error {
+	_, err := r.EnrichWithPolicy(ctx, integrationID, games, sources, MetadataFailurePolicy{Name: "strict", Strict: true})
+	return err
+}
+
+func (r *MetadataResolver) EnrichWithPolicy(
+	ctx context.Context,
+	integrationID string,
+	games []*core.Game,
+	sources []MetadataSource,
+	policy MetadataFailurePolicy,
+) (*MetadataExecutionSummary, error) {
+	summary := &MetadataExecutionSummary{}
 	if len(games) == 0 || len(sources) == 0 {
-		return nil
+		summary.setCounts(games)
+		return summary, nil
 	}
 
-	r.logger.Info("metadata: starting strict enrichment", "games", len(games), "sources", len(sources))
+	r.logger.Info("metadata: starting enrichment", "games", len(games), "sources", len(sources), "policy", policy.Name, "strict", policy.Strict)
 
-	if err := r.identifyStrict(ctx, integrationID, games, sources); err != nil {
-		return err
+	if err := r.identifyWithPolicy(ctx, integrationID, games, sources, policy, summary); err != nil {
+		summary.setCounts(games)
+		return summary, err
 	}
 	r.consensus(ctx, integrationID, games, sources)
-	if err := r.fillStrict(ctx, integrationID, games, sources); err != nil {
-		return err
+	if err := r.fillWithPolicy(ctx, integrationID, games, sources, policy, summary); err != nil {
+		summary.setCounts(games)
+		return summary, err
 	}
 
+	summary.setCounts(games)
 	r.logSummary(games)
-	r.emitMetadataFinished(ctx, integrationID, games)
-	return nil
+	r.emitMetadataFinished(ctx, integrationID, games, summary)
+	return summary, nil
+}
+
+func (r *MetadataResolver) FillWithPolicy(
+	ctx context.Context,
+	integrationID string,
+	games []*core.Game,
+	sources []MetadataSource,
+	policy MetadataFailurePolicy,
+) (*MetadataExecutionSummary, error) {
+	summary := &MetadataExecutionSummary{}
+	if len(games) == 0 || len(sources) == 0 {
+		summary.setCounts(games)
+		return summary, nil
+	}
+	if err := r.fillWithPolicy(ctx, integrationID, games, sources, policy, summary); err != nil {
+		summary.setCounts(games)
+		return summary, err
+	}
+	summary.setCounts(games)
+	return summary, nil
 }
 
 // ── Phase 1: Identify ───────────────────────────────────────────────
 
 func (r *MetadataResolver) identify(ctx context.Context, integrationID string, games []*core.Game, sources []MetadataSource) {
-	r.emitScanEvent(ctx, integrationID, "scan_metadata_phase", map[string]any{"phase": "identify"})
-	var matchesMu sync.Mutex
-	_ = runMetadataSourcesConcurrently(ctx, sources, func(runCtx context.Context, src MetadataSource) error {
-		matched, err := r.callPluginIdentify(runCtx, integrationID, src, games, &matchesMu)
-		r.logger.Info("metadata phase 1", "plugin", src.PluginID, "matched", matched, "total", len(games))
-		if err != nil {
-			return nil
-		}
-		return nil
-	})
+	_ = r.identifyWithPolicy(ctx, integrationID, games, sources, MetadataFailurePolicy{Name: "tolerant"}, nil)
 }
 
 func (r *MetadataResolver) identifyStrict(ctx context.Context, integrationID string, games []*core.Game, sources []MetadataSource) error {
+	return r.identifyWithPolicy(ctx, integrationID, games, sources, MetadataFailurePolicy{Name: "strict", Strict: true}, nil)
+}
+
+func (r *MetadataResolver) identifyWithPolicy(
+	ctx context.Context,
+	integrationID string,
+	games []*core.Game,
+	sources []MetadataSource,
+	policy MetadataFailurePolicy,
+	summary *MetadataExecutionSummary,
+) error {
 	r.emitScanEvent(ctx, integrationID, "scan_metadata_phase", map[string]any{"phase": "identify"})
 	var matchesMu sync.Mutex
 	return runMetadataSourcesConcurrently(ctx, sources, func(runCtx context.Context, src MetadataSource) error {
 		matched, err := r.callPluginIdentify(runCtx, integrationID, src, games, &matchesMu)
 		if err != nil {
-			return fmt.Errorf("%w: %s identify failed: %v", core.ErrMetadataProvidersUnavailable, src.PluginID, err)
+			summary.recordFailure(src, "identify", err)
+			if policy.Strict {
+				return fmt.Errorf("%w: %s identify failed: %v", core.ErrMetadataProvidersUnavailable, src.PluginID, err)
+			}
+			return nil
 		}
 		r.logger.Info("metadata phase 1", "plugin", src.PluginID, "matched", matched, "total", len(games))
 		return nil
@@ -437,113 +536,21 @@ func sourcePriority(pluginID string, sources []MetadataSource) int {
 // ── Phase 3: Fill ───────────────────────────────────────────────────
 
 func (r *MetadataResolver) fill(ctx context.Context, integrationID string, games []*core.Game, sources []MetadataSource) {
-	r.emitScanEvent(ctx, integrationID, "scan_metadata_phase", map[string]any{"phase": "fill"})
-	var matchesMu sync.Mutex
-	_ = runMetadataSourcesConcurrently(ctx, sources, func(runCtx context.Context, src MetadataSource) error {
-		type fillEntry struct {
-			gameIdx int
-		}
-		var entries []fillEntry
-
-		for i, g := range games {
-			if g.Status != "identified" {
-				continue
-			}
-			if hasGoodMatch(g, src.PluginID) {
-				continue
-			}
-			entries = append(entries, fillEntry{gameIdx: i})
-		}
-
-		if len(entries) == 0 {
-			return nil
-		}
-
-		queries := make([]metadataGameQuery, len(entries))
-		for j, e := range entries {
-			g := games[e.gameIdx]
-			queries[j] = metadataGameQuery{
-				Index:     j,
-				Title:     g.Title,
-				Platform:  string(g.Platform),
-				RootPath:  g.RootPath,
-				GroupKind: string(g.GroupKind),
-			}
-		}
-
-		params := map[string]any{
-			"config": src.Config,
-		}
-
-		candidates := len(entries)
-		fields := metadataSourceFields(src)
-		fields["phase"] = "fill"
-		fields["batch_size"] = candidates
-		r.emitScanEvent(runCtx, integrationID, "scan_metadata_plugin_started", fields)
-
-		filled := 0
-		callFailed := false
-		for chunkStart := 0; chunkStart < len(queries); chunkStart += metadataLookupChunkSize {
-			chunkEnd := chunkStart + metadataLookupChunkSize
-			if chunkEnd > len(queries) {
-				chunkEnd = len(queries)
-			}
-
-			params["games"] = queries[chunkStart:chunkEnd]
-
-			var resp metadataLookupResponse
-			if err := r.caller.Call(runCtx, src.PluginID, metadataGameLookupMethod, params, &resp); err != nil {
-				r.logger.Error("metadata fill call failed", fmt.Errorf("%s: %w", src.PluginID, err))
-				fields := metadataSourceFields(src)
-				fields["phase"] = "fill"
-				fields["error"] = err.Error()
-				r.emitScanEvent(runCtx, integrationID, "scan_metadata_plugin_error", fields)
-				callFailed = true
-				break
-			}
-
-			for _, m := range resp.Results {
-				if m.Index < chunkStart || m.Index >= chunkEnd {
-					continue
-				}
-				entry := entries[m.Index]
-				g := games[entry.gameIdx]
-				filled++
-
-				matchesMu.Lock()
-				g.ResolverMatches = append(g.ResolverMatches, matchToResolver(src.PluginID, m))
-				if m.ExternalID != "" {
-					g.ExternalIDs = append(g.ExternalIDs, core.ExternalID{
-						Source:     src.PluginID,
-						ExternalID: m.ExternalID,
-						URL:        m.URL,
-					})
-				}
-				matchesMu.Unlock()
-			}
-
-			fields := metadataSourceFields(src)
-			fields["phase"] = "fill"
-			fields["game_index"] = chunkEnd
-			fields["game_count"] = candidates
-			fields["game_title"] = queries[chunkEnd-1].Title
-			r.emitScanEvent(runCtx, integrationID, "scan_metadata_game_progress", fields)
-		}
-		if callFailed {
-			return nil
-		}
-
-		r.logger.Info("metadata phase 3", "plugin", src.PluginID, "filled", filled, "candidates", len(entries))
-		fields = metadataSourceFields(src)
-		fields["phase"] = "fill"
-		fields["filled"] = filled
-		fields["candidates"] = candidates
-		r.emitScanEvent(runCtx, integrationID, "scan_metadata_plugin_complete", fields)
-		return nil
-	})
+	_ = r.fillWithPolicy(ctx, integrationID, games, sources, MetadataFailurePolicy{Name: "tolerant"}, nil)
 }
 
 func (r *MetadataResolver) fillStrict(ctx context.Context, integrationID string, games []*core.Game, sources []MetadataSource) error {
+	return r.fillWithPolicy(ctx, integrationID, games, sources, MetadataFailurePolicy{Name: "strict", Strict: true}, nil)
+}
+
+func (r *MetadataResolver) fillWithPolicy(
+	ctx context.Context,
+	integrationID string,
+	games []*core.Game,
+	sources []MetadataSource,
+	policy MetadataFailurePolicy,
+	summary *MetadataExecutionSummary,
+) error {
 	r.emitScanEvent(ctx, integrationID, "scan_metadata_phase", map[string]any{"phase": "fill"})
 	var matchesMu sync.Mutex
 	return runMetadataSourcesConcurrently(ctx, sources, func(runCtx context.Context, src MetadataSource) error {
@@ -604,7 +611,11 @@ func (r *MetadataResolver) fillStrict(ctx context.Context, integrationID string,
 				fields["phase"] = "fill"
 				fields["error"] = err.Error()
 				r.emitScanEvent(runCtx, integrationID, "scan_metadata_plugin_error", fields)
-				return fmt.Errorf("%w: %s fill failed: %v", core.ErrMetadataProvidersUnavailable, src.PluginID, err)
+				summary.recordFailure(src, "fill", err)
+				if policy.Strict {
+					return fmt.Errorf("%w: %s fill failed: %v", core.ErrMetadataProvidersUnavailable, src.PluginID, err)
+				}
+				return nil
 			}
 
 			for _, m := range resp.Results {
@@ -787,7 +798,7 @@ func (r *MetadataResolver) logSummary(games []*core.Game) {
 	)
 }
 
-func (r *MetadataResolver) emitMetadataFinished(ctx context.Context, integrationID string, games []*core.Game) {
+func (r *MetadataResolver) emitMetadataFinished(ctx context.Context, integrationID string, games []*core.Game, summary *MetadataExecutionSummary) {
 	identified, unidentified := 0, 0
 	totalExtIDs := 0
 	for _, g := range games {
@@ -802,5 +813,21 @@ func (r *MetadataResolver) emitMetadataFinished(ctx context.Context, integration
 		"identified":        identified,
 		"unidentified":      unidentified,
 		"external_id_count": totalExtIDs,
+		"status":            metadataSummaryStatus(summary),
+		"error_count":       metadataSummaryErrorCount(summary),
 	})
+}
+
+func metadataSummaryStatus(summary *MetadataExecutionSummary) string {
+	if summary != nil && summary.Degraded() {
+		return "degraded"
+	}
+	return "ok"
+}
+
+func metadataSummaryErrorCount(summary *MetadataExecutionSummary) int {
+	if summary == nil {
+		return 0
+	}
+	return len(summary.ProviderFailures)
 }

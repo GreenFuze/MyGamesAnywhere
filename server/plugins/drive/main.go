@@ -199,6 +199,51 @@ func resolvePathToFolderID(srv *drive.Service, rootPath string) (string, error) 
 	return currentID, nil
 }
 
+func resolvePathToObjectID(srv *drive.Service, rootPath string) (string, error) {
+	rootPath = sourcescope.NormalizeLogicalPath(rootPath)
+	if rootPath == "" {
+		return "", fmt.Errorf("path is required")
+	}
+
+	parts := strings.Split(rootPath, "/")
+	currentID := "root"
+
+	for index, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		query := fmt.Sprintf("'%s' in parents and name = '%s' and trashed = false",
+			currentID, strings.ReplaceAll(part, "'", "\\'"))
+		result, err := srv.Files.List().Q(query).Fields("files(id, name, mimeType)").PageSize(50).Do()
+		if err != nil {
+			return "", fmt.Errorf("find object %q: %w", part, err)
+		}
+		if len(result.Files) == 0 {
+			return "", fmt.Errorf("path component %q not found under %s", part, currentID)
+		}
+
+		if index == len(parts)-1 {
+			return result.Files[0].Id, nil
+		}
+
+		nextID := ""
+		for _, file := range result.Files {
+			if file.MimeType == "application/vnd.google-apps.folder" {
+				nextID = file.Id
+				break
+			}
+		}
+		if nextID == "" {
+			return "", fmt.Errorf("path component %q is not a folder", part)
+		}
+		currentID = nextID
+	}
+
+	return "", fmt.Errorf("path %q could not be resolved", rootPath)
+}
+
 // --------------- File listing (source.filesystem.list) ---------------
 
 func listFiles(ctx context.Context, includes []sourcescope.IncludePath) ([]map[string]any, error) {
@@ -998,6 +1043,39 @@ func handleFileMaterialize(params json.RawMessage) (any, *Error) {
 	return result, nil
 }
 
+func handleSourceDelete(params json.RawMessage) (any, *Error) {
+	var body struct {
+		Config   map[string]any `json:"config"`
+		RootPath string         `json:"root_path"`
+	}
+	if err := json.Unmarshal(params, &body); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	rootPath := sourcescope.NormalizeLogicalPath(body.RootPath)
+	if rootPath == "" {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "root_path is required"}
+	}
+	if !sourcescope.ScopeContainsRootPath(rootPath, filesystemIncludePathsFromConfig(body.Config)) {
+		return nil, &Error{Code: "NOT_ALLOWED", Message: "root_path is outside the configured include_paths scope"}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	srv, err := getDriveService(ctx)
+	if err != nil {
+		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
+	}
+	objectID, err := resolvePathToObjectID(srv, rootPath)
+	if err != nil {
+		return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
+	}
+	if err := srv.Files.Delete(objectID).SupportsAllDrives(true).Do(); err != nil {
+		return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
+	}
+	return map[string]any{"deleted_count": 1}, nil
+}
+
 func handleSyncPush(params json.RawMessage) (any, *Error) {
 	var sp syncPushParams
 	if err := json.Unmarshal(params, &sp); err != nil {
@@ -1104,6 +1182,14 @@ func main() {
 
 		case "source.filesystem.list":
 			result, errObj := handleFileList(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "source.filesystem.delete":
+			result, errObj := handleSourceDelete(req.Params)
 			if errObj != nil {
 				resp.Error = errObj
 			} else {

@@ -3,7 +3,7 @@
   "plugin_version": "2.1.0",
   "api_major": 1,
   "capabilities": ["source"],
-  "provides": ["source.filesystem.list", "source.file.materialize", "plugin.check_config", "auth.oauth.callback", "source.browse"],
+  "provides": ["source.filesystem.list", "source.filesystem.delete", "source.file.materialize", "plugin.check_config", "auth.oauth.callback", "source.browse"],
   "exec": "drive.exe",
   "default_timeout_ms": 600000,
   "max_concurrency": 2,

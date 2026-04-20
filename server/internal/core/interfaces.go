@@ -12,6 +12,8 @@ var (
 	ErrManualReviewSelectionInvalid  = errors.New("manual review selection invalid")
 	ErrMetadataProvidersUnavailable  = errors.New("metadata providers unavailable")
 	ErrMetadataRefreshNoEligible     = errors.New("metadata refresh has no eligible source records")
+	ErrSourceGameDeleteNotFound      = errors.New("source record not found")
+	ErrSourceGameDeleteNotEligible   = errors.New("source record is not eligible for hard delete")
 )
 
 // Logger defines the interface for structured logging.
@@ -147,6 +149,9 @@ type GameStore interface {
 	// DeleteGamesByIntegrationID removes all source games and related data for an integration.
 	DeleteGamesByIntegrationID(ctx context.Context, integrationID string) error
 
+	// DeleteSourceGameByID removes one source game and dependent rows, then recomputes canonical groups.
+	DeleteSourceGameByID(ctx context.Context, sourceGameID string) error
+
 	// SaveScanReport persists a completed scan report.
 	SaveScanReport(ctx context.Context, report *ScanReport) error
 
@@ -243,4 +248,15 @@ type ManualReviewService interface {
 // GameMetadataRefreshService handles explicit metadata/media refresh for one canonical game.
 type GameMetadataRefreshService interface {
 	RefreshGameMetadata(ctx context.Context, canonicalID string) (*CanonicalGame, error)
+}
+
+type DeleteSourceGameResult struct {
+	DeletedSourceGameID string
+	CanonicalExists     bool
+	CanonicalGame       *CanonicalGame
+}
+
+// GameDeletionService handles destructive, source-scoped file-backed deletions.
+type GameDeletionService interface {
+	DeleteSourceGame(ctx context.Context, canonicalID, sourceGameID string) (*DeleteSourceGameResult, error)
 }

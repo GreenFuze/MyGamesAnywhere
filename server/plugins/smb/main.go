@@ -110,6 +110,13 @@ func main() {
 			} else {
 				resp.Result = map[string]any{"files": files}
 			}
+		case "source.filesystem.delete":
+			result, errObj := handleSourceDelete(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
 		case "plugin.check_config":
 			var params struct {
 				Config SMBConfig `json:"config"`
@@ -144,12 +151,11 @@ func main() {
 	}
 }
 
-func checkConfig(config SMBConfig) error {
+func mountShare(config SMBConfig) (net.Conn, *smb2.Session, *smb2.Share, error) {
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:445", config.Host))
 	if err != nil {
-		return fmt.Errorf("failed to connect to host: %w", err)
+		return nil, nil, nil, err
 	}
-	defer conn.Close()
 
 	d := &smb2.Dialer{
 		Initiator: &smb2.NTLMInitiator{
@@ -158,17 +164,30 @@ func checkConfig(config SMBConfig) error {
 		},
 	}
 
-	s, err := d.Dial(conn)
+	session, err := d.Dial(conn)
 	if err != nil {
-		return fmt.Errorf("failed to authenticate: %w", err)
+		conn.Close()
+		return nil, nil, nil, err
 	}
-	defer s.Logoff()
 
-	fs, err := s.Mount(config.Share)
+	share, err := session.Mount(config.Share)
 	if err != nil {
-		return fmt.Errorf("failed to mount share: %w", err)
+		session.Logoff()
+		conn.Close()
+		return nil, nil, nil, fmt.Errorf("mount share %q: %w", config.Share, err)
 	}
-	defer fs.Umount()
+
+	return conn, session, share, nil
+}
+
+func checkConfig(config SMBConfig) error {
+	conn, session, share, err := mountShare(config)
+	if err != nil {
+		return fmt.Errorf("failed to connect to host: %w", err)
+	}
+	defer conn.Close()
+	defer session.Logoff()
+	defer share.Umount()
 
 	return nil
 }
@@ -176,29 +195,12 @@ func checkConfig(config SMBConfig) error {
 // listFiles walks the entire SMB share and returns every file and directory
 // as a flat listing. No filtering — the scanner handles classification.
 func listFiles(config SMBConfig) ([]map[string]any, error) {
-	conn, err := net.Dial("tcp", fmt.Sprintf("%s:445", config.Host))
+	conn, session, remotefs, err := mountShare(config)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
-
-	d := &smb2.Dialer{
-		Initiator: &smb2.NTLMInitiator{
-			User:     config.Username,
-			Password: config.Password,
-		},
-	}
-
-	s, err := d.Dial(conn)
-	if err != nil {
-		return nil, err
-	}
-	defer s.Logoff()
-
-	remotefs, err := s.Mount(config.Share)
-	if err != nil {
-		return nil, fmt.Errorf("mount share %q: %w", config.Share, err)
-	}
+	defer session.Logoff()
 	defer remotefs.Umount()
 
 	seen := make(map[string]map[string]any)
@@ -250,6 +252,36 @@ func listFiles(config SMBConfig) ([]map[string]any, error) {
 		files = append(files, seen[logicalPath])
 	}
 	return files, nil
+}
+
+func handleSourceDelete(params json.RawMessage) (any, *Error) {
+	var body struct {
+		Config   SMBConfig `json:"config"`
+		RootPath string    `json:"root_path"`
+	}
+	if err := json.Unmarshal(params, &body); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	rootPath := sourcescope.NormalizeLogicalPath(body.RootPath)
+	if rootPath == "" {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "root_path is required"}
+	}
+	if !sourcescope.ScopeContainsRootPath(rootPath, normalizedIncludePaths(body.Config)) {
+		return nil, &Error{Code: "NOT_ALLOWED", Message: "root_path is outside the configured include_paths scope"}
+	}
+
+	conn, session, share, err := mountShare(body.Config)
+	if err != nil {
+		return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
+	}
+	defer conn.Close()
+	defer session.Logoff()
+	defer share.Umount()
+
+	if err := share.RemoveAll(rootPath); err != nil {
+		return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
+	}
+	return map[string]any{"deleted_count": 1}, nil
 }
 
 func normalizedIncludePaths(config SMBConfig) []sourcescope.IncludePath {

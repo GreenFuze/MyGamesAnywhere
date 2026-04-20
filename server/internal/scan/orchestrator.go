@@ -371,7 +371,7 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 			"metadata_providers": metadataProviders,
 		})
 
-		if _, err := o.refreshCoordinator.refreshExistingSourceGames(ctx, integrationID, sourceGames, metaSources, true); err != nil {
+		if _, err := o.refreshCoordinator.refreshExistingSourceGames(ctx, integrationID, sourceGames, metaSources); err != nil {
 			o.publishScanError(ctx, integrationID, err)
 			return nil, fmt.Errorf("persist metadata refresh for %q: %w", integrationID, err)
 		}
@@ -453,7 +453,7 @@ func (o *Orchestrator) RefreshGameMetadata(ctx context.Context, canonicalID stri
 	}
 
 	for integrationID, records := range grouped {
-		if _, err := o.refreshCoordinator.refreshExistingSourceGames(ctx, integrationID, records, metaSources, true); err != nil {
+		if _, err := o.refreshCoordinator.refreshExistingSourceGames(ctx, integrationID, records, metaSources); err != nil {
 			return nil, fmt.Errorf("refresh source records for %q: %w", integrationID, err)
 		}
 	}
@@ -775,7 +775,13 @@ func (o *Orchestrator) prepareScanIntegration(
 			"resolver_count":     len(metaSources),
 			"metadata_providers": metadataProviders,
 		})
-		o.metadataResolver.Enrich(ctx, integ.ID, item.games, metaSources)
+		summary, err := o.refreshCoordinator.enrichDiscoveredGames(ctx, integ.ID, item.games, metaSources)
+		if err != nil {
+			return nil, err
+		}
+		if summary != nil && summary.Degraded() {
+			item.result.Error = summary.Error()
+		}
 	}
 
 	return item, nil

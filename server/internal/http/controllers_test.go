@@ -47,6 +47,15 @@ func (f *fakeGameMetadataRefreshService) RefreshGameMetadata(context.Context, st
 	return f.game, f.err
 }
 
+type fakeGameDeletionService struct {
+	result *core.DeleteSourceGameResult
+	err    error
+}
+
+func (f *fakeGameDeletionService) DeleteSourceGame(context.Context, string, string) (*core.DeleteSourceGameResult, error) {
+	return f.result, f.err
+}
+
 func TestGameControllerRefreshMetadataReturnsRefreshedGame(t *testing.T) {
 	controller := NewGameController(
 		&fakeGameStore{},
@@ -56,6 +65,7 @@ func TestGameControllerRefreshMetadataReturnsRefreshedGame(t *testing.T) {
 				Title: "Refreshed Game",
 			},
 		},
+		nil,
 		nil,
 		nil,
 		noopLogger{},
@@ -107,6 +117,7 @@ func TestGameControllerRefreshMetadataMapsFastFailErrors(t *testing.T) {
 			controller := NewGameController(
 				&fakeGameStore{},
 				&fakeGameMetadataRefreshService{err: tc.serviceErr},
+				nil,
 				nil,
 				nil,
 				noopLogger{},
@@ -411,6 +422,9 @@ func (f *fakeGameStore) GetFoundSourceGameRecords(context.Context, []string) ([]
 	panic("unexpected call")
 }
 func (f *fakeGameStore) DeleteGamesByIntegrationID(context.Context, string) error {
+	panic("unexpected call")
+}
+func (f *fakeGameStore) DeleteSourceGameByID(context.Context, string) error {
 	panic("unexpected call")
 }
 func (f *fakeGameStore) SaveScanReport(context.Context, *core.ScanReport) error {

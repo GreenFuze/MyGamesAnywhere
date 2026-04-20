@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcegames"
 )
 
 // GameDetailResponse is the body for GET /api/games/{id}/detail.
@@ -58,23 +59,30 @@ type GameMediaDetailDTO struct {
 
 // SourceGameDetailDTO is one source row with resolver matches for the detail view.
 type SourceGameDetailDTO struct {
-	ID              string               `json:"id"`
-	IntegrationID   string               `json:"integration_id"`
-	PluginID        string               `json:"plugin_id"`
-	ExternalID      string               `json:"external_id"`
-	RawTitle        string               `json:"raw_title"`
-	Platform        string               `json:"platform"`
-	Kind            string               `json:"kind"`
-	GroupKind       string               `json:"group_kind,omitempty"`
-	RootPath        string               `json:"root_path,omitempty"`
-	URL             string               `json:"url,omitempty"`
-	Status          string               `json:"status"`
-	LastSeenAt      *string              `json:"last_seen_at,omitempty"`
-	CreatedAt       string               `json:"created_at"`
-	Files           []GameFileDTO        `json:"files"`
-	Delivery        *SourceDeliveryDTO   `json:"delivery,omitempty"`
-	Play            *SourceGamePlayDTO   `json:"play,omitempty"`
-	ResolverMatches []core.ResolverMatch `json:"resolver_matches"`
+	ID               string                   `json:"id"`
+	IntegrationID    string                   `json:"integration_id"`
+	IntegrationLabel string                   `json:"integration_label,omitempty"`
+	PluginID         string                   `json:"plugin_id"`
+	ExternalID       string                   `json:"external_id"`
+	RawTitle         string                   `json:"raw_title"`
+	Platform         string                   `json:"platform"`
+	Kind             string                   `json:"kind"`
+	GroupKind        string                   `json:"group_kind,omitempty"`
+	RootPath         string                   `json:"root_path,omitempty"`
+	URL              string                   `json:"url,omitempty"`
+	Status           string                   `json:"status"`
+	LastSeenAt       *string                  `json:"last_seen_at,omitempty"`
+	CreatedAt        string                   `json:"created_at"`
+	Files            []GameFileDTO            `json:"files"`
+	Delivery         *SourceDeliveryDTO       `json:"delivery,omitempty"`
+	Play             *SourceGamePlayDTO       `json:"play,omitempty"`
+	HardDelete       *SourceGameHardDeleteDTO `json:"hard_delete,omitempty"`
+	ResolverMatches  []core.ResolverMatch     `json:"resolver_matches"`
+}
+
+type SourceGameHardDeleteDTO struct {
+	Eligible bool   `json:"eligible"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type SourceDeliveryDTO struct {
@@ -82,18 +90,22 @@ type SourceDeliveryDTO struct {
 }
 
 type SourceDeliveryProfileDTO struct {
-	Profile        string `json:"profile"`
-	Mode           string `json:"mode"`
-	PrepareRequired bool  `json:"prepare_required,omitempty"`
-	Ready          bool   `json:"ready,omitempty"`
-	RootFileID     string `json:"root_file_id,omitempty"`
+	Profile         string `json:"profile"`
+	Mode            string `json:"mode"`
+	PrepareRequired bool   `json:"prepare_required,omitempty"`
+	Ready           bool   `json:"ready,omitempty"`
+	RootFileID      string `json:"root_file_id,omitempty"`
 }
 
 func canonicalToGameDetail(cg *core.CanonicalGame) GameDetailResponse {
-	return (&GameController{}).canonicalToGameDetail(context.Background(), cg)
+	return (&GameController{}).canonicalToGameDetailWithIntegrationLabels(context.Background(), cg, nil)
 }
 
 func (c *GameController) canonicalToGameDetail(ctx context.Context, cg *core.CanonicalGame) GameDetailResponse {
+	return c.canonicalToGameDetailWithIntegrationLabels(ctx, cg, nil)
+}
+
+func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.Context, cg *core.CanonicalGame, integrationLabels map[string]string) GameDetailResponse {
 	if cg == nil {
 		return GameDetailResponse{SourceGames: []SourceGameDetailDTO{}}
 	}
@@ -150,7 +162,7 @@ func (c *GameController) canonicalToGameDetail(ctx context.Context, cg *core.Can
 				})
 			}
 		}
-		sourceDTO, launchSource, launchCandidate := c.sourceGameToDetailDTO(ctx, sg, cg.Platform, out.Play.PlatformSupported)
+		sourceDTO, launchSource, launchCandidate := c.sourceGameToDetailDTO(ctx, sg, cg.Platform, out.Play.PlatformSupported, integrationLabels)
 		if launchSource != nil {
 			out.Play.LaunchSources = append(out.Play.LaunchSources, *launchSource)
 			if launchSource.Launchable {
@@ -192,23 +204,27 @@ func (c *GameController) sourceGameToDetailDTO(
 	sg *core.SourceGame,
 	canonicalPlatform core.Platform,
 	platformSupported bool,
+	integrationLabels map[string]string,
 ) (SourceGameDetailDTO, *GameLaunchSourceDTO, *GameLaunchCandidateDTO) {
 	dto := SourceGameDetailDTO{
-		ID:              sg.ID,
-		IntegrationID:   sg.IntegrationID,
-		PluginID:        sg.PluginID,
-		ExternalID:      sg.ExternalID,
-		RawTitle:        sg.RawTitle,
-		Platform:        string(sg.Platform),
-		Kind:            string(sg.Kind),
-		GroupKind:       string(sg.GroupKind),
-		RootPath:        sg.RootPath,
-		URL:             sg.URL,
-		Status:          sg.Status,
-		CreatedAt:       sg.CreatedAt.UTC().Format(time.RFC3339Nano),
-		Files:           make([]GameFileDTO, 0, len(sg.Files)),
-		ResolverMatches: sg.ResolverMatches,
+		ID:               sg.ID,
+		IntegrationID:    sg.IntegrationID,
+		IntegrationLabel: integrationLabels[sg.IntegrationID],
+		PluginID:         sg.PluginID,
+		ExternalID:       sg.ExternalID,
+		RawTitle:         sg.RawTitle,
+		Platform:         string(sg.Platform),
+		Kind:             string(sg.Kind),
+		GroupKind:        string(sg.GroupKind),
+		RootPath:         sg.RootPath,
+		URL:              sg.URL,
+		Status:           sg.Status,
+		CreatedAt:        sg.CreatedAt.UTC().Format(time.RFC3339Nano),
+		Files:            make([]GameFileDTO, 0, len(sg.Files)),
+		ResolverMatches:  sg.ResolverMatches,
 	}
+	eligible, reason := sourcegames.HardDeleteEligibility(sg)
+	dto.HardDelete = &SourceGameHardDeleteDTO{Eligible: eligible, Reason: reason}
 	if sg.LastSeenAt != nil {
 		s := sg.LastSeenAt.UTC().Format(time.RFC3339Nano)
 		dto.LastSeenAt = &s

@@ -16,6 +16,7 @@ import {
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
+  deleteSourceGame,
   getGame,
   getGameAchievements,
   refreshGameMetadata,
@@ -539,8 +540,19 @@ function ResolverMatchRow({ match }: { match: ResolverMatchDTO }) {
   )
 }
 
-function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
+function sourceRecordLabel(source: SourceGameDetailDTO): string {
+  return `${source.integration_label || source.integration_id} · ${source.raw_title || source.external_id}`
+}
+
+function SourceRecordCard({
+  source,
+  onHardDelete,
+}: {
+  source: SourceGameDetailDTO
+  onHardDelete: (source: SourceGameDetailDTO) => void
+}) {
   const browserPlayable = sourceHasBrowserPlayDelivery(source)
+  const hardDeleteEligible = source.hard_delete?.eligible ?? false
 
   return (
     <article className="space-y-4 rounded-mga border border-mga-border bg-mga-bg/60 p-4 shadow-sm shadow-black/5">
@@ -568,7 +580,7 @@ function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
       </div>
 
       <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
-        <MetaItem label="Integration" value={source.integration_id} />
+        <MetaItem label="Integration" value={source.integration_label || source.integration_id} />
         <MetaItem label="Kind" value={source.kind} />
         <MetaItem label="Created" value={formatDateTimeValue(source.created_at)} />
         <MetaItem label="Last Seen" value={formatDateTimeValue(source.last_seen_at)} />
@@ -576,6 +588,20 @@ function SourceRecordCard({ source }: { source: SourceGameDetailDTO }) {
         <MetaItem label="Files" value={source.files.length} />
         <MetaItem label="Resolver Matches" value={source.resolver_matches.length} />
       </div>
+
+      {hardDeleteEligible ? (
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onHardDelete(source)}
+            className="border-red-500/30 text-red-200 hover:bg-red-500/10"
+          >
+            <FileText size={16} />
+            Hard Delete Source Record
+          </Button>
+        </div>
+      ) : null}
 
       <details className="rounded-mga border border-mga-border bg-mga-surface px-3 py-2">
         <summary className="cursor-pointer list-none text-sm font-medium text-mga-text">
@@ -746,6 +772,10 @@ export function GameDetailPage() {
   const [refreshBusy, setRefreshBusy] = useState(false)
   const [refreshNotice, setRefreshNotice] = useState('')
   const [refreshError, setRefreshError] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<SourceGameDetailDTO | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteNotice, setDeleteNotice] = useState('')
+  const [deleteError, setDeleteError] = useState('')
   const hasRetried404Ref = useRef(false)
 
   const routeState = readGameRouteState(location.state)
@@ -832,8 +862,6 @@ export function GameDetailPage() {
   const achievementSets = useMemo(() => (achievements.data ?? []).map(sortAchievementSet), [achievements.data])
   const achievementSummary = useMemo(() => summarizeAchievements(achievementSets), [achievementSets])
   const launchableSourceCount = browserPlaySelections.length
-  const hasFileBackedSourceRecords = (gameData?.source_games ?? []).some((source) => source.files.length > 0)
-
   useEffect(() => {
     hasRetried404Ref.current = false
   }, [id])
@@ -936,6 +964,51 @@ export function GameDetailPage() {
       setRefreshError(message)
     } finally {
       setRefreshBusy(false)
+    }
+  }
+
+  const handleRequestHardDelete = (source: SourceGameDetailDTO) => {
+    setDeleteError('')
+    setDeleteNotice('')
+    setDeleteTarget(source)
+  }
+
+  const handleConfirmHardDelete = async () => {
+    if (!game.data || !deleteTarget || deleteBusy) return
+    setDeleteBusy(true)
+    setDeleteError('')
+    setDeleteNotice('')
+    try {
+      const result = await deleteSourceGame(game.data.id, deleteTarget.id)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['games'] }),
+        queryClient.invalidateQueries({ queryKey: ['game', game.data.id, 'achievements'] }),
+      ])
+      if (result.game) {
+        queryClient.setQueryData(['game', result.game.id], result.game)
+      }
+      if (result.canonical_exists && result.game) {
+        setDeleteNotice(`Deleted ${sourceRecordLabel(deleteTarget)}.`)
+        if (result.game.id !== game.data.id) {
+          navigate(`/game/${encodeURIComponent(result.game.id)}`, {
+            replace: true,
+            state: location.state,
+          })
+        } else {
+          queryClient.setQueryData(['game', game.data.id], result.game)
+        }
+      } else {
+        navigate('/library', { replace: true })
+      }
+      setDeleteTarget(null)
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.responseText?.trim() || error.message
+          : (error instanceof Error ? error.message : 'Hard delete failed.')
+      setDeleteError(message)
+    } finally {
+      setDeleteBusy(false)
     }
   }
 
@@ -1046,7 +1119,7 @@ export function GameDetailPage() {
                   {achievementSets.length > 0 ? <SectionJumpLink href="#achievements" label="Achievements" /> : null}
                 </div>
               </div>
-              {browserPlayable && browserPlaySelections.length > 1 && (
+              {browserPlayable && (browserPlaySelections.length > 1 || browserPlayIssue?.code === 'invalid_remembered_source') && (
                 <div className="rounded-mga border border-mga-border bg-mga-surface/60 p-3">
                   <label className="mb-1 block text-xs uppercase tracking-wide text-mga-muted">Source</label>
                   <select
@@ -1061,7 +1134,7 @@ export function GameDetailPage() {
                     )}
                     {browserPlaySelections.map((selection) => (
                       <option key={selection.sourceGame.id} value={selection.sourceGame.id}>
-                        {browserPlaySourceOptionLabel(selection)}
+                        {browserPlaySourceOptionLabel(selection, browserPlaySelections)}
                       </option>
                     ))}
                   </select>
@@ -1119,18 +1192,6 @@ export function GameDetailPage() {
                   <Database size={16} />
                   {refreshBusy ? 'Refreshing...' : 'Refresh Metadata & Media'}
                 </button>
-                {hasFileBackedSourceRecords && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled
-                    title="Hard delete for file-backed source records is not implemented yet."
-                    className="border-red-500/30 text-red-200 opacity-70"
-                  >
-                    <FileText size={16} />
-                    Hard Delete (Not Yet Implemented)
-                  </Button>
-                )}
               </div>
               {data.xcloud_url && <AttributionNote sources={['xcloud']} prefix="Streaming target" />}
               {browserSupported && !browserPlayable && (
@@ -1142,7 +1203,9 @@ export function GameDetailPage() {
                 <p className="text-xs text-amber-300">{browserPlayIssue.message}</p>
               )}
               {refreshNotice && <p className="text-xs text-green-400">{refreshNotice}</p>}
+              {deleteNotice && <p className="text-xs text-green-400">{deleteNotice}</p>}
               {refreshError && <p className="text-xs text-red-400">{refreshError}</p>}
+              {deleteError && <p className="text-xs text-red-400">{deleteError}</p>}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -1286,7 +1349,13 @@ export function GameDetailPage() {
               {data.source_games.length === 0 ? (
                 <p className="text-sm text-mga-muted">No source records are stored for this game.</p>
               ) : (
-                data.source_games.map((source) => <SourceRecordCard key={source.id} source={source} />)
+                data.source_games.map((source) => (
+                  <SourceRecordCard
+                    key={source.id}
+                    source={source}
+                    onHardDelete={handleRequestHardDelete}
+                  />
+                ))
               )}
             </div>
           </SectionCard>
@@ -1343,6 +1412,51 @@ export function GameDetailPage() {
       </div>
 
       <MediaViewerDialog media={selectedMedia} onClose={() => setSelectedMedia(null)} />
+      <Dialog
+        open={deleteTarget !== null}
+        onClose={() => {
+          if (!deleteBusy) setDeleteTarget(null)
+        }}
+        title="Hard Delete Source Record"
+      >
+        {deleteTarget && (
+          <div className="space-y-4">
+            <p className="text-sm text-mga-muted">
+              This permanently deletes the backing files and stored source record for
+              {' '}
+              <span className="font-medium text-mga-text">{sourceRecordLabel(deleteTarget)}</span>.
+            </p>
+            {deleteTarget.root_path && (
+              <p className="rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-xs text-mga-muted">
+                Root path: {deleteTarget.root_path}
+              </p>
+            )}
+            {deleteTarget.hard_delete?.reason && !deleteTarget.hard_delete.eligible && (
+              <p className="text-xs text-amber-300">{deleteTarget.hard_delete.reason}</p>
+            )}
+            <div className="flex justify-end gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleteBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleConfirmHardDelete()}
+                disabled={deleteBusy}
+                className="border-red-500/30 text-red-200 hover:bg-red-500/10"
+              >
+                <FileText size={16} />
+                {deleteBusy ? 'Deleting...' : 'Delete Source Record'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Dialog>
     </div>
   )
 }

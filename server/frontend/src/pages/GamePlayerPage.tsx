@@ -743,7 +743,7 @@ export function GamePlayerPage() {
                 {browserPlaySourceContext(selection) ? ` · ${browserPlaySourceContext(selection)}` : ''}
               </p>
             )}
-            {availableSelections.length > 1 && (
+            {(availableSelections.length > 1 || selectionIssue?.code === 'invalid_remembered_source') && (
               <div className="mt-4 max-w-xl">
                 <label className="mb-1 block text-xs uppercase tracking-wide text-mga-muted">Source</label>
                 <select
@@ -758,7 +758,7 @@ export function GamePlayerPage() {
                   )}
                   {availableSelections.map((option) => (
                     <option key={option.sourceGame.id} value={option.sourceGame.id}>
-                      {browserPlaySourceOptionLabel(option)}
+                      {browserPlaySourceOptionLabel(option, availableSelections)}
                     </option>
                   ))}
                 </select>

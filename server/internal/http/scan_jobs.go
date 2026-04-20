@@ -518,6 +518,9 @@ func applyScanEvent(record *scanJobRecord, eventType string, payload map[string]
 	case "scan_metadata_finished":
 		if integration != nil {
 			integration.MetadataPhase = "finished"
+			if readString(payload["status"]) == "degraded" {
+				integration.Phase = "metadata degraded"
+			}
 			integration.MetadataIntegrationID = ""
 			integration.MetadataLabel = ""
 			integration.MetadataPluginID = ""
@@ -769,6 +772,9 @@ func scanEventMessage(eventType string, payload map[string]any) string {
 	case "scan_metadata_consensus_complete":
 		return "Consensus complete: " + itoa(readInt(payload["identified"])) + " identified, " + itoa(readInt(payload["unidentified"])) + " unidentified."
 	case "scan_metadata_finished":
+		if readString(payload["status"]) == "degraded" {
+			return "Metadata complete with " + itoa(readInt(payload["error_count"])) + " provider failures: " + itoa(readInt(payload["identified"])) + " identified, " + itoa(readInt(payload["unidentified"])) + " unidentified."
+		}
 		return "Metadata complete: " + itoa(readInt(payload["identified"])) + " identified, " + itoa(readInt(payload["unidentified"])) + " unidentified."
 	case "scan_persist_started":
 		return "Persisting results."

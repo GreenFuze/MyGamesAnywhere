@@ -186,6 +186,7 @@ export type GameMediaDetailDTO = {
 export type SourceGameDetailDTO = {
   id: string;
   integration_id: string;
+  integration_label?: string;
   plugin_id: string;
   external_id: string;
   raw_title: string;
@@ -200,6 +201,10 @@ export type SourceGameDetailDTO = {
   files: GameFileDTO[];
   delivery?: SourceDeliveryDTO;
   play?: SourceGamePlayDTO;
+  hard_delete?: {
+    eligible: boolean;
+    reason?: string;
+  };
   resolver_matches: ResolverMatchDTO[];
 };
 
@@ -268,6 +273,12 @@ export type AchievementSummaryDTO = {
   earned_points?: number;
 };
 
+export type DeleteSourceGameResponse = {
+  deleted_source_game_id: string;
+  canonical_exists: boolean;
+  game?: GameDetailResponse;
+};
+
 export type ListGamesResponse = {
   total: number;
   page: number;
@@ -317,6 +328,26 @@ export async function refreshGameMetadata(
     throw new Error("Refresh metadata request returned no response body.");
   }
   return response;
+}
+
+export async function deleteSourceGame(
+  gameId: string,
+  sourceGameId: string,
+): Promise<DeleteSourceGameResponse> {
+  const res = await fetch(
+    `${base}/api/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}`,
+    {
+      method: "DELETE",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!res.ok) {
+    throw await buildApiError(
+      `/api/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}`,
+      res,
+    );
+  }
+  return res.json() as Promise<DeleteSourceGameResponse>;
 }
 
 export async function getFrontendConfig(): Promise<FrontendConfig> {

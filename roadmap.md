@@ -1,10 +1,12 @@
 # MyGamesAnywhere — Roadmap
 
-## Current Status — 2026-04-17
+## Current Status — 2026-04-20
 - Working tree now includes the April 15 session changes on top of `19cd0dc` (`dosbox fix`): active Undetected Games candidates are hidden from Library / Play-facing surfaces and library-facing counts.
-- Browser play now has automated end-to-end save import/export proof for EmulatorJS, js-dos, and ScummVM via `tools/browser-play`, including the bundle-backed js-dos path and the explicit unsupported-state fast-fail for plain-file js-dos launches.
+- Browser play now has automated end-to-end proof via `tools/browser-play`, including EmulatorJS/js-dos/ScummVM save import/export coverage, bundle-backed js-dos, explicit unsupported-state fast-fail for plain-file js-dos launches, ambiguous source selection, invalid remembered source handling, and same-title/different-source-record labeling.
 - Filesystem-backed SMB/Google Drive integrations use `include_paths[]` with per-include `recursive`, source-identity duplicate detection, and scope-aware final-scan cleanup.
 - Undetected Games manual apply now reuses the shared refresh/persist/media-enqueue path used by metadata refresh flows, preserving manual-selection precedence while avoiding a second enrichment pipeline.
+- Metadata execution now uses a selective fail-fast policy: full scans remain tolerant but emit degraded scan metadata state, while metadata-only refresh, per-game refresh, and manual review fail fast on provider errors.
+- Game detail now supports source-record-scoped hard delete for eligible filesystem-backed SMB/Google Drive source records, with strict confirmation, provider-backed destructive file deletion, source-row cleanup, and canonical recomputation.
 - Media URL refs are now downloaded by a background worker into `MEDIA_ROOT` from existing pending rows at startup and after scan/manual-review persistence.
 - HLTB-hosted cover downloads now use browser-style request headers in the media worker so `howlongtobeat.com/games/*.jpg` assets no longer fail with `403` during background caching.
 - Shared frontend media selection is now centralized, so Library / Play cards and the game detail page agree on cover fallback behavior when a game has screenshots/artwork but no explicit `cover` media row.
@@ -512,7 +514,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] remove TGDB - it has too low API quota
 - [x] Media download background worker (pending `media_assets` rows are swept at startup and enqueued again after scan/manual-review persistence; successful downloads write relative `local_path` + `hash` under `MEDIA_ROOT`)
 - [ ] Schema migration strategy (deferred until after first release)
-- [ ] Add Metacritic scoring
+- [ ] Add Metacritic-specific scoring if desired; generic `rating` is already populated where providers such as Steam/RAWG return it
 - [x] Fix npm build vulnerabilities detected during build
 - [x] Concurrency on scanning/metadata-fetching
 - [x] Browser-play launch proof: EmulatorJS launches with corrected full-parent sizing after the definite-height shell/absolute iframe fix
@@ -521,6 +523,8 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Browser-play manual proof: save import/export across EmulatorJS, js-dos, and ScummVM where supported
   - 2026-04-15 session result: not executable in-session. There was no browser binary/automation path available, the repo does not bundle EmulatorJS/js-dos save-proof fixtures, and `tools/scummvm-harness` still requires an external ScummVM game tree.
   - 2026-04-17 follow-up: automated end-to-end proof now runs from `tools/browser-play/proof-runner.mjs` via `npm run proof:e2e` against the built frontend and real runtime bridge.
+  - 2026-04-20 follow-up: the dedicated proof runner now also covers source ambiguity, invalid remembered source rejection, same-title/different-source-record labels, and the js-dos plain-file unsupported save-sync fast-fail path. `server/frontend` build remains build-only validation; browser-play acceptance depends on `tools/browser-play`.
+- [x] Selective metadata fail-fast policy: full scans continue past source/provider failures while surfacing degraded/error state, and metadata-only refresh, per-game refresh, and manual-review persistence abort on provider failure through a shared metadata policy/coordinator path.
 - [x] Playable-games sidebar now uses compact platform icon rendering without duplicating text-style badges like the in-app GBA mark
 - [x] The playable games sidebar now has its own desktop-only scrolling container, separate from the main page scroller, with a theme-colored thumb and transparent track.
 - [x] EmulatorJS expands to the whole parent player component after repairing the definite-height layout chain and absolute iframe/runtime sizing.
@@ -543,10 +547,11 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] undetected game should not be shown in the library (or "playable games")
 - [x] Game-page `Reclassify` deep-links no longer crash when the selected Undetected Games candidate contains nullable arrays or text fields; the Settings manual-review UI now normalizes that payload before reading `.length`, `.find()`, or `.trim()`
 - [x] Library / Play cards now use a squarer full-bleed cover area and share the same cover fallback selection as the game detail page when no explicit `cover` media item exists
-- [ ] in some cases, there might be multiple games but in different versions (in the same source). we need to mind that when Playing in browser.
-- [ ] we should support "hard-delete" of a game (including files) from the game page (with a strict Are You Sure dialog!). Notice, same game can appear in multiple sources. This would delete the files. It is only for files-backed sources.
-  - 2026-04-17 follow-up: game detail now exposes a file-backed-only disabled placeholder action so the eligibility/capability gating is visible, but destructive behavior is intentionally still not implemented.
+- [x] Browser-play source/version ambiguity: launch choice is source-record-scoped, ambiguous launchable sources require explicit selection, invalid remembered selections do not silently fall through to another source, same-title/different-source-record options render distinct labels, and js-dos executable selection stays separate from source selection.
+- [x] Source-record-scoped hard-delete from the game page for filesystem-backed sources: eligible SMB/Google Drive source records expose a strict confirmation flow, destructive provider deletion runs behind a backend deletion service, only the selected source record and dependent rows are removed, and canonical membership is recomputed without implicitly deleting sibling sources.
 - [ ] In library, we can use "right click" to open a menu with game specific actions (same actions available in the games page, but also add "change cover photo").
 - [x] Collapsed shelves in library should take almost the whole row. the "..." card should not look like a card, but as text, without the background and frame of a card. also it should be much smaller (and centerlized vertically).
   - 2026-04-17 follow-up: the overflow affordance now renders as compact text/expander UI rather than a peer card.
-- [ ] Library shelfs: Make the shelfs in the library scroll horizontally (like in netflix/game pass UI), but not using a scroller, but a "right arrow" button. It click on it would scroll to the next "page" in the shelf. This replaces the "..." button. If the user still clicks on the shelf's title (like today) it would open all the games in the shelf, like it is today. Also, notice, today's shelf doesn't use the entire available horizontal space to show games on each shelf.
+- [ ] Library shelfs upgrade: Make the shelfs in the library scroll horizontally (like in netflix/game pass UI), but not using a scroller, but a "right arrow" button. It click on it would scroll to the next "page" in the shelf. This replaces the "..." button. If the user still clicks on the shelf's title (like today) it would open all the games in the shelf, like it is today. Also, notice, today's shelf doesn't use the entire available horizontal space to show games on each shelf.
+- [ ] Achivements page (tab to the right of the "Library"). This tab should show display and dashboard all achivements from all achivements integrations set in MGA. Per-achivement system and per-game.
+- [ ] in settings -> undetected games, we should have a button to re-detect only the undetected games. This is useful for cases where the detection algorithm has been updated or the external databases where updated and we want to retry to redetect the games. Also, the per-game manual process should have "try re-detect" to use the detection algorithm.
