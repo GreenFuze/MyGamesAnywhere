@@ -809,6 +809,19 @@ type cachedAchievementDashboardRow struct {
 	earnedPoints  int
 }
 
+type cachedAchievementExplorerSet struct {
+	setID         int64
+	canonicalID   string
+	sourceGameID  string
+	source        string
+	externalID    string
+	totalCount    int
+	unlockedCount int
+	totalPoints   int
+	earnedPoints  int
+	fetchedAt     int64
+}
+
 func (s *gameStore) GetCachedAchievementsDashboard(ctx context.Context) (*core.CachedAchievementsDashboard, error) {
 	games, err := s.GetCanonicalGames(ctx)
 	if err != nil {
@@ -895,6 +908,152 @@ func (s *gameStore) GetCachedAchievementsDashboard(ctx context.Context) (*core.C
 		}
 		return out.Systems[i].Source < out.Systems[j].Source
 	})
+	sort.Slice(out.Games, func(i, j int) bool {
+		return strings.ToLower(out.Games[i].Game.Title) < strings.ToLower(out.Games[j].Game.Title)
+	})
+	return out, nil
+}
+
+func (s *gameStore) GetCachedAchievementsExplorer(ctx context.Context) (*core.CachedAchievementsExplorer, error) {
+	games, err := s.GetCanonicalGames(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := s.db.GetDB().QueryContext(ctx, `
+		SELECT a.id, l.canonical_id, a.source_game_id, a.source, a.external_game_id,
+		       a.total_count, a.unlocked_count, COALESCE(a.total_points, 0), COALESCE(a.earned_points, 0), a.fetched_at
+		FROM achievement_sets a
+		JOIN canonical_source_games_link l ON l.source_game_id = a.source_game_id
+		JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE `+visibleSourceGameWhere("sg")+`
+		ORDER BY l.canonical_id, a.source, a.external_game_id, a.fetched_at DESC, a.id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	setsByGame := make(map[string][]cachedAchievementExplorerSet)
+	setIDs := make([]int64, 0)
+	seenGameSet := make(map[string]bool)
+	for rows.Next() {
+		var item cachedAchievementExplorerSet
+		if err := rows.Scan(
+			&item.setID,
+			&item.canonicalID,
+			&item.sourceGameID,
+			&item.source,
+			&item.externalID,
+			&item.totalCount,
+			&item.unlockedCount,
+			&item.totalPoints,
+			&item.earnedPoints,
+			&item.fetchedAt,
+		); err != nil {
+			return nil, err
+		}
+		key := item.canonicalID + "|" + item.source + "|" + item.externalID
+		if seenGameSet[key] {
+			continue
+		}
+		seenGameSet[key] = true
+		setsByGame[item.canonicalID] = append(setsByGame[item.canonicalID], item)
+		setIDs = append(setIDs, item.setID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	achievementsBySet := make(map[int64][]core.Achievement, len(setIDs))
+	if len(setIDs) > 0 {
+		placeholders := make([]string, len(setIDs))
+		args := make([]any, len(setIDs))
+		for i, id := range setIDs {
+			placeholders[i] = "?"
+			args[i] = id
+		}
+		query := fmt.Sprintf(`SELECT set_id, external_id, title, description, locked_icon, unlocked_icon, points, rarity, unlocked, unlocked_at
+			FROM achievements
+			WHERE set_id IN (%s)
+			ORDER BY unlocked DESC, COALESCE(unlocked_at, 0) DESC, title, external_id`, strings.Join(placeholders, ","))
+		achievementRows, err := s.db.GetDB().QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer achievementRows.Close()
+
+		for achievementRows.Next() {
+			var (
+				setID        int64
+				item         core.Achievement
+				lockedIcon   sql.NullString
+				unlockedIcon sql.NullString
+				unlockedAt   sql.NullInt64
+			)
+			if err := achievementRows.Scan(
+				&setID,
+				&item.ExternalID,
+				&item.Title,
+				&item.Description,
+				&lockedIcon,
+				&unlockedIcon,
+				&item.Points,
+				&item.Rarity,
+				&item.Unlocked,
+				&unlockedAt,
+			); err != nil {
+				return nil, err
+			}
+			if lockedIcon.Valid {
+				item.LockedIcon = lockedIcon.String
+			}
+			if unlockedIcon.Valid {
+				item.UnlockedIcon = unlockedIcon.String
+			}
+			if unlockedAt.Valid {
+				item.UnlockedAt = time.Unix(unlockedAt.Int64, 0).UTC()
+			}
+			achievementsBySet[setID] = append(achievementsBySet[setID], item)
+		}
+		if err := achievementRows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	out := &core.CachedAchievementsExplorer{}
+	for _, game := range games {
+		if game == nil {
+			continue
+		}
+		items := setsByGame[game.ID]
+		if len(items) == 0 {
+			continue
+		}
+		gameItem := core.CachedAchievementGameExplorer{
+			Game:    game,
+			Systems: make([]core.AchievementSet, 0, len(items)),
+		}
+		for _, item := range items {
+			gameItem.Systems = append(gameItem.Systems, core.AchievementSet{
+				GameID:         item.sourceGameID,
+				Source:         item.source,
+				ExternalGameID: item.externalID,
+				TotalCount:     item.totalCount,
+				UnlockedCount:  item.unlockedCount,
+				TotalPoints:    item.totalPoints,
+				EarnedPoints:   item.earnedPoints,
+				FetchedAt:      time.Unix(item.fetchedAt, 0).UTC(),
+				Achievements:   append([]core.Achievement(nil), achievementsBySet[item.setID]...),
+			})
+		}
+		sort.Slice(gameItem.Systems, func(i, j int) bool {
+			if gameItem.Systems[i].UnlockedCount != gameItem.Systems[j].UnlockedCount {
+				return gameItem.Systems[i].UnlockedCount > gameItem.Systems[j].UnlockedCount
+			}
+			return gameItem.Systems[i].Source < gameItem.Systems[j].Source
+		})
+		out.Games = append(out.Games, gameItem)
+	}
 	sort.Slice(out.Games, func(i, j int) bool {
 		return strings.ToLower(out.Games[i].Game.Title) < strings.ToLower(out.Games[j].Game.Title)
 	})

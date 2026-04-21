@@ -10,6 +10,10 @@ export type ReturnRouteState = {
   restoreScroll?: boolean
 }
 
+export type FocusRouteState = {
+  from?: string
+}
+
 const STORAGE_PREFIX = 'mga.returnScroll.'
 
 function storageKey(route: string): string {
@@ -42,6 +46,22 @@ export function buildGameRouteState(
   return state
 }
 
+export function rememberRouteScroll(
+  pathname: string,
+  search: string,
+  scrollY = window.scrollY,
+): string {
+  const from = `${pathname}${search}`
+
+  try {
+    sessionStorage.setItem(storageKey(from), String(Math.max(0, Math.floor(scrollY))))
+  } catch {
+    /* ignore storage errors */
+  }
+
+  return from
+}
+
 export function readGameRouteState(state: unknown): GameRouteState | null {
   if (!state || typeof state !== 'object') return null
 
@@ -70,6 +90,17 @@ export function readGameRouteState(state: unknown): GameRouteState | null {
 export function shouldRestoreRouteScroll(state: unknown): boolean {
   if (!state || typeof state !== 'object') return false
   return (state as ReturnRouteState).restoreScroll === true
+}
+
+export function readFocusRouteState(state: unknown): FocusRouteState | null {
+  if (!state || typeof state !== 'object') return null
+
+  const candidate = state as FocusRouteState
+  if (typeof candidate.from !== 'string' || candidate.from.length === 0) {
+    return null
+  }
+
+  return { from: candidate.from }
 }
 
 export function consumeStoredRouteScroll(pathname: string, search: string): number | null {

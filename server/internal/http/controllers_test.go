@@ -267,6 +267,56 @@ func TestGameControllerAchievementsDashboardReturnsCachedOnlySummary(t *testing.
 	}
 }
 
+func TestGameControllerAchievementsExplorerReturnsCachedSetsOnly(t *testing.T) {
+	store := &fakeGameStore{achievementExplorer: &core.CachedAchievementsExplorer{
+		Games: []core.CachedAchievementGameExplorer{{
+			Game: &core.CanonicalGame{
+				ID:    "game-1",
+				Title: "Game One",
+				AchievementSummary: &core.AchievementSummary{
+					SourceCount:   1,
+					TotalCount:    2,
+					UnlockedCount: 1,
+				},
+			},
+			Systems: []core.AchievementSet{{
+				Source:         "retroachievements",
+				ExternalGameID: "ra-1",
+				TotalCount:     2,
+				UnlockedCount:  1,
+				Achievements: []core.Achievement{
+					{ExternalID: "ach-1", Title: "Alpha", Unlocked: true, UnlockedAt: time.Unix(1710000000, 0).UTC()},
+					{ExternalID: "ach-2", Title: "Beta", Unlocked: false},
+				},
+			}},
+		}},
+	}}
+	controller := NewGameController(store, nil, nil, nil, nil, noopLogger{})
+	router := chi.NewRouter()
+	router.Get("/api/achievements/explorer", controller.AchievementsExplorer)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/achievements/explorer", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp AchievementsExplorerResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Games) != 1 || len(resp.Games[0].Systems) != 1 {
+		t.Fatalf("explorer = %+v, want one game and one cached system", resp)
+	}
+	if len(resp.Games[0].Systems[0].Achievements) != 2 {
+		t.Fatalf("achievements = %+v, want 2 cached achievements", resp.Games[0].Systems[0].Achievements)
+	}
+	if resp.Games[0].Systems[0].Achievements[0].UnlockedAt == "" {
+		t.Fatal("expected cached unlocked achievement timestamp in explorer response")
+	}
+}
+
 func TestAchievementControllerGetAchievementsNormalizesMixedStatesAndCaches(t *testing.T) {
 	game := &core.CanonicalGame{
 		ID: "game-1",
@@ -378,6 +428,7 @@ type fakeGameStore struct {
 	game                   *core.CanonicalGame
 	cached                 []cachedAchievementCall
 	achievementDashboard   *core.CachedAchievementsDashboard
+	achievementExplorer    *core.CachedAchievementsExplorer
 	setCoverOverrideID     string
 	setCoverOverrideAsset  int
 	clearCoverOverrideID   string
@@ -434,6 +485,12 @@ func (f *fakeGameStore) GetCachedAchievementsDashboard(context.Context) (*core.C
 		return f.achievementDashboard, nil
 	}
 	return &core.CachedAchievementsDashboard{}, nil
+}
+func (f *fakeGameStore) GetCachedAchievementsExplorer(context.Context) (*core.CachedAchievementsExplorer, error) {
+	if f.achievementExplorer != nil {
+		return f.achievementExplorer, nil
+	}
+	return &core.CachedAchievementsExplorer{}, nil
 }
 func (f *fakeGameStore) GetGamesByIntegrationID(context.Context, string, int) ([]core.GameListItem, error) {
 	panic("unexpected call")

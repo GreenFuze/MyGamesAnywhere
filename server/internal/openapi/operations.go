@@ -200,6 +200,13 @@ func Operations() []OperationDoc {
 			ResponseDocs: map[string]string{"200": "AchievementsDashboardResponse", "500": "Internal server error"},
 		},
 		{
+			Method:       "GET",
+			Path:         "/api/achievements/explorer",
+			Summary:      "Get cached achievements explorer",
+			Description:  "Returns cached achievement sets and achievement rows grouped by canonical game. This endpoint is read-only over stored cache rows and does not trigger provider fetches.",
+			ResponseDocs: map[string]string{"200": "AchievementsExplorerResponse", "500": "Internal server error"},
+		},
+		{
 			Method:         "POST",
 			Path:           "/api/scan",
 			Summary:        "Run scan",

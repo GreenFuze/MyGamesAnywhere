@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus } from 'lucide-react'
-import { useLocation } from 'react-router-dom'
+import { Plus, Trash2 } from 'lucide-react'
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useSearch } from '@/hooks/useSearchContext'
 import { useLibraryData } from '@/hooks/useLibraryData'
 import { useLibraryPrefs } from '@/hooks/useLibraryPrefs'
 import { CollectionShelf } from '@/components/library/CollectionShelf'
+import { HorizontalGameShelf } from '@/components/library/HorizontalGameShelf'
 import { LibraryToolbar } from '@/components/library/LibraryToolbar'
 import { FilterBar } from '@/components/library/FilterBar'
 import { GameGrid } from '@/components/library/GameGrid'
 import { SectionPickerDialog } from '@/components/library/SectionPickerDialog'
 import { Button } from '@/components/ui/button'
-import { sanitizeSections } from '@/lib/collectionSections'
+import { useRecentPlayed } from '@/hooks/useRecentPlayed'
+import { filterGamesBySection, sanitizeSections } from '@/lib/collectionSections'
 import {
   applyScopeFilter,
   DEFAULT_FILTER_STATE,
@@ -18,8 +20,13 @@ import {
   type FilterState,
   type CollectionScope,
 } from '@/lib/libraryFilter'
-import { consumeStoredRouteScroll, shouldRestoreRouteScroll } from '@/lib/gameNavigation'
-import type { GameDetailResponse } from '@/api/client'
+import {
+  consumeStoredRouteScroll,
+  readFocusRouteState,
+  rememberRouteScroll,
+  shouldRestoreRouteScroll,
+} from '@/lib/gameNavigation'
+import type { CollectionSectionConfig, GameDetailResponse } from '@/api/client'
 
 // ---------------------------------------------------------------------------
 // Section metadata
@@ -44,6 +51,14 @@ const SCOPES: Record<CollectionScope, { title: string; subtitle: string; emptyMe
 
 interface CollectionPageProps {
   scope: CollectionScope
+}
+
+function scopeBasePath(scope: CollectionScope): string {
+  return scope === 'play' ? '/play' : '/library'
+}
+
+function scopeSectionPath(scope: CollectionScope, sectionID: string): string {
+  return `${scopeBasePath(scope)}/section/${encodeURIComponent(sectionID)}`
 }
 
 function releaseYear(game: GameDetailResponse): string {
@@ -81,9 +96,12 @@ function TimelineView({ games }: { games: GameDetailResponse[] }) {
 }
 
 export function CollectionPage({ scope }: CollectionPageProps) {
+  const { sectionId } = useParams()
   const location = useLocation()
+  const navigate = useNavigate()
   const { searchQuery } = useSearch()
   const { data: allGames = [], isPending, isError, error } = useLibraryData()
+  const { recentPlayed, removeRecentPlayed } = useRecentPlayed()
   const {
     prefs,
     setViewMode,
@@ -98,12 +116,21 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   const [filterBarOpen, setFilterBarOpen] = useState(false)
   const [sectionPickerOpen, setSectionPickerOpen] = useState(false)
 
-  const scopeGames = useMemo(
-    () => applyScopeFilter(allGames, scope),
-    [allGames, scope],
-  )
+  const scopeGames = useMemo(() => applyScopeFilter(allGames, scope), [allGames, scope])
+  const basePath = scopeBasePath(scope)
+  const sanitizedSections = useMemo(() => sanitizeSections(prefs.sections), [prefs.sections])
+  const focusedSection = useMemo<CollectionSectionConfig | null>(() => {
+    if (!sectionId) return null
+    return sanitizedSections.find((section) => section.id === sectionId) ?? null
+  }, [sanitizedSections, sectionId])
+  const focusState = useMemo(() => readFocusRouteState(location.state), [location.state])
 
-  const filter = useMemo(() => new LibraryFilter(scopeGames), [scopeGames])
+  const filteredScopeGames = useMemo(() => {
+    if (!focusedSection) return scopeGames
+    return filterGamesBySection(scopeGames, focusedSection)
+  }, [focusedSection, scopeGames])
+
+  const filter = useMemo(() => new LibraryFilter(filteredScopeGames), [filteredScopeGames])
 
   // Apply user filters + search + sort
   const displayedGames = useMemo(
@@ -139,7 +166,26 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   }, [filterState])
 
   const scopeMeta = SCOPES[scope]
-  const showLibraryShelfAddButton = scope === 'library' && prefs.viewMode === 'shelf'
+  const showLibraryShelfAddButton = scope === 'library' && prefs.viewMode === 'shelf' && !focusedSection
+  const emptyMessage = focusedSection
+    ? 'No games in this section match the current filters.'
+    : scopeMeta.emptyMessage
+
+  const recentPlayedGames = useMemo(() => {
+    if (scope !== 'library') return []
+    return recentPlayed
+      .map((entry) => {
+        const game = allGames.find((candidate) => candidate.id === entry.gameId)
+        if (!game) return null
+        return {
+          launchedAt: entry.launchedAt,
+          game,
+        }
+      })
+      .filter((entry): entry is { launchedAt: string; game: GameDetailResponse } => entry !== null)
+      .sort((a, b) => b.launchedAt.localeCompare(a.launchedAt))
+      .map((entry) => entry.game)
+  }, [allGames, recentPlayed, scope])
 
   // Patch filter state (merge partial updates)
   const patchFilter = (patch: Partial<FilterState>) => {
@@ -164,6 +210,11 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     }
   }
 
+  const openSection = (sectionID: string) => {
+    const from = rememberRouteScroll(location.pathname, location.search)
+    navigate(scopeSectionPath(scope, sectionID), { state: { from } })
+  }
+
   useEffect(() => {
     if (isPending || !shouldRestoreRouteScroll(location.state)) return
 
@@ -177,25 +228,45 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     return () => window.cancelAnimationFrame(frame)
   }, [isPending, location.pathname, location.search, location.state])
 
+  if (sectionId && !focusedSection) {
+    return <Navigate to={basePath} replace />
+  }
+
   return (
     <div className="space-y-4">
       {/* Toolbar: title, counts, sort, view toggle, filters button */}
+      {focusedSection && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate(focusState?.from ?? basePath, { state: { restoreScroll: true } })}
+          className="w-fit"
+        >
+          Back to {scopeMeta.title}
+        </Button>
+      )}
       <LibraryToolbar
-        title={scopeMeta.title}
-        subtitle={scopeMeta.subtitle}
-        totalCount={scopeGames.length}
+        title={focusedSection?.label ?? scopeMeta.title}
+        subtitle={
+          focusedSection
+            ? `Filtered section view in ${scopeMeta.title}`
+            : scopeMeta.subtitle
+        }
+        totalCount={filteredScopeGames.length}
         filteredCount={displayedGames.length}
-        viewMode={prefs.viewMode}
+        viewMode={focusedSection ? 'grid' : prefs.viewMode}
         onViewModeChange={setViewMode}
         sortBy={prefs.sortBy}
         sortDir={prefs.sortDir}
         onSortChange={handleSortChange}
         addButtonLabel="Add Section"
-        showAddButton={scope !== 'library'}
+        showAddButton={scope !== 'library' && !focusedSection}
         onAddButtonClick={() => setSectionPickerOpen(true)}
         filterBarOpen={filterBarOpen}
         onFilterBarToggle={() => setFilterBarOpen((v) => !v)}
         activeFilterCount={activeFilterCount}
+        showViewToggle={!focusedSection}
       />
 
       {/* Filter bar (collapsible) */}
@@ -214,16 +285,116 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         <p className="text-sm text-red-400">Error: {(error as Error).message}</p>
       )}
 
-      {prefs.viewMode === 'grid' ? (
-        <GameGrid games={displayedGames} isLoading={isPending} />
+      {focusedSection ? (
+        <div className="space-y-6">
+          <GameGrid games={displayedGames} isLoading={isPending} />
+        </div>
+      ) : prefs.viewMode === 'grid' ? (
+        <div className="space-y-8">
+          {recentPlayedGames.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2 text-left">
+                  <h2 className="truncate text-2xl font-semibold tracking-tight text-mga-text">Recent Played</h2>
+                  <span className="text-sm text-mga-muted">{recentPlayedGames.length}</span>
+                </div>
+              </div>
+              <HorizontalGameShelf
+                games={recentPlayedGames}
+                label="Recent Played"
+                renderHoverAction={(game) => (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      if (window.confirm(`Are you sure you want to remove "${game.title}" from Recent Played?`)) {
+                        removeRecentPlayed(game.id)
+                      }
+                    }}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-mga-border bg-black/70 text-white backdrop-blur transition-colors hover:border-red-400/70 hover:text-red-300"
+                    aria-label={`Remove ${game.title} from recent played`}
+                    title="Remove from recent played"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                )}
+              />
+            </section>
+          )}
+          <GameGrid games={displayedGames} isLoading={isPending} />
+        </div>
       ) : prefs.viewMode === 'timeline' ? (
-        <TimelineView games={displayedGames} />
+        <div className="space-y-8">
+          {recentPlayedGames.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2 text-left">
+                  <h2 className="truncate text-2xl font-semibold tracking-tight text-mga-text">Recent Played</h2>
+                  <span className="text-sm text-mga-muted">{recentPlayedGames.length}</span>
+                </div>
+              </div>
+              <HorizontalGameShelf
+                games={recentPlayedGames}
+                label="Recent Played"
+                renderHoverAction={(game) => (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      if (window.confirm(`Are you sure you want to remove "${game.title}" from Recent Played?`)) {
+                        removeRecentPlayed(game.id)
+                      }
+                    }}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-mga-border bg-black/70 text-white backdrop-blur transition-colors hover:border-red-400/70 hover:text-red-300"
+                    aria-label={`Remove ${game.title} from recent played`}
+                    title="Remove from recent played"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                )}
+              />
+            </section>
+          )}
+          <TimelineView games={displayedGames} />
+        </div>
       ) : (
         <div className="space-y-6">
+          {recentPlayedGames.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2 text-left">
+                  <h2 className="truncate text-2xl font-semibold tracking-tight text-mga-text">Recent Played</h2>
+                  <span className="text-sm text-mga-muted">{recentPlayedGames.length}</span>
+                </div>
+              </div>
+              <HorizontalGameShelf
+                games={recentPlayedGames}
+                label="Recent Played"
+                renderHoverAction={(game) => (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      if (window.confirm(`Are you sure you want to remove "${game.title}" from Recent Played?`)) {
+                        removeRecentPlayed(game.id)
+                      }
+                    }}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-mga-border bg-black/70 text-white backdrop-blur transition-colors hover:border-red-400/70 hover:text-red-300"
+                    aria-label={`Remove ${game.title} from recent played`}
+                    title="Remove from recent played"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                )}
+              />
+            </section>
+          )}
           <CollectionShelf
             sections={prefs.sections}
-            expandedSectionId={prefs.expandedSectionId}
-            onExpandedSectionChange={setExpandedSectionId}
+            onOpenSection={openSection}
             onRemoveSection={handleRemoveSection}
             games={displayedGames}
             isLoading={isPending}
@@ -252,7 +423,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
           <p className="text-mga-muted">
             {searchQuery || activeFilterCount > 0
               ? 'No games match your filters.'
-              : scopeMeta.emptyMessage}
+              : emptyMessage}
           </p>
         </div>
       )}
@@ -260,7 +431,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
       <SectionPickerDialog
         open={sectionPickerOpen}
         onClose={() => setSectionPickerOpen(false)}
-        games={scopeGames}
+        games={filteredScopeGames}
         existingSections={prefs.sections}
         onAddSections={handleAddSections}
       />

@@ -12,6 +12,7 @@ const openApi = readFileSync(openApiPath, "utf8");
 
 for (const requiredPath of [
   "/api/achievements",
+  "/api/achievements/explorer",
   "/api/games/{id}/cover-override",
   "/api/review-candidates/redetect",
   "/api/review-candidates/{id}/redetect",

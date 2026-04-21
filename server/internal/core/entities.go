@@ -262,6 +262,15 @@ type CachedAchievementsDashboard struct {
 	Games   []CachedAchievementGameSummary   `json:"games"`
 }
 
+type CachedAchievementGameExplorer struct {
+	Game    *CanonicalGame   `json:"game"`
+	Systems []AchievementSet `json:"systems"`
+}
+
+type CachedAchievementsExplorer struct {
+	Games []CachedAchievementGameExplorer `json:"games"`
+}
+
 // SourceGame is a game record from a single source integration.
 // "Dark Souls from Steam" and "Dark Souls from GOG" are separate SourceGames.
 type SourceGame struct {

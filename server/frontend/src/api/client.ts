@@ -300,6 +300,15 @@ export type AchievementsDashboardResponse = {
   games: AchievementGameSummaryDTO[];
 };
 
+export type AchievementExplorerGameDTO = {
+  game: GameDetailResponse;
+  systems: AchievementSetDTO[];
+};
+
+export type AchievementsExplorerResponse = {
+  games: AchievementExplorerGameDTO[];
+};
+
 export type DeleteSourceGameResponse = {
   deleted_source_game_id: string;
   canonical_exists: boolean;
@@ -346,6 +355,10 @@ export async function getGameAchievements(
 
 export async function getAchievementsDashboard(): Promise<AchievementsDashboardResponse> {
   return getJson<AchievementsDashboardResponse>("/api/achievements");
+}
+
+export async function getAchievementsExplorer(): Promise<AchievementsExplorerResponse> {
+  return getJson<AchievementsExplorerResponse>("/api/achievements/explorer");
 }
 
 export async function setGameCoverOverride(

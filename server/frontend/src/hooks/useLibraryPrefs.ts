@@ -66,7 +66,8 @@ function extractPrefs(raw: unknown): LibraryPrefs | null {
     source.viewMode === 'shelf' ||
     source.viewMode === 'accordion' ||
     source.viewMode === 'grid' ||
-    source.viewMode === 'list'
+    source.viewMode === 'list' ||
+    source.viewMode === 'timeline'
   ) {
     if (source.viewMode === 'accordion') {
       next.viewMode = 'shelf'

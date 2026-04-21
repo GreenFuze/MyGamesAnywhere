@@ -41,7 +41,9 @@ export function App() {
                     <Route path="/" element={<AppLayout />}>
                       <Route index element={<HomePage />} />
                       <Route path="play" element={<PlayPage />} />
+                      <Route path="play/section/:sectionId" element={<PlayPage />} />
                       <Route path="library" element={<LibraryPage />} />
+                      <Route path="library/section/:sectionId" element={<LibraryPage />} />
                       <Route path="achievements" element={<AchievementsPage />} />
                       <Route path="playable" element={<Navigate to="/play" replace />} />
                       <Route path="xcloud" element={<Navigate to="/play" replace />} />

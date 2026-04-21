@@ -852,6 +852,86 @@ func TestGetCachedAchievementsDashboardUsesCachedRowsOnly(t *testing.T) {
 	}
 }
 
+func TestGetCachedAchievementsExplorerUsesCachedRowsOnly(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	seedSourceGameForDBTest(t, ctx, store, "scan:ach-exp-one", "Explorer One")
+	seedSourceGameForDBTest(t, ctx, store, "scan:ach-exp-two", "Explorer Two")
+	seedSourceGameForDBTest(t, ctx, store, "scan:ach-exp-one-dup", "Explorer One Duplicate")
+
+	if err := store.CacheAchievements(ctx, "scan:ach-exp-one", &core.AchievementSet{
+		Source:         "retroachievements",
+		ExternalGameID: "ra-exp-1",
+		TotalCount:     2,
+		UnlockedCount:  1,
+		FetchedAt:      time.Unix(1710000000, 0).UTC(),
+		Achievements: []core.Achievement{
+			{ExternalID: "ach-1", Title: "First", Unlocked: true, UnlockedAt: time.Unix(1710000000, 0).UTC()},
+			{ExternalID: "ach-2", Title: "Second", Unlocked: false},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CacheAchievements(ctx, "scan:ach-exp-two", &core.AchievementSet{
+		Source:         "retroachievements",
+		ExternalGameID: "ra-exp-2",
+		TotalCount:     1,
+		UnlockedCount:  1,
+		FetchedAt:      time.Unix(1710000100, 0).UTC(),
+		Achievements: []core.Achievement{
+			{ExternalID: "ach-3", Title: "Third", Unlocked: true, UnlockedAt: time.Unix(1710000100, 0).UTC()},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var canonicalID string
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT canonical_id FROM canonical_source_games_link WHERE source_game_id = ?`, "scan:ach-exp-one").Scan(&canonicalID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetDB().ExecContext(ctx, `UPDATE canonical_source_games_link SET canonical_id = ? WHERE source_game_id = ?`, canonicalID, "scan:ach-exp-one-dup"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CacheAchievements(ctx, "scan:ach-exp-one-dup", &core.AchievementSet{
+		Source:         "retroachievements",
+		ExternalGameID: "ra-exp-1",
+		TotalCount:     99,
+		UnlockedCount:  0,
+		FetchedAt:      time.Unix(1700000000, 0).UTC(),
+		Achievements: []core.Achievement{
+			{ExternalID: "ach-old", Title: "Old Duplicate", Unlocked: false},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	explorer, err := store.GetCachedAchievementsExplorer(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(explorer.Games) != 2 {
+		t.Fatalf("games = %d, want 2 cached explorer games", len(explorer.Games))
+	}
+
+	var found bool
+	for _, item := range explorer.Games {
+		if item.Game == nil || item.Game.ID != canonicalID {
+			continue
+		}
+		found = true
+		if len(item.Systems) != 1 {
+			t.Fatalf("systems = %d, want deduped single system", len(item.Systems))
+		}
+		if item.Systems[0].TotalCount != 2 || len(item.Systems[0].Achievements) != 2 {
+			t.Fatalf("system = %+v, want latest cached set with 2 achievements", item.Systems[0])
+		}
+	}
+	if !found {
+		t.Fatalf("expected explorer data for canonical game %q", canonicalID)
+	}
+}
+
 func TestListManualReviewCandidatesFiltersToNeedsReview(t *testing.T) {
 	ctx := context.Background()
 	_, store := newTestGameStore(t)

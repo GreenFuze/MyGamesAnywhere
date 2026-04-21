@@ -119,6 +119,9 @@ type GameStore interface {
 	// GetCachedAchievementsDashboard returns cached achievement aggregates only.
 	GetCachedAchievementsDashboard(ctx context.Context) (*CachedAchievementsDashboard, error)
 
+	// GetCachedAchievementsExplorer returns cached achievement sets grouped by canonical game.
+	GetCachedAchievementsExplorer(ctx context.Context) (*CachedAchievementsExplorer, error)
+
 	// GetGamesByIntegrationID returns canonical games discovered by a source integration.
 	GetGamesByIntegrationID(ctx context.Context, integrationID string, limit int) ([]GameListItem, error)
 

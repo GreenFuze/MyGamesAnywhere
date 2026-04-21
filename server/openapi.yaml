@@ -5,6 +5,62 @@ info:
   version: 1.0.0
 paths:
 
+  /*:
+    connect:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    delete:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    head:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    options:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    patch:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    put:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    trace:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/about:
     get:
       summary: Application build metadata
@@ -36,6 +92,18 @@ paths:
       responses:
         200:
           description: AchievementsDashboardResponse
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
+  /api/achievements/explorer:
+    get:
+      summary: Get cached achievements explorer
+      description: Returns cached achievement sets and achievement rows grouped by canonical game. This endpoint is read-only over stored cache rows and does not trigger provider fetches.
+      responses:
+        200:
+          description: AchievementsExplorerResponse
         400:
           description: Error response
         500:

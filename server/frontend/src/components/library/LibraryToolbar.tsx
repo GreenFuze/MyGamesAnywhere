@@ -34,6 +34,7 @@ interface LibraryToolbarProps {
   filterBarOpen: boolean
   onFilterBarToggle: () => void
   activeFilterCount: number
+  showViewToggle?: boolean
 }
 
 export function LibraryToolbar({
@@ -52,6 +53,7 @@ export function LibraryToolbar({
   filterBarOpen,
   onFilterBarToggle,
   activeFilterCount,
+  showViewToggle = true,
 }: LibraryToolbarProps) {
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -93,15 +95,17 @@ export function LibraryToolbar({
       </div>
 
       {/* View mode toggle */}
-      <ToggleGroup
-        value={viewMode}
-        onChange={onViewModeChange}
-        options={[
-          { value: 'shelf' as const, label: 'Shelf' },
-          { value: 'grid' as const, label: 'Grid' },
-          { value: 'timeline' as const, label: 'Timeline' },
-        ]}
-      />
+      {showViewToggle && (
+        <ToggleGroup
+          value={viewMode}
+          onChange={onViewModeChange}
+          options={[
+            { value: 'shelf' as const, label: 'Shelf' },
+            { value: 'grid' as const, label: 'Grid' },
+            { value: 'timeline' as const, label: 'Timeline' },
+          ]}
+        />
+      )}
 
       {showAddButton && onAddButtonClick && (
         <Button variant="outline" size="sm" onClick={onAddButtonClick}>

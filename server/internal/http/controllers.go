@@ -94,6 +94,10 @@ type AchievementsDashboardResponse struct {
 	Games   []AchievementGameSummaryDTO `json:"games"`
 }
 
+type AchievementsExplorerResponse struct {
+	Games []AchievementGameExplorerDTO `json:"games"`
+}
+
 type AchievementSystemSummary struct {
 	Source        string `json:"source"`
 	GameCount     int    `json:"game_count"`
@@ -106,6 +110,11 @@ type AchievementSystemSummary struct {
 type AchievementGameSummaryDTO struct {
 	Game    GameDetailResponse         `json:"game"`
 	Systems []AchievementSystemSummary `json:"systems"`
+}
+
+type AchievementGameExplorerDTO struct {
+	Game    GameDetailResponse  `json:"game"`
+	Systems []AchievementSetDTO `json:"systems"`
 }
 
 func NewGameController(gameStore core.GameStore, refreshSvc core.GameMetadataRefreshService, deleteSvc core.GameDeletionService, integrationRepo core.IntegrationRepository, cacheSvc core.SourceCacheService, logger core.Logger) *GameController {
@@ -400,6 +409,37 @@ func (c *GameController) AchievementsDashboard(w http.ResponseWriter, r *http.Re
 		}
 		resp.Games = append(resp.Games, item)
 	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (c *GameController) AchievementsExplorer(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	explorer, err := c.gameStore.GetCachedAchievementsExplorer(ctx)
+	if err != nil {
+		c.logger.Error("cached achievements explorer", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	resp := AchievementsExplorerResponse{
+		Games: make([]AchievementGameExplorerDTO, 0, len(explorer.Games)),
+	}
+	labels := c.loadIntegrationLabels(ctx)
+	for _, game := range explorer.Games {
+		if game.Game == nil {
+			continue
+		}
+		item := AchievementGameExplorerDTO{
+			Game:    c.canonicalToGameDetailWithIntegrationLabels(ctx, game.Game, labels),
+			Systems: make([]AchievementSetDTO, 0, len(game.Systems)),
+		}
+		for _, system := range game.Systems {
+			item.Systems = append(item.Systems, achievementSetToDTO(system))
+		}
+		resp.Games = append(resp.Games, item)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
@@ -1496,6 +1536,35 @@ type AchievementSetDTO struct {
 	TotalPoints    int              `json:"total_points,omitempty"`
 	EarnedPoints   int              `json:"earned_points,omitempty"`
 	Achievements   []AchievementDTO `json:"achievements"`
+}
+
+func achievementSetToDTO(set core.AchievementSet) AchievementSetDTO {
+	dto := AchievementSetDTO{
+		Source:         set.Source,
+		ExternalGameID: set.ExternalGameID,
+		TotalCount:     set.TotalCount,
+		UnlockedCount:  set.UnlockedCount,
+		TotalPoints:    set.TotalPoints,
+		EarnedPoints:   set.EarnedPoints,
+		Achievements:   make([]AchievementDTO, 0, len(set.Achievements)),
+	}
+	for _, achievement := range set.Achievements {
+		item := AchievementDTO{
+			ExternalID:   achievement.ExternalID,
+			Title:        achievement.Title,
+			Description:  achievement.Description,
+			LockedIcon:   achievement.LockedIcon,
+			UnlockedIcon: achievement.UnlockedIcon,
+			Points:       achievement.Points,
+			Rarity:       achievement.Rarity,
+			Unlocked:     achievement.Unlocked,
+		}
+		if !achievement.UnlockedAt.IsZero() {
+			item.UnlockedAt = achievement.UnlockedAt.UTC().Format(time.RFC3339)
+		}
+		dto.Achievements = append(dto.Achievements, item)
+	}
+	return dto
 }
 
 type rawAchievementPluginEntry struct {

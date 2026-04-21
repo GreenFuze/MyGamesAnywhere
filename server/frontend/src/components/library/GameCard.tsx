@@ -5,7 +5,7 @@ import { BrandBadge } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { CoverImage } from '@/components/ui/cover-image'
 import { PlatformIcon } from '@/components/ui/platform-icon'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   formatHLTB,
@@ -20,9 +20,10 @@ import { buildGameRouteState } from '@/lib/gameNavigation'
 
 interface GameCardProps {
   game: GameDetailResponse
+  hoverAction?: ReactNode
 }
 
-export function GameCard({ game }: GameCardProps) {
+export function GameCard({ game, hoverAction }: GameCardProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const [contextMenuPoint, setContextMenuPoint] = useState<{ x: number; y: number } | null>(null)
@@ -62,6 +63,11 @@ export function GameCard({ game }: GameCardProps) {
         className="group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-mga border border-mga-border bg-mga-surface transition-all hover:-translate-y-0.5 hover:border-mga-accent/60 hover:shadow-lg hover:shadow-black/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-mga-accent"
       >
         <div className="relative">
+          {hoverAction && (
+            <div className="absolute right-2 top-2 z-10 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
+              {hoverAction}
+            </div>
+          )}
           <CoverImage
             src={coverUrl}
             alt={game.title}
