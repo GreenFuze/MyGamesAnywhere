@@ -10,6 +10,7 @@ import { ToastProvider } from '@/components/ui/toast'
 import { AppLayout } from '@/layouts/AppLayout'
 import { HomePage } from '@/pages/HomePage'
 import { AboutPage } from '@/pages/AboutPage'
+import { AchievementsPage } from '@/pages/AchievementsPage'
 import { LibraryPage } from '@/pages/LibraryPage'
 import { PlayPage } from '@/pages/PlayPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -41,6 +42,7 @@ export function App() {
                       <Route index element={<HomePage />} />
                       <Route path="play" element={<PlayPage />} />
                       <Route path="library" element={<LibraryPage />} />
+                      <Route path="achievements" element={<AchievementsPage />} />
                       <Route path="playable" element={<Navigate to="/play" replace />} />
                       <Route path="xcloud" element={<Navigate to="/play" replace />} />
                       <Route path="settings" element={<SettingsPage />} />

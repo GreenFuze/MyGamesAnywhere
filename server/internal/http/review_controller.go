@@ -13,6 +13,7 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
 )
 
 const reviewMetadataLookupMethod = "metadata.game.lookup"
@@ -110,6 +111,11 @@ type ManualReviewSearchResponseDTO struct {
 	Query       string                                `json:"query"`
 	Providers   []ManualReviewSearchProviderStatusDTO `json:"providers"`
 	Results     []ManualReviewSearchResultDTO         `json:"results"`
+}
+
+type ManualReviewRedetectResponseDTO struct {
+	Result    core.ManualReviewRedetectResult `json:"result"`
+	Candidate ManualReviewCandidateDetailDTO  `json:"candidate"`
 }
 
 type reviewMetadataLookupRequest struct {
@@ -286,15 +292,6 @@ func (c *ReviewController) SearchCandidate(w http.ResponseWriter, r *http.Reques
 		providerPluginSet[pluginID] = struct{}{}
 	}
 
-	sort.Slice(integrations, func(i, j int) bool {
-		left := strings.TrimSpace(integrations[i].Label)
-		right := strings.TrimSpace(integrations[j].Label)
-		if left == right {
-			return integrations[i].ID < integrations[j].ID
-		}
-		return left < right
-	})
-
 	resp := ManualReviewSearchResponseDTO{
 		CandidateID: candidate.ID,
 		Query:       query,
@@ -302,6 +299,7 @@ func (c *ReviewController) SearchCandidate(w http.ResponseWriter, r *http.Reques
 		Results:     []ManualReviewSearchResultDTO{},
 	}
 
+	lookupSources := make([]scan.MetadataSource, 0, len(integrations))
 	for _, integration := range integrations {
 		if integration == nil || integration.IntegrationType != "metadata" {
 			continue
@@ -316,37 +314,38 @@ func (c *ReviewController) SearchCandidate(w http.ResponseWriter, r *http.Reques
 			PluginID:         integration.PluginID,
 		}
 
-		config := map[string]any{}
-		if strings.TrimSpace(integration.ConfigJSON) != "" {
-			if err := json.Unmarshal([]byte(integration.ConfigJSON), &config); err != nil {
-				status.Status = "error"
-				status.Error = "invalid integration config"
-				resp.Providers = append(resp.Providers, status)
-				continue
-			}
-		}
-
-		params := map[string]any{
-			"games": []reviewMetadataGameQuery{{
-				Index:     0,
-				Title:     query,
-				Platform:  string(candidate.Platform),
-				RootPath:  candidate.RootPath,
-				GroupKind: string(candidate.GroupKind),
-			}},
-			"config": config,
-		}
-
-		var lookup reviewMetadataLookupResponse
-		if err := c.pluginHost.Call(r.Context(), integration.PluginID, reviewMetadataLookupMethod, params, &lookup); err != nil {
+		source, err := scan.MetadataSourceFromIntegration(integration)
+		if err != nil {
 			status.Status = "error"
-			status.Error = err.Error()
+			status.Error = "invalid integration config"
+			resp.Providers = append(resp.Providers, status)
+			continue
+		}
+		lookupSources = append(lookupSources, source)
+	}
+
+	lookupResults := scan.LookupMetadataSources(r.Context(), c.pluginHost, lookupSources, []scan.MetadataLookupQuery{{
+		Index:     0,
+		Title:     query,
+		Platform:  string(candidate.Platform),
+		RootPath:  candidate.RootPath,
+		GroupKind: string(candidate.GroupKind),
+	}})
+	for _, lookup := range lookupResults {
+		status := ManualReviewSearchProviderStatusDTO{
+			IntegrationID:    lookup.Source.IntegrationID,
+			IntegrationLabel: lookup.Source.Label,
+			PluginID:         lookup.Source.PluginID,
+		}
+		if lookup.Error != nil {
+			status.Status = "error"
+			status.Error = lookup.Error.Error()
 			resp.Providers = append(resp.Providers, status)
 			continue
 		}
 
-		status.ResultCount = len(lookup.Results)
-		if len(lookup.Results) == 0 {
+		status.ResultCount = len(lookup.Matches)
+		if len(lookup.Matches) == 0 {
 			status.Status = "no_results"
 			resp.Providers = append(resp.Providers, status)
 			continue
@@ -354,14 +353,14 @@ func (c *ReviewController) SearchCandidate(w http.ResponseWriter, r *http.Reques
 
 		status.Status = "success"
 		resp.Providers = append(resp.Providers, status)
-		for _, match := range lookup.Results {
+		for _, match := range lookup.Matches {
 			if strings.TrimSpace(match.ExternalID) == "" {
 				continue
 			}
 			resp.Results = append(resp.Results, ManualReviewSearchResultDTO{
-				ProviderIntegrationID: integration.ID,
-				ProviderLabel:         integration.Label,
-				ProviderPluginID:      integration.PluginID,
+				ProviderIntegrationID: lookup.Source.IntegrationID,
+				ProviderLabel:         lookup.Source.Label,
+				ProviderPluginID:      lookup.Source.PluginID,
 				Title:                 strings.TrimSpace(match.Title),
 				Platform:              strings.TrimSpace(match.Platform),
 				Kind:                  strings.TrimSpace(match.Kind),
@@ -375,7 +374,7 @@ func (c *ReviewController) SearchCandidate(w http.ResponseWriter, r *http.Reques
 				Publisher:             strings.TrimSpace(match.Publisher),
 				Rating:                match.Rating,
 				MaxPlayers:            match.MaxPlayers,
-				ImageURL:              reviewRepresentativeImage(match.Media),
+				ImageURL:              reviewRepresentativeLookupImage(match.Media),
 			})
 		}
 	}
@@ -394,6 +393,69 @@ func (c *ReviewController) SearchCandidate(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (c *ReviewController) RedetectCandidate(w http.ResponseWriter, r *http.Request) {
+	candidateID, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if candidateID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	result, err := c.manualReviewSvc.Redetect(r.Context(), candidateID)
+	if err != nil {
+		status := manualReviewMutationErrorStatus(err)
+		c.logger.Error("redetect manual review candidate", err, "candidate_id", candidateID)
+		http.Error(w, err.Error(), status)
+		return
+	}
+
+	candidate, err := c.gameStore.GetManualReviewCandidate(r.Context(), candidateID)
+	if err != nil {
+		c.logger.Error("get manual review candidate after redetect", err, "candidate_id", candidateID)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if candidate == nil {
+		http.NotFound(w, r)
+		return
+	}
+	labels, err := c.integrationLabels(r.Context())
+	if err != nil {
+		c.logger.Error("list integrations for manual review redetect detail", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(ManualReviewRedetectResponseDTO{
+		Result:    *result,
+		Candidate: manualReviewCandidateDetailDTO(candidate, labels),
+	})
+}
+
+func (c *ReviewController) RedetectActive(w http.ResponseWriter, r *http.Request) {
+	result, err := c.manualReviewSvc.RedetectActive(r.Context())
+	if result == nil {
+		result = &core.ManualReviewRedetectBatchResult{Results: []core.ManualReviewRedetectResult{}}
+	}
+	if err != nil {
+		if strings.TrimSpace(result.Error) == "" {
+			result.Error = err.Error()
+		}
+		c.logger.Error("redetect active manual review candidates", err, "failed_candidate_id", result.FailedCandidateID)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(manualReviewMutationErrorStatus(err))
+		_ = json.NewEncoder(w).Encode(result)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (c *ReviewController) ApplyCandidate(w http.ResponseWriter, r *http.Request) {
@@ -418,12 +480,7 @@ func (c *ReviewController) ApplyCandidate(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := c.manualReviewSvc.Apply(r.Context(), candidateID, core.ManualReviewSelection(body)); err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, core.ErrManualReviewCandidateNotFound) {
-			status = http.StatusNotFound
-		} else if errors.Is(err, core.ErrManualReviewSelectionInvalid) {
-			status = http.StatusBadRequest
-		}
+		status := manualReviewMutationErrorStatus(err)
 		c.logger.Error("apply manual review candidate", err)
 		http.Error(w, err.Error(), status)
 		return
@@ -481,6 +538,17 @@ func (c *ReviewController) respondWithCandidateDetail(w http.ResponseWriter, r *
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(manualReviewCandidateDetailDTO(candidate, labels))
+}
+
+func manualReviewMutationErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, core.ErrManualReviewCandidateNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, core.ErrManualReviewSelectionInvalid), errors.Is(err, core.ErrManualReviewCandidateNotEligible):
+		return http.StatusBadRequest
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 func (c *ReviewController) integrationLabels(ctx context.Context) (map[string]string, error) {
@@ -549,7 +617,52 @@ func manualReviewCandidateDetailDTO(candidate *core.ManualReviewCandidate, integ
 	return dto
 }
 
+func manualReviewSearchResultDTO(integration *core.Integration, match reviewMetadataMatch) (ManualReviewSearchResultDTO, bool) {
+	if integration == nil || strings.TrimSpace(match.ExternalID) == "" {
+		return ManualReviewSearchResultDTO{}, false
+	}
+	return ManualReviewSearchResultDTO{
+		ProviderIntegrationID: integration.ID,
+		ProviderLabel:         integration.Label,
+		ProviderPluginID:      integration.PluginID,
+		Title:                 strings.TrimSpace(match.Title),
+		Platform:              strings.TrimSpace(match.Platform),
+		Kind:                  strings.TrimSpace(match.Kind),
+		ParentGameID:          strings.TrimSpace(match.ParentGameID),
+		ExternalID:            strings.TrimSpace(match.ExternalID),
+		URL:                   strings.TrimSpace(match.URL),
+		Description:           strings.TrimSpace(match.Description),
+		ReleaseDate:           strings.TrimSpace(match.ReleaseDate),
+		Genres:                slices.Clone(match.Genres),
+		Developer:             strings.TrimSpace(match.Developer),
+		Publisher:             strings.TrimSpace(match.Publisher),
+		Rating:                match.Rating,
+		MaxPlayers:            match.MaxPlayers,
+		ImageURL:              reviewRepresentativeImage(match.Media),
+	}, true
+}
+
 func reviewRepresentativeImage(media []reviewMetadataMedia) string {
+	if len(media) == 0 {
+		return ""
+	}
+	order := []string{"cover", "artwork", "box_back", "box_side", "banner", "logo", "screenshot", "background", "icon"}
+	for _, wanted := range order {
+		for _, item := range media {
+			if item.Type == wanted && strings.TrimSpace(item.URL) != "" {
+				return item.URL
+			}
+		}
+	}
+	for _, item := range media {
+		if strings.TrimSpace(item.URL) != "" {
+			return item.URL
+		}
+	}
+	return ""
+}
+
+func reviewRepresentativeLookupImage(media []scan.MetadataLookupMediaItem) string {
 	if len(media) == 0 {
 		return ""
 	}

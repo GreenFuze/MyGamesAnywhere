@@ -12,6 +12,7 @@ var emulatedPlatforms = map[core.Platform]bool{
 	core.PlatformGB:               true,
 	core.PlatformGBC:              true,
 	core.PlatformGBA:              true,
+	core.PlatformN64:              true,
 	core.PlatformGenesis:          true,
 	core.PlatformSegaMasterSystem: true,
 	core.PlatformGameGear:         true,

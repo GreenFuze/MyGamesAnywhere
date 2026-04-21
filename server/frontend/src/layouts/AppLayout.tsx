@@ -9,6 +9,7 @@ const nav = [
   { to: '/', label: 'Home' },
   { to: '/play', label: 'Play', hideOnDesktopWithSidebar: true },
   { to: '/library', label: 'Library' },
+  { to: '/achievements', label: 'Achievements' },
   { to: '/settings', label: 'Settings' },
   { to: '/about', label: 'About' },
 ]
@@ -18,7 +19,7 @@ export function AppLayout() {
   const { searchQuery, setSearchQuery, searchRef } = useSearch()
   const loc = useLocation()
 
-  const isWideRoute = ['/library', '/play'].some((p) =>
+  const isWideRoute = ['/library', '/play', '/achievements'].some((p) =>
     loc.pathname.startsWith(p),
   )
 

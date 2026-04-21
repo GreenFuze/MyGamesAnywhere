@@ -189,6 +189,84 @@ func TestNormalizeAchievementResultRecomputesCountsAndClearsLockedTimestamps(t *
 	}
 }
 
+func TestGameControllerCoverOverrideReturnsUpdatedGame(t *testing.T) {
+	store := &fakeGameStore{game: &core.CanonicalGame{
+		ID:    "game-1",
+		Title: "Game One",
+		CoverOverride: &core.MediaRef{
+			AssetID: 42,
+			Type:    core.MediaTypeArtwork,
+			URL:     "https://example.com/artwork.png",
+		},
+	}}
+	controller := NewGameController(store, nil, nil, nil, nil, noopLogger{})
+	router := chi.NewRouter()
+	router.Put("/api/games/{id}/cover-override", controller.SetCoverOverride)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/games/game-1/cover-override", bytes.NewBufferString(`{"media_asset_id":42}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if store.setCoverOverrideID != "game-1" || store.setCoverOverrideAsset != 42 {
+		t.Fatalf("cover override call = %q/%d, want game-1/42", store.setCoverOverrideID, store.setCoverOverrideAsset)
+	}
+	var resp GameDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.CoverOverride == nil || resp.CoverOverride.AssetID != 42 {
+		t.Fatalf("cover_override = %+v, want asset 42", resp.CoverOverride)
+	}
+}
+
+func TestGameControllerAchievementsDashboardReturnsCachedOnlySummary(t *testing.T) {
+	store := &fakeGameStore{achievementDashboard: &core.CachedAchievementsDashboard{
+		Totals: core.AchievementSummary{SourceCount: 1, TotalCount: 10, UnlockedCount: 4},
+		Systems: []core.CachedAchievementSystemSummary{{
+			Source:        "retroachievements",
+			GameCount:     1,
+			TotalCount:    10,
+			UnlockedCount: 4,
+		}},
+		Games: []core.CachedAchievementGameSummary{{
+			Game: &core.CanonicalGame{
+				ID:    "game-1",
+				Title: "Game One",
+				AchievementSummary: &core.AchievementSummary{
+					SourceCount:   1,
+					TotalCount:    10,
+					UnlockedCount: 4,
+				},
+			},
+			Systems: []core.CachedAchievementSystemSummary{{
+				Source:        "retroachievements",
+				GameCount:     1,
+				TotalCount:    10,
+				UnlockedCount: 4,
+			}},
+		}},
+	}}
+	controller := NewGameController(store, nil, nil, nil, nil, noopLogger{})
+	router := chi.NewRouter()
+	router.Get("/api/achievements", controller.AchievementsDashboard)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/achievements", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp AchievementsDashboardResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Totals.TotalCount != 10 || len(resp.Systems) != 1 || len(resp.Games) != 1 {
+		t.Fatalf("dashboard = %+v, want cached totals, one system, one game", resp)
+	}
+}
+
 func TestAchievementControllerGetAchievementsNormalizesMixedStatesAndCaches(t *testing.T) {
 	game := &core.CanonicalGame{
 		ID: "game-1",
@@ -299,6 +377,10 @@ type cachedAchievementCall struct {
 type fakeGameStore struct {
 	game                   *core.CanonicalGame
 	cached                 []cachedAchievementCall
+	achievementDashboard   *core.CachedAchievementsDashboard
+	setCoverOverrideID     string
+	setCoverOverrideAsset  int
+	clearCoverOverrideID   string
 	manualReviewCandidates []*core.ManualReviewCandidate
 	manualReviewByID       map[string]*core.ManualReviewCandidate
 }
@@ -346,6 +428,12 @@ func (f *fakeGameStore) GetExternalIDsForCanonical(context.Context, string) ([]c
 }
 func (f *fakeGameStore) GetLibraryStats(context.Context) (*core.LibraryStats, error) {
 	panic("unexpected call")
+}
+func (f *fakeGameStore) GetCachedAchievementsDashboard(context.Context) (*core.CachedAchievementsDashboard, error) {
+	if f.achievementDashboard != nil {
+		return f.achievementDashboard, nil
+	}
+	return &core.CachedAchievementsDashboard{}, nil
 }
 func (f *fakeGameStore) GetGamesByIntegrationID(context.Context, string, int) ([]core.GameListItem, error) {
 	panic("unexpected call")
@@ -438,6 +526,15 @@ func (f *fakeGameStore) GetScanReport(context.Context, string) (*core.ScanReport
 }
 func (f *fakeGameStore) GetSourceGameCountsByIntegration(context.Context) (map[string]int, error) {
 	panic("unexpected call")
+}
+func (f *fakeGameStore) SetCanonicalCoverOverride(_ context.Context, canonicalID string, mediaAssetID int) error {
+	f.setCoverOverrideID = canonicalID
+	f.setCoverOverrideAsset = mediaAssetID
+	return nil
+}
+func (f *fakeGameStore) ClearCanonicalCoverOverride(_ context.Context, canonicalID string) error {
+	f.clearCoverOverrideID = canonicalID
+	return nil
 }
 
 type fakePluginHost struct {

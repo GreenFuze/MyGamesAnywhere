@@ -204,6 +204,124 @@ func TestRefreshGameMetadataFailsFastOnProviderError(t *testing.T) {
 	}
 }
 
+func TestRefreshGameMetadataDoesNotDropUnrelatedDetectedGames(t *testing.T) {
+	ctx := context.Background()
+	store := newManualReviewTestStore(t)
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "source-1",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "scan:refresh-keep-1",
+				IntegrationID: "source-1",
+				PluginID:      "game-source-epic",
+				ExternalID:    "epic-1",
+				RawTitle:      "Control",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			},
+			{
+				ID:            "scan:refresh-keep-2",
+				IntegrationID: "source-1",
+				PluginID:      "game-source-epic",
+				ExternalID:    "epic-2",
+				RawTitle:      "Alan Wake",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			},
+		},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:refresh-keep-1": {{
+				PluginID:   "metadata-steam",
+				Title:      "Control",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "steam-control",
+			}},
+			"scan:refresh-keep-2": {{
+				PluginID:   "metadata-steam",
+				Title:      "Alan Wake",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "steam-alan-wake",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	canonicalGames, err := store.GetCanonicalGames(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(canonicalGames) != 2 {
+		t.Fatalf("canonical games before = %d, want 2", len(canonicalGames))
+	}
+
+	var controlID string
+	for _, game := range canonicalGames {
+		if game != nil && game.Title == "Control" {
+			controlID = game.ID
+			break
+		}
+	}
+	if controlID == "" {
+		t.Fatal("expected Control canonical id")
+	}
+
+	caller := &mockCaller{
+		callFn: func(pluginID, method string, params any) (any, error) {
+			if method != metadataGameLookupMethod {
+				return nil, nil
+			}
+			request, ok := params.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("missing metadata request")
+			}
+			games, ok := request["games"].([]metadataGameQuery)
+			if !ok || len(games) == 0 {
+				return nil, fmt.Errorf("missing metadata games")
+			}
+			return metadataLookupResponse{
+				Results: []metadataMatch{{
+					Index:      0,
+					Title:      games[0].Title,
+					Platform:   string(core.PlatformWindowsPC),
+					ExternalID: "refresh-" + games[0].Title,
+				}},
+			}, nil
+		},
+	}
+
+	discovery := metadataPolicyTestDiscovery{
+		plugins: map[string]*core.Plugin{
+			"metadata-steam": {
+				Manifest: core.PluginManifest{ID: "metadata-steam", Provides: []string{metadataGameLookupMethod}},
+			},
+		},
+		metadataIDs: []string{"metadata-steam"},
+	}
+	repo := manualReviewTestIntegrationRepo{items: []*core.Integration{
+		{ID: "source-1", PluginID: "game-source-epic", Label: "Epic", IntegrationType: "source", ConfigJSON: `{}`},
+		{ID: "metadata-steam-1", PluginID: "metadata-steam", Label: "Steam Metadata", IntegrationType: "metadata", ConfigJSON: `{}`},
+	}}
+
+	orchestrator := NewOrchestrator(caller, discovery, repo, store, &eventTestMediaDownloadQueue{}, eventTestLogger{})
+	if _, err := orchestrator.RefreshGameMetadata(ctx, controlID); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := store.GetCanonicalGames(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 2 {
+		t.Fatalf("canonical games after = %d, want 2", len(after))
+	}
+}
+
 func TestManualReviewApplyFailsFastWhenFillProviderFails(t *testing.T) {
 	ctx := context.Background()
 	store := newManualReviewTestStore(t)

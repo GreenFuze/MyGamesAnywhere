@@ -162,6 +162,7 @@ func TestMatchGame_UsesExpandedPlatformMappings(t *testing.T) {
 		files: map[string]*fileEntry{},
 		games: map[string]*gameEntry{
 			"nintendo entertainment system\tsuper mario bros": {DatabaseID: 1985, Name: "Super Mario Bros", Platform: "Nintendo Entertainment System"},
+			"nintendo 64\tbomberman 64":                       {DatabaseID: 1997, Name: "Bomberman 64", Platform: "Nintendo 64"},
 			"sega genesis\tsonic the hedgehog":                {DatabaseID: 1991, Name: "Sonic the Hedgehog", Platform: "Sega Genesis"},
 		},
 		images: map[int][]gameImage{},
@@ -175,6 +176,14 @@ func TestMatchGame_UsesExpandedPlatformMappings(t *testing.T) {
 	genesis := matchGame(idx, gameQuery{Index: 0, Title: "Sonic the Hedgehog", Platform: "genesis"})
 	if genesis == nil || genesis.ExternalID != "1991" {
 		t.Fatalf("genesis mapping failed: %+v", genesis)
+	}
+
+	n64 := matchGame(idx, gameQuery{Index: 0, Title: "Bomberman 64", Platform: "n64"})
+	if n64 == nil || n64.ExternalID != "1997" {
+		t.Fatalf("n64 mapping failed: %+v", n64)
+	}
+	if n64.Platform != "n64" {
+		t.Fatalf("n64 result platform = %q, want %q", n64.Platform, "n64")
 	}
 }
 

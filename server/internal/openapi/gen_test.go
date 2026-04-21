@@ -31,6 +31,26 @@ func TestGenerateOpenAPI(t *testing.T) {
 	}
 }
 
+func TestCommittedOpenAPIIsCurrent(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "openapi.yaml")
+	if err := Generate(outPath); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	generated, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read generated output: %v", err)
+	}
+	committedPath := filepath.Join("..", "..", "openapi.yaml")
+	committed, err := os.ReadFile(committedPath)
+	if err != nil {
+		t.Fatalf("read committed openapi: %v", err)
+	}
+	if string(generated) != string(committed) {
+		t.Fatalf("%s is stale; run go run ./cmd/openapi-gen and commit the result", committedPath)
+	}
+}
+
 // TestCollectRoutes discovers routes from the router (nil builder = no-op handlers).
 func TestCollectRoutes(t *testing.T) {
 	routes, err := CollectRoutes()

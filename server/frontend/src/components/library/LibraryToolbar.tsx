@@ -99,6 +99,7 @@ export function LibraryToolbar({
         options={[
           { value: 'shelf' as const, label: 'Shelf' },
           { value: 'grid' as const, label: 'Grid' },
+          { value: 'timeline' as const, label: 'Timeline' },
         ]}
       />
 

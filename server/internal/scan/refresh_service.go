@@ -171,10 +171,11 @@ func refreshedSourceGamesToBatch(
 	}
 
 	batch := &core.ScanBatch{
-		IntegrationID:   integrationID,
-		SourceGames:     make([]*core.SourceGame, 0, len(games)),
-		ResolverMatches: make(map[string][]core.ResolverMatch, len(games)),
-		MediaItems:      make(map[string][]core.MediaRef, len(games)),
+		IntegrationID:        integrationID,
+		SourceGames:          make([]*core.SourceGame, 0, len(games)),
+		ResolverMatches:      make(map[string][]core.ResolverMatch, len(games)),
+		MediaItems:           make(map[string][]core.MediaRef, len(games)),
+		SkipMissingReconcile: true,
 	}
 
 	for _, game := range games {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowRightLeft, ExternalLink, FileSearch, Loader2, Search } from 'lucide-react'
+import { AlertCircle, ArrowRightLeft, ExternalLink, FileSearch, Loader2, RefreshCw, Search } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ApiError,
@@ -8,6 +8,8 @@ import {
   getManualReviewCandidate,
   listManualReviewCandidates,
   markManualReviewCandidateNotAGame,
+  redetectActiveManualReviewCandidates,
+  redetectManualReviewCandidate,
   searchManualReviewCandidate,
   unarchiveManualReviewCandidate,
   type ManualReviewCandidateDetail,
@@ -157,6 +159,7 @@ export function UndetectedGamesTab() {
   const [searchQuery, setSearchQuery] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
   const [seededCandidateId, setSeededCandidateId] = useState<string | null>(null)
+  const [redetectNotice, setRedetectNotice] = useState<string | null>(null)
 
   const scope: ManualReviewScope = searchParams.get('scope') === 'archive' ? 'archive' : 'active'
   const activeCandidateId = searchParams.get('candidate_id')?.trim() ?? ''
@@ -239,9 +242,9 @@ export function UndetectedGamesTab() {
     return true
   }
 
-  const invalidateReviewQueries = (candidateId: string) => {
+  const invalidateReviewQueries = (candidateId?: string) => {
     void queryClient.invalidateQueries({ queryKey: ['manual-review-candidates'] })
-    void queryClient.invalidateQueries({ queryKey: ['manual-review-candidate', candidateId] })
+    if (candidateId) void queryClient.invalidateQueries({ queryKey: ['manual-review-candidate', candidateId] })
     void queryClient.invalidateQueries({ queryKey: ['manual-review-search'] })
     void queryClient.invalidateQueries({ queryKey: ['games'] })
     void queryClient.invalidateQueries({ queryKey: ['stats'] })
@@ -261,17 +264,49 @@ export function UndetectedGamesTab() {
   const applyMutation = useMutation({
     mutationFn: ({ candidateId, result }: { candidateId: string; result: ManualReviewSearchResult }) =>
       applyManualReviewCandidate(candidateId, result),
+    onMutate: () => setRedetectNotice(null),
     onSuccess: handleMutationSuccess,
   })
 
   const notAGameMutation = useMutation({
     mutationFn: (candidateId: string) => markManualReviewCandidateNotAGame(candidateId),
+    onMutate: () => setRedetectNotice(null),
     onSuccess: handleMutationSuccess,
   })
 
   const unarchiveMutation = useMutation({
     mutationFn: (candidateId: string) => unarchiveManualReviewCandidate(candidateId),
+    onMutate: () => setRedetectNotice(null),
     onSuccess: handleMutationSuccess,
+  })
+
+  const redetectMutation = useMutation({
+    mutationFn: (candidateId: string) => redetectManualReviewCandidate(candidateId),
+    onMutate: () => setRedetectNotice(null),
+    onSuccess: (response) => {
+      const matchText =
+        response.result.status === 'matched'
+          ? `Re-detect matched this candidate with ${response.result.match_count} resolver match${response.result.match_count === 1 ? '' : 'es'}.`
+          : response.result.status === 'pending'
+            ? `Re-detect found ${response.result.match_count} resolver match${response.result.match_count === 1 ? '' : 'es'}, but the candidate still needs review.`
+            : `Re-detect finished with no automatic match from ${response.result.provider_count} provider${response.result.provider_count === 1 ? '' : 's'}.`
+      setRedetectNotice(matchText)
+      queryClient.setQueryData(['manual-review-candidate', response.candidate.id], response.candidate)
+      invalidateReviewQueries(response.candidate.id)
+      if (scope === 'active' && response.result.status === 'matched' && focusNextCandidateInScope(response.candidate.id)) return
+      selectCandidate(response.candidate.id)
+    },
+  })
+
+  const batchRedetectMutation = useMutation({
+    mutationFn: redetectActiveManualReviewCandidates,
+    onMutate: () => setRedetectNotice(null),
+    onSuccess: (result) => {
+      setRedetectNotice(
+        `Re-detect checked ${result.attempted} candidate${result.attempted === 1 ? '' : 's'}: ${result.matched} matched, ${result.unidentified} unchanged.`,
+      )
+      invalidateReviewQueries(activeCandidateId || undefined)
+    },
   })
 
   useEffect(() => {
@@ -295,7 +330,13 @@ export function UndetectedGamesTab() {
   }, [candidateQuery.data, seededCandidateId])
 
   const activeManualMatch = safeList(candidateQuery.data?.resolver_matches).find((match) => match.manual_selection)
-  const mutationError = applyMutation.error ?? notAGameMutation.error ?? unarchiveMutation.error
+  const canRedetectSelected = scope === 'active' && candidateQuery.data?.review_state === 'pending'
+  const mutationError =
+    applyMutation.error ??
+    notAGameMutation.error ??
+    unarchiveMutation.error ??
+    redetectMutation.error ??
+    batchRedetectMutation.error
   const applyBusyKey = applyMutation.isPending && applyMutation.variables
     ? `${applyMutation.variables.result.provider_plugin_id}:${applyMutation.variables.result.external_id}`
     : null
@@ -339,6 +380,18 @@ export function UndetectedGamesTab() {
             <Button type="button" size="sm" variant={scope === 'archive' ? 'default' : 'outline'} onClick={() => setScope('archive')}>
               Archive
             </Button>
+            {scope === 'active' ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => batchRedetectMutation.mutate()}
+                disabled={batchRedetectMutation.isPending || (candidatesQuery.data ?? []).length === 0}
+              >
+                {batchRedetectMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                Re-Detect Active Queue
+              </Button>
+            ) : null}
             {legacyGameId && legacyTitle && scope === 'active' ? (
               <>
                 <Badge variant="muted">{legacyGameId}</Badge>
@@ -485,6 +538,12 @@ export function UndetectedGamesTab() {
                 <ErrorState message={mutationErrorMessage(mutationError, 'Manual review update failed.')} />
               ) : null}
 
+              {redetectNotice ? (
+                <div className="rounded-mga border border-mga-accent/30 bg-mga-accent/10 p-4 text-sm text-mga-text">
+                  {redetectNotice}
+                </div>
+              ) : null}
+
               <section className="rounded-mga border border-mga-border bg-mga-surface p-4">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="space-y-3">
@@ -561,6 +620,17 @@ export function UndetectedGamesTab() {
                   {candidateQuery.data.canonical_game_id ? (
                     <Button type="button" variant="outline" onClick={() => navigate(`/game/${encodeURIComponent(candidateQuery.data.canonical_game_id ?? '')}`)}>
                       Open Game
+                    </Button>
+                  ) : null}
+                  {canRedetectSelected ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => redetectMutation.mutate(candidateQuery.data.id)}
+                      disabled={redetectMutation.isPending}
+                    >
+                      {redetectMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                      Try Re-Detect
                     </Button>
                   ) : null}
                   {candidateQuery.data.review_state === 'not_a_game' ? (

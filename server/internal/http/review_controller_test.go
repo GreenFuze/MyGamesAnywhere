@@ -234,6 +234,67 @@ func TestReviewControllerSearchCandidateDefaultsQueryAndKeepsProviderFailures(t 
 	}
 }
 
+func TestReviewControllerSearchCandidatePreservesMetadataSourceOrder(t *testing.T) {
+	controller := NewReviewController(
+		&fakeIntegrationRepo{items: []*core.Integration{
+			{ID: "metadata-z", Label: "Zeta", PluginID: "metadata-z", IntegrationType: "metadata", ConfigJSON: `{}`},
+			{ID: "metadata-a", Label: "Alpha", PluginID: "metadata-a", IntegrationType: "metadata", ConfigJSON: `{}`},
+		}},
+		&fakePluginHost{
+			provides: map[string][]string{
+				reviewMetadataLookupMethod: {"metadata-z", "metadata-a"},
+			},
+			metadataResults: map[string]reviewMetadataLookupResponse{
+				"metadata-z": {Results: []reviewMetadataMatch{{Title: "Mystery Game", ExternalID: "z-1"}}},
+				"metadata-a": {Results: []reviewMetadataMatch{{Title: "Mystery Game", ExternalID: "a-1"}}},
+			},
+		},
+		&fakeGameStore{
+			manualReviewByID: map[string]*core.ManualReviewCandidate{
+				"scan:review-order": {
+					ID:            "scan:review-order",
+					CurrentTitle:  "Mystery Game",
+					RawTitle:      "Mystery Game",
+					Platform:      core.PlatformUnknown,
+					Kind:          core.GameKindBaseGame,
+					GroupKind:     core.GroupKindSelfContained,
+					IntegrationID: "source-1",
+					PluginID:      "game-source-steam",
+					ExternalID:    "source-1-game",
+					Status:        "found",
+					ReviewState:   core.ManualReviewStatePending,
+					CreatedAt:     time.Unix(1710000000, 0).UTC(),
+				},
+			},
+		},
+		&fakeManualReviewService{},
+		noopLogger{},
+	)
+
+	router := chi.NewRouter()
+	router.Post("/api/review-candidates/{id}/search", controller.SearchCandidate)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/review-candidates/scan%3Areview-order/search", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp ManualReviewSearchResponseDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(resp.Providers) != 2 {
+		t.Fatalf("len(providers) = %d, want 2", len(resp.Providers))
+	}
+	if resp.Providers[0].IntegrationID != "metadata-z" || resp.Providers[1].IntegrationID != "metadata-a" {
+		t.Fatalf("provider order = %+v, want repo/source order metadata-z then metadata-a", resp.Providers)
+	}
+}
+
 func TestReviewControllerApplyCandidateReturnsUpdatedDetail(t *testing.T) {
 	store := &fakeGameStore{
 		manualReviewByID: map[string]*core.ManualReviewCandidate{
@@ -322,6 +383,167 @@ func TestReviewControllerApplyCandidateMapsValidationErrors(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestReviewControllerRedetectCandidateReturnsResultAndUpdatedDetail(t *testing.T) {
+	store := &fakeGameStore{
+		manualReviewByID: map[string]*core.ManualReviewCandidate{
+			"scan:review-1": {
+				ID:            "scan:review-1",
+				CurrentTitle:  "Mystery Game",
+				RawTitle:      "Mystery Game",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				IntegrationID: "source-1",
+				PluginID:      "game-source-steam",
+				ExternalID:    "source-1-game",
+				Status:        "found",
+				ReviewState:   core.ManualReviewStateMatched,
+				CreatedAt:     time.Unix(1710000000, 0).UTC(),
+				ResolverMatches: []core.ResolverMatch{{
+					PluginID:   "metadata-igdb",
+					ExternalID: "igdb-1",
+					Title:      "Mystery Game",
+				}},
+			},
+		},
+	}
+	manualReviewSvc := &fakeManualReviewService{
+		redetectResult: &core.ManualReviewRedetectResult{
+			CandidateID:   "scan:review-1",
+			Status:        core.ManualReviewRedetectStatusMatched,
+			MatchCount:    1,
+			ProviderCount: 1,
+		},
+	}
+	controller := NewReviewController(
+		&fakeIntegrationRepo{items: []*core.Integration{{ID: "source-1", Label: "Steam Library", IntegrationType: "source"}}},
+		&fakePluginHost{},
+		store,
+		manualReviewSvc,
+		noopLogger{},
+	)
+
+	router := chi.NewRouter()
+	router.Post("/api/review-candidates/{id}/redetect", controller.RedetectCandidate)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/review-candidates/scan%3Areview-1/redetect", http.NoBody)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if manualReviewSvc.redetectedCandidateID != "scan:review-1" {
+		t.Fatalf("redetected candidate id = %q, want %q", manualReviewSvc.redetectedCandidateID, "scan:review-1")
+	}
+
+	var resp ManualReviewRedetectResponseDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Result.Status != core.ManualReviewRedetectStatusMatched {
+		t.Fatalf("result.status = %q, want %q", resp.Result.Status, core.ManualReviewRedetectStatusMatched)
+	}
+	if resp.Candidate.ReviewState != string(core.ManualReviewStateMatched) {
+		t.Fatalf("candidate.review_state = %q, want %q", resp.Candidate.ReviewState, core.ManualReviewStateMatched)
+	}
+}
+
+func TestReviewControllerRedetectCandidateMapsValidationErrors(t *testing.T) {
+	controller := NewReviewController(
+		&fakeIntegrationRepo{},
+		&fakePluginHost{},
+		&fakeGameStore{},
+		&fakeManualReviewService{redetectErr: core.ErrManualReviewCandidateNotEligible},
+		noopLogger{},
+	)
+
+	router := chi.NewRouter()
+	router.Post("/api/review-candidates/{id}/redetect", controller.RedetectCandidate)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/review-candidates/scan%3Areview-1/redetect", http.NoBody)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestReviewControllerRedetectActiveReturnsBatchResult(t *testing.T) {
+	controller := NewReviewController(
+		&fakeIntegrationRepo{},
+		&fakePluginHost{},
+		&fakeGameStore{},
+		&fakeManualReviewService{redetectBatchResult: &core.ManualReviewRedetectBatchResult{
+			Attempted:    2,
+			Matched:      1,
+			Unidentified: 1,
+			Results: []core.ManualReviewRedetectResult{{
+				CandidateID: "scan:review-1",
+				Status:      core.ManualReviewRedetectStatusMatched,
+			}},
+		}},
+		noopLogger{},
+	)
+
+	router := chi.NewRouter()
+	router.Post("/api/review-candidates/redetect", controller.RedetectActive)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/review-candidates/redetect", http.NoBody)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp core.ManualReviewRedetectBatchResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Attempted != 2 || resp.Matched != 1 || resp.Unidentified != 1 {
+		t.Fatalf("batch = %+v, want attempted 2 matched 1 unidentified 1", resp)
+	}
+}
+
+func TestReviewControllerRedetectActiveReturnsFailFastBatchError(t *testing.T) {
+	controller := NewReviewController(
+		&fakeIntegrationRepo{},
+		&fakePluginHost{},
+		&fakeGameStore{},
+		&fakeManualReviewService{
+			redetectBatchResult: &core.ManualReviewRedetectBatchResult{
+				Attempted:         2,
+				Matched:           1,
+				FailedCandidateID: "scan:review-2",
+				Results:           []core.ManualReviewRedetectResult{},
+			},
+			redetectBatchErr: core.ErrMetadataProvidersUnavailable,
+		},
+		noopLogger{},
+	)
+
+	router := chi.NewRouter()
+	router.Post("/api/review-candidates/redetect", controller.RedetectActive)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/review-candidates/redetect", http.NoBody)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+
+	var resp core.ManualReviewRedetectBatchResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.FailedCandidateID != "scan:review-2" || strings.TrimSpace(resp.Error) == "" {
+		t.Fatalf("failure response = %+v, want failed candidate and error", resp)
 	}
 }
 
@@ -420,15 +642,29 @@ func TestReviewControllerUnarchiveCandidateReturnsUpdatedDetail(t *testing.T) {
 }
 
 type fakeManualReviewService struct {
-	appliedCandidateID string
-	appliedSelection   core.ManualReviewSelection
-	applyErr           error
+	appliedCandidateID    string
+	appliedSelection      core.ManualReviewSelection
+	applyErr              error
+	redetectedCandidateID string
+	redetectResult        *core.ManualReviewRedetectResult
+	redetectErr           error
+	redetectBatchResult   *core.ManualReviewRedetectBatchResult
+	redetectBatchErr      error
 }
 
 func (f *fakeManualReviewService) Apply(_ context.Context, candidateID string, selection core.ManualReviewSelection) error {
 	f.appliedCandidateID = candidateID
 	f.appliedSelection = selection
 	return f.applyErr
+}
+
+func (f *fakeManualReviewService) Redetect(_ context.Context, candidateID string) (*core.ManualReviewRedetectResult, error) {
+	f.redetectedCandidateID = candidateID
+	return f.redetectResult, f.redetectErr
+}
+
+func (f *fakeManualReviewService) RedetectActive(context.Context) (*core.ManualReviewRedetectBatchResult, error) {
+	return f.redetectBatchResult, f.redetectBatchErr
 }
 
 type fakeIntegrationRepo struct {

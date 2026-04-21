@@ -8,12 +8,15 @@ import (
 )
 
 var (
-	ErrManualReviewCandidateNotFound = errors.New("manual review candidate not found")
-	ErrManualReviewSelectionInvalid  = errors.New("manual review selection invalid")
-	ErrMetadataProvidersUnavailable  = errors.New("metadata providers unavailable")
-	ErrMetadataRefreshNoEligible     = errors.New("metadata refresh has no eligible source records")
-	ErrSourceGameDeleteNotFound      = errors.New("source record not found")
-	ErrSourceGameDeleteNotEligible   = errors.New("source record is not eligible for hard delete")
+	ErrManualReviewCandidateNotFound    = errors.New("manual review candidate not found")
+	ErrManualReviewCandidateNotEligible = errors.New("manual review candidate is not eligible for re-detect")
+	ErrManualReviewSelectionInvalid     = errors.New("manual review selection invalid")
+	ErrMetadataProvidersUnavailable     = errors.New("metadata providers unavailable")
+	ErrMetadataRefreshNoEligible        = errors.New("metadata refresh has no eligible source records")
+	ErrSourceGameDeleteNotFound         = errors.New("source record not found")
+	ErrSourceGameDeleteNotEligible      = errors.New("source record is not eligible for hard delete")
+	ErrCanonicalGameNotFound            = errors.New("canonical game not found")
+	ErrCoverOverrideMediaNotFound       = errors.New("cover override media asset is not linked to this game")
 )
 
 // Logger defines the interface for structured logging.
@@ -62,9 +65,9 @@ type IntegrationRepository interface {
 type GameStore interface {
 	// ── Writes (all transactional) ──
 
-	// PersistScanResults writes a complete scan batch: source games, files,
-	// resolver matches, media links. Detects moves, soft-deletes missing
-	// games, assigns canonical groupings.
+	// PersistScanResults writes a scan batch: source games, files,
+	// resolver matches, media links. Complete batches detect moves and
+	// soft-delete missing games; targeted refresh batches skip that reconcile.
 	PersistScanResults(ctx context.Context, batch *ScanBatch) error
 
 	// CacheAchievements stores a fetched achievement set for a source game.
@@ -112,6 +115,9 @@ type GameStore interface {
 
 	// GetLibraryStats returns aggregate counts for the library (GET /api/stats).
 	GetLibraryStats(ctx context.Context) (*LibraryStats, error)
+
+	// GetCachedAchievementsDashboard returns cached achievement aggregates only.
+	GetCachedAchievementsDashboard(ctx context.Context) (*CachedAchievementsDashboard, error)
 
 	// GetGamesByIntegrationID returns canonical games discovered by a source integration.
 	GetGamesByIntegrationID(ctx context.Context, integrationID string, limit int) ([]GameListItem, error)
@@ -163,6 +169,12 @@ type GameStore interface {
 
 	// GetSourceGameCountsByIntegration returns a map of integration_id → count of found source games.
 	GetSourceGameCountsByIntegration(ctx context.Context) (map[string]int, error)
+
+	// SetCanonicalCoverOverride pins one existing media asset as the canonical cover.
+	SetCanonicalCoverOverride(ctx context.Context, canonicalID string, mediaAssetID int) error
+
+	// ClearCanonicalCoverOverride removes a pinned canonical cover, restoring normal selection.
+	ClearCanonicalCoverOverride(ctx context.Context, canonicalID string) error
 }
 
 // SyncService handles push/pull settings synchronisation to a remote store.
@@ -243,6 +255,8 @@ type Server interface {
 // ManualReviewService handles inline manual metadata selection workflows.
 type ManualReviewService interface {
 	Apply(ctx context.Context, candidateID string, selection ManualReviewSelection) error
+	Redetect(ctx context.Context, candidateID string) (*ManualReviewRedetectResult, error)
+	RedetectActive(ctx context.Context) (*ManualReviewRedetectBatchResult, error)
 }
 
 // GameMetadataRefreshService handles explicit metadata/media refresh for one canonical game.

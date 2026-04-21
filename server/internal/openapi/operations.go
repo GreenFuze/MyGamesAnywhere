@@ -57,6 +57,21 @@ func Operations() []OperationDoc {
 			ResponseDocs: map[string]string{"200": "Game detail object", "404": "Game not found", "500": "Internal server error"},
 		},
 		{
+			Method:         "PUT",
+			Path:           "/api/games/{id}/cover-override",
+			Summary:        "Set game cover override",
+			Description:    "Pins one existing media asset that is already linked to the canonical game as the preferred cover. The server rejects media assets that are not linked to the requested game.",
+			RequestBodyDoc: "JSON: { media_asset_id: number }",
+			ResponseDocs:   map[string]string{"200": "Updated GameDetailResponse", "400": "Invalid request body or media_asset_id", "404": "Game not found", "422": "Media asset is not linked to this game", "500": "Internal server error"},
+		},
+		{
+			Method:       "DELETE",
+			Path:         "/api/games/{id}/cover-override",
+			Summary:      "Clear game cover override",
+			Description:  "Removes a pinned cover override for the canonical game and returns the updated game detail using normal cover selection again.",
+			ResponseDocs: map[string]string{"200": "Updated GameDetailResponse", "404": "Game not found", "500": "Internal server error"},
+		},
+		{
 			Method:       "POST",
 			Path:         "/api/games/{id}/refresh-metadata",
 			Summary:      "Refresh metadata for one canonical game",
@@ -176,6 +191,13 @@ func Operations() []OperationDoc {
 			Summary:      "Get achievements for a game",
 			Description:  "Fetches achievements on-demand from all achievement-capable plugins that have an external ID match for this game. Returns an array of achievement sets, one per source (steam, xbox, retroachievements).",
 			ResponseDocs: map[string]string{"200": "Array of achievement sets", "400": "id required", "404": "Game not found", "500": "Internal server error"},
+		},
+		{
+			Method:       "GET",
+			Path:         "/api/achievements",
+			Summary:      "Get cached achievements dashboard",
+			Description:  "Returns cached achievement totals by system and by canonical game. This endpoint only reads stored achievement cache rows and does not fetch achievements from external integrations.",
+			ResponseDocs: map[string]string{"200": "AchievementsDashboardResponse", "500": "Internal server error"},
 		},
 		{
 			Method:         "POST",
@@ -356,12 +378,26 @@ func Operations() []OperationDoc {
 			ResponseDocs: map[string]string{"200": "ManualReviewCandidateDetail JSON", "400": "id is required", "404": "Candidate not found", "500": "Internal server error"},
 		},
 		{
+			Method:       "POST",
+			Path:         "/api/review-candidates/redetect",
+			Summary:      "Re-detect active manual-review candidates",
+			Description:  "Runs the strict automatic metadata re-detect workflow for all active pending manual-review candidates. Provider or workflow errors fail fast and return partial batch counts plus the candidate id that aborted the run.",
+			ResponseDocs: map[string]string{"200": "ManualReviewRedetectBatchResult JSON", "500": "Fail-fast batch error with partial ManualReviewRedetectBatchResult JSON"},
+		},
+		{
 			Method:         "POST",
 			Path:           "/api/review-candidates/{id}/search",
 			Summary:        "Search metadata providers for a review candidate",
 			Description:    "Runs a manual search across configured metadata providers for one candidate. If query is omitted, the server derives a best-effort title query from the candidate data.",
 			RequestBodyDoc: "Optional JSON: { query?: string }",
 			ResponseDocs:   map[string]string{"200": "ManualReviewSearchResponse JSON", "400": "Invalid body or missing id", "404": "Candidate not found", "500": "Internal server error"},
+		},
+		{
+			Method:       "POST",
+			Path:         "/api/review-candidates/{id}/redetect",
+			Summary:      "Re-detect one manual-review candidate",
+			Description:  "Runs strict automatic metadata identify, consensus, and fill for one pending manual-review candidate. Identified results persist through the normal scan refresh path; unidentified results leave the candidate pending.",
+			ResponseDocs: map[string]string{"200": "ManualReviewRedetectResponse JSON", "400": "Missing id or candidate not eligible", "404": "Candidate not found", "500": "Metadata providers unavailable or internal server error"},
 		},
 		{
 			Method:         "POST",

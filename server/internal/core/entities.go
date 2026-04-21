@@ -70,6 +70,7 @@ const (
 	PlatformGB               Platform = "gb"
 	PlatformGBC              Platform = "gbc"
 	PlatformGBA              Platform = "gba"
+	PlatformN64              Platform = "n64"
 	PlatformGenesis          Platform = "genesis"
 	PlatformSegaMasterSystem Platform = "sega_master_system"
 	PlatformGameGear         Platform = "game_gear"
@@ -241,6 +242,26 @@ type AchievementSummary struct {
 	EarnedPoints  int `json:"earned_points,omitempty"`
 }
 
+type CachedAchievementSystemSummary struct {
+	Source        string `json:"source"`
+	GameCount     int    `json:"game_count"`
+	TotalCount    int    `json:"total_count"`
+	UnlockedCount int    `json:"unlocked_count"`
+	TotalPoints   int    `json:"total_points,omitempty"`
+	EarnedPoints  int    `json:"earned_points,omitempty"`
+}
+
+type CachedAchievementGameSummary struct {
+	Game    *CanonicalGame                   `json:"game"`
+	Systems []CachedAchievementSystemSummary `json:"systems"`
+}
+
+type CachedAchievementsDashboard struct {
+	Totals  AchievementSummary               `json:"totals"`
+	Systems []CachedAchievementSystemSummary `json:"systems"`
+	Games   []CachedAchievementGameSummary   `json:"games"`
+}
+
 // SourceGame is a game record from a single source integration.
 // "Dark Souls from Steam" and "Dark Souls from GOG" are separate SourceGames.
 type SourceGame struct {
@@ -309,6 +330,7 @@ type CanonicalGame struct {
 	MaxPlayers         int
 	CompletionTime     *CompletionTime
 	Media              []MediaRef
+	CoverOverride      *MediaRef
 	ExternalIDs        []ExternalID
 	AchievementSummary *AchievementSummary
 
@@ -322,11 +344,12 @@ type CanonicalGame struct {
 // ScanBatch holds everything produced by one scan cycle, validated in memory
 // before being written to the DB in a single transaction.
 type ScanBatch struct {
-	IntegrationID   string
-	SourceGames     []*SourceGame
-	ResolverMatches map[string][]ResolverMatch // keyed by source_game.ID
-	MediaItems      map[string][]MediaRef      // keyed by source_game.ID
-	FilesystemScope *FilesystemScanScope
+	IntegrationID        string
+	SourceGames          []*SourceGame
+	ResolverMatches      map[string][]ResolverMatch // keyed by source_game.ID
+	MediaItems           map[string][]MediaRef      // keyed by source_game.ID
+	FilesystemScope      *FilesystemScanScope
+	SkipMissingReconcile bool // true for targeted refreshes that are not complete integration scans
 }
 
 type FilesystemIncludePath struct {
@@ -634,6 +657,30 @@ type ManualReviewSelection struct {
 type ManualReviewDecision struct {
 	State    ManualReviewState      `json:"state"`
 	Selected *ManualReviewSelection `json:"selected,omitempty"`
+}
+
+type ManualReviewRedetectStatus string
+
+const (
+	ManualReviewRedetectStatusMatched      ManualReviewRedetectStatus = "matched"
+	ManualReviewRedetectStatusPending      ManualReviewRedetectStatus = "pending"
+	ManualReviewRedetectStatusUnidentified ManualReviewRedetectStatus = "unidentified"
+)
+
+type ManualReviewRedetectResult struct {
+	CandidateID   string                     `json:"candidate_id"`
+	Status        ManualReviewRedetectStatus `json:"status"`
+	MatchCount    int                        `json:"match_count"`
+	ProviderCount int                        `json:"provider_count"`
+}
+
+type ManualReviewRedetectBatchResult struct {
+	Attempted         int                          `json:"attempted"`
+	Matched           int                          `json:"matched"`
+	Unidentified      int                          `json:"unidentified"`
+	FailedCandidateID string                       `json:"failed_candidate_id,omitempty"`
+	Error             string                       `json:"error,omitempty"`
+	Results           []ManualReviewRedetectResult `json:"results"`
 }
 
 // ManualReviewCandidate is a read-only server-owned review candidate used by

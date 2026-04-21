@@ -11,6 +11,7 @@ export const PLATFORM_META: Record<string, PlatformMeta> = {
   gb: { label: 'Game Boy', emoji: '\u{1F3AE}' },
   gbc: { label: 'Game Boy Color', emoji: '\u{1F3AE}' },
   gba: { label: 'GBA', emoji: '\u{1F3AE}' },
+  n64: { label: 'Nintendo 64', emoji: '\u{1F3AE}' },
   genesis: { label: 'Genesis', emoji: '\u{1F3AE}' },
   sega_master_system: { label: 'Master System', emoji: '\u{1F3AE}' },
   game_gear: { label: 'Game Gear', emoji: '\u{1F3AE}' },

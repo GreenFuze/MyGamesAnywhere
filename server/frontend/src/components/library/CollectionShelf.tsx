@@ -1,12 +1,11 @@
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { CollectionSectionConfig, GameDetailResponse } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { GameCard } from '@/components/library/GameCard'
 import { GameGrid } from '@/components/library/GameGrid'
 import { filterGamesBySection } from '@/lib/collectionSections'
-
-const PREVIEW_SLOT_LIMIT = 5
 
 interface CollectionShelfProps {
   sections: CollectionSectionConfig[]
@@ -15,6 +14,72 @@ interface CollectionShelfProps {
   onRemoveSection: (id: string) => void
   games: GameDetailResponse[]
   isLoading: boolean
+}
+
+function PagedShelfRow({ games, label }: { games: GameDetailResponse[]; label: string }) {
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
+
+  const updateScrollState = () => {
+    const el = viewportRef.current
+    if (!el) return
+    setCanScrollLeft(el.scrollLeft > 4)
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4)
+  }
+
+  useEffect(() => {
+    updateScrollState()
+    const el = viewportRef.current
+    if (!el) return
+    el.addEventListener('scroll', updateScrollState, { passive: true })
+    window.addEventListener('resize', updateScrollState)
+    return () => {
+      el.removeEventListener('scroll', updateScrollState)
+      window.removeEventListener('resize', updateScrollState)
+    }
+  }, [games.length])
+
+  const page = (dir: 1 | -1) => {
+    const el = viewportRef.current
+    if (!el) return
+    el.scrollBy({ left: dir * Math.max(240, el.clientWidth - 96), behavior: 'smooth' })
+  }
+
+  return (
+    <div className="group/shelf relative">
+      <div
+        ref={viewportRef}
+        className="mga-hidden-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth pr-12"
+      >
+        {games.map((game) => (
+          <div key={game.id} className="w-[clamp(10rem,18vw,13.5rem)] shrink-0 snap-start">
+            <GameCard game={game} />
+          </div>
+        ))}
+      </div>
+      {canScrollLeft && (
+        <button
+          type="button"
+          onClick={() => page(-1)}
+          className="absolute left-0 top-1/2 hidden h-12 w-10 -translate-y-1/2 items-center justify-center rounded-mga border border-mga-border bg-mga-bg/90 text-mga-text shadow-lg backdrop-blur transition-colors hover:border-mga-accent sm:flex"
+          aria-label={`Previous page in ${label}`}
+        >
+          <ChevronLeft size={22} />
+        </button>
+      )}
+      {canScrollRight && (
+        <button
+          type="button"
+          onClick={() => page(1)}
+          className="absolute right-0 top-1/2 flex h-12 w-10 -translate-y-1/2 items-center justify-center rounded-mga border border-mga-border bg-mga-bg/90 text-mga-text shadow-lg backdrop-blur transition-colors hover:border-mga-accent"
+          aria-label={`Next page in ${label}`}
+        >
+          <ChevronRight size={22} />
+        </button>
+      )}
+    </div>
+  )
 }
 
 export function CollectionShelf({
@@ -64,9 +129,6 @@ export function CollectionShelf({
     <div className="space-y-8">
       {visibleSections.map(({ section, games: sectionGames }, sectionIndex) => {
         const expanded = expandedSectionId === section.id
-        const hasMore = sectionGames.length > PREVIEW_SLOT_LIMIT
-        const previewGames = sectionGames.slice(0, hasMore ? PREVIEW_SLOT_LIMIT - 1 : PREVIEW_SLOT_LIMIT)
-        const hiddenCount = sectionGames.length - previewGames.length
 
         return (
           <section
@@ -110,24 +172,7 @@ export function CollectionShelf({
             {expanded ? (
               <GameGrid games={sectionGames} isLoading={false} />
             ) : (
-              <div className="relative flex items-stretch gap-4 overflow-hidden">
-                {previewGames.map((game) => (
-                  <div key={game.id} className="w-[190px] min-w-0 shrink-0">
-                    <GameCard game={game} />
-                  </div>
-                ))}
-                {hasMore && (
-                  <button
-                    type="button"
-                    onClick={() => onExpandedSectionChange(section.id)}
-                    className="group flex shrink-0 items-center gap-1 self-center rounded-full border border-mga-border bg-mga-bg/90 px-3 py-2 text-xs font-medium text-mga-muted transition-colors hover:border-mga-accent/60 hover:text-mga-text"
-                    aria-label={`Show more games in ${section.label}`}
-                  >
-                    <span>+{hiddenCount} more</span>
-                    <ChevronRight size={14} className="transition-transform group-hover:translate-x-0.5" />
-                  </button>
-                )}
-              </div>
+              <PagedShelfRow games={sectionGames} label={section.label} />
             )}
           </section>
         )

@@ -19,6 +19,7 @@ import {
   type CollectionScope,
 } from '@/lib/libraryFilter'
 import { consumeStoredRouteScroll, shouldRestoreRouteScroll } from '@/lib/gameNavigation'
+import type { GameDetailResponse } from '@/api/client'
 
 // ---------------------------------------------------------------------------
 // Section metadata
@@ -43,6 +44,40 @@ const SCOPES: Record<CollectionScope, { title: string; subtitle: string; emptyMe
 
 interface CollectionPageProps {
   scope: CollectionScope
+}
+
+function releaseYear(game: GameDetailResponse): string {
+  const value = game.release_date?.substring(0, 4)
+  return value && /^\d{4}$/.test(value) ? value : 'Unknown release date'
+}
+
+function TimelineView({ games }: { games: GameDetailResponse[] }) {
+  const groups = useMemo(() => {
+    const map = new Map<string, GameDetailResponse[]>()
+    for (const game of games) {
+      const year = releaseYear(game)
+      map.set(year, [...(map.get(year) ?? []), game])
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => {
+      if (a === 'Unknown release date') return 1
+      if (b === 'Unknown release date') return -1
+      return Number(b) - Number(a)
+    })
+  }, [games])
+
+  return (
+    <div className="space-y-8">
+      {groups.map(([year, yearGames]) => (
+        <section key={year} className="space-y-3">
+          <div className="flex items-baseline gap-3 border-b border-mga-border pb-2">
+            <h2 className="text-2xl font-semibold tracking-tight">{year}</h2>
+            <span className="text-sm text-mga-muted">{yearGames.length} games</span>
+          </div>
+          <GameGrid games={yearGames} isLoading={false} />
+        </section>
+      ))}
+    </div>
+  )
 }
 
 export function CollectionPage({ scope }: CollectionPageProps) {
@@ -181,6 +216,8 @@ export function CollectionPage({ scope }: CollectionPageProps) {
 
       {prefs.viewMode === 'grid' ? (
         <GameGrid games={displayedGames} isLoading={isPending} />
+      ) : prefs.viewMode === 'timeline' ? (
+        <TimelineView games={displayedGames} />
       ) : (
         <div className="space-y-6">
           <CollectionShelf

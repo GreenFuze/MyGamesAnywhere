@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/pkg/titlematch"
 )
 
@@ -253,30 +254,28 @@ type lookupResult struct {
 	MaxPlayers  int            `json:"max_players,omitempty"`
 }
 
-// Platform mapping: our platform enum → LaunchBox platform name(s).
-// First entry is the primary; additional entries are checked as fallbacks.
-var platformMap = map[string][]string{
-	"windows_pc":         {"Windows"},
-	"ms_dos":             {"MS-DOS", "Windows"},
-	"arcade":             {"Arcade"},
-	"nes":                {"Nintendo Entertainment System"},
-	"snes":               {"Super Nintendo Entertainment System"},
-	"gb":                 {"Nintendo Game Boy"},
-	"gbc":                {"Nintendo Game Boy Color"},
-	"gba":                {"Nintendo Game Boy Advance"},
-	"genesis":            {"Sega Genesis", "Sega Mega Drive"},
-	"sega_master_system": {"Sega Master System"},
-	"game_gear":          {"Sega Game Gear"},
-	"sega_cd":            {"Sega CD", "Sega Mega-CD"},
-	"sega_32x":           {"Sega 32X"},
-	"ps1":                {"Sony Playstation"},
-	"ps2":                {"Sony Playstation 2"},
-	"ps3":                {"Sony Playstation 3"},
-	"psp":                {"Sony PSP"},
-	"xbox_360":           {"Microsoft Xbox 360"},
-	"xbox_one":           {"Microsoft Xbox One"},
-	"xbox_series":        {"Microsoft Xbox Series X|S", "Microsoft Xbox Series", "Xbox Series X|S"},
-	"scummvm":            {"ScummVM", "MS-DOS", "Windows"},
+// LaunchBox provider platform aliases keyed by the canonical platform model.
+var launchBoxPlatformAliases = map[core.Platform][]string{
+	core.PlatformWindowsPC:        {"Windows"},
+	core.PlatformMSDOS:            {"MS-DOS", "Windows"},
+	core.PlatformArcade:           {"Arcade"},
+	core.PlatformNES:              {"Nintendo Entertainment System"},
+	core.PlatformSNES:             {"Super Nintendo Entertainment System"},
+	core.PlatformGB:               {"Nintendo Game Boy"},
+	core.PlatformGBC:              {"Nintendo Game Boy Color"},
+	core.PlatformGBA:              {"Nintendo Game Boy Advance"},
+	core.PlatformN64:              {"Nintendo 64"},
+	core.PlatformGenesis:          {"Sega Genesis", "Sega Mega Drive"},
+	core.PlatformSegaMasterSystem: {"Sega Master System"},
+	core.PlatformGameGear:         {"Sega Game Gear"},
+	core.PlatformSegaCD:           {"Sega CD", "Sega Mega-CD"},
+	core.PlatformSega32X:          {"Sega 32X"},
+	core.PlatformPS1:              {"Sony Playstation"},
+	core.PlatformPS2:              {"Sony Playstation 2"},
+	core.PlatformPS3:              {"Sony Playstation 3"},
+	core.PlatformPSP:              {"Sony PSP"},
+	core.PlatformXbox360:          {"Microsoft Xbox 360"},
+	core.PlatformScummVM:          {"ScummVM", "MS-DOS", "Windows"},
 }
 
 const (
@@ -802,7 +801,7 @@ func handleLookup(params lookupParams) (any, *Error) {
 }
 
 func matchGame(idx *launchBoxIndex, q gameQuery) *lookupResult {
-	lbPlatforms := platformMap[q.Platform]
+	lbPlatforms := lookupPlatformsForQuery(q.Platform)
 	if len(lbPlatforms) == 0 {
 		lbPlatforms = fallbackPlatforms(q)
 	}
@@ -870,6 +869,21 @@ func matchGame(idx *launchBoxIndex, q gameQuery) *lookupResult {
 	return nil
 }
 
+func lookupPlatformsForQuery(platform string) []string {
+	canonical := core.NormalizePlatformAlias(platform)
+	if canonical != core.PlatformUnknown {
+		if aliases := launchBoxPlatformAliases[canonical]; len(aliases) > 0 {
+			return aliases
+		}
+		return nil
+	}
+	platform = strings.TrimSpace(platform)
+	if platform == "" || strings.EqualFold(platform, string(core.PlatformUnknown)) {
+		return nil
+	}
+	return []string{platform}
+}
+
 func fallbackPlatforms(q gameQuery) []string {
 	if q.Platform != "" && q.Platform != "unknown" {
 		return nil
@@ -890,6 +904,9 @@ func buildResult(index int, ge *gameEntry, idx *launchBoxIndex) *lookupResult {
 		Description: ge.Overview,
 		Developer:   ge.Developer,
 		Publisher:   ge.Publisher,
+	}
+	if platform := core.NormalizePlatformAlias(ge.Platform); platform != core.PlatformUnknown {
+		r.Platform = string(platform)
 	}
 
 	if ge.Year != "" {

@@ -84,6 +84,30 @@ type DeleteSourceGameResponse struct {
 	Game                *GameDetailResponse `json:"game,omitempty"`
 }
 
+type SetCoverOverrideRequest struct {
+	MediaAssetID int `json:"media_asset_id"`
+}
+
+type AchievementsDashboardResponse struct {
+	Totals  AchievementSummaryDTO       `json:"totals"`
+	Systems []AchievementSystemSummary  `json:"systems"`
+	Games   []AchievementGameSummaryDTO `json:"games"`
+}
+
+type AchievementSystemSummary struct {
+	Source        string `json:"source"`
+	GameCount     int    `json:"game_count"`
+	TotalCount    int    `json:"total_count"`
+	UnlockedCount int    `json:"unlocked_count"`
+	TotalPoints   int    `json:"total_points,omitempty"`
+	EarnedPoints  int    `json:"earned_points,omitempty"`
+}
+
+type AchievementGameSummaryDTO struct {
+	Game    GameDetailResponse         `json:"game"`
+	Systems []AchievementSystemSummary `json:"systems"`
+}
+
 func NewGameController(gameStore core.GameStore, refreshSvc core.GameMetadataRefreshService, deleteSvc core.GameDeletionService, integrationRepo core.IntegrationRepository, cacheSvc core.SourceCacheService, logger core.Logger) *GameController {
 	return &GameController{gameStore: gameStore, refreshSvc: refreshSvc, deleteSvc: deleteSvc, integrationRepo: integrationRepo, cacheSvc: cacheSvc, logger: logger}
 }
@@ -267,6 +291,128 @@ func (c *GameController) GetDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx)))
+}
+
+func (c *GameController) SetCoverOverride(w http.ResponseWriter, r *http.Request) {
+	id, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var body SetCoverOverrideRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if body.MediaAssetID <= 0 {
+		http.Error(w, "media_asset_id is required", http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	if err := c.gameStore.SetCanonicalCoverOverride(ctx, id, body.MediaAssetID); err != nil {
+		c.writeCoverOverrideError(w, err)
+		return
+	}
+	game, err := c.gameStore.GetCanonicalGameByID(ctx, id)
+	if err != nil {
+		c.logger.Error("get game after cover override", err, "game_id", id)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if game == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx)))
+}
+
+func (c *GameController) ClearCoverOverride(w http.ResponseWriter, r *http.Request) {
+	id, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	if err := c.gameStore.ClearCanonicalCoverOverride(ctx, id); err != nil {
+		c.writeCoverOverrideError(w, err)
+		return
+	}
+	game, err := c.gameStore.GetCanonicalGameByID(ctx, id)
+	if err != nil {
+		c.logger.Error("get game after clear cover override", err, "game_id", id)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if game == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx)))
+}
+
+func (c *GameController) writeCoverOverrideError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, core.ErrCanonicalGameNotFound):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	case errors.Is(err, core.ErrCoverOverrideMediaNotFound):
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+	default:
+		c.logger.Error("cover override failed", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (c *GameController) AchievementsDashboard(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	dashboard, err := c.gameStore.GetCachedAchievementsDashboard(ctx)
+	if err != nil {
+		c.logger.Error("cached achievements dashboard", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	resp := AchievementsDashboardResponse{
+		Systems: make([]AchievementSystemSummary, 0, len(dashboard.Systems)),
+		Games:   make([]AchievementGameSummaryDTO, 0, len(dashboard.Games)),
+	}
+	resp.Totals = AchievementSummaryDTO{
+		SourceCount:   dashboard.Totals.SourceCount,
+		TotalCount:    dashboard.Totals.TotalCount,
+		UnlockedCount: dashboard.Totals.UnlockedCount,
+		TotalPoints:   dashboard.Totals.TotalPoints,
+		EarnedPoints:  dashboard.Totals.EarnedPoints,
+	}
+	for _, system := range dashboard.Systems {
+		resp.Systems = append(resp.Systems, achievementSystemSummaryDTO(system))
+	}
+	labels := c.loadIntegrationLabels(ctx)
+	for _, game := range dashboard.Games {
+		if game.Game == nil {
+			continue
+		}
+		item := AchievementGameSummaryDTO{
+			Game:    c.canonicalToGameDetailWithIntegrationLabels(ctx, game.Game, labels),
+			Systems: make([]AchievementSystemSummary, 0, len(game.Systems)),
+		}
+		for _, system := range game.Systems {
+			item.Systems = append(item.Systems, achievementSystemSummaryDTO(system))
+		}
+		resp.Games = append(resp.Games, item)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func achievementSystemSummaryDTO(system core.CachedAchievementSystemSummary) AchievementSystemSummary {
+	return AchievementSystemSummary{
+		Source:        system.Source,
+		GameCount:     system.GameCount,
+		TotalCount:    system.TotalCount,
+		UnlockedCount: system.UnlockedCount,
+		TotalPoints:   system.TotalPoints,
+		EarnedPoints:  system.EarnedPoints,
+	}
 }
 
 func (c *GameController) RefreshMetadata(w http.ResponseWriter, r *http.Request) {

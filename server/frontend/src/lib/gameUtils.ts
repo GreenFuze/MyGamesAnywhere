@@ -7,15 +7,23 @@ import {
   sourceLabel,
 } from '@/lib/displayText'
 import { getBrowserPlayRuntime, listBrowserPlaySelections } from '@/lib/browserPlay'
-import { GameMediaCollection } from '@/lib/gameMedia'
+import { GameMediaCollection, mediaUrl } from '@/lib/gameMedia'
 
 // ---------------------------------------------------------------------------
 // Cover art selection
 // ---------------------------------------------------------------------------
 
-/** Pick the best cover URL from a game's media array. */
-export function selectCoverUrl(media: GameMediaDetailDTO[] | undefined): string | null {
+/** Pick the best cover URL from a game's media array, honoring a pinned override. */
+export function selectCoverUrl(
+  media: GameMediaDetailDTO[] | undefined,
+  coverOverride?: GameMediaDetailDTO,
+): string | null {
+  if (coverOverride) return mediaUrl(coverOverride)
   return new GameMediaCollection(media).coverUrl()
+}
+
+export function selectGameCoverUrl(game: Pick<GameDetailResponse, 'media' | 'cover_override'>): string | null {
+  return selectCoverUrl(game.media, game.cover_override)
 }
 
 // ---------------------------------------------------------------------------

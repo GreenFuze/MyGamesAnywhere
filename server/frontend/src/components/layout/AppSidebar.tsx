@@ -214,7 +214,7 @@ export function AppSidebar() {
               <div className="space-y-2">
                 {recentPlayedEntries.map((entry) => {
                   const title = entry.game?.title ?? entry.title
-                  const coverUrl = selectCoverUrl(entry.game?.media) ?? entry.coverUrl ?? null
+                  const coverUrl = selectCoverUrl(entry.game?.media, entry.game?.cover_override) ?? entry.coverUrl ?? null
                   const primarySource = entry.game ? primarySourcePlugin(entry.game) : null
                   const hint = entry.game
                     ? [platformLabel(entry.game.platform), primarySource ? sourceLabel(primarySource) : null]
@@ -333,7 +333,7 @@ export function AppSidebar() {
                               >
                                 <div className="h-14 w-10 shrink-0 overflow-hidden rounded-sm border border-mga-border bg-mga-surface">
                                   <CoverImage
-                                    src={selectCoverUrl(game.media)}
+                                    src={selectCoverUrl(game.media, game.cover_override)}
                                     alt={game.title}
                                     fit="contain"
                                     variant="sidebar"

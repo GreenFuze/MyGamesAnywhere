@@ -226,9 +226,11 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 		}
 	}
 
-	// 6. Reconcile source games from this integration not seen in this batch.
-	if err := s.reconcileMissingSourceGames(ctx, tx, batch.IntegrationID, seenIDs, batch.FilesystemScope); err != nil {
-		return fmt.Errorf("reconcile missing source games: %w", err)
+	// 6. Reconcile source games from this integration not seen in complete scan batches.
+	if !batch.SkipMissingReconcile {
+		if err := s.reconcileMissingSourceGames(ctx, tx, batch.IntegrationID, seenIDs, batch.FilesystemScope); err != nil {
+			return fmt.Errorf("reconcile missing source games: %w", err)
+		}
 	}
 
 	// 7. Recompute canonical groupings.
@@ -291,6 +293,64 @@ func (s *gameStore) CacheAchievements(ctx context.Context, sourceGameID string, 
 	return tx.Commit()
 }
 
+func (s *gameStore) SetCanonicalCoverOverride(ctx context.Context, canonicalID string, mediaAssetID int) error {
+	if strings.TrimSpace(canonicalID) == "" {
+		return core.ErrCanonicalGameNotFound
+	}
+	if mediaAssetID <= 0 {
+		return core.ErrCoverOverrideMediaNotFound
+	}
+	db := s.db.GetDB()
+	var linked int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(1)
+		FROM canonical_source_games_link l
+		JOIN source_game_media m ON m.source_game_id = l.source_game_id
+		JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE l.canonical_id = ?
+		  AND m.media_asset_id = ?
+		  AND `+visibleSourceGameWhere("sg"), canonicalID, mediaAssetID).Scan(&linked); err != nil {
+		return err
+	}
+	if linked == 0 {
+		exists, err := s.canonicalGameExists(ctx, canonicalID)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return core.ErrCanonicalGameNotFound
+		}
+		return core.ErrCoverOverrideMediaNotFound
+	}
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO canonical_game_cover_overrides (canonical_id, media_asset_id, updated_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(canonical_id) DO UPDATE SET media_asset_id=excluded.media_asset_id, updated_at=excluded.updated_at`,
+		canonicalID, mediaAssetID, time.Now().Unix())
+	return err
+}
+
+func (s *gameStore) ClearCanonicalCoverOverride(ctx context.Context, canonicalID string) error {
+	if strings.TrimSpace(canonicalID) == "" {
+		return core.ErrCanonicalGameNotFound
+	}
+	db := s.db.GetDB()
+	res, err := db.ExecContext(ctx, `DELETE FROM canonical_game_cover_overrides WHERE canonical_id=?`, canonicalID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		exists, err := s.canonicalGameExists(ctx, canonicalID)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return core.ErrCanonicalGameNotFound
+		}
+	}
+	return nil
+}
+
 func (s *gameStore) UpdateMediaAsset(ctx context.Context, assetID int, localPath, hash string) error {
 	if assetID <= 0 {
 		return fmt.Errorf("assetID must be positive")
@@ -311,6 +371,7 @@ func (s *gameStore) DeleteAllGames(ctx context.Context) error {
 
 	tables := []string{
 		"achievements", "achievement_sets",
+		"canonical_game_cover_overrides",
 		"source_game_media", "media_assets",
 		"metadata_resolver_matches",
 		"game_files",
@@ -354,6 +415,12 @@ func (s *gameStore) CountVisibleCanonicalGames(ctx context.Context) (int, error)
 		return 0, err
 	}
 	return n, nil
+}
+
+func (s *gameStore) canonicalGameExists(ctx context.Context, canonicalID string) (bool, error) {
+	var n int
+	err := s.db.GetDB().QueryRowContext(ctx, `SELECT COUNT(1) FROM canonical_games WHERE id=?`, canonicalID).Scan(&n)
+	return n > 0, err
 }
 
 // GetVisibleCanonicalIDs returns canonical IDs that have at least one found source game,
@@ -730,6 +797,132 @@ func (s *gameStore) GetLibraryStats(ctx context.Context) (*core.LibraryStats, er
 		out.PercentWithAchievements = float64(out.GamesWithAchievements) / float64(out.CanonicalGameCount) * 100
 	}
 	return out, nil
+}
+
+type cachedAchievementDashboardRow struct {
+	canonicalID   string
+	source        string
+	externalID    string
+	totalCount    int
+	unlockedCount int
+	totalPoints   int
+	earnedPoints  int
+}
+
+func (s *gameStore) GetCachedAchievementsDashboard(ctx context.Context) (*core.CachedAchievementsDashboard, error) {
+	games, err := s.GetCanonicalGames(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := s.db.GetDB().QueryContext(ctx, `
+		SELECT l.canonical_id, a.source, a.external_game_id, a.total_count, a.unlocked_count,
+		       COALESCE(a.total_points, 0), COALESCE(a.earned_points, 0)
+		FROM achievement_sets a
+		JOIN canonical_source_games_link l ON l.source_game_id = a.source_game_id
+		JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE `+visibleSourceGameWhere("sg")+`
+		ORDER BY l.canonical_id, a.source, a.fetched_at DESC, a.id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	byGame := make(map[string][]cachedAchievementDashboardRow)
+	seenGameSet := make(map[string]bool)
+	for rows.Next() {
+		var item cachedAchievementDashboardRow
+		if err := rows.Scan(&item.canonicalID, &item.source, &item.externalID, &item.totalCount, &item.unlockedCount, &item.totalPoints, &item.earnedPoints); err != nil {
+			return nil, err
+		}
+		key := item.canonicalID + "|" + item.source + "|" + item.externalID
+		if seenGameSet[key] {
+			continue
+		}
+		seenGameSet[key] = true
+		byGame[item.canonicalID] = append(byGame[item.canonicalID], item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := &core.CachedAchievementsDashboard{}
+	systemTotals := make(map[string]*core.CachedAchievementSystemSummary)
+	systemGames := make(map[string]map[string]bool)
+	for _, game := range games {
+		if game == nil || game.AchievementSummary == nil {
+			continue
+		}
+		items := byGame[game.ID]
+		if len(items) == 0 {
+			continue
+		}
+		gameSystems := aggregateAchievementRows(items)
+		out.Games = append(out.Games, core.CachedAchievementGameSummary{
+			Game:    game,
+			Systems: gameSystems,
+		})
+		out.Totals.TotalCount += game.AchievementSummary.TotalCount
+		out.Totals.UnlockedCount += game.AchievementSummary.UnlockedCount
+		out.Totals.TotalPoints += game.AchievementSummary.TotalPoints
+		out.Totals.EarnedPoints += game.AchievementSummary.EarnedPoints
+
+		for _, system := range gameSystems {
+			total := systemTotals[system.Source]
+			if total == nil {
+				total = &core.CachedAchievementSystemSummary{Source: system.Source}
+				systemTotals[system.Source] = total
+				systemGames[system.Source] = make(map[string]bool)
+			}
+			if !systemGames[system.Source][game.ID] {
+				systemGames[system.Source][game.ID] = true
+				total.GameCount++
+			}
+			total.TotalCount += system.TotalCount
+			total.UnlockedCount += system.UnlockedCount
+			total.TotalPoints += system.TotalPoints
+			total.EarnedPoints += system.EarnedPoints
+		}
+	}
+
+	for _, system := range systemTotals {
+		out.Systems = append(out.Systems, *system)
+	}
+	out.Totals.SourceCount = len(out.Systems)
+	sort.Slice(out.Systems, func(i, j int) bool {
+		if out.Systems[i].GameCount != out.Systems[j].GameCount {
+			return out.Systems[i].GameCount > out.Systems[j].GameCount
+		}
+		return out.Systems[i].Source < out.Systems[j].Source
+	})
+	sort.Slice(out.Games, func(i, j int) bool {
+		return strings.ToLower(out.Games[i].Game.Title) < strings.ToLower(out.Games[j].Game.Title)
+	})
+	return out, nil
+}
+
+func aggregateAchievementRows(items []cachedAchievementDashboardRow) []core.CachedAchievementSystemSummary {
+	bySource := make(map[string]*core.CachedAchievementSystemSummary)
+	for _, item := range items {
+		summary := bySource[item.source]
+		if summary == nil {
+			summary = &core.CachedAchievementSystemSummary{Source: item.source}
+			bySource[item.source] = summary
+		}
+		summary.GameCount = 1
+		summary.TotalCount += item.totalCount
+		summary.UnlockedCount += item.unlockedCount
+		summary.TotalPoints += item.totalPoints
+		summary.EarnedPoints += item.earnedPoints
+	}
+	out := make([]core.CachedAchievementSystemSummary, 0, len(bySource))
+	for _, item := range bySource {
+		out = append(out, *item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Source < out[j].Source
+	})
+	return out
 }
 
 var yearPattern = regexp.MustCompile(`\b(\d{4})\b`)
@@ -2280,6 +2473,11 @@ func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonica
 		}
 		mediaRows.Close()
 	}
+	coverOverride, err := s.loadCanonicalCoverOverride(ctx, db, canonicalID)
+	if err != nil {
+		return nil, err
+	}
+	cg.CoverOverride = coverOverride
 
 	// Load external IDs.
 	eids, err := s.GetExternalIDsForCanonical(ctx, canonicalID)
@@ -2334,6 +2532,31 @@ func (s *gameStore) loadCanonicalAchievementSummary(ctx context.Context, db *sql
 		return nil, nil
 	}
 	return summary, nil
+}
+
+func (s *gameStore) loadCanonicalCoverOverride(ctx context.Context, db *sql.DB, canonicalID string) (*core.MediaRef, error) {
+	row := db.QueryRowContext(ctx, `
+		SELECT ma.id, ma.url, ma.local_path, ma.hash, ma.mime_type, sgm.type, sgm.source, ma.width, ma.height
+		FROM canonical_game_cover_overrides o
+		JOIN media_assets ma ON ma.id = o.media_asset_id
+		JOIN source_game_media sgm ON sgm.media_asset_id = ma.id
+		JOIN canonical_source_games_link l ON l.source_game_id = sgm.source_game_id AND l.canonical_id = o.canonical_id
+		JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE o.canonical_id = ? AND `+visibleSourceGameWhere("sg")+`
+		LIMIT 1`, canonicalID)
+	var ref core.MediaRef
+	var src, lp, h, mt sql.NullString
+	if err := row.Scan(&ref.AssetID, &ref.URL, &lp, &h, &mt, (*string)(&ref.Type), &src, &ref.Width, &ref.Height); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	ref.Source = src.String
+	ref.LocalPath = lp.String
+	ref.Hash = h.String
+	ref.MimeType = mt.String
+	return &ref, nil
 }
 
 // computeUnifiedView fills the canonical game's unified fields from its source games' resolver matches.

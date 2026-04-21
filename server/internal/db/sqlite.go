@@ -88,6 +88,10 @@ func (s *sqliteDatabase) EnsureSchema() error {
 	s.logger.Info("Ensuring database schema...")
 
 	statements := []string{
+		`CREATE TABLE IF NOT EXISTS schema_migrations (
+			version INTEGER PRIMARY KEY,
+			applied_at INTEGER NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS settings (
 			key TEXT PRIMARY KEY,
 			value TEXT,
@@ -174,6 +178,11 @@ func (s *sqliteDatabase) EnsureSchema() error {
 			PRIMARY KEY(source_game_id, media_asset_id, type)
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_sgm_source ON source_game_media(source_game_id);`,
+		`CREATE TABLE IF NOT EXISTS canonical_game_cover_overrides (
+			canonical_id TEXT PRIMARY KEY REFERENCES canonical_games(id) ON DELETE CASCADE,
+			media_asset_id INTEGER NOT NULL REFERENCES media_assets(id),
+			updated_at INTEGER NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS achievement_sets (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			source_game_id TEXT NOT NULL REFERENCES source_games(id),
@@ -268,6 +277,9 @@ func (s *sqliteDatabase) EnsureSchema() error {
 		if _, err := s.db.Exec(q); err != nil {
 			return fmt.Errorf("schema creation failed: %w", err)
 		}
+	}
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)`, 1, time.Now().Unix()); err != nil {
+		return fmt.Errorf("schema migration marker failed: %w", err)
 	}
 	if err := s.ensureManualReviewSchema(); err != nil {
 		return err

@@ -27,6 +27,7 @@ type GameDetailResponse struct {
 	MaxPlayers         int                    `json:"max_players,omitempty"`
 	CompletionTime     *core.CompletionTime   `json:"completion_time,omitempty"`
 	Media              []GameMediaDetailDTO   `json:"media,omitempty"`
+	CoverOverride      *GameMediaDetailDTO    `json:"cover_override,omitempty"`
 	IsGamePass         bool                   `json:"is_game_pass,omitempty"`
 	XcloudAvailable    bool                   `json:"xcloud_available,omitempty"`
 	StoreProductID     string                 `json:"store_product_id,omitempty"`
@@ -140,6 +141,10 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 			EarnedPoints:  cg.AchievementSummary.EarnedPoints,
 		}
 	}
+	if cg.CoverOverride != nil {
+		cover := mediaRefToDTO(*cg.CoverOverride)
+		out.CoverOverride = &cover
+	}
 
 	for _, sg := range cg.SourceGames {
 		if sg == nil {
@@ -197,6 +202,20 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 		})
 	}
 	return out
+}
+
+func mediaRefToDTO(ref core.MediaRef) GameMediaDetailDTO {
+	return GameMediaDetailDTO{
+		AssetID:   ref.AssetID,
+		Type:      string(ref.Type),
+		URL:       ref.URL,
+		Source:    ref.Source,
+		Width:     ref.Width,
+		Height:    ref.Height,
+		LocalPath: ref.LocalPath,
+		Hash:      ref.Hash,
+		MimeType:  ref.MimeType,
+	}
 }
 
 func (c *GameController) sourceGameToDetailDTO(

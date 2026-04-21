@@ -17,7 +17,7 @@ func EffectiveBrowserPlayPlatform(sourcePlatform, canonicalPlatform Platform) Pl
 
 func BrowserPlayRuntimeForPlatform(platform Platform) (string, bool) {
 	switch platform {
-	case PlatformNES, PlatformSNES, PlatformGB, PlatformGBC, PlatformGBA,
+	case PlatformNES, PlatformSNES, PlatformGB, PlatformGBC, PlatformGBA, PlatformN64,
 		PlatformGenesis, PlatformSegaMasterSystem, PlatformGameGear, PlatformSegaCD,
 		PlatformSega32X, PlatformPS1, PlatformArcade:
 		return "emulatorjs", true

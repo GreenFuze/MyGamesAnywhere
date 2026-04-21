@@ -66,6 +66,14 @@
     animation: mga-grid-fade 220ms ease-out both;
   }
 
+  .mga-hidden-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .mga-hidden-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   .mga-sidebar-scroll {
     scrollbar-width: thin;
     scrollbar-color: var(--mga-accent) transparent;

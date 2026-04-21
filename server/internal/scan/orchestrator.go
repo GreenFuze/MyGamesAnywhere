@@ -1061,7 +1061,7 @@ func (o *Orchestrator) findMetadataSources(integrations []*core.Integration) ([]
 			"label":          integ.Label,
 			"plugin_id":      integ.PluginID,
 		}
-		config, err := parseConfig(integ.ConfigJSON)
+		source, err := MetadataSourceFromIntegration(integ)
 		if err != nil {
 			o.logger.Warn("orchestrator: bad metadata config", "integration_id", integ.ID, "error", err)
 			state["status"] = "error"
@@ -1070,12 +1070,7 @@ func (o *Orchestrator) findMetadataSources(integrations []*core.Integration) ([]
 			providerStates = append(providerStates, state)
 			continue
 		}
-		sources = append(sources, MetadataSource{
-			IntegrationID: integ.ID,
-			Label:         integ.Label,
-			PluginID:      integ.PluginID,
-			Config:        config,
-		})
+		sources = append(sources, source)
 		state["status"] = "pending"
 		providerStates = append(providerStates, state)
 	}

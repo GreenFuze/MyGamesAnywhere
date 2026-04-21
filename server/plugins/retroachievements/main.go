@@ -46,12 +46,14 @@ type raConfig struct {
 var cfg raConfig
 
 const (
-	raAPIBase  = "https://retroachievements.org/API"
-	configFile = "config.json"
+	configFile  = "config.json"
+	raUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
 // Rate limiter: ~4 req/s to be polite to RA servers.
+var raAPIBase = "https://retroachievements.org/API"
 var rateLimiter = time.NewTicker(250 * time.Millisecond)
+var raHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
 // Platform -> RA console ID mapping.
 // RA uses numeric console IDs; a single platform may map to multiple.
@@ -169,8 +171,17 @@ func raGet(endpoint string, params url.Values) ([]byte, error) {
 
 	apiURL := fmt.Sprintf("%s/%s?%s", raAPIBase, endpoint, params.Encode())
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(apiURL)
+	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("RA API %s build request: %w", endpoint, err)
+	}
+	req.Header.Set("User-Agent", raUserAgent)
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
+
+	resp, err := raHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("RA API %s: %w", endpoint, err)
 	}
@@ -552,6 +563,57 @@ func handleInit() (any, *Error) {
 	}, nil
 }
 
+func validateCheckConfig(config map[string]any) map[string]any {
+	key, _ := config["api_key"].(string)
+	user, _ := config["username"].(string)
+	if key == "" || user == "" {
+		return map[string]any{"status": "error", "message": "api_key and username required"}
+	}
+
+	origCfg := cfg
+	cfg = raConfig{APIKey: key, Username: user}
+	params := url.Values{}
+	_, err := raGet("API_GetConsoleIDs.php", params)
+	cfg = origCfg
+	if err == nil {
+		return map[string]any{"status": "ok"}
+	}
+	status, message := classifyCheckConfigError(err)
+	return map[string]any{"status": status, "message": message}
+}
+
+func classifyCheckConfigError(err error) (string, string) {
+	if err == nil {
+		return "ok", ""
+	}
+	if isUpstreamUnavailable(err) {
+		return "unavailable", fmt.Sprintf("RetroAchievements could not be validated from this server because upstream access is blocked or unavailable: %v", err)
+	}
+	return "error", err.Error()
+}
+
+func isUpstreamUnavailable(err error) bool {
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "status 403") && strings.Contains(msg, "cloudflare"):
+		return true
+	case strings.Contains(msg, "status 403") && strings.Contains(msg, "blocked"):
+		return true
+	case strings.Contains(msg, "timeout"):
+		return true
+	case strings.Contains(msg, "temporarily unavailable"):
+		return true
+	case strings.Contains(msg, "no such host"):
+		return true
+	case strings.Contains(msg, "connection refused"):
+		return true
+	case strings.Contains(msg, "tls handshake timeout"):
+		return true
+	default:
+		return false
+	}
+}
+
 // Main IPC loop.
 
 func main() {
@@ -602,22 +664,7 @@ func main() {
 				Config map[string]any `json:"config"`
 			}
 			if err := json.Unmarshal(req.Params, &p); err == nil {
-				key, _ := p.Config["api_key"].(string)
-				user, _ := p.Config["username"].(string)
-				if key == "" || user == "" {
-					resp.Result = map[string]any{"status": "error", "message": "api_key and username required"}
-				} else {
-					origCfg := cfg
-					cfg = raConfig{APIKey: key, Username: user}
-					params := url.Values{}
-					_, err := raGet("API_GetConsoleIDs.php", params)
-					cfg = origCfg
-					if err != nil {
-						resp.Result = map[string]any{"status": "error", "message": err.Error()}
-					} else {
-						resp.Result = map[string]any{"status": "ok"}
-					}
-				}
+				resp.Result = validateCheckConfig(p.Config)
 			} else {
 				resp.Result = map[string]any{"status": "ok"}
 			}

@@ -29,6 +29,18 @@ paths:
         500:
           description: License file not found
 
+  /api/achievements:
+    get:
+      summary: Get cached achievements dashboard
+      description: Returns cached achievement totals by system and by canonical game. This endpoint only reads stored achievement cache rows and does not fetch achievements from external integrations.
+      responses:
+        200:
+          description: AchievementsDashboardResponse
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
   /api/auth/callback/{plugin_id}:
     get:
       summary: Handle OAuth callback for a plugin
@@ -82,6 +94,8 @@ paths:
           schema:
             type: string
       responses:
+        204:
+          description: Entry deleted
         400:
           description: entry_id is required
         500:
@@ -273,6 +287,52 @@ paths:
         500:
           description: Error response
 
+  /api/games/{id}/cover-override:
+    delete:
+      summary: Clear game cover override
+      description: Removes a pinned cover override for the canonical game and returns the updated game detail using normal cover selection again.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Updated GameDetailResponse
+        400:
+          description: Error response
+        404:
+          description: Game not found
+        500:
+          description: Internal server error
+    put:
+      summary: Set game cover override
+      description: Pins one existing media asset that is already linked to the canonical game as the preferred cover. The server rejects media assets that are not linked to the requested game.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: 'JSON: { media_asset_id: number }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Updated GameDetailResponse
+        400:
+          description: Invalid request body or media_asset_id
+        404:
+          description: Game not found
+        422:
+          description: Media asset is not linked to this game
+        500:
+          description: Internal server error
+
   /api/games/{id}/detail:
     get:
       summary: Get game detail
@@ -327,6 +387,8 @@ paths:
 
   /api/games/{id}/refresh-metadata:
     post:
+      summary: Refresh metadata for one canonical game
+      description: Runs the strict metadata/media refresh flow for one canonical game. Provider failures abort the refresh and return a fast-fail error instead of partial persistence.
       parameters:
         - name: id
           in: path
@@ -334,10 +396,18 @@ paths:
           schema:
             type: string
       responses:
+        200:
+          description: Updated GameDetailResponse
         400:
           description: Error response
+        404:
+          description: Game not found
+        409:
+          description: No eligible source records remain for refresh
+        422:
+          description: Metadata providers unavailable or refresh failed fast
         500:
-          description: Error response
+          description: Internal server error
 
   /api/games/{id}/save-sync/slots:
     get:
@@ -415,6 +485,33 @@ paths:
         500:
           description: Internal server error
 
+  /api/games/{id}/sources/{source_game_id}:
+    delete:
+      summary: Hard delete one source record
+      description: Deletes exactly one eligible file-backed source record, including provider-backed files and dependent database rows, then recomputes canonical grouping. The action never deletes sibling source records implicitly.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: DeleteSourceGameResponse
+        400:
+          description: Error response
+        404:
+          description: Game or source record not found
+        409:
+          description: Source record is not eligible for hard delete
+        500:
+          description: Internal server error
+
   /api/integrations:
     get:
       summary: List integrations
@@ -468,6 +565,8 @@ paths:
           schema:
             type: string
       responses:
+        204:
+          description: Integration deleted
         400:
           description: id is required
         404:
@@ -671,6 +770,18 @@ paths:
         500:
           description: Internal server error
 
+  /api/review-candidates/redetect:
+    post:
+      summary: Re-detect active manual-review candidates
+      description: Runs the strict automatic metadata re-detect workflow for all active pending manual-review candidates. Provider or workflow errors fail fast and return partial batch counts plus the candidate id that aborted the run.
+      responses:
+        200:
+          description: ManualReviewRedetectBatchResult JSON
+        400:
+          description: Error response
+        500:
+          description: Fail-fast batch error with partial ManualReviewRedetectBatchResult JSON
+
   /api/review-candidates/{id}:
     get:
       summary: Get one manual-review candidate
@@ -736,6 +847,26 @@ paths:
           description: Candidate not found
         500:
           description: Internal server error
+
+  /api/review-candidates/{id}/redetect:
+    post:
+      summary: Re-detect one manual-review candidate
+      description: Runs strict automatic metadata identify, consensus, and fill for one pending manual-review candidate. Identified results persist through the normal scan refresh path; unidentified results leave the candidate pending.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: ManualReviewRedetectResponse JSON
+        400:
+          description: Missing id or candidate not eligible
+        404:
+          description: Candidate not found
+        500:
+          description: Metadata providers unavailable or internal server error
 
   /api/review-candidates/{id}/search:
     post:

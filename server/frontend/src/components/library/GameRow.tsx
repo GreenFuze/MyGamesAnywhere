@@ -1,10 +1,12 @@
 import type { GameDetailResponse } from '@/api/client'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
+import { GameContextMenu } from '@/components/library/GameContextMenu'
 import { BrandBadge } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CoverImage } from '@/components/ui/cover-image'
 import { PlatformIcon } from '@/components/ui/platform-icon'
+import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   formatHLTB,
@@ -25,7 +27,8 @@ interface GameRowProps {
 export function GameRow({ game }: GameRowProps) {
   const navigate = useNavigate()
   const location = useLocation()
-  const coverUrl = selectCoverUrl(game.media)
+  const [contextMenuPoint, setContextMenuPoint] = useState<{ x: number; y: number } | null>(null)
+  const coverUrl = selectCoverUrl(game.media, game.cover_override)
   const playable = isPlayable(game)
   const sources = selectSourcePlugins(game)
   const primarySource = primarySourcePlugin(game)
@@ -40,7 +43,17 @@ export function GameRow({ game }: GameRowProps) {
   }
 
   return (
-    <tr className="border-b border-mga-border/80 last:border-0 hover:bg-mga-elevated/40">
+    <tr
+      className="border-b border-mga-border/80 last:border-0 hover:bg-mga-elevated/40"
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        setContextMenuPoint({
+          x: Math.min(event.clientX, window.innerWidth - 224),
+          y: Math.min(event.clientY, window.innerHeight - 260),
+        })
+      }}
+    >
       {/* Title + cover thumbnail */}
       <td className="px-3 py-2">
         <div className="flex items-center gap-3">
@@ -111,6 +124,7 @@ export function GameRow({ game }: GameRowProps) {
         <Button variant="ghost" size="sm" onClick={openGame}>
           {playable ? 'Play' : 'View'}
         </Button>
+        <GameContextMenu game={game} point={contextMenuPoint} onClose={() => setContextMenuPoint(null)} />
       </td>
     </tr>
   )

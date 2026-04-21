@@ -114,6 +114,7 @@ func TestPlatformDetect_PathRulePrecedence(t *testing.T) {
 		{"Roms/Super Nintendo/SomeGame", core.PlatformSNES},
 		{"Roms/Game Boy/SomeGame", core.PlatformGB},
 		{"Roms/Game Boy Color/SomeGame", core.PlatformGBC},
+		{"Roms/Nintendo 64/SomeGame", core.PlatformN64},
 		{"Roms/Sega Genesis/SomeGame", core.PlatformGenesis},
 		{"Roms/Sega Mega Drive/SomeGame", core.PlatformGenesis},
 		{"Roms/Sega Master System/SomeGame", core.PlatformSegaMasterSystem},
@@ -165,6 +166,13 @@ func TestPlatformDetect_FileSignals(t *testing.T) {
 				{FileEntry: core.FileEntry{Name: "game.gbc", Path: "roms/game.gbc"}, Extension: ".gbc"},
 			},
 			platform: core.PlatformGBC,
+		},
+		{
+			name: "N64 rom extension",
+			files: []AnnotatedFile{
+				{FileEntry: core.FileEntry{Name: "game.z64", Path: "roms/game.z64"}, Extension: ".z64"},
+			},
+			platform: core.PlatformN64,
 		},
 		{
 			name: "Genesis rom extension",

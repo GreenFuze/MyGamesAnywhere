@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -421,8 +422,15 @@ func TestPersistScanResultsDuplicateFilePathKeepsLatestValues(t *testing.T) {
 				},
 			},
 		}},
-		ResolverMatches: map[string][]core.ResolverMatch{},
-		MediaItems:      map[string][]core.MediaRef{},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:cover-source": {{
+				PluginID:   "metadata-igdb",
+				Title:      "Cover Game",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "cover-game",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -631,6 +639,216 @@ func TestGetLibraryStatsIncludesDashboardFields(t *testing.T) {
 	}
 	if stats.PercentWithAchievements != 50 {
 		t.Fatalf("percent_with_achievements = %v, want 50", stats.PercentWithAchievements)
+	}
+}
+
+func TestCanonicalCoverOverrideUsesLinkedMediaAndCanBeCleared(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-cover",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:cover-source",
+			IntegrationID: "integration-cover",
+			PluginID:      "game-source-steam",
+			ExternalID:    "cover-source",
+			RawTitle:      "Cover Game",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:cover-source": {{
+				PluginID:   "metadata-igdb",
+				Title:      "Cover Game",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "cover-game",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			"scan:cover-source": {
+				{Type: core.MediaTypeCover, URL: "https://example.com/default-cover.png"},
+				{Type: core.MediaTypeArtwork, URL: "https://example.com/artwork.png"},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var canonicalID string
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT canonical_id FROM canonical_source_games_link WHERE source_game_id=?`, "scan:cover-source").Scan(&canonicalID); err != nil {
+		var sourceCount, matchCount, linkCount int
+		_ = db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM source_games WHERE id=?`, "scan:cover-source").Scan(&sourceCount)
+		_ = db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM metadata_resolver_matches WHERE source_game_id=?`, "scan:cover-source").Scan(&matchCount)
+		_ = db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM canonical_source_games_link`).Scan(&linkCount)
+		t.Fatalf("load canonical link: %v source_count=%d match_count=%d link_count=%d", err, sourceCount, matchCount, linkCount)
+	}
+	game, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil || len(game.Media) < 2 {
+		t.Fatalf("game media = %+v, want two media refs", game)
+	}
+	artworkAssetID := game.Media[1].AssetID
+	if err := store.SetCanonicalCoverOverride(ctx, canonicalID, artworkAssetID); err != nil {
+		t.Fatal(err)
+	}
+	game, err = store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game.CoverOverride == nil || game.CoverOverride.AssetID != artworkAssetID {
+		t.Fatalf("cover override = %+v, want asset %d", game.CoverOverride, artworkAssetID)
+	}
+	if err := store.ClearCanonicalCoverOverride(ctx, canonicalID); err != nil {
+		t.Fatal(err)
+	}
+	game, err = store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game.CoverOverride != nil {
+		t.Fatalf("cover override = %+v, want nil after clear", game.CoverOverride)
+	}
+}
+
+func TestCanonicalCoverOverrideRejectsUnlinkedMedia(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	for _, item := range []struct {
+		sourceID string
+		url      string
+	}{
+		{sourceID: "scan:cover-a", url: "https://example.com/a.png"},
+		{sourceID: "scan:cover-b", url: "https://example.com/b.png"},
+	} {
+		if err := store.PersistScanResults(ctx, &core.ScanBatch{
+			IntegrationID: item.sourceID,
+			SourceGames: []*core.SourceGame{{
+				ID:            item.sourceID,
+				IntegrationID: item.sourceID,
+				PluginID:      "game-source-steam",
+				ExternalID:    item.sourceID,
+				RawTitle:      item.sourceID,
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			}},
+			ResolverMatches: map[string][]core.ResolverMatch{
+				item.sourceID: {{
+					PluginID:   "metadata-igdb",
+					Title:      item.sourceID,
+					Platform:   string(core.PlatformWindowsPC),
+					ExternalID: item.sourceID,
+				}},
+			},
+			MediaItems: map[string][]core.MediaRef{
+				item.sourceID: {{Type: core.MediaTypeCover, URL: item.url}},
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var assetB int
+	var canonicalAString string
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT canonical_id FROM canonical_source_games_link WHERE source_game_id=?`, "scan:cover-a").Scan(&canonicalAString); err != nil {
+		t.Fatal(err)
+	}
+	if canonicalAString == "" {
+		t.Fatal("expected canonical id")
+	}
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT ma.id FROM media_assets ma JOIN source_game_media sgm ON sgm.media_asset_id=ma.id WHERE sgm.source_game_id=?`, "scan:cover-b").Scan(&assetB); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetCanonicalCoverOverride(ctx, canonicalAString, assetB); !errors.Is(err, core.ErrCoverOverrideMediaNotFound) {
+		t.Fatalf("error = %v, want %v", err, core.ErrCoverOverrideMediaNotFound)
+	}
+}
+
+func seedSourceGameForDBTest(t *testing.T, ctx context.Context, store core.GameStore, sourceID, title string) {
+	t.Helper()
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: sourceID,
+		SourceGames: []*core.SourceGame{{
+			ID:            sourceID,
+			IntegrationID: sourceID,
+			PluginID:      "game-source-steam",
+			ExternalID:    sourceID,
+			RawTitle:      title,
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			sourceID: {{
+				PluginID:   "metadata-igdb",
+				Title:      title,
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: sourceID,
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGetCachedAchievementsDashboardUsesCachedRowsOnly(t *testing.T) {
+	ctx := context.Background()
+	_, store := newTestGameStore(t)
+
+	for _, item := range []struct {
+		id    string
+		title string
+	}{
+		{id: "scan:ach-one", title: "Achievement One"},
+		{id: "scan:ach-two", title: "Achievement Two"},
+		{id: "scan:ach-empty", title: "No Cache"},
+	} {
+		seedSourceGameForDBTest(t, ctx, store, item.id, item.title)
+	}
+	if err := store.CacheAchievements(ctx, "scan:ach-one", &core.AchievementSet{
+		Source:         "retroachievements",
+		ExternalGameID: "ra-1",
+		TotalCount:     10,
+		UnlockedCount:  4,
+		TotalPoints:    100,
+		EarnedPoints:   40,
+		FetchedAt:      time.Unix(1710000000, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CacheAchievements(ctx, "scan:ach-two", &core.AchievementSet{
+		Source:         "retroachievements",
+		ExternalGameID: "ra-2",
+		TotalCount:     5,
+		UnlockedCount:  5,
+		TotalPoints:    50,
+		EarnedPoints:   50,
+		FetchedAt:      time.Unix(1710000100, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	dashboard, err := store.GetCachedAchievementsDashboard(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.Totals.TotalCount != 15 || dashboard.Totals.UnlockedCount != 9 {
+		t.Fatalf("totals = %+v, want 15 total and 9 unlocked", dashboard.Totals)
+	}
+	if len(dashboard.Systems) != 1 || dashboard.Systems[0].GameCount != 2 {
+		t.Fatalf("systems = %+v, want one system with two games", dashboard.Systems)
+	}
+	if len(dashboard.Games) != 2 {
+		t.Fatalf("games = %d, want only cached achievement games", len(dashboard.Games))
 	}
 }
 

@@ -6,6 +6,8 @@ import type {
   IntegrationStatusEntry,
   ManualReviewCandidateDetail,
   ManualReviewCandidateSummary,
+  ManualReviewRedetectBatchResult,
+  ManualReviewRedetectResponse,
   ManualReviewScope,
   ManualReviewSearchResponse,
   ManualReviewSearchResult,
@@ -40,6 +42,10 @@ export type {
   LibraryPrefs,
   ManualReviewCandidateDetail,
   ManualReviewCandidateSummary,
+  ManualReviewRedetectBatchResult,
+  ManualReviewRedetectResponse,
+  ManualReviewRedetectResult,
+  ManualReviewRedetectStatus,
   ManualReviewScope,
   ManualReviewSearchProviderStatus,
   ManualReviewSearchResponse,
@@ -234,6 +240,7 @@ export type GameDetailResponse = {
   max_players?: number;
   completion_time?: CompletionTime;
   media?: GameMediaDetailDTO[];
+  cover_override?: GameMediaDetailDTO;
   is_game_pass?: boolean;
   xcloud_available?: boolean;
   store_product_id?: string;
@@ -271,6 +278,26 @@ export type AchievementSummaryDTO = {
   unlocked_count: number;
   total_points?: number;
   earned_points?: number;
+};
+
+export type AchievementSystemSummaryDTO = {
+  source: string;
+  game_count: number;
+  total_count: number;
+  unlocked_count: number;
+  total_points?: number;
+  earned_points?: number;
+};
+
+export type AchievementGameSummaryDTO = {
+  game: GameDetailResponse;
+  systems: AchievementSystemSummaryDTO[];
+};
+
+export type AchievementsDashboardResponse = {
+  totals: AchievementSummaryDTO;
+  systems: AchievementSystemSummaryDTO[];
+  games: AchievementGameSummaryDTO[];
 };
 
 export type DeleteSourceGameResponse = {
@@ -315,6 +342,32 @@ export async function getGameAchievements(
   return getJson<AchievementSetDTO[]>(
     `/api/games/${encodeURIComponent(id)}/achievements`,
   );
+}
+
+export async function getAchievementsDashboard(): Promise<AchievementsDashboardResponse> {
+  return getJson<AchievementsDashboardResponse>("/api/achievements");
+}
+
+export async function setGameCoverOverride(
+  id: string,
+  mediaAssetId: number,
+): Promise<GameDetailResponse> {
+  return putJson<GameDetailResponse>(
+    `/api/games/${encodeURIComponent(id)}/cover-override`,
+    { media_asset_id: mediaAssetId },
+  );
+}
+
+export async function clearGameCoverOverride(id: string): Promise<GameDetailResponse> {
+  const path = `/api/games/${encodeURIComponent(id)}/cover-override`;
+  const res = await fetch(`${base}${path}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw await buildApiError(path, res);
+  }
+  return res.json() as Promise<GameDetailResponse>;
 }
 
 export async function refreshGameMetadata(
@@ -646,6 +699,22 @@ export async function applyManualReviewCandidate(
     `/api/review-candidates/${encodeURIComponent(id)}/apply`,
     body,
   ) as Promise<ManualReviewCandidateDetail>;
+}
+
+export async function redetectManualReviewCandidate(
+  id: string,
+): Promise<ManualReviewRedetectResponse> {
+  return postJson<ManualReviewRedetectResponse>(
+    `/api/review-candidates/${encodeURIComponent(id)}/redetect`,
+    {},
+  ) as Promise<ManualReviewRedetectResponse>;
+}
+
+export async function redetectActiveManualReviewCandidates(): Promise<ManualReviewRedetectBatchResult> {
+  return postJson<ManualReviewRedetectBatchResult>(
+    "/api/review-candidates/redetect",
+    {},
+  ) as Promise<ManualReviewRedetectBatchResult>;
 }
 
 export async function markManualReviewCandidateNotAGame(

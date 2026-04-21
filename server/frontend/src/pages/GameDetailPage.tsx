@@ -813,7 +813,7 @@ export function GameDetailPage() {
   const mediaCollection = useMemo(() => new GameMediaCollection(gameData?.media), [gameData?.media])
   const imageMedia = useMemo(() => mediaCollection.imageMedia(), [mediaCollection])
   const nonImageMedia = useMemo(() => mediaCollection.nonImageMedia(), [mediaCollection])
-  const coverMedia = useMemo(() => mediaCollection.cover(), [mediaCollection])
+  const coverMedia = useMemo(() => gameData?.cover_override ?? mediaCollection.cover(), [gameData?.cover_override, mediaCollection])
   const heroMedia = useMemo(() => mediaCollection.hero(), [mediaCollection])
   const heroUrl = heroMedia ? mediaUrl(heroMedia) : null
   const coverUrl = coverMedia ? mediaUrl(coverMedia) : null

@@ -295,6 +295,9 @@ func (m *scanJobManager) activeRunningJobLocked() *scanJobRecord {
 
 func applyScanEvent(record *scanJobRecord, eventType string, payload map[string]any) {
 	job := record.status
+	if job.Status == "cancelled" && eventType == "scan_cancel_requested" {
+		return
+	}
 	job.CurrentPhase = scanPhaseForEvent(eventType, payload)
 
 	integrationID := readString(payload["integration_id"])
