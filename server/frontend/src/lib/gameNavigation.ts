@@ -1,4 +1,4 @@
-export type GameOriginLabel = 'Home' | 'Library' | 'Play'
+export type GameOriginLabel = 'Home' | 'Library' | 'Play' | 'Achievements'
 
 export type GameRouteState = {
   from: string
@@ -22,6 +22,7 @@ function storageKey(route: string): string {
 
 export function inferOriginLabel(pathname: string): GameOriginLabel {
   if (pathname === '/' || pathname.startsWith('/?')) return 'Home'
+  if (pathname.startsWith('/achievements')) return 'Achievements'
   return pathname.startsWith('/play') ? 'Play' : 'Library'
 }
 
@@ -73,6 +74,7 @@ export function readGameRouteState(state: unknown): GameRouteState | null {
   const originLabel =
     candidate.originLabel === 'Home' ||
     candidate.originLabel === 'Play' ||
+    candidate.originLabel === 'Achievements' ||
     candidate.originLabel === 'Library'
       ? candidate.originLabel
       : inferOriginLabel(candidate.from)

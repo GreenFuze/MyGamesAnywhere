@@ -6,6 +6,7 @@ export type BrandDefinition = {
   description: string
   creditNote?: string
   tempResourceName?: string
+  presentation?: 'default' | 'light_tile'
 }
 
 function normalizeKey(value: string): string {
@@ -56,6 +57,7 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
     websiteUrl: 'https://rawg.io/',
     description: 'Metadata provider used for game facts when available.',
     creditNote: 'Temporary in-app monogram icon created locally.',
+    presentation: 'light_tile',
   },
   {
     id: 'gog',
@@ -91,6 +93,7 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
     websiteUrl: 'https://howlongtobeat.com/',
     description: 'Completion-time provider for story and completionist estimates.',
     creditNote: 'Temporary in-app monogram icon created locally.',
+    presentation: 'light_tile',
   },
   {
     id: 'mobygames',
@@ -165,6 +168,7 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
     websiteUrl: 'https://store.epicgames.com/',
     description: 'Storefront/source integration for Epic-linked games.',
     creditNote: 'Temporary in-app monogram icon created locally.',
+    presentation: 'light_tile',
   },
   {
     id: 'windows',
@@ -222,6 +226,7 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
     websiteUrl: 'https://js-dos.com/',
     description: 'Browser runtime used for DOS playback in the embedded player.',
     creditNote: 'No bundled logo asset; rendered as a text badge in-app.',
+    presentation: 'light_tile',
   },
   {
     id: 'dosbox',
@@ -229,6 +234,7 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
     websiteUrl: 'https://www.dosbox.com/',
     description: 'DOS emulation core used behind the js-dos browser runtime.',
     creditNote: 'No bundled logo asset; rendered as a text badge in-app.',
+    presentation: 'light_tile',
   },
 ]
 

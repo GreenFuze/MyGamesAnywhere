@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { GameDetailResponse } from '@/api/client'
 import { GameCard } from '@/components/library/GameCard'
+import { animateHorizontalScrollTo } from '@/lib/motion'
+import { useTheme } from '@/theme/ThemeProvider'
 
 const GAP_PX = 16
 const MIN_CARD_WIDTH = 190
@@ -26,6 +28,7 @@ function computeCardWidth(width: number): number {
 
 export function HorizontalGameShelf({ games, label, renderHoverAction }: HorizontalGameShelfProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
+  const { reducedMotion } = useTheme()
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
   const [cardWidth, setCardWidth] = useState(MIN_CARD_WIDTH)
@@ -63,14 +66,20 @@ export function HorizontalGameShelf({ games, label, renderHoverAction }: Horizon
   const page = (dir: 1 | -1) => {
     const el = viewportRef.current
     if (!el) return
-    el.scrollBy({ left: dir * pageStep, behavior: 'smooth' })
+    const maxScrollLeft = Math.max(0, el.scrollWidth - el.clientWidth)
+    const targetLeft = Math.max(0, Math.min(maxScrollLeft, el.scrollLeft + dir * pageStep))
+    if (reducedMotion) {
+      el.scrollLeft = targetLeft
+      return
+    }
+    animateHorizontalScrollTo(el, targetLeft)
   }
 
   return (
     <div className="group/shelf relative">
       <div
         ref={viewportRef}
-        className="mga-hidden-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth pr-14"
+        className="mga-hidden-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto pr-14"
       >
         {games.map((game) => (
           <div key={game.id} className="shrink-0 snap-start" style={{ width: `${cardWidth}px` }}>

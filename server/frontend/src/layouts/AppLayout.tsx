@@ -61,14 +61,6 @@ export function AppLayout() {
               ))}
             </select>
           </label>
-          <button
-            type="button"
-            className="rounded-mga p-2 text-mga-muted hover:bg-mga-elevated hover:text-mga-text"
-            title="Notifications (coming soon)"
-            aria-label="Notifications"
-          >
-            🔔
-          </button>
         </div>
         <nav className="overflow-x-auto border-t border-mga-border/70 px-3 md:px-4">
           <div className="flex min-w-max gap-1 py-2">
@@ -99,7 +91,7 @@ export function AppLayout() {
             key={loc.pathname}
             className={cn(
               'mga-page-enter min-w-0',
-              isWideRoute ? 'w-full' : 'max-w-5xl',
+              isWideRoute ? 'w-full' : 'mx-auto w-full max-w-5xl',
             )}
           >
             <Outlet />

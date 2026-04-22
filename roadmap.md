@@ -167,7 +167,6 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 ### Static file serving (production binary)
 *Runtime static files from `FRONTEND_DIST` (default `./frontend/dist`); `build.ps1` copies dist into `bin/frontend/dist`. `go:embed` deferred.*
 
-- [ ] `go:embed` frontend dist into server binary *(optional hardening)*
 - [x] Serve static assets + SPA fallback via [`MountSPA`](server/internal/http/spa.go) (`/*` after `/api`, `/health`)
 - [x] SPA fallback: non-file routes → `index.html`
 
@@ -409,7 +408,6 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Fullscreen-capable browser player route; ScummVM uses parent-level fullscreen because the runtime has no internal fullscreen affordance
 - [x] Exit path back to the game detail page
 - [x] Explicit browser save `Load` / `Save` UI with remote slots (`autosave`, `slot-1` … `slot-5`)
-- [ ] Controller mapping / keyboard overlay *(moved out of browser scope; future desktop/native client work)*
 - [x] Browser-local save persistence where the selected runtime already supports it
 - [x] EmulatorJS player sizing fixed via definite-height player shell and absolute iframe/runtime sizing instead of relying on an indefinite `min-h-screen` percentage-height chain
 
@@ -513,8 +511,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] RetroAchievements integration config already requires `username` in the plugin manifest/code and the settings UI schema-driven forms expose/persist it
 - [x] remove TGDB - it has too low API quota
 - [x] Media download background worker (pending `media_assets` rows are swept at startup and enqueued again after scan/manual-review persistence; successful downloads write relative `local_path` + `hash` under `MEDIA_ROOT`)
-- [ ] Schema migration strategy (deferred until after first release)
-- [ ] Add Metacritic-specific scoring if desired; generic `rating` is already populated where providers such as Steam/RAWG return it
+- Cancelled: keep the generic `rating` field. Steam/RAWG already populate it from Metacritic-style scores where available, and no separate first-class Metacritic field is planned right now.
 - [x] Fix npm build vulnerabilities detected during build
 - [x] Concurrency on scanning/metadata-fetching
 - [x] Browser-play launch proof: EmulatorJS launches with corrected full-parent sizing after the definite-height shell/absolute iframe fix
@@ -536,10 +533,9 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - include paths
   - recursive flag per include
   - no full exclude rule engine in v1
-- [ ] Defer exclude rules until there is a concrete need after multi-include lands. If excludes are later required, prefer a normalized path-glob design over a single ad hoc `exclude_glob` string, so behavior stays deterministic across SMB/local/Drive path forms.
+- Cancelled: exclude rules remain intentionally deferred until there is a concrete need after multi-include. If they are introduced later, prefer a normalized path-glob design over a single ad hoc `exclude_glob` string so behavior stays deterministic across SMB/local/Drive path forms.
 - [x] Scope-aware persistence rules are implemented for the current filesystem model: `found` rows remain, in-scope missing rows are soft-deleted, and out-of-scope rows are hard-deleted instead of being persisted with an explicit `out_of_scope` status.
 - [x] Duplicate-integration rules were revisited for filesystem-backed plugins: SMB/Google Drive use plugin-reported `source_identity` to prevent duplicate backend connections while scan scope is modeled through `include_paths[]`.
-- [ ] Add timeline view (library by release year)
 - [x] in platforms view, it shows "ms_dos" and "ps1" and such. It should have a "display text". Maybe the DB should hold also a "display name" for some tables? think critically! I'm not sure this is the right solution.
 - [x] I think we should add to the flow of detecting a game, running the whole metadata/media etc workflow. you should reuse the same code used while detecting game via scanning. if you need - refactor.
 - [x] also to "game page" add "refresh metadata and media" to manually trigger this workflow for that game.
@@ -549,11 +545,27 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Library / Play cards now use a squarer full-bleed cover area and share the same cover fallback selection as the game detail page when no explicit `cover` media item exists
 - [x] Browser-play source/version ambiguity: launch choice is source-record-scoped, ambiguous launchable sources require explicit selection, invalid remembered selections do not silently fall through to another source, same-title/different-source-record options render distinct labels, and js-dos executable selection stays separate from source selection.
 - [x] Source-record-scoped hard-delete from the game page for filesystem-backed sources: eligible SMB/Google Drive source records expose a strict confirmation flow, destructive provider deletion runs behind a backend deletion service, only the selected source record and dependent rows are removed, and canonical membership is recomputed without implicitly deleting sibling sources.
-- [ ] In library, we can use "right click" to open a menu with game specific actions (same actions available in the games page, but also add "change cover photo").
+- [x] In library, we can use "right click" to open a menu with game specific actions (same actions available in the games page, but also add "change cover photo").
 - [x] Collapsed shelves in library should take almost the whole row. the "..." card should not look like a card, but as text, without the background and frame of a card. also it should be much smaller (and centerlized vertically).
   - 2026-04-17 follow-up: the overflow affordance now renders as compact text/expander UI rather than a peer card.
 - [x] Library / Play section shelves now use bounded preview paging on the parent page, with explicit `Open Shelf` focused routes (`/library/section/:sectionId`, `/play/section/:sectionId`) instead of mounting full free-scroll rows for every section.
 - Cancelled: the original free-scroll shelf-arrow plan was superseded by bounded preview paging plus focused shelf routes, which solved the page-responsiveness problem without keeping many full horizontal rows mounted on the main Library / Play pages.
-- [ ] Achivements page (tab to the right of the "Library"). This tab should show display and dashboard all achivements from all achivements integrations set in MGA. Per-achivement system and per-game.
-- [ ] in settings -> undetected games, we should have a button to re-detect only the undetected games. This is useful for cases where the detection algorithm has been updated or the external databases where updated and we want to retry to redetect the games. Also, the per-game manual process should have "try re-detect" to use the detection algorithm.
-- [ ] Remove the "recent played" and "playable" side bar. Instead, in the library, there's an auto-shelf (can be empty) with the latest played games ordered from latest played game to the latest. it should also have a "remove" button from the list (hovering remove icon that appears when cursor hovers the game).
+- [x] Achivements page (tab to the right of the "Library"). This tab should show display and dashboard all achivements from all achivements integrations set in MGA. Per-achivement system and per-game.
+- [x] in settings -> undetected games, we should have a button to re-detect only the undetected games. This is useful for cases where the detection algorithm has been updated or the external databases where updated and we want to retry to redetect the games. Also, the per-game manual process should have "try re-detect" to use the detection algorithm.
+- [x] Remove the "recent played" and "playable" side bar. Instead, in the library, there's an auto-shelf (can be empty) with the latest played games ordered from latest played game to the latest. it should also have a "remove" button from the list (hovering remove icon that appears when cursor hovers the game).
+- [ ] 2026-04-22 priority: center the Home / Settings / About page content instead of left-aligning the constrained layout.
+- [ ] 2026-04-22 priority: move the `Recent Played` auto-shelf from Library to Play, keep newest-first ordering, and keep the hover remove action.
+- [ ] 2026-04-22 priority: fix game-card / game-row context menus so they open at the cursor and always render above neighboring cards.
+- [ ] 2026-04-22 priority: section shelf/group labels should use shared display names (for example `Windows PC`) instead of leaking raw ids like `windows_pc`.
+- [ ] 2026-04-22 priority: remove the unused notification bell until there is a real notifications surface behind it.
+- [ ] Focused shelf pages can still feel heavy with large result sets; narrow the initial render cost and load more games as the user scrolls.
+- [ ] Shelf navigation and focused shelf browsing should use a fast, smooth scroll animation instead of abrupt jumps.
+- [ ] About page partner/vendor logos should not sit inside card framing; text-only dark logos should render on a light rounded tile so they stay readable.
+- [ ] Audit badges/icons across cards and hover states: use the correct platform/source marks, replace text-only `Playable` with icon + tooltip behavior, and normalize reuse of the same icons throughout the app.
+- [ ] Media gallery images should expose `Set as cover image` from a right-click/context action in addition to the existing game-level cover chooser.
+- [ ] Recheck metadata/platform normalization for known-platform titles that still surface as `unknown`, such as `Plasma Pong`.
+- [ ] Investigate MAME launch failures that report `ROMSET not recognized` and lock the runner contract down with focused proof.
+- [ ] RetroAchievements remains vulnerable to Cloudflare blocking in some environments; determine whether MGA can use a more compatible upstream access pattern without misclassifying auth/config failures.
+- [ ] Revisit cover-image presentation rules so portrait/landscape assets are framed more gracefully when the current crop cuts away important art.
+- [ ] Package MGA for real distribution (Windows/Linux/macOS and/or Docker) with an installer/start path that does not require source checkout.
+- [ ] Refresh `README.md` into a user-facing landing document with quick start, screenshots, packaging/install guidance, and feature overview.

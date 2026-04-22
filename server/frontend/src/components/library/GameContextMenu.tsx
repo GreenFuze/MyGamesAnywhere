@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   ApiError,
@@ -19,6 +20,7 @@ import { GameMediaCollection, mediaUrl } from '@/lib/gameMedia'
 import { isPlayable } from '@/lib/gameUtils'
 
 type MenuPoint = { x: number; y: number }
+const VIEWPORT_MARGIN = 8
 
 interface GameContextMenuProps {
   game: GameDetailResponse
@@ -34,6 +36,7 @@ export function GameContextMenu({ game, point, onClose }: GameContextMenuProps) 
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
+  const menuRef = useRef<HTMLDivElement | null>(null)
   const [coverDialogOpen, setCoverDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -41,6 +44,7 @@ export function GameContextMenu({ game, point, onClose }: GameContextMenuProps) 
   const [error, setError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<SourceGameDetailDTO | null>(null)
+  const [menuPosition, setMenuPosition] = useState<MenuPoint | null>(null)
 
   const imageMedia = useMemo(
     () => new GameMediaCollection(game.media).imageMedia(),
@@ -65,6 +69,32 @@ export function GameContextMenu({ game, point, onClose }: GameContextMenuProps) 
       window.removeEventListener('pointerdown', onPointerDown)
     }
   }, [onClose, point])
+
+  useEffect(() => {
+    if (!point) {
+      setMenuPosition(null)
+      return
+    }
+    setMenuPosition(point)
+  }, [point])
+
+  useLayoutEffect(() => {
+    if (!point || !menuRef.current) return
+
+    const rect = menuRef.current.getBoundingClientRect()
+    const nextX = Math.max(
+      VIEWPORT_MARGIN,
+      Math.min(point.x, window.innerWidth - rect.width - VIEWPORT_MARGIN),
+    )
+    const nextY = Math.max(
+      VIEWPORT_MARGIN,
+      Math.min(point.y, window.innerHeight - rect.height - VIEWPORT_MARGIN),
+    )
+
+    if (!menuPosition || menuPosition.x !== nextX || menuPosition.y !== nextY) {
+      setMenuPosition({ x: nextX, y: nextY })
+    }
+  }, [menuPosition, point])
 
   const invalidateGame = async (gameID = game.id) => {
     await Promise.all([
@@ -209,61 +239,66 @@ export function GameContextMenu({ game, point, onClose }: GameContextMenuProps) 
 
   return (
     <>
-      {point && (
-        <div
-          className="fixed z-50 min-w-60 rounded-mga border border-mga-border bg-mga-surface p-1 shadow-xl shadow-black/30"
-          style={{ left: point.x, top: point.y }}
-          onClick={(event) => event.stopPropagation()}
-          onPointerDown={(event) => event.stopPropagation()}
-          role="menu"
-        >
-          <button type="button" role="menuitem" onClick={openDetails} className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated">
-            View details
-          </button>
-          {playable && (
-            <button type="button" role="menuitem" onClick={playInBrowser} className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated">
-              Play in Browser
-            </button>
-          )}
-          {game.xcloud_url && (
-            <button type="button" role="menuitem" onClick={openXcloud} className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated">
-              Open xCloud
-            </button>
-          )}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setCoverDialogOpen(true)
-              onClose()
-            }}
-            className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated"
+      {point &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="fixed z-[200] min-w-60 rounded-mga border border-mga-border bg-mga-surface p-1 shadow-xl shadow-black/30"
+            style={{ left: menuPosition?.x ?? point.x, top: menuPosition?.y ?? point.y }}
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.preventDefault()}
+            role="menu"
           >
-            Change cover photo
-          </button>
-          {game.cover_override && (
-            <button type="button" role="menuitem" onClick={clearCover} disabled={busy} className="block w-full rounded-mga px-3 py-2 text-left text-sm text-mga-muted hover:bg-mga-elevated hover:text-mga-text disabled:opacity-60">
-              Clear cover override
+            <button type="button" role="menuitem" onClick={openDetails} className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated">
+              View details
             </button>
-          )}
-          <button type="button" role="menuitem" onClick={() => void triggerRefreshMetadata()} disabled={busy} className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated disabled:opacity-60">
-            {busy ? 'Refreshing...' : 'Refresh Metadata & Media'}
-          </button>
-          <button type="button" role="menuitem" onClick={reclassify} className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated">
-            Reclassify
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={openDeleteDialog}
-            disabled={deletableSources.length === 0}
-            className="block w-full rounded-mga px-3 py-2 text-left text-sm text-red-200 hover:bg-red-500/10 disabled:text-mga-muted disabled:hover:bg-transparent"
-          >
-            Delete Source Record...
-          </button>
-          {error && <p className="px-3 py-2 text-xs text-red-400">{error}</p>}
-        </div>
-      )}
+            {playable && (
+              <button type="button" role="menuitem" onClick={playInBrowser} className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated">
+                Play in Browser
+              </button>
+            )}
+            {game.xcloud_url && (
+              <button type="button" role="menuitem" onClick={openXcloud} className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated">
+                Open xCloud
+              </button>
+            )}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setCoverDialogOpen(true)
+                onClose()
+              }}
+              className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated"
+            >
+              Change cover photo
+            </button>
+            {game.cover_override && (
+              <button type="button" role="menuitem" onClick={clearCover} disabled={busy} className="block w-full rounded-mga px-3 py-2 text-left text-sm text-mga-muted hover:bg-mga-elevated hover:text-mga-text disabled:opacity-60">
+                Clear cover override
+              </button>
+            )}
+            <button type="button" role="menuitem" onClick={() => void triggerRefreshMetadata()} disabled={busy} className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated disabled:opacity-60">
+              {busy ? 'Refreshing...' : 'Refresh Metadata & Media'}
+            </button>
+            <button type="button" role="menuitem" onClick={reclassify} className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated">
+              Reclassify
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={openDeleteDialog}
+              disabled={deletableSources.length === 0}
+              className="block w-full rounded-mga px-3 py-2 text-left text-sm text-red-200 hover:bg-red-500/10 disabled:text-mga-muted disabled:hover:bg-transparent"
+            >
+              Delete Source Record...
+            </button>
+            {error && <p className="px-3 py-2 text-xs text-red-400">{error}</p>}
+          </div>,
+          document.body,
+        )}
 
       <Dialog open={coverDialogOpen} onClose={() => setCoverDialogOpen(false)} title="Change cover photo" className="max-w-3xl">
         {imageMedia.length === 0 ? (

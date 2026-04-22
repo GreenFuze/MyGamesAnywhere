@@ -51,10 +51,6 @@ export type RecentPlayedEntry = {
   launchedAt: string;
 };
 
-export type DesktopSidebarPrefs = {
-  collapsedPlatforms: Record<string, boolean>;
-};
-
 export type FrontendConfig = {
   themeId?: string;
   libraryPrefs?: LibraryPrefs;
@@ -62,7 +58,6 @@ export type FrontendConfig = {
   dateFormat?: DateFormat;
   timeFormat?: TimeFormat;
   saveSyncActiveIntegrationId?: string;
-  desktopSidebarPrefs?: DesktopSidebarPrefs;
   recentPlayed?: RecentPlayedEntry[];
   [key: string]: unknown;
 };

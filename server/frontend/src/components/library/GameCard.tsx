@@ -5,6 +5,7 @@ import { BrandBadge } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { CoverImage } from '@/components/ui/cover-image'
 import { PlatformIcon } from '@/components/ui/platform-icon'
+import { StatusBadge } from '@/components/ui/status-badge'
 import { useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -50,8 +51,8 @@ export function GameCard({ game, hoverAction }: GameCardProps) {
           event.preventDefault()
           event.stopPropagation()
           setContextMenuPoint({
-            x: Math.min(event.clientX, window.innerWidth - 224),
-            y: Math.min(event.clientY, window.innerHeight - 260),
+            x: event.clientX,
+            y: event.clientY,
           })
         }}
         onKeyDown={(event) => {
@@ -77,21 +78,9 @@ export function GameCard({ game, hoverAction }: GameCardProps) {
           />
 
           <div className="absolute left-2 top-2 flex max-w-[calc(100%-1rem)] flex-wrap gap-1">
-            {game.xcloud_available && (
-              <Badge variant="xcloud" className="bg-black/70 text-[10px] uppercase tracking-wide text-white backdrop-blur">
-                xCloud
-              </Badge>
-            )}
-            {game.is_game_pass && (
-              <Badge variant="gamepass" className="bg-black/70 text-[10px] uppercase tracking-wide text-white backdrop-blur">
-                Game Pass
-              </Badge>
-            )}
-            {playable && (
-              <Badge variant="playable" className="bg-black/70 text-[10px] uppercase tracking-wide text-white backdrop-blur">
-                Playable
-              </Badge>
-            )}
+            {game.xcloud_available && <StatusBadge kind="xcloud" />}
+            {game.is_game_pass && <StatusBadge kind="gamepass" />}
+            {playable && <StatusBadge kind="playable" />}
           </div>
 
           {game.achievement_summary && (

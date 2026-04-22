@@ -3,6 +3,8 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { GameDetailResponse } from '@/api/client'
 import { GameCard } from '@/components/library/GameCard'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import { useTheme } from '@/theme/ThemeProvider'
 
 const GAP_PX = 16
 const MIN_CARD_WIDTH = 190
@@ -31,8 +33,10 @@ function computeColumns(width: number): number {
 
 export function SectionPreviewShelf({ games, label, onOpenShelf }: SectionPreviewShelfProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const { reducedMotion } = useTheme()
   const [columns, setColumns] = useState(1)
   const [pageIndex, setPageIndex] = useState(0)
+  const [pageDirection, setPageDirection] = useState<'next' | 'prev' | null>(null)
 
   useEffect(() => {
     const el = containerRef.current
@@ -70,7 +74,12 @@ export function SectionPreviewShelf({ games, label, onOpenShelf }: SectionPrevie
   return (
     <div className="relative" ref={containerRef}>
       <div
-        className="grid gap-4 pr-24"
+        key={`${pageIndex}:${pageDirection ?? 'idle'}`}
+        className={cn(
+          'grid gap-4 pr-24',
+          !reducedMotion && pageDirection === 'next' && 'mga-shelf-page-next',
+          !reducedMotion && pageDirection === 'prev' && 'mga-shelf-page-prev',
+        )}
         style={{ gridTemplateColumns: `repeat(${visibleColumns}, minmax(${MIN_CARD_WIDTH}px, ${MAX_CARD_WIDTH}px))` }}
       >
         {previewGames.map((game) => (
@@ -83,7 +92,10 @@ export function SectionPreviewShelf({ games, label, onOpenShelf }: SectionPrevie
       {pageIndex > 0 && (
         <button
           type="button"
-          onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+          onClick={() => {
+            setPageDirection('prev')
+            setPageIndex((current) => Math.max(0, current - 1))
+          }}
           className="absolute left-0 top-1/2 hidden h-12 w-10 -translate-y-1/2 items-center justify-center rounded-mga border border-mga-border bg-mga-bg/90 text-mga-text shadow-lg backdrop-blur transition-colors hover:border-mga-accent sm:flex"
           aria-label={`Previous page in ${label}`}
         >
@@ -94,7 +106,10 @@ export function SectionPreviewShelf({ games, label, onOpenShelf }: SectionPrevie
       {showNextPage && (
         <button
           type="button"
-          onClick={() => setPageIndex((current) => Math.min(previewPageCount - 1, current + 1))}
+          onClick={() => {
+            setPageDirection('next')
+            setPageIndex((current) => Math.min(previewPageCount - 1, current + 1))
+          }}
           className="absolute right-0 top-1/2 flex h-12 w-10 -translate-y-1/2 items-center justify-center rounded-mga border border-mga-border bg-mga-bg/90 text-mga-text shadow-lg backdrop-blur transition-colors hover:border-mga-accent"
           aria-label={`Next page in ${label}`}
         >

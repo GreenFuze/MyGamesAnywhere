@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { ChevronDown, ChevronRight, Trophy } from 'lucide-react'
 import {
   getAchievementsDashboard,
@@ -61,13 +61,34 @@ function SystemSummaryCard({ system }: { system: AchievementSystemSummaryDTO }) 
   )
 }
 
-function GameAchievementRow({ item }: { item: AchievementGameSummaryDTO }) {
+type AchievementDetailLinkState = {
+  from: string
+  scrollY: number
+  originLabel: 'Achievements'
+}
+
+function buildAchievementDetailLinkState(pathname: string, search: string): AchievementDetailLinkState {
+  return {
+    from: `${pathname}${search}`,
+    scrollY: Math.max(0, Math.floor(window.scrollY)),
+    originLabel: 'Achievements',
+  }
+}
+
+function GameAchievementRow({
+  item,
+  detailLinkState,
+}: {
+  item: AchievementGameSummaryDTO
+  detailLinkState: AchievementDetailLinkState
+}) {
   const summary = item.game.achievement_summary
   const coverUrl = selectCoverUrl(item.game.media, item.game.cover_override)
 
   return (
     <Link
       to={`/game/${encodeURIComponent(item.game.id)}`}
+      state={detailLinkState}
       className="grid gap-3 rounded-mga border border-mga-border bg-mga-surface p-3 transition-colors hover:border-mga-accent/70 hover:bg-mga-elevated/40 md:grid-cols-[4rem,minmax(0,1fr),minmax(16rem,0.8fr)]"
     >
       <div className="h-20 w-14 overflow-hidden rounded-mga border border-mga-border bg-mga-bg">
@@ -223,10 +244,12 @@ function AchievementExplorerGameGroup({
   item,
   systems,
   forcedOpen,
+  detailLinkState,
 }: {
   item: AchievementExplorerGameDTO
   systems: Array<{ system: AchievementSetDTO; achievements: AchievementDTO[] }>
   forcedOpen: boolean
+  detailLinkState: AchievementDetailLinkState
 }) {
   const [open, setOpen] = useState(false)
   const expanded = forcedOpen || open
@@ -290,6 +313,7 @@ function AchievementExplorerGameGroup({
           <div className="flex justify-end">
             <Link
               to={`/game/${encodeURIComponent(item.game.id)}`}
+              state={detailLinkState}
               className="text-sm font-medium text-mga-accent transition-colors hover:opacity-80"
             >
               Open game details
@@ -302,6 +326,7 @@ function AchievementExplorerGameGroup({
 }
 
 export function AchievementsPage() {
+  const location = useLocation()
   const dashboard = useQuery({
     queryKey: ['achievements-dashboard'],
     queryFn: getAchievementsDashboard,
@@ -314,6 +339,7 @@ export function AchievementsPage() {
   const [achievementQuery, setAchievementQuery] = useState('')
   const [sourceFilter, setSourceFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'unlocked' | 'locked'>('all')
+  const detailLinkState = buildAchievementDetailLinkState(location.pathname, location.search)
   const data = dashboard.data ?? { totals: { source_count: 0, total_count: 0, unlocked_count: 0 }, systems: [], games: [] }
   const explorerData = explorer.data ?? { games: [] }
   const hasCachedAchievements = data.games.length > 0
@@ -424,7 +450,7 @@ export function AchievementsPage() {
             </div>
             <div className="space-y-3">
               {data.games.map((item) => (
-                <GameAchievementRow key={item.game.id} item={item} />
+                <GameAchievementRow key={item.game.id} item={item} detailLinkState={detailLinkState} />
               ))}
             </div>
           </section>
@@ -504,6 +530,7 @@ export function AchievementsPage() {
                     item={item}
                     systems={systems}
                     forcedOpen={hasActiveFilters}
+                    detailLinkState={detailLinkState}
                   />
                 ))}
               </div>

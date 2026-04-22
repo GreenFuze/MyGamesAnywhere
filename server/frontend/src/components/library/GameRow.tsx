@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CoverImage } from '@/components/ui/cover-image'
 import { PlatformIcon } from '@/components/ui/platform-icon'
+import { StatusBadge } from '@/components/ui/status-badge'
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -49,8 +50,8 @@ export function GameRow({ game }: GameRowProps) {
         event.preventDefault()
         event.stopPropagation()
         setContextMenuPoint({
-          x: Math.min(event.clientX, window.innerWidth - 224),
-          y: Math.min(event.clientY, window.innerHeight - 260),
+          x: event.clientX,
+          y: event.clientY,
         })
       }}
     >
@@ -103,9 +104,9 @@ export function GameRow({ game }: GameRowProps) {
       {/* Flags */}
       <td className="px-3 py-2">
         <div className="flex flex-wrap gap-1">
-          {game.xcloud_available && <Badge variant="xcloud">xCloud</Badge>}
-          {game.is_game_pass && <Badge variant="gamepass">GP</Badge>}
-          {playable && <Badge variant="playable">Playable</Badge>}
+          {game.xcloud_available && <StatusBadge kind="xcloud" className="border-sky-500/20 bg-mga-surface text-mga-text" />}
+          {game.is_game_pass && <StatusBadge kind="gamepass" className="border-emerald-500/20 bg-mga-surface text-mga-text" />}
+          {playable && <StatusBadge kind="playable" className="border-green-500/20 bg-mga-surface text-green-300" />}
         </div>
       </td>
 

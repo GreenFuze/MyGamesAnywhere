@@ -27,6 +27,36 @@ export function BrandIcon({ brand, className }: BrandIconProps) {
   )
 }
 
+interface BrandMarkProps {
+  brand: BrandRef
+  className?: string
+  tileClassName?: string
+}
+
+export function BrandMark({ brand, className, tileClassName }: BrandMarkProps) {
+  const resolved = resolveBrand(brand)
+  const text = brandLabel(typeof brand === 'string' ? brand : resolved?.id, resolved?.label)
+  const lightTile = resolved?.presentation === 'light_tile'
+
+  return (
+    <span
+      className={cn(
+        'flex h-11 w-11 shrink-0 items-center justify-center rounded-mga',
+        lightTile ? 'bg-white text-slate-900' : 'bg-transparent text-mga-text',
+        tileClassName,
+      )}
+    >
+      {resolved?.iconPath ? (
+        <BrandIcon brand={resolved} className={cn('h-7 w-7', className)} />
+      ) : (
+        <span className={cn('px-2 text-center text-[10px] font-semibold uppercase tracking-wide', className)}>
+          {text.slice(0, 4)}
+        </span>
+      )}
+    </span>
+  )
+}
+
 interface BrandBadgeProps {
   brand: BrandRef
   label?: string

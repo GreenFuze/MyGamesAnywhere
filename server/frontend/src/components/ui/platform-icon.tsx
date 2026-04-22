@@ -43,6 +43,18 @@ function buildIconMap(): Record<string, PlatformEntry> {
     ...map.scummvm,
     icon: <BrandIcon brand="scummvm" className="h-3.5 w-3.5" />,
   }
+  map.xbox_360 = {
+    ...map.xbox_360,
+    icon: <BrandIcon brand="xbox" className="h-3.5 w-3.5" />,
+  }
+  map.xbox_one = {
+    ...map.xbox_one,
+    icon: <BrandIcon brand="xbox" className="h-3.5 w-3.5" />,
+  }
+  map.xbox_series = {
+    ...map.xbox_series,
+    icon: <BrandIcon brand="xbox" className="h-3.5 w-3.5" />,
+  }
 
   return map
 }

@@ -95,6 +95,48 @@ function TimelineView({ games }: { games: GameDetailResponse[] }) {
   )
 }
 
+function RecentPlayedShelf({
+  games,
+  onRemove,
+}: {
+  games: GameDetailResponse[]
+  onRemove: (gameID: string) => void
+}) {
+  if (games.length === 0) return null
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2 text-left">
+          <h2 className="truncate text-2xl font-semibold tracking-tight text-mga-text">Recent Played</h2>
+          <span className="text-sm text-mga-muted">{games.length}</span>
+        </div>
+      </div>
+      <HorizontalGameShelf
+        games={games}
+        label="Recent Played"
+        renderHoverAction={(game) => (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              if (window.confirm(`Are you sure you want to remove "${game.title}" from Recent Played?`)) {
+                onRemove(game.id)
+              }
+            }}
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-mga-border bg-black/70 text-white backdrop-blur transition-colors hover:border-red-400/70 hover:text-red-300"
+            aria-label={`Remove ${game.title} from recent played`}
+            title="Remove from recent played"
+          >
+            <Trash2 size={15} />
+          </button>
+        )}
+      />
+    </section>
+  )
+}
+
 export function CollectionPage({ scope }: CollectionPageProps) {
   const { sectionId } = useParams()
   const location = useLocation()
@@ -172,7 +214,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     : scopeMeta.emptyMessage
 
   const recentPlayedGames = useMemo(() => {
-    if (scope !== 'library') return []
+    if (scope !== 'play') return []
     return recentPlayed
       .map((entry) => {
         const game = allGames.find((candidate) => candidate.id === entry.gameId)
@@ -287,111 +329,21 @@ export function CollectionPage({ scope }: CollectionPageProps) {
 
       {focusedSection ? (
         <div className="space-y-6">
-          <GameGrid games={displayedGames} isLoading={isPending} />
+          <GameGrid games={displayedGames} isLoading={isPending} progressive />
         </div>
       ) : prefs.viewMode === 'grid' ? (
         <div className="space-y-8">
-          {recentPlayedGames.length > 0 && (
-            <section className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2 text-left">
-                  <h2 className="truncate text-2xl font-semibold tracking-tight text-mga-text">Recent Played</h2>
-                  <span className="text-sm text-mga-muted">{recentPlayedGames.length}</span>
-                </div>
-              </div>
-              <HorizontalGameShelf
-                games={recentPlayedGames}
-                label="Recent Played"
-                renderHoverAction={(game) => (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      if (window.confirm(`Are you sure you want to remove "${game.title}" from Recent Played?`)) {
-                        removeRecentPlayed(game.id)
-                      }
-                    }}
-                    className="flex h-9 w-9 items-center justify-center rounded-full border border-mga-border bg-black/70 text-white backdrop-blur transition-colors hover:border-red-400/70 hover:text-red-300"
-                    aria-label={`Remove ${game.title} from recent played`}
-                    title="Remove from recent played"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                )}
-              />
-            </section>
-          )}
+          <RecentPlayedShelf games={recentPlayedGames} onRemove={removeRecentPlayed} />
           <GameGrid games={displayedGames} isLoading={isPending} />
         </div>
       ) : prefs.viewMode === 'timeline' ? (
         <div className="space-y-8">
-          {recentPlayedGames.length > 0 && (
-            <section className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2 text-left">
-                  <h2 className="truncate text-2xl font-semibold tracking-tight text-mga-text">Recent Played</h2>
-                  <span className="text-sm text-mga-muted">{recentPlayedGames.length}</span>
-                </div>
-              </div>
-              <HorizontalGameShelf
-                games={recentPlayedGames}
-                label="Recent Played"
-                renderHoverAction={(game) => (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      if (window.confirm(`Are you sure you want to remove "${game.title}" from Recent Played?`)) {
-                        removeRecentPlayed(game.id)
-                      }
-                    }}
-                    className="flex h-9 w-9 items-center justify-center rounded-full border border-mga-border bg-black/70 text-white backdrop-blur transition-colors hover:border-red-400/70 hover:text-red-300"
-                    aria-label={`Remove ${game.title} from recent played`}
-                    title="Remove from recent played"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                )}
-              />
-            </section>
-          )}
+          <RecentPlayedShelf games={recentPlayedGames} onRemove={removeRecentPlayed} />
           <TimelineView games={displayedGames} />
         </div>
       ) : (
         <div className="space-y-6">
-          {recentPlayedGames.length > 0 && (
-            <section className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2 text-left">
-                  <h2 className="truncate text-2xl font-semibold tracking-tight text-mga-text">Recent Played</h2>
-                  <span className="text-sm text-mga-muted">{recentPlayedGames.length}</span>
-                </div>
-              </div>
-              <HorizontalGameShelf
-                games={recentPlayedGames}
-                label="Recent Played"
-                renderHoverAction={(game) => (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      if (window.confirm(`Are you sure you want to remove "${game.title}" from Recent Played?`)) {
-                        removeRecentPlayed(game.id)
-                      }
-                    }}
-                    className="flex h-9 w-9 items-center justify-center rounded-full border border-mga-border bg-black/70 text-white backdrop-blur transition-colors hover:border-red-400/70 hover:text-red-300"
-                    aria-label={`Remove ${game.title} from recent played`}
-                    title="Remove from recent played"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                )}
-              />
-            </section>
-          )}
+          <RecentPlayedShelf games={recentPlayedGames} onRemove={removeRecentPlayed} />
           <CollectionShelf
             sections={prefs.sections}
             onOpenSection={openSection}

@@ -31,7 +31,6 @@ export type {
   CollectionViewMode,
   DateFormat,
   DateTimePrefs,
-  DesktopSidebarPrefs,
   FrontendConfig,
   GameLaunchCandidateDTO,
   GameLaunchSourceDTO,

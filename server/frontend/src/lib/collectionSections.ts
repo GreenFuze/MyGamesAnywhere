@@ -3,6 +3,7 @@ import type {
   CollectionSectionField,
   GameDetailResponse,
 } from '@/api/client'
+import { platformLabel } from '@/lib/displayText'
 import { sourceLabel } from '@/lib/gameUtils'
 
 export type SectionOption = {
@@ -39,6 +40,7 @@ function stableGroupId(field: CollectionSectionField, value: string): string {
 }
 
 function displayValue(field: CollectionSectionField, value: string): string {
+  if (field === 'platform') return platformLabel(value)
   if (field === 'source') return sourceLabel(value)
   return value
 }

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
 import { getAboutInfo } from '@/api/client'
-import { BrandIcon } from '@/components/ui/brand-icon'
+import { BrandMark } from '@/components/ui/brand-icon'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   getBrandDefinition,
@@ -51,7 +51,7 @@ function InfoCardSkeleton() {
 
 function BrandCardSkeleton() {
   return (
-    <article className="rounded-mga border border-mga-border bg-mga-surface p-4 shadow-sm shadow-black/10">
+    <article className="border-b border-mga-border/70 py-4 last:border-b-0">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Skeleton className="h-11 w-11 rounded-mga" />
@@ -68,7 +68,7 @@ function BrandCardSkeleton() {
 
 function CreditRowSkeleton() {
   return (
-    <article className="flex flex-col gap-3 rounded-mga border border-mga-border bg-mga-surface p-4 shadow-sm shadow-black/10 md:flex-row md:items-center md:justify-between">
+    <article className="flex flex-col gap-3 border-b border-mga-border/70 py-4 last:border-b-0 md:flex-row md:items-center md:justify-between">
       <div className="flex min-w-0 items-center gap-3">
         <Skeleton className="h-11 w-11 rounded-mga" />
         <div className="min-w-0 space-y-2">
@@ -178,44 +178,34 @@ export function AboutPage() {
           </p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="divide-y divide-mga-border/70 rounded-mga border border-mga-border bg-mga-surface/50 px-5">
           {aboutQuery.isPending
             ? Array.from({ length: 6 }, (_, index) => <BrandCardSkeleton key={`brand-skeleton-${index}`} />)
             : null}
           {poweredByBrands.map((brand) => (
             <article
               key={brand.id}
-              className="rounded-mga border border-mga-border bg-mga-surface p-4 shadow-sm shadow-black/10"
+              className="flex items-start justify-between gap-3 border-b border-mga-border/70 py-4 last:border-b-0"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-mga border border-mga-border bg-mga-bg">
-                    {brand.iconPath ? (
-                      <BrandIcon brand={brand} className="h-7 w-7" />
-                    ) : (
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-mga-muted">
-                        {brand.label.slice(0, 4)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="font-semibold text-mga-text">{brand.label}</h3>
-                    <p className="mt-1 text-sm text-mga-muted">{brand.description}</p>
-                  </div>
+              <div className="flex min-w-0 items-center gap-3">
+                <BrandMark brand={brand} tileClassName="border border-mga-border" />
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-mga-text">{brand.label}</h3>
+                  <p className="mt-1 text-sm text-mga-muted">{brand.description}</p>
                 </div>
-
-                {brand.websiteUrl ? (
-                  <a
-                    href={brand.websiteUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-mga-accent hover:underline"
-                  >
-                    Visit
-                    <ExternalLink size={14} />
-                  </a>
-                ) : null}
               </div>
+
+              {brand.websiteUrl ? (
+                <a
+                  href={brand.websiteUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-mga-accent hover:underline"
+                >
+                  Visit
+                  <ExternalLink size={14} />
+                </a>
+              ) : null}
             </article>
           ))}
         </div>
@@ -230,19 +220,17 @@ export function AboutPage() {
           </p>
         </div>
 
-        <div className="space-y-3">
+        <div className="divide-y divide-mga-border/70 rounded-mga border border-mga-border bg-mga-surface/50 px-5">
           {aboutQuery.isPending
             ? Array.from({ length: 4 }, (_, index) => <CreditRowSkeleton key={`credit-skeleton-${index}`} />)
             : null}
           {shippedIconBrands.map((brand) => (
             <article
               key={brand.id}
-              className="flex flex-col gap-3 rounded-mga border border-mga-border bg-mga-surface p-4 shadow-sm shadow-black/10 md:flex-row md:items-center md:justify-between"
+              className="flex flex-col gap-3 border-b border-mga-border/70 py-4 last:border-b-0 md:flex-row md:items-center md:justify-between"
             >
               <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-mga border border-mga-border bg-mga-bg">
-                  <BrandIcon brand={brand} className="h-7 w-7" />
-                </div>
+                <BrandMark brand={brand} tileClassName="border border-mga-border" />
                 <div className="min-w-0">
                   <p className="font-medium text-mga-text">{brand.label}</p>
                   <p className="text-sm text-mga-muted">{brand.creditNote ?? 'Bundled icon asset.'}</p>
