@@ -525,7 +525,9 @@ func applyUnifiedFields(g *core.Game, sources []MetadataSource) {
 			titleSet = true
 		}
 		if m.Platform != "" && g.Platform == core.PlatformUnknown {
-			g.Platform = core.Platform(m.Platform)
+			if normalized := core.NormalizePlatformAlias(m.Platform); normalized != core.PlatformUnknown {
+				g.Platform = normalized
+			}
 		}
 		if m.Kind != "" && g.Kind == core.GameKindBaseGame {
 			g.Kind = core.GameKind(m.Kind)

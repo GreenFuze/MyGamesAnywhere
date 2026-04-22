@@ -32,7 +32,7 @@ import {
   buildBrowserPlaySession,
   buildBrowserPlayerUrl,
   clearBrowserPlaySession,
-  getBrowserPlayRuntime,
+  getBrowserPlayPreferenceRuntime,
   listBrowserPlayJsdosExecutables,
   persistBrowserPlaySession,
   readBrowserPlayJsdosExecutablePreference,
@@ -153,7 +153,7 @@ export function GamePlayerPage() {
   }, [location.search])
   const browserPlayResolution = useMemo(() => {
     if (!game.data) return null
-    const runtime = getBrowserPlayRuntime(game.data.platform)
+    const runtime = getBrowserPlayPreferenceRuntime(game.data)
     const rememberedSourceId =
       sourceParam || !runtime ? null : readBrowserPlaySourcePreference(game.data.id, runtime)
     return resolveBrowserPlaySelection(game.data, {

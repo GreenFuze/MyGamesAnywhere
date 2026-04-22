@@ -193,6 +193,25 @@ func TestConsensus_CaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestConsensus_NormalizesResolvedPlatformAlias(t *testing.T) {
+	g := &core.Game{
+		Title:    "raw",
+		RawTitle: "raw",
+		Platform: core.PlatformUnknown,
+		Kind:     core.GameKindBaseGame,
+		ResolverMatches: []core.ResolverMatch{
+			{PluginID: "plugin-a", Title: "Plasma Pong", Platform: "Windows", ExternalID: "a1"},
+		},
+	}
+	sources := []MetadataSource{{PluginID: "plugin-a"}}
+
+	runConsensus(g, sources)
+
+	if g.Platform != core.PlatformWindowsPC {
+		t.Fatalf("platform: got %q, want %q", g.Platform, core.PlatformWindowsPC)
+	}
+}
+
 func TestConsensus_FillBlanks(t *testing.T) {
 	g := &core.Game{
 		Title:    "raw",

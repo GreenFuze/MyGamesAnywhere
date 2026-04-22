@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"regexp"
@@ -53,7 +54,7 @@ const (
 // Rate limiter: ~4 req/s to be polite to RA servers.
 var raAPIBase = "https://retroachievements.org/API"
 var rateLimiter = time.NewTicker(250 * time.Millisecond)
-var raHTTPClient = &http.Client{Timeout: 15 * time.Second}
+var raHTTPClient = newRAHTTPClient()
 
 // Platform -> RA console ID mapping.
 // RA uses numeric console IDs; a single platform may map to multiple.
@@ -163,23 +164,40 @@ type raAchievement struct {
 
 // RA API calls.
 
-func raGet(endpoint string, params url.Values) ([]byte, error) {
-	<-rateLimiter.C
+func newRAHTTPClient() *http.Client {
+	jar, _ := cookiejar.New(nil)
+	return &http.Client{
+		Timeout: 15 * time.Second,
+		Jar:     jar,
+	}
+}
 
+func newRARequest(endpoint string, params url.Values) (*http.Request, error) {
 	params.Set("z", cfg.Username)
 	params.Set("y", cfg.APIKey)
 
 	apiURL := fmt.Sprintf("%s/%s?%s", raAPIBase, endpoint, params.Encode())
-
 	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("RA API %s build request: %w", endpoint, err)
 	}
 	req.Header.Set("User-Agent", raUserAgent)
-	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,text/plain;q=0.8,*/*;q=0.7")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
+	req.Header.Set("DNT", "1")
+	req.Header.Set("Referer", "https://retroachievements.org/")
+	req.Header.Set("Origin", "https://retroachievements.org")
+	return req, nil
+}
+
+func raGet(endpoint string, params url.Values) ([]byte, error) {
+	<-rateLimiter.C
+	req, err := newRARequest(endpoint, params)
+	if err != nil {
+		return nil, err
+	}
 
 	resp, err := raHTTPClient.Do(req)
 	if err != nil {

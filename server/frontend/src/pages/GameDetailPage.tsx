@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { createPortal } from 'react-dom'
 import {
   ArrowLeft,
   ArrowRightLeft,
@@ -20,6 +21,7 @@ import {
   getGame,
   getGameAchievements,
   refreshGameMetadata,
+  setGameCoverOverride,
   type AchievementDTO,
   type AchievementSetDTO,
   type ExternalIDDTO,
@@ -45,7 +47,7 @@ import {
   clearBrowserPlaySourcePreference,
   browserPlaySourceContext,
   browserPlaySourceOptionLabel,
-  getBrowserPlayRuntime,
+  getBrowserPlayPreferenceRuntime,
   readBrowserPlaySourcePreference,
   resolveBrowserPlaySelection,
   writeBrowserPlaySourcePreference,
@@ -740,6 +742,93 @@ function MediaViewerDialog({ media, onClose }: { media: GameMediaDetailDTO | nul
   )
 }
 
+type MenuPoint = { x: number; y: number }
+const VIEWPORT_MARGIN = 8
+
+function MediaContextMenu({
+  media,
+  point,
+  busy,
+  current,
+  onClose,
+  onSetCover,
+}: {
+  media: GameMediaDetailDTO | null
+  point: MenuPoint | null
+  busy: boolean
+  current: boolean
+  onClose: () => void
+  onSetCover: (media: GameMediaDetailDTO) => void
+}) {
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const [menuPosition, setMenuPosition] = useState<MenuPoint | null>(null)
+
+  useEffect(() => {
+    if (!point) {
+      setMenuPosition(null)
+      return
+    }
+    setMenuPosition(point)
+  }, [point])
+
+  useEffect(() => {
+    if (!point) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    const onPointerDown = () => onClose()
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('pointerdown', onPointerDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('pointerdown', onPointerDown)
+    }
+  }, [onClose, point])
+
+  useLayoutEffect(() => {
+    if (!point || !menuRef.current) return
+
+    const rect = menuRef.current.getBoundingClientRect()
+    const nextX = Math.max(
+      VIEWPORT_MARGIN,
+      Math.min(point.x, window.innerWidth - rect.width - VIEWPORT_MARGIN),
+    )
+    const nextY = Math.max(
+      VIEWPORT_MARGIN,
+      Math.min(point.y, window.innerHeight - rect.height - VIEWPORT_MARGIN),
+    )
+
+    if (!menuPosition || menuPosition.x !== nextX || menuPosition.y !== nextY) {
+      setMenuPosition({ x: nextX, y: nextY })
+    }
+  }, [menuPosition, point])
+
+  if (!media || !point || typeof document === 'undefined') return null
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="fixed z-[200] min-w-52 rounded-mga border border-mga-border bg-mga-surface p-1 shadow-xl shadow-black/30"
+      style={{ left: menuPosition?.x ?? point.x, top: menuPosition?.y ?? point.y }}
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.preventDefault()}
+      role="menu"
+    >
+      <button
+        type="button"
+        role="menuitem"
+        disabled={busy || current}
+        onClick={() => onSetCover(media)}
+        className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated disabled:text-mga-muted disabled:hover:bg-transparent"
+      >
+        {current ? 'Current cover image' : (busy ? 'Setting cover...' : 'Set as cover image')}
+      </button>
+    </div>,
+    document.body,
+  )
+}
+
 function ExternalLinkCard({ link }: { link: ExternalLinkItem }) {
   return (
     <a href={link.url} target="_blank" rel="noreferrer" className="flex items-start gap-3 rounded-mga border border-mga-border bg-mga-bg/60 p-3 transition-colors hover:border-mga-accent">
@@ -769,9 +858,15 @@ export function GameDetailPage() {
   const queryClient = useQueryClient()
   const { recordLaunch } = useRecentPlayed()
   const [selectedMedia, setSelectedMedia] = useState<GameMediaDetailDTO | null>(null)
+  const [selectedMediaMenu, setSelectedMediaMenu] = useState<{
+    media: GameMediaDetailDTO
+    point: MenuPoint
+  } | null>(null)
   const [refreshBusy, setRefreshBusy] = useState(false)
   const [refreshNotice, setRefreshNotice] = useState('')
   const [refreshError, setRefreshError] = useState('')
+  const [coverBusy, setCoverBusy] = useState(false)
+  const [coverError, setCoverError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<SourceGameDetailDTO | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteNotice, setDeleteNotice] = useState('')
@@ -821,7 +916,7 @@ export function GameDetailPage() {
   const browserSupported = gameData ? hasBrowserPlaySupport(gameData) : false
   const browserPlayResolution = useMemo(() => {
     if (!gameData) return null
-    const runtime = getBrowserPlayRuntime(gameData.platform)
+    const runtime = getBrowserPlayPreferenceRuntime(gameData)
     const rememberedSourceId = selectedBrowserSourceId
       ? null
       : (runtime ? readBrowserPlaySourcePreference(gameData.id, runtime) : null)
@@ -964,6 +1059,26 @@ export function GameDetailPage() {
       setRefreshError(message)
     } finally {
       setRefreshBusy(false)
+    }
+  }
+
+  const handleSetCoverOverride = async (media: GameMediaDetailDTO) => {
+    if (!game.data || coverBusy) return
+    setCoverBusy(true)
+    setCoverError('')
+    try {
+      const updated = await setGameCoverOverride(game.data.id, media.asset_id)
+      queryClient.setQueryData(['game', updated.id], updated)
+      await queryClient.invalidateQueries({ queryKey: ['games'] })
+      setSelectedMediaMenu(null)
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.responseText?.trim() || error.message
+          : (error instanceof Error ? error.message : 'Set cover override failed.')
+      setCoverError(message)
+    } finally {
+      setCoverBusy(false)
     }
   }
 
@@ -1279,7 +1394,20 @@ export function GameDetailPage() {
             ) : (
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                 {imageMedia.map((media) => (
-                  <button key={`${media.asset_id}:${media.type}`} type="button" onClick={() => setSelectedMedia(media)} className="group overflow-hidden rounded-mga border border-mga-border bg-mga-bg text-left transition-colors hover:border-mga-accent">
+                  <button
+                    key={`${media.asset_id}:${media.type}`}
+                    type="button"
+                    onClick={() => setSelectedMedia(media)}
+                    onContextMenu={(event) => {
+                      event.preventDefault()
+                      setCoverError('')
+                      setSelectedMediaMenu({
+                        media,
+                        point: { x: event.clientX, y: event.clientY },
+                      })
+                    }}
+                    className="group overflow-hidden rounded-mga border border-mga-border bg-mga-bg text-left transition-colors hover:border-mga-accent"
+                  >
                     <img src={mediaUrl(media)} alt={mediaTypeLabel(media.type)} loading="lazy" decoding="async" className="aspect-video w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
                     <div className="space-y-2 border-t border-mga-border px-3 py-2">
                       <span className="block truncate text-xs font-medium text-mga-text">{mediaTypeLabel(media.type)}</span>
@@ -1292,6 +1420,7 @@ export function GameDetailPage() {
                 ))}
               </div>
             )}
+            {coverError ? <p className="mt-3 text-sm text-red-400">{coverError}</p> : null}
           </SectionCard>
 
           {nonImageMedia.length > 0 && (
@@ -1412,6 +1541,14 @@ export function GameDetailPage() {
       </div>
 
       <MediaViewerDialog media={selectedMedia} onClose={() => setSelectedMedia(null)} />
+      <MediaContextMenu
+        media={selectedMediaMenu?.media ?? null}
+        point={selectedMediaMenu?.point ?? null}
+        busy={coverBusy}
+        current={selectedMediaMenu?.media?.asset_id === data.cover_override?.asset_id}
+        onClose={() => setSelectedMediaMenu(null)}
+        onSetCover={(media) => void handleSetCoverOverride(media)}
+      />
       <Dialog
         open={deleteTarget !== null}
         onClose={() => {

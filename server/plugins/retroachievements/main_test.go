@@ -35,6 +35,12 @@ func TestRAGetUsesBrowserLikeHeaders(t *testing.T) {
 		if got := r.Header.Get("Accept-Language"); got == "" {
 			t.Fatal("accept-language should be set")
 		}
+		if got := r.Header.Get("Referer"); got != "https://retroachievements.org/" {
+			t.Fatalf("referer = %q, want RetroAchievements origin", got)
+		}
+		if got := r.Header.Get("Origin"); got != "https://retroachievements.org" {
+			t.Fatalf("origin = %q, want RetroAchievements origin", got)
+		}
 		values := r.URL.Query()
 		if values.Get("z") != cfg.Username || values.Get("y") != cfg.APIKey {
 			t.Fatalf("query = %v, want credentials included", values)

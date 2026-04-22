@@ -130,6 +130,22 @@ export function getBrowserPlayRuntime(platform: string): BrowserPlayRuntime | nu
   return null
 }
 
+function effectiveBrowserPlayPlatform(
+  canonicalPlatform: string,
+  sourcePlatform: string | null | undefined,
+): string {
+  const normalizedSource = sourcePlatform?.trim() ?? ''
+  if (normalizedSource && normalizedSource !== 'unknown') return normalizedSource
+  return canonicalPlatform
+}
+
+function runtimeForSourcePlatform(
+  canonicalPlatform: string,
+  sourcePlatform: string | null | undefined,
+): BrowserPlayRuntime | null {
+  return getBrowserPlayRuntime(effectiveBrowserPlayPlatform(canonicalPlatform, sourcePlatform))
+}
+
 export function browserPlayRuntimeLabel(runtime: BrowserPlayRuntime): string {
   switch (runtime) {
     case 'emulatorjs':
@@ -165,6 +181,15 @@ export function sessionSupportsSaveSync(session: BrowserPlaySession): boolean {
 
 export function getEmulatorJsCore(platform: string): string | null {
   return EMULATORJS_CORES[platform] ?? null
+}
+
+function emulatorJsCoreForSelection(
+  canonicalPlatform: string,
+  selection: BrowserPlaySelection,
+): string | null {
+  return getEmulatorJsCore(
+    effectiveBrowserPlayPlatform(canonicalPlatform, selection.sourceGame.platform),
+  )
 }
 
 export function buildPlayFileUrl(gameId: string, fileId: string, profile?: string): string {
@@ -304,13 +329,12 @@ export function browserPlaySourceOptionLabel(
 }
 
 export function listBrowserPlaySelections(game: GameDetailResponse): BrowserPlaySelection[] {
-  const runtime = getBrowserPlayRuntime(game.platform)
-  if (!runtime) return []
-  const profile = browserPlayProfileForRuntime(runtime)
-
   const selections: BrowserPlaySelection[] = []
 
   for (const sourceGame of game.source_games) {
+    const runtime = runtimeForSourcePlatform(game.platform, sourceGame.platform)
+    if (!runtime) continue
+    const profile = browserPlayProfileForRuntime(runtime)
     const deliveryProfile = sourceGame.delivery?.profiles?.find((candidate) => candidate.profile === profile)
     if (!deliveryProfile || deliveryProfile.mode === 'unavailable') continue
 
@@ -335,8 +359,8 @@ class BrowserPlaySelectionController {
     private readonly requestedSourceGameId: string | null,
     private readonly rememberedSourceGameId: string | null,
   ) {
-    this.runtime = getBrowserPlayRuntime(game.platform)
-    this.selections = this.runtime ? listBrowserPlaySelections(game) : []
+    this.selections = listBrowserPlaySelections(game)
+    this.runtime = getBrowserPlayRuntime(game.platform) ?? this.selections[0]?.runtime ?? null
   }
 
   resolve(): BrowserPlaySelectionResolution {
@@ -440,6 +464,12 @@ export function selectBrowserPlaySelection(
   return resolution.selection
 }
 
+export function getBrowserPlayPreferenceRuntime(
+  game: Pick<GameDetailResponse, 'platform' | 'source_games'>,
+): BrowserPlayRuntime | null {
+  return getBrowserPlayRuntime(game.platform) ?? listBrowserPlaySelections(game as GameDetailResponse)[0]?.runtime ?? null
+}
+
 function blockedSelectionIssue(
   kind: Exclude<BrowserPlaySelectionResolution['kind'], 'resolved'>,
   game: GameDetailResponse,
@@ -481,16 +511,23 @@ function selectionIssueForSelection(
   selection: BrowserPlaySelection,
 ): BrowserPlaySelectionIssue | null {
   if (selection.runtime === 'emulatorjs') {
+    const effectivePlatform = effectiveBrowserPlayPlatform(game.platform, selection.sourceGame.platform)
     if (!selection.rootFile) {
       return {
         code: 'missing_root_file',
         message: `EmulatorJS needs a root launch file for "${selection.sourceGame.raw_title || game.title}".`,
       }
     }
-    if (!getEmulatorJsCore(game.platform)) {
+    if (!emulatorJsCoreForSelection(game.platform, selection)) {
       return {
         code: 'missing_runtime_core',
-        message: `No EmulatorJS core is mapped for ${game.platform}.`,
+        message: `No EmulatorJS core is mapped for ${effectivePlatform}.`,
+      }
+    }
+    if (!emulatorJsGameName(selection)) {
+      return {
+        code: 'missing_root_file',
+        message: `EmulatorJS needs a valid root launch file for "${selection.sourceGame.raw_title || game.title}".`,
       }
     }
     return null
@@ -557,6 +594,17 @@ function lastPathSegment(path: string): string {
   if (!normalized) return ''
   const parts = normalized.split('/').filter(Boolean)
   return parts[parts.length - 1] ?? normalized
+}
+
+function fileStem(path: string): string {
+  const name = lastPathSegment(path)
+  return name.replace(/\.[^.]+$/, '').trim()
+}
+
+function emulatorJsGameName(selection: BrowserPlaySelection): string | null {
+  if (!selection.rootFile) return null
+  const stem = fileStem(selection.rootFile.path)
+  return stem.length > 0 ? stem : null
 }
 
 function isJsdosExecutablePath(path: string): boolean {
@@ -679,14 +727,18 @@ export function buildBrowserPlaySession(
   options?: BuildBrowserPlaySessionOptions,
 ): BrowserPlaySession | null {
   if (selection.runtime === 'emulatorjs') {
-    const core = getEmulatorJsCore(game.platform)
-    if (!selection.rootFile || !core) return null
+    const core = emulatorJsCoreForSelection(game.platform, selection)
+    const gameName =
+      effectiveBrowserPlayPlatform(game.platform, selection.sourceGame.platform) === 'arcade'
+        ? emulatorJsGameName(selection)
+        : game.title
+    if (!selection.rootFile || !core || !gameName) return null
 
     return {
       runtime: 'emulatorjs',
       title: game.title,
       sourceGameId: selection.sourceGame.id,
-      gameName: game.title,
+      gameName,
       gameUrl: buildPlayFileUrl(game.id, selection.rootFile.id, selection.profile),
       core,
     }

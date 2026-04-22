@@ -38,7 +38,7 @@ func NormalizePlatformAlias(value string) Platform {
 	}
 	for _, rule := range platformAliasRules {
 		for _, alias := range rule.aliases {
-			if normalized == alias {
+			if normalized == normalizePlatformAliasValue(alias) {
 				return rule.platform
 			}
 		}

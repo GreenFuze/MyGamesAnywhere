@@ -6,7 +6,7 @@ import {
   pluginLabel,
   sourceLabel,
 } from '@/lib/displayText'
-import { getBrowserPlayRuntime, listBrowserPlaySelections } from '@/lib/browserPlay'
+import { getBrowserPlayPreferenceRuntime, listBrowserPlaySelections } from '@/lib/browserPlay'
 import { GameMediaCollection, mediaUrl } from '@/lib/gameMedia'
 
 // ---------------------------------------------------------------------------
@@ -30,8 +30,8 @@ export function selectGameCoverUrl(game: Pick<GameDetailResponse, 'media' | 'cov
 // Browser play
 // ---------------------------------------------------------------------------
 
-export function hasBrowserPlaySupport(game: Pick<GameDetailResponse, 'play' | 'platform'>): boolean {
-  return getBrowserPlayRuntime(game.platform) !== null
+export function hasBrowserPlaySupport(game: Pick<GameDetailResponse, 'play' | 'platform' | 'source_games'>): boolean {
+  return getBrowserPlayPreferenceRuntime(game as GameDetailResponse) !== null
 }
 
 export function isPlayable(game: Pick<GameDetailResponse, 'play' | 'platform' | 'source_games'>): boolean {

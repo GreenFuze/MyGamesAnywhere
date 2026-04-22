@@ -422,6 +422,10 @@ func candidateExternalIDs(candidate *core.ManualReviewCandidate) []core.External
 
 func manualReviewSelectionToResolverMatch(selection core.ManualReviewSelection) core.ResolverMatch {
 	var media []core.MediaItem
+	platform := strings.TrimSpace(selection.Platform)
+	if normalized := core.NormalizePlatformAlias(platform); normalized != core.PlatformUnknown {
+		platform = string(normalized)
+	}
 	if strings.TrimSpace(selection.ImageURL) != "" {
 		media = append(media, core.MediaItem{
 			Type:   core.MediaTypeCover,
@@ -432,7 +436,7 @@ func manualReviewSelectionToResolverMatch(selection core.ManualReviewSelection) 
 	return core.ResolverMatch{
 		PluginID:        strings.TrimSpace(selection.ProviderPluginID),
 		Title:           strings.TrimSpace(selection.Title),
-		Platform:        strings.TrimSpace(selection.Platform),
+		Platform:        platform,
 		Kind:            strings.TrimSpace(selection.Kind),
 		ParentGameID:    strings.TrimSpace(selection.ParentGameID),
 		ExternalID:      strings.TrimSpace(selection.ExternalID),

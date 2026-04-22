@@ -292,6 +292,24 @@ func (c *ReviewController) SearchCandidate(w http.ResponseWriter, r *http.Reques
 		providerPluginSet[pluginID] = struct{}{}
 	}
 
+	lookupSources, err := scan.BuildMetadataLookupSources(c.pluginHost, integrations, c.logger, false)
+	if err != nil {
+		c.logger.Error("build metadata lookup sources for manual review search", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	lookupResults := scan.LookupMetadataSources(r.Context(), c.pluginHost, lookupSources, []scan.MetadataLookupQuery{{
+		Index:     0,
+		Title:     query,
+		Platform:  string(candidate.Platform),
+		RootPath:  candidate.RootPath,
+		GroupKind: string(candidate.GroupKind),
+	}})
+	lookupResultsByIntegrationID := make(map[string]scan.MetadataLookupSourceResult, len(lookupResults))
+	for _, lookup := range lookupResults {
+		lookupResultsByIntegrationID[lookup.Source.IntegrationID] = lookup
+	}
+
 	resp := ManualReviewSearchResponseDTO{
 		CandidateID: candidate.ID,
 		Query:       query,
@@ -299,7 +317,6 @@ func (c *ReviewController) SearchCandidate(w http.ResponseWriter, r *http.Reques
 		Results:     []ManualReviewSearchResultDTO{},
 	}
 
-	lookupSources := make([]scan.MetadataSource, 0, len(integrations))
 	for _, integration := range integrations {
 		if integration == nil || integration.IntegrationType != "metadata" {
 			continue
@@ -314,28 +331,18 @@ func (c *ReviewController) SearchCandidate(w http.ResponseWriter, r *http.Reques
 			PluginID:         integration.PluginID,
 		}
 
-		source, err := scan.MetadataSourceFromIntegration(integration)
-		if err != nil {
+		if _, err := scan.MetadataSourceFromIntegration(integration); err != nil {
 			status.Status = "error"
 			status.Error = "invalid integration config"
 			resp.Providers = append(resp.Providers, status)
 			continue
 		}
-		lookupSources = append(lookupSources, source)
-	}
 
-	lookupResults := scan.LookupMetadataSources(r.Context(), c.pluginHost, lookupSources, []scan.MetadataLookupQuery{{
-		Index:     0,
-		Title:     query,
-		Platform:  string(candidate.Platform),
-		RootPath:  candidate.RootPath,
-		GroupKind: string(candidate.GroupKind),
-	}})
-	for _, lookup := range lookupResults {
-		status := ManualReviewSearchProviderStatusDTO{
-			IntegrationID:    lookup.Source.IntegrationID,
-			IntegrationLabel: lookup.Source.Label,
-			PluginID:         lookup.Source.PluginID,
+		lookup, ok := lookupResultsByIntegrationID[integration.ID]
+		if !ok {
+			status.Status = "no_results"
+			resp.Providers = append(resp.Providers, status)
+			continue
 		}
 		if lookup.Error != nil {
 			status.Status = "error"

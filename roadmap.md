@@ -553,19 +553,26 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Achivements page (tab to the right of the "Library"). This tab should show display and dashboard all achivements from all achivements integrations set in MGA. Per-achivement system and per-game.
 - [x] in settings -> undetected games, we should have a button to re-detect only the undetected games. This is useful for cases where the detection algorithm has been updated or the external databases where updated and we want to retry to redetect the games. Also, the per-game manual process should have "try re-detect" to use the detection algorithm.
 - [x] Remove the "recent played" and "playable" side bar. Instead, in the library, there's an auto-shelf (can be empty) with the latest played games ordered from latest played game to the latest. it should also have a "remove" button from the list (hovering remove icon that appears when cursor hovers the game).
-- [ ] 2026-04-22 priority: center the Home / Settings / About page content instead of left-aligning the constrained layout.
-- [ ] 2026-04-22 priority: move the `Recent Played` auto-shelf from Library to Play, keep newest-first ordering, and keep the hover remove action.
-- [ ] 2026-04-22 priority: fix game-card / game-row context menus so they open at the cursor and always render above neighboring cards.
-- [ ] 2026-04-22 priority: section shelf/group labels should use shared display names (for example `Windows PC`) instead of leaking raw ids like `windows_pc`.
-- [ ] 2026-04-22 priority: remove the unused notification bell until there is a real notifications surface behind it.
-- [ ] Focused shelf pages can still feel heavy with large result sets; narrow the initial render cost and load more games as the user scrolls.
-- [ ] Shelf navigation and focused shelf browsing should use a fast, smooth scroll animation instead of abrupt jumps.
-- [ ] About page partner/vendor logos should not sit inside card framing; text-only dark logos should render on a light rounded tile so they stay readable.
-- [ ] Audit badges/icons across cards and hover states: use the correct platform/source marks, replace text-only `Playable` with icon + tooltip behavior, and normalize reuse of the same icons throughout the app.
-- [ ] Media gallery images should expose `Set as cover image` from a right-click/context action in addition to the existing game-level cover chooser.
-- [ ] Recheck metadata/platform normalization for known-platform titles that still surface as `unknown`, such as `Plasma Pong`.
-- [ ] Investigate MAME launch failures that report `ROMSET not recognized` and lock the runner contract down with focused proof.
-- [ ] RetroAchievements remains vulnerable to Cloudflare blocking in some environments; determine whether MGA can use a more compatible upstream access pattern without misclassifying auth/config failures.
+- [x] 2026-04-22 priority: center the Home / Settings / About page content instead of left-aligning the constrained layout.
+- [x] 2026-04-22 priority: move the `Recent Played` auto-shelf from Library to Play, keep newest-first ordering, and keep the hover remove action.
+- [x] 2026-04-22 priority: fix game-card / game-row context menus so they open at the cursor and always render above neighboring cards.
+- [x] 2026-04-22 priority: section shelf/group labels should use shared display names (for example `Windows PC`) instead of leaking raw ids like `windows_pc`.
+- [x] 2026-04-22 priority: remove the unused notification bell until there is a real notifications surface behind it.
+- [x] Focused shelf pages can still feel heavy with large result sets; narrow the initial render cost and load more games as the user scrolls.
+- [x] Shelf navigation and focused shelf browsing should use a fast, smooth scroll animation instead of abrupt jumps.
+- [x] About page partner/vendor logos should not sit inside card framing; text-only dark logos should render on a light rounded tile so they stay readable.
+- [x] Audit badges/icons across cards and hover states: use the correct platform/source marks, replace text-only `Playable` with icon + tooltip behavior, and normalize reuse of the same icons throughout the app.
+- [x] Media gallery images should expose `Set as cover image` from a right-click/context action in addition to the existing game-level cover chooser.
+- [x] Recheck metadata/platform normalization for known-platform titles that still surface as `unknown`, such as `Plasma Pong`.
+- [x] Investigate MAME launch failures that report `ROMSET not recognized` and lock the runner contract down with focused proof.
+- [x] RetroAchievements remains vulnerable to Cloudflare blocking in some environments; determine whether MGA can use a more compatible upstream access pattern without misclassifying auth/config failures.
 - [ ] Revisit cover-image presentation rules so portrait/landscape assets are framed more gracefully when the current crop cuts away important art.
 - [ ] Package MGA for real distribution (Windows/Linux/macOS and/or Docker) with an installer/start path that does not require source checkout.
 - [ ] Refresh `README.md` into a user-facing landing document with quick start, screenshots, packaging/install guidance, and feature overview.
+- [ ] Add multi-user / user management for MGA (on server-side).
+  - [ ] Web-client frontend should support users + user management in settings
+  - [ ] Set roles: Admin Player and Player. Admin player can access settings, other than that, they're the same.
+  - [ ] each profile has its own integrations + games etc.
+  - [ ] Web-client: Surfing to the web client, the user can choose a profile (and set it to default so next time it won't ask).
+  - [ ] User image/icon should be shown on the top left, where user log-out
+  - [ ] No passwords (at this stage)
