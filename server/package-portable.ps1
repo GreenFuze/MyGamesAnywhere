@@ -57,9 +57,11 @@ $zipPath = Join-Path $OutputDir $artifactName
 $checksumPath = Join-Path $OutputDir "SHA256SUMS.txt"
 
 if (-not $SkipBuild) {
-    $buildArgs = @("-FrontendInstallMode", "Clean")
+    $buildArgs = @{
+        FrontendInstallMode = "Clean"
+    }
     if ($SkipFrontend) {
-        $buildArgs += "-SkipFrontend"
+        $buildArgs.SkipFrontend = $true
     }
     & (Join-Path $rootDir "build.ps1") @buildArgs
     if ($LASTEXITCODE -ne 0) {
