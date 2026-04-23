@@ -1,0 +1,63 @@
+name: Release Windows Portable
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows-portable:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate tag matches VERSION
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          $tag = "${{ github.ref_name }}"
+          if ($tag -ne "v$version") {
+            throw "Tag '$tag' does not match VERSION '$version'."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "release_notes=docs/releases/$tag.md" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/frontend/package-lock.json
+
+      - name: Build portable package
+        shell: pwsh
+        run: ./server/package-portable.ps1
+
+      - name: Ensure release notes exist
+        shell: pwsh
+        run: |
+          $notes = "${{ steps.version.outputs.release_notes }}"
+          if (-not (Test-Path $notes)) {
+            throw "Missing release notes file: $notes"
+          }
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          body_path: ${{ steps.version.outputs.release_notes }}
+          files: |
+            server/release/*.zip
+            server/release/SHA256SUMS.txt

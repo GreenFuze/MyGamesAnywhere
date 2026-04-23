@@ -38,6 +38,14 @@ Or directly:
 go build -o bin/server ./cmd/server
 ```
 
+Build the Windows portable release artifact:
+
+```powershell
+.\package-portable.ps1
+```
+
+This produces a versioned ZIP plus `SHA256SUMS.txt` under `server/release/`.
+
 On **Windows**, plain `go build` does **not** embed the **File Explorer** application icon (only the **system tray** uses `mga.ico` via `go:embed`). For the `.exe` icon in Explorer, either:
 
 - run **`build.ps1`** (generates `cmd/server/rsrc_windows_${GOARCH}.syso` from `mga.ico` before `go build`), or  

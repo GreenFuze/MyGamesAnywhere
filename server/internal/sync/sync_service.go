@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/buildinfo"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/crypto"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/keystore"
@@ -245,7 +246,7 @@ func (s *syncService) buildPayload(ctx context.Context, key string) (*core.SyncP
 	return &core.SyncPayload{
 		Version:      payloadVersion,
 		ExportedAt:   time.Now().UTC(),
-		MGAVersion:   "1.0.0",
+		MGAVersion:   buildinfo.Version,
 		Integrations: syncInts,
 		Settings:     allSettings,
 	}, nil

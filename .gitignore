@@ -12,6 +12,7 @@ vendor/
 
 # Build output — server/bin/ is produced by build.ps1
 server/bin/
+server/release/
 
 # Regenerated from server/cmd/server/mga.ico (Windows .exe icon — run build.ps1 or go generate)
 server/cmd/server/rsrc_windows_*.syso

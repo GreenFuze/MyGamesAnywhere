@@ -39,7 +39,14 @@ Write-Host "Building server..." -ForegroundColor Cyan
 $ext = if ($IsLinux -or $IsMacOS) { "" } else { ".exe" }
 $serverBin = Join-Path $BinDir "mga_server$ext"
 $buildInfoPkg = "github.com/GreenFuze/MyGamesAnywhere/server/internal/buildinfo"
-$version = if ($env:MGA_VERSION) { $env:MGA_VERSION } else { "dev" }
+$versionFile = Join-Path $RootDir "..\VERSION"
+$version = if ($env:MGA_VERSION) {
+    $env:MGA_VERSION
+} elseif (Test-Path $versionFile) {
+    (Get-Content $versionFile -Raw).Trim()
+} else {
+    "dev"
+}
 $commit = "unknown"
 if (Get-Command git -ErrorAction SilentlyContinue) {
     try {
