@@ -1,0 +1,286 @@
+:root {
+  color-scheme: dark;
+  --bg: #09070f;
+  --bg-alt: #120d1b;
+  --panel: #161122;
+  --text: #f4efff;
+  --muted: #b9afcf;
+  --accent: #8bd4ff;
+  --accent-2: #7dffa4;
+  --border: #2d2340;
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  background:
+    radial-gradient(circle at top, rgba(90, 52, 154, 0.35), transparent 35%),
+    linear-gradient(180deg, #0f0b17, #09070f 35%, #09070f 100%);
+  color: var(--text);
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+code {
+  font-family: Consolas, "SFMono-Regular", monospace;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 0.15rem 0.35rem;
+}
+
+.hero,
+.section,
+.footer {
+  padding: 0 1.25rem;
+}
+
+.hero__inner,
+.section__inner,
+.footer__inner {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+}
+
+.hero {
+  padding-top: 4rem;
+  padding-bottom: 3rem;
+}
+
+.hero__brand {
+  width: min(780px, 100%);
+  margin-bottom: 1rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.75rem;
+  color: var(--accent-2);
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+}
+
+.hero h1 {
+  margin: 0;
+  max-width: 13ch;
+  font-size: clamp(2.3rem, 4vw, 4.8rem);
+  line-height: 0.98;
+}
+
+.lead {
+  max-width: 66ch;
+  margin-top: 1rem;
+  color: var(--muted);
+  font-size: 1.08rem;
+  line-height: 1.7;
+}
+
+.hero__actions {
+  display: flex;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.button:hover {
+  text-decoration: none;
+  border-color: rgba(139, 212, 255, 0.55);
+}
+
+.button--primary {
+  background: linear-gradient(135deg, #5fd0ff, #7dffa4);
+  color: #0a0810;
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.section {
+  padding-top: 2.5rem;
+  padding-bottom: 2.5rem;
+}
+
+.section--alt {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.section h2 {
+  margin: 0 0 1rem;
+  font-size: clamp(1.6rem, 2vw, 2.5rem);
+}
+
+.steps,
+.feature-grid,
+.integration-grid,
+.status-grid,
+.gallery {
+  margin-top: 1.2rem;
+}
+
+.steps {
+  display: grid;
+  gap: 0.7rem;
+  padding-left: 1.25rem;
+}
+
+.note {
+  color: var(--muted);
+}
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.shot {
+  margin: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.shot img {
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+}
+
+.shot figcaption {
+  padding: 0.9rem 1rem 1rem;
+  color: var(--muted);
+}
+
+.feature-grid,
+.integration-grid,
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.feature-grid article,
+.integration-grid article,
+.status-grid article {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.feature-grid h3,
+.integration-grid h3,
+.status-grid h3 {
+  margin-top: 0;
+}
+
+.feature-grid p,
+.integration-grid li,
+.status-grid li {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.integration-grid ul,
+.status-grid ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.95rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  color: var(--text);
+}
+
+td {
+  color: var(--muted);
+}
+
+.footer {
+  padding-top: 2rem;
+  padding-bottom: 3rem;
+}
+
+.footer__inner {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  color: var(--muted);
+}
+
+.footer nav {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .hero {
+    padding-top: 2.5rem;
+  }
+
+  .hero h1 {
+    max-width: none;
+  }
+
+  .shot img {
+    aspect-ratio: 4 / 3;
+  }
+}

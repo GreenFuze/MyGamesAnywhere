@@ -2,14 +2,128 @@
 
 ![MyGamesAnywhere — title banner](docs/branding/title-text.png)
 
-**MyGamesAnywhere** is a **local-first game library** for people whose collection lives across **PC installs, emulators, cloud streaming, removable drives, network shares, and multiple storefronts**.
+**MyGamesAnywhere is a local-first game launcher and unified game library for Steam, Xbox, Epic, emulators, cloud streaming, network shares, removable drives, and mixed-platform collections.**
 
-It runs a small Go server on your machine, scans the sources you choose, merges them into a canonical library, enriches the results with metadata and media, and gives you one shelf for what you own, what you can play, and where it actually lives.
+MGA scans the sources you choose, merges duplicate entries into one canonical game, enriches them with metadata and media, and gives you one place to see what you own, what you can play, and where it actually lives.
+
+[Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5) · [Website](https://greenfuze.github.io/MyGamesAnywhere/) · [Screenshots](#screenshots) · [Quick Start](#try-mga-in-30-seconds) · [Roadmap](roadmap.md)
 
 **Current release line:** `v0.0.5`  
 **Status:** pre-1.0, actively moving, local-first by design
 
-## Why MGA exists
+## Why people use MGA
+
+- One library across stores, ROMs, network shares, removable drives, and cloud catalogs
+- Canonical merge instead of duplicate launcher rows
+- Local-first data ownership: your database, config, and media stay on your machine unless you choose to sync
+- Manual review and re-detect when automatic matching fails
+- Achievements, source provenance, media, and metadata in one place
+- Browser-play and emulator-aware workflows for supported runtimes
+
+## Try MGA in 30 seconds
+
+1. Download the latest Windows portable ZIP from [Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5)
+2. Extract it to a writable folder
+3. Run `Start MGA.cmd`
+4. Open [http://127.0.0.1:8080](http://127.0.0.1:8080)
+
+The packaged release is currently a **Windows portable build**. MGA runs locally and binds to `127.0.0.1` by default.
+
+## Screenshots
+
+### Home and library overview
+
+![MGA home page showing unified library stats and recent activity](docs/screenshots/home.png)
+
+MGA starts with a product view of your library, scans, and integrations instead of pushing one storefront first.
+
+### Platform shelves and poster-first browsing
+
+![MGA Library page showing the GBA platform shelf with loaded cover art](docs/screenshots/library-gba.png)
+
+Platform shelves stay focused on browsable collections with loaded cover art, source provenance, and clean metadata.
+
+### Game detail page
+
+![MGA game detail page showing poster-first layout, structured metadata, sources, files, and achievements](docs/screenshots/game-detail.png)
+
+Each game gets one canonical detail page with metadata, files, sources, media, actions, and achievements.
+
+### Settings and integrations
+
+![MGA settings integrations page showing configured source and metadata integrations](docs/screenshots/settings.png)
+
+Sources, metadata providers, achievements, sync targets, and runtime surfaces are managed from one local settings flow.
+
+## MGA vs traditional launchers
+
+| Capability | MGA | Typical store launcher |
+|---|---|---|
+| Merge the same game across multiple sources | Yes | Usually no |
+| Works with ROMs and emulators | Yes | Usually no |
+| Detects games on network shares and removable drives | Yes | Rare |
+| Local-first data ownership | Yes | Often no |
+| Source-level provenance | Yes | Rare |
+| Manual review when detection fails | Yes | Rare |
+| Web UI and local API on the same local server | Yes | Rare |
+
+## Available now
+
+- Unified cross-source library with canonical game merge
+- Local-first runtime with SQLite, local media, and plugin-driven integrations
+- Manual review, search, and re-detect for undetected games
+- Poster-first library and game pages
+- Achievements dashboard backed by cached integration data
+- Browser-play support for configured runtimes such as EmulatorJS, js-dos, and ScummVM
+- Save-sync and settings-sync surfaces
+- Tagged Windows portable releases
+
+## In active development
+
+- Packaging hardening beyond the first Windows portable release
+- Game page and card UX iteration
+- More metadata and runtime coverage
+- Broader installer and upgrade-safe packaging flow
+
+## Planned later
+
+- Multi-user / user management
+- Cross-source user file and profile view
+- Cross-platform installers
+- Windows desktop client
+- Mobile client
+
+## Available integrations
+
+### Game sources
+
+- Steam
+- Xbox
+- Epic Games
+- SMB / network shares
+- Google Drive
+
+### Metadata providers
+
+- LaunchBox
+- IGDB
+- RAWG
+- HLTB
+- Steam metadata
+- GOG metadata
+- MAME DAT
+
+### Achievements and progression
+
+- RetroAchievements
+
+### Save sync and settings sync
+
+- Local disk save sync
+- Google Drive save sync
+- Google Drive settings sync
+
+## Why MGA is different
 
 Most launchers are store-first. MGA is **library-first**.
 
@@ -18,43 +132,30 @@ That means:
 - your collection is not reduced to one storefront
 - ROMs, ripped media, cloud catalogs, and installed PC games can live in the same library
 - metadata, achievements, media, and source provenance are visible together
-- your data stays local unless *you* choose to sync it
+- your data stays local unless you choose to sync it
+- detection failures stay visible and fixable instead of disappearing into a bad match
 
-## What makes MGA special
+## Who MGA is for
 
-- **Canonical game merge across sources**  
-  MGA does not just list source entries. It tries to reconcile them into one game with source-level provenance.
+MGA is for you if you:
 
-- **Local-first architecture**  
-  Your database, media, and config live with your MGA runtime. This is not a hosted account-first app pretending to be local.
+- own games across multiple storefronts
+- use emulators or maintain ROM collections
+- keep games on external drives, NAS, or SMB shares
+- want local-first control over metadata and media
+- care about provenance, cleanup, and collection quality
 
-- **Cross-source library view**  
-  Steam, Xbox, Epic, Google Drive, SMB, emulation folders, and metadata providers can all contribute to one shelf.
-
-- **Playable awareness, not just catalog awareness**  
-  MGA tracks whether a game is playable, streamable, browser-runnable, or just known.
-
-- **Manual review and re-detect flow**  
-  When automatic matching fails, MGA does not bury the problem. It exposes undetected titles, metadata search, and re-detect actions.
-
-- **Built for collectors, not just storefront users**  
-  Physical dumps, ROM libraries, mixed-platform collections, and metadata cleanup are first-class concerns.
-
-- **Plugin-driven backend**  
-  Sources, metadata providers, achievements, sync targets, and browser-play runtimes are modular instead of being welded into one monolith.
-
-## Feature Status
+## Feature status
 
 | Area | Status | What it means |
 |---|---|---|
 | Unified cross-source library | Available | MGA merges source entries into canonical games instead of leaving you with duplicate launcher rows. |
 | Local-first runtime | Available | SQLite, media, config, and plugins run locally. |
-| Metadata enrichment | Available | LaunchBox, IGDB, RAWG, HLTB, Wikipedia, PCGamingWiki, YouTube, and similar provider paths feed the library. |
+| Metadata enrichment | Available | LaunchBox, IGDB, RAWG, HLTB, Steam, GOG, MAME DAT, and similar provider paths feed the library. |
 | Manual review + re-detect | Available | Undetected games can be reviewed, searched, and re-run through the detection flow. |
 | Browser play runtimes | Available | Supported runtimes such as EmulatorJS, js-dos, and ScummVM can launch directly from the web UI where configured. |
 | Achievements dashboard | Available | MGA exposes cached achievements across supported integrations and per-game detail views. |
 | Save-sync migration flows | Available | Save sync jobs and migration status are exposed through the app and API. |
-| Poster-first library and game pages | Available | The current UI focuses on cover art, grouped metadata, focused shelves, and smoother browsing. |
 | REST API + web UI | Available | MGA exposes a first-party API and a React frontend on top of the same local server. |
 | Portable Windows release packages | Available | MGA now has a Windows-first portable packaging and tagged-release flow built around `vX.Y.Z` releases. |
 | Cross-platform installers | Planned | Proper install paths, prerequisites, and upgrade flow will follow after portable packages. |
@@ -62,83 +163,34 @@ That means:
 | Mobile client | Planned | Mobile browsing and companion flows are planned after packaging and desktop hardening. |
 | Multi-user / user management | Planned | Separate users, user-aware libraries, and server-side identity are still ahead. |
 | Cross-source user file/profile view | Planned | MGA should eventually understand user identity, ownership, and progression across multiple source accounts. |
-| Upgrade-safe packaged releases | Planned | Tagged releases, portable packages, migration notes, and versioned upgrade guidance are part of the release track. |
 
-## Current Highlights
+## FAQ
 
-- **Source plugins:** Steam, Xbox, Epic, SMB, Google Drive, local filesystem-style paths, and more
-- **Metadata plugins:** LaunchBox, IGDB, RAWG, HLTB, MobyGames, PCGamingWiki, Wikipedia, YouTube
-- **Runtime surfaces:** local server, web UI, Windows tray app today
-- **Library workflows:** scanning, manual review, re-detect, context actions, recent-played shelfing, achievements browsing
-- **Collector workflows:** metadata cleanup, cover overrides, merged source visibility, save-sync support
+### Can MGA combine Steam, Xbox, Epic, and emulator games in one library?
 
-## Portable Release
+Yes. MGA is built around a canonical game model that merges source entries into one game where the detection flow can prove the relationship.
 
-The first packaged MGA line is a **Windows portable ZIP**:
+### Does MGA work offline?
 
-- artifact name: `mga-v0.0.5-windows-amd64-portable.zip`
-- runtime model: **portable**, writable folder required
-- network model: **local only** on [http://127.0.0.1:8080](http://127.0.0.1:8080)
+Yes for the local runtime. MGA is local-first and runs a local Go server plus web UI on your machine. Some integrations and metadata providers naturally require network access.
 
-Portable release flow:
+### Where does MGA store my data?
 
-1. unzip MGA into a writable folder
-2. run `Start MGA.cmd`
-3. open [http://127.0.0.1:8080](http://127.0.0.1:8080)
+The current runtime is portable and working-directory-based. Config, database, plugins, and media live with the MGA runtime unless a specific sync integration is configured.
 
-The launcher verifies the runtime shape before starting and warns if the package was extracted somewhere unsuitable such as `Program Files`.
+### Does MGA support ROMs and emulators?
 
-## Quick Start From Source
+Yes. MGA is explicitly built to include emulator and ROM-style workflows alongside storefront and cloud-source workflows.
 
-If you want to build MGA yourself instead of using the portable package:
+### Can MGA detect games on network shares and removable drives?
 
-### Windows
+Yes. That is part of the core design, not an afterthought.
 
-```powershell
-cd server
-.\build.ps1
-.\start.ps1
-```
+### Does MGA expose an API?
 
-Then open [http://127.0.0.1:8080](http://127.0.0.1:8080).
+Yes. MGA exposes a local REST API and the web UI runs on top of the same local server.
 
-### Notes
-
-- `build.ps1` builds the Go server, bundled plugins, frontend dist, and `openapi.yaml`
-- Node.js is required for the frontend build unless you deliberately use `-SkipFrontend`
-- MGA currently runs as a **portable working-directory-based runtime**, which is why portable packaging is the first packaging target
-
-More technical detail lives in:
-
-- [server/README.md](server/README.md)
-- [server/frontend/README.md](server/frontend/README.md)
-- [roadmap.md](roadmap.md)
-
-## Packaging Direction
-
-The current packaging direction is deliberate:
-
-1. **portable Windows build first**
-2. **installer-ready runtime layout after that**
-3. **cross-platform installers later**
-
-That order matches MGA's current architecture. Today the runtime still assumes writable local paths for:
-
-- `config.json`
-- `./data`
-- `./media`
-- `./plugins`
-- `./frontend/dist`
-
-That is fine for portable releases and a bad fit for pretending we already have a polished installed-app story.
-
-The repo now includes:
-
-- a dedicated Windows portable packaging script
-- bootstrap and runtime verification scripts for packaged launches
-- a tag-driven GitHub Release workflow for `vX.Y.Z`
-
-## Versioning, Releases, and Upgrades
+## Packaging, versioning, and upgrades
 
 MGA now carries a repository version source at [`VERSION`](VERSION). The current line is **`0.0.5`**.
 
@@ -150,32 +202,21 @@ Release policy:
 
 Upgrade policy:
 
-- upgrades must **not silently discard user data**
-- schema changes should be **additive and idempotent** where possible
-- any release that changes runtime layout, schema behavior, or sync payload expectations must ship with migration notes
-- until installers exist, upgrades should assume a **portable replacement flow** with backup guidance for `config.json`, `data/`, and `media/`
+- upgrades must not silently discard user data
+- schema changes should be additive and idempotent where possible
+- releases that change runtime layout, schema behavior, or sync payload expectations must ship with migration notes
+- until installers exist, upgrades assume a portable replacement flow with backup guidance for `config.json`, `data/`, and `media/`
 
 Detailed notes live in [docs/releases-and-upgrades.md](docs/releases-and-upgrades.md).
 
-## Repo Layout
+## Repo layout
 
 | Path | Purpose |
 |---|---|
 | [`server/`](server/) | Go server, plugins, database layer, API, build scripts |
 | [`server/frontend/`](server/frontend/) | React/Vite frontend |
-| [`docs/`](docs/) | branding and project docs |
+| [`docs/`](docs/) | branding, screenshots, Pages site, and project docs |
 | [`roadmap.md`](roadmap.md) | active roadmap and future work |
-
-## Brand Assets
-
-| Asset | Path |
-|---|---|
-| README / marketing banner | [`docs/branding/title-text.png`](docs/branding/title-text.png) |
-| Web title strip | [`server/frontend/public/title.png`](server/frontend/public/title.png) |
-| Optional title bar | [`server/frontend/public/title-bar.png`](server/frontend/public/title-bar.png) |
-| UI logo | [`server/frontend/public/logo.png`](server/frontend/public/logo.png) |
-| Favicon | [`server/frontend/public/favicon.ico`](server/frontend/public/favicon.ico) |
-| Windows tray icon | [`server/cmd/server/mga.ico`](server/cmd/server/mga.ico) |
 
 ## Contributing
 

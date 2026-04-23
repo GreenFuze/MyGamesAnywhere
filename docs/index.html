@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MyGamesAnywhere (MGA) | Local-first game launcher and unified library</title>
+    <meta
+      name="description"
+      content="Local-first game launcher and unified library for Steam, Xbox, Epic, emulators, cloud streaming, network shares, and removable drives."
+    />
+    <meta property="og:title" content="MyGamesAnywhere (MGA)" />
+    <meta
+      property="og:description"
+      content="Local-first game launcher and unified library for Steam, Xbox, Epic, emulators, cloud streaming, network shares, and removable drives."
+    />
+    <meta property="og:image" content="https://greenfuze.github.io/MyGamesAnywhere/screenshots/home.png" />
+    <meta property="og:type" content="website" />
+    <link rel="stylesheet" href="./site.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero__inner">
+        <img class="hero__brand" src="./branding/title-text.png" alt="MyGamesAnywhere" />
+        <p class="eyebrow">Local-first game launcher and unified library</p>
+        <h1>One library for storefronts, ROMs, cloud streaming, network shares, and removable drives.</h1>
+        <p class="lead">
+          MGA scans the sources you choose, merges duplicate entries into one canonical game, enriches them with metadata and media, and gives you one place to see what you own, what you can play, and where it actually lives.
+        </p>
+        <div class="hero__actions">
+          <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5">Download v0.0.5</a>
+          <a class="button" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
+          <a class="button" href="#screenshots">Screenshots</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="section">
+        <div class="section__inner">
+          <h2>Try MGA in 30 seconds</h2>
+          <ol class="steps">
+            <li>Download the latest Windows portable ZIP from Releases.</li>
+            <li>Extract it to a writable folder.</li>
+            <li>Run <code>Start MGA.cmd</code>.</li>
+            <li>Open <code>http://127.0.0.1:8080</code>.</li>
+          </ol>
+          <p class="note">The current packaged release is a Windows portable build and runs locally on <code>127.0.0.1</code> by default.</p>
+        </div>
+      </section>
+
+      <section class="section section--alt" id="screenshots">
+        <div class="section__inner">
+          <h2>Screenshots</h2>
+          <div class="gallery">
+            <figure class="shot">
+              <img src="./screenshots/home.png" alt="MGA home page showing unified library stats and recent activity" />
+              <figcaption>Home and library overview</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/library-gba.png" alt="MGA Library page showing the GBA platform shelf with loaded cover art" />
+              <figcaption>Platform shelves and poster-first browsing</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/game-detail.png" alt="MGA game detail page showing poster-first layout, sources, files, and achievements" />
+              <figcaption>Canonical game detail page</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/settings.png" alt="MGA settings page showing configured integrations" />
+              <figcaption>Sources and integrations</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__inner">
+          <h2>Why MGA</h2>
+          <div class="feature-grid">
+            <article>
+              <h3>Canonical merge</h3>
+              <p>See one game instead of a pile of duplicate launcher rows from different sources.</p>
+            </article>
+            <article>
+              <h3>Local-first</h3>
+              <p>Your config, media, and database stay on your machine unless you choose to sync them.</p>
+            </article>
+            <article>
+              <h3>Collector-friendly</h3>
+              <p>ROMs, emulators, cloud catalogs, storefront installs, removable drives, and SMB shares belong in the same library.</p>
+            </article>
+            <article>
+              <h3>Manual review and re-detect</h3>
+              <p>When detection fails, MGA exposes the problem and gives you tools to fix it instead of hiding it.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section--alt">
+        <div class="section__inner">
+          <h2>MGA vs traditional launchers</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Capability</th>
+                  <th>MGA</th>
+                  <th>Typical store launcher</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Merge the same game across multiple sources</td>
+                  <td>Yes</td>
+                  <td>Usually no</td>
+                </tr>
+                <tr>
+                  <td>Works with ROMs and emulators</td>
+                  <td>Yes</td>
+                  <td>Usually no</td>
+                </tr>
+                <tr>
+                  <td>Detects games on network shares and removable drives</td>
+                  <td>Yes</td>
+                  <td>Rare</td>
+                </tr>
+                <tr>
+                  <td>Local-first data ownership</td>
+                  <td>Yes</td>
+                  <td>Often no</td>
+                </tr>
+                <tr>
+                  <td>Manual review when detection fails</td>
+                  <td>Yes</td>
+                  <td>Rare</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__inner">
+          <h2>Available integrations</h2>
+          <div class="integration-grid">
+            <article>
+              <h3>Game sources</h3>
+              <ul>
+                <li>Steam</li>
+                <li>Xbox</li>
+                <li>Epic Games</li>
+                <li>SMB / network shares</li>
+                <li>Google Drive</li>
+              </ul>
+            </article>
+            <article>
+              <h3>Metadata providers</h3>
+              <ul>
+                <li>LaunchBox</li>
+                <li>IGDB</li>
+                <li>RAWG</li>
+                <li>HLTB</li>
+                <li>Steam metadata</li>
+                <li>GOG metadata</li>
+                <li>MAME DAT</li>
+              </ul>
+            </article>
+            <article>
+              <h3>Progression and sync</h3>
+              <ul>
+                <li>RetroAchievements</li>
+                <li>Local disk save sync</li>
+                <li>Google Drive save sync</li>
+                <li>Google Drive settings sync</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section--alt">
+        <div class="section__inner">
+          <h2>What is shipping now vs later</h2>
+          <div class="status-grid">
+            <article>
+              <h3>Available now</h3>
+              <ul>
+                <li>Unified cross-source library</li>
+                <li>Manual review and re-detect</li>
+                <li>Poster-first library and game pages</li>
+                <li>Achievements dashboard</li>
+                <li>REST API and web UI</li>
+                <li>Windows portable release</li>
+              </ul>
+            </article>
+            <article>
+              <h3>Planned later</h3>
+              <ul>
+                <li>Cross-platform installers</li>
+                <li>Windows desktop client</li>
+                <li>Mobile client</li>
+                <li>Multi-user support</li>
+                <li>Cross-source user file and profile view</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer__inner">
+        <p>MyGamesAnywhere (MGA) is a local-first game launcher and unified game library.</p>
+        <nav>
+          <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5">Releases</a>
+          <a href="https://github.com/GreenFuze/MyGamesAnywhere/blob/main/README.md">README</a>
+          <a href="https://github.com/GreenFuze/MyGamesAnywhere/blob/main/roadmap.md">Roadmap</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>
