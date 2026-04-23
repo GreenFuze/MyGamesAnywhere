@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Install MGA | Windows portable game launcher</title>
+    <meta name="description" content="Install MyGamesAnywhere as a Windows portable local-first game launcher." />
+    <link rel="stylesheet" href="./site.css" />
+  </head>
+  <body>
+    <nav class="site-nav" aria-label="Primary">
+      <a class="site-nav__brand" href="./">MGA</a>
+      <div class="site-nav__links">
+        <a href="./install.html">Install</a>
+        <a href="./features.html">Features</a>
+        <a href="./integrations.html">Integrations</a>
+        <a href="./screenshots.html">Screenshots</a>
+        <a href="./comparison.html">Comparison</a>
+        <a href="./faq.html">FAQ</a>
+        <a href="./releases.html">Releases</a>
+        <a href="./roadmap.html">Roadmap</a>
+      </div>
+    </nav>
+    <main>
+      <section class="section">
+        <div class="section__inner">
+          <p class="eyebrow">Windows portable preview</p>
+          <h1>Install MGA without an installer.</h1>
+          <p class="section__intro">MGA v0.0.5 ships as a Windows portable ZIP. It runs locally, stores data beside the runtime, and binds to <code>127.0.0.1</code> by default.</p>
+          <ol class="steps">
+            <li>Download <code>mga-v0.0.5-windows-amd64-portable.zip</code> from <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5">GitHub Releases</a>.</li>
+            <li>Extract it into a writable folder such as <code>C:\Games\MGA</code>.</li>
+            <li>Run <code>Start MGA.cmd</code>.</li>
+            <li>Open <code>http://127.0.0.1:8080</code>.</li>
+          </ol>
+          <p class="note">Avoid extracting the portable build under <code>Program Files</code>. The current runtime writes config, database, media, and local state inside the portable folder.</p>
+        </div>
+      </section>
+      <section class="section section--alt">
+        <div class="section__inner">
+          <h2>Upgrade policy</h2>
+          <ol class="steps">
+            <li>Stop MGA.</li>
+            <li>Back up <code>config.json</code>, <code>data/</code>, and <code>media/</code>.</li>
+            <li>Replace the bundled binaries, plugins, and frontend files with the new package.</li>
+            <li>Start MGA and verify the version in About.</li>
+          </ol>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

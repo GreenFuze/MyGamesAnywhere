@@ -3,33 +3,47 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MyGamesAnywhere (MGA) | Local-first game launcher and unified library</title>
+    <title>MyGamesAnywhere (MGA) | Local-first game launcher for multi-source collections</title>
     <meta
       name="description"
-      content="Local-first game launcher and unified library for Steam, Xbox, Epic, emulators, cloud streaming, network shares, and removable drives."
+      content="Local-first game launcher with one canonical library across Steam, Xbox, Epic, ROMs, cloud runtimes, SMB/NAS, and removable drives."
     />
     <meta property="og:title" content="MyGamesAnywhere (MGA)" />
     <meta
       property="og:description"
-      content="Local-first game launcher and unified library for Steam, Xbox, Epic, emulators, cloud streaming, network shares, and removable drives."
+      content="Local-first game launcher with one canonical library across Steam, Xbox, Epic, ROMs, cloud runtimes, SMB/NAS, and removable drives."
     />
     <meta property="og:image" content="https://greenfuze.github.io/MyGamesAnywhere/screenshots/home.png" />
     <meta property="og:type" content="website" />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
+    <nav class="site-nav" aria-label="Primary">
+      <a class="site-nav__brand" href="./">MGA</a>
+      <div class="site-nav__links">
+        <a href="./install.html">Install</a>
+        <a href="./features.html">Features</a>
+        <a href="./integrations.html">Integrations</a>
+        <a href="./screenshots.html">Screenshots</a>
+        <a href="./comparison.html">Comparison</a>
+        <a href="./faq.html">FAQ</a>
+        <a href="./releases.html">Releases</a>
+        <a href="./roadmap.html">Roadmap</a>
+      </div>
+    </nav>
     <header class="hero">
       <div class="hero__inner">
         <img class="hero__brand" src="./branding/title-text.png" alt="MyGamesAnywhere" />
-        <p class="eyebrow">Local-first game launcher and unified library</p>
-        <h1>One library for storefronts, ROMs, cloud streaming, network shares, and removable drives.</h1>
+        <p class="eyebrow">Pre-1.0 preview. Windows portable build available now.</p>
+        <h1>One canonical library for Steam, Xbox, Epic, ROMs, cloud runtimes, SMB/NAS, and removable drives.</h1>
         <p class="lead">
           MGA scans the sources you choose, merges duplicate entries into one canonical game, enriches them with metadata and media, and gives you one place to see what you own, what you can play, and where it actually lives.
         </p>
         <div class="hero__actions">
           <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5">Download v0.0.5</a>
+          <a class="button" href="./install.html">Install guide</a>
+          <a class="button" href="./screenshots.html">Screenshots</a>
           <a class="button" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
-          <a class="button" href="#screenshots">Screenshots</a>
         </div>
       </div>
     </header>
@@ -234,7 +248,7 @@
                 <li>Unified cross-source library</li>
                 <li>Manual review and re-detect</li>
                 <li>Poster-first library and game pages</li>
-                <li>Achievements dashboard</li>
+                <li>Steam, Xbox, and RetroAchievements dashboard</li>
                 <li>REST API and web UI</li>
                 <li>Windows portable release</li>
               </ul>
@@ -258,9 +272,10 @@
       <div class="footer__inner">
         <p>MyGamesAnywhere (MGA) is a local-first game launcher and unified game library.</p>
         <nav>
-          <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5">Releases</a>
-          <a href="https://github.com/GreenFuze/MyGamesAnywhere/blob/main/README.md">README</a>
-          <a href="https://github.com/GreenFuze/MyGamesAnywhere/blob/main/roadmap.md">Roadmap</a>
+          <a href="./install.html">Install</a>
+          <a href="./faq.html">FAQ</a>
+          <a href="./roadmap.html">Roadmap</a>
+          <a href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
         </nav>
       </div>
     </footer>

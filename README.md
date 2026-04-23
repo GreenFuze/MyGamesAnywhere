@@ -2,11 +2,11 @@
 
 ![MyGamesAnywhere — title banner](docs/branding/title-text.png)
 
-**MyGamesAnywhere is a local-first game launcher and unified game library for Steam, Xbox, Epic, emulators, cloud streaming, network shares, removable drives, and mixed-platform collections.**
+**MyGamesAnywhere is a local-first game launcher for multi-source collections, with one canonical library across Steam, Xbox, Epic, ROMs, SMB/NAS, cloud runtimes, and removable drives.**
 
 MGA scans the sources you choose, merges duplicate entries into one canonical game, enriches them with metadata and media, and gives you one place to see what you own, what you can play, and where it actually lives.
 
-[Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5) · [Website](https://greenfuze.github.io/MyGamesAnywhere/) · [Screenshots](#screenshots) · [Quick Start](#try-mga-in-30-seconds) · [Roadmap](roadmap.md)
+[Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5) · [Product website](https://greenfuze.github.io/MyGamesAnywhere/) · [Screenshots](#screenshots) · [Quick Start](#try-mga-in-30-seconds) · [Integrations](#available-integrations) · [FAQ](#faq) · [Public roadmap](docs/public-roadmap.md)
 
 **Current release line:** `v0.0.5`  
 **Status:** pre-1.0, actively moving, local-first by design
@@ -73,7 +73,7 @@ Sources, metadata providers, achievements, sync targets, and runtime surfaces ar
 - Local-first runtime with SQLite, local media, and plugin-driven integrations
 - Manual review, search, and re-detect for undetected games
 - Poster-first library and game pages
-- Achievements dashboard backed by cached integration data
+- Achievements dashboard backed by cached Steam, Xbox, and RetroAchievements data
 - Browser-play support for configured runtimes such as EmulatorJS, js-dos, and ScummVM
 - Save-sync and settings-sync surfaces
 - Tagged Windows portable releases
@@ -142,7 +142,7 @@ MGA is for you if you:
 | Metadata enrichment | Available | LaunchBox, IGDB, RAWG, HLTB, Steam, GOG, MAME DAT, and similar provider paths feed the library. |
 | Manual review + re-detect | Available | Undetected games can be reviewed, searched, and re-run through the detection flow. |
 | Browser play runtimes | Available | Supported runtimes such as EmulatorJS, js-dos, and ScummVM can launch directly from the web UI where configured. |
-| Achievements dashboard | Available | MGA exposes cached achievements across supported integrations and per-game detail views. |
+| Achievements dashboard | Available | MGA exposes cached Steam, Xbox, and RetroAchievements progress across the dashboard and per-game detail views. |
 | Save-sync migration flows | Available | Save sync jobs and migration status are exposed through the app and API. |
 | REST API + web UI | Available | MGA exposes a first-party API and a React frontend on top of the same local server. |
 | Portable Windows release packages | Available | MGA now has a Windows-first portable packaging and tagged-release flow built around `vX.Y.Z` releases. |
@@ -204,7 +204,8 @@ Detailed notes live in [docs/releases-and-upgrades.md](docs/releases-and-upgrade
 | [`server/`](server/) | Go server, plugins, database layer, API, build scripts |
 | [`server/frontend/`](server/frontend/) | React/Vite frontend |
 | [`docs/`](docs/) | branding, screenshots, Pages site, and project docs |
-| [`roadmap.md`](roadmap.md) | active roadmap and future work |
+| [`docs/public-roadmap.md`](docs/public-roadmap.md) | product-facing Now / Next / Later roadmap |
+| [`roadmap.md`](roadmap.md) | engineering roadmap and implementation log |
 
 ## Contributing
 
@@ -217,4 +218,4 @@ MGA is still tightening architecture, packaging, and product shape. If you contr
 
 ## License
 
-License and contribution policy can be finalized once packaging and release flow are locked in.
+MGA is licensed under the [Apache License 2.0](LICENSE.md).

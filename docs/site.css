@@ -28,6 +28,42 @@ body {
   color: var(--text);
 }
 
+.site-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 7, 15, 0.88);
+  backdrop-filter: blur(18px);
+}
+
+.site-nav__brand {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.site-nav__links {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.site-nav__links a {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.site-nav__links a:hover {
+  color: var(--text);
+}
+
 img {
   display: block;
   max-width: 100%;
@@ -64,7 +100,7 @@ code {
 }
 
 .hero {
-  padding-top: 4rem;
+  padding-top: 3rem;
   padding-bottom: 3rem;
 }
 
@@ -83,7 +119,7 @@ code {
 
 .hero h1 {
   margin: 0;
-  max-width: 13ch;
+  max-width: 15ch;
   font-size: clamp(2.3rem, 4vw, 4.8rem);
   line-height: 0.98;
 }
@@ -142,6 +178,12 @@ code {
   font-size: clamp(1.6rem, 2vw, 2.5rem);
 }
 
+.section__intro {
+  max-width: 72ch;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
 .steps,
 .feature-grid,
 .integration-grid,
@@ -154,6 +196,28 @@ code {
   display: grid;
   gap: 0.7rem;
   padding-left: 1.25rem;
+}
+
+.link-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.question {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.question h3 {
+  margin: 0 0 0.45rem;
+}
+
+.question p {
+  margin: 0;
+  max-width: 78ch;
+  color: var(--muted);
+  line-height: 1.7;
 }
 
 .note {
@@ -272,6 +336,15 @@ td {
 }
 
 @media (max-width: 640px) {
+  .site-nav {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .site-nav__links {
+    justify-content: flex-start;
+  }
+
   .hero {
     padding-top: 2.5rem;
   }

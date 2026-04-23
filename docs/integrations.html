@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MGA Integrations | Steam, Xbox, Epic, Google Drive, SMB, RetroAchievements</title>
+    <meta name="description" content="Available MyGamesAnywhere integrations for game sources, metadata, achievements, save sync, and settings sync." />
+    <link rel="stylesheet" href="./site.css" />
+  </head>
+  <body>
+    <nav class="site-nav" aria-label="Primary">
+      <a class="site-nav__brand" href="./">MGA</a>
+      <div class="site-nav__links">
+        <a href="./install.html">Install</a>
+        <a href="./features.html">Features</a>
+        <a href="./integrations.html">Integrations</a>
+        <a href="./screenshots.html">Screenshots</a>
+        <a href="./comparison.html">Comparison</a>
+        <a href="./faq.html">FAQ</a>
+        <a href="./releases.html">Releases</a>
+        <a href="./roadmap.html">Roadmap</a>
+      </div>
+    </nav>
+    <main>
+      <section class="section">
+        <div class="section__inner">
+          <p class="eyebrow">Plugin-backed integrations</p>
+          <h1>Sources, metadata, achievements, save sync, and settings sync.</h1>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Integration</th><th>Plugin ID(s)</th><th>What MGA uses it for</th><th>Config / notes</th></tr></thead>
+              <tbody>
+                <tr><td>Steam</td><td><code>game-source-steam</code>, <code>metadata-steam</code></td><td>Game source, Steam metadata lookup, Steam achievements</td><td>Steam Web API key</td></tr>
+                <tr><td>Xbox / PC Game Pass</td><td><code>game-source-xbox</code></td><td>Xbox library source, Game Pass / xCloud availability, Xbox achievements</td><td>OAuth-backed</td></tr>
+                <tr><td>Epic Games</td><td><code>game-source-epic</code></td><td>Epic library source</td><td>Source listing</td></tr>
+                <tr><td>Google Drive</td><td><code>game-source-google-drive</code>, <code>save-sync-google-drive</code>, <code>sync-settings-google-drive</code></td><td>Game source, file operations, save sync, settings sync</td><td>OAuth-backed</td></tr>
+                <tr><td>SMB / network shares</td><td><code>game-source-smb</code></td><td>Network-share game source and filesystem operations</td><td>Host/share credentials and include paths</td></tr>
+                <tr><td>Local disk</td><td><code>save-sync-local-disk</code></td><td>Local save-sync target</td><td>No external service required</td></tr>
+                <tr><td>LaunchBox</td><td><code>metadata-launchbox</code></td><td>Game metadata lookup, platform-aware matching, media enrichment</td><td>Bundled metadata provider</td></tr>
+                <tr><td>IGDB</td><td><code>metadata-igdb</code></td><td>Game metadata lookup and enrichment</td><td>Twitch/IGDB client ID and secret</td></tr>
+                <tr><td>RAWG</td><td><code>metadata-rawg</code></td><td>Game metadata lookup and enrichment</td><td>RAWG API key</td></tr>
+                <tr><td>GOG</td><td><code>metadata-gog</code></td><td>GOG metadata lookup</td><td>Metadata provider</td></tr>
+                <tr><td>HLTB</td><td><code>metadata-hltb</code></td><td>HowLongToBeat metadata lookup</td><td>Metadata provider</td></tr>
+                <tr><td>MAME DAT</td><td><code>metadata-mame-dat</code></td><td>Arcade/MAME metadata lookup</td><td>Metadata provider</td></tr>
+                <tr><td>RetroAchievements</td><td><code>retroachievements</code></td><td>RetroAchievements metadata lookup and achievements</td><td>API key and username</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MGA FAQ | Steam, Xbox, Epic, ROMs, SMB, offline use, browser play</title>
+    <meta name="description" content="Frequently asked questions about MyGamesAnywhere, a local-first game launcher and unified game library." />
+    <link rel="stylesheet" href="./site.css" />
+  </head>
+  <body>
+    <nav class="site-nav" aria-label="Primary">
+      <a class="site-nav__brand" href="./">MGA</a>
+      <div class="site-nav__links">
+        <a href="./install.html">Install</a>
+        <a href="./features.html">Features</a>
+        <a href="./integrations.html">Integrations</a>
+        <a href="./screenshots.html">Screenshots</a>
+        <a href="./comparison.html">Comparison</a>
+        <a href="./faq.html">FAQ</a>
+        <a href="./releases.html">Releases</a>
+        <a href="./roadmap.html">Roadmap</a>
+      </div>
+    </nav>
+    <main>
+      <section class="section">
+        <div class="section__inner">
+          <p class="eyebrow">FAQ</p>
+          <h1>Questions people search for before trying MGA.</h1>
+          <div class="question"><h3>Can MGA merge Steam, Xbox, Epic, and emulator games into one library?</h3><p>Yes. MGA is built around canonical game records that can merge source entries when the detection flow can prove they represent the same game.</p></div>
+          <div class="question"><h3>Does MGA support ROMs and emulators?</h3><p>Yes. ROM and emulator-style collections are part of the product direction alongside storefront and cloud-source workflows.</p></div>
+          <div class="question"><h3>Does MGA work offline?</h3><p>The local runtime works offline. Some metadata providers, source integrations, achievements, and sync targets require network access.</p></div>
+          <div class="question"><h3>Where does MGA store data?</h3><p>The current portable runtime stores config, database, media, plugins, and frontend files beside the runtime folder.</p></div>
+          <div class="question"><h3>Can MGA detect games on SMB shares or external drives?</h3><p>Yes. SMB/network shares and removable/local paths are core source scenarios.</p></div>
+          <div class="question"><h3>Does MGA support browser play?</h3><p>Yes where configured runtime support exists. MGA can launch supported browser runtimes such as EmulatorJS, js-dos, and ScummVM from the web UI.</p></div>
+          <div class="question"><h3>Can MGA sync saves?</h3><p>Yes. Local disk and Google Drive save-sync integrations are available in the current plugin set.</p></div>
+          <div class="question"><h3>Is MGA Windows-only right now?</h3><p>The first packaged release is Windows-only and portable. Cross-platform installers are planned later.</p></div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
