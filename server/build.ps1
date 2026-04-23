@@ -1,12 +1,31 @@
 param(
     # Skip npm/Vite when you only need Go/plugins (e.g. CI without Node).
-    [switch]$SkipFrontend
+    [switch]$SkipFrontend,
+    [ValidateSet("Auto", "Clean")]
+    [string]$FrontendInstallMode = "Auto"
 )
 
 $ErrorActionPreference = "Stop"
 $RootDir = $PSScriptRoot
 $BinDir  = Join-Path $RootDir "bin"
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+
+function Test-FrontendToolchainReady {
+    param([string]$FrontendDir)
+
+    $required = @(
+        (Join-Path $FrontendDir "node_modules\.bin\tsc.cmd"),
+        (Join-Path $FrontendDir "node_modules\.bin\vite.cmd")
+    )
+
+    foreach ($path in $required) {
+        if (-not (Test-Path $path)) {
+            return $false
+        }
+    }
+
+    return $true
+}
 
 # --- Frontend → server/bin/frontend/dist (served by mga_server from cwd=bin, default FRONTEND_DIST) ---
 $feDir = Join-Path $RootDir "frontend"
@@ -16,10 +35,21 @@ if ((Test-Path $fePkg) -and -not $SkipFrontend) {
         throw "Node.js/npm is required to build server/frontend. Install Node or pass -SkipFrontend to build.ps1."
     }
     Write-Host "Building frontend (output will be copied to $BinDir\frontend\dist)..." -ForegroundColor Cyan
+    $feNodeModules = Join-Path $feDir "node_modules"
     Push-Location $feDir
     try {
-        npm ci
-        if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+        $toolchainReady = Test-FrontendToolchainReady -FrontendDir $feDir
+        $shouldRunCleanInstall = $FrontendInstallMode -eq "Clean" -or -not (Test-Path $feNodeModules)
+        if ($shouldRunCleanInstall) {
+            npm ci
+            if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+        } elseif (-not $toolchainReady) {
+            Write-Host "Repairing frontend dependencies with npm install (existing node_modules is incomplete)." -ForegroundColor Yellow
+            npm install
+            if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+        } else {
+            Write-Host "Reusing existing frontend node_modules (FrontendInstallMode=Auto)." -ForegroundColor DarkCyan
+        }
         npm run build
         if ($LASTEXITCODE -ne 0) { throw "frontend build failed" }
     } finally { Pop-Location }
