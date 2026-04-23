@@ -95,33 +95,21 @@ Sources, metadata providers, achievements, sync targets, and runtime surfaces ar
 
 ## Available integrations
 
-### Game sources
-
-- Steam
-- Xbox
-- Epic Games
-- SMB / network shares
-- Google Drive
-
-### Metadata providers
-
-- LaunchBox
-- IGDB
-- RAWG
-- HLTB
-- Steam metadata
-- GOG metadata
-- MAME DAT
-
-### Achievements and progression
-
-- RetroAchievements
-
-### Save sync and settings sync
-
-- Local disk save sync
-- Google Drive save sync
-- Google Drive settings sync
+| Integration | Plugin ID(s) | What MGA uses it for | Config / notes |
+|---|---|---|---|
+| Steam | `game-source-steam`, `metadata-steam` | Game source, Steam metadata lookup, Steam achievements | Steam Web API key for source and achievements |
+| Xbox / PC Game Pass | `game-source-xbox` | Xbox library source, Game Pass / xCloud availability, Xbox achievements | OAuth-backed source and achievement flow |
+| Epic Games | `game-source-epic` | Epic library source | Source listing |
+| Google Drive | `game-source-google-drive`, `save-sync-google-drive`, `sync-settings-google-drive` | Drive-backed game source, file browse/materialize/delete, save sync, settings sync | OAuth-backed; source config supports include paths |
+| SMB / network shares | `game-source-smb` | Network-share game source and filesystem operations | Host/share credentials and include paths |
+| Local disk | `save-sync-local-disk` | Local save-sync target | No external service required |
+| LaunchBox | `metadata-launchbox` | Game metadata lookup, platform-aware matching, media enrichment | Bundled metadata provider |
+| IGDB | `metadata-igdb` | Game metadata lookup and enrichment | Twitch/IGDB client ID and secret |
+| RAWG | `metadata-rawg` | Game metadata lookup and enrichment | RAWG API key |
+| GOG | `metadata-gog` | GOG metadata lookup | Metadata provider |
+| HLTB | `metadata-hltb` | HowLongToBeat metadata lookup | Metadata provider |
+| MAME DAT | `metadata-mame-dat` | Arcade/MAME metadata lookup | Metadata provider |
+| RetroAchievements | `retroachievements` | RetroAchievements metadata lookup and achievements | API key and username |
 
 ## Why MGA is different
 

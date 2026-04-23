@@ -143,38 +143,83 @@
       <section class="section">
         <div class="section__inner">
           <h2>Available integrations</h2>
-          <div class="integration-grid">
-            <article>
-              <h3>Game sources</h3>
-              <ul>
-                <li>Steam</li>
-                <li>Xbox</li>
-                <li>Epic Games</li>
-                <li>SMB / network shares</li>
-                <li>Google Drive</li>
-              </ul>
-            </article>
-            <article>
-              <h3>Metadata providers</h3>
-              <ul>
-                <li>LaunchBox</li>
-                <li>IGDB</li>
-                <li>RAWG</li>
-                <li>HLTB</li>
-                <li>Steam metadata</li>
-                <li>GOG metadata</li>
-                <li>MAME DAT</li>
-              </ul>
-            </article>
-            <article>
-              <h3>Progression and sync</h3>
-              <ul>
-                <li>RetroAchievements</li>
-                <li>Local disk save sync</li>
-                <li>Google Drive save sync</li>
-                <li>Google Drive settings sync</li>
-              </ul>
-            </article>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Integration</th>
+                  <th>What MGA uses it for</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Steam</td>
+                  <td>Game source, metadata lookup, achievements</td>
+                  <td>Steam Web API key for source and achievements</td>
+                </tr>
+                <tr>
+                  <td>Xbox / PC Game Pass</td>
+                  <td>Xbox library source, Game Pass / xCloud availability, achievements</td>
+                  <td>OAuth-backed source and achievement flow</td>
+                </tr>
+                <tr>
+                  <td>Epic Games</td>
+                  <td>Epic library source</td>
+                  <td>Source listing</td>
+                </tr>
+                <tr>
+                  <td>Google Drive</td>
+                  <td>Drive-backed game source, file operations, save sync, settings sync</td>
+                  <td>OAuth-backed; source config supports include paths</td>
+                </tr>
+                <tr>
+                  <td>SMB / network shares</td>
+                  <td>Network-share game source and filesystem operations</td>
+                  <td>Host/share credentials and include paths</td>
+                </tr>
+                <tr>
+                  <td>Local disk</td>
+                  <td>Local save-sync target</td>
+                  <td>No external service required</td>
+                </tr>
+                <tr>
+                  <td>LaunchBox</td>
+                  <td>Game metadata lookup, platform-aware matching, media enrichment</td>
+                  <td>Bundled metadata provider</td>
+                </tr>
+                <tr>
+                  <td>IGDB</td>
+                  <td>Game metadata lookup and enrichment</td>
+                  <td>Twitch/IGDB client ID and secret</td>
+                </tr>
+                <tr>
+                  <td>RAWG</td>
+                  <td>Game metadata lookup and enrichment</td>
+                  <td>RAWG API key</td>
+                </tr>
+                <tr>
+                  <td>GOG</td>
+                  <td>GOG metadata lookup</td>
+                  <td>Metadata provider</td>
+                </tr>
+                <tr>
+                  <td>HLTB</td>
+                  <td>HowLongToBeat metadata lookup</td>
+                  <td>Metadata provider</td>
+                </tr>
+                <tr>
+                  <td>MAME DAT</td>
+                  <td>Arcade/MAME metadata lookup</td>
+                  <td>Metadata provider</td>
+                </tr>
+                <tr>
+                  <td>RetroAchievements</td>
+                  <td>RetroAchievements metadata lookup and achievements</td>
+                  <td>API key and username</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
