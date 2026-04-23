@@ -576,3 +576,4 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [ ] Web-client: Surfing to the web client, the user can choose a profile (and set it to default so next time it won't ask).
   - [ ] User image/icon should be shown on the top left, where user log-out
   - [ ] No passwords (at this stage)
+- [ ] Game page redesign. we need to talk about this one.

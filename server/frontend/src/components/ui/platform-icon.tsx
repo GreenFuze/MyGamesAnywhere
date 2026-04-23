@@ -23,37 +23,35 @@ function buildIconMap(): Record<string, PlatformEntry> {
     map[key] = { emoji: meta.emoji, label: meta.label }
   }
 
-  map.windows_pc = {
-    ...map.windows_pc,
-    icon: <BrandIcon brand="windows" className="h-3.5 w-3.5" />,
+  const iconBrands: Record<string, string> = {
+    windows_pc: 'windows',
+    ms_dos: 'ms-dos',
+    arcade: 'arcade',
+    nes: 'nes',
+    snes: 'snes',
+    gb: 'gb',
+    gbc: 'gbc',
+    gba: 'gba',
+    n64: 'n64',
+    genesis: 'genesis',
+    sega_master_system: 'sega_master_system',
+    game_gear: 'game_gear',
+    sega_cd: 'sega_cd',
+    sega_32x: 'sega_32x',
+    ps1: 'ps1',
+    ps2: 'ps2',
+    ps3: 'ps3',
+    psp: 'psp',
+    scummvm: 'scummvm',
+    xbox_360: 'xbox',
+    xbox_one: 'xbox',
+    xbox_series: 'xbox',
   }
-  map.ms_dos = {
-    ...map.ms_dos,
-    icon: <BrandIcon brand="ms-dos" className="h-3.5 w-3.5" />,
-  }
-  map.arcade = {
-    ...map.arcade,
-    icon: <BrandIcon brand="arcade" className="h-3.5 w-3.5" />,
-  }
-  map.gba = {
-    ...map.gba,
-    icon: <BrandIcon brand="gba" className="h-3.5 w-3.5" />,
-  }
-  map.scummvm = {
-    ...map.scummvm,
-    icon: <BrandIcon brand="scummvm" className="h-3.5 w-3.5" />,
-  }
-  map.xbox_360 = {
-    ...map.xbox_360,
-    icon: <BrandIcon brand="xbox" className="h-3.5 w-3.5" />,
-  }
-  map.xbox_one = {
-    ...map.xbox_one,
-    icon: <BrandIcon brand="xbox" className="h-3.5 w-3.5" />,
-  }
-  map.xbox_series = {
-    ...map.xbox_series,
-    icon: <BrandIcon brand="xbox" className="h-3.5 w-3.5" />,
+  for (const [platform, brand] of Object.entries(iconBrands)) {
+    map[platform] = {
+      ...map[platform],
+      icon: <BrandIcon brand={brand} className="h-3.5 w-3.5" />,
+    }
   }
 
   return map
