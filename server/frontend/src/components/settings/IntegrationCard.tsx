@@ -51,6 +51,9 @@ interface IntegrationCardProps {
   scanState?: IntegrationScanState;
   scanDisabled?: boolean;
   onScan?: (id: string) => void;
+  refreshState?: IntegrationScanState;
+  refreshDisabled?: boolean;
+  onRefresh?: (id: string) => void;
 
   // Sync-specific props.
   syncStatus?: SyncStatus;
@@ -142,6 +145,9 @@ export function IntegrationCard({
   scanState,
   scanDisabled,
   onScan,
+  refreshState,
+  refreshDisabled,
+  onRefresh,
   syncStatus,
   syncState,
   onPush,
@@ -176,6 +182,11 @@ export function IntegrationCard({
     activeSaveSyncIntegrationId === integration.id;
   const oauthCapable = supportsOAuth(plugin);
   const statusInfo = statusPresentation(status);
+  const operationState = refreshState ?? scanState;
+  const refreshable =
+    typeof onRefresh === "function" &&
+    ((plugin?.provides?.includes("metadata.game.lookup") ?? false) ||
+      (plugin?.provides?.includes("achievements.game.get") ?? false));
   const showAuthAction =
     oauthCapable &&
     onStartAuth &&
@@ -233,17 +244,17 @@ export function IntegrationCard({
         )}
       </div>
 
-      {scanState?.badge && (
+      {operationState?.badge && (
         <div className="flex items-center gap-2 text-xs">
           <Badge
-            variant={scanState.badgeVariant ?? "muted"}
-            className={scanState.badgeClassName}
+            variant={operationState.badgeVariant ?? "muted"}
+            className={operationState.badgeClassName}
           >
-            {scanState.badge}
+            {operationState.badge}
           </Badge>
-          {scanState.detail && (
-            <span className="text-mga-muted truncate" title={scanState.detail}>
-              {scanState.detail}
+          {operationState.detail && (
+            <span className="text-mga-muted truncate" title={operationState.detail}>
+              {operationState.detail}
             </span>
           )}
         </div>
@@ -304,15 +315,14 @@ export function IntegrationCard({
         </p>
       </div>
 
-      {/* Scan progress bar (source integrations) */}
-      {capability === "source" && scanState?.progress && (
+      {operationState?.progress && (
         <ProgressBar
           value={
-            scanState.progress.indeterminate || scanState.progress.total <= 0
+            operationState.progress.indeterminate || operationState.progress.total <= 0
               ? undefined
-              : (scanState.progress.progress / scanState.progress.total) * 100
+              : (operationState.progress.progress / operationState.progress.total) * 100
           }
-          label={scanState.progress.label ?? "Scanning..."}
+          label={operationState.progress.label ?? "Working..."}
         />
       )}
 
@@ -346,6 +356,18 @@ export function IntegrationCard({
             className="text-xs"
           >
             {scanState?.active ? "Scanning..." : "Scan"}
+          </Button>
+        )}
+
+        {refreshable && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onRefresh(integration.id)}
+            disabled={refreshDisabled || refreshState?.active}
+            className="text-xs"
+          >
+            {refreshState?.active ? "Refreshing..." : "Refresh"}
           </Button>
         )}
 

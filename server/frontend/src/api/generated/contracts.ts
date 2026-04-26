@@ -57,6 +57,7 @@ export type FrontendConfig = {
   playPrefs?: LibraryPrefs;
   dateFormat?: DateFormat;
   timeFormat?: TimeFormat;
+  gameDetailAutoplayMedia?: boolean;
   saveSyncActiveIntegrationId?: string;
   recentPlayed?: RecentPlayedEntry[];
   [key: string]: unknown;

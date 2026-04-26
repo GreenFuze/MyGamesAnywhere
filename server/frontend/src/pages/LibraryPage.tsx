@@ -88,7 +88,7 @@ function TimelineView({ games }: { games: GameDetailResponse[] }) {
             <h2 className="text-2xl font-semibold tracking-tight">{year}</h2>
             <span className="text-sm text-mga-muted">{yearGames.length} games</span>
           </div>
-          <GameGrid games={yearGames} isLoading={false} />
+          <GameGrid games={yearGames} isLoading={false} cardVariant="library" />
         </section>
       ))}
     </div>
@@ -115,6 +115,7 @@ function RecentPlayedShelf({
       <HorizontalGameShelf
         games={games}
         label="Recent Played"
+        cardVariant="play"
         renderHoverAction={(game) => (
           <button
             type="button"
@@ -329,12 +330,21 @@ export function CollectionPage({ scope }: CollectionPageProps) {
 
       {focusedSection ? (
         <div className="space-y-6">
-          <GameGrid games={displayedGames} isLoading={isPending} progressive />
+          <GameGrid
+            games={displayedGames}
+            isLoading={isPending}
+            progressive
+            cardVariant={scope === 'play' ? 'play' : 'library'}
+          />
         </div>
       ) : prefs.viewMode === 'grid' ? (
         <div className="space-y-8">
           <RecentPlayedShelf games={recentPlayedGames} onRemove={removeRecentPlayed} />
-          <GameGrid games={displayedGames} isLoading={isPending} />
+          <GameGrid
+            games={displayedGames}
+            isLoading={isPending}
+            cardVariant={scope === 'play' ? 'play' : 'library'}
+          />
         </div>
       ) : prefs.viewMode === 'timeline' ? (
         <div className="space-y-8">
@@ -350,6 +360,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
             onRemoveSection={handleRemoveSection}
             games={displayedGames}
             isLoading={isPending}
+            scope={scope}
           />
           {showLibraryShelfAddButton && (
             <div className="flex justify-center">

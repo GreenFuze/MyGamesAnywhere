@@ -28,6 +28,8 @@ type GameDetailResponse struct {
 	CompletionTime     *core.CompletionTime   `json:"completion_time,omitempty"`
 	Media              []GameMediaDetailDTO   `json:"media,omitempty"`
 	CoverOverride      *GameMediaDetailDTO    `json:"cover_override,omitempty"`
+	HoverOverride      *GameMediaDetailDTO    `json:"hover_override,omitempty"`
+	BackgroundOverride *GameMediaDetailDTO    `json:"background_override,omitempty"`
 	IsGamePass         bool                   `json:"is_game_pass,omitempty"`
 	XcloudAvailable    bool                   `json:"xcloud_available,omitempty"`
 	StoreProductID     string                 `json:"store_product_id,omitempty"`
@@ -144,6 +146,14 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 	if cg.CoverOverride != nil {
 		cover := mediaRefToDTO(*cg.CoverOverride)
 		out.CoverOverride = &cover
+	}
+	if cg.HoverOverride != nil {
+		hover := mediaRefToDTO(*cg.HoverOverride)
+		out.HoverOverride = &hover
+	}
+	if cg.BackgroundOverride != nil {
+		background := mediaRefToDTO(*cg.BackgroundOverride)
+		out.BackgroundOverride = &background
 	}
 
 	for _, sg := range cg.SourceGames {

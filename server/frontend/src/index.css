@@ -3,6 +3,12 @@
 @tailwind utilities;
 
 @layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
   :root {
     color-scheme: dark light;
     /* Fallback before ThemeProvider runs (Midnight) */
@@ -21,6 +27,13 @@
 
   body {
     @apply bg-mga-bg text-mga-text;
+  }
+
+  html,
+  body,
+  #root {
+    max-width: 100%;
+    overflow-x: clip;
   }
 
   @keyframes mga-page-enter {

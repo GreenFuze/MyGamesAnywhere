@@ -31,10 +31,13 @@ interface IntegrationGroupSectionProps {
   // Scan / metadata.
   stats?: LibraryStats;
   scanStateByIntegrationId?: Map<string, IntegrationScanState>;
+  refreshStateByIntegrationId?: Map<string, IntegrationScanState>;
   onScan?: (id: string) => void;
+  onRefresh?: (id: string) => void;
   onScanGroup?: () => void;
   onRefreshMetadata?: () => void;
   scanControlsDisabled?: boolean;
+  refreshControlsDisabled?: boolean;
   mutationControlsDisabled?: boolean;
   sourceScanActive?: boolean;
   metadataRefreshActive?: boolean;
@@ -76,10 +79,13 @@ export function IntegrationGroupSection({
   onDelete,
   stats,
   scanStateByIntegrationId,
+  refreshStateByIntegrationId,
   onScan,
+  onRefresh,
   onScanGroup,
   onRefreshMetadata,
   scanControlsDisabled,
+  refreshControlsDisabled,
   mutationControlsDisabled,
   sourceScanActive,
   metadataRefreshActive,
@@ -154,7 +160,7 @@ export function IntegrationGroupSection({
               disabled={scanControlsDisabled}
               className="text-xs"
             >
-              {sourceScanActive ? "Scanning sources..." : "Scan All Sources"}
+              {sourceScanActive ? "Rescanning sources..." : "Rescan All"}
             </Button>
           )}
           {capability === "metadata" && onRefreshMetadata && (
@@ -192,10 +198,13 @@ export function IntegrationGroupSection({
               mutationDisabled={mutationControlsDisabled}
               // Source-specific.
               scanState={scanStateByIntegrationId?.get(integ.id)}
+              refreshState={refreshStateByIntegrationId?.get(integ.id)}
               scanDisabled={
                 capability === "source" ? scanControlsDisabled : undefined
               }
               onScan={onScan}
+              refreshDisabled={refreshControlsDisabled}
+              onRefresh={onRefresh}
               // Sync-specific.
               syncStatus={capability === "sync" ? syncStatus : undefined}
               syncState={capability === "sync" ? syncState : undefined}

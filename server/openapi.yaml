@@ -327,6 +327,20 @@ paths:
         500:
           description: Internal server error
 
+  /api/games/{id}/background-override:
+    put:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/games/{id}/cache/prepare:
     post:
       summary: Prepare cached source files for one delivery profile
@@ -420,6 +434,20 @@ paths:
           description: Game not found
         500:
           description: Internal server error
+
+  /api/games/{id}/hover-override:
+    put:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
 
   /api/games/{id}/play:
     get:
@@ -580,6 +608,20 @@ paths:
         500:
           description: Internal server error
 
+  /api/integration-refresh/jobs/{job_id}:
+    get:
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/integrations:
     get:
       summary: List integrations
@@ -729,6 +771,20 @@ paths:
           description: Integration not found
         500:
           description: Internal server error
+
+  /api/integrations/{id}/refresh:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
 
   /api/integrations/{id}/status:
     get:

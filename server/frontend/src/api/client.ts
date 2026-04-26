@@ -240,6 +240,8 @@ export type GameDetailResponse = {
   completion_time?: CompletionTime;
   media?: GameMediaDetailDTO[];
   cover_override?: GameMediaDetailDTO;
+  hover_override?: GameMediaDetailDTO;
+  background_override?: GameMediaDetailDTO;
   is_game_pass?: boolean;
   xcloud_available?: boolean;
   store_product_id?: string;
@@ -382,6 +384,26 @@ export async function clearGameCoverOverride(id: string): Promise<GameDetailResp
   return res.json() as Promise<GameDetailResponse>;
 }
 
+export async function setGameHoverOverride(
+  id: string,
+  mediaAssetId: number,
+): Promise<GameDetailResponse> {
+  return putJson<GameDetailResponse>(
+    `/api/games/${encodeURIComponent(id)}/hover-override`,
+    { media_asset_id: mediaAssetId },
+  );
+}
+
+export async function setGameBackgroundOverride(
+  id: string,
+  mediaAssetId: number,
+): Promise<GameDetailResponse> {
+  return putJson<GameDetailResponse>(
+    `/api/games/${encodeURIComponent(id)}/background-override`,
+    { media_asset_id: mediaAssetId },
+  );
+}
+
 export async function refreshGameMetadata(
   id: string,
 ): Promise<GameDetailResponse> {
@@ -456,6 +478,29 @@ export type TriggerScanResult = {
 export type CancelScanResult = {
   accepted: boolean;
   job: ScanJobStatus;
+};
+
+export type IntegrationRefreshJobStatus = {
+  job_id: string;
+  integration_id: string;
+  plugin_id: string;
+  label: string;
+  status: string;
+  phase?: string;
+  started_at?: string;
+  finished_at?: string;
+  items_total: number;
+  items_completed: number;
+  warning_count: number;
+  error_count: number;
+  current_item?: string;
+  error?: string;
+  warnings?: string[];
+};
+
+export type TriggerIntegrationRefreshResult = {
+  accepted: boolean;
+  job: IntegrationRefreshJobStatus;
 };
 
 export type SyncStatus = {
@@ -673,6 +718,31 @@ export async function getIntegrationEnrichedGames(
 ): Promise<IntegrationGameItem[]> {
   return getJson<IntegrationGameItem[]>(
     `/api/integrations/${encodeURIComponent(id)}/enriched-games`,
+  );
+}
+
+export async function startIntegrationRefresh(
+  id: string,
+): Promise<TriggerIntegrationRefreshResult> {
+  const path = `/api/integrations/${encodeURIComponent(id)}/refresh`;
+  const res = await fetch(`${base}${path}`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  if (res.status !== 202 && res.status !== 409) {
+    throw await buildApiError(path, res);
+  }
+  return {
+    accepted: res.status === 202,
+    job: (await res.json()) as IntegrationRefreshJobStatus,
+  };
+}
+
+export async function getIntegrationRefreshJob(
+  jobId: string,
+): Promise<IntegrationRefreshJobStatus> {
+  return getJson<IntegrationRefreshJobStatus>(
+    `/api/integration-refresh/jobs/${encodeURIComponent(jobId)}`,
   );
 }
 

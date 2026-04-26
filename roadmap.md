@@ -566,7 +566,6 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Recheck metadata/platform normalization for known-platform titles that still surface as `unknown`, such as `Plasma Pong`.
 - [x] Investigate MAME launch failures that report `ROMSET not recognized` and lock the runner contract down with focused proof.
 - [x] RetroAchievements remains vulnerable to Cloudflare blocking in some environments; determine whether MGA can use a more compatible upstream access pattern without misclassifying auth/config failures.
-- [ ] Revisit cover-image presentation rules so portrait/landscape assets are framed more gracefully when the current crop cuts away important art.
 - [x] Package MGA for real distribution (Windows/Linux/macOS and/or Docker) with an installer/start path that does not require source checkout.
   - 2026-04-23 follow-up: Windows-first portable ZIP packaging, bootstrap verification scripts, and a tag-driven GitHub Release workflow are now in-repo. Cross-platform installers and non-Windows packaging remain future work.
 - [x] Refresh `README.md` into a user-facing landing document with quick start, screenshots, packaging/install guidance, and feature overview.
@@ -577,4 +576,6 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [ ] Web-client: Surfing to the web client, the user can choose a profile (and set it to default so next time it won't ask).
   - [ ] User image/icon should be shown on the top left, where user log-out
   - [ ] No passwords (at this stage)
-- [ ] Game page redesign. we need to talk about this one.
+- [ ] Auto-update mechanism
+  - [ ] check if there's an update to MGA, if so, write that there's an update, and let the user click "update" button to update to the latest version.
+- [ ] Add "favorites"

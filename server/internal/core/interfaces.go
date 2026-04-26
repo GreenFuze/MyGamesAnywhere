@@ -17,6 +17,8 @@ var (
 	ErrSourceGameDeleteNotEligible      = errors.New("source record is not eligible for hard delete")
 	ErrCanonicalGameNotFound            = errors.New("canonical game not found")
 	ErrCoverOverrideMediaNotFound       = errors.New("cover override media asset is not linked to this game")
+	ErrHoverOverrideMediaNotFound       = errors.New("hover override media asset is not linked to this game")
+	ErrBackgroundOverrideMediaNotFound  = errors.New("background override media asset is not linked to this game")
 )
 
 // Logger defines the interface for structured logging.
@@ -142,6 +144,12 @@ type GameStore interface {
 	// other source rows in the same integration.
 	SaveManualReviewResult(ctx context.Context, sourceGame *SourceGame, resolverMatches []ResolverMatch, media []MediaRef) error
 
+	// SaveRefreshedMetadataProviderResults persists resolver/media state for one
+	// or more source records after a provider-scoped metadata refresh. The
+	// supplied source records must already exist; files, source identity, and
+	// manual-review state are preserved.
+	SaveRefreshedMetadataProviderResults(ctx context.Context, sourceGames []*SourceGame) error
+
 	// SetManualReviewState updates one source record's manual-review state and
 	// recomputes canonical membership if its visibility changes.
 	SetManualReviewState(ctx context.Context, candidateID string, state ManualReviewState) error
@@ -178,6 +186,12 @@ type GameStore interface {
 
 	// ClearCanonicalCoverOverride removes a pinned canonical cover, restoring normal selection.
 	ClearCanonicalCoverOverride(ctx context.Context, canonicalID string) error
+
+	// SetCanonicalHoverOverride pins one existing media asset as the canonical hover image.
+	SetCanonicalHoverOverride(ctx context.Context, canonicalID string, mediaAssetID int) error
+
+	// SetCanonicalBackgroundOverride pins one existing media asset as the canonical background image.
+	SetCanonicalBackgroundOverride(ctx context.Context, canonicalID string, mediaAssetID int) error
 }
 
 // SyncService handles push/pull settings synchronisation to a remote store.

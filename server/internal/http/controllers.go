@@ -15,6 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -85,6 +86,14 @@ type DeleteSourceGameResponse struct {
 }
 
 type SetCoverOverrideRequest struct {
+	MediaAssetID int `json:"media_asset_id"`
+}
+
+type SetHoverOverrideRequest struct {
+	MediaAssetID int `json:"media_asset_id"`
+}
+
+type SetBackgroundOverrideRequest struct {
 	MediaAssetID int `json:"media_asset_id"`
 }
 
@@ -361,6 +370,74 @@ func (c *GameController) ClearCoverOverride(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx)))
 }
 
+func (c *GameController) SetHoverOverride(w http.ResponseWriter, r *http.Request) {
+	id, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var body SetHoverOverrideRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if body.MediaAssetID <= 0 {
+		http.Error(w, "media_asset_id is required", http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	if err := c.gameStore.SetCanonicalHoverOverride(ctx, id, body.MediaAssetID); err != nil {
+		c.writeHoverOverrideError(w, err)
+		return
+	}
+	game, err := c.gameStore.GetCanonicalGameByID(ctx, id)
+	if err != nil {
+		c.logger.Error("get game after hover override", err, "game_id", id)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if game == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx)))
+}
+
+func (c *GameController) SetBackgroundOverride(w http.ResponseWriter, r *http.Request) {
+	id, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var body SetBackgroundOverrideRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if body.MediaAssetID <= 0 {
+		http.Error(w, "media_asset_id is required", http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	if err := c.gameStore.SetCanonicalBackgroundOverride(ctx, id, body.MediaAssetID); err != nil {
+		c.writeBackgroundOverrideError(w, err)
+		return
+	}
+	game, err := c.gameStore.GetCanonicalGameByID(ctx, id)
+	if err != nil {
+		c.logger.Error("get game after background override", err, "game_id", id)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if game == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx)))
+}
+
 func (c *GameController) writeCoverOverrideError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, core.ErrCanonicalGameNotFound):
@@ -369,6 +446,30 @@ func (c *GameController) writeCoverOverrideError(w http.ResponseWriter, err erro
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 	default:
 		c.logger.Error("cover override failed", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (c *GameController) writeHoverOverrideError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, core.ErrCanonicalGameNotFound):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	case errors.Is(err, core.ErrHoverOverrideMediaNotFound):
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+	default:
+		c.logger.Error("hover override failed", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (c *GameController) writeBackgroundOverrideError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, core.ErrCanonicalGameNotFound):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	case errors.Is(err, core.ErrBackgroundOverrideMediaNotFound):
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+	default:
+		c.logger.Error("background override failed", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -1506,14 +1607,21 @@ func (c *PluginController) DeleteIntegration(w http.ResponseWriter, r *http.Requ
 
 // AchievementController serves GET /api/games/{id}/achievements.
 type AchievementController struct {
-	gameStore  core.GameStore
-	pluginHost plugins.PluginHost
-	logger     core.Logger
-	eventBus   *events.EventBus
+	gameStore          core.GameStore
+	pluginHost         plugins.PluginHost
+	achievementFetcher *scan.AchievementFetchService
+	logger             core.Logger
+	eventBus           *events.EventBus
 }
 
 func NewAchievementController(gameStore core.GameStore, pluginHost plugins.PluginHost, logger core.Logger, eventBus *events.EventBus) *AchievementController {
-	return &AchievementController{gameStore: gameStore, pluginHost: pluginHost, logger: logger, eventBus: eventBus}
+	return &AchievementController{
+		gameStore:          gameStore,
+		pluginHost:         pluginHost,
+		achievementFetcher: scan.NewAchievementFetchService(gameStore, pluginHost, logger),
+		logger:             logger,
+		eventBus:           eventBus,
+	}
 }
 
 type AchievementDTO struct {
@@ -1587,6 +1695,11 @@ type rawAchievementPluginResult struct {
 	TotalPoints    int                         `json:"total_points"`
 	EarnedPoints   int                         `json:"earned_points"`
 	Achievements   []rawAchievementPluginEntry `json:"achievements"`
+}
+
+type achievementQueryCandidate struct {
+	ExternalGameID string
+	SourceGameID   string
 }
 
 func parseAchievementUnlockedAt(raw any) (time.Time, bool) {
@@ -1736,6 +1849,78 @@ func findAchievementCacheSourceGameID(game *core.CanonicalGame, source, external
 	return ""
 }
 
+func buildAchievementQueryCandidates(game *core.CanonicalGame, pluginIDs []string) map[string]achievementQueryCandidate {
+	candidates := make(map[string]achievementQueryCandidate, len(pluginIDs))
+	if game == nil || len(pluginIDs) == 0 {
+		return candidates
+	}
+
+	wanted := make(map[string]struct{}, len(pluginIDs))
+	for _, pluginID := range pluginIDs {
+		if strings.TrimSpace(pluginID) == "" {
+			continue
+		}
+		wanted[pluginID] = struct{}{}
+	}
+
+	// Source plugins map directly from source games in source-game order.
+	for _, sg := range game.SourceGames {
+		if sg == nil || sg.Status != "found" {
+			continue
+		}
+		if _, ok := wanted[sg.PluginID]; !ok || sg.ExternalID == "" {
+			continue
+		}
+		if _, exists := candidates[sg.PluginID]; exists {
+			continue
+		}
+		candidates[sg.PluginID] = achievementQueryCandidate{
+			ExternalGameID: sg.ExternalID,
+			SourceGameID:   sg.ID,
+		}
+	}
+
+	type scoredCandidate struct {
+		candidate achievementQueryCandidate
+		priority  int
+	}
+
+	scored := make(map[string]scoredCandidate, len(pluginIDs))
+	for _, sg := range game.SourceGames {
+		if sg == nil || sg.Status != "found" {
+			continue
+		}
+		for _, match := range sg.ResolverMatches {
+			if _, ok := wanted[match.PluginID]; !ok || match.ExternalID == "" {
+				continue
+			}
+			priority := 1
+			if match.ManualSelection {
+				priority = 3
+			} else if !match.Outvoted {
+				priority = 2
+			}
+			existing, exists := scored[match.PluginID]
+			if exists && existing.priority >= priority {
+				continue
+			}
+			scored[match.PluginID] = scoredCandidate{
+				candidate: achievementQueryCandidate{
+					ExternalGameID: match.ExternalID,
+					SourceGameID:   sg.ID,
+				},
+				priority: priority,
+			}
+		}
+	}
+
+	for pluginID, candidate := range scored {
+		candidates[pluginID] = candidate.candidate
+	}
+
+	return candidates
+}
+
 // GetAchievements fetches achievements on-demand from all capable plugins.
 func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.Request) {
 	gameID, err := decodedPathParam(r, "id")
@@ -1767,50 +1952,22 @@ func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	externalBySource := make(map[string]string) // plugin_id -> external_id
-	for _, eid := range game.ExternalIDs {
-		externalBySource[eid.Source] = eid.ExternalID
-	}
-
-	toQuery := 0
-	for _, pluginID := range achPlugins {
-		if _, ok := externalBySource[pluginID]; ok {
-			toQuery++
-		}
-	}
-	checked := 0
-
-	var sets []AchievementSetDTO
-	for _, pluginID := range achPlugins {
-		extID, ok := externalBySource[pluginID]
-		if !ok {
+	fetchedSets, errs := c.achievementFetcher.FetchAndCacheForPlugins(ctx, game, achPlugins)
+	sets := make([]AchievementSetDTO, 0, len(fetchedSets))
+	for _, set := range fetchedSets {
+		if set == nil {
 			continue
 		}
-
-		var result rawAchievementPluginResult
-
-		params := map[string]any{"external_game_id": extID}
-		checked++
-		if err := c.pluginHost.Call(ctx, pluginID, "achievements.game.get", params, &result); err != nil {
-			c.logger.Error("achievements.game.get failed", err, "plugin_id", pluginID, "game_id", gameID)
-			events.PublishJSON(c.eventBus, "operation_error", map[string]any{
-				"scope":     "achievements",
-				"plugin_id": pluginID,
-				"game_id":   gameID,
-				"error":     err.Error(),
-				"index":     checked,
-				"total":     toQuery,
-			})
-			continue
-		}
-
-		set, dto := normalizeAchievementResult(pluginID, extID, result, time.Now())
-		if sourceGameID := findAchievementCacheSourceGameID(game, set.Source, set.ExternalGameID); sourceGameID != "" {
-			if err := c.gameStore.CacheAchievements(ctx, sourceGameID, set); err != nil {
-				c.logger.Error("cache achievements", err, "plugin_id", pluginID, "game_id", gameID, "source_game_id", sourceGameID)
-			}
-		}
-		sets = append(sets, dto)
+		sets = append(sets, achievementSetToDTO(*set))
+	}
+	for pluginID, callErr := range errs {
+		c.logger.Error("achievements.game.get failed", callErr, "plugin_id", pluginID, "game_id", gameID)
+		events.PublishJSON(c.eventBus, "operation_error", map[string]any{
+			"scope":     "achievements",
+			"plugin_id": pluginID,
+			"game_id":   gameID,
+			"error":     callErr.Error(),
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")

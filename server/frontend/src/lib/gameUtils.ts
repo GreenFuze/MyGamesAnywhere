@@ -26,6 +26,39 @@ export function selectGameCoverUrl(game: Pick<GameDetailResponse, 'media' | 'cov
   return selectCoverUrl(game.media, game.cover_override)
 }
 
+const PREVIEW_MEDIA_PRIORITY = [
+  'screenshot',
+  'background',
+  'backdrop',
+  'banner',
+  'hero',
+  'artwork',
+  'fanart',
+] as const
+
+export function selectPreviewImageUrl(
+  media: GameMediaDetailDTO[] | undefined,
+  coverOverride?: GameMediaDetailDTO,
+  hoverOverride?: GameMediaDetailDTO,
+): string | null {
+  if (hoverOverride) return mediaUrl(hoverOverride)
+  const collection = new GameMediaCollection(media)
+  const imageMedia = collection.imageMedia()
+
+  for (const type of PREVIEW_MEDIA_PRIORITY) {
+    const match = imageMedia.find((item) => item.type === type)
+    if (match) return mediaUrl(match)
+  }
+
+  return selectCoverUrl(media, coverOverride)
+}
+
+export function selectGamePreviewImageUrl(
+  game: Pick<GameDetailResponse, 'media' | 'cover_override' | 'hover_override'>,
+): string | null {
+  return selectPreviewImageUrl(game.media, game.cover_override, game.hover_override)
+}
+
 // ---------------------------------------------------------------------------
 // Browser play
 // ---------------------------------------------------------------------------

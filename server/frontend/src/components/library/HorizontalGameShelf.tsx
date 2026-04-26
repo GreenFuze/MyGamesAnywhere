@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { GameDetailResponse } from '@/api/client'
 import { GameCard } from '@/components/library/GameCard'
 import { animateHorizontalScrollTo } from '@/lib/motion'
+import { cn } from '@/lib/utils'
 import { useTheme } from '@/theme/ThemeProvider'
 
 const GAP_PX = 16
@@ -13,6 +14,7 @@ interface HorizontalGameShelfProps {
   games: GameDetailResponse[]
   label: string
   renderHoverAction?: (game: GameDetailResponse) => ReactNode
+  cardVariant?: 'library' | 'play'
 }
 
 function computeCardWidth(width: number): number {
@@ -26,7 +28,12 @@ function computeCardWidth(width: number): number {
   return Math.max(MIN_CARD_WIDTH, Math.min(MAX_CARD_WIDTH, cardWidth))
 }
 
-export function HorizontalGameShelf({ games, label, renderHoverAction }: HorizontalGameShelfProps) {
+export function HorizontalGameShelf({
+  games,
+  label,
+  renderHoverAction,
+  cardVariant = 'library',
+}: HorizontalGameShelfProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const { reducedMotion } = useTheme()
   const [canScrollLeft, setCanScrollLeft] = useState(false)
@@ -76,14 +83,17 @@ export function HorizontalGameShelf({ games, label, renderHoverAction }: Horizon
   }
 
   return (
-    <div className="group/shelf relative">
+    <div className={cn('group/shelf relative', cardVariant === 'play' && 'rounded-[18px] bg-[#09070d] px-1 py-2')}>
       <div
         ref={viewportRef}
-        className="mga-hidden-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto pr-14"
+        className={cn(
+          'mga-hidden-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto pr-14',
+          cardVariant === 'play' && 'pr-16',
+        )}
       >
         {games.map((game) => (
           <div key={game.id} className="shrink-0 snap-start" style={{ width: `${cardWidth}px` }}>
-            <GameCard game={game} hoverAction={renderHoverAction?.(game)} />
+            <GameCard game={game} hoverAction={renderHoverAction?.(game)} variant={cardVariant} />
           </div>
         ))}
       </div>
@@ -91,7 +101,10 @@ export function HorizontalGameShelf({ games, label, renderHoverAction }: Horizon
         <button
           type="button"
           onClick={() => page(-1)}
-          className="absolute left-0 top-1/2 hidden h-12 w-10 -translate-y-1/2 items-center justify-center rounded-mga border border-mga-border bg-mga-bg/90 text-mga-text shadow-lg backdrop-blur transition-colors hover:border-mga-accent sm:flex"
+          className={cn(
+            'absolute left-0 top-1/2 hidden h-12 w-10 -translate-y-1/2 items-center justify-center rounded-mga border border-mga-border bg-mga-bg/90 text-mga-text shadow-lg backdrop-blur transition-colors hover:border-mga-accent sm:flex',
+            cardVariant === 'play' && 'left-1 border-white/8 bg-black/72 text-white hover:border-white/16',
+          )}
           aria-label={`Previous page in ${label}`}
         >
           <ChevronLeft size={22} />
@@ -101,7 +114,10 @@ export function HorizontalGameShelf({ games, label, renderHoverAction }: Horizon
         <button
           type="button"
           onClick={() => page(1)}
-          className="absolute right-0 top-1/2 flex h-12 w-10 -translate-y-1/2 items-center justify-center rounded-mga border border-mga-border bg-mga-bg/90 text-mga-text shadow-lg backdrop-blur transition-colors hover:border-mga-accent"
+          className={cn(
+            'absolute right-0 top-1/2 flex h-12 w-10 -translate-y-1/2 items-center justify-center rounded-mga border border-mga-border bg-mga-bg/90 text-mga-text shadow-lg backdrop-blur transition-colors hover:border-mga-accent',
+            cardVariant === 'play' && 'right-1 border-white/8 bg-black/72 text-white hover:border-white/16',
+          )}
           aria-label={`Next page in ${label}`}
         >
           <ChevronRight size={22} />

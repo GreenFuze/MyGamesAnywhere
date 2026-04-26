@@ -114,3 +114,49 @@ func TestValidateCheckConfigMissingCredentialsIsError(t *testing.T) {
 		t.Fatalf("status = %q, want %q", got, "error")
 	}
 }
+
+func TestBuildRetroAchievementEntriesPreservesMixedUnlockStateAndPoints(t *testing.T) {
+	game := &raGameExtended{
+		NumDistinctPlayersCasual: 10,
+		Achievements: map[string]raAchievement{
+			"1": {
+				ID:          1,
+				Title:       "Unlocked One",
+				Description: "First achievement",
+				Points:      10,
+				BadgeName:   "badge1",
+				NumAwarded:  5,
+				DateEarned:  "2024-03-09T16:00:00Z",
+			},
+			"2": {
+				ID:          2,
+				Title:       "Still Locked",
+				Description: "Second achievement",
+				Points:      25,
+				BadgeName:   "badge2",
+				NumAwarded:  2,
+			},
+		},
+	}
+
+	achievements, unlocked, totalPoints, earnedPoints := buildRetroAchievementEntries(game)
+
+	if len(achievements) != 2 {
+		t.Fatalf("len(achievements) = %d, want 2", len(achievements))
+	}
+	if unlocked != 1 {
+		t.Fatalf("unlocked = %d, want 1", unlocked)
+	}
+	if totalPoints != 35 {
+		t.Fatalf("total_points = %d, want 35", totalPoints)
+	}
+	if earnedPoints != 10 {
+		t.Fatalf("earned_points = %d, want 10", earnedPoints)
+	}
+	if !achievements[0].Unlocked || achievements[0].UnlockedAt == "" {
+		t.Fatalf("first achievement = %+v, want unlocked with timestamp", achievements[0])
+	}
+	if achievements[1].Unlocked || achievements[1].UnlockedAt != "" {
+		t.Fatalf("second achievement = %+v, want locked without timestamp", achievements[1])
+	}
+}

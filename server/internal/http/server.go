@@ -13,22 +13,23 @@ import (
 )
 
 type httpServer struct {
-	server          *http.Server
-	logger          core.Logger
-	config          core.Configuration
-	gameCtrl        *GameController
-	mediaCtrl       *MediaController
-	discoCtrl       *DiscoveryController
-	aboutCtrl       *AboutController
-	configCtrl      *ConfigController
-	pluginCtrl      *PluginController
-	reviewCtrl      *ReviewController
-	achievementCtrl *AchievementController
-	syncCtrl        *SyncController
-	saveSyncCtrl    *SaveSyncController
-	cacheCtrl       *CacheController
-	sseCtrl         *SSEController
-	oauthCtrl       *OAuthController
+	server                 *http.Server
+	logger                 core.Logger
+	config                 core.Configuration
+	gameCtrl               *GameController
+	mediaCtrl              *MediaController
+	discoCtrl              *DiscoveryController
+	aboutCtrl              *AboutController
+	configCtrl             *ConfigController
+	pluginCtrl             *PluginController
+	integrationRefreshCtrl *IntegrationRefreshController
+	reviewCtrl             *ReviewController
+	achievementCtrl        *AchievementController
+	syncCtrl               *SyncController
+	saveSyncCtrl           *SaveSyncController
+	cacheCtrl              *CacheController
+	sseCtrl                *SSEController
+	oauthCtrl              *OAuthController
 }
 
 func NewHttpServer(
@@ -40,6 +41,7 @@ func NewHttpServer(
 	aboutCtrl *AboutController,
 	configCtrl *ConfigController,
 	pluginCtrl *PluginController,
+	integrationRefreshCtrl *IntegrationRefreshController,
 	reviewCtrl *ReviewController,
 	achievementCtrl *AchievementController,
 	syncCtrl *SyncController,
@@ -49,21 +51,22 @@ func NewHttpServer(
 	oauthCtrl *OAuthController,
 ) core.Server {
 	return &httpServer{
-		logger:          logger,
-		config:          config,
-		gameCtrl:        gameCtrl,
-		mediaCtrl:       mediaCtrl,
-		discoCtrl:       discoCtrl,
-		aboutCtrl:       aboutCtrl,
-		configCtrl:      configCtrl,
-		pluginCtrl:      pluginCtrl,
-		reviewCtrl:      reviewCtrl,
-		achievementCtrl: achievementCtrl,
-		syncCtrl:        syncCtrl,
-		saveSyncCtrl:    saveSyncCtrl,
-		cacheCtrl:       cacheCtrl,
-		sseCtrl:         sseCtrl,
-		oauthCtrl:       oauthCtrl,
+		logger:                 logger,
+		config:                 config,
+		gameCtrl:               gameCtrl,
+		mediaCtrl:              mediaCtrl,
+		discoCtrl:              discoCtrl,
+		aboutCtrl:              aboutCtrl,
+		configCtrl:             configCtrl,
+		pluginCtrl:             pluginCtrl,
+		integrationRefreshCtrl: integrationRefreshCtrl,
+		reviewCtrl:             reviewCtrl,
+		achievementCtrl:        achievementCtrl,
+		syncCtrl:               syncCtrl,
+		saveSyncCtrl:           saveSyncCtrl,
+		cacheCtrl:              cacheCtrl,
+		sseCtrl:                sseCtrl,
+		oauthCtrl:              oauthCtrl,
 	}
 }
 
@@ -84,19 +87,20 @@ func (h *httpServer) Start(ctx context.Context) error {
 	}
 
 	r := BuildRouter(&RouteBuilder{
-		GameCtrl:        h.gameCtrl,
-		MediaCtrl:       h.mediaCtrl,
-		DiscoCtrl:       h.discoCtrl,
-		AboutCtrl:       h.aboutCtrl,
-		ConfigCtrl:      h.configCtrl,
-		PluginCtrl:      h.pluginCtrl,
-		ReviewCtrl:      h.reviewCtrl,
-		AchievementCtrl: h.achievementCtrl,
-		SyncCtrl:        h.syncCtrl,
-		SaveSyncCtrl:    h.saveSyncCtrl,
-		CacheCtrl:       h.cacheCtrl,
-		SSECtrl:         h.sseCtrl,
-		OAuthCtrl:       h.oauthCtrl,
+		GameCtrl:               h.gameCtrl,
+		MediaCtrl:              h.mediaCtrl,
+		DiscoCtrl:              h.discoCtrl,
+		AboutCtrl:              h.aboutCtrl,
+		ConfigCtrl:             h.configCtrl,
+		PluginCtrl:             h.pluginCtrl,
+		IntegrationRefreshCtrl: h.integrationRefreshCtrl,
+		ReviewCtrl:             h.reviewCtrl,
+		AchievementCtrl:        h.achievementCtrl,
+		SyncCtrl:               h.syncCtrl,
+		SaveSyncCtrl:           h.saveSyncCtrl,
+		CacheCtrl:              h.cacheCtrl,
+		SSECtrl:                h.sseCtrl,
+		OAuthCtrl:              h.oauthCtrl,
 	}, 60*time.Second, spaDir)
 
 	h.server = &http.Server{

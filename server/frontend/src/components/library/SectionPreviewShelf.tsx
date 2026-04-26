@@ -15,6 +15,7 @@ interface SectionPreviewShelfProps {
   games: GameDetailResponse[]
   label: string
   onOpenShelf: () => void
+  cardVariant?: 'library' | 'play'
 }
 
 function computeColumns(width: number): number {
@@ -31,7 +32,12 @@ function computeColumns(width: number): number {
   return Math.max(1, columns)
 }
 
-export function SectionPreviewShelf({ games, label, onOpenShelf }: SectionPreviewShelfProps) {
+export function SectionPreviewShelf({
+  games,
+  label,
+  onOpenShelf,
+  cardVariant = 'library',
+}: SectionPreviewShelfProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { reducedMotion } = useTheme()
   const [columns, setColumns] = useState(1)
@@ -72,7 +78,7 @@ export function SectionPreviewShelf({ games, label, onOpenShelf }: SectionPrevie
   const showOpenShelf = !showNextPage && canOpenShelf
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className={cn('relative', cardVariant === 'play' && 'rounded-[18px] bg-[#09070d] px-1 py-2')} ref={containerRef}>
       <div
         key={`${pageIndex}:${pageDirection ?? 'idle'}`}
         className={cn(
@@ -84,7 +90,7 @@ export function SectionPreviewShelf({ games, label, onOpenShelf }: SectionPrevie
       >
         {previewGames.map((game) => (
           <div key={game.id} className="min-w-0">
-            <GameCard game={game} />
+            <GameCard game={game} variant={cardVariant} />
           </div>
         ))}
       </div>
@@ -96,7 +102,10 @@ export function SectionPreviewShelf({ games, label, onOpenShelf }: SectionPrevie
             setPageDirection('prev')
             setPageIndex((current) => Math.max(0, current - 1))
           }}
-          className="absolute left-0 top-1/2 hidden h-12 w-10 -translate-y-1/2 items-center justify-center rounded-mga border border-mga-border bg-mga-bg/90 text-mga-text shadow-lg backdrop-blur transition-colors hover:border-mga-accent sm:flex"
+          className={cn(
+            'absolute left-0 top-1/2 hidden h-12 w-10 -translate-y-1/2 items-center justify-center rounded-mga border border-mga-border bg-mga-bg/90 text-mga-text shadow-lg backdrop-blur transition-colors hover:border-mga-accent sm:flex',
+            cardVariant === 'play' && 'left-1 border-white/8 bg-black/72 text-white hover:border-white/16',
+          )}
           aria-label={`Previous page in ${label}`}
         >
           <ChevronLeft size={22} />
@@ -110,7 +119,10 @@ export function SectionPreviewShelf({ games, label, onOpenShelf }: SectionPrevie
             setPageDirection('next')
             setPageIndex((current) => Math.min(previewPageCount - 1, current + 1))
           }}
-          className="absolute right-0 top-1/2 flex h-12 w-10 -translate-y-1/2 items-center justify-center rounded-mga border border-mga-border bg-mga-bg/90 text-mga-text shadow-lg backdrop-blur transition-colors hover:border-mga-accent"
+          className={cn(
+            'absolute right-0 top-1/2 flex h-12 w-10 -translate-y-1/2 items-center justify-center rounded-mga border border-mga-border bg-mga-bg/90 text-mga-text shadow-lg backdrop-blur transition-colors hover:border-mga-accent',
+            cardVariant === 'play' && 'right-1 border-white/8 bg-black/72 text-white hover:border-white/16',
+          )}
           aria-label={`Next page in ${label}`}
         >
           <ChevronRight size={22} />

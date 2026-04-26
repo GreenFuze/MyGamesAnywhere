@@ -1,3 +1,5 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { getFrontendConfig, setFrontendConfig } from '@/api/client'
 import { useTheme } from '@/theme/ThemeProvider'
 import { THEME_IDS, THEME_LABELS, THEME_PRESETS, type ThemeId } from '@/theme/presets'
 import { useDateTimeFormat, formatDateTime, type DateFormat, type TimeFormat } from '@/hooks/useDateTimeFormat'
@@ -15,6 +17,19 @@ const SWATCH_KEYS = [
 export function AppearanceTab() {
   const { themeId, setThemeId } = useTheme()
   const { prefs, setDateFormat, setTimeFormat } = useDateTimeFormat()
+  const queryClient = useQueryClient()
+  const frontendConfig = useQuery({
+    queryKey: ['frontend-config'],
+    queryFn: getFrontendConfig,
+  })
+
+  const autoplayMediaEnabled = frontendConfig.data?.gameDetailAutoplayMedia !== false
+
+  async function handleToggleGameDetailAutoplay(nextValue: boolean) {
+    const current = frontendConfig.data ?? (await getFrontendConfig())
+    await setFrontendConfig({ ...current, gameDetailAutoplayMedia: nextValue })
+    await queryClient.invalidateQueries({ queryKey: ['frontend-config'] })
+  }
 
   return (
     <div className="space-y-8">
@@ -97,6 +112,34 @@ export function AppearanceTab() {
             {formatDateTime(new Date().toISOString(), prefs)}
           </span>
         </div>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-sm font-medium text-mga-text">Game Page Media</h3>
+          <p className="text-xs text-mga-muted mt-0.5">
+            Control how the hero media stage behaves on game detail pages
+          </p>
+        </div>
+
+        <label className="flex items-start gap-3 rounded-mga border border-mga-border bg-mga-surface px-4 py-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={autoplayMediaEnabled}
+            disabled={frontendConfig.isLoading}
+            onChange={(event) => {
+              void handleToggleGameDetailAutoplay(event.target.checked)
+            }}
+            className="mt-0.5 rounded border-mga-border"
+          />
+          <div className="space-y-1">
+            <span className="block text-sm font-medium text-mga-text">Autoplay game-page videos</span>
+            <p className="text-xs leading-5 text-mga-muted">
+              When a video is selected in the game-page hero media rail, play it muted and inline.
+              Cover art still stays the default selected hero media when available.
+            </p>
+          </div>
+        </label>
       </div>
     </div>
   )

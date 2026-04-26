@@ -340,6 +340,8 @@ type CanonicalGame struct {
 	CompletionTime     *CompletionTime
 	Media              []MediaRef
 	CoverOverride      *MediaRef
+	HoverOverride      *MediaRef
+	BackgroundOverride *MediaRef
 	ExternalIDs        []ExternalID
 	AchievementSummary *AchievementSummary
 
@@ -501,6 +503,24 @@ type ScanJobStatus struct {
 	RecentEvents            []ScanJobRecentEvent       `json:"recent_events,omitempty"`
 	ReportID                string                     `json:"report_id,omitempty"`
 	Error                   string                     `json:"error,omitempty"`
+}
+
+type IntegrationRefreshJobStatus struct {
+	JobID          string   `json:"job_id"`
+	IntegrationID  string   `json:"integration_id"`
+	PluginID       string   `json:"plugin_id"`
+	Label          string   `json:"label"`
+	Status         string   `json:"status"`
+	Phase          string   `json:"phase,omitempty"`
+	StartedAt      string   `json:"started_at,omitempty"`
+	FinishedAt     string   `json:"finished_at,omitempty"`
+	ItemsTotal     int      `json:"items_total"`
+	ItemsCompleted int      `json:"items_completed"`
+	WarningCount   int      `json:"warning_count"`
+	ErrorCount     int      `json:"error_count"`
+	CurrentItem    string   `json:"current_item,omitempty"`
+	Error          string   `json:"error,omitempty"`
+	Warnings       []string `json:"warnings,omitempty"`
 }
 
 type SaveSyncSlotRef struct {

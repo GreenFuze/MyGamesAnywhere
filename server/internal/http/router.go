@@ -11,19 +11,20 @@ import (
 // RouteBuilder holds controller references for building the HTTP router.
 // If nil is passed to BuildRouter, routes are registered with no-op handlers for OpenAPI discovery.
 type RouteBuilder struct {
-	GameCtrl        *GameController
-	MediaCtrl       *MediaController
-	DiscoCtrl       *DiscoveryController
-	AboutCtrl       *AboutController
-	ConfigCtrl      *ConfigController
-	PluginCtrl      *PluginController
-	ReviewCtrl      *ReviewController
-	AchievementCtrl *AchievementController
-	SyncCtrl        *SyncController
-	SaveSyncCtrl    *SaveSyncController
-	CacheCtrl       *CacheController
-	SSECtrl         *SSEController
-	OAuthCtrl       *OAuthController
+	GameCtrl               *GameController
+	MediaCtrl              *MediaController
+	DiscoCtrl              *DiscoveryController
+	AboutCtrl              *AboutController
+	ConfigCtrl             *ConfigController
+	PluginCtrl             *PluginController
+	IntegrationRefreshCtrl *IntegrationRefreshController
+	ReviewCtrl             *ReviewController
+	AchievementCtrl        *AchievementController
+	SyncCtrl               *SyncController
+	SaveSyncCtrl           *SaveSyncController
+	CacheCtrl              *CacheController
+	SSECtrl                *SSEController
+	OAuthCtrl              *OAuthController
 }
 
 func noopHandler() http.HandlerFunc {
@@ -58,6 +59,8 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Post("/games/{id}/refresh-metadata", b.GameCtrl.RefreshMetadata)
 				r.Put("/games/{id}/cover-override", b.GameCtrl.SetCoverOverride)
 				r.Delete("/games/{id}/cover-override", b.GameCtrl.ClearCoverOverride)
+				r.Put("/games/{id}/hover-override", b.GameCtrl.SetHoverOverride)
+				r.Put("/games/{id}/background-override", b.GameCtrl.SetBackgroundOverride)
 				r.Delete("/games/{id}/sources/{source_game_id}", b.GameCtrl.DeleteSourceGame)
 				r.Get("/games/{id}/play", b.GameCtrl.ServePlayFile)
 				r.Head("/games/{id}/play", b.GameCtrl.ServePlayFile)
@@ -83,6 +86,13 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Post("/integrations", b.PluginCtrl.Create)
 				r.Get("/integrations/{id}/status", b.PluginCtrl.StatusOne)
 				r.Post("/integrations/{id}/authorize", b.PluginCtrl.StartIntegrationAuth)
+				if b.IntegrationRefreshCtrl != nil {
+					r.Post("/integrations/{id}/refresh", b.IntegrationRefreshCtrl.Start)
+					r.Get("/integration-refresh/jobs/{job_id}", b.IntegrationRefreshCtrl.GetJob)
+				} else {
+					r.Post("/integrations/{id}/refresh", noopHandler())
+					r.Get("/integration-refresh/jobs/{job_id}", noopHandler())
+				}
 				r.Get("/integrations/{id}/games", b.PluginCtrl.IntegrationGames)
 				r.Get("/integrations/{id}/enriched-games", b.PluginCtrl.IntegrationEnrichedGames)
 				r.Get("/review-candidates", b.ReviewCtrl.ListCandidates)
@@ -130,6 +140,8 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Post("/games/{id}/refresh-metadata", noopHandler())
 			api.Put("/games/{id}/cover-override", noopHandler())
 			api.Delete("/games/{id}/cover-override", noopHandler())
+			api.Put("/games/{id}/hover-override", noopHandler())
+			api.Put("/games/{id}/background-override", noopHandler())
 			api.Delete("/games/{id}/sources/{source_game_id}", noopHandler())
 			api.Get("/games/{id}/play", noopHandler())
 			api.Head("/games/{id}/play", noopHandler())
@@ -161,8 +173,10 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Post("/integrations", noopHandler())
 			api.Get("/integrations/{id}/status", noopHandler())
 			api.Post("/integrations/{id}/authorize", noopHandler())
+			api.Post("/integrations/{id}/refresh", noopHandler())
 			api.Get("/integrations/{id}/games", noopHandler())
 			api.Get("/integrations/{id}/enriched-games", noopHandler())
+			api.Get("/integration-refresh/jobs/{job_id}", noopHandler())
 			api.Get("/review-candidates", noopHandler())
 			api.Post("/review-candidates/redetect", noopHandler())
 			api.Get("/review-candidates/{id}", noopHandler())

@@ -351,6 +351,80 @@ func (s *gameStore) ClearCanonicalCoverOverride(ctx context.Context, canonicalID
 	return nil
 }
 
+func (s *gameStore) SetCanonicalHoverOverride(ctx context.Context, canonicalID string, mediaAssetID int) error {
+	if strings.TrimSpace(canonicalID) == "" {
+		return core.ErrCanonicalGameNotFound
+	}
+	if mediaAssetID <= 0 {
+		return core.ErrHoverOverrideMediaNotFound
+	}
+	db := s.db.GetDB()
+	var linked int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(1)
+		FROM canonical_source_games_link l
+		JOIN source_game_media m ON m.source_game_id = l.source_game_id
+		JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE l.canonical_id = ?
+		  AND m.media_asset_id = ?
+		  AND `+visibleSourceGameWhere("sg"), canonicalID, mediaAssetID).Scan(&linked); err != nil {
+		return err
+	}
+	if linked == 0 {
+		exists, err := s.canonicalGameExists(ctx, canonicalID)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return core.ErrCanonicalGameNotFound
+		}
+		return core.ErrHoverOverrideMediaNotFound
+	}
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO canonical_game_hover_overrides (canonical_id, media_asset_id, updated_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(canonical_id) DO UPDATE SET media_asset_id=excluded.media_asset_id, updated_at=excluded.updated_at`,
+		canonicalID, mediaAssetID, time.Now().Unix())
+	return err
+}
+
+func (s *gameStore) SetCanonicalBackgroundOverride(ctx context.Context, canonicalID string, mediaAssetID int) error {
+	if strings.TrimSpace(canonicalID) == "" {
+		return core.ErrCanonicalGameNotFound
+	}
+	if mediaAssetID <= 0 {
+		return core.ErrBackgroundOverrideMediaNotFound
+	}
+	db := s.db.GetDB()
+	var linked int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(1)
+		FROM canonical_source_games_link l
+		JOIN source_game_media m ON m.source_game_id = l.source_game_id
+		JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE l.canonical_id = ?
+		  AND m.media_asset_id = ?
+		  AND `+visibleSourceGameWhere("sg"), canonicalID, mediaAssetID).Scan(&linked); err != nil {
+		return err
+	}
+	if linked == 0 {
+		exists, err := s.canonicalGameExists(ctx, canonicalID)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return core.ErrCanonicalGameNotFound
+		}
+		return core.ErrBackgroundOverrideMediaNotFound
+	}
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO canonical_game_background_overrides (canonical_id, media_asset_id, updated_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(canonical_id) DO UPDATE SET media_asset_id=excluded.media_asset_id, updated_at=excluded.updated_at`,
+		canonicalID, mediaAssetID, time.Now().Unix())
+	return err
+}
+
 func (s *gameStore) UpdateMediaAsset(ctx context.Context, assetID int, localPath, hash string) error {
 	if assetID <= 0 {
 		return fmt.Errorf("assetID must be positive")
@@ -372,6 +446,8 @@ func (s *gameStore) DeleteAllGames(ctx context.Context) error {
 	tables := []string{
 		"achievements", "achievement_sets",
 		"canonical_game_cover_overrides",
+		"canonical_game_hover_overrides",
+		"canonical_game_background_overrides",
 		"source_game_media", "media_assets",
 		"metadata_resolver_matches",
 		"game_files",
@@ -1456,6 +1532,93 @@ func (s *gameStore) SaveManualReviewResult(
 
 	if err := s.recomputeCanonicalGroups(ctx, tx); err != nil {
 		return fmt.Errorf("recompute canonical after manual review save: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (s *gameStore) SaveRefreshedMetadataProviderResults(ctx context.Context, sourceGames []*core.SourceGame) error {
+	if len(sourceGames) == 0 {
+		return nil
+	}
+
+	db := s.db.GetDB()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now().Unix()
+	for _, sourceGame := range sourceGames {
+		if sourceGame == nil || strings.TrimSpace(sourceGame.ID) == "" {
+			continue
+		}
+
+		var existingID string
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM source_games WHERE id = ?`, sourceGame.ID).Scan(&existingID); err != nil {
+			if err == sql.ErrNoRows {
+				return core.ErrSourceGameDeleteNotFound
+			}
+			return fmt.Errorf("verify refreshed source game %s: %w", sourceGame.ID, err)
+		}
+
+		if _, err := tx.ExecContext(ctx, `DELETE FROM metadata_resolver_matches WHERE source_game_id = ?`, sourceGame.ID); err != nil {
+			return fmt.Errorf("delete refreshed resolver matches for %s: %w", sourceGame.ID, err)
+		}
+		for _, match := range sourceGame.ResolverMatches {
+			metaJSON, _ := buildMetadataJSON(match)
+			if _, err := tx.ExecContext(ctx, `INSERT INTO metadata_resolver_matches
+				(source_game_id, plugin_id, external_id, title, platform, url, outvoted, manual_selection,
+				 developer, publisher, release_date, rating, metadata_json, created_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				sourceGame.ID,
+				match.PluginID,
+				match.ExternalID,
+				nullEmpty(match.Title),
+				nullEmpty(match.Platform),
+				nullEmpty(match.URL),
+				boolToInt(match.Outvoted),
+				boolToInt(match.ManualSelection),
+				nullEmpty(match.Developer),
+				nullEmpty(match.Publisher),
+				nullEmpty(match.ReleaseDate),
+				match.Rating,
+				nullEmpty(metaJSON),
+				now,
+			); err != nil {
+				return fmt.Errorf("insert refreshed match for %s/%s: %w", sourceGame.ID, match.PluginID, err)
+			}
+		}
+
+		if _, err := tx.ExecContext(ctx, `DELETE FROM source_game_media WHERE source_game_id = ?`, sourceGame.ID); err != nil {
+			return fmt.Errorf("delete refreshed media links for %s: %w", sourceGame.ID, err)
+		}
+		for _, ref := range sourceGame.Media {
+			if strings.TrimSpace(ref.URL) == "" {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO media_assets (url, width, height, mime_type)
+				VALUES (?, ?, ?, ?)
+				ON CONFLICT(url) DO UPDATE SET
+					width = COALESCE(NULLIF(excluded.width,0), media_assets.width),
+					height = COALESCE(NULLIF(excluded.height,0), media_assets.height)`,
+				ref.URL, ref.Width, ref.Height, nullEmpty("")); err != nil {
+				return fmt.Errorf("upsert refreshed media asset %s: %w", ref.URL, err)
+			}
+			var assetID int
+			if err := tx.QueryRowContext(ctx, `SELECT id FROM media_assets WHERE url = ?`, ref.URL).Scan(&assetID); err != nil {
+				return fmt.Errorf("get refreshed media asset id for %s: %w", ref.URL, err)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO source_game_media
+				(source_game_id, media_asset_id, type, source) VALUES (?, ?, ?, ?)`,
+				sourceGame.ID, assetID, string(ref.Type), nullEmpty(ref.Source)); err != nil {
+				return fmt.Errorf("link refreshed media for %s: %w", sourceGame.ID, err)
+			}
+		}
+	}
+
+	if err := s.recomputeCanonicalGroups(ctx, tx); err != nil {
+		return fmt.Errorf("recompute canonical after provider refresh: %w", err)
 	}
 	return tx.Commit()
 }
@@ -2637,6 +2800,16 @@ func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonica
 		return nil, err
 	}
 	cg.CoverOverride = coverOverride
+	hoverOverride, err := s.loadCanonicalHoverOverride(ctx, db, canonicalID)
+	if err != nil {
+		return nil, err
+	}
+	cg.HoverOverride = hoverOverride
+	backgroundOverride, err := s.loadCanonicalBackgroundOverride(ctx, db, canonicalID)
+	if err != nil {
+		return nil, err
+	}
+	cg.BackgroundOverride = backgroundOverride
 
 	// Load external IDs.
 	eids, err := s.GetExternalIDsForCanonical(ctx, canonicalID)
@@ -2697,6 +2870,56 @@ func (s *gameStore) loadCanonicalCoverOverride(ctx context.Context, db *sql.DB, 
 	row := db.QueryRowContext(ctx, `
 		SELECT ma.id, ma.url, ma.local_path, ma.hash, ma.mime_type, sgm.type, sgm.source, ma.width, ma.height
 		FROM canonical_game_cover_overrides o
+		JOIN media_assets ma ON ma.id = o.media_asset_id
+		JOIN source_game_media sgm ON sgm.media_asset_id = ma.id
+		JOIN canonical_source_games_link l ON l.source_game_id = sgm.source_game_id AND l.canonical_id = o.canonical_id
+		JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE o.canonical_id = ? AND `+visibleSourceGameWhere("sg")+`
+		LIMIT 1`, canonicalID)
+	var ref core.MediaRef
+	var src, lp, h, mt sql.NullString
+	if err := row.Scan(&ref.AssetID, &ref.URL, &lp, &h, &mt, (*string)(&ref.Type), &src, &ref.Width, &ref.Height); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	ref.Source = src.String
+	ref.LocalPath = lp.String
+	ref.Hash = h.String
+	ref.MimeType = mt.String
+	return &ref, nil
+}
+
+func (s *gameStore) loadCanonicalHoverOverride(ctx context.Context, db *sql.DB, canonicalID string) (*core.MediaRef, error) {
+	row := db.QueryRowContext(ctx, `
+		SELECT ma.id, ma.url, ma.local_path, ma.hash, ma.mime_type, sgm.type, sgm.source, ma.width, ma.height
+		FROM canonical_game_hover_overrides o
+		JOIN media_assets ma ON ma.id = o.media_asset_id
+		JOIN source_game_media sgm ON sgm.media_asset_id = ma.id
+		JOIN canonical_source_games_link l ON l.source_game_id = sgm.source_game_id AND l.canonical_id = o.canonical_id
+		JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE o.canonical_id = ? AND `+visibleSourceGameWhere("sg")+`
+		LIMIT 1`, canonicalID)
+	var ref core.MediaRef
+	var src, lp, h, mt sql.NullString
+	if err := row.Scan(&ref.AssetID, &ref.URL, &lp, &h, &mt, (*string)(&ref.Type), &src, &ref.Width, &ref.Height); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	ref.Source = src.String
+	ref.LocalPath = lp.String
+	ref.Hash = h.String
+	ref.MimeType = mt.String
+	return &ref, nil
+}
+
+func (s *gameStore) loadCanonicalBackgroundOverride(ctx context.Context, db *sql.DB, canonicalID string) (*core.MediaRef, error) {
+	row := db.QueryRowContext(ctx, `
+		SELECT ma.id, ma.url, ma.local_path, ma.hash, ma.mime_type, sgm.type, sgm.source, ma.width, ma.height
+		FROM canonical_game_background_overrides o
 		JOIN media_assets ma ON ma.id = o.media_asset_id
 		JOIN source_game_media sgm ON sgm.media_asset_id = ma.id
 		JOIN canonical_source_games_link l ON l.source_game_id = sgm.source_game_id AND l.canonical_id = o.canonical_id

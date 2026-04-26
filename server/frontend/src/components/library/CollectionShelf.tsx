@@ -11,6 +11,7 @@ interface CollectionShelfProps {
   onRemoveSection: (id: string) => void
   games: GameDetailResponse[]
   isLoading: boolean
+  scope?: 'library' | 'play'
 }
 
 export function CollectionShelf({
@@ -19,6 +20,7 @@ export function CollectionShelf({
   onRemoveSection,
   games,
   isLoading,
+  scope = 'library',
 }: CollectionShelfProps) {
   if (isLoading) {
     return (
@@ -88,6 +90,7 @@ export function CollectionShelf({
               games={sectionGames}
               label={section.label}
               onOpenShelf={() => onOpenSection(section.id)}
+              cardVariant={scope === 'play' ? 'play' : 'library'}
             />
           </section>
         )

@@ -771,6 +771,230 @@ func TestCanonicalCoverOverrideRejectsUnlinkedMedia(t *testing.T) {
 	}
 }
 
+func TestCanonicalHoverOverrideUsesLinkedMedia(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-hover",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:hover-source",
+			IntegrationID: "integration-hover",
+			PluginID:      "game-source-steam",
+			ExternalID:    "hover-source",
+			RawTitle:      "Hover Game",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:hover-source": {{
+				PluginID:   "metadata-igdb",
+				Title:      "Hover Game",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "hover-game",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			"scan:hover-source": {
+				{Type: core.MediaTypeCover, URL: "https://example.com/default-cover.png"},
+				{Type: core.MediaTypeScreenshot, URL: "https://example.com/hover-shot.png"},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var canonicalID string
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT canonical_id FROM canonical_source_games_link WHERE source_game_id=?`, "scan:hover-source").Scan(&canonicalID); err != nil {
+		t.Fatal(err)
+	}
+	game, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil || len(game.Media) < 2 {
+		t.Fatalf("game media = %+v, want two media refs", game)
+	}
+	hoverAssetID := game.Media[1].AssetID
+	if err := store.SetCanonicalHoverOverride(ctx, canonicalID, hoverAssetID); err != nil {
+		t.Fatal(err)
+	}
+	game, err = store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game.HoverOverride == nil || game.HoverOverride.AssetID != hoverAssetID {
+		t.Fatalf("hover override = %+v, want asset %d", game.HoverOverride, hoverAssetID)
+	}
+}
+
+func TestCanonicalHoverOverrideRejectsUnlinkedMedia(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	for _, item := range []struct {
+		sourceID string
+		url      string
+	}{
+		{sourceID: "scan:hover-a", url: "https://example.com/a.png"},
+		{sourceID: "scan:hover-b", url: "https://example.com/b.png"},
+	} {
+		if err := store.PersistScanResults(ctx, &core.ScanBatch{
+			IntegrationID: item.sourceID,
+			SourceGames: []*core.SourceGame{{
+				ID:            item.sourceID,
+				IntegrationID: item.sourceID,
+				PluginID:      "game-source-steam",
+				ExternalID:    item.sourceID,
+				RawTitle:      item.sourceID,
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			}},
+			ResolverMatches: map[string][]core.ResolverMatch{
+				item.sourceID: {{
+					PluginID:   "metadata-igdb",
+					Title:      item.sourceID,
+					Platform:   string(core.PlatformWindowsPC),
+					ExternalID: item.sourceID,
+				}},
+			},
+			MediaItems: map[string][]core.MediaRef{
+				item.sourceID: {{Type: core.MediaTypeCover, URL: item.url}},
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var assetB int
+	var canonicalAString string
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT canonical_id FROM canonical_source_games_link WHERE source_game_id=?`, "scan:hover-a").Scan(&canonicalAString); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT ma.id FROM media_assets ma JOIN source_game_media sgm ON sgm.media_asset_id=ma.id WHERE sgm.source_game_id=?`, "scan:hover-b").Scan(&assetB); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetCanonicalHoverOverride(ctx, canonicalAString, assetB); !errors.Is(err, core.ErrHoverOverrideMediaNotFound) {
+		t.Fatalf("error = %v, want %v", err, core.ErrHoverOverrideMediaNotFound)
+	}
+}
+
+func TestCanonicalBackgroundOverrideUsesLinkedMedia(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-background",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:background-source",
+			IntegrationID: "integration-background",
+			PluginID:      "game-source-steam",
+			ExternalID:    "background-source",
+			RawTitle:      "Background Game",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:background-source": {{
+				PluginID:   "metadata-igdb",
+				Title:      "Background Game",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "background-game",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			"scan:background-source": {
+				{Type: core.MediaTypeCover, URL: "https://example.com/default-cover.png"},
+				{Type: core.MediaTypeBackground, URL: "https://example.com/background.png"},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var canonicalID string
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT canonical_id FROM canonical_source_games_link WHERE source_game_id=?`, "scan:background-source").Scan(&canonicalID); err != nil {
+		t.Fatal(err)
+	}
+	game, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil || len(game.Media) < 2 {
+		t.Fatalf("game media = %+v, want two media refs", game)
+	}
+	backgroundAssetID := game.Media[1].AssetID
+	if err := store.SetCanonicalBackgroundOverride(ctx, canonicalID, backgroundAssetID); err != nil {
+		t.Fatal(err)
+	}
+	game, err = store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game.BackgroundOverride == nil || game.BackgroundOverride.AssetID != backgroundAssetID {
+		t.Fatalf("background override = %+v, want asset %d", game.BackgroundOverride, backgroundAssetID)
+	}
+}
+
+func TestCanonicalBackgroundOverrideRejectsUnlinkedMedia(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	for _, item := range []struct {
+		sourceID string
+		url      string
+	}{
+		{sourceID: "scan:background-a", url: "https://example.com/a.png"},
+		{sourceID: "scan:background-b", url: "https://example.com/b.png"},
+	} {
+		if err := store.PersistScanResults(ctx, &core.ScanBatch{
+			IntegrationID: item.sourceID,
+			SourceGames: []*core.SourceGame{{
+				ID:            item.sourceID,
+				IntegrationID: item.sourceID,
+				PluginID:      "game-source-steam",
+				ExternalID:    item.sourceID,
+				RawTitle:      item.sourceID,
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			}},
+			ResolverMatches: map[string][]core.ResolverMatch{
+				item.sourceID: {{
+					PluginID:   "metadata-igdb",
+					Title:      item.sourceID,
+					Platform:   string(core.PlatformWindowsPC),
+					ExternalID: item.sourceID,
+				}},
+			},
+			MediaItems: map[string][]core.MediaRef{
+				item.sourceID: {{Type: core.MediaTypeCover, URL: item.url}},
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var assetB int
+	var canonicalAString string
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT canonical_id FROM canonical_source_games_link WHERE source_game_id=?`, "scan:background-a").Scan(&canonicalAString); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT ma.id FROM media_assets ma JOIN source_game_media sgm ON sgm.media_asset_id=ma.id WHERE sgm.source_game_id=?`, "scan:background-b").Scan(&assetB); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetCanonicalBackgroundOverride(ctx, canonicalAString, assetB); !errors.Is(err, core.ErrBackgroundOverrideMediaNotFound) {
+		t.Fatalf("error = %v, want %v", err, core.ErrBackgroundOverrideMediaNotFound)
+	}
+}
+
 func seedSourceGameForDBTest(t *testing.T, ctx context.Context, store core.GameStore, sourceID, title string) {
 	t.Helper()
 	if err := store.PersistScanResults(ctx, &core.ScanBatch{
@@ -925,6 +1149,15 @@ func TestGetCachedAchievementsExplorerUsesCachedRowsOnly(t *testing.T) {
 		}
 		if item.Systems[0].TotalCount != 2 || len(item.Systems[0].Achievements) != 2 {
 			t.Fatalf("system = %+v, want latest cached set with 2 achievements", item.Systems[0])
+		}
+		if item.Systems[0].UnlockedCount != 1 {
+			t.Fatalf("unlocked_count = %d, want 1", item.Systems[0].UnlockedCount)
+		}
+		if !item.Systems[0].Achievements[0].Unlocked || item.Systems[0].Achievements[0].UnlockedAt.IsZero() {
+			t.Fatalf("first achievement = %+v, want unlocked with timestamp", item.Systems[0].Achievements[0])
+		}
+		if item.Systems[0].Achievements[1].Unlocked || !item.Systems[0].Achievements[1].UnlockedAt.IsZero() {
+			t.Fatalf("second achievement = %+v, want locked without timestamp", item.Systems[0].Achievements[1])
 		}
 	}
 	if !found {

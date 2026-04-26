@@ -11,6 +11,8 @@ import {
   triggerScan,
   cancelScanJob,
   getScanJob,
+  startIntegrationRefresh,
+  getIntegrationRefreshJob,
   getStats,
   getSyncStatus,
   syncPush,
@@ -29,6 +31,7 @@ import {
   type ScanJobProgress,
   type ScanJobRecentEvent,
   type ScanJobStatus,
+  type IntegrationRefreshJobStatus,
   type SaveSyncMigrationStatus,
 } from "@/api/client";
 import { CAPABILITY_META } from "@/lib/gameUtils";
@@ -123,6 +126,12 @@ function scanJobIsTerminal(job: Pick<ScanJobStatus, "status">) {
     job.status === "failed" ||
     job.status === "cancelled"
   );
+}
+
+function integrationRefreshJobIsTerminal(
+  job: Pick<IntegrationRefreshJobStatus, "status">,
+) {
+  return job.status === "completed" || job.status === "failed";
 }
 
 function readJobId(data: unknown): string | null {
@@ -414,6 +423,100 @@ function sourceCardState(
   };
 }
 
+function clampUnit(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+}
+
+function fractionFromProgress(progress?: ScanJobProgress): number | null {
+  if (!progress || progress.indeterminate) return null;
+  const total = progress.total ?? 0;
+  if (total <= 0) return null;
+  return clampUnit((progress.current ?? 0) / total);
+}
+
+function heuristicSourceFraction(integration: ScanJobIntegrationStatus): number {
+  switch (integration.phase) {
+    case "queued":
+      return 0;
+    case "starting":
+      return 0.04;
+    case "listing source content":
+      return 0.1;
+    case "source listing complete":
+      return 0.2;
+    case "scanning files":
+      return 0.32;
+    case "game detection complete":
+      return 0.6;
+    case "metadata enrichment":
+    case "persisting results":
+      return 1;
+    case "completed":
+    case "skipped":
+    case "cancelled":
+    case "failed":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function heuristicMetadataFraction(integration: ScanJobIntegrationStatus): number {
+  switch (integration.metadata_phase) {
+    case "identify":
+      return 0.2;
+    case "consensus":
+      return 0.58;
+    case "fill":
+      return 0.82;
+    case "finished":
+      return 1;
+    default:
+      return integration.status === "completed" ? 1 : 0;
+  }
+}
+
+function integrationOverallFraction(
+  integration: ScanJobIntegrationStatus,
+  metadataOnly: boolean,
+): number {
+  const status = normalizeScanStatus(integration.status);
+  if (
+    status === "completed" ||
+    status === "skipped" ||
+    status === "cancelled" ||
+    status === "failed"
+  ) {
+    return 1;
+  }
+
+  const metadataFraction =
+    fractionFromProgress(integration.metadata_progress) ??
+    heuristicMetadataFraction(integration);
+
+  if (metadataOnly) {
+    return metadataFraction;
+  }
+
+  const sourceFraction =
+    fractionFromProgress(integration.source_progress) ??
+    heuristicSourceFraction(integration);
+
+  const hasMetadataStage =
+    Boolean(integration.metadata_progress) ||
+    Boolean(integration.metadata_phase) ||
+    (integration.metadata_providers?.length ?? 0) > 0;
+
+  if (!hasMetadataStage && sourceFraction >= 1) {
+    return 1;
+  }
+
+  return clampUnit(sourceFraction * 0.6 + metadataFraction * 0.4);
+}
+
 function metadataStatusRank(status?: string) {
   switch (normalizeScanStatus(status)) {
     case "running":
@@ -569,6 +672,9 @@ export function IntegrationsTab() {
     Map<string, ScanJobIntegrationStatus>
   >(new Map());
   const [scanEventLog, setScanEventLog] = useState<ScanEventLogEntry[]>([]);
+  const [integrationRefreshJobs, setIntegrationRefreshJobs] = useState<
+    Map<string, IntegrationRefreshJobStatus>
+  >(new Map());
 
   // ── Sync state (absorbed from SyncTab) ──
 
@@ -652,6 +758,66 @@ export function IntegrationsTab() {
     return next;
   }, [scanIntegrations, scanning]);
 
+  const overallScanProgress = useMemo(() => {
+    if (!scanning || scanIntegrations.size === 0) return null;
+    const integrations = Array.from(scanIntegrations.values());
+    const total = integrations.length;
+    const current = integrations.reduce(
+      (sum, integration) =>
+        sum + integrationOverallFraction(integration, scanMetadataOnly),
+      0,
+    );
+    const percent = total > 0 ? clampUnit(current / total) * 100 : 0;
+    return {
+      value: percent,
+      label: `${Math.round(percent)}%`,
+      detail: `${current.toFixed(1)}/${total} overall`,
+    };
+  }, [scanIntegrations, scanMetadataOnly, scanning]);
+
+  const integrationRefreshStateByIntegrationId = useMemo(() => {
+    const next = new Map<string, IntegrationScanState>();
+    for (const [integrationId, job] of integrationRefreshJobs.entries()) {
+      if (!job) continue;
+      let badge = "Refresh queued";
+      let badgeVariant: IntegrationScanState["badgeVariant"] = "muted";
+      let detail = job.phase ?? "";
+      if (job.status === "running") {
+        badge = "Refreshing";
+        badgeVariant = "accent";
+        detail = job.current_item
+          ? `${job.phase ?? "Working"}: ${job.current_item}`
+          : (job.phase ?? "Working");
+      } else if (job.status === "completed") {
+        badge = job.warning_count > 0 ? "Refresh completed with warnings" : "Refresh completed";
+        badgeVariant = job.warning_count > 0 ? "muted" : "default";
+        detail =
+          job.warning_count > 0
+            ? `${job.warning_count} warning${job.warning_count === 1 ? "" : "s"}`
+            : "Derived data is up to date.";
+      } else if (job.status === "failed") {
+        badge = "Refresh failed";
+        badgeVariant = "muted";
+        detail = job.error ?? "Refresh failed";
+      }
+      next.set(integrationId, {
+        active: !integrationRefreshJobIsTerminal(job),
+        badge,
+        badgeVariant,
+        detail,
+        progress:
+          job.items_total > 0
+            ? {
+                progress: job.items_completed,
+                total: job.items_total,
+                label: `${job.items_completed}/${job.items_total}`,
+              }
+            : undefined,
+      });
+    }
+    return next;
+  }, [integrationRefreshJobs]);
+
   const appendScanEvent = useCallback((text: string, data?: unknown) => {
     const ts = readTimestamp(data);
     setScanEventLog((prev) => {
@@ -673,6 +839,26 @@ export function IntegrationsTab() {
           : { integration_id: integrationId, status: "pending" };
         mutate(integration);
         next.set(integrationId, integration);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const setIntegrationRefreshJob = useCallback(
+    (
+      integrationId: string,
+      mutate: (job: IntegrationRefreshJobStatus | null) => IntegrationRefreshJobStatus | null,
+    ) => {
+      setIntegrationRefreshJobs((prev) => {
+        const next = new Map(prev);
+        const current = next.get(integrationId) ?? null;
+        const updated = mutate(current);
+        if (updated) {
+          next.set(integrationId, updated);
+        } else {
+          next.delete(integrationId);
+        }
         return next;
       });
     },
@@ -894,6 +1080,141 @@ export function IntegrationsTab() {
     connected,
     persistActiveScanJobId,
   ]);
+
+  useEffect(() => {
+    const unsubs = [
+      subscribe("integration_refresh_started", (data: unknown) => {
+        const d = data as IntegrationRefreshJobStatus;
+        if (!d?.integration_id) return;
+        setIntegrationRefreshJob(d.integration_id, () => d);
+      }),
+      subscribe("integration_refresh_phase", (data: unknown) => {
+        const d = data as {
+          integration_id?: string;
+          job_id?: string;
+          phase?: string;
+          items_total?: number;
+        };
+        if (!d.integration_id) return;
+        setIntegrationRefreshJob(d.integration_id, (current) => {
+          if (!current) return null;
+          return {
+            ...current,
+            job_id: d.job_id ?? current.job_id,
+            phase: d.phase ?? current.phase,
+            status: "running",
+            items_total: d.items_total ?? current.items_total,
+            items_completed: 0,
+            current_item: "",
+          };
+        });
+      }),
+      subscribe("integration_refresh_progress", (data: unknown) => {
+        const d = data as {
+          integration_id?: string;
+          job_id?: string;
+          phase?: string;
+          items_total?: number;
+          items_completed?: number;
+          current_item?: string;
+        };
+        if (!d.integration_id) return;
+        setIntegrationRefreshJob(d.integration_id, (current) => {
+          if (!current) return null;
+          return {
+            ...current,
+            job_id: d.job_id ?? current.job_id,
+            phase: d.phase ?? current.phase,
+            status: "running",
+            items_total: d.items_total ?? current.items_total,
+            items_completed: d.items_completed ?? current.items_completed,
+            current_item: d.current_item ?? current.current_item,
+          };
+        });
+      }),
+      subscribe("integration_refresh_warning", (data: unknown) => {
+        const d = data as {
+          integration_id?: string;
+          message?: string;
+        };
+        if (!d.integration_id || !d.message) return;
+        setIntegrationRefreshJob(d.integration_id, (current) => {
+          if (!current) return null;
+          const warnings = [...(current.warnings ?? [])];
+          warnings.push(d.message!);
+          return {
+            ...current,
+            warning_count: current.warning_count + 1,
+            warnings,
+          };
+        });
+      }),
+      subscribe("integration_refresh_complete", (data: unknown) => {
+        const d = data as {
+          integration_id?: string;
+          finished_at?: string;
+          items_total?: number;
+          items_completed?: number;
+          warning_count?: number;
+        };
+        if (!d.integration_id) return;
+        setIntegrationRefreshJob(d.integration_id, (current) => {
+          if (!current) return null;
+          return {
+            ...current,
+            status: "completed",
+            finished_at: d.finished_at ?? current.finished_at,
+            items_total: d.items_total ?? current.items_total,
+            items_completed: d.items_completed ?? current.items_completed,
+            warning_count: d.warning_count ?? current.warning_count,
+            current_item: "",
+          };
+        });
+      }),
+      subscribe("integration_refresh_failed", (data: unknown) => {
+        const d = data as {
+          integration_id?: string;
+          finished_at?: string;
+          error?: string;
+        };
+        if (!d.integration_id) return;
+        setIntegrationRefreshJob(d.integration_id, (current) => {
+          if (!current) return null;
+          return {
+            ...current,
+            status: "failed",
+            finished_at: d.finished_at ?? current.finished_at,
+            error: d.error ?? current.error,
+            error_count: Math.max(1, current.error_count),
+            current_item: "",
+          };
+        });
+      }),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, [setIntegrationRefreshJob, subscribe]);
+
+  useEffect(() => {
+    const activeJobs = [...integrationRefreshJobs.values()].filter(
+      (job) => !integrationRefreshJobIsTerminal(job),
+    );
+    if (connected || activeJobs.length === 0) return;
+
+    const timer = window.setInterval(() => {
+      for (const job of activeJobs) {
+        void (async () => {
+          try {
+            const next = await getIntegrationRefreshJob(job.job_id);
+            setIntegrationRefreshJob(next.integration_id, () => next);
+          } catch {
+            // Keep the last known card state; SSE/polling will reconcile on the next tick.
+          }
+        })();
+      }
+    }, 10000);
+
+    return () => window.clearInterval(timer);
+  }, [connected, integrationRefreshJobs, setIntegrationRefreshJob]);
 
   // ── SSE: Scan events ──
 
@@ -1756,13 +2077,13 @@ export function IntegrationsTab() {
   const handleScanAll = useCallback(async () => {
     setScanError("");
     try {
-      const result = await triggerScan();
-      adoptScanJob(result.job, {
-        resetLog: true,
-        appendMessage: result.accepted
-          ? "Scan job started."
+        const result = await triggerScan();
+        adoptScanJob(result.job, {
+          resetLog: true,
+          appendMessage: result.accepted
+          ? "Rescan job started."
           : "Rejoined the active scan job.",
-      });
+        });
     } catch (err) {
       setScanError(err instanceof Error ? err.message : "Scan failed");
       clearScanState();
@@ -1777,7 +2098,7 @@ export function IntegrationsTab() {
         adoptScanJob(result.job, {
           resetLog: true,
           appendMessage: result.accepted
-            ? `Scan job started for ${id}.`
+            ? `Rescan job started for ${id}.`
             : "Rejoined the active scan job.",
         });
       } catch (err) {
@@ -1805,6 +2126,34 @@ export function IntegrationsTab() {
       clearScanState();
     }
   }, [adoptScanJob, clearScanState]);
+
+  const handleIntegrationRefresh = useCallback(async (id: string) => {
+    try {
+      const result = await startIntegrationRefresh(id);
+      setIntegrationRefreshJob(id, () => result.job);
+    } catch (err) {
+      setIntegrationRefreshJob(id, (current) => ({
+        job_id: current?.job_id ?? `failed-${id}`,
+        integration_id: id,
+        plugin_id: current?.plugin_id ?? "",
+        label: current?.label ?? id,
+        status: "failed",
+        phase: current?.phase,
+        started_at: current?.started_at,
+        finished_at: new Date().toISOString(),
+        items_total: current?.items_total ?? 0,
+        items_completed: current?.items_completed ?? 0,
+        warning_count: current?.warning_count ?? 0,
+        error_count: 1,
+        current_item: "",
+        error:
+          err instanceof Error
+            ? err.message
+            : "Integration refresh failed to start",
+        warnings: current?.warnings ?? [],
+      }));
+    }
+  }, [setIntegrationRefreshJob]);
 
   const handleCancelScan = useCallback(async () => {
     if (!activeScanJobId) return;
@@ -2115,6 +2464,22 @@ export function IntegrationsTab() {
               </Button>
             )}
           </div>
+          {overallScanProgress && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-mga-muted">
+                  Total Progress
+                </p>
+                <p className="text-[11px] text-mga-muted">
+                  {overallScanProgress.detail}
+                </p>
+              </div>
+              <ProgressBar
+                value={overallScanProgress.value}
+                label={overallScanProgress.label}
+              />
+            </div>
+          )}
           <ProgressBar
             value={
               scanTotalCount > 0
@@ -2302,12 +2667,15 @@ export function IntegrationsTab() {
                     ? metadataScanStateByIntegrationId
                     : undefined
               }
+              refreshStateByIntegrationId={integrationRefreshStateByIntegrationId}
               onScan={handleScanOne}
+              onRefresh={handleIntegrationRefresh}
               onScanGroup={cap === "source" ? handleScanAll : undefined}
               onRefreshMetadata={
                 cap === "metadata" ? handleRefreshMetadata : undefined
               }
               scanControlsDisabled={scanInProgress}
+              refreshControlsDisabled={scanInProgress}
               mutationControlsDisabled={scanInProgress}
               sourceScanActive={sourceScanActive}
               metadataRefreshActive={metadataRefreshActive}

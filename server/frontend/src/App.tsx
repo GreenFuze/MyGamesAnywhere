@@ -15,6 +15,7 @@ import { LibraryPage } from '@/pages/LibraryPage'
 import { PlayPage } from '@/pages/PlayPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { GameDetailPage } from '@/pages/GameDetailPage'
+import { GameMediaPage } from '@/pages/GameMediaPage'
 import { GamePlayerPage } from '@/pages/GamePlayerPage'
 
 const queryClient = new QueryClient({
@@ -51,6 +52,7 @@ export function App() {
                       <Route path="about" element={<AboutPage />} />
                     </Route>
                     <Route path="/game/:id/play" element={<GamePlayerPage />} />
+                    <Route path="/game/:id/media" element={<GameMediaPage />} />
                     <Route path="/game/:id" element={<GameDetailPage />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>

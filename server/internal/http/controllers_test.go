@@ -221,6 +221,70 @@ func TestGameControllerCoverOverrideReturnsUpdatedGame(t *testing.T) {
 	}
 }
 
+func TestGameControllerHoverOverrideReturnsUpdatedGame(t *testing.T) {
+	store := &fakeGameStore{game: &core.CanonicalGame{
+		ID:    "game-1",
+		Title: "Game One",
+		HoverOverride: &core.MediaRef{
+			AssetID: 77,
+			Type:    core.MediaTypeScreenshot,
+			URL:     "https://example.com/hover.png",
+		},
+	}}
+	controller := NewGameController(store, nil, nil, nil, nil, noopLogger{})
+	router := chi.NewRouter()
+	router.Put("/api/games/{id}/hover-override", controller.SetHoverOverride)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/games/game-1/hover-override", bytes.NewBufferString(`{"media_asset_id":77}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if store.setHoverOverrideID != "game-1" || store.setHoverOverrideAsset != 77 {
+		t.Fatalf("hover override call = %q/%d, want game-1/77", store.setHoverOverrideID, store.setHoverOverrideAsset)
+	}
+	var resp GameDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.HoverOverride == nil || resp.HoverOverride.AssetID != 77 {
+		t.Fatalf("hover_override = %+v, want asset 77", resp.HoverOverride)
+	}
+}
+
+func TestGameControllerBackgroundOverrideReturnsUpdatedGame(t *testing.T) {
+	store := &fakeGameStore{game: &core.CanonicalGame{
+		ID:    "game-1",
+		Title: "Game One",
+		BackgroundOverride: &core.MediaRef{
+			AssetID: 91,
+			Type:    core.MediaTypeBackground,
+			URL:     "https://example.com/background.png",
+		},
+	}}
+	controller := NewGameController(store, nil, nil, nil, nil, noopLogger{})
+	router := chi.NewRouter()
+	router.Put("/api/games/{id}/background-override", controller.SetBackgroundOverride)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/games/game-1/background-override", bytes.NewBufferString(`{"media_asset_id":91}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if store.setBackgroundOverrideID != "game-1" || store.setBackgroundOverrideAsset != 91 {
+		t.Fatalf("background override call = %q/%d, want game-1/91", store.setBackgroundOverrideID, store.setBackgroundOverrideAsset)
+	}
+	var resp GameDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.BackgroundOverride == nil || resp.BackgroundOverride.AssetID != 91 {
+		t.Fatalf("background_override = %+v, want asset 91", resp.BackgroundOverride)
+	}
+}
+
 func TestGameControllerAchievementsDashboardReturnsCachedOnlySummary(t *testing.T) {
 	store := &fakeGameStore{achievementDashboard: &core.CachedAchievementsDashboard{
 		Totals: core.AchievementSummary{SourceCount: 1, TotalCount: 10, UnlockedCount: 4},
@@ -412,6 +476,130 @@ func TestAchievementControllerGetAchievementsNormalizesMixedStatesAndCaches(t *t
 	}
 }
 
+func TestBuildAchievementQueryCandidatesPrefersManualMetadataMatch(t *testing.T) {
+	game := &core.CanonicalGame{
+		ID: "game-1",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:         "source-1",
+				PluginID:   "game-source-steam",
+				ExternalID: "220",
+				Status:     "found",
+				ResolverMatches: []core.ResolverMatch{
+					{PluginID: "retroachievements", ExternalID: "ra-active", Outvoted: false},
+					{PluginID: "retroachievements", ExternalID: "ra-manual", ManualSelection: true},
+				},
+			},
+		},
+	}
+
+	candidates := buildAchievementQueryCandidates(game, []string{"retroachievements"})
+	candidate, ok := candidates["retroachievements"]
+	if !ok {
+		t.Fatal("expected retroachievements candidate")
+	}
+	if candidate.ExternalGameID != "ra-manual" {
+		t.Fatalf("external_game_id = %q, want %q", candidate.ExternalGameID, "ra-manual")
+	}
+	if candidate.SourceGameID != "source-1" {
+		t.Fatalf("source_game_id = %q, want %q", candidate.SourceGameID, "source-1")
+	}
+}
+
+func TestAchievementControllerGetAchievementsQueriesMetadataProviderFallbackCandidate(t *testing.T) {
+	game := &core.CanonicalGame{
+		ID: "game-1",
+		ExternalIDs: []core.ExternalID{
+			{Source: "metadata-igdb", ExternalID: "igdb-1"},
+		},
+		SourceGames: []*core.SourceGame{
+			{
+				ID:         "source-1",
+				PluginID:   "game-source-smb",
+				ExternalID: "share-1",
+				Status:     "found",
+				ResolverMatches: []core.ResolverMatch{
+					{PluginID: "metadata-igdb", ExternalID: "igdb-1", Outvoted: false},
+					{PluginID: "retroachievements", ExternalID: "ra-42", Outvoted: true},
+				},
+			},
+		},
+	}
+	store := &fakeGameStore{game: game}
+	host := &fakePluginHost{
+		provides: map[string][]string{
+			"achievements.game.get": {"retroachievements"},
+		},
+		results: map[string]rawAchievementPluginResult{
+			"retroachievements": {
+				Source:         "retroachievements",
+				ExternalGameID: "ra-42",
+				Achievements: []rawAchievementPluginEntry{
+					{
+						ExternalID: "ra-ach-1",
+						Title:      "Unlocked",
+						Points:     5,
+						Unlocked:   true,
+						UnlockedAt: "2024-03-09T16:00:00Z",
+					},
+					{
+						ExternalID: "ra-ach-2",
+						Title:      "Locked",
+						Points:     10,
+						Unlocked:   false,
+						UnlockedAt: "2024-03-10T18:00:00Z",
+					},
+				},
+			},
+		},
+	}
+	controller := NewAchievementController(store, host, noopLogger{}, nil)
+
+	router := chi.NewRouter()
+	router.Get("/api/games/{id}/achievements", controller.GetAchievements)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/games/game-1/achievements", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if len(host.calls) != 1 {
+		t.Fatalf("plugin calls = %d, want 1", len(host.calls))
+	}
+	if host.calls[0].pluginID != "retroachievements" {
+		t.Fatalf("plugin_id = %q, want retroachievements", host.calls[0].pluginID)
+	}
+	if host.calls[0].externalGameID != "ra-42" {
+		t.Fatalf("external_game_id = %q, want %q", host.calls[0].externalGameID, "ra-42")
+	}
+
+	var sets []AchievementSetDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &sets); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(sets) != 1 {
+		t.Fatalf("len(sets) = %d, want 1", len(sets))
+	}
+	if sets[0].UnlockedCount != 1 || sets[0].TotalCount != 2 {
+		t.Fatalf("set counts = %+v, want 1/2", sets[0])
+	}
+	if sets[0].Achievements[1].UnlockedAt != "" {
+		t.Fatalf("locked achievement unlocked_at = %q, want empty", sets[0].Achievements[1].UnlockedAt)
+	}
+	if len(store.cached) != 1 {
+		t.Fatalf("cache writes = %d, want 1", len(store.cached))
+	}
+	if store.cached[0].sourceGameID != "source-1" {
+		t.Fatalf("cached source_game_id = %q, want %q", store.cached[0].sourceGameID, "source-1")
+	}
+	if store.cached[0].set.Source != "retroachievements" || store.cached[0].set.ExternalGameID != "ra-42" {
+		t.Fatalf("cached set = %+v, want retroachievements ra-42", store.cached[0].set)
+	}
+}
+
 type noopLogger struct{}
 
 func (noopLogger) Info(string, ...any)         {}
@@ -424,6 +612,12 @@ type cachedAchievementCall struct {
 	set          *core.AchievementSet
 }
 
+type fakePluginCall struct {
+	pluginID       string
+	method         string
+	externalGameID string
+}
+
 type fakeGameStore struct {
 	game                   *core.CanonicalGame
 	cached                 []cachedAchievementCall
@@ -431,6 +625,10 @@ type fakeGameStore struct {
 	achievementExplorer    *core.CachedAchievementsExplorer
 	setCoverOverrideID     string
 	setCoverOverrideAsset  int
+	setHoverOverrideID     string
+	setHoverOverrideAsset  int
+	setBackgroundOverrideID    string
+	setBackgroundOverrideAsset int
 	clearCoverOverrideID   string
 	manualReviewCandidates []*core.ManualReviewCandidate
 	manualReviewByID       map[string]*core.ManualReviewCandidate
@@ -575,6 +773,9 @@ func (f *fakeGameStore) DeleteSourceGameByID(context.Context, string) error {
 func (f *fakeGameStore) SaveScanReport(context.Context, *core.ScanReport) error {
 	panic("unexpected call")
 }
+func (f *fakeGameStore) SaveRefreshedMetadataProviderResults(context.Context, []*core.SourceGame) error {
+	panic("unexpected call")
+}
 func (f *fakeGameStore) GetScanReports(context.Context, int) ([]*core.ScanReport, error) {
 	panic("unexpected call")
 }
@@ -589,6 +790,16 @@ func (f *fakeGameStore) SetCanonicalCoverOverride(_ context.Context, canonicalID
 	f.setCoverOverrideAsset = mediaAssetID
 	return nil
 }
+func (f *fakeGameStore) SetCanonicalHoverOverride(_ context.Context, canonicalID string, mediaAssetID int) error {
+	f.setHoverOverrideID = canonicalID
+	f.setHoverOverrideAsset = mediaAssetID
+	return nil
+}
+func (f *fakeGameStore) SetCanonicalBackgroundOverride(_ context.Context, canonicalID string, mediaAssetID int) error {
+	f.setBackgroundOverrideID = canonicalID
+	f.setBackgroundOverrideAsset = mediaAssetID
+	return nil
+}
 func (f *fakeGameStore) ClearCanonicalCoverOverride(_ context.Context, canonicalID string) error {
 	f.clearCoverOverrideID = canonicalID
 	return nil
@@ -599,10 +810,21 @@ type fakePluginHost struct {
 	results           map[string]rawAchievementPluginResult
 	metadataResults   map[string]reviewMetadataLookupResponse
 	metadataCallError map[string]error
+	calls             []fakePluginCall
 }
 
 func (f *fakePluginHost) Discover(context.Context) error { panic("unexpected call") }
-func (f *fakePluginHost) Call(_ context.Context, pluginID, method string, _ any, result any) error {
+func (f *fakePluginHost) Call(_ context.Context, pluginID, method string, params any, result any) error {
+	switch payload := params.(type) {
+	case map[string]any:
+		if externalGameID, ok := payload["external_game_id"].(string); ok {
+			f.calls = append(f.calls, fakePluginCall{
+				pluginID:       pluginID,
+				method:         method,
+				externalGameID: externalGameID,
+			})
+		}
+	}
 	switch method {
 	case "achievements.game.get":
 		payload, ok := f.results[pluginID]

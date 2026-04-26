@@ -9,6 +9,7 @@ interface GameGridProps {
   progressive?: boolean
   initialRows?: number
   loadMoreRows?: number
+  cardVariant?: 'library' | 'play'
 }
 
 const GRID_GAP_PX = 16
@@ -25,6 +26,7 @@ export function GameGrid({
   progressive = false,
   initialRows = 4,
   loadMoreRows = 3,
+  cardVariant = 'library',
 }: GameGridProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
@@ -107,7 +109,7 @@ export function GameGrid({
             className="mga-stagger-item"
             style={{ animationDelay: `${Math.min(index, 10) * 40}ms` }}
           >
-            <GameCard game={game} />
+            <GameCard game={game} variant={cardVariant} />
           </div>
         ))}
       </div>
