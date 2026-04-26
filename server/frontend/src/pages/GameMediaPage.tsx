@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, ExternalLink, Image as ImageIcon, Video } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ExternalLink, Image as ImageIcon, PlayCircle } from 'lucide-react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
@@ -193,17 +193,17 @@ function MediaGalleryCard({
                 decoding="async"
                 className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
               />
-              <div className="absolute inset-0 flex items-center justify-center bg-black/18">
-                <div className="rounded-full bg-black/58 p-3 text-white/92">
-                  <Video size={18} />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                <div className="rounded-full border-2 border-white/90 bg-black/52 p-1 text-white shadow-[0_10px_24px_rgba(0,0,0,0.34)]">
+                  <PlayCircle size={40} strokeWidth={1.8} fill="rgba(255,255,255,0.12)" />
                 </div>
               </div>
             </div>
           </div>
         ) : (
           <div className="flex aspect-video w-full items-center justify-center bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.14),transparent_55%),linear-gradient(180deg,rgba(14,18,28,0.98),rgba(8,10,16,0.98))]">
-            <div className="rounded-full bg-black/45 p-3 text-white/82">
-              <Video size={18} />
+            <div className="rounded-full border-2 border-white/80 bg-black/50 p-1 text-white shadow-[0_10px_24px_rgba(0,0,0,0.34)]">
+              <PlayCircle size={40} strokeWidth={1.8} fill="rgba(255,255,255,0.12)" />
             </div>
           </div>
         )}

@@ -432,18 +432,20 @@ function HeroMediaThumb({
             decoding="async"
             className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
           />
-          <div className="absolute inset-0 bg-black/18" />
+          <div className="absolute inset-0 bg-black/20" />
         </div>
       ) : (
         <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.18),transparent_55%),linear-gradient(180deg,rgba(18,17,23,0.92),rgba(10,10,14,0.98))]">
-          <Video size={18} className="text-white/82" />
+          <div className="rounded-full border-2 border-white/80 bg-black/50 p-1 text-white shadow-[0_10px_24px_rgba(0,0,0,0.34)]">
+            <PlayCircle size={34} strokeWidth={1.8} fill="rgba(255,255,255,0.12)" />
+          </div>
         </div>
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
       {isVideo ? (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="rounded-full bg-black/58 p-2 text-white">
-            <PlayCircle size={18} />
+          <div className="rounded-full border-2 border-white/90 bg-black/52 p-1 text-white shadow-[0_10px_24px_rgba(0,0,0,0.34)]">
+            <PlayCircle size={34} strokeWidth={1.8} fill="rgba(255,255,255,0.12)" />
           </div>
         </div>
       ) : null}

@@ -149,6 +149,11 @@ export function buildFeaturedMediaRail(items: DisplayMediaItem[], maxItems: numb
     results.push(item)
   }
 
+  const firstVideo = items
+    .filter((item) => normalizeFeaturedMediaType(item.media.type) === 'video' && isPreviewableDisplayMedia(item))
+    .sort(compareDisplayMedia)[0]
+  add(firstVideo)
+
   for (const item of buildRepresentativeMediaPreview(items)) {
     add(item)
   }
