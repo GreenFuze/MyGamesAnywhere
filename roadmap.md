@@ -263,6 +263,10 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] "Playable" badge (browser-emulatable platforms)
 - [x] **"xCloud" badge** (cloud-playable Xbox games)
 - [x] Play button on playable games vs. "View" on others
+- [x] Detached Netflix-style hover cards with 16:9 expanded overlays that do not push shelves/layout
+- [x] Hover-card media area opens the game details page directly
+- [x] Hover-card open/close animation with staged media/tray reveal
+- [x] Hover-media selection now respects explicit hover override before fallback media selection
 
 ### Search
 - [x] Full-text search with fuzzy matching
@@ -280,10 +284,13 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Back button ("< Library" / "< Play") preserving scroll position on return
 
 ### Metadata Display
-- [x] Full-bleed hero banner (cover art / screenshots, blurred background)
+- [x] Full-bleed hero/banner treatment with Steam/Xbox-style cinematic composition
 - [x] Title, description, release date, developer, publisher, genres, rating
 - [x] Source-aware attribution for description and metadata facts when resolver data is reliable
 - [x] Full per-field/logo attribution coverage for every metadata provider
+- [x] Unified `Metadata gathered from ...` attribution row for metadata/media providers
+- [x] Hero background override with suitability-aware rendering fallback for non-cinematic images
+- [x] Legacy lazy backfill/persist of explicit cover / hover / background override selections for older games
 
 ### Media Gallery
 - [x] Screenshot viewer (lightbox)
@@ -292,6 +299,11 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Manuals / documents surfaced with view/open actions
 - [x] Media source attribution
 - [x] Rich inline handling for every supported video/document format
+- [x] Dedicated game media page with source/type filters and `Open Gallery` entry from game detail
+- [x] Representative featured-media rail on game detail with video-aware type-first ordering and dedupe
+- [x] Cover / hover / background selection actions from the media gallery
+- [x] Image-dimension probing and persistence for media with missing width/height metadata
+- [x] Background suitability warnings for gallery selection, including warning affordance and confirmation flow
 
 ### External Links
 - [x] Branded external links for known providers when `external_ids` include URLs
@@ -333,6 +345,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Per-source game count badge (from `LibraryStats.by_integration_id`)
 - [x] Per-source "Scan" button with inline progress bar
 - [x] "Scan All Sources" button on accordion header
+- [x] "Rescan All" naming and total scan progress bar for global source rescans
 - [x] Expandable card: scrollable games list (lazy-loaded via `GET /api/integrations/{id}/games`)
 - [x] SSE-driven scan progress per integration
 
@@ -340,6 +353,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Per-provider enrichment count badge (from `LibraryStats.by_metadata_plugin_id`)
 - [x] "Refresh Metadata" button on accordion header (metadata-only refresh, no re-discovery)
 - [x] Expandable card: scrollable enriched games list (lazy-loaded via `GET /api/integrations/{id}/enriched-games`)
+- [x] Per-integration `Refresh` action for provider-scoped known-game derived refresh jobs (metadata/media/achievements as supported)
 
 ### Integrations — Sync
 - [x] Push / Pull buttons on sync integration card
