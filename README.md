@@ -31,29 +31,29 @@ The packaged release is currently a **Windows portable build**. MGA runs locally
 
 ## Screenshots
 
-### Home and library overview
+### Home hero and dashboard entry
 
-![MGA home page showing unified library stats and recent activity](docs/screenshots/home.png)
+![MGA home page hero showing the title artwork, primary actions, and dashboard feed summary](docs/screenshots/home.png)
 
-MGA starts with a product view of your library, scans, and integrations instead of pushing one storefront first.
+MGA opens with a local-first dashboard entry point: library access, integration shortcuts, and feed-level status without centering one storefront first.
 
 ### Platform shelves and poster-first browsing
 
-![MGA Library page showing the GBA platform shelf with loaded cover art](docs/screenshots/library-gba.png)
+![MGA Library page in shelf view showing grouped platform rows including the GBA collection](docs/screenshots/library-gba.png)
 
-Platform shelves stay focused on browsable collections with loaded cover art, source provenance, and clean metadata.
+Shelf view keeps large mixed-source libraries readable, with platform groups, poster-first browsing, and fast visual scanning.
 
-### Game detail page
+### Game achievements and progress
 
-![MGA game detail page showing poster-first layout, structured metadata, sources, files, and achievements](docs/screenshots/game-detail.png)
+![MGA game page achievement section showing Xbox progress ring, completion stats, and achievement cards for FINAL FANTASY](docs/screenshots/game-detail.png)
 
-Each game gets one canonical detail page with metadata, files, sources, media, actions, and achievements.
+Each game keeps per-source progress visible, including connected achievement systems, completion percentage, points, and recent unlocks.
 
 ### Settings and integrations
 
-![MGA settings integrations page showing configured source and metadata integrations](docs/screenshots/settings.png)
+![MGA settings integrations page showing scan status plus configured game source and metadata provider cards](docs/screenshots/settings.png)
 
-Sources, metadata providers, achievements, sync targets, and runtime surfaces are managed from one local settings flow.
+Integrations, scan status, and metadata providers stay in one local control surface instead of being split across different launchers and tools.
 
 ## MGA vs traditional launchers
 
