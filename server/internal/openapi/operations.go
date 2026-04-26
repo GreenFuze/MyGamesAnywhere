@@ -165,6 +165,14 @@ func Operations() []OperationDoc {
 			ResponseDocs: map[string]string{"200": "Binary stream", "400": "Invalid id", "404": "Unknown asset or missing file", "500": "Internal server error"},
 		},
 		{
+			Method:         "PUT",
+			Path:           "/api/media/{assetID}/metadata",
+			Summary:        "Backfill media dimensions",
+			Description:    "Stores probed width/height metadata for an existing media asset so future clients can make layout decisions without probing again.",
+			RequestBodyDoc: "JSON: { width: number, height: number, mime_type?: string }",
+			ResponseDocs:   map[string]string{"204": "Metadata updated", "400": "Invalid id or body", "500": "Internal server error"},
+		},
+		{
 			Method:       "GET",
 			Path:         "/api/stats",
 			Summary:      "Library statistics",

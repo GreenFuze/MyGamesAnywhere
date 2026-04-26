@@ -404,6 +404,21 @@ export async function setGameBackgroundOverride(
   );
 }
 
+export async function updateMediaAssetMetadata(
+  assetId: number,
+  body: { width: number; height: number; mime_type?: string },
+): Promise<void> {
+  const path = `/api/media/${encodeURIComponent(String(assetId))}/metadata`;
+  const res = await fetch(`${base}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw await buildApiError(path, res);
+  }
+}
+
 export async function refreshGameMetadata(
   id: string,
 ): Promise<GameDetailResponse> {

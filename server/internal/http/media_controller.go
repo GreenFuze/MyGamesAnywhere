@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -94,6 +95,38 @@ func (c *MediaController) ServeMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	http.ServeContent(w, r, st.Name(), st.ModTime(), f)
+}
+
+type updateMediaMetadataRequest struct {
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+	MimeType string `json:"mime_type,omitempty"`
+}
+
+func (c *MediaController) UpdateMediaMetadata(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "assetID")
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid asset id", http.StatusBadRequest)
+		return
+	}
+
+	var req updateMediaMetadataRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Width <= 0 || req.Height <= 0 {
+		http.Error(w, "width and height must be positive", http.StatusBadRequest)
+		return
+	}
+
+	if err := c.store.UpdateMediaAssetMetadata(r.Context(), id, req.Width, req.Height, req.MimeType); err != nil {
+		c.logger.Error("update media metadata", err, "id", id)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func resolveUnderMediaRoot(mediaRootAbs, localPath string) (string, error) {

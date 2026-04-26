@@ -78,6 +78,8 @@ type GameStore interface {
 
 	// UpdateMediaAsset marks a media asset as downloaded (sets local_path, hash).
 	UpdateMediaAsset(ctx context.Context, assetID int, localPath, hash string) error
+	// UpdateMediaAssetMetadata backfills width/height/mime_type for an existing media asset.
+	UpdateMediaAssetMetadata(ctx context.Context, assetID, width, height int, mimeType string) error
 
 	// DeleteAllGames removes all source games, files, matches, media links.
 	DeleteAllGames(ctx context.Context) error

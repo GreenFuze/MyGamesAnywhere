@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ExternalLink, Image as ImageIcon, Video } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ExternalLink, Image as ImageIcon, Video } from 'lucide-react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
@@ -8,15 +8,46 @@ import {
   setGameBackgroundOverride,
   setGameCoverOverride,
   setGameHoverOverride,
+  updateMediaAssetMetadata,
   type GameMediaDetailDTO,
+  type GameDetailResponse,
 } from '@/api/client'
 import { BrandBadge } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
+import { evaluateBackgroundSuitability, formatBackgroundSuitabilityMessage, type BackgroundSuitability } from '@/lib/backgroundSuitability'
 import { mediaUrl, GameMediaCollection, youtubeEmbedUrl } from '@/lib/gameMedia'
 import { buildRepresentativeMediaPreview, mergeDisplayMedia, type DisplayMediaItem } from '@/lib/gameMediaDisplay'
 import { brandLabel } from '@/lib/brands'
+
+function patchGameMediaDimensions(data: GameDetailResponse, assetId: number, width: number, height: number): GameDetailResponse {
+  return {
+    ...data,
+    media: (data.media ?? []).map((media) =>
+      media.asset_id === assetId
+        ? { ...media, width, height, mime_type: media.mime_type || 'image/*' }
+        : media,
+    ),
+    cover_override:
+      data.cover_override?.asset_id === assetId ? { ...data.cover_override, width, height, mime_type: data.cover_override.mime_type || 'image/*' } : data.cover_override,
+    hover_override:
+      data.hover_override?.asset_id === assetId ? { ...data.hover_override, width, height, mime_type: data.hover_override.mime_type || 'image/*' } : data.hover_override,
+    background_override:
+      data.background_override?.asset_id === assetId
+        ? { ...data.background_override, width, height, mime_type: data.background_override.mime_type || 'image/*' }
+        : data.background_override,
+  }
+}
+
+function probeImageDimensions(url: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
+    img.onerror = () => reject(new Error('Image probe failed'))
+    img.src = url
+  })
+}
 
 function mediaTypeLabel(type: string): string {
   if (!type) return 'Media'
@@ -74,11 +105,34 @@ function SourcePill({ source }: { source: string }) {
   return <BrandBadge brand={source} label={brandLabel(source, source)} className="bg-white/5 text-white" />
 }
 
+function BackgroundWarningIndicator({ suitability }: { suitability: BackgroundSuitability }) {
+  const message = suitability.reasons.length > 0
+    ? suitability.reasons.join(' ')
+    : 'This image may not fit the hero background well.'
+
+  return (
+    <span className="group/warn relative inline-flex items-center">
+      <span
+        tabIndex={0}
+        role="img"
+        aria-label={message}
+        className="inline-flex items-center text-amber-300 outline-none"
+      >
+        <AlertTriangle size={14} />
+      </span>
+      <span className="pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 z-20 hidden w-64 -translate-x-1/2 rounded-[12px] border border-amber-500/30 bg-[#18121f] px-3 py-2 text-xs leading-5 text-white shadow-[0_18px_34px_rgba(0,0,0,0.34)] group-hover/warn:block group-focus-within/warn:block">
+        {message}
+      </span>
+    </span>
+  )
+}
+
 function MediaGalleryCard({
   item,
   currentCoverAssetId,
   currentHoverAssetId,
   currentBackgroundAssetId,
+  backgroundProbePending,
   busyCover,
   busyHover,
   busyBackground,
@@ -91,6 +145,7 @@ function MediaGalleryCard({
   currentCoverAssetId?: number
   currentHoverAssetId?: number
   currentBackgroundAssetId?: number
+  backgroundProbePending: boolean
   busyCover: boolean
   busyHover: boolean
   busyBackground: boolean
@@ -106,7 +161,8 @@ function MediaGalleryCard({
   const isCurrentCover = currentCoverAssetId === media.asset_id
   const isCurrentHover = currentHoverAssetId === media.asset_id
   const isCurrentBackground = currentBackgroundAssetId === media.asset_id
-  const lowResolutionBackground = Boolean(media.width && media.height && (media.width < 1600 || media.height < 900))
+  const backgroundSuitability = evaluateBackgroundSuitability(media)
+  const backgroundWarning = !backgroundProbePending && backgroundSuitability.level !== 'good'
 
   return (
     <article className="overflow-hidden rounded-[22px] border border-white/8 bg-[#0f141f] shadow-[0_16px_34px_rgba(0,0,0,0.18)]">
@@ -168,9 +224,11 @@ function MediaGalleryCard({
               variant="outline"
               disabled={busyBackground || isCurrentBackground}
               onClick={() => onSetBackground(media)}
-              className={lowResolutionBackground && !isCurrentBackground ? 'border-amber-500/50 text-amber-300 hover:bg-amber-500/10' : undefined}
             >
-              {isCurrentBackground ? 'Current background' : busyBackground ? 'Setting background...' : 'Set as background'}
+              <span className="inline-flex items-center gap-2">
+                <span>{isCurrentBackground ? 'Current background' : busyBackground ? 'Setting background...' : 'Set as background'}</span>
+                {backgroundWarning && !isCurrentBackground ? <BackgroundWarningIndicator suitability={backgroundSuitability} /> : null}
+              </span>
             </Button>
           </div>
         ) : (
@@ -193,6 +251,10 @@ export function GameMediaPage() {
   const [hoverBusy, setHoverBusy] = useState(false)
   const [backgroundBusy, setBackgroundBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [backgroundWarningState, setBackgroundWarningState] = useState<{ media: GameMediaDetailDTO; suitability: BackgroundSuitability } | null>(null)
+  const [backgroundWarningProbeBusy, setBackgroundWarningProbeBusy] = useState(false)
+  const [probedAssetIds, setProbedAssetIds] = useState<Set<number>>(new Set())
+  const [probingAssetIds, setProbingAssetIds] = useState<Set<number>>(new Set())
 
   const game = useQuery({
     queryKey: ['game', id],
@@ -209,10 +271,7 @@ export function GameMediaPage() {
     () => Array.from(new Set(mergedMedia.flatMap((item) => item.types))).sort((a, b) => mediaTypeLabel(a).localeCompare(mediaTypeLabel(b))),
     [mergedMedia],
   )
-  const representativePreview = useMemo(
-    () => buildRepresentativeMediaPreview(mergedMedia, game.data?.cover_override, game.data?.hover_override),
-    [game.data?.cover_override, game.data?.hover_override, mergedMedia],
-  )
+  const representativePreview = useMemo(() => buildRepresentativeMediaPreview(mergedMedia), [mergedMedia])
 
   useEffect(() => {
     setSelectedSources((current) => (current.length > 0 ? current.filter((item) => availableSources.includes(item)) : availableSources))
@@ -231,6 +290,119 @@ export function GameMediaPage() {
       ),
     [mergedMedia, selectedSources, selectedTypes],
   )
+
+  const ensureMediaDimensions = useCallback(async (media: GameMediaDetailDTO): Promise<GameMediaDetailDTO> => {
+    if (!game.data) return media
+    if ((media.width ?? 0) > 0 && (media.height ?? 0) > 0) {
+      return media
+    }
+
+    // Probe the original media asset URL, not the rendered thumbnail surface.
+    const dims = await probeImageDimensions(mediaUrl(media))
+    if (dims.width <= 0 || dims.height <= 0) {
+      return media
+    }
+
+    const patched = {
+      ...media,
+      width: dims.width,
+      height: dims.height,
+      mime_type: media.mime_type || 'image/*',
+    }
+
+    queryClient.setQueryData<GameDetailResponse>(['game', game.data.id], (current) =>
+      current ? patchGameMediaDimensions(current, media.asset_id, dims.width, dims.height) : current,
+    )
+
+    try {
+      await updateMediaAssetMetadata(media.asset_id, {
+        width: dims.width,
+        height: dims.height,
+        mime_type: media.mime_type,
+      })
+    } catch {
+      // Keep local dimensions even if persistence fails.
+    }
+
+    return patched
+  }, [game.data, queryClient])
+
+  useEffect(() => {
+    if (!game.data) return
+
+    const candidates = mergedMedia
+      .map((item) => item.media)
+      .filter((media) => {
+        if (probedAssetIds.has(media.asset_id) || probingAssetIds.has(media.asset_id)) return false
+        if ((media.width ?? 0) > 0 && (media.height ?? 0) > 0) return false
+        return new GameMediaCollection([media]).isImage(media)
+      })
+
+    if (candidates.length === 0) return
+    let cancelled = false
+
+    void (async () => {
+      for (const media of candidates) {
+        if (cancelled) return
+        setProbingAssetIds((current) => new Set(current).add(media.asset_id))
+        try {
+          await ensureMediaDimensions(media)
+        } catch {
+          // Keep unknown dimensions; click-time probe remains the fallback.
+        } finally {
+          if (!cancelled) {
+            setProbingAssetIds((current) => {
+              const next = new Set(current)
+              next.delete(media.asset_id)
+              return next
+            })
+            setProbedAssetIds((current) => new Set(current).add(media.asset_id))
+          }
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [ensureMediaDimensions, game.data, mergedMedia, probedAssetIds, probingAssetIds])
+
+  useEffect(() => {
+    if (!backgroundWarningState) {
+      setBackgroundWarningProbeBusy(false)
+      return
+    }
+    if ((backgroundWarningState.suitability.actual.width ?? 0) > 0 && (backgroundWarningState.suitability.actual.height ?? 0) > 0) {
+      setBackgroundWarningProbeBusy(false)
+      return
+    }
+
+    let cancelled = false
+    setBackgroundWarningProbeBusy(true)
+
+    void (async () => {
+      try {
+        const resolvedMedia = await ensureMediaDimensions(backgroundWarningState.media)
+        if (cancelled) return
+        setBackgroundWarningState({
+          media: resolvedMedia,
+          suitability: evaluateBackgroundSuitability(resolvedMedia),
+        })
+      } catch {
+        if (!cancelled) {
+          setBackgroundWarningProbeBusy(false)
+        }
+        return
+      }
+      if (!cancelled) {
+        setBackgroundWarningProbeBusy(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [backgroundWarningState, ensureMediaDimensions])
 
   const handleSetCover = async (media: GameMediaDetailDTO) => {
     if (!game.data || coverBusy) return
@@ -266,15 +438,8 @@ export function GameMediaPage() {
     }
   }
 
-  const handleSetBackground = async (media: GameMediaDetailDTO) => {
+  const applyBackgroundOverride = async (media: GameMediaDetailDTO) => {
     if (!game.data || backgroundBusy) return
-    const lowResolution = Boolean(media.width && media.height && (media.width < 1600 || media.height < 900))
-    if (lowResolution) {
-      const proceed = window.confirm(
-        `This image is ${media.width}x${media.height}, which is likely too low-resolution for a hero background. Continue anyway?`,
-      )
-      if (!proceed) return
-    }
     setErrorMessage('')
     setBackgroundBusy(true)
     try {
@@ -288,6 +453,17 @@ export function GameMediaPage() {
     } finally {
       setBackgroundBusy(false)
     }
+  }
+
+  const handleSetBackground = async (media: GameMediaDetailDTO) => {
+    const suitability = evaluateBackgroundSuitability(media)
+    const resolvedMedia = (suitability.actual.width > 0 && suitability.actual.height > 0) ? media : await ensureMediaDimensions(media)
+    const resolvedSuitability = evaluateBackgroundSuitability(resolvedMedia)
+    if (resolvedSuitability.level !== 'good') {
+      setBackgroundWarningState({ media: resolvedMedia, suitability: resolvedSuitability })
+      return
+    }
+    await applyBackgroundOverride(resolvedMedia)
   }
 
   if (game.isPending) {
@@ -387,6 +563,7 @@ export function GameMediaPage() {
                   currentCoverAssetId={data.cover_override?.asset_id}
                   currentHoverAssetId={data.hover_override?.asset_id}
                   currentBackgroundAssetId={data.background_override?.asset_id}
+                  backgroundProbePending={probingAssetIds.has(item.media.asset_id)}
                   busyCover={coverBusy}
                   busyHover={hoverBusy}
                   busyBackground={backgroundBusy}
@@ -402,6 +579,39 @@ export function GameMediaPage() {
       </div>
 
       <MediaViewerDialog media={selectedMedia} onClose={() => setSelectedMedia(null)} />
+      <Dialog
+        open={backgroundWarningState !== null}
+        onClose={() => setBackgroundWarningState(null)}
+        title="Background warning"
+        className="max-w-xl"
+      >
+        {backgroundWarningState ? (
+          <div className="space-y-5">
+            {backgroundWarningProbeBusy ? (
+              <p className="text-xs text-white/54">Checking original image dimensions...</p>
+            ) : null}
+            <p className="text-sm leading-7 text-white/74 whitespace-pre-line">
+              {formatBackgroundSuitabilityMessage(backgroundWarningState.suitability)}
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={() => setBackgroundWarningState(null)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="bg-amber-500/20 text-amber-200 hover:bg-amber-500/30"
+                onClick={async () => {
+                  const pending = backgroundWarningState
+                  setBackgroundWarningState(null)
+                  await applyBackgroundOverride(pending.media)
+                }}
+              >
+                Use Anyway
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Dialog>
     </div>
   )
 }

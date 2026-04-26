@@ -8,26 +8,9 @@ export interface DisplayMediaItem {
   types: string[]
 }
 
-const DISPLAY_TYPE_PRIORITY = [
-  'cover',
-  'hero',
-  'background',
-  'backdrop',
-  'screenshot',
-  'artwork',
-  'banner',
-  'logo',
-  'video',
-  'trailer',
-] as const
+export type FeaturedMediaType = 'video' | 'cover' | 'background' | 'screenshot' | 'artwork' | 'logo' | 'other'
 
-const REPRESENTATIVE_GROUPS = [
-  ['cover'],
-  ['screenshot'],
-  ['background', 'backdrop'],
-  ['artwork', 'banner', 'logo', 'hero'],
-  ['video', 'trailer'],
-] as const
+const FEATURED_TYPE_ORDER: FeaturedMediaType[] = ['video', 'cover', 'background', 'screenshot', 'artwork', 'logo', 'other']
 
 function normalizeMediaUrl(url: string): string {
   try {
@@ -46,9 +29,34 @@ export function mediaIdentityKey(media: Pick<GameMediaDetailDTO, 'asset_id' | 'u
   return `url:${normalizeMediaUrl(media.url)}`
 }
 
+export function normalizeFeaturedMediaType(type: string): FeaturedMediaType {
+  switch (type) {
+    case 'video':
+    case 'trailer':
+      return 'video'
+    case 'cover':
+      return 'cover'
+    case 'background':
+    case 'backdrop':
+    case 'hero':
+    case 'fanart':
+      return 'background'
+    case 'screenshot':
+      return 'screenshot'
+    case 'artwork':
+    case 'banner':
+      return 'artwork'
+    case 'logo':
+    case 'icon':
+      return 'logo'
+    default:
+      return 'other'
+  }
+}
+
 function mediaTypeRank(type: string): number {
-  const idx = DISPLAY_TYPE_PRIORITY.indexOf(type as (typeof DISPLAY_TYPE_PRIORITY)[number])
-  return idx === -1 ? DISPLAY_TYPE_PRIORITY.length : idx
+  const idx = FEATURED_TYPE_ORDER.indexOf(normalizeFeaturedMediaType(type))
+  return idx === -1 ? FEATURED_TYPE_ORDER.length : idx
 }
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
@@ -65,6 +73,21 @@ function chooseRepresentativeMedia(current: GameMediaDetailDTO, candidate: GameM
   const candidateArea = (candidate.width || 0) * (candidate.height || 0)
   if (candidateArea > currentArea) return candidate
   return current
+}
+
+function compareDisplayMedia(a: DisplayMediaItem, b: DisplayMediaItem): number {
+  const rankDelta = mediaTypeRank(a.media.type) - mediaTypeRank(b.media.type)
+  if (rankDelta !== 0) {
+    return rankDelta
+  }
+
+  const areaA = (a.media.width || 0) * (a.media.height || 0)
+  const areaB = (b.media.width || 0) * (b.media.height || 0)
+  if (areaA !== areaB) {
+    return areaB - areaA
+  }
+
+  return a.key.localeCompare(b.key)
 }
 
 export function mergeDisplayMedia(media: GameMediaDetailDTO[] | undefined): DisplayMediaItem[] {
@@ -96,11 +119,7 @@ export function isPreviewableDisplayMedia(item: DisplayMediaItem): boolean {
   return collection.isImage(item.media) || collection.isInlineVideo(item.media) || Boolean(youtubeEmbedUrl(item.media))
 }
 
-export function buildRepresentativeMediaPreview(
-  items: DisplayMediaItem[],
-  coverOverride?: GameMediaDetailDTO,
-  hoverOverride?: GameMediaDetailDTO,
-): DisplayMediaItem[] {
+export function buildRepresentativeMediaPreview(items: DisplayMediaItem[]): DisplayMediaItem[] {
   const results: DisplayMediaItem[] = []
   const seen = new Set<string>()
 
@@ -110,14 +129,40 @@ export function buildRepresentativeMediaPreview(
     results.push(item)
   }
 
-  const byIdentity = new Map(items.map((item) => [item.key, item]))
-  if (coverOverride) add(byIdentity.get(mediaIdentityKey(coverOverride)))
-  if (hoverOverride) add(byIdentity.get(mediaIdentityKey(hoverOverride)))
-
-  for (const group of REPRESENTATIVE_GROUPS) {
-    const match = items.find((item) => item.types.some((type) => group.includes(type as never)))
+  for (const type of FEATURED_TYPE_ORDER) {
+    const match = items
+      .filter((item) => normalizeFeaturedMediaType(item.media.type) === type)
+      .sort(compareDisplayMedia)[0]
     add(match)
   }
 
   return results
+}
+
+export function buildFeaturedMediaRail(items: DisplayMediaItem[], maxItems: number): DisplayMediaItem[] {
+  const results: DisplayMediaItem[] = []
+  const seen = new Set<string>()
+
+  const add = (item: DisplayMediaItem | undefined) => {
+    if (!item || seen.has(item.key) || !isPreviewableDisplayMedia(item)) return
+    seen.add(item.key)
+    results.push(item)
+  }
+
+  for (const item of buildRepresentativeMediaPreview(items)) {
+    add(item)
+  }
+
+  const remainder = items
+    .filter((item) => isPreviewableDisplayMedia(item) && !seen.has(item.key))
+    .sort(compareDisplayMedia)
+
+  for (const item of remainder) {
+    if (results.length >= maxItems) {
+      break
+    }
+    add(item)
+  }
+
+  return results.slice(0, maxItems)
 }

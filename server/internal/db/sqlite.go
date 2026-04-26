@@ -183,6 +183,10 @@ func (s *sqliteDatabase) EnsureSchema() error {
 			media_asset_id INTEGER NOT NULL REFERENCES media_assets(id),
 			updated_at INTEGER NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS canonical_game_cover_override_clears (
+			canonical_id TEXT PRIMARY KEY REFERENCES canonical_games(id) ON DELETE CASCADE,
+			cleared_at INTEGER NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS canonical_game_hover_overrides (
 			canonical_id TEXT PRIMARY KEY REFERENCES canonical_games(id) ON DELETE CASCADE,
 			media_asset_id INTEGER NOT NULL REFERENCES media_assets(id),

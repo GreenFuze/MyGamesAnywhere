@@ -57,7 +57,8 @@ import {
   selectSourcePlugins,
 } from '@/lib/gameUtils'
 import { GameMediaCollection, mediaUrl, youtubeEmbedUrl } from '@/lib/gameMedia'
-import { buildRepresentativeMediaPreview, isPreviewableDisplayMedia, mediaIdentityKey, mergeDisplayMedia } from '@/lib/gameMediaDisplay'
+import { buildFeaturedMediaRail, mergeDisplayMedia } from '@/lib/gameMediaDisplay'
+import { evaluateBackgroundSuitability } from '@/lib/backgroundSuitability'
 import { cn } from '@/lib/utils'
 
 type MetadataField =
@@ -392,12 +393,10 @@ function mediaItemKey(media: GameMediaDetailDTO): string {
 
 function HeroMediaThumb({
   media,
-  active,
   label,
   onSelect,
 }: {
   media: GameMediaDetailDTO
-  active: boolean
   label: string
   onSelect: (media: GameMediaDetailDTO) => void
 }) {
@@ -406,13 +405,10 @@ function HeroMediaThumb({
   const isVideo = !isImage && (Boolean(youtubeEmbedUrl(media)) || mediaCollection.isInlineVideo(media))
 
   return (
-      <button
+    <button
       type="button"
       onClick={() => onSelect(media)}
-      className={cn(
-        'group relative h-20 w-32 shrink-0 overflow-hidden rounded-[16px] bg-black/20 ring-1 ring-white/[0.05] transition-all duration-200 hover:ring-white/[0.14]',
-        active && 'ring-2 ring-[#7b83ff] shadow-[0_0_0_1px_rgba(123,131,255,0.44)]',
-      )}
+      className="group relative h-20 w-32 shrink-0 overflow-hidden rounded-[16px] bg-black/20 ring-1 ring-white/[0.05] transition-all duration-200 hover:-translate-y-0.5 hover:ring-white/[0.14] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-0"
       title={label}
       aria-label={label}
     >
@@ -1048,32 +1044,16 @@ export function GameDetailPage() {
   const heroMedia = useMemo(() => mediaCollection.hero(), [mediaCollection])
   const mergedMedia = useMemo(() => mergeDisplayMedia(gameData?.media), [gameData?.media])
   const coverUrl = coverMedia ? mediaUrl(coverMedia) : null
-  const representativeMedia = useMemo(
-    () => buildRepresentativeMediaPreview(mergedMedia, gameData?.cover_override, gameData?.hover_override),
-    [gameData?.cover_override, gameData?.hover_override, mergedMedia],
-  )
-  const featuredMedia = useMemo(() => {
-    const items: GameMediaDetailDTO[] = representativeMedia.map((item) => item.media)
-    const seen = new Set<string>()
-    const deduped: GameMediaDetailDTO[] = []
-    const addMedia = (media: GameMediaDetailDTO) => {
-      const key = mediaIdentityKey(media)
-      if (seen.has(key)) return
-      seen.add(key)
-      deduped.push(media)
-    }
-    for (const media of items) addMedia(media)
-    for (const item of mergedMedia) {
-      if (!isPreviewableDisplayMedia(item)) continue
-      addMedia(item.media)
-    }
-    return deduped.slice(0, 12)
-  }, [mergedMedia, representativeMedia])
+  const featuredMedia = useMemo(() => buildFeaturedMediaRail(mergedMedia, 12).map((item) => item.media), [mergedMedia])
   const heroBackdropMedia = useMemo(
     () => gameData?.background_override ?? heroMedia ?? coverMedia ?? featuredMedia[0] ?? null,
     [coverMedia, featuredMedia, gameData?.background_override, heroMedia],
   )
   const heroBackdropUrl = heroBackdropMedia ? mediaUrl(heroBackdropMedia) : null
+  const heroBackgroundSuitability = useMemo(
+    () => (heroBackdropMedia ? evaluateBackgroundSuitability(heroBackdropMedia) : null),
+    [heroBackdropMedia],
+  )
   const [selectedBrowserSourceId, setSelectedBrowserSourceId] = useState('')
   const browserSupported = gameData ? hasBrowserPlaySupport(gameData) : false
   const browserPlayResolution = useMemo(() => {
@@ -1325,24 +1305,41 @@ export function GameDetailPage() {
         <div className="absolute inset-0 bg-[#050608]" />
         {heroBackdropUrl ? (
           <>
-            <img
-              src={heroBackdropUrl}
-              alt=""
-              className="absolute inset-0 h-full w-full scale-[1.02] object-cover object-center"
-              aria-hidden="true"
-            />
+            {heroBackgroundSuitability?.level === 'good' ? (
+              <img
+                src={heroBackdropUrl}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover object-center"
+                aria-hidden="true"
+              />
+            ) : (
+              <>
+                <img
+                  src={heroBackdropUrl}
+                  alt=""
+                  className="absolute inset-0 h-full w-full scale-[1.12] object-cover object-center opacity-55 blur-[28px]"
+                  aria-hidden="true"
+                />
+                <img
+                  src={heroBackdropUrl}
+                  alt=""
+                  className="absolute right-[clamp(32px,7vw,140px)] top-1/2 z-0 max-h-[78%] w-[min(44vw,620px)] -translate-y-1/2 rounded-[28px] object-contain object-center opacity-72"
+                  aria-hidden="true"
+                />
+              </>
+            )}
             <div
               className="absolute inset-0 pointer-events-none"
               style={{
                 background:
-                  'linear-gradient(90deg, rgba(4,8,20,0.95) 0%, rgba(4,8,20,0.92) 16%, rgba(4,8,20,0.82) 30%, rgba(4,8,20,0.64) 44%, rgba(4,8,20,0.4) 58%, rgba(4,8,20,0.18) 71%, rgba(4,8,20,0.06) 83%, rgba(4,8,20,0) 92%)',
+                  'linear-gradient(90deg, rgba(4,8,20,0.96) 0%, rgba(4,8,20,0.88) 28%, rgba(4,8,20,0.60) 50%, rgba(4,8,20,0.24) 76%, rgba(4,8,20,0.08) 100%)',
               }}
             />
             <div
               className="absolute inset-0 pointer-events-none"
               style={{
                 background:
-                  'radial-gradient(circle at 72% 28%, rgba(64,126,255,0.08), transparent 40%), linear-gradient(180deg, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0.08) 34%, rgba(0,0,0,0.02) 68%, rgba(0,0,0,0) 100%)',
+                  'radial-gradient(circle at 72% 28%, rgba(64,126,255,0.08), transparent 40%), linear-gradient(180deg, rgba(0,0,0,0.22) 0%, rgba(0,0,0,0.04) 58%, rgba(0,0,0,0.00) 100%)',
               }}
             />
           </>
@@ -1493,11 +1490,10 @@ export function GameDetailPage() {
           {featuredMedia.length > 0 ? (
             <div className="featured-media__rail -mx-1 max-w-full overflow-x-auto px-1 pb-1">
               <div className="featured-media__items flex w-max max-w-none gap-3">
-                {featuredMedia.map((media, index) => (
+                {featuredMedia.map((media) => (
                   <HeroMediaThumb
                     key={mediaItemKey(media)}
                     media={media}
-                    active={index === 0}
                     label={mediaTypeLabel(media.type)}
                     onSelect={(item) => setSelectedMedia(item)}
                   />

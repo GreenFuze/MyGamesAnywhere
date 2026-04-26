@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -327,6 +328,10 @@ func (s *gameStore) SetCanonicalCoverOverride(ctx context.Context, canonicalID s
 		VALUES (?, ?, ?)
 		ON CONFLICT(canonical_id) DO UPDATE SET media_asset_id=excluded.media_asset_id, updated_at=excluded.updated_at`,
 		canonicalID, mediaAssetID, time.Now().Unix())
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, `DELETE FROM canonical_game_cover_override_clears WHERE canonical_id=?`, canonicalID)
 	return err
 }
 
@@ -348,7 +353,12 @@ func (s *gameStore) ClearCanonicalCoverOverride(ctx context.Context, canonicalID
 			return core.ErrCanonicalGameNotFound
 		}
 	}
-	return nil
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO canonical_game_cover_override_clears (canonical_id, cleared_at)
+		VALUES (?, ?)
+		ON CONFLICT(canonical_id) DO UPDATE SET cleared_at=excluded.cleared_at`,
+		canonicalID, time.Now().Unix())
+	return err
 }
 
 func (s *gameStore) SetCanonicalHoverOverride(ctx context.Context, canonicalID string, mediaAssetID int) error {
@@ -432,6 +442,21 @@ func (s *gameStore) UpdateMediaAsset(ctx context.Context, assetID int, localPath
 	_, err := s.db.GetDB().ExecContext(ctx,
 		`UPDATE media_assets SET local_path=?, hash=? WHERE id=?`,
 		localPath, hash, assetID)
+	return err
+}
+
+func (s *gameStore) UpdateMediaAssetMetadata(ctx context.Context, assetID, width, height int, mimeType string) error {
+	if assetID <= 0 {
+		return fmt.Errorf("assetID must be positive")
+	}
+	_, err := s.db.GetDB().ExecContext(ctx, `
+		UPDATE media_assets
+		SET width = COALESCE(NULLIF(?, 0), width),
+		    height = COALESCE(NULLIF(?, 0), height),
+		    mime_type = COALESCE(NULLIF(?, ''), mime_type)
+		WHERE id = ?`,
+		width, height, strings.TrimSpace(mimeType), assetID,
+	)
 	return err
 }
 
@@ -2810,6 +2835,9 @@ func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonica
 		return nil, err
 	}
 	cg.BackgroundOverride = backgroundOverride
+	if err := s.ensureCanonicalMediaOverrides(ctx, cg); err != nil {
+		return nil, err
+	}
 
 	// Load external IDs.
 	eids, err := s.GetExternalIDsForCanonical(ctx, canonicalID)
@@ -2939,6 +2967,209 @@ func (s *gameStore) loadCanonicalBackgroundOverride(ctx context.Context, db *sql
 	ref.Hash = h.String
 	ref.MimeType = mt.String
 	return &ref, nil
+}
+
+func (s *gameStore) ensureCanonicalMediaOverrides(ctx context.Context, cg *core.CanonicalGame) error {
+	effectiveCover := cg.CoverOverride
+	derivedCover := resolveCanonicalMediaRefByIdentity(cg.Media, selectCanonicalCoverMedia(cg.Media))
+	coverCleared, err := s.hasClearedCanonicalCoverOverride(ctx, cg.ID)
+	if err != nil {
+		return err
+	}
+	if effectiveCover == nil && !coverCleared {
+		effectiveCover = derivedCover
+		if effectiveCover != nil {
+			cg.CoverOverride = cloneMediaRef(effectiveCover)
+			if effectiveCover.AssetID > 0 {
+				// Rescans alone do not repair legacy override state unless scanning also
+				// backfills and persists these override rows. We lazily backfill on load
+				// so older canonical games immediately expose explicit cover/hover/background
+				// selections without forcing a library-wide rescan.
+				if err := s.SetCanonicalCoverOverride(ctx, cg.ID, effectiveCover.AssetID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	effectiveHover := cg.HoverOverride
+	coverForDerivedSelections := cg.CoverOverride
+	if coverForDerivedSelections == nil {
+		coverForDerivedSelections = derivedCover
+	}
+	if effectiveHover == nil {
+		effectiveHover = resolveCanonicalMediaRefByIdentity(cg.Media, selectCanonicalHoverMedia(cg.Media, coverForDerivedSelections))
+		if effectiveHover != nil {
+			cg.HoverOverride = cloneMediaRef(effectiveHover)
+			if effectiveHover.AssetID > 0 {
+				if err := s.SetCanonicalHoverOverride(ctx, cg.ID, effectiveHover.AssetID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	effectiveBackground := cg.BackgroundOverride
+	if effectiveBackground == nil {
+		effectiveBackground = resolveCanonicalMediaRefByIdentity(cg.Media, selectCanonicalBackgroundMedia(cg.Media, coverForDerivedSelections))
+		if effectiveBackground != nil {
+			cg.BackgroundOverride = cloneMediaRef(effectiveBackground)
+			if effectiveBackground.AssetID > 0 {
+				if err := s.SetCanonicalBackgroundOverride(ctx, cg.ID, effectiveBackground.AssetID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (s *gameStore) hasClearedCanonicalCoverOverride(ctx context.Context, canonicalID string) (bool, error) {
+	var count int
+	if err := s.db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM canonical_game_cover_override_clears WHERE canonical_id=?`, canonicalID).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func cloneMediaRef(ref *core.MediaRef) *core.MediaRef {
+	if ref == nil {
+		return nil
+	}
+	cloned := *ref
+	return &cloned
+}
+
+func selectCanonicalCoverMedia(media []core.MediaRef) *core.MediaRef {
+	if match := findFirstMediaOfTypes(media, "cover"); match != nil {
+		return match
+	}
+	return findFirstImageMedia(media)
+}
+
+func selectCanonicalHoverMedia(media []core.MediaRef, cover *core.MediaRef) *core.MediaRef {
+	if match := findFirstMediaOfTypes(media, "screenshot", "background", "backdrop", "banner", "hero", "artwork", "fanart"); match != nil {
+		return match
+	}
+	return cover
+}
+
+func selectCanonicalBackgroundMedia(media []core.MediaRef, cover *core.MediaRef) *core.MediaRef {
+	if match := findFirstMediaOfTypes(media, "screenshot", "background", "backdrop", "banner", "artwork", "hero", "fanart", "cover"); match != nil {
+		return match
+	}
+	return cover
+}
+
+func findFirstMediaOfTypes(media []core.MediaRef, types ...string) *core.MediaRef {
+	for _, targetType := range types {
+		for i := range media {
+			if strings.EqualFold(string(media[i].Type), targetType) && isImageMediaRef(media[i]) {
+				return &media[i]
+			}
+		}
+	}
+	return nil
+}
+
+func findFirstImageMedia(media []core.MediaRef) *core.MediaRef {
+	for i := range media {
+		if isImageMediaRef(media[i]) {
+			return &media[i]
+		}
+	}
+	return nil
+}
+
+func isImageMediaRef(media core.MediaRef) bool {
+	mimeType := strings.ToLower(media.MimeType)
+	if strings.HasPrefix(mimeType, "image/") {
+		return true
+	}
+	if strings.HasPrefix(mimeType, "video/") || strings.HasPrefix(mimeType, "audio/") {
+		return false
+	}
+	switch strings.ToLower(string(media.Type)) {
+	case "video", "trailer", "manual", "document", "audio", "soundtrack":
+		return false
+	default:
+		return true
+	}
+}
+
+func resolveCanonicalMediaRefByIdentity(media []core.MediaRef, candidate *core.MediaRef) *core.MediaRef {
+	if candidate == nil {
+		return nil
+	}
+	if candidate.AssetID > 0 {
+		for i := range media {
+			if media[i].AssetID == candidate.AssetID {
+				return &media[i]
+			}
+		}
+	}
+
+	candidateKeys := canonicalMediaSecondaryIdentityKeys(*candidate)
+	if len(candidateKeys) == 0 {
+		return nil
+	}
+	for i := range media {
+		for _, candidateKey := range candidateKeys {
+			for _, mediaKey := range canonicalMediaSecondaryIdentityKeys(media[i]) {
+				if candidateKey == mediaKey {
+					return &media[i]
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func canonicalMediaIdentityKey(media core.MediaRef) string {
+	if media.AssetID > 0 {
+		return fmt.Sprintf("asset:%d", media.AssetID)
+	}
+	keys := canonicalMediaSecondaryIdentityKeys(media)
+	if len(keys) > 0 {
+		return keys[0]
+	}
+	return ""
+}
+
+func canonicalMediaSecondaryIdentityKeys(media core.MediaRef) []string {
+	var keys []string
+	if key := normalizeCanonicalMediaURL(media.URL); key != "" {
+		keys = append(keys, "url:"+key)
+	}
+	if key := normalizeCanonicalMediaPath(media.LocalPath); key != "" {
+		keys = append(keys, "path:"+key)
+	}
+	if key := strings.TrimSpace(strings.ToLower(media.Hash)); key != "" {
+		keys = append(keys, "hash:"+key)
+	}
+	return keys
+}
+
+func normalizeCanonicalMediaURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return strings.ToLower(raw)
+	}
+	parsed.Fragment = ""
+	return strings.ToLower(parsed.String())
+}
+
+func normalizeCanonicalMediaPath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	return strings.ToLower(filepath.Clean(raw))
 }
 
 // computeUnifiedView fills the canonical game's unified fields from its source games' resolver matches.

@@ -826,6 +826,30 @@ paths:
         500:
           description: Internal server error
 
+  /api/media/{assetID}/metadata:
+    put:
+      summary: Backfill media dimensions
+      description: Stores probed width/height metadata for an existing media asset so future clients can make layout decisions without probing again.
+      parameters:
+        - name: assetID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: 'JSON: { width: number, height: number, mime_type?: string }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        204:
+          description: Metadata updated
+        400:
+          description: Invalid id or body
+        500:
+          description: Internal server error
+
   /api/plugins:
     get:
       summary: List plugins

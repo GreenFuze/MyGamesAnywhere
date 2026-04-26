@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -992,6 +993,228 @@ func TestCanonicalBackgroundOverrideRejectsUnlinkedMedia(t *testing.T) {
 	}
 	if err := store.SetCanonicalBackgroundOverride(ctx, canonicalAString, assetB); !errors.Is(err, core.ErrBackgroundOverrideMediaNotFound) {
 		t.Fatalf("error = %v, want %v", err, core.ErrBackgroundOverrideMediaNotFound)
+	}
+}
+
+func TestCanonicalMediaOverrideBackfillPersistsLegacySelections(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-legacy-overrides",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:legacy-overrides",
+			IntegrationID: "integration-legacy-overrides",
+			PluginID:      "game-source-steam",
+			ExternalID:    "legacy-overrides",
+			RawTitle:      "Legacy Overrides",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:legacy-overrides": {{
+				PluginID:   "metadata-igdb",
+				Title:      "Legacy Overrides",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "legacy-overrides",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			"scan:legacy-overrides": {
+				{Type: core.MediaTypeCover, URL: "https://example.com/legacy-cover.png"},
+				{Type: core.MediaTypeScreenshot, URL: "https://example.com/legacy-shot.png"},
+				{Type: core.MediaTypeBackground, URL: "https://example.com/legacy-background.png"},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var canonicalID string
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT canonical_id FROM canonical_source_games_link WHERE source_game_id=?`, "scan:legacy-overrides").Scan(&canonicalID); err != nil {
+		t.Fatal(err)
+	}
+
+	game, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil {
+		t.Fatal("expected canonical game")
+	}
+	if game.CoverOverride == nil || !strings.Contains(game.CoverOverride.URL, "legacy-cover.png") {
+		t.Fatalf("cover override = %+v, want legacy cover backfill", game.CoverOverride)
+	}
+	if game.HoverOverride == nil || !strings.Contains(game.HoverOverride.URL, "legacy-shot.png") {
+		t.Fatalf("hover override = %+v, want legacy screenshot backfill", game.HoverOverride)
+	}
+	if game.BackgroundOverride == nil || !strings.Contains(game.BackgroundOverride.URL, "legacy-shot.png") {
+		t.Fatalf("background override = %+v, want current effective screenshot backdrop backfill", game.BackgroundOverride)
+	}
+
+	var coverAssetID, hoverAssetID, backgroundAssetID int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT media_asset_id FROM canonical_game_cover_overrides WHERE canonical_id=?`, canonicalID).Scan(&coverAssetID); err != nil {
+		t.Fatalf("cover override row missing: %v", err)
+	}
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT media_asset_id FROM canonical_game_hover_overrides WHERE canonical_id=?`, canonicalID).Scan(&hoverAssetID); err != nil {
+		t.Fatalf("hover override row missing: %v", err)
+	}
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT media_asset_id FROM canonical_game_background_overrides WHERE canonical_id=?`, canonicalID).Scan(&backgroundAssetID); err != nil {
+		t.Fatalf("background override row missing: %v", err)
+	}
+	if game.CoverOverride.AssetID != coverAssetID {
+		t.Fatalf("cover asset = %d, want persisted %d", game.CoverOverride.AssetID, coverAssetID)
+	}
+	if game.HoverOverride.AssetID != hoverAssetID {
+		t.Fatalf("hover asset = %d, want persisted %d", game.HoverOverride.AssetID, hoverAssetID)
+	}
+	if game.BackgroundOverride.AssetID != backgroundAssetID {
+		t.Fatalf("background asset = %d, want persisted %d", game.BackgroundOverride.AssetID, backgroundAssetID)
+	}
+
+	reloaded, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.CoverOverride == nil || reloaded.HoverOverride == nil || reloaded.BackgroundOverride == nil {
+		t.Fatalf("reloaded overrides = %+v %+v %+v, want persisted overrides", reloaded.CoverOverride, reloaded.HoverOverride, reloaded.BackgroundOverride)
+	}
+}
+
+func TestCanonicalMediaOverrideBackfillPreservesExplicitSelections(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-explicit-cover",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:explicit-cover",
+			IntegrationID: "integration-explicit-cover",
+			PluginID:      "game-source-steam",
+			ExternalID:    "explicit-cover",
+			RawTitle:      "Explicit Cover",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:explicit-cover": {{
+				PluginID:   "metadata-igdb",
+				Title:      "Explicit Cover",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "explicit-cover",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			"scan:explicit-cover": {
+				{Type: core.MediaTypeCover, URL: "https://example.com/default-cover.png"},
+				{Type: core.MediaTypeArtwork, URL: "https://example.com/explicit-artwork.png"},
+				{Type: core.MediaTypeScreenshot, URL: "https://example.com/explicit-shot.png"},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var canonicalID string
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT canonical_id FROM canonical_source_games_link WHERE source_game_id=?`, "scan:explicit-cover").Scan(&canonicalID); err != nil {
+		t.Fatal(err)
+	}
+	game, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil || len(game.Media) < 3 {
+		t.Fatalf("game media = %+v, want three media refs", game)
+	}
+
+	artworkAssetID := game.Media[1].AssetID
+	if err := store.SetCanonicalCoverOverride(ctx, canonicalID, artworkAssetID); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.CoverOverride == nil || reloaded.CoverOverride.AssetID != artworkAssetID {
+		t.Fatalf("cover override = %+v, want preserved explicit artwork %d", reloaded.CoverOverride, artworkAssetID)
+	}
+	if reloaded.HoverOverride == nil || !strings.Contains(reloaded.HoverOverride.URL, "explicit-shot.png") {
+		t.Fatalf("hover override = %+v, want screenshot backfill", reloaded.HoverOverride)
+	}
+}
+
+func TestResolveCanonicalMediaRefByIdentityFallsBackToURL(t *testing.T) {
+	media := []core.MediaRef{
+		{AssetID: 12, Type: core.MediaTypeCover, URL: "https://example.com/assets/cover.png#fragment"},
+	}
+
+	resolved := resolveCanonicalMediaRefByIdentity(media, &core.MediaRef{URL: "https://example.com/assets/cover.png"})
+	if resolved == nil {
+		t.Fatal("expected URL identity fallback to resolve media ref")
+	}
+	if resolved.AssetID != 12 {
+		t.Fatalf("resolved asset = %d, want 12", resolved.AssetID)
+	}
+}
+
+func TestUpdateMediaAssetMetadataBackfillsDimensions(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-media-meta",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:media-meta",
+			IntegrationID: "integration-media-meta",
+			PluginID:      "game-source-steam",
+			ExternalID:    "media-meta",
+			RawTitle:      "Media Meta",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:media-meta": {{
+				PluginID:   "metadata-igdb",
+				Title:      "Media Meta",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "media-meta",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			"scan:media-meta": {
+				{Type: core.MediaTypeScreenshot, URL: "https://example.com/probe-me.png"},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var assetID int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT ma.id FROM media_assets ma JOIN source_game_media sgm ON sgm.media_asset_id=ma.id WHERE sgm.source_game_id=?`, "scan:media-meta").Scan(&assetID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.UpdateMediaAssetMetadata(ctx, assetID, 1920, 1080, "image/png"); err != nil {
+		t.Fatal(err)
+	}
+
+	var width, height int
+	var mimeType sql.NullString
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT width, height, mime_type FROM media_assets WHERE id=?`, assetID).Scan(&width, &height, &mimeType); err != nil {
+		t.Fatal(err)
+	}
+	if width != 1920 || height != 1080 {
+		t.Fatalf("dimensions = %dx%d, want 1920x1080", width, height)
+	}
+	if mimeType.String != "image/png" {
+		t.Fatalf("mime_type = %q, want image/png", mimeType.String)
 	}
 }
 
