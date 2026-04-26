@@ -12,27 +12,43 @@ export function mediaUrl(media: GameMediaDetailDTO): string {
   return media.url
 }
 
-export function youtubeEmbedUrl(media: GameMediaDetailDTO): string | null {
+export function mediaOriginalUrl(media: GameMediaDetailDTO): string {
+  return media.url
+}
+
+function youtubeVideoId(media: GameMediaDetailDTO): string | null {
+  const source = mediaOriginalUrl(media)
+  if (!source) return null
   try {
-    const parsed = new URL(mediaUrl(media))
+    const parsed = new URL(source)
     const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
     if (host === 'youtu.be') {
       const id = parsed.pathname.split('/').filter(Boolean)[0]
-      return id ? `https://www.youtube.com/embed/${id}` : null
+      return id || null
     }
     if (host === 'youtube.com' || host === 'm.youtube.com') {
       if (parsed.pathname === '/watch') {
-        const id = parsed.searchParams.get('v')
-        return id ? `https://www.youtube.com/embed/${id}` : null
+        return parsed.searchParams.get('v')
       }
       if (parsed.pathname.startsWith('/embed/')) {
-        return parsed.toString()
+        const id = parsed.pathname.split('/').filter(Boolean)[1]
+        return id || null
       }
     }
   } catch {
     return null
   }
   return null
+}
+
+export function youtubeEmbedUrl(media: GameMediaDetailDTO): string | null {
+  const id = youtubeVideoId(media)
+  return id ? `https://www.youtube.com/embed/${id}` : null
+}
+
+export function youtubeThumbnailUrl(media: GameMediaDetailDTO): string | null {
+  const id = youtubeVideoId(media)
+  return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null
 }
 
 export class GameMediaCollection {

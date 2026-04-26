@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { evaluateBackgroundSuitability, formatBackgroundSuitabilityMessage, type BackgroundSuitability } from '@/lib/backgroundSuitability'
-import { mediaUrl, GameMediaCollection, youtubeEmbedUrl } from '@/lib/gameMedia'
+import { mediaOriginalUrl, mediaUrl, GameMediaCollection, youtubeEmbedUrl, youtubeThumbnailUrl } from '@/lib/gameMedia'
 import { buildRepresentativeMediaPreview, mergeDisplayMedia, type DisplayMediaItem } from '@/lib/gameMediaDisplay'
 import { brandLabel } from '@/lib/brands'
 
@@ -61,6 +61,7 @@ function mediaTypeLabel(type: string): string {
 function MediaViewerDialog({ media, onClose }: { media: GameMediaDetailDTO | null; onClose: () => void }) {
   if (!media) return null
   const url = mediaUrl(media)
+  const originalUrl = mediaOriginalUrl(media)
   const youtubeUrl = youtubeEmbedUrl(media)
   const mediaCollection = new GameMediaCollection([media])
 
@@ -91,7 +92,7 @@ function MediaViewerDialog({ media, onClose }: { media: GameMediaDetailDTO | nul
         <div className="flex flex-wrap items-center gap-2 text-sm text-white/60">
           <Badge>{mediaTypeLabel(media.type)}</Badge>
           {media.source ? <BrandBadge brand={media.source} label={brandLabel(media.source, media.source)} /> : null}
-          <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-mga-accent hover:underline">
+          <a href={originalUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-mga-accent hover:underline">
             Open original
             <ExternalLink size={14} />
           </a>
@@ -158,6 +159,7 @@ function MediaGalleryCard({
   const mediaCollection = new GameMediaCollection([media])
   const isImage = mediaCollection.isImage(media)
   const isVideo = !isImage && (Boolean(youtubeEmbedUrl(media)) || mediaCollection.isInlineVideo(media))
+  const youtubeThumb = youtubeThumbnailUrl(media)
   const isCurrentCover = currentCoverAssetId === media.asset_id
   const isCurrentHover = currentHoverAssetId === media.asset_id
   const isCurrentBackground = currentBackgroundAssetId === media.asset_id
@@ -180,6 +182,23 @@ function MediaGalleryCard({
               decoding="async"
               className="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.02]"
             />
+          </div>
+        ) : youtubeThumb ? (
+          <div className="aspect-video w-full bg-[#090d14] p-2">
+            <div className="relative h-full w-full overflow-hidden rounded-[14px] bg-black">
+              <img
+                src={youtubeThumb}
+                alt={item.types.map(mediaTypeLabel).join(', ')}
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/18">
+                <div className="rounded-full bg-black/58 p-3 text-white/92">
+                  <Video size={18} />
+                </div>
+              </div>
+            </div>
           </div>
         ) : (
           <div className="flex aspect-video w-full items-center justify-center bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.14),transparent_55%),linear-gradient(180deg,rgba(14,18,28,0.98),rgba(8,10,16,0.98))]">

@@ -56,7 +56,7 @@ import {
   platformLabel,
   selectSourcePlugins,
 } from '@/lib/gameUtils'
-import { GameMediaCollection, mediaUrl, youtubeEmbedUrl } from '@/lib/gameMedia'
+import { GameMediaCollection, mediaOriginalUrl, mediaUrl, youtubeEmbedUrl, youtubeThumbnailUrl } from '@/lib/gameMedia'
 import { buildFeaturedMediaRail, mergeDisplayMedia } from '@/lib/gameMediaDisplay'
 import { evaluateBackgroundSuitability } from '@/lib/backgroundSuitability'
 import { cn } from '@/lib/utils'
@@ -403,6 +403,7 @@ function HeroMediaThumb({
   const mediaCollection = new GameMediaCollection([media])
   const isImage = mediaCollection.isImage(media)
   const isVideo = !isImage && (Boolean(youtubeEmbedUrl(media)) || mediaCollection.isInlineVideo(media))
+  const youtubeThumb = youtubeThumbnailUrl(media)
 
   return (
     <button
@@ -421,6 +422,18 @@ function HeroMediaThumb({
           decoding="async"
           className="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.03]"
         />
+      ) : youtubeThumb ? (
+        <div className="relative h-full w-full">
+          <img
+            src={youtubeThumb}
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+          />
+          <div className="absolute inset-0 bg-black/18" />
+        </div>
       ) : (
         <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.18),transparent_55%),linear-gradient(180deg,rgba(18,17,23,0.92),rgba(10,10,14,0.98))]">
           <Video size={18} className="text-white/82" />
@@ -957,7 +970,7 @@ function MediaViewerDialog({ media, onClose }: { media: GameMediaDetailDTO | nul
             <Badge>{mediaTypeLabel(media.type)}</Badge>
             {media.source && <SourceBadge source={media.source} />}
             {media.width && media.height && <span>{media.width} × {media.height}</span>}
-            <a href={mediaUrl(media)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-mga-accent hover:underline">
+            <a href={mediaOriginalUrl(media)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-mga-accent hover:underline">
               Open original
               <ExternalLink size={14} />
             </a>
