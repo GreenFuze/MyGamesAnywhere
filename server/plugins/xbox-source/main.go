@@ -507,6 +507,7 @@ type xboxAchievement struct {
 	Description       string                 `json:"description"`
 	LockedDescription string                 `json:"lockedDescription"`
 	IsSecret          bool                   `json:"isSecret"`
+	ProgressState     string                 `json:"progressState"`
 	Rarity            *xboxAchievementRarity `json:"rarity"`
 	Rewards           []xboxReward           `json:"rewards"`
 	Progression       *xboxProgression       `json:"progression"`
@@ -801,11 +802,9 @@ func buildXboxAchievementEntries(xboxAchs []xboxAchievement) ([]achievementEntry
 		entry.Points = points
 		totalPoints += points
 
-		isUnlocked := false
-		if xa.Progression != nil && xa.Progression.TimeUnlocked != "" &&
-			xa.Progression.TimeUnlocked != "0001-01-01T00:00:00Z" {
-			isUnlocked = true
-			entry.UnlockedAt = xa.Progression.TimeUnlocked
+		isUnlocked, unlockedAt := xboxAchievementUnlocked(xa)
+		if unlockedAt != "" {
+			entry.UnlockedAt = unlockedAt
 		}
 		entry.Unlocked = isUnlocked
 		if isUnlocked {
@@ -817,6 +816,32 @@ func buildXboxAchievementEntries(xboxAchs []xboxAchievement) ([]achievementEntry
 	}
 
 	return achievements, unlocked, totalPoints, earnedPoints
+}
+
+func xboxAchievementUnlocked(xa xboxAchievement) (bool, string) {
+	if strings.EqualFold(strings.TrimSpace(xa.ProgressState), "Achieved") {
+		return true, normalizedXboxUnlockedAt(xa.Progression)
+	}
+	if xa.Progression == nil {
+		return false, ""
+	}
+	unlockedAt := normalizedXboxUnlockedAt(xa.Progression)
+	return unlockedAt != "", unlockedAt
+}
+
+func normalizedXboxUnlockedAt(progression *xboxProgression) string {
+	if progression == nil {
+		return ""
+	}
+	trimmed := strings.TrimSpace(progression.TimeUnlocked)
+	if trimmed == "" {
+		return ""
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, trimmed)
+	if err != nil || parsed.IsZero() {
+		return ""
+	}
+	return parsed.UTC().Format(time.RFC3339Nano)
 }
 
 func handleAchievementsGet(params json.RawMessage) (any, *Error) {
