@@ -476,6 +476,9 @@ func gameMediaToRefs(game *core.Game) []core.MediaRef {
 		addMedia(media)
 	}
 	for _, match := range game.ResolverMatches {
+		if match.Outvoted {
+			continue
+		}
 		for _, media := range match.Media {
 			addMedia(media)
 		}

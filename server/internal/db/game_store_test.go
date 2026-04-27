@@ -2110,6 +2110,66 @@ func persistBatch(t *testing.T, ctx context.Context, store *gameStore, batch *co
 	}
 }
 
+func TestPersistScanResultsExplicitEmptyEntriesClearStaleMetadataAndMedia(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	sourceGame := &core.SourceGame{
+		ID:            "scan:final-fantasy",
+		IntegrationID: "integration-1",
+		PluginID:      "game-source-xbox",
+		ExternalID:    "xbox-final-fantasy",
+		RawTitle:      "Final Fantasy",
+		Platform:      core.PlatformWindowsPC,
+		Kind:          core.GameKindBaseGame,
+		GroupKind:     core.GroupKindSelfContained,
+		Status:        "found",
+	}
+
+	persistBatch(t, ctx, store, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames:   []*core.SourceGame{sourceGame},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			sourceGame.ID: {{
+				PluginID:   "metadata-igdb",
+				Title:      "Final Fantasy 2.0",
+				ExternalID: "igdb-wrong",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			sourceGame.ID: {{
+				Type:   core.MediaTypeScreenshot,
+				URL:    "https://example.com/final-fantasy-2.png",
+				Source: "metadata-igdb",
+			}},
+		},
+	})
+
+	persistBatch(t, ctx, store, &core.ScanBatch{
+		IntegrationID:        "integration-1",
+		SourceGames:          []*core.SourceGame{sourceGame},
+		ResolverMatches:      map[string][]core.ResolverMatch{sourceGame.ID: {}},
+		MediaItems:           map[string][]core.MediaRef{sourceGame.ID: {}},
+		SkipMissingReconcile: true,
+	})
+
+	var matchCount int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM metadata_resolver_matches WHERE source_game_id = ?`, sourceGame.ID).Scan(&matchCount); err != nil {
+		t.Fatal(err)
+	}
+	if matchCount != 0 {
+		t.Fatalf("metadata_resolver_matches count = %d, want 0", matchCount)
+	}
+
+	var mediaCount int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM source_game_media WHERE source_game_id = ?`, sourceGame.ID).Scan(&mediaCount); err != nil {
+		t.Fatal(err)
+	}
+	if mediaCount != 0 {
+		t.Fatalf("source_game_media count = %d, want 0", mediaCount)
+	}
+}
+
 func canonicalIDForSource(t *testing.T, ctx context.Context, db *sqliteDatabase, sourceGameID string) string {
 	t.Helper()
 

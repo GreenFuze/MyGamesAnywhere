@@ -36,7 +36,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { PlatformIcon } from '@/components/ui/platform-icon'
-import { ProgressBar } from '@/components/ui/progress-bar'
 import {
   brandLabel,
   resolveBrandDefinition,
@@ -193,23 +192,6 @@ function buildExternalLinks(externalIds: ExternalIDDTO[] | undefined): ExternalL
     .sort((a, b) => a.label.localeCompare(b.label) || a.host.localeCompare(b.host))
 
   return Array.from(new Map(links.map((link) => [link.id, link])).values())
-}
-
-function achievementProgress(set: AchievementSetDTO): number {
-  if (set.total_count <= 0) return 0
-  return (set.unlocked_count / set.total_count) * 100
-}
-
-function summarizeAchievements(sets: AchievementSetDTO[]) {
-  return sets.reduce(
-    (summary, set) => ({
-      totalCount: summary.totalCount + set.total_count,
-      unlockedCount: summary.unlockedCount + set.unlocked_count,
-      totalPoints: summary.totalPoints + (set.total_points ?? 0),
-      earnedPoints: summary.earnedPoints + (set.earned_points ?? 0),
-    }),
-    { totalCount: 0, unlockedCount: 0, totalPoints: 0, earnedPoints: 0 },
-  )
 }
 
 function detailValue(value: string | number | undefined | null): string {
@@ -1135,7 +1117,6 @@ export function GameDetailPage() {
     [gameData?.media, gameData?.source_games],
   )
   const achievementSets = useMemo(() => (achievements.data ?? []).map(sortAchievementSet), [achievements.data])
-  const achievementSummary = useMemo(() => summarizeAchievements(achievementSets), [achievementSets])
   const launchableSourceCount = browserPlaySelections.length
   const heroDescription = useMemo(() => splitHeroDescription(gameData?.description), [gameData?.description])
   const playModeLabel =
@@ -1353,7 +1334,6 @@ export function GameDetailPage() {
 
   const data = game.data
   const favoriteBusy = isPendingFor(data.id)
-  const achievementPercent = achievementSummary.totalCount > 0 ? (achievementSummary.unlockedCount / achievementSummary.totalCount) * 100 : 0
   return (
     <div className="w-full space-y-8 pb-32 md:pb-36">
       <section
@@ -1584,22 +1564,17 @@ export function GameDetailPage() {
             <SectionCard
               title="About This Game"
               icon={<FolderOpen size={18} className="text-mga-accent" />}
-              description="Canonical description and high-level metadata merged from connected providers."
+              description="High-level metadata surfaced for this canonical game."
             >
-              <div className="space-y-4">
-                <p className="text-sm leading-7 text-white/74">
-                  {data.description || 'No description is available for this game yet.'}
-                </p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <MetaItem
-                    label="Genres"
-                    value={data.genres && data.genres.length > 0 ? data.genres.join(', ') : 'Unknown'}
-                  />
-                  <MetaItem
-                    label="Players"
-                    value={data.max_players ? `${data.max_players}` : 'Unknown'}
-                  />
-                </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <MetaItem
+                  label="Genres"
+                  value={data.genres && data.genres.length > 0 ? data.genres.join(', ') : 'Unknown'}
+                />
+                <MetaItem
+                  label="Players"
+                  value={data.max_players ? `${data.max_players}` : 'Unknown'}
+                />
               </div>
             </SectionCard>
 
@@ -1671,21 +1646,19 @@ export function GameDetailPage() {
             </div>
           ) : achievementSets.length > 0 ? (
             <div className="space-y-6">
-              <div className="grid gap-3 md:grid-cols-4">
-                <HeroStatCard label="Systems" value={achievementSets.length} />
-                <HeroStatCard label="Unlocked" value={`${achievementSummary.unlockedCount}/${achievementSummary.totalCount}`} />
-                <HeroStatCard label="Points" value={achievementSummary.totalPoints > 0 ? `${achievementSummary.earnedPoints ?? 0}/${achievementSummary.totalPoints}` : 'Unknown'} />
-                <HeroStatCard label="Completion" value={`${Math.round(achievementPercent)}%`} />
-              </div>
-              <ProgressBar value={achievementPercent} label={`${achievementSummary.unlockedCount}/${achievementSummary.totalCount}`} />
               {achievementSets.map((set) => (
                 <div key={`${set.source}:${set.external_game_id}`} className="space-y-4">
                   <div className="grid gap-4 xl:grid-cols-[minmax(210px,240px)_repeat(4,minmax(0,1fr))]">
                     <div className="rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(72,104,236,0.95),rgba(51,75,171,0.96))] p-5 text-white shadow-[0_18px_40px_rgba(0,0,0,0.22)]">
-                      <div className="space-y-4">
+                      <div className="flex h-full flex-col items-center justify-between gap-5 text-center">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <SourceBadge source={set.source} className="border-white/20 bg-white/10 text-white" />
-                          <Badge variant="muted" className="border-white/16 bg-white/10 text-white/88">{set.unlocked_count}/{set.total_count}</Badge>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-white/84">Achievement summary</p>
+                          <p className="text-3xl font-semibold">{set.unlocked_count}/{set.total_count}</p>
+                        </div>
+                        <div className="flex justify-center">
                           <AchievementProgressRing
                             summary={{
                               source_count: 1,
@@ -1700,18 +1673,11 @@ export function GameDetailPage() {
                             className="text-white"
                           />
                         </div>
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium text-white/84">Achievement summary</p>
-                          <p className="text-3xl font-semibold">{set.unlocked_count}/{set.total_count}</p>
-                          <p className="text-xs uppercase tracking-[0.14em] text-white/68">
-                            {Math.round(achievementProgress(set))}% complete
-                          </p>
-                        </div>
-                        <div className="border-t border-white/20 pt-4">
+                        <div className="w-full border-t border-white/20 pt-4">
                           <p className="text-sm text-white/84">
                             {set.total_points !== undefined && set.total_points > 0
                               ? `${set.earned_points ?? 0}/${set.total_points} points`
-                              : `${Math.round(achievementProgress(set))}% complete`}
+                              : 'Points unavailable'}
                           </p>
                         </div>
                       </div>

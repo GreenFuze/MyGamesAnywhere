@@ -673,6 +673,9 @@ func (r *MetadataResolver) fillWithPolicy(
 				if m.Index < chunkStart || m.Index >= chunkEnd {
 					continue
 				}
+				if !fillMatchMatchesConsensusTitle(queries[m.Index].Title, m.Title) {
+					continue
+				}
 				entry := entries[m.Index]
 				g := games[entry.gameIdx]
 				filled++
@@ -705,6 +708,12 @@ func (r *MetadataResolver) fillWithPolicy(
 		r.emitScanEvent(runCtx, integrationID, "scan_metadata_plugin_complete", fields)
 		return nil
 	})
+}
+
+func fillMatchMatchesConsensusTitle(consensusTitle, matchTitle string) bool {
+	consensusKey := normalizeForConsensus(consensusTitle)
+	matchKey := normalizeForConsensus(matchTitle)
+	return consensusKey != "" && matchKey != "" && consensusKey == matchKey
 }
 
 func runMetadataSourcesConcurrently(

@@ -981,11 +981,9 @@ func gamesToScanBatch(integrationID, pluginID string, games []*core.Game) *core.
 		}
 		batch.SourceGames = append(batch.SourceGames, sg)
 
-		if len(g.ResolverMatches) > 0 {
-			batch.ResolverMatches[g.ID] = g.ResolverMatches
-		}
+		batch.ResolverMatches[g.ID] = append([]core.ResolverMatch(nil), g.ResolverMatches...)
 
-		// Collect media from all resolver matches + game-level media.
+		// Collect media from accepted resolver matches + game-level media.
 		var refs []core.MediaRef
 		seen := map[string]bool{}
 		addMedia := func(mi core.MediaItem) {
@@ -1005,13 +1003,14 @@ func gamesToScanBatch(integrationID, pluginID string, games []*core.Game) *core.
 			addMedia(mi)
 		}
 		for _, m := range g.ResolverMatches {
+			if m.Outvoted {
+				continue
+			}
 			for _, mi := range m.Media {
 				addMedia(mi)
 			}
 		}
-		if len(refs) > 0 {
-			batch.MediaItems[g.ID] = refs
-		}
+		batch.MediaItems[g.ID] = refs
 	}
 	return batch
 }

@@ -206,14 +206,10 @@ func refreshedSourceGamesToBatch(
 		}
 		batch.SourceGames = append(batch.SourceGames, persistedSource)
 
-		if len(game.ResolverMatches) > 0 {
-			batch.ResolverMatches[game.ID] = append([]core.ResolverMatch(nil), game.ResolverMatches...)
-		}
+		batch.ResolverMatches[game.ID] = append([]core.ResolverMatch(nil), game.ResolverMatches...)
 
 		mediaRefs := gameMediaToRefs(game)
-		if len(mediaRefs) > 0 {
-			batch.MediaItems[game.ID] = mediaRefs
-		}
+		batch.MediaItems[game.ID] = mediaRefs
 	}
 
 	return batch, nil

@@ -592,4 +592,17 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [ ] No passwords (at this stage)
 - [ ] Auto-update mechanism
   - [ ] check if there's an update to MGA, if so, write that there's an update, and let the user click "update" button to update to the latest version.
-- [ ] Add "favorites"
+- [x] Add "favorites"
+  - 2026-04-27 follow-up: canonical games now support server-persisted favorites, game detail/card heart toggles, and computed `Favorites` shelves as the first Library/Play shelf when favorite games exist in that scope.
+- [ ] Make MGA available in 0.0.0.0 or localhost. it needs to be configurable. I think using as 0.0.0.0 will require admin rights on start-up.
+  - [ ] This should be configurable from the frontend as well (under "settings/general" page?)
+- [ ] Make MGA installable friendly for windows:
+  - [ ] As portable
+    - [ ] running on 0.0.0.0 requires admin to run?
+  - [ ] As installable
+    - [ ] As "not-a-service" (installed as user level - no admin rights)
+    - [ ] As a service (installed at the system level - admin rights for install)
+- [ ] Achivement page shows only cached data. It needs to be able to show all information of all games, not just cached data.
+  - [ ] Does cached data means in the frontend? or the server?
+    - [ ] If on the frontend, explain the user what it means, because it is weird
+    - [ ] If "cached" on the server - its a bug as the server should "bring" the achivement status from the plugin during scan. If you think this is wrong, you may push back just explain to the user and offer alternatives.

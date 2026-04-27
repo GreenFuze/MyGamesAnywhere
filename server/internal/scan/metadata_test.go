@@ -552,6 +552,158 @@ func TestEnrich_OutvotedResolverRequeried(t *testing.T) {
 	}
 }
 
+func TestEnrich_OutvotedResolverFillMismatchRejected(t *testing.T) {
+	callCount := map[string]int{}
+
+	caller := &mockCaller{
+		callFn: func(pluginID, method string, params any) (any, error) {
+			callCount[pluginID]++
+
+			b, _ := json.Marshal(params)
+			var p struct {
+				Games []metadataGameQuery `json:"games"`
+			}
+			json.Unmarshal(b, &p)
+
+			switch pluginID {
+			case "plugin-a":
+				return metadataLookupResponse{
+					Results: []metadataMatch{{Index: 0, Title: "Final Fantasy", ExternalID: "a-final-fantasy"}},
+				}, nil
+			case "plugin-b":
+				return metadataLookupResponse{
+					Results: []metadataMatch{{Index: 0, Title: "FINAL FANTASY", ExternalID: "b-final-fantasy"}},
+				}, nil
+			case "plugin-c":
+				return metadataLookupResponse{
+					Results: []metadataMatch{{
+						Index:      0,
+						Title:      "Final Fantasy 2.0",
+						ExternalID: "c-final-fantasy-2",
+						Media: []ipcMediaItem{{
+							Type: "screenshot",
+							URL:  "https://example.com/final-fantasy-2.png",
+						}},
+					}},
+				}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	resolver := NewMetadataResolver(caller, testLogger{})
+	games := []*core.Game{
+		{Title: "FINAL FANTASY", RawTitle: "FINAL FANTASY", Platform: core.PlatformWindowsPC, Kind: core.GameKindBaseGame},
+	}
+	sources := []MetadataSource{
+		{PluginID: "plugin-a", Config: map[string]any{}},
+		{PluginID: "plugin-b", Config: map[string]any{}},
+		{PluginID: "plugin-c", Config: map[string]any{}},
+	}
+
+	resolver.Enrich(context.Background(), "test-integration", games, sources)
+
+	if games[0].Title != "Final Fantasy" {
+		t.Fatalf("title = %q, want Final Fantasy", games[0].Title)
+	}
+	if callCount["plugin-c"] != 2 {
+		t.Fatalf("plugin-c call count = %d, want 2 (identify + fill retry)", callCount["plugin-c"])
+	}
+
+	activePluginC := 0
+	outvotedPluginC := 0
+	for _, match := range games[0].ResolverMatches {
+		if match.PluginID != "plugin-c" {
+			continue
+		}
+		if match.Outvoted {
+			outvotedPluginC++
+		} else {
+			activePluginC++
+		}
+	}
+	if activePluginC != 0 {
+		t.Fatalf("active plugin-c matches = %d, want 0", activePluginC)
+	}
+	if outvotedPluginC != 1 {
+		t.Fatalf("outvoted plugin-c matches = %d, want 1 original audit match", outvotedPluginC)
+	}
+	for _, externalID := range games[0].ExternalIDs {
+		if externalID.Source == "plugin-c" {
+			t.Fatalf("plugin-c external id should not be active: %+v", externalID)
+		}
+	}
+	for _, media := range games[0].Media {
+		if media.Source == "plugin-c" {
+			t.Fatalf("plugin-c media should not be active: %+v", media)
+		}
+	}
+}
+
+func TestGamesToScanBatchSkipsOutvotedResolverMediaAndIncludesEmptyEntries(t *testing.T) {
+	games := []*core.Game{
+		{
+			ID:            "scan:with-media",
+			Title:         "Final Fantasy",
+			RawTitle:      "Final Fantasy",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			IntegrationID: "integration-1",
+			Status:        "found",
+			ResolverMatches: []core.ResolverMatch{
+				{
+					PluginID:   "metadata-igdb",
+					Title:      "Final Fantasy 2.0",
+					ExternalID: "igdb-wrong",
+					Outvoted:   true,
+					Media: []core.MediaItem{{
+						Type:   core.MediaTypeScreenshot,
+						URL:    "https://example.com/wrong.png",
+						Source: "metadata-igdb",
+					}},
+				},
+				{
+					PluginID:   "metadata-launchbox",
+					Title:      "Final Fantasy",
+					ExternalID: "launchbox-right",
+					Media: []core.MediaItem{{
+						Type:   core.MediaTypeCover,
+						URL:    "https://example.com/right.png",
+						Source: "metadata-launchbox",
+					}},
+				},
+			},
+		},
+		{
+			ID:            "scan:empty",
+			Title:         "No Media",
+			RawTitle:      "No Media",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			IntegrationID: "integration-1",
+			Status:        "found",
+		},
+	}
+
+	batch := gamesToScanBatch("integration-1", "game-source-smb", games)
+
+	refs, ok := batch.MediaItems["scan:with-media"]
+	if !ok {
+		t.Fatal("expected explicit media entry for scan:with-media")
+	}
+	if len(refs) != 1 || refs[0].URL != "https://example.com/right.png" {
+		t.Fatalf("media refs = %+v, want only accepted resolver media", refs)
+	}
+	if _, ok := batch.ResolverMatches["scan:empty"]; !ok {
+		t.Fatal("expected explicit empty resolver entry for scan:empty")
+	}
+	if refs, ok := batch.MediaItems["scan:empty"]; !ok || len(refs) != 0 {
+		t.Fatalf("empty media entry = %+v, present=%v; want explicit empty slice", refs, ok)
+	}
+}
+
 func TestEnrich_SkippedIndex(t *testing.T) {
 	caller := &mockCaller{
 		responses: map[string]any{
