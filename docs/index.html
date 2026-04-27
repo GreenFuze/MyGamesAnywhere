@@ -3,17 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MyGamesAnywhere (MGA) | Local-first game launcher for multi-source collections</title>
+    <title>MyGamesAnywhere (MGA) | One canonical game library for every place your games live</title>
     <meta
       name="description"
-      content="Local-first game launcher with one canonical library across Steam, Xbox, Epic, ROMs, cloud runtimes, SMB/NAS, and removable drives."
+      content="MGA is a local-first game launcher and unified game library that merges storefronts, ROMs, cloud runtimes, files, metadata, media, and achievements into source-backed canonical game pages."
     />
     <meta property="og:title" content="MyGamesAnywhere (MGA)" />
     <meta
       property="og:description"
-      content="Local-first game launcher with one canonical library across Steam, Xbox, Epic, ROMs, cloud runtimes, SMB/NAS, and removable drives."
+      content="Turn fragmented game records into one canonical local library with source-backed game pages, manual review, provenance, and local-first ownership."
     />
-    <meta property="og:image" content="https://greenfuze.github.io/MyGamesAnywhere/screenshots/home.png" />
+    <meta property="og:image" content="https://greenfuze.github.io/MyGamesAnywhere/screenshots/canonical-game-page.png" />
     <meta property="og:type" content="website" />
     <link rel="stylesheet" href="./site.css" />
   </head>
@@ -31,19 +31,39 @@
         <a href="./roadmap.html">Roadmap</a>
       </div>
     </nav>
+
     <header class="hero">
-      <div class="hero__inner">
-        <img class="hero__brand" src="./branding/title-text.png" alt="MyGamesAnywhere" />
-        <p class="eyebrow">Pre-1.0 preview. Windows portable build available now.</p>
-        <h1>One canonical library for Steam, Xbox, Epic, ROMs, cloud runtimes, SMB/NAS, and removable drives.</h1>
-        <p class="lead">
-          MGA scans the sources you choose, merges duplicate entries into one canonical game, enriches them with metadata and media, and gives you one place to see what you own, what you can play, and where it actually lives.
-        </p>
-        <div class="hero__actions">
-          <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5">Download v0.0.5</a>
-          <a class="button" href="./install.html">Install guide</a>
-          <a class="button" href="./screenshots.html">Screenshots</a>
-          <a class="button" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
+      <div class="hero__inner hero__grid">
+        <div class="hero__copy">
+          <p class="eyebrow">Local-first canonical game library</p>
+          <h1>One canonical game library for every place your games live.</h1>
+          <p class="lead">
+            MGA merges storefronts, ROMs, cloud runtimes, network shares, removable drives,
+            metadata providers, media, files, and achievements into source-backed canonical game
+            pages that stay local by default.
+          </p>
+          <p class="hero__body">
+            Most launchers start from a storefront or a folder. MGA starts from the game identity.
+            Every detected source, provider match, file location, achievement system, and runtime
+            remains visible, so you can understand, launch, fix, and curate the game instead of
+            trusting a hidden match.
+          </p>
+          <div class="hero__actions">
+            <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5">Download v0.0.5</a>
+            <a class="button" href="./screenshots.html">View screenshots</a>
+            <a class="button" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
+            <a class="button" href="./install.html">Install guide</a>
+          </div>
+        </div>
+        <div class="hero__visual">
+          <figure class="hero__frame">
+            <img src="./screenshots/canonical-game-page.png" alt="A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation" />
+            <figcaption>
+              A source-backed canonical game page: one page combines metadata, launch availability,
+              media, files, source-backed navigation, and provider evidence around a single
+              canonical game.
+            </figcaption>
+          </figure>
         </div>
       </div>
     </header>
@@ -51,60 +71,168 @@
     <main>
       <section class="section">
         <div class="section__inner">
-          <h2>Try MGA in 30 seconds</h2>
-          <ol class="steps">
-            <li>Download the latest Windows portable ZIP from Releases.</li>
-            <li>Extract it to a writable folder.</li>
-            <li>Run <code>Start MGA.cmd</code>.</li>
-            <li>Open <code>http://127.0.0.1:8080</code>.</li>
-          </ol>
-          <p class="note">The current packaged release is a Windows portable build and runs locally on <code>127.0.0.1</code> by default.</p>
-        </div>
-      </section>
-
-      <section class="section section--alt" id="screenshots">
-        <div class="section__inner">
-          <h2>Screenshots</h2>
-          <div class="gallery">
-            <figure class="shot">
-              <img src="./screenshots/home.png" alt="MGA home page hero showing the title artwork, primary actions, and dashboard feed summary" />
-              <figcaption>Home hero and dashboard entry</figcaption>
-            </figure>
-            <figure class="shot">
-              <img src="./screenshots/library-gba.png" alt="MGA Library page in shelf view showing grouped platform rows including the GBA collection" />
-              <figcaption>Platform shelves and poster-first browsing</figcaption>
-            </figure>
-            <figure class="shot">
-              <img src="./screenshots/game-detail.png" alt="MGA game page achievement section showing Xbox progress ring, completion stats, and achievement cards for FINAL FANTASY" />
-              <figcaption>Game achievements and progress</figcaption>
-            </figure>
-            <figure class="shot">
-              <img src="./screenshots/settings.png" alt="MGA settings integrations page showing scan status plus configured game source and metadata provider cards" />
-              <figcaption>Sources and integrations</figcaption>
-            </figure>
+          <p class="eyebrow">What makes MGA different</p>
+          <h2>Turn fragmented game records into one canonical local library.</h2>
+          <div class="feature-grid cards-4">
+            <article>
+              <h3>Canonical game merge</h3>
+              <p>One canonical game can absorb multiple source records, provider matches, files, and media instead of leaving you with duplicate launcher rows.</p>
+            </article>
+            <article>
+              <h3>Source provenance</h3>
+              <p>MGA keeps every integration visible as source-backed evidence, including source records, provider IDs, resolver matches, and attached files.</p>
+            </article>
+            <article>
+              <h3>Local-first ownership</h3>
+              <p>Your database, media cache, config, and plugins stay on your machine unless you explicitly add sync integrations.</p>
+            </article>
+            <article>
+              <h3>Manual review and repair</h3>
+              <p>Detection failures stay visible and repairable through an explicit review queue instead of being silently hidden behind a bad automatic match.</p>
+            </article>
           </div>
         </div>
       </section>
 
+      <section class="section section--alt">
+        <div class="section__inner split-grid">
+          <div>
+            <p class="eyebrow">The problem</p>
+            <h2>Real collections are fragmented by default.</h2>
+            <p class="section__intro">
+              A serious game collection manager has to deal with storefronts, ROM folders,
+              cloud-ready entries, installers, provider metadata, achievements, and files that all
+              describe the same game differently.
+            </p>
+            <div class="pill-list">
+              <span>Steam</span>
+              <span>Xbox</span>
+              <span>Epic</span>
+              <span>GOG purchases</span>
+              <span>ROMs</span>
+              <span>emulators</span>
+              <span>xCloud</span>
+              <span>browser runtimes</span>
+              <span>SMB / NAS</span>
+              <span>removable drives</span>
+              <span>metadata providers</span>
+              <span>achievement systems</span>
+              <span>local files</span>
+            </div>
+          </div>
+          <aside class="aside-card">
+            <h3>Why that matters</h3>
+            <ul class="compact-list">
+              <li>The same game may exist as storefront data, a ROM root, a cloud launch flag, and an installer package.</li>
+              <li>The best metadata provider may not be the same system that knows launch availability or achievements.</li>
+              <li>When detection is uncertain, you need visible evidence and a repair path, not a hidden importer guess.</li>
+            </ul>
+          </aside>
+        </div>
+      </section>
+
       <section class="section">
+        <div class="section__inner split-grid">
+          <div>
+            <p class="eyebrow">The MGA model</p>
+            <h2>Source records flow into one canonical game.</h2>
+            <div class="model-flow" aria-label="MGA model">
+              <div class="model-step">Source records</div>
+              <div class="model-arrow">→</div>
+              <div class="model-step">Resolver</div>
+              <div class="model-arrow">→</div>
+              <div class="model-step">Canonical game</div>
+              <div class="model-arrow">→</div>
+              <div class="model-step">Availability, metadata, media, achievements, files</div>
+              <div class="model-arrow">→</div>
+              <div class="model-step">User review and repair</div>
+            </div>
+            <p class="note">
+              MGA is built more like a self-hosted game library and source-backed game launcher than
+              a store-first importer.
+            </p>
+          </div>
+          <aside class="aside-card">
+            <h3>Local-first by default</h3>
+            <div class="architecture">
+              <div class="architecture__core">MGA local server</div>
+              <div class="architecture__leaf">Local database</div>
+              <div class="architecture__leaf">Local media cache</div>
+              <div class="architecture__leaf">Config</div>
+              <div class="architecture__leaf">Plugins</div>
+              <div class="architecture__leaf architecture__leaf--muted">Optional sync providers</div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section section--alt">
+        <div class="section__inner split-grid split-grid--media">
+          <div>
+            <p class="eyebrow">Source-backed canonical game pages</p>
+            <h2>The game page is the product centerpiece.</h2>
+            <p class="section__intro">
+              A canonical game page should tell you what the game is, where MGA found it, where it
+              can run, which providers contributed metadata, what files and media are attached, what
+              achievements are known, and what can be fixed manually.
+            </p>
+            <ul class="compact-list">
+              <li>what the game is</li>
+              <li>where MGA found it</li>
+              <li>where it can run</li>
+              <li>which providers contributed metadata</li>
+              <li>which source records matched</li>
+              <li>what files and media are attached</li>
+              <li>what achievements are known</li>
+              <li>what can be manually fixed</li>
+            </ul>
+          </div>
+          <figure class="shot shot--wide">
+            <img src="./screenshots/source-provenance.png" alt="A provenance-focused game section showing source records, integration labels, root paths, file counts, and resolver match counts" />
+            <figcaption>
+              Provenance is visible: MGA shows which sources, files, and resolver counts contributed
+              to the canonical game instead of hiding importer decisions.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section" id="screenshots">
         <div class="section__inner">
-          <h2>Why MGA</h2>
-          <div class="feature-grid">
-            <article>
-              <h3>Canonical merge</h3>
-              <p>See one game instead of a pile of duplicate launcher rows from different sources.</p>
+          <p class="eyebrow">Screenshot proof</p>
+          <h2>Real app surfaces that prove the model.</h2>
+          <div class="gallery proof-grid">
+            <figure class="shot">
+              <img src="./screenshots/canonical-game-page.png" alt="A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation" />
+              <figcaption>One canonical page combines title, launch controls, provider evidence, files, media, and runtime facts.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/source-provenance.png" alt="A provenance-focused game section showing source records, integration labels, root paths, file counts, and resolver match counts" />
+              <figcaption>One canonical game instead of duplicate rows: MGA keeps source records and resolver evidence visible.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/manual-review.png" alt="The Undetected Games workflow showing pending review candidates, metadata search, source files, and repair actions" />
+              <figcaption>Detection failures stay fixable through a real review queue with re-detect, search, and repair actions.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/game-detail.png" alt="An achievement section showing Xbox completion stats, a progress ring, and achievement cards" />
+              <figcaption>Achievements and completion data stay attached to the canonical game page instead of living in a separate silo.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/library-gba.png" alt="A shelf-based library view showing grouped platform rows and poster-first browsing across a mixed collection" />
+              <figcaption>Storefronts, ROMs, cloud-ready entries, and file-backed records can live in one unified game library.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/settings.png" alt="The integrations settings page showing configured sources, metadata providers, scan status, and control actions" />
+              <figcaption>Integrations are explicit and local: sources, metadata providers, and scan state remain understandable control surfaces.</figcaption>
+            </figure>
+            <article class="todo-card">
+              <h3>TODO screenshot</h3>
+              <p>Capture a canonical game page with at least 3 source/provider records visible in the same frame.</p>
             </article>
-            <article>
-              <h3>Local-first</h3>
-              <p>Your config, media, and database stay on your machine unless you choose to sync them.</p>
-            </article>
-            <article>
-              <h3>Collector-friendly</h3>
-              <p>ROMs, emulators, cloud catalogs, storefront installs, removable drives, and SMB shares belong in the same library.</p>
-            </article>
-            <article>
-              <h3>Manual review and re-detect</h3>
-              <p>When detection fails, MGA exposes the problem and gives you tools to fix it instead of hiding it.</p>
+            <article class="todo-card">
+              <h3>TODO screenshot</h3>
+              <p>Capture a cross-system achievement example with Steam, Xbox, and RetroAchievements visible in one proof set.</p>
             </article>
           </div>
         </div>
@@ -112,7 +240,8 @@
 
       <section class="section section--alt">
         <div class="section__inner">
-          <h2>MGA vs traditional launchers</h2>
+          <p class="eyebrow">Comparison</p>
+          <h2>MGA vs typical launcher categories</h2>
           <div class="table-wrap">
             <table>
               <thead>
@@ -120,32 +249,56 @@
                   <th>Capability</th>
                   <th>MGA</th>
                   <th>Typical store launcher</th>
+                  <th>Typical ROM frontend</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td>Merge the same game across multiple sources</td>
-                  <td>Yes</td>
+                  <td>Canonical merge across stores, ROMs, cloud, and files</td>
+                  <td>Core model</td>
+                  <td>Usually no</td>
                   <td>Usually no</td>
                 </tr>
                 <tr>
-                  <td>Works with ROMs and emulators</td>
-                  <td>Yes</td>
-                  <td>Usually no</td>
-                </tr>
-                <tr>
-                  <td>Detects games on network shares and removable drives</td>
-                  <td>Yes</td>
+                  <td>Source provenance per game</td>
+                  <td>Visible by design</td>
+                  <td>Rare</td>
                   <td>Rare</td>
                 </tr>
                 <tr>
-                  <td>Local-first data ownership</td>
+                  <td>Local-first database, media, and config</td>
                   <td>Yes</td>
                   <td>Often no</td>
+                  <td>Usually local, narrower scope</td>
                 </tr>
                 <tr>
                   <td>Manual review when detection fails</td>
+                  <td>Explicit workflow</td>
+                  <td>Rare</td>
+                  <td>Varies</td>
+                </tr>
+                <tr>
+                  <td>Game page with metadata, media, achievements, files, and source records</td>
                   <td>Yes</td>
+                  <td>Partial</td>
+                  <td>Partial</td>
+                </tr>
+                <tr>
+                  <td>SMB / NAS / removable drive awareness</td>
+                  <td>Core scenario</td>
+                  <td>Rare</td>
+                  <td>Sometimes</td>
+                </tr>
+                <tr>
+                  <td>Browser / cloud / runtime launch flows</td>
+                  <td>Available where configured</td>
+                  <td>Limited</td>
+                  <td>Runtime-specific</td>
+                </tr>
+                <tr>
+                  <td>REST API over the same local library</td>
+                  <td>Yes</td>
+                  <td>Rare</td>
                   <td>Rare</td>
                 </tr>
               </tbody>
@@ -156,101 +309,26 @@
 
       <section class="section">
         <div class="section__inner">
-          <h2>Available integrations</h2>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Integration</th>
-                  <th>What MGA uses it for</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Steam</td>
-                  <td>Game source, metadata lookup, achievements</td>
-                  <td>Steam Web API key for source and achievements</td>
-                </tr>
-                <tr>
-                  <td>Xbox / PC Game Pass</td>
-                  <td>Xbox library source, Game Pass / xCloud availability, achievements</td>
-                  <td>OAuth-backed source and achievement flow</td>
-                </tr>
-                <tr>
-                  <td>Epic Games</td>
-                  <td>Epic library source</td>
-                  <td>Source listing</td>
-                </tr>
-                <tr>
-                  <td>Google Drive</td>
-                  <td>Drive-backed game source, file operations, save sync, settings sync</td>
-                  <td>OAuth-backed; source config supports include paths</td>
-                </tr>
-                <tr>
-                  <td>SMB / network shares</td>
-                  <td>Network-share game source and filesystem operations</td>
-                  <td>Host/share credentials and include paths</td>
-                </tr>
-                <tr>
-                  <td>Local disk</td>
-                  <td>Local save-sync target</td>
-                  <td>No external service required</td>
-                </tr>
-                <tr>
-                  <td>LaunchBox</td>
-                  <td>Game metadata lookup, platform-aware matching, media enrichment</td>
-                  <td>Bundled metadata provider</td>
-                </tr>
-                <tr>
-                  <td>IGDB</td>
-                  <td>Game metadata lookup and enrichment</td>
-                  <td>Twitch/IGDB client ID and secret</td>
-                </tr>
-                <tr>
-                  <td>RAWG</td>
-                  <td>Game metadata lookup and enrichment</td>
-                  <td>RAWG API key</td>
-                </tr>
-                <tr>
-                  <td>GOG</td>
-                  <td>GOG metadata lookup</td>
-                  <td>Metadata provider</td>
-                </tr>
-                <tr>
-                  <td>HLTB</td>
-                  <td>HowLongToBeat metadata lookup</td>
-                  <td>Metadata provider</td>
-                </tr>
-                <tr>
-                  <td>MAME DAT</td>
-                  <td>Arcade/MAME metadata lookup</td>
-                  <td>Metadata provider</td>
-                </tr>
-                <tr>
-                  <td>RetroAchievements</td>
-                  <td>RetroAchievements metadata lookup and achievements</td>
-                  <td>API key and username</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section class="section section--alt">
-        <div class="section__inner">
-          <h2>What is shipping now vs later</h2>
+          <p class="eyebrow">What ships now vs later</p>
+          <h2>Grounded status, not wishful marketing.</h2>
           <div class="status-grid">
             <article>
               <h3>Available now</h3>
               <ul>
-                <li>Unified cross-source library</li>
-                <li>Manual review and re-detect</li>
-                <li>Poster-first library and game pages</li>
-                <li>Steam, Xbox, and RetroAchievements dashboard</li>
-                <li>REST API and web UI</li>
+                <li>Canonical game merge across multiple source types</li>
+                <li>Source-backed game pages with files, media, and provider evidence</li>
+                <li>Manual review and re-detect for unresolved records</li>
+                <li>Achievements, browser-play surfaces, and REST API</li>
                 <li>Windows portable release</li>
+              </ul>
+            </article>
+            <article>
+              <h3>In active development</h3>
+              <ul>
+                <li>Packaging hardening</li>
+                <li>Game page and card UX iteration</li>
+                <li>Broader metadata and runtime coverage</li>
+                <li>Upgrade-safe packaging flow</li>
               </ul>
             </article>
             <article>
@@ -266,15 +344,52 @@
           </div>
         </div>
       </section>
+
+      <section class="section section--alt">
+        <div class="section__inner split-grid">
+          <div>
+            <p class="eyebrow">Install / download</p>
+            <h2>Windows portable build, local server, local library.</h2>
+            <ol class="steps">
+              <li>Download the latest Windows portable ZIP from GitHub Releases.</li>
+              <li>Extract it to a writable folder.</li>
+              <li>Run <code>Start MGA.cmd</code>.</li>
+              <li>Open <code>http://127.0.0.1:8080</code>.</li>
+            </ol>
+            <p class="note">MGA runs locally on <code>127.0.0.1</code> by default and stores runtime state beside the portable folder unless sync integrations are configured.</p>
+            <div class="hero__actions">
+              <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5">Download</a>
+              <a class="button" href="./install.html">Read install details</a>
+            </div>
+          </div>
+          <aside class="aside-card">
+            <h3>FAQ preview</h3>
+            <div class="question compact-question">
+              <h4>Is MGA a Playnite alternative?</h4>
+              <p>It can be if you care more about canonical identity and provenance than storefront-first presentation.</p>
+            </div>
+            <div class="question compact-question">
+              <h4>Does MGA replace Steam, Xbox, or Epic?</h4>
+              <p>No. MGA is a local game library and launcher layer above those systems.</p>
+            </div>
+            <div class="question compact-question">
+              <h4>What happens when detection is wrong?</h4>
+              <p>MGA keeps unresolved records in a visible manual review workflow with repair actions.</p>
+            </div>
+            <p><a href="./faq.html">Read the full FAQ</a></p>
+          </aside>
+        </div>
+      </section>
     </main>
 
     <footer class="footer">
       <div class="footer__inner">
-        <p>MyGamesAnywhere (MGA) is a local-first game launcher and unified game library.</p>
+        <p>MyGamesAnywhere (MGA) is a local-first game launcher, source-backed game launcher, and canonical game library.</p>
         <nav>
           <a href="./install.html">Install</a>
+          <a href="./screenshots.html">Screenshots</a>
+          <a href="./comparison.html">Comparison</a>
           <a href="./faq.html">FAQ</a>
-          <a href="./roadmap.html">Roadmap</a>
           <a href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
         </nav>
       </div>

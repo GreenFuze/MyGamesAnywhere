@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MGA Features | Local-first unified game library</title>
-    <meta name="description" content="Features in MyGamesAnywhere: canonical merge, local-first data, game sources, metadata, achievements, browser play, and manual review." />
+    <title>MGA Features | Canonical game pages, provenance, manual review, local-first runtime</title>
+    <meta name="description" content="How MyGamesAnywhere works: source records, resolver matches, canonical game pages, visible provenance, manual review, achievements, and local-first ownership." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
@@ -24,16 +24,76 @@
     <main>
       <section class="section">
         <div class="section__inner">
-          <p class="eyebrow">What MGA does</p>
-          <h1>Local-first game launcher for multi-source collections.</h1>
-          <div class="feature-grid">
-            <article><h3>Canonical merge</h3><p>MGA merges source entries into one canonical game when detection can prove the match.</p></article>
-            <article><h3>Source provenance</h3><p>Each game keeps visible source records, files, runtime flags, and provider metadata.</p></article>
-            <article><h3>Manual review</h3><p>Undetected games stay visible and can be searched, matched, or re-detected later.</p></article>
-            <article><h3>Achievements</h3><p>Cached Steam, Xbox, and RetroAchievements progress is available in dashboard and per-game views.</p></article>
-            <article><h3>Browser play</h3><p>Configured browser runtimes such as EmulatorJS, js-dos, and ScummVM can launch from the web UI.</p></article>
-            <article><h3>Sync surfaces</h3><p>Save-sync and settings-sync integrations are part of the plugin model.</p></article>
+          <p class="eyebrow">The MGA model</p>
+          <h1>Canonical game identity first, launcher actions second.</h1>
+          <p class="section__intro">
+            MGA is built for fragmented real-world collections. It does not treat storefronts, ROM
+            folders, metadata providers, achievements, cloud flags, and local files as separate
+            products. It treats them as evidence that should converge on one canonical game.
+          </p>
+          <div class="feature-grid cards-4">
+            <article>
+              <h3>Source records</h3>
+              <p>Each source integration contributes concrete records, file paths, runtime facts, and raw titles that remain inspectable.</p>
+            </article>
+            <article>
+              <h3>Resolver matches</h3>
+              <p>MGA records which provider matches contributed to the canonical game instead of hiding that decision behind importer magic.</p>
+            </article>
+            <article>
+              <h3>Canonical game page</h3>
+              <p>The game page pulls together metadata, launch availability, media, achievements, files, source records, and external links.</p>
+            </article>
+            <article>
+              <h3>Repair workflow</h3>
+              <p>When the resolver cannot prove a match, the record stays visible in manual review with re-detect and provider-search actions.</p>
+            </article>
           </div>
+        </div>
+      </section>
+
+      <section class="section section--alt">
+        <div class="section__inner split-grid">
+          <div>
+            <h2>What a source-backed canonical game page should answer</h2>
+            <ul class="compact-list">
+              <li>What is this game?</li>
+              <li>Where did MGA find it?</li>
+              <li>Which providers matched it?</li>
+              <li>What files belong to it?</li>
+              <li>Where can it run?</li>
+              <li>What achievements are known?</li>
+              <li>Which links point back to external providers?</li>
+              <li>What needs manual repair if the match is wrong?</li>
+            </ul>
+          </div>
+          <figure class="shot shot--wide">
+            <img src="./screenshots/canonical-game-page.png" alt="A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation" />
+            <figcaption>Canonical game pages are the product centerpiece, not an afterthought attached to a launcher row.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__inner split-grid">
+          <div>
+            <h2>Local-first runtime</h2>
+            <p class="section__intro">
+              MGA behaves more like a self-hosted game library on your machine than a cloud-first
+              account dashboard. The local server, local database, local media cache, config, and
+              plugins are part of the architecture, not incidental implementation details.
+            </p>
+          </div>
+          <aside class="aside-card">
+            <div class="architecture">
+              <div class="architecture__core">MGA local server</div>
+              <div class="architecture__leaf">Local database</div>
+              <div class="architecture__leaf">Local media cache</div>
+              <div class="architecture__leaf">Config</div>
+              <div class="architecture__leaf">Plugins</div>
+              <div class="architecture__leaf architecture__leaf--muted">Optional sync providers</div>
+            </div>
+          </aside>
         </div>
       </section>
     </main>

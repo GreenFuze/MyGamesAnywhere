@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MGA Screenshots | Home, shelves, achievements, integrations</title>
-    <meta name="description" content="Screenshots of MyGamesAnywhere showing the home hero, shelf-based library browsing, per-game achievements, and integrations." />
+    <title>MGA Screenshots | Canonical game pages, provenance, repair workflow, integrations</title>
+    <meta name="description" content="Screenshot proof for MyGamesAnywhere showing canonical game pages, visible provenance, repair workflow, achievements, mixed library browsing, and integrations." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
@@ -24,14 +24,65 @@
     <main>
       <section class="section">
         <div class="section__inner">
-          <p class="eyebrow">Product screenshots</p>
+          <p class="eyebrow">Screenshot proof</p>
           <h1>Real MGA surfaces from the current app.</h1>
-          <div class="gallery">
-            <figure class="shot"><img src="./screenshots/home.png" alt="MGA home page hero showing the title artwork, primary actions, and dashboard feed summary" /><figcaption>Home hero and dashboard entry</figcaption></figure>
-            <figure class="shot"><img src="./screenshots/library-gba.png" alt="MGA Library page in shelf view showing grouped platform rows including the GBA collection" /><figcaption>Platform shelves and poster-first browsing</figcaption></figure>
-            <figure class="shot"><img src="./screenshots/game-detail.png" alt="MGA game page achievement section showing Xbox progress ring, completion stats, and achievement cards for FINAL FANTASY" /><figcaption>Game achievements and progress</figcaption></figure>
-            <figure class="shot"><img src="./screenshots/settings.png" alt="MGA settings integrations page showing scan status plus configured game source and metadata provider cards" /><figcaption>Sources and integrations</figcaption></figure>
+          <p class="section__intro">
+            The goal is not just to show that MGA has a UI. The goal is to prove that MGA solves
+            the hard identity and provenance problem for fragmented collections.
+          </p>
+          <div class="gallery proof-grid">
+            <figure class="shot">
+              <img src="./screenshots/canonical-game-page.png" alt="A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation" />
+              <figcaption>A source-backed canonical game page: one page combines metadata, launch availability, media, files, source-backed navigation, and provider evidence.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/source-provenance.png" alt="A provenance-focused game section showing source records, integration labels, root paths, file counts, and resolver match counts" />
+              <figcaption>One canonical game instead of duplicate rows: MGA keeps source records and resolver evidence visible.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/manual-review.png" alt="The Undetected Games workflow showing pending review candidates, metadata search, source files, and repair actions" />
+              <figcaption>Detection failures stay fixable: unresolved source records remain reviewable, searchable, and repairable.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/game-detail.png" alt="An achievement section showing Xbox completion stats, a progress ring, and achievement cards" />
+              <figcaption>Progress follows the game, not just the store row: achievement summaries and known unlocks stay attached to the canonical page.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/library-gba.png" alt="A shelf-based library view showing grouped platform rows and poster-first browsing across a mixed collection" />
+              <figcaption>Storefronts, ROMs, cloud-ready entries, and file-backed records can live in one unified game library.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/settings.png" alt="The integrations settings page showing configured sources, metadata providers, scan status, and control actions" />
+              <figcaption>Integrations are explicit and local: sources, metadata providers, and scan state remain understandable control surfaces.</figcaption>
+            </figure>
           </div>
+        </div>
+      </section>
+
+      <section class="section section--alt">
+        <div class="section__inner">
+          <h2>Screenshots still worth capturing</h2>
+          <div class="feature-grid">
+            <article class="todo-card">
+              <h3>TODO screenshot</h3>
+              <p>Capture a canonical game page with at least 3 source/provider records visible in the same frame.</p>
+            </article>
+            <article class="todo-card">
+              <h3>TODO screenshot</h3>
+              <p>Capture a mixed library view with visible storefront, ROM, and cloud-ready entries in one screenshot.</p>
+            </article>
+            <article class="todo-card">
+              <h3>TODO screenshot</h3>
+              <p>Capture a cross-system achievement example with Steam, Xbox, and RetroAchievements visible in one proof set.</p>
+            </article>
+            <article class="todo-card">
+              <h3>TODO diagram</h3>
+              <p>Render a polished local-first architecture diagram for the app, database, media cache, config, plugins, and optional sync providers.</p>
+            </article>
+          </div>
+          <!-- TODO screenshot: capture a canonical game page with at least 3 source/provider records visible in the same frame. -->
+          <!-- TODO screenshot: capture a mixed library view with visible storefront, ROM, and cloud-ready entries in one screenshot. -->
+          <!-- TODO screenshot: capture a cross-system achievement example with Steam, Xbox, and RetroAchievements visible in one proof set. -->
         </div>
       </section>
     </main>

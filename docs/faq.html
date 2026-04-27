@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MGA FAQ | Steam, Xbox, Epic, ROMs, SMB, offline use, browser play</title>
-    <meta name="description" content="Frequently asked questions about MyGamesAnywhere, a local-first game launcher and unified game library." />
+    <title>MGA FAQ | Playnite alternative, LaunchBox alternative, local-first game launcher</title>
+    <meta name="description" content="Frequently asked questions about MyGamesAnywhere, a local-first game launcher, unified game library, and source-backed game collection manager." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
@@ -25,15 +25,57 @@
       <section class="section">
         <div class="section__inner">
           <p class="eyebrow">FAQ</p>
-          <h1>Questions people search for before trying MGA.</h1>
-          <div class="question"><h3>Can MGA merge Steam, Xbox, Epic, and emulator games into one library?</h3><p>Yes. MGA is built around canonical game records that can merge source entries when the detection flow can prove they represent the same game.</p></div>
-          <div class="question"><h3>Does MGA support ROMs and emulators?</h3><p>Yes. ROM and emulator-style collections are part of the product direction alongside storefront and cloud-source workflows.</p></div>
-          <div class="question"><h3>Does MGA work offline?</h3><p>The local runtime works offline. Some metadata providers, source integrations, achievements, and sync targets require network access.</p></div>
-          <div class="question"><h3>Where does MGA store data?</h3><p>The current portable runtime stores config, database, media, plugins, and frontend files beside the runtime folder.</p></div>
-          <div class="question"><h3>Can MGA detect games on SMB shares or external drives?</h3><p>Yes. SMB/network shares and removable/local paths are core source scenarios.</p></div>
-          <div class="question"><h3>Does MGA support browser play?</h3><p>Yes where configured runtime support exists. MGA can launch supported browser runtimes such as EmulatorJS, js-dos, and ScummVM from the web UI.</p></div>
-          <div class="question"><h3>Can MGA sync saves?</h3><p>Yes. Local disk and Google Drive save-sync integrations are available in the current plugin set.</p></div>
-          <div class="question"><h3>Is MGA Windows-only right now?</h3><p>The first packaged release is Windows-only and portable. Cross-platform installers are planned later.</p></div>
+          <h1>Questions people ask before trying MGA.</h1>
+
+          <div class="question">
+            <h3>Is MGA a Playnite alternative?</h3>
+            <p>It can be, depending on what you want. If you care most about canonical merge, provenance, manual repair, and a local web/API surface, MGA is aimed at that problem. If you mainly want a polished storefront shell, Playnite may still feel closer today.</p>
+          </div>
+
+          <div class="question">
+            <h3>Is MGA a LaunchBox alternative?</h3>
+            <p>Partly. MGA overlaps with LaunchBox-style mixed-library organization, but its strongest differentiator is not themeing or cabinet presentation. It is source-backed canonical game identity, local ownership, and visible repair workflow.</p>
+          </div>
+
+          <div class="question">
+            <h3>Does MGA replace Steam, Xbox, or Epic?</h3>
+            <p>No. MGA sits above those systems as a local game library and launcher layer. It consumes source and provider data; it does not replace the services themselves.</p>
+          </div>
+
+          <div class="question">
+            <h3>Does MGA store my data locally?</h3>
+            <p>Yes. MGA is local-first. The database, media cache, config, and plugins live on your machine unless you explicitly configure sync integrations.</p>
+          </div>
+
+          <div class="question">
+            <h3>Can MGA handle ROMs and emulators?</h3>
+            <p>Yes. ROM and emulator-style collections are part of the core product direction alongside storefront, cloud, and file-backed sources.</p>
+          </div>
+
+          <div class="question">
+            <h3>What happens when detection is wrong?</h3>
+            <p>MGA keeps unresolved or questionable records visible in a manual review workflow. You can re-detect, search configured metadata providers, apply a better match, or archive a false positive.</p>
+          </div>
+
+          <div class="question">
+            <h3>Can I inspect where a game came from?</h3>
+            <p>Yes. Canonical pages keep source records, files, root paths, resolver matches, provider links, and other provenance visible.</p>
+          </div>
+
+          <div class="question">
+            <h3>Does MGA support Game Pass and xCloud launch surfaces?</h3>
+            <p>MGA can surface Game Pass and xCloud availability through Xbox-backed data where the connected source exposes it.</p>
+          </div>
+
+          <div class="question">
+            <h3>Does MGA expose an API?</h3>
+            <p>Yes. MGA exposes a local REST API and a React frontend over the same local library.</p>
+          </div>
+
+          <div class="question">
+            <h3>Is MGA Windows-only right now?</h3>
+            <p>The first packaged release is Windows-only and portable. Cross-platform installers are planned later.</p>
+          </div>
         </div>
       </section>
     </main>

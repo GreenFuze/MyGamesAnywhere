@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MGA Integrations | Steam, Xbox, Epic, Google Drive, SMB, RetroAchievements</title>
-    <meta name="description" content="Available MyGamesAnywhere integrations for game sources, metadata, achievements, save sync, and settings sync." />
+    <title>MGA Integrations | Game sources, metadata providers, achievements, runtimes, sync</title>
+    <meta name="description" content="Available MyGamesAnywhere integrations grouped by game sources, metadata providers, achievement providers, runtime surfaces, and storage/sync providers." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
@@ -24,27 +24,92 @@
     <main>
       <section class="section">
         <div class="section__inner">
-          <p class="eyebrow">Plugin-backed integrations</p>
-          <h1>Sources, metadata, achievements, save sync, and settings sync.</h1>
+          <p class="eyebrow">Integrations</p>
+          <h1>Sources and providers become evidence, not hidden importer magic.</h1>
+          <p class="section__intro">
+            MGA is not attractive because it has a long plugin list. It is attractive because it
+            keeps those integrations visible as source-backed evidence on top of one canonical game
+            library.
+          </p>
+        </div>
+      </section>
+
+      <section class="section section--alt">
+        <div class="section__inner">
+          <h2>Game sources</h2>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Integration</th><th>Plugin ID(s)</th><th>What MGA uses it for</th><th>Config / notes</th></tr></thead>
               <tbody>
-                <tr><td>Steam</td><td><code>game-source-steam</code>, <code>metadata-steam</code></td><td>Game source, Steam metadata lookup, Steam achievements</td><td>Steam Web API key</td></tr>
+                <tr><td>Steam</td><td><code>game-source-steam</code></td><td>Game source discovery and Steam-backed achievements</td><td>Steam Web API key</td></tr>
                 <tr><td>Xbox / PC Game Pass</td><td><code>game-source-xbox</code></td><td>Xbox library source, Game Pass / xCloud availability, Xbox achievements</td><td>OAuth-backed</td></tr>
                 <tr><td>Epic Games</td><td><code>game-source-epic</code></td><td>Epic library source</td><td>Source listing</td></tr>
-                <tr><td>Google Drive</td><td><code>game-source-google-drive</code>, <code>save-sync-google-drive</code>, <code>sync-settings-google-drive</code></td><td>Game source, file operations, save sync, settings sync</td><td>OAuth-backed</td></tr>
+                <tr><td>Google Drive</td><td><code>game-source-google-drive</code></td><td>Drive-backed game source and file operations</td><td>OAuth-backed; include paths supported</td></tr>
                 <tr><td>SMB / network shares</td><td><code>game-source-smb</code></td><td>Network-share game source and filesystem operations</td><td>Host/share credentials and include paths</td></tr>
-                <tr><td>Local disk</td><td><code>save-sync-local-disk</code></td><td>Local save-sync target</td><td>No external service required</td></tr>
-                <tr><td>LaunchBox</td><td><code>metadata-launchbox</code></td><td>Game metadata lookup, platform-aware matching, media enrichment</td><td>Bundled metadata provider</td></tr>
-                <tr><td>IGDB</td><td><code>metadata-igdb</code></td><td>Game metadata lookup and enrichment</td><td>Twitch/IGDB client ID and secret</td></tr>
-                <tr><td>RAWG</td><td><code>metadata-rawg</code></td><td>Game metadata lookup and enrichment</td><td>RAWG API key</td></tr>
-                <tr><td>GOG</td><td><code>metadata-gog</code></td><td>GOG metadata lookup</td><td>Metadata provider</td></tr>
-                <tr><td>HLTB</td><td><code>metadata-hltb</code></td><td>HowLongToBeat metadata lookup</td><td>Metadata provider</td></tr>
-                <tr><td>MAME DAT</td><td><code>metadata-mame-dat</code></td><td>Arcade/MAME metadata lookup</td><td>Metadata provider</td></tr>
-                <tr><td>RetroAchievements</td><td><code>retroachievements</code></td><td>RetroAchievements metadata lookup and achievements</td><td>API key and username</td></tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__inner">
+          <h2>Metadata providers</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Provider</th><th>Plugin ID(s)</th><th>What MGA uses it for</th><th>Config / notes</th></tr></thead>
+              <tbody>
+                <tr><td>LaunchBox</td><td><code>metadata-launchbox</code></td><td>Metadata lookup, platform-aware matching, media enrichment</td><td>Bundled metadata provider</td></tr>
+                <tr><td>IGDB</td><td><code>metadata-igdb</code></td><td>Metadata lookup and enrichment</td><td>Twitch/IGDB client ID and secret</td></tr>
+                <tr><td>RAWG</td><td><code>metadata-rawg</code></td><td>Metadata lookup and enrichment</td><td>RAWG API key</td></tr>
+                <tr><td>GOG</td><td><code>metadata-gog</code></td><td>Metadata lookup</td><td>Metadata provider</td></tr>
+                <tr><td>HowLongToBeat</td><td><code>metadata-hltb</code></td><td>Completion-time lookup</td><td>Metadata provider</td></tr>
+                <tr><td>MAME DAT</td><td><code>metadata-mame-dat</code></td><td>Arcade / MAME metadata lookup</td><td>Metadata provider</td></tr>
+                <tr><td>Steam metadata</td><td><code>metadata-steam</code></td><td>Steam metadata lookup</td><td>Works with Steam-backed catalog data</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section--alt">
+        <div class="section__inner">
+          <h2>Achievement providers</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Provider</th><th>Plugin ID(s)</th><th>What MGA uses it for</th><th>Config / notes</th></tr></thead>
+              <tbody>
+                <tr><td>Steam</td><td><code>game-source-steam</code></td><td>Steam-backed achievement progress</td><td>Steam Web API key</td></tr>
+                <tr><td>Xbox</td><td><code>game-source-xbox</code></td><td>Xbox-backed achievement progress</td><td>OAuth-backed</td></tr>
+                <tr><td>RetroAchievements</td><td><code>retroachievements</code></td><td>RetroAchievements metadata and achievements</td><td>API key and username</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__inner split-grid">
+          <div>
+            <h2>Runtime / launch providers</h2>
+            <ul class="compact-list">
+              <li>Configured browser-play surfaces for EmulatorJS</li>
+              <li>Configured browser-play surfaces for js-dos</li>
+              <li>Configured browser-play surfaces for ScummVM</li>
+              <li>Xbox-backed xCloud availability where the connected source exposes it</li>
+            </ul>
+          </div>
+          <div>
+            <h2>Storage / sync providers</h2>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Provider</th><th>Plugin ID(s)</th><th>What MGA uses it for</th><th>Config / notes</th></tr></thead>
+                <tbody>
+                  <tr><td>Local disk</td><td><code>save-sync-local-disk</code></td><td>Local save-sync target</td><td>No external service required</td></tr>
+                  <tr><td>Google Drive</td><td><code>save-sync-google-drive</code>, <code>sync-settings-google-drive</code></td><td>Save sync and settings sync</td><td>OAuth-backed</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>

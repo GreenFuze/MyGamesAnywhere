@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Install MGA | Windows portable game launcher</title>
-    <meta name="description" content="Install MyGamesAnywhere as a Windows portable local-first game launcher." />
+    <title>Install MGA | Windows portable local-first game launcher</title>
+    <meta name="description" content="Install MyGamesAnywhere as a Windows portable local-first game launcher and self-hosted game library running on 127.0.0.1." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
@@ -23,28 +23,50 @@
     </nav>
     <main>
       <section class="section">
-        <div class="section__inner">
-          <p class="eyebrow">Windows portable preview</p>
-          <h1>Install MGA without an installer.</h1>
-          <p class="section__intro">MGA v0.0.5 ships as a Windows portable ZIP. It runs locally, stores data beside the runtime, and binds to <code>127.0.0.1</code> by default.</p>
-          <ol class="steps">
-            <li>Download <code>mga-v0.0.5-windows-amd64-portable.zip</code> from <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5">GitHub Releases</a>.</li>
-            <li>Extract it into a writable folder such as <code>C:\Games\MGA</code>.</li>
-            <li>Run <code>Start MGA.cmd</code>.</li>
-            <li>Open <code>http://127.0.0.1:8080</code>.</li>
-          </ol>
-          <p class="note">Avoid extracting the portable build under <code>Program Files</code>. The current runtime writes config, database, media, and local state inside the portable folder.</p>
+        <div class="section__inner split-grid">
+          <div>
+            <p class="eyebrow">Windows portable release</p>
+            <h1>Install MGA without an installer.</h1>
+            <p class="section__intro">
+              MGA v0.0.5 ships as a Windows portable ZIP. It runs locally, stores runtime state
+              beside the portable folder, and binds to <code>127.0.0.1</code> by default.
+            </p>
+            <ol class="steps">
+              <li>Download <code>mga-v0.0.5-windows-amd64-portable.zip</code> from <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5">GitHub Releases</a>.</li>
+              <li>Extract it into a writable folder such as <code>C:\Games\MGA</code>.</li>
+              <li>Run <code>Start MGA.cmd</code>.</li>
+              <li>Open <code>http://127.0.0.1:8080</code>.</li>
+            </ol>
+          </div>
+          <aside class="aside-card">
+            <h3>Local-first runtime</h3>
+            <p>The current package behaves more like a self-hosted game library running on your own machine than a cloud-first account shell.</p>
+            <ul class="compact-list">
+              <li>local server</li>
+              <li>local database</li>
+              <li>local media cache</li>
+              <li>local config</li>
+              <li>plugin-backed integrations</li>
+            </ul>
+          </aside>
         </div>
       </section>
+
       <section class="section section--alt">
-        <div class="section__inner">
-          <h2>Upgrade policy</h2>
-          <ol class="steps">
-            <li>Stop MGA.</li>
-            <li>Back up <code>config.json</code>, <code>data/</code>, and <code>media/</code>.</li>
-            <li>Replace the bundled binaries, plugins, and frontend files with the new package.</li>
-            <li>Start MGA and verify the version in About.</li>
-          </ol>
+        <div class="section__inner split-grid">
+          <div>
+            <h2>Portable build notes</h2>
+            <p class="note">Avoid extracting the portable build under <code>Program Files</code>. The current runtime writes config, database, media, and local state inside the portable folder.</p>
+          </div>
+          <div>
+            <h2>Upgrade policy</h2>
+            <ol class="steps">
+              <li>Stop MGA.</li>
+              <li>Back up <code>config.json</code>, <code>data/</code>, and <code>media/</code>.</li>
+              <li>Replace the bundled binaries, plugins, and frontend files with the new package.</li>
+              <li>Start MGA and verify the version in About.</li>
+            </ol>
+          </div>
         </div>
       </section>
     </main>
