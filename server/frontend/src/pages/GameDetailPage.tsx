@@ -29,6 +29,7 @@ import {
   type SourceGameDetailDTO,
 } from '@/api/client'
 import { useRecentPlayed } from '@/hooks/useRecentPlayed'
+import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { BrandBadge, BrandIcon } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -554,8 +555,8 @@ function AchievementPreviewCard({ achievement }: { achievement: AchievementDTO }
   const iconUrl = achievement.unlocked ? achievement.unlocked_icon : achievement.locked_icon
 
   return (
-    <article className="overflow-hidden rounded-[22px] border border-white/10 bg-[rgba(28,26,34,0.92)] shadow-[0_14px_30px_rgba(0,0,0,0.2)]">
-      <div className="relative aspect-[16/9] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.16),transparent_52%),linear-gradient(180deg,rgba(34,44,40,0.96),rgba(22,24,30,0.98))]">
+    <article className="overflow-hidden rounded-[18px] border border-white/10 bg-[rgba(28,26,34,0.92)] shadow-[0_12px_24px_rgba(0,0,0,0.18)]">
+      <div className="relative aspect-[4/3] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.16),transparent_52%),linear-gradient(180deg,rgba(34,44,40,0.96),rgba(22,24,30,0.98))]">
         {iconUrl ? (
           <img
             src={iconUrl}
@@ -567,25 +568,25 @@ function AchievementPreviewCard({ achievement }: { achievement: AchievementDTO }
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-white/72">
-            <Trophy size={28} />
+            <Trophy size={24} />
           </div>
         )}
         {!achievement.unlocked ? (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="rounded-full bg-black/55 p-3 text-white/88">
-              <Trophy size={20} />
+            <div className="rounded-full bg-black/55 p-2.5 text-white/88">
+              <Trophy size={18} />
             </div>
           </div>
         ) : null}
       </div>
-      <div className="space-y-2 p-4">
+      <div className="space-y-2 p-3">
         <div className="flex flex-wrap items-center gap-2">
           {achievement.unlocked ? <Badge variant="accent">Unlocked</Badge> : <Badge variant="muted">Locked</Badge>}
           {achievement.points !== undefined && achievement.points > 0 ? <Badge>{achievement.points} pts</Badge> : null}
           {achievement.rarity !== undefined && achievement.rarity > 0 ? <Badge>{achievement.rarity.toFixed(1)}%</Badge> : null}
         </div>
-        <p className="line-clamp-1 text-lg font-semibold text-mga-text">{achievement.title}</p>
-        <p className="line-clamp-2 text-sm leading-6 text-mga-muted">
+        <p className="line-clamp-2 text-base font-semibold leading-5 text-mga-text">{achievement.title}</p>
+        <p className="line-clamp-2 text-xs leading-5 text-mga-muted">
           {achievement.description || (achievement.unlocked ? 'Unlocked achievement.' : 'Achievement details unavailable.')}
         </p>
       </div>
@@ -1632,16 +1633,32 @@ export function GameDetailPage() {
               <ProgressBar value={achievementPercent} label={`${achievementSummary.unlockedCount}/${achievementSummary.totalCount}`} />
               {achievementSets.map((set) => (
                 <div key={`${set.source}:${set.external_game_id}`} className="space-y-4">
-                  <div className="grid gap-4 xl:grid-cols-[minmax(220px,260px)_repeat(3,minmax(0,1fr))]">
+                  <div className="grid gap-4 xl:grid-cols-[minmax(210px,240px)_repeat(4,minmax(0,1fr))]">
                     <div className="rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(72,104,236,0.95),rgba(51,75,171,0.96))] p-5 text-white shadow-[0_18px_40px_rgba(0,0,0,0.22)]">
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap items-center gap-2">
+                      <div className="space-y-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
                           <SourceBadge source={set.source} className="border-white/20 bg-white/10 text-white" />
                           <Badge variant="muted" className="border-white/16 bg-white/10 text-white/88">{set.unlocked_count}/{set.total_count}</Badge>
+                          <AchievementProgressRing
+                            summary={{
+                              source_count: 1,
+                              total_count: set.total_count,
+                              unlocked_count: set.unlocked_count,
+                              total_points: set.total_points,
+                              earned_points: set.earned_points,
+                            }}
+                            size={72}
+                            strokeWidth={6}
+                            showLabel={false}
+                            className="text-white"
+                          />
                         </div>
                         <div className="space-y-1">
-                          <p className="text-sm font-medium text-white/84">Possible rewards</p>
-                          <p className="text-4xl font-semibold">{set.total_count}</p>
+                          <p className="text-sm font-medium text-white/84">Achievement summary</p>
+                          <p className="text-3xl font-semibold">{set.unlocked_count}/{set.total_count}</p>
+                          <p className="text-xs uppercase tracking-[0.14em] text-white/68">
+                            {Math.round(achievementProgress(set))}% complete
+                          </p>
                         </div>
                         <div className="border-t border-white/20 pt-4">
                           <p className="text-sm text-white/84">
@@ -1652,11 +1669,11 @@ export function GameDetailPage() {
                         </div>
                       </div>
                     </div>
-                    {set.achievements.slice(0, 3).map((achievement) => (
+                    {set.achievements.slice(0, 4).map((achievement) => (
                       <AchievementPreviewCard key={`${set.source}:${achievement.external_id}`} achievement={achievement} />
                     ))}
                   </div>
-                  {set.achievements.length > 3 ? (
+                  {set.achievements.length > 4 ? (
                     <details className="rounded-[22px] border border-white/8 bg-[#101622] px-4 py-3">
                       <summary className="cursor-pointer list-none text-sm font-medium text-white">
                         View all achievements ({set.achievements.length})
