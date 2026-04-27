@@ -1,12 +1,10 @@
-name: Release Windows Portable
+name: Build Windows Portable Package
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release-windows-portable:
@@ -16,18 +14,17 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Validate tag matches VERSION
+      - name: Resolve VERSION and release notes path
         id: version
         shell: pwsh
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
-          $tag = "${{ github.ref_name }}"
-          if ($tag -ne "v$version") {
-            throw "Tag '$tag' does not match VERSION '$version'."
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "VERSION must be in X.Y.Z format. Got '$version'."
           }
           "version=$version" >> $env:GITHUB_OUTPUT
-          "tag=$tag" >> $env:GITHUB_OUTPUT
-          "release_notes=docs/releases/$tag.md" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+          "release_notes=docs/releases/v$version.md" >> $env:GITHUB_OUTPUT
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -53,11 +50,10 @@ jobs:
             throw "Missing release notes file: $notes"
           }
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload portable package artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          body_path: ${{ steps.version.outputs.release_notes }}
-          files: |
+          name: mga-${{ steps.version.outputs.tag }}-windows-portable
+          path: |
             server/release/*.zip
             server/release/SHA256SUMS.txt

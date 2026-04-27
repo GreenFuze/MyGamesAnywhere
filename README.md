@@ -8,9 +8,9 @@
 
 Most launchers start from a storefront or a folder. MGA starts from the game identity. Every detected source, provider match, file location, achievement system, and runtime remains visible, so you can understand, launch, fix, and curate the game instead of trusting a hidden match.
 
-[Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5) · [View screenshots](#screenshots) · [GitHub Pages](https://greenfuze.github.io/MyGamesAnywhere/) · [GitHub](https://github.com/GreenFuze/MyGamesAnywhere) · [Public roadmap](docs/public-roadmap.md)
+[Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest) · [View screenshots](#screenshots) · [GitHub Pages](https://greenfuze.github.io/MyGamesAnywhere/) · [GitHub](https://github.com/GreenFuze/MyGamesAnywhere) · [Public roadmap](docs/public-roadmap.md)
 
-**Current release line:** `v0.0.5`  
+**Current release line:** `v0.0.6`  
 **Status:** pre-1.0, actively moving, local-first by design
 
 ![A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation](docs/screenshots/canonical-game-page.png)
@@ -221,7 +221,7 @@ TODO screenshot: capture a cross-system achievement example with Steam, Xbox, an
 
 MGA currently ships as a **Windows portable build**. It runs as a local server plus web UI on your machine and binds to `127.0.0.1` by default.
 
-1. Download the latest Windows portable ZIP from [Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.0.5)
+1. Download `mga-v0.0.6-windows-amd64-portable.zip` from [Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest)
 2. Extract it to a writable folder such as `C:\Games\MGA`
 3. Run `Start MGA.cmd`
 4. Open [http://127.0.0.1:8080](http://127.0.0.1:8080)
@@ -287,7 +287,7 @@ The important split is:
 
 ## Release And Upgrade Safety
 
-MGA carries a repository version source at [`VERSION`](VERSION). The current line is **`0.0.5`**.
+MGA carries a repository version source at [`VERSION`](VERSION). The current line is **`0.0.6`**.
 
 Upgrade policy:
 

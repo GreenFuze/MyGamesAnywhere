@@ -581,7 +581,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Investigate MAME launch failures that report `ROMSET not recognized` and lock the runner contract down with focused proof.
 - [x] RetroAchievements remains vulnerable to Cloudflare blocking in some environments; determine whether MGA can use a more compatible upstream access pattern without misclassifying auth/config failures.
 - [x] Package MGA for real distribution (Windows/Linux/macOS and/or Docker) with an installer/start path that does not require source checkout.
-  - 2026-04-23 follow-up: Windows-first portable ZIP packaging, bootstrap verification scripts, and a tag-driven GitHub Release workflow are now in-repo. Cross-platform installers and non-Windows packaging remain future work.
+  - 2026-04-23 follow-up: Windows-first portable ZIP packaging, bootstrap verification scripts, and a version/tag-based release flow are now in-repo. Cross-platform installers and non-Windows packaging remain future work.
 - [x] Refresh `README.md` into a user-facing landing document with quick start, screenshots, packaging/install guidance, and feature overview.
 - [ ] Add multi-user / user management for MGA (on server-side).
   - [ ] Web-client frontend should support users + user management in settings

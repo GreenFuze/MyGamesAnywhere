@@ -34,7 +34,14 @@ Every tagged release should include:
 4. upgrade notes if runtime layout, schema, or sync behavior changed
 5. packaged artifacts once packaging lands
 
-The current public release flow is a tag-triggered GitHub Release for Windows portable artifacts.
+The current public release flow is:
+
+1. bump `VERSION`
+2. build the portable package locally with `./server/package-portable.ps1`
+3. create an annotated Git tag in the form `vX.Y.Z`
+4. publish the GitHub Release manually with `gh release create --latest`
+
+GitHub Actions remains available as an opt-in packaging helper via manual workflow dispatch, but it no longer publishes releases automatically from pushed tags.
 
 ## Upgrade policy
 
