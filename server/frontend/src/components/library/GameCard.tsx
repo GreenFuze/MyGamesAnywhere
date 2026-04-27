@@ -10,6 +10,7 @@ import { useTheme } from '@/theme/ThemeProvider'
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { useGameFavoriteAction } from '@/hooks/useGameFavorite'
 import {
   isPlayable,
   preferredSecondaryText,
@@ -86,6 +87,32 @@ function CardActionButton({ label, onClick, icon, variant = 'secondary' }: CardA
   )
 }
 
+interface FavoriteToggleButtonProps {
+  favorite: boolean
+  busy: boolean
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void
+}
+
+function FavoriteToggleButton({ favorite, busy, onClick }: FavoriteToggleButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      className={cn(
+        'pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-[14px] border text-lg shadow-[0_8px_24px_rgba(0,0,0,0.28)] backdrop-blur transition-colors disabled:cursor-wait disabled:opacity-70',
+        favorite
+          ? 'border-rose-300/60 bg-rose-500/18 text-rose-100 hover:bg-rose-500/24'
+          : 'border-white/12 bg-black/52 text-white hover:bg-white/12',
+      )}
+      aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}
+      title={favorite ? 'Remove from favorites' : 'Add to favorites'}
+    >
+      <span aria-hidden="true">{favorite ? '💖' : '♡'}</span>
+    </button>
+  )
+}
+
 export function GameCard({ game, hoverAction, variant = 'library' }: GameCardProps) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -100,6 +127,7 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
   const [overlayVisible, setOverlayVisible] = useState(false)
   const [desktopHoverEnabled, setDesktopHoverEnabled] = useState(false)
   const [overlayLayout, setOverlayLayout] = useState<OverlayLayout | null>(null)
+  const { setFavorite, isPendingFor } = useGameFavoriteAction()
   const coverUrl = selectCoverUrl(game.media, game.cover_override)
   const previewUrl = selectPreviewImageUrl(game.media, game.cover_override, game.hover_override)
   const overlayMediaUrl = previewUrl ?? coverUrl
@@ -110,6 +138,7 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
   const canOpenStream = !playable && typeof game.xcloud_url === 'string' && game.xcloud_url.length > 0
   const primaryActionLabel = playable ? 'Play' : canOpenStream ? 'Open' : 'Details'
   const isPlayVariant = variant === 'play'
+  const favoriteBusy = isPendingFor(game.id)
 
   const routeState = useMemo(
     () => buildGameRouteState(location.pathname, location.search),
@@ -290,6 +319,14 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
     })
   }
 
+  const toggleFavorite = async (event: MouseEvent<HTMLButtonElement>) => {
+    stopCardClick(event)
+    await setFavorite({
+      gameId: game.id,
+      favorite: !game.favorite,
+    })
+  }
+
   const badgeRow = (
     <>
       {game.xcloud_available && <StatusBadge kind="xcloud" />}
@@ -383,7 +420,10 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
                 )}
               >
                 <div className="flex max-w-[calc(100%-3rem)] flex-wrap gap-1.5">{badgeRow}</div>
-                {hoverAction && <div className="pointer-events-auto shrink-0">{hoverAction}</div>}
+                <div className="pointer-events-auto flex shrink-0 items-center gap-2">
+                  {hoverAction}
+                  <FavoriteToggleButton favorite={game.favorite} busy={favoriteBusy} onClick={(event) => void toggleFavorite(event)} />
+                </div>
               </div>
             </div>
 

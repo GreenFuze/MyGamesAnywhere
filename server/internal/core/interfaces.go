@@ -194,6 +194,12 @@ type GameStore interface {
 
 	// SetCanonicalBackgroundOverride pins one existing media asset as the canonical background image.
 	SetCanonicalBackgroundOverride(ctx context.Context, canonicalID string, mediaAssetID int) error
+
+	// SetCanonicalFavorite marks one canonical game as a favorite.
+	SetCanonicalFavorite(ctx context.Context, canonicalID string) error
+
+	// ClearCanonicalFavorite removes one canonical game from favorites.
+	ClearCanonicalFavorite(ctx context.Context, canonicalID string) error
 }
 
 // SyncService handles push/pull settings synchronisation to a remote store.

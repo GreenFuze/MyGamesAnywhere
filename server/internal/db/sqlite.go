@@ -197,6 +197,10 @@ func (s *sqliteDatabase) EnsureSchema() error {
 			media_asset_id INTEGER NOT NULL REFERENCES media_assets(id),
 			updated_at INTEGER NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS canonical_game_favorites (
+			canonical_id TEXT PRIMARY KEY REFERENCES canonical_games(id) ON DELETE CASCADE,
+			updated_at INTEGER NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS achievement_sets (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			source_game_id TEXT NOT NULL REFERENCES source_games(id),

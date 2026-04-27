@@ -12,6 +12,7 @@ import (
 type GameDetailResponse struct {
 	ID                 string                 `json:"id"`
 	Title              string                 `json:"title"`
+	Favorite           bool                   `json:"favorite"`
 	Platform           string                 `json:"platform"`
 	Kind               string                 `json:"kind"`
 	GroupKind          string                 `json:"group_kind,omitempty"`
@@ -115,6 +116,7 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 	out := GameDetailResponse{
 		ID:              cg.ID,
 		Title:           cg.Title,
+		Favorite:        cg.Favorite,
 		Platform:        string(cg.Platform),
 		Kind:            string(cg.Kind),
 		Description:     cg.Description,

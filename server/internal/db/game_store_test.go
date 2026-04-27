@@ -2129,6 +2129,71 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
+func TestCanonicalFavoritesPersistAndCascade(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	persistBatch(t, ctx, store, makeTestBatch("integration-1", "scan:favorite-a", "favorite-a", "Favorite A", "match-favorite-a"))
+	canonicalID := canonicalIDForSource(t, ctx, db, "scan:favorite-a")
+
+	game, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil {
+		t.Fatal("expected canonical game")
+	}
+	if game.Favorite {
+		t.Fatal("favorite should default to false")
+	}
+
+	if err := store.SetCanonicalFavorite(ctx, canonicalID); err != nil {
+		t.Fatalf("SetCanonicalFavorite: %v", err)
+	}
+
+	game, err = store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil || !game.Favorite {
+		t.Fatalf("favorite = %+v, want true", game)
+	}
+
+	games, err := store.GetCanonicalGamesByIDs(ctx, []string{canonicalID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(games) != 1 || games[0] == nil || !games[0].Favorite {
+		t.Fatalf("games favorite = %+v, want one favorite game", games)
+	}
+
+	if err := store.ClearCanonicalFavorite(ctx, canonicalID); err != nil {
+		t.Fatalf("ClearCanonicalFavorite: %v", err)
+	}
+
+	game, err = store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil || game.Favorite {
+		t.Fatalf("favorite after clear = %+v, want false", game)
+	}
+
+	if err := store.SetCanonicalFavorite(ctx, canonicalID); err != nil {
+		t.Fatalf("SetCanonicalFavorite second time: %v", err)
+	}
+	if _, err := db.GetDB().ExecContext(ctx, `DELETE FROM canonical_games WHERE id = ?`, canonicalID); err != nil {
+		t.Fatalf("delete canonical game: %v", err)
+	}
+	var favoriteCount int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM canonical_game_favorites WHERE canonical_id = ?`, canonicalID).Scan(&favoriteCount); err != nil {
+		t.Fatal(err)
+	}
+	if favoriteCount != 0 {
+		t.Fatalf("favorite row count after canonical delete = %d, want 0", favoriteCount)
+	}
+}
+
 func TestDeleteSourceGameByIDKeepsSiblingSourceRecordsAndRecomputesCanonical(t *testing.T) {
 	ctx := context.Background()
 	db, store := newTestGameStore(t)

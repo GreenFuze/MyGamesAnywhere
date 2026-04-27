@@ -438,6 +438,56 @@ func (c *GameController) SetBackgroundOverride(w http.ResponseWriter, r *http.Re
 	json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx)))
 }
 
+func (c *GameController) SetFavorite(w http.ResponseWriter, r *http.Request) {
+	id, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	if err := c.gameStore.SetCanonicalFavorite(ctx, id); err != nil {
+		c.writeFavoriteError(w, err)
+		return
+	}
+	game, err := c.gameStore.GetCanonicalGameByID(ctx, id)
+	if err != nil {
+		c.logger.Error("get game after set favorite", err, "game_id", id)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if game == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx)))
+}
+
+func (c *GameController) ClearFavorite(w http.ResponseWriter, r *http.Request) {
+	id, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	if err := c.gameStore.ClearCanonicalFavorite(ctx, id); err != nil {
+		c.writeFavoriteError(w, err)
+		return
+	}
+	game, err := c.gameStore.GetCanonicalGameByID(ctx, id)
+	if err != nil {
+		c.logger.Error("get game after clear favorite", err, "game_id", id)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if game == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx)))
+}
+
 func (c *GameController) writeCoverOverrideError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, core.ErrCanonicalGameNotFound):
@@ -470,6 +520,16 @@ func (c *GameController) writeBackgroundOverrideError(w http.ResponseWriter, err
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 	default:
 		c.logger.Error("background override failed", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (c *GameController) writeFavoriteError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, core.ErrCanonicalGameNotFound):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	default:
+		c.logger.Error("favorite update failed", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

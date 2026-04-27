@@ -1,12 +1,12 @@
 import { ChevronRight } from 'lucide-react'
-import type { CollectionSectionConfig, GameDetailResponse } from '@/api/client'
+import type { GameDetailResponse } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SectionPreviewShelf } from '@/components/library/SectionPreviewShelf'
-import { filterGamesBySection } from '@/lib/collectionSections'
+import { filterGamesBySection, type RuntimeCollectionSectionConfig } from '@/lib/collectionSections'
 
 interface CollectionShelfProps {
-  sections: CollectionSectionConfig[]
+  sections: RuntimeCollectionSectionConfig[]
   onOpenSection: (id: string) => void
   onRemoveSection: (id: string) => void
   games: GameDetailResponse[]
@@ -79,11 +79,13 @@ export function CollectionShelf({
                 <Badge variant="accent">{sectionGames.length}</Badge>
               </button>
 
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={() => onRemoveSection(section.id)}>
-                  Remove
-                </Button>
-              </div>
+              {section.kind !== 'favorites' ? (
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => onRemoveSection(section.id)}>
+                    Remove
+                  </Button>
+                </div>
+              ) : null}
             </div>
 
             <SectionPreviewShelf

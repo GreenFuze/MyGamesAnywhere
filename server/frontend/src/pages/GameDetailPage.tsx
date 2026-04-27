@@ -28,6 +28,7 @@ import {
   type ResolverMatchDTO,
   type SourceGameDetailDTO,
 } from '@/api/client'
+import { useGameFavoriteAction } from '@/hooks/useGameFavorite'
 import { useRecentPlayed } from '@/hooks/useRecentPlayed'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { BrandBadge, BrandIcon } from '@/components/ui/brand-icon'
@@ -473,6 +474,37 @@ function HeroActionButton({
       )}
     >
       {children}
+    </button>
+  )
+}
+
+function FavoriteActionButton({
+  favorite,
+  busy,
+  onClick,
+  className,
+}: {
+  favorite: boolean
+  busy: boolean
+  onClick: () => void
+  className?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}
+      title={favorite ? 'Remove from favorites' : 'Add to favorites'}
+      className={cn(
+        'inline-flex h-11 w-11 items-center justify-center rounded-[15px] border text-lg transition-colors disabled:cursor-wait disabled:opacity-60',
+        favorite
+          ? 'border-rose-300/60 bg-rose-500/18 text-rose-100 hover:bg-rose-500/24'
+          : 'border-white/[0.08] bg-[#101620] text-white hover:bg-white/[0.06]',
+        className,
+      )}
+    >
+      <span aria-hidden="true">{favorite ? '💖' : '♡'}</span>
     </button>
   )
 }
@@ -1011,6 +1043,7 @@ export function GameDetailPage() {
   const location = useLocation()
   const { id = '' } = useParams()
   const queryClient = useQueryClient()
+  const { setFavorite, isPendingFor } = useGameFavoriteAction()
   const { recordLaunch } = useRecentPlayed()
   const [selectedMedia, setSelectedMedia] = useState<GameMediaDetailDTO | null>(null)
   const [refreshBusy, setRefreshBusy] = useState(false)
@@ -1213,6 +1246,14 @@ export function GameDetailPage() {
     navigate({ pathname: '/settings', search: params.toString() })
   }
 
+  const handleToggleFavorite = async () => {
+    if (!game.data) return
+    await setFavorite({
+      gameId: game.data.id,
+      favorite: !game.data.favorite,
+    })
+  }
+
   const handleRefreshMetadata = async () => {
     if (!game.data || refreshBusy) return
     setRefreshBusy(true)
@@ -1311,6 +1352,7 @@ export function GameDetailPage() {
   }
 
   const data = game.data
+  const favoriteBusy = isPendingFor(data.id)
   const achievementPercent = achievementSummary.totalCount > 0 ? (achievementSummary.unlockedCount / achievementSummary.totalCount) * 100 : 0
   return (
     <div className="w-full space-y-8 pb-32 md:pb-36">
@@ -1443,6 +1485,11 @@ export function GameDetailPage() {
                     Play xCloud
                   </a>
                 ) : null}
+                <FavoriteActionButton
+                  favorite={data.favorite}
+                  busy={favoriteBusy}
+                  onClick={() => void handleToggleFavorite()}
+                />
                 <HeroOverflowMenu onRefresh={handleRefreshMetadata} onReclassify={handleReclassify} refreshBusy={refreshBusy} />
               </div>
 
@@ -1808,6 +1855,11 @@ export function GameDetailPage() {
                 Play xCloud
               </a>
             ) : null}
+            <FavoriteActionButton
+              favorite={data.favorite}
+              busy={favoriteBusy}
+              onClick={() => void handleToggleFavorite()}
+            />
             <HeroOverflowMenu direction="up" onRefresh={handleRefreshMetadata} onReclassify={handleReclassify} refreshBusy={refreshBusy} />
           </div>
         </div>

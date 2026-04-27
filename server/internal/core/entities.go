@@ -327,6 +327,7 @@ type CanonicalGame struct {
 	SourceGames []*SourceGame
 
 	// Unified fields (computed, not persisted).
+	Favorite           bool
 	Title              string
 	Platform           Platform
 	Kind               GameKind

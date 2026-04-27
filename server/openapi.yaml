@@ -435,6 +435,32 @@ paths:
         500:
           description: Internal server error
 
+  /api/games/{id}/favorite:
+    delete:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    put:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/games/{id}/hover-override:
     put:
       parameters:

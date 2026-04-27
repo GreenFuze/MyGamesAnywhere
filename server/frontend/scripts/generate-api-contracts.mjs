@@ -14,6 +14,7 @@ for (const requiredPath of [
   "/api/achievements",
   "/api/achievements/explorer",
   "/api/games/{id}/cover-override",
+  "/api/games/{id}/favorite",
   "/api/review-candidates/redetect",
   "/api/review-candidates/{id}/redetect",
 ]) {
@@ -81,6 +82,7 @@ export type FrontendConfig = {
   playPrefs?: LibraryPrefs;
   dateFormat?: DateFormat;
   timeFormat?: TimeFormat;
+  gameDetailAutoplayMedia?: boolean;
   saveSyncActiveIntegrationId?: string;
   recentPlayed?: RecentPlayedEntry[];
   [key: string]: unknown;

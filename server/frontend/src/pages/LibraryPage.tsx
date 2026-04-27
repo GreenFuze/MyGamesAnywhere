@@ -12,7 +12,12 @@ import { GameGrid } from '@/components/library/GameGrid'
 import { SectionPickerDialog } from '@/components/library/SectionPickerDialog'
 import { Button } from '@/components/ui/button'
 import { useRecentPlayed } from '@/hooks/useRecentPlayed'
-import { filterGamesBySection, sanitizeSections } from '@/lib/collectionSections'
+import {
+  createFavoritesSection,
+  filterGamesBySection,
+  sanitizeSections,
+  type RuntimeCollectionSectionConfig,
+} from '@/lib/collectionSections'
 import {
   applyScopeFilter,
   DEFAULT_FILTER_STATE,
@@ -26,7 +31,7 @@ import {
   rememberRouteScroll,
   shouldRestoreRouteScroll,
 } from '@/lib/gameNavigation'
-import type { CollectionSectionConfig, GameDetailResponse } from '@/api/client'
+import type { GameDetailResponse } from '@/api/client'
 
 // ---------------------------------------------------------------------------
 // Section metadata
@@ -162,11 +167,20 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   const scopeGames = useMemo(() => applyScopeFilter(allGames, scope), [allGames, scope])
   const basePath = scopeBasePath(scope)
   const sanitizedSections = useMemo(() => sanitizeSections(prefs.sections), [prefs.sections])
-  const focusedSection = useMemo<CollectionSectionConfig | null>(() => {
+  const computedSections = useMemo<RuntimeCollectionSectionConfig[]>(() => {
+    if (!scopeGames.some((game) => game.favorite)) return []
+    return [createFavoritesSection()]
+  }, [scopeGames])
+  const runtimeSections = useMemo<RuntimeCollectionSectionConfig[]>(
+    () => [...computedSections, ...sanitizedSections],
+    [computedSections, sanitizedSections],
+  )
+  const focusedSection = useMemo<RuntimeCollectionSectionConfig | null>(() => {
     if (!sectionId) return null
-    return sanitizedSections.find((section) => section.id === sectionId) ?? null
-  }, [sanitizedSections, sectionId])
+    return runtimeSections.find((section) => section.id === sectionId) ?? null
+  }, [runtimeSections, sectionId])
   const focusState = useMemo(() => readFocusRouteState(location.state), [location.state])
+  const favoritesAvailableInScope = computedSections.length > 0
 
   const filteredScopeGames = useMemo(() => {
     if (!focusedSection) return scopeGames
@@ -353,15 +367,31 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         </div>
       ) : (
         <div className="space-y-6">
-          <RecentPlayedShelf games={recentPlayedGames} onRemove={removeRecentPlayed} />
-          <CollectionShelf
-            sections={prefs.sections}
-            onOpenSection={openSection}
-            onRemoveSection={handleRemoveSection}
-            games={displayedGames}
-            isLoading={isPending}
-            scope={scope}
-          />
+          {scope === 'play' && favoritesAvailableInScope ? (
+            <>
+              <CollectionShelf
+                sections={runtimeSections}
+                onOpenSection={openSection}
+                onRemoveSection={handleRemoveSection}
+                games={displayedGames}
+                isLoading={isPending}
+                scope={scope}
+              />
+              <RecentPlayedShelf games={recentPlayedGames} onRemove={removeRecentPlayed} />
+            </>
+          ) : (
+            <>
+              <RecentPlayedShelf games={recentPlayedGames} onRemove={removeRecentPlayed} />
+              <CollectionShelf
+                sections={runtimeSections}
+                onOpenSection={openSection}
+                onRemoveSection={handleRemoveSection}
+                games={displayedGames}
+                isLoading={isPending}
+                scope={scope}
+              />
+            </>
+          )}
           {showLibraryShelfAddButton && (
             <div className="flex justify-center">
               <Button

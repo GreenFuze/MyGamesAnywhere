@@ -12,6 +12,14 @@ export type SectionOption = {
   count: number
 }
 
+export type FavoritesSectionConfig = {
+  id: 'favorites'
+  kind: 'favorites'
+  label: 'Favorites'
+}
+
+export type RuntimeCollectionSectionConfig = CollectionSectionConfig | FavoritesSectionConfig
+
 const FIELD_LABELS: Record<CollectionSectionField, string> = {
   platform: 'Platform',
   genre: 'Genre',
@@ -23,6 +31,10 @@ const FIELD_LABELS: Record<CollectionSectionField, string> = {
 
 export function createAllGamesSection(): CollectionSectionConfig {
   return { id: 'all-games', kind: 'all', label: 'All Games' }
+}
+
+export function createFavoritesSection(): FavoritesSectionConfig {
+  return { id: 'favorites', kind: 'favorites', label: 'Favorites' }
 }
 
 export function defaultSections(): CollectionSectionConfig[] {
@@ -93,8 +105,11 @@ export function sanitizeSections(raw: unknown): CollectionSectionConfig[] {
 
 export function filterGamesBySection(
   games: GameDetailResponse[],
-  section: CollectionSectionConfig,
+  section: RuntimeCollectionSectionConfig,
 ): GameDetailResponse[] {
+  if (section.kind === 'favorites') {
+    return games.filter((game) => game.favorite)
+  }
   if (section.kind === 'all') return games
 
   switch (section.field) {

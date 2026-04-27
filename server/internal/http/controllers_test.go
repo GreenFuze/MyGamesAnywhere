@@ -285,6 +285,75 @@ func TestGameControllerBackgroundOverrideReturnsUpdatedGame(t *testing.T) {
 	}
 }
 
+func TestGameControllerSetFavoriteReturnsUpdatedGame(t *testing.T) {
+	store := &fakeGameStore{game: &core.CanonicalGame{
+		ID:       "game-1",
+		Title:    "Game One",
+		Favorite: false,
+	}}
+	controller := NewGameController(store, nil, nil, nil, nil, noopLogger{})
+	router := chi.NewRouter()
+	router.Put("/api/games/{id}/favorite", controller.SetFavorite)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/games/game-1/favorite", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if store.setFavoriteID != "game-1" {
+		t.Fatalf("favorite call = %q, want game-1", store.setFavoriteID)
+	}
+	var resp GameDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Favorite {
+		t.Fatalf("favorite = %v, want true", resp.Favorite)
+	}
+}
+
+func TestGameControllerClearFavoriteReturnsUpdatedGame(t *testing.T) {
+	store := &fakeGameStore{game: &core.CanonicalGame{
+		ID:       "game-1",
+		Title:    "Game One",
+		Favorite: true,
+	}}
+	controller := NewGameController(store, nil, nil, nil, nil, noopLogger{})
+	router := chi.NewRouter()
+	router.Delete("/api/games/{id}/favorite", controller.ClearFavorite)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/games/game-1/favorite", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if store.clearFavoriteID != "game-1" {
+		t.Fatalf("clear favorite call = %q, want game-1", store.clearFavoriteID)
+	}
+	var resp GameDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Favorite {
+		t.Fatalf("favorite = %v, want false", resp.Favorite)
+	}
+}
+
+func TestGameControllerSetFavoriteReturnsNotFoundForUnknownGame(t *testing.T) {
+	controller := NewGameController(&fakeGameStore{}, nil, nil, nil, nil, noopLogger{})
+	router := chi.NewRouter()
+	router.Put("/api/games/{id}/favorite", controller.SetFavorite)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/games/missing/favorite", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
 func TestGameControllerAchievementsDashboardReturnsCachedOnlySummary(t *testing.T) {
 	store := &fakeGameStore{achievementDashboard: &core.CachedAchievementsDashboard{
 		Totals: core.AchievementSummary{SourceCount: 1, TotalCount: 10, UnlockedCount: 4},
@@ -619,19 +688,21 @@ type fakePluginCall struct {
 }
 
 type fakeGameStore struct {
-	game                   *core.CanonicalGame
-	cached                 []cachedAchievementCall
-	achievementDashboard   *core.CachedAchievementsDashboard
-	achievementExplorer    *core.CachedAchievementsExplorer
-	setCoverOverrideID     string
-	setCoverOverrideAsset  int
-	setHoverOverrideID     string
-	setHoverOverrideAsset  int
+	game                       *core.CanonicalGame
+	cached                     []cachedAchievementCall
+	achievementDashboard       *core.CachedAchievementsDashboard
+	achievementExplorer        *core.CachedAchievementsExplorer
+	setFavoriteID              string
+	clearFavoriteID            string
+	setCoverOverrideID         string
+	setCoverOverrideAsset      int
+	setHoverOverrideID         string
+	setHoverOverrideAsset      int
 	setBackgroundOverrideID    string
 	setBackgroundOverrideAsset int
-	clearCoverOverrideID   string
-	manualReviewCandidates []*core.ManualReviewCandidate
-	manualReviewByID       map[string]*core.ManualReviewCandidate
+	clearCoverOverrideID       string
+	manualReviewCandidates     []*core.ManualReviewCandidate
+	manualReviewByID           map[string]*core.ManualReviewCandidate
 }
 
 func (f *fakeGameStore) PersistScanResults(context.Context, *core.ScanBatch) error {
@@ -801,6 +872,26 @@ func (f *fakeGameStore) SetCanonicalHoverOverride(_ context.Context, canonicalID
 func (f *fakeGameStore) SetCanonicalBackgroundOverride(_ context.Context, canonicalID string, mediaAssetID int) error {
 	f.setBackgroundOverrideID = canonicalID
 	f.setBackgroundOverrideAsset = mediaAssetID
+	return nil
+}
+func (f *fakeGameStore) SetCanonicalFavorite(_ context.Context, canonicalID string) error {
+	f.setFavoriteID = canonicalID
+	if f.game == nil {
+		return core.ErrCanonicalGameNotFound
+	}
+	if f.game != nil {
+		f.game.Favorite = true
+	}
+	return nil
+}
+func (f *fakeGameStore) ClearCanonicalFavorite(_ context.Context, canonicalID string) error {
+	f.clearFavoriteID = canonicalID
+	if f.game == nil {
+		return core.ErrCanonicalGameNotFound
+	}
+	if f.game != nil {
+		f.game.Favorite = false
+	}
 	return nil
 }
 func (f *fakeGameStore) ClearCanonicalCoverOverride(_ context.Context, canonicalID string) error {

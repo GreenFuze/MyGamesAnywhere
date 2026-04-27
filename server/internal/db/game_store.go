@@ -435,6 +435,45 @@ func (s *gameStore) SetCanonicalBackgroundOverride(ctx context.Context, canonica
 	return err
 }
 
+func (s *gameStore) SetCanonicalFavorite(ctx context.Context, canonicalID string) error {
+	if strings.TrimSpace(canonicalID) == "" {
+		return core.ErrCanonicalGameNotFound
+	}
+	exists, err := s.canonicalGameExists(ctx, canonicalID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return core.ErrCanonicalGameNotFound
+	}
+	_, err = s.db.GetDB().ExecContext(ctx, `
+		INSERT INTO canonical_game_favorites (canonical_id, updated_at)
+		VALUES (?, ?)
+		ON CONFLICT(canonical_id) DO UPDATE SET updated_at=excluded.updated_at`,
+		canonicalID, time.Now().Unix())
+	return err
+}
+
+func (s *gameStore) ClearCanonicalFavorite(ctx context.Context, canonicalID string) error {
+	if strings.TrimSpace(canonicalID) == "" {
+		return core.ErrCanonicalGameNotFound
+	}
+	res, err := s.db.GetDB().ExecContext(ctx, `DELETE FROM canonical_game_favorites WHERE canonical_id=?`, canonicalID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		exists, err := s.canonicalGameExists(ctx, canonicalID)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return core.ErrCanonicalGameNotFound
+		}
+	}
+	return nil
+}
+
 func (s *gameStore) UpdateMediaAsset(ctx context.Context, assetID int, localPath, hash string) error {
 	if assetID <= 0 {
 		return fmt.Errorf("assetID must be positive")
@@ -2838,6 +2877,11 @@ func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonica
 	if err := s.ensureCanonicalMediaOverrides(ctx, cg); err != nil {
 		return nil, err
 	}
+	favorite, err := s.loadCanonicalFavorite(ctx, db, canonicalID)
+	if err != nil {
+		return nil, err
+	}
+	cg.Favorite = favorite
 
 	// Load external IDs.
 	eids, err := s.GetExternalIDsForCanonical(ctx, canonicalID)
@@ -2967,6 +3011,14 @@ func (s *gameStore) loadCanonicalBackgroundOverride(ctx context.Context, db *sql
 	ref.Hash = h.String
 	ref.MimeType = mt.String
 	return &ref, nil
+}
+
+func (s *gameStore) loadCanonicalFavorite(ctx context.Context, db *sql.DB, canonicalID string) (bool, error) {
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM canonical_game_favorites WHERE canonical_id=?`, canonicalID).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (s *gameStore) ensureCanonicalMediaOverrides(ctx context.Context, cg *core.CanonicalGame) error {

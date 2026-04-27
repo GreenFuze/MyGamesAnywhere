@@ -224,6 +224,7 @@ export type CompletionTime = {
 export type GameDetailResponse = {
   id: string;
   title: string;
+  favorite: boolean;
   platform: string;
   kind: string;
   group_kind?: string;
@@ -402,6 +403,25 @@ export async function setGameBackgroundOverride(
     `/api/games/${encodeURIComponent(id)}/background-override`,
     { media_asset_id: mediaAssetId },
   );
+}
+
+export async function setGameFavorite(id: string): Promise<GameDetailResponse> {
+  return putJson<GameDetailResponse>(
+    `/api/games/${encodeURIComponent(id)}/favorite`,
+    {},
+  );
+}
+
+export async function clearGameFavorite(id: string): Promise<GameDetailResponse> {
+  const path = `/api/games/${encodeURIComponent(id)}/favorite`;
+  const res = await fetch(`${base}${path}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw await buildApiError(path, res);
+  }
+  return res.json() as Promise<GameDetailResponse>;
 }
 
 export async function updateMediaAssetMetadata(
