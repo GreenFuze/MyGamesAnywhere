@@ -2170,6 +2170,149 @@ func TestPersistScanResultsExplicitEmptyEntriesClearStaleMetadataAndMedia(t *tes
 	}
 }
 
+func TestGetSourceGamesForCanonicalLoadsMedia(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	sourceGame := &core.SourceGame{
+		ID:            "scan:xbox-media",
+		IntegrationID: "integration-1",
+		PluginID:      "game-source-xbox",
+		ExternalID:    "xbox-final-fantasy",
+		RawTitle:      "Final Fantasy",
+		Platform:      core.PlatformWindowsPC,
+		Kind:          core.GameKindBaseGame,
+		GroupKind:     core.GroupKindSelfContained,
+		Status:        "found",
+	}
+
+	persistBatch(t, ctx, store, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames:   []*core.SourceGame{sourceGame},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			sourceGame.ID: {{
+				PluginID:   "game-source-xbox",
+				Title:      "Final Fantasy",
+				ExternalID: "xbox-final-fantasy",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			sourceGame.ID: {{
+				Type:   core.MediaTypeCover,
+				URL:    "https://example.com/xbox-cover.jpg",
+				Source: "game-source-xbox",
+				Width:  600,
+				Height: 800,
+			}},
+		},
+	})
+
+	canonicalID := canonicalIDForSource(t, ctx, db, sourceGame.ID)
+	sourceGames, err := store.GetSourceGamesForCanonical(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sourceGames) != 1 {
+		t.Fatalf("source game count = %d, want 1", len(sourceGames))
+	}
+	if len(sourceGames[0].Media) != 1 {
+		t.Fatalf("media count = %d, want 1", len(sourceGames[0].Media))
+	}
+	ref := sourceGames[0].Media[0]
+	if ref.URL != "https://example.com/xbox-cover.jpg" || ref.Source != "game-source-xbox" || ref.Width != 600 || ref.Height != 800 {
+		t.Fatalf("loaded media = %+v, want xbox cover with dimensions", ref)
+	}
+}
+
+func TestPersistMetadataRefreshPreservesXboxSourceRowsAndClearsStaleMetadataRows(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	sourceGame := &core.SourceGame{
+		ID:            "scan:xbox-refresh",
+		IntegrationID: "integration-1",
+		PluginID:      "game-source-xbox",
+		ExternalID:    "xbox-final-fantasy",
+		RawTitle:      "Final Fantasy",
+		Platform:      core.PlatformWindowsPC,
+		Kind:          core.GameKindBaseGame,
+		GroupKind:     core.GroupKindSelfContained,
+		Status:        "found",
+	}
+	xboxMatch := core.ResolverMatch{
+		PluginID:        "game-source-xbox",
+		Title:           "Final Fantasy",
+		ExternalID:      "xbox-final-fantasy",
+		IsGamePass:      true,
+		XcloudAvailable: true,
+		StoreProductID:  "9NFINALFANTASY",
+		XcloudURL:       "https://www.xbox.com/play/games/final-fantasy/9NFINALFANTASY",
+	}
+	xboxMedia := core.MediaRef{
+		Type:   core.MediaTypeCover,
+		URL:    "https://example.com/xbox-cover.jpg",
+		Source: "game-source-xbox",
+	}
+
+	persistBatch(t, ctx, store, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames:   []*core.SourceGame{sourceGame},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			sourceGame.ID: {
+				xboxMatch,
+				{PluginID: "metadata-igdb", Title: "Final Fantasy 2.0", ExternalID: "igdb-stale"},
+			},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			sourceGame.ID: {
+				xboxMedia,
+				{Type: core.MediaTypeScreenshot, URL: "https://example.com/igdb-stale.png", Source: "metadata-igdb"},
+			},
+		},
+	})
+
+	persistBatch(t, ctx, store, &core.ScanBatch{
+		IntegrationID:        "integration-1",
+		SourceGames:          []*core.SourceGame{sourceGame},
+		ResolverMatches:      map[string][]core.ResolverMatch{sourceGame.ID: {xboxMatch}},
+		MediaItems:           map[string][]core.MediaRef{sourceGame.ID: {xboxMedia}},
+		SkipMissingReconcile: true,
+	})
+
+	var igdbMatchCount int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM metadata_resolver_matches WHERE source_game_id = ? AND plugin_id = ?`, sourceGame.ID, "metadata-igdb").Scan(&igdbMatchCount); err != nil {
+		t.Fatal(err)
+	}
+	if igdbMatchCount != 0 {
+		t.Fatalf("igdb match count = %d, want 0", igdbMatchCount)
+	}
+
+	canonicalID := canonicalIDForSource(t, ctx, db, sourceGame.ID)
+	game, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil {
+		t.Fatal("expected canonical game")
+	}
+	if !game.IsGamePass || !game.XcloudAvailable || game.StoreProductID != "9NFINALFANTASY" || game.XcloudURL != "https://www.xbox.com/play/games/final-fantasy/9NFINALFANTASY" {
+		t.Fatalf("xbox fields were not preserved: is_game_pass=%v xcloud=%v product=%q url=%q", game.IsGamePass, game.XcloudAvailable, game.StoreProductID, game.XcloudURL)
+	}
+
+	foundXboxMedia := false
+	for _, ref := range game.Media {
+		if ref.Source == "metadata-igdb" {
+			t.Fatalf("stale metadata media was preserved: %+v", ref)
+		}
+		if ref.Source == "game-source-xbox" && ref.URL == xboxMedia.URL {
+			foundXboxMedia = true
+		}
+	}
+	if !foundXboxMedia {
+		t.Fatalf("xbox media not found in canonical media: %+v", game.Media)
+	}
+}
+
 func canonicalIDForSource(t *testing.T, ctx context.Context, db *sqliteDatabase, sourceGameID string) string {
 	t.Helper()
 

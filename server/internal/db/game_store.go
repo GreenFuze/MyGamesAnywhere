@@ -2807,7 +2807,43 @@ func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string)
 		sg.ResolverMatches = append(sg.ResolverMatches, m)
 	}
 
+	media, err := s.loadSourceGameMedia(ctx, db, sgID)
+	if err != nil {
+		return nil, err
+	}
+	sg.Media = media
+
 	return &sg, nil
+}
+
+func (s *gameStore) loadSourceGameMedia(ctx context.Context, db *sql.DB, sgID string) ([]core.MediaRef, error) {
+	mediaRows, err := db.QueryContext(ctx, `SELECT ma.id, ma.url, ma.local_path, ma.hash, ma.mime_type, sgm.type, sgm.source, ma.width, ma.height
+		FROM source_game_media sgm
+		JOIN media_assets ma ON ma.id = sgm.media_asset_id
+		WHERE sgm.source_game_id=?
+		ORDER BY ma.id`, sgID)
+	if err != nil {
+		return nil, err
+	}
+	defer mediaRows.Close()
+
+	var refs []core.MediaRef
+	for mediaRows.Next() {
+		var ref core.MediaRef
+		var src, lp, h, mt sql.NullString
+		if err := mediaRows.Scan(&ref.AssetID, &ref.URL, &lp, &h, &mt, (*string)(&ref.Type), &src, &ref.Width, &ref.Height); err != nil {
+			return nil, err
+		}
+		ref.Source = src.String
+		ref.LocalPath = lp.String
+		ref.Hash = h.String
+		ref.MimeType = mt.String
+		refs = append(refs, ref)
+	}
+	if err := mediaRows.Err(); err != nil {
+		return nil, err
+	}
+	return refs, nil
 }
 
 func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonicalID string, sgIDs []string) (*core.CanonicalGame, error) {
@@ -2837,27 +2873,7 @@ func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonica
 		if !isVisibleSourceGame(sg) {
 			continue
 		}
-		mediaRows, err := db.QueryContext(ctx, `SELECT ma.id, ma.url, ma.local_path, ma.hash, ma.mime_type, sgm.type, sgm.source, ma.width, ma.height
-			FROM source_game_media sgm
-			JOIN media_assets ma ON ma.id = sgm.media_asset_id
-			WHERE sgm.source_game_id=?`, sg.ID)
-		if err != nil {
-			return nil, err
-		}
-		for mediaRows.Next() {
-			var ref core.MediaRef
-			var src, lp, h, mt sql.NullString
-			if err := mediaRows.Scan(&ref.AssetID, &ref.URL, &lp, &h, &mt, (*string)(&ref.Type), &src, &ref.Width, &ref.Height); err != nil {
-				mediaRows.Close()
-				return nil, err
-			}
-			ref.Source = src.String
-			ref.LocalPath = lp.String
-			ref.Hash = h.String
-			ref.MimeType = mt.String
-			cg.Media = append(cg.Media, ref)
-		}
-		mediaRows.Close()
+		cg.Media = append(cg.Media, sg.Media...)
 	}
 	coverOverride, err := s.loadCanonicalCoverOverride(ctx, db, canonicalID)
 	if err != nil {

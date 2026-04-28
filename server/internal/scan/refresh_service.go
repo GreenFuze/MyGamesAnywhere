@@ -124,24 +124,60 @@ func gamesForSourceRefresh(sourceGames []*core.SourceGame) ([]*core.Game, error)
 			URL:        sourceGame.URL,
 		}}
 		games = append(games, &core.Game{
-			ID:            sourceGame.ID,
-			Title:         sourceGame.RawTitle,
-			RawTitle:      sourceGame.RawTitle,
-			Platform:      sourceGame.Platform,
-			Kind:          sourceGame.Kind,
-			GroupKind:     sourceGame.GroupKind,
-			RootPath:      sourceGame.RootPath,
-			IntegrationID: sourceGame.IntegrationID,
-			Status:        "found",
-			LastSeenAt:    sourceGame.LastSeenAt,
-			Files:         files,
-			ExternalIDs:   externalIDs,
+			ID:              sourceGame.ID,
+			Title:           sourceGame.RawTitle,
+			RawTitle:        sourceGame.RawTitle,
+			Platform:        sourceGame.Platform,
+			Kind:            sourceGame.Kind,
+			GroupKind:       sourceGame.GroupKind,
+			RootPath:        sourceGame.RootPath,
+			IntegrationID:   sourceGame.IntegrationID,
+			Status:          "found",
+			LastSeenAt:      sourceGame.LastSeenAt,
+			Files:           files,
+			ExternalIDs:     externalIDs,
+			ResolverMatches: sourceOwnedResolverMatches(sourceGame),
+			Media:           sourceOwnedMediaItems(sourceGame),
 		})
 	}
 	if len(games) == 0 {
 		return nil, fmt.Errorf("%w: no source games supplied", core.ErrMetadataRefreshNoEligible)
 	}
 	return games, nil
+}
+
+func sourceOwnedResolverMatches(sourceGame *core.SourceGame) []core.ResolverMatch {
+	if sourceGame == nil {
+		return nil
+	}
+	matches := make([]core.ResolverMatch, 0, len(sourceGame.ResolverMatches))
+	for _, match := range sourceGame.ResolverMatches {
+		if match.PluginID == sourceGame.PluginID {
+			matches = append(matches, match)
+		}
+	}
+	return matches
+}
+
+func sourceOwnedMediaItems(sourceGame *core.SourceGame) []core.MediaItem {
+	if sourceGame == nil {
+		return nil
+	}
+	media := make([]core.MediaItem, 0, len(sourceGame.Media))
+	for _, ref := range sourceGame.Media {
+		if ref.Source != sourceGame.PluginID {
+			continue
+		}
+		media = append(media, core.MediaItem{
+			Type:     ref.Type,
+			URL:      ref.URL,
+			Width:    ref.Width,
+			Height:   ref.Height,
+			MimeType: ref.MimeType,
+			Source:   ref.Source,
+		})
+	}
+	return media
 }
 
 func refreshedSourceGamesToBatch(
