@@ -6,15 +6,34 @@ import (
 )
 
 var (
+	// Strip trailing ROM/dump/set suffixes while preserving meaningful middle-title qualifiers.
 	trailingBracketNoiseRE = regexp.MustCompile(`[\s._-]*[\(\[][^\)\]]*[\)\]]\s*$`)
-	setupPrefixRE          = regexp.MustCompile(`^setup[\s._-]+`)
-	versionSuffixRE        = regexp.MustCompile(`[\s._-]+v?\d+(?:\.\d+)+(?:[\s._-]+[a-z]{2,8}\d*)*\s*$`)
+	setupPrefixRE          = regexp.MustCompile(`(?i)^setup[\s._-]+`)
+	versionSuffixRE        = regexp.MustCompile(`(?i)[\s._-]+(?:v|version[\s._-]*)\d+(?:\.\d+)+(?:[\s._-]+[a-z]{2,8}\d*)*\s*$`)
 	nonAlphaNumRE          = regexp.MustCompile(`[^a-z0-9\s]+`)
 	multiSpaceRE           = regexp.MustCompile(`\s+`)
 )
 
 func NormalizeLookupTitle(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
+	value = stripTrailingLookupNoise(value)
+	value = setupPrefixRE.ReplaceAllString(value, "")
+	value = nonAlphaNumRE.ReplaceAllString(value, " ")
+	value = multiSpaceRE.ReplaceAllString(value, " ")
+	return strings.TrimSpace(value)
+}
+
+// CleanDisplayTitle removes source/version dump suffixes while preserving the
+// user-facing casing and punctuation of the meaningful title.
+func CleanDisplayTitle(value string) string {
+	value = strings.TrimSpace(value)
+	value = stripTrailingLookupNoise(value)
+	value = setupPrefixRE.ReplaceAllString(value, "")
+	value = multiSpaceRE.ReplaceAllString(value, " ")
+	return strings.TrimSpace(value)
+}
+
+func stripTrailingLookupNoise(value string) string {
 	for {
 		changed := false
 		if trailingBracketNoiseRE.MatchString(value) {
@@ -30,9 +49,6 @@ func NormalizeLookupTitle(value string) string {
 			break
 		}
 	}
-	value = setupPrefixRE.ReplaceAllString(value, "")
-	value = nonAlphaNumRE.ReplaceAllString(value, " ")
-	value = multiSpaceRE.ReplaceAllString(value, " ")
 	return strings.TrimSpace(value)
 }
 

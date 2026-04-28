@@ -79,8 +79,59 @@ func TestCanonicalToGameDetailIncludesPlayMetadataAndFileIDs(t *testing.T) {
 	if len(detail.Play.LaunchCandidates) != 1 {
 		t.Fatalf("expected 1 launch candidate, got %d", len(detail.Play.LaunchCandidates))
 	}
+	if len(detail.Play.Options) != 1 || detail.Play.Options[0].Kind != "browser" || detail.Play.Options[0].SourceGameID != "source-1" {
+		t.Fatalf("expected browser launch option for source-1, got %+v", detail.Play.Options)
+	}
 	if detail.Play.LaunchCandidates[0].FileID != detail.SourceGames[0].Play.RootFileID {
 		t.Fatalf("launch candidate/root mismatch: %+v vs %+v", detail.Play.LaunchCandidates[0], detail.SourceGames[0].Play)
+	}
+}
+
+func TestCanonicalToGameDetailIncludesSourceBackedXcloudOptions(t *testing.T) {
+	game := &core.CanonicalGame{
+		ID:              "game-xcloud",
+		Title:           "Final Fantasy",
+		Platform:        core.PlatformWindowsPC,
+		Kind:            core.GameKindBaseGame,
+		XcloudAvailable: true,
+		XcloudURL:       "https://xbox.example/play/primary",
+		SourceGames: []*core.SourceGame{{
+			ID:            "source-xbox",
+			IntegrationID: "xbox-1",
+			PluginID:      "game-source-xbox",
+			ExternalID:    "product-1",
+			RawTitle:      "FINAL FANTASY",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			Status:        "found",
+			CreatedAt:     time.Unix(1700000000, 0),
+			ResolverMatches: []core.ResolverMatch{{
+				PluginID:        "game-source-xbox",
+				Title:           "FINAL FANTASY",
+				ExternalID:      "product-1",
+				XcloudAvailable: true,
+				XcloudURL:       "https://xbox.example/play/source-xbox",
+			}},
+		}},
+	}
+
+	ctrl := &GameController{}
+	detail := ctrl.canonicalToGameDetailWithIntegrationLabels(context.Background(), game, map[string]string{"xbox-1": "Xbox"})
+	var xcloudOptions []GameLaunchOptionDTO
+	for _, option := range detail.Play.Options {
+		if option.Kind == "xcloud" {
+			xcloudOptions = append(xcloudOptions, option)
+		}
+	}
+	if len(xcloudOptions) != 1 {
+		t.Fatalf("xcloud options = %+v, want 1", detail.Play.Options)
+	}
+	if xcloudOptions[0].URL != "https://xbox.example/play/source-xbox" || xcloudOptions[0].SourceGameID != "source-xbox" {
+		t.Fatalf("xcloud option = %+v, want source-backed URL", xcloudOptions[0])
+	}
+	if xcloudOptions[0].IntegrationLabel != "Xbox" || xcloudOptions[0].SourceTitle != "FINAL FANTASY" {
+		t.Fatalf("xcloud source context = %+v, want Xbox FINAL FANTASY", xcloudOptions[0])
 	}
 }
 

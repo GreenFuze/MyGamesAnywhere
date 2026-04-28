@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -272,6 +273,110 @@ func TestScanJobTracksMetadataProvidersByIntegrationID(t *testing.T) {
 	if integration.MetadataProviders[1].Reason != "invalid_config" {
 		t.Fatalf("fallback provider reason = %q, want invalid_config", integration.MetadataProviders[1].Reason)
 	}
+}
+
+func TestMetadataOnlyScanJobRecordsProgressAndRefreshEvents(t *testing.T) {
+	runner := &blockingScanRunner{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	defer close(runner.release)
+
+	bus := events.New()
+	controller := NewDiscoveryController(runner, &fakeGameStore{}, noopLogger{}, bus)
+
+	router := chi.NewRouter()
+	router.Post("/api/scan", controller.Scan)
+
+	recStart := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/scan", strings.NewReader(`{"metadata_only":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recStart, req)
+	if recStart.Code != http.StatusAccepted {
+		t.Fatalf("start status = %d, want 202 body=%s", recStart.Code, recStart.Body.String())
+	}
+
+	var started core.ScanJobStatus
+	if err := json.Unmarshal(recStart.Body.Bytes(), &started); err != nil {
+		t.Fatalf("unmarshal start response: %v", err)
+	}
+	if !started.MetadataOnly {
+		t.Fatal("start response MetadataOnly = false, want true")
+	}
+
+	select {
+	case <-runner.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("metadata refresh runner did not start")
+	}
+
+	events.PublishJSON(bus, "scan_started", map[string]any{
+		"job_id":            started.JobID,
+		"metadata_only":     true,
+		"integration_count": 1,
+		"integrations": []map[string]any{{
+			"integration_id": "metadata-refresh",
+			"plugin_id":      "metadata-refresh",
+			"label":          "Metadata Refresh",
+		}},
+	})
+	events.PublishJSON(bus, "scan_integration_started", map[string]any{
+		"job_id":         started.JobID,
+		"integration_id": "metadata-refresh",
+		"plugin_id":      "metadata-refresh",
+		"label":          "Metadata Refresh",
+	})
+	events.PublishJSON(bus, "scan_metadata_started", map[string]any{
+		"job_id":         started.JobID,
+		"integration_id": "metadata-refresh",
+		"game_count":     2,
+		"resolver_count": 1,
+		"metadata_providers": []map[string]any{{
+			"integration_id": "metadata-retroachievements",
+			"label":          "RetroAchievements",
+			"plugin_id":      "metadata-retroachievements",
+			"status":         "pending",
+		}},
+	})
+	events.PublishJSON(bus, "scan_metadata_plugin_started", map[string]any{
+		"job_id":                  started.JobID,
+		"integration_id":          "metadata-refresh",
+		"metadata_integration_id": "metadata-retroachievements",
+		"metadata_label":          "RetroAchievements",
+		"plugin_id":               "metadata-retroachievements",
+		"phase":                   "identify",
+		"batch_size":              2,
+	})
+	events.PublishJSON(bus, "scan_metadata_game_progress", map[string]any{
+		"job_id":                  started.JobID,
+		"integration_id":          "metadata-refresh",
+		"metadata_integration_id": "metadata-retroachievements",
+		"metadata_label":          "RetroAchievements",
+		"game_index":              2,
+		"game_count":              2,
+		"game_title":              "Altered Beast",
+	})
+
+	waitForScanJob(t, 2*time.Second, func(job *core.ScanJobStatus) bool {
+		if job == nil || !job.MetadataOnly || len(job.Integrations) != 1 {
+			return false
+		}
+		if len(job.RecentEvents) == 0 || !strings.Contains(job.RecentEvents[0].Message, "Metadata refresh started") {
+			return false
+		}
+		integration := job.Integrations[0]
+		if integration.MetadataIntegrationID != "metadata-retroachievements" {
+			return false
+		}
+		if integration.MetadataProgress == nil || integration.MetadataProgress.Current != 2 || integration.MetadataProgress.Total != 2 {
+			return false
+		}
+		return len(integration.MetadataProviders) == 1 &&
+			integration.MetadataProviders[0].IntegrationID == "metadata-retroachievements" &&
+			integration.MetadataProviders[0].Status == "running"
+	}, func() *core.ScanJobStatus {
+		return controller.scanJobs.Get(started.JobID)
+	})
 }
 
 func TestApplyScanEventNoGamesClearsProgress(t *testing.T) {

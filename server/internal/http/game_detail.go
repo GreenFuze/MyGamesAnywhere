@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
@@ -189,6 +190,12 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 		if launchSource != nil && launchSource.Launchable && launchCandidate != nil {
 			out.Play.LaunchCandidates = append(out.Play.LaunchCandidates, *launchCandidate)
 		}
+		for _, option := range launchOptionsForSource(sourceDTO, launchSource, launchCandidate) {
+			if option.Launchable {
+				out.Play.Available = true
+			}
+			out.Play.Options = append(out.Play.Options, option)
+		}
 		out.SourceGames = append(out.SourceGames, sourceDTO)
 	}
 
@@ -214,6 +221,72 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 		})
 	}
 	return out
+}
+
+func launchOptionsForSource(source SourceGameDetailDTO, launchSource *GameLaunchSourceDTO, launchCandidate *GameLaunchCandidateDTO) []GameLaunchOptionDTO {
+	options := make([]GameLaunchOptionDTO, 0, 2)
+	if launchSource != nil {
+		option := GameLaunchOptionDTO{
+			Kind:             "browser",
+			SourceGameID:     source.ID,
+			SourceTitle:      source.RawTitle,
+			Platform:         source.Platform,
+			PluginID:         source.PluginID,
+			IntegrationID:    source.IntegrationID,
+			IntegrationLabel: source.IntegrationLabel,
+			Launchable:       launchSource.Launchable,
+			RootFileID:       launchSource.RootFileID,
+			Profile:          firstReadyDeliveryProfile(source.Delivery),
+		}
+		if launchCandidate != nil {
+			option.FileID = launchCandidate.FileID
+			option.Path = launchCandidate.Path
+			option.FileKind = launchCandidate.FileKind
+			option.Size = launchCandidate.Size
+		}
+		options = append(options, option)
+	}
+
+	seenXcloud := map[string]bool{}
+	for _, match := range source.ResolverMatches {
+		if match.Outvoted || (!match.XcloudAvailable && strings.TrimSpace(match.XcloudURL) == "") {
+			continue
+		}
+		key := match.PluginID + "|" + match.XcloudURL
+		if seenXcloud[key] {
+			continue
+		}
+		seenXcloud[key] = true
+		options = append(options, GameLaunchOptionDTO{
+			Kind:             "xcloud",
+			SourceGameID:     source.ID,
+			SourceTitle:      source.RawTitle,
+			Platform:         source.Platform,
+			PluginID:         match.PluginID,
+			IntegrationID:    source.IntegrationID,
+			IntegrationLabel: source.IntegrationLabel,
+			Launchable:       strings.TrimSpace(match.XcloudURL) != "",
+			URL:              match.XcloudURL,
+		})
+	}
+	return options
+}
+
+func firstReadyDeliveryProfile(delivery *SourceDeliveryDTO) string {
+	if delivery == nil {
+		return ""
+	}
+	for _, profile := range delivery.Profiles {
+		if profile.Ready && profile.Profile != "" {
+			return profile.Profile
+		}
+	}
+	for _, profile := range delivery.Profiles {
+		if profile.Profile != "" {
+			return profile.Profile
+		}
+	}
+	return ""
 }
 
 func mediaRefToDTO(ref core.MediaRef) GameMediaDetailDTO {

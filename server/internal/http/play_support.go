@@ -13,8 +13,27 @@ import (
 type GamePlayDTO struct {
 	Available         bool                     `json:"available"`
 	PlatformSupported bool                     `json:"platform_supported"`
+	Options           []GameLaunchOptionDTO    `json:"options,omitempty"`
 	LaunchSources     []GameLaunchSourceDTO    `json:"launch_sources,omitempty"`
 	LaunchCandidates  []GameLaunchCandidateDTO `json:"launch_candidates,omitempty"`
+}
+
+type GameLaunchOptionDTO struct {
+	Kind             string `json:"kind"`
+	SourceGameID     string `json:"source_game_id"`
+	SourceTitle      string `json:"source_title,omitempty"`
+	Platform         string `json:"platform,omitempty"`
+	PluginID         string `json:"plugin_id,omitempty"`
+	IntegrationID    string `json:"integration_id,omitempty"`
+	IntegrationLabel string `json:"integration_label,omitempty"`
+	Launchable       bool   `json:"launchable"`
+	FileID           string `json:"file_id,omitempty"`
+	RootFileID       string `json:"root_file_id,omitempty"`
+	Path             string `json:"path,omitempty"`
+	FileKind         string `json:"file_kind,omitempty"`
+	Size             int64  `json:"size,omitempty"`
+	Profile          string `json:"profile,omitempty"`
+	URL              string `json:"url,omitempty"`
 }
 
 type GameLaunchSourceDTO struct {

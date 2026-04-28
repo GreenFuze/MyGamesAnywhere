@@ -58,7 +58,7 @@ func NewService(store core.GameStore, config core.Configuration, logger core.Log
 		config:      config,
 		logger:      logger,
 		client:      &http.Client{Timeout: 2 * time.Minute},
-		policy:      mediaRequestPolicyRegistry{policies: []mediaRequestPolicyMatcher{hltbImageRequestPolicy{}}},
+		policy:      mediaRequestPolicyRegistry{policies: []mediaRequestPolicyMatcher{hltbImageRequestPolicy{}, retroAchievementsImageRequestPolicy{}}},
 		workerCount: workerCount,
 		inFlight:    make(map[int]struct{}),
 	}
@@ -265,6 +265,23 @@ func (hltbImageRequestPolicy) Apply(req *http.Request) error {
 	}
 	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
 	req.Header.Set("Referer", "https://howlongtobeat.com/")
+	req.Header.Set("User-Agent", defaultBrowserUserAgent)
+	return nil
+}
+
+type retroAchievementsImageRequestPolicy struct{}
+
+func (retroAchievementsImageRequestPolicy) Matches(parsed *url.URL) bool {
+	return parsed != nil && normalizeMediaHost(parsed.Hostname()) == "retroachievements.org" && strings.HasPrefix(parsed.EscapedPath(), "/Images/")
+}
+
+func (retroAchievementsImageRequestPolicy) Apply(req *http.Request) error {
+	if req == nil {
+		return fmt.Errorf("request is required")
+	}
+	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Referer", "https://retroachievements.org/")
 	req.Header.Set("User-Agent", defaultBrowserUserAgent)
 	return nil
 }

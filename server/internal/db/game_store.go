@@ -14,6 +14,7 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
+	"github.com/GreenFuze/MyGamesAnywhere/server/pkg/titlematch"
 	"github.com/google/uuid"
 )
 
@@ -2095,6 +2096,20 @@ func isActiveUndetectedSourceGame(sg *core.SourceGame) bool {
 	return len(reviewReasonsForCandidate(sg.Platform, sg.GroupKind, len(sg.ResolverMatches), resolverTitleCount)) > 0
 }
 
+func eligibleForProviderTitleCanonicalGrouping(sourceKind core.GameKind, matchKind, parentGameID string) bool {
+	if strings.TrimSpace(parentGameID) != "" {
+		return false
+	}
+	if sourceKind != "" && sourceKind != core.GameKindUnknown && sourceKind != core.GameKindBaseGame {
+		return false
+	}
+	matchKind = strings.TrimSpace(matchKind)
+	if matchKind != "" && matchKind != string(core.GameKindUnknown) && matchKind != string(core.GameKindBaseGame) {
+		return false
+	}
+	return true
+}
+
 func resolveManualReviewPersistence(sg *core.SourceGame, existing existingSourceGame) (core.ManualReviewState, string, error) {
 	state := sg.ReviewState
 	if state == "" {
@@ -2453,19 +2468,22 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 	}
 
 	// Load all active source games.
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM source_games WHERE `+visibleSourceGameWhere("source_games"))
+	rows, err := tx.QueryContext(ctx, `SELECT id, kind FROM source_games WHERE `+visibleSourceGameWhere("source_games"))
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
 	var allIDs []string
+	sourceKindByID := make(map[string]core.GameKind)
 	for rows.Next() {
 		var id string
-		if err := rows.Scan(&id); err != nil {
+		var kind string
+		if err := rows.Scan(&id, &kind); err != nil {
 			return err
 		}
 		allIDs = append(allIDs, id)
+		sourceKindByID[id] = core.GameKind(kind)
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -2511,6 +2529,9 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 		if _, ok := parent[sgID]; !ok {
 			continue // skip non-active
 		}
+		if strings.TrimSpace(pluginID) == "" || strings.TrimSpace(extID) == "" {
+			continue
+		}
 		key := pluginID + "|" + extID
 		extGroups[key] = append(extGroups[key], sgID)
 	}
@@ -2520,6 +2541,50 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 
 	// Union source games that share external IDs.
 	for _, members := range extGroups {
+		if len(members) < 2 {
+			continue
+		}
+		for i := 1; i < len(members); i++ {
+			union(members[0], members[i])
+		}
+	}
+
+	titleRows, err := tx.QueryContext(ctx, `SELECT source_game_id, title, COALESCE(metadata_json, '')
+		FROM metadata_resolver_matches
+		WHERE outvoted=0 AND IFNULL(title,'') != ''`)
+	if err != nil {
+		return err
+	}
+	defer titleRows.Close()
+
+	titleGroups := map[string][]string{}
+	for titleRows.Next() {
+		var sgID, title, metadataJSON string
+		if err := titleRows.Scan(&sgID, &title, &metadataJSON); err != nil {
+			return err
+		}
+		sourceKind, ok := sourceKindByID[sgID]
+		if !ok {
+			continue
+		}
+		match := core.ResolverMatch{}
+		if strings.TrimSpace(metadataJSON) != "" {
+			parseMetadataJSON(metadataJSON, &match)
+		}
+		if !eligibleForProviderTitleCanonicalGrouping(sourceKind, match.Kind, match.ParentGameID) {
+			continue
+		}
+		key := titlematch.NormalizeLookupTitle(title)
+		if key == "" {
+			continue
+		}
+		titleGroups[key] = append(titleGroups[key], sgID)
+	}
+	if err := titleRows.Err(); err != nil {
+		return err
+	}
+
+	for _, members := range titleGroups {
 		if len(members) < 2 {
 			continue
 		}
@@ -3271,7 +3336,10 @@ func (s *gameStore) computeUnifiedView(cg *core.CanonicalGame) {
 	for _, w := range winners {
 		m := w.match
 		if m.Title != "" && !titleSet {
-			cg.Title = m.Title
+			cg.Title = titlematch.CleanDisplayTitle(m.Title)
+			if cg.Title == "" {
+				cg.Title = m.Title
+			}
 			titleSet = true
 		}
 		if m.Platform != "" && cg.Platform == "" {
@@ -3320,7 +3388,10 @@ func (s *gameStore) computeUnifiedView(cg *core.CanonicalGame) {
 
 	// Fallback: if no resolver set a title, use the first source game's raw title.
 	if cg.Title == "" && len(cg.SourceGames) > 0 {
-		cg.Title = cg.SourceGames[0].RawTitle
+		cg.Title = titlematch.CleanDisplayTitle(cg.SourceGames[0].RawTitle)
+		if cg.Title == "" {
+			cg.Title = cg.SourceGames[0].RawTitle
+		}
 	}
 	if cg.Platform == "" && len(cg.SourceGames) > 0 {
 		cg.Platform = cg.SourceGames[0].Platform

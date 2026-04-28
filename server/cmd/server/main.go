@@ -72,7 +72,7 @@ func main() {
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, gameStore, configSvc, logSvc, eventBus)
 	integrationRefreshCtrl := http.NewIntegrationRefreshController(integrationRepo, pluginHost, integrationRefreshSvc, eventBus, logSvc)
 	reviewCtrl := http.NewReviewController(integrationRepo, pluginHost, gameStore, manualReviewSvc, logSvc)
-	achievementCtrl := http.NewAchievementController(gameStore, pluginHost, logSvc, eventBus)
+	achievementCtrl := http.NewAchievementController(gameStore, pluginHost, integrationRepo, logSvc, eventBus)
 	syncCtrl := http.NewSyncController(syncSvc, logSvc, eventBus)
 	saveSyncCtrl := http.NewSaveSyncController(saveSyncSvc, logSvc)
 	cacheCtrl := http.NewCacheController(gameStore, integrationRepo, cacheSvc, logSvc)

@@ -224,25 +224,29 @@ func (s *IntegrationRefreshService) refreshSourceGameForMetadataProvider(
 }
 
 func (s *IntegrationRefreshService) refreshAchievements(ctx context.Context, integration *core.Integration, metadataCapable bool, callbacks IntegrationRefreshCallbacks) error {
+	configMap, err := parseConfig(integration.ConfigJSON)
+	if err != nil {
+		return fmt.Errorf("achievement refresh config: %w", err)
+	}
 	games, err := s.gameStore.GetCanonicalGames(ctx)
 	if err != nil {
 		return fmt.Errorf("load canonical games: %w", err)
 	}
 
 	type refreshTarget struct {
-		game      *core.CanonicalGame
-		candidate AchievementQueryCandidate
+		game       *core.CanonicalGame
+		candidates []AchievementQueryCandidate
 	}
 	targets := make([]refreshTarget, 0)
 	for _, game := range games {
 		if game == nil {
 			continue
 		}
-		candidate, ok := achievementCandidateForIntegration(game, integration, metadataCapable)
-		if !ok {
+		candidates := achievementCandidatesForIntegration(game, integration, metadataCapable)
+		if len(candidates) == 0 {
 			continue
 		}
-		targets = append(targets, refreshTarget{game: game, candidate: candidate})
+		targets = append(targets, refreshTarget{game: game, candidates: candidates})
 	}
 
 	if callbacks.SetPhase != nil {
@@ -252,11 +256,19 @@ func (s *IntegrationRefreshService) refreshAchievements(ctx context.Context, int
 		if callbacks.Progress != nil {
 			callbacks.Progress(idx, len(targets), target.game.Title)
 		}
-		_, errs := s.achievementFetcher.FetchAndCacheWithCandidates(ctx, target.game, []string{integration.PluginID}, map[string]AchievementQueryCandidate{
-			integration.PluginID: target.candidate,
+		_, errs := s.achievementFetcher.FetchAndCacheWithCandidates(ctx, target.game, []AchievementSource{{
+			IntegrationID: integration.ID,
+			Label:         integration.Label,
+			PluginID:      integration.PluginID,
+			Config:        configMap,
+		}}, map[string][]AchievementQueryCandidate{
+			integration.PluginID: target.candidates,
 		})
-		if err := errs[integration.PluginID]; err != nil && callbacks.Warning != nil {
-			callbacks.Warning(fmt.Sprintf("%s: %s", target.game.Title, err.Error()))
+		for _, err := range errs {
+			if err != nil && callbacks.Warning != nil {
+				callbacks.Warning(fmt.Sprintf("%s: %s", target.game.Title, err.Error()))
+				break
+			}
 		}
 		if callbacks.Progress != nil {
 			callbacks.Progress(idx+1, len(targets), target.game.Title)
@@ -329,26 +341,31 @@ func mergeMediaRefsForProvider(existing []core.MediaRef, pluginID string, game *
 	return merged
 }
 
-func achievementCandidateForIntegration(game *core.CanonicalGame, integration *core.Integration, metadataCapable bool) (AchievementQueryCandidate, bool) {
+func achievementCandidatesForIntegration(game *core.CanonicalGame, integration *core.Integration, metadataCapable bool) []AchievementQueryCandidate {
 	if game == nil || integration == nil {
-		return AchievementQueryCandidate{}, false
+		return nil
 	}
 	if !metadataCapable {
+		var candidates []AchievementQueryCandidate
 		for _, sourceGame := range game.SourceGames {
 			if sourceGame == nil || sourceGame.Status != "found" {
 				continue
 			}
 			if sourceGame.IntegrationID == integration.ID && sourceGame.PluginID == integration.PluginID && sourceGame.ExternalID != "" {
-				return AchievementQueryCandidate{
+				candidates = append(candidates, AchievementQueryCandidate{
+					PluginID:       integration.PluginID,
 					ExternalGameID: sourceGame.ExternalID,
 					SourceGameID:   sourceGame.ID,
-				}, true
+					SourceTitle:    sourceGame.RawTitle,
+					Platform:       string(sourceGame.Platform),
+					IntegrationID:  sourceGame.IntegrationID,
+					SourcePluginID: sourceGame.PluginID,
+				})
 			}
 		}
-		return AchievementQueryCandidate{}, false
+		return candidates
 	}
 
 	candidates := BuildAchievementQueryCandidates(game, []string{integration.PluginID})
-	candidate, ok := candidates[integration.PluginID]
-	return candidate, ok
+	return candidates[integration.PluginID]
 }

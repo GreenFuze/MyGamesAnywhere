@@ -720,14 +720,18 @@ func appendRecentEvent(job *core.ScanJobStatus, eventType string, payload map[st
 func scanEventMessage(eventType string, payload map[string]any) string {
 	switch eventType {
 	case "scan_started":
+		action := "Scan"
+		if readBool(payload["metadata_only"]) {
+			action = "Metadata refresh"
+		}
 		count := readInt(payload["integration_count"])
 		if count > 0 {
 			if count == 1 {
-				return "Scan started for 1 integration."
+				return action + " started for 1 integration."
 			}
-			return "Scan started for " + itoa(count) + " integrations."
+			return action + " started for " + itoa(count) + " integrations."
 		}
-		return "Scan started."
+		return action + " started."
 	case "scan_integration_started":
 		return "Integration started: " + readLabelOrID(payload) + "."
 	case "scan_source_list_started":
@@ -794,8 +798,14 @@ func scanEventMessage(eventType string, payload map[string]any) string {
 	case "scan_cancelled":
 		return "Scan cancelled."
 	case "scan_complete":
+		if readBool(payload["metadata_only"]) {
+			return "Metadata refresh complete."
+		}
 		return "Scan complete."
 	case "scan_error":
+		if readBool(payload["metadata_only"]) {
+			return "Metadata refresh failed: " + readStringOr(payload["error"], "unknown error") + "."
+		}
 		return "Scan failed: " + readStringOr(payload["error"], "unknown error") + "."
 	default:
 		return ""
@@ -951,8 +961,14 @@ func scanPhaseForEvent(eventType string, payload map[string]any) string {
 	case "scan_cancelled":
 		return "cancelled"
 	case "scan_complete":
+		if readBool(payload["metadata_only"]) {
+			return "metadata refresh complete"
+		}
 		return "scan complete"
 	case "scan_error":
+		if readBool(payload["metadata_only"]) {
+			return "metadata refresh error"
+		}
 		return "scan error"
 	default:
 		return eventType

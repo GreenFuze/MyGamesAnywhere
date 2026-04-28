@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -8,6 +9,7 @@ import {
   FileText,
   FolderOpen,
   HardDrive,
+  Loader2,
   MoreHorizontal,
   PlayCircle,
   Trophy,
@@ -24,6 +26,7 @@ import {
   type AchievementSetDTO,
   type ExternalIDDTO,
   type GameFileDTO,
+  type GameLaunchOptionDTO,
   type GameMediaDetailDTO,
   type ResolverMatchDTO,
   type SourceGameDetailDTO,
@@ -274,6 +277,33 @@ function sortAchievementSet(set: AchievementSetDTO): AchievementSetDTO {
   }
 }
 
+function achievementSetTitle(set: AchievementSetDTO): string {
+  const source = pluginLabel(set.source)
+  const platform = set.platform && set.platform !== 'unknown' ? platformLabel(set.platform) : ''
+  return platform ? `${source} • ${platform}` : source
+}
+
+function achievementSetContext(set: AchievementSetDTO): string {
+  const parts = [
+    set.integration_label?.trim(),
+    set.source_title?.trim(),
+  ].filter((part): part is string => Boolean(part))
+  return Array.from(new Set(parts)).join(' · ')
+}
+
+function launchOptionContext(option: GameLaunchOptionDTO): string {
+  const parts = [
+    option.integration_label?.trim(),
+    option.platform && option.platform !== 'unknown' ? platformLabel(option.platform) : '',
+    option.source_title?.trim(),
+  ].filter((part): part is string => Boolean(part))
+  return Array.from(new Set(parts)).join(' · ')
+}
+
+function launchOptionKey(option: GameLaunchOptionDTO): string {
+  return `${option.kind}:${option.source_game_id}:${option.url ?? option.file_id ?? option.root_file_id ?? ''}`
+}
+
 function SectionCard({
   id,
   title,
@@ -486,7 +516,9 @@ function FavoriteActionButton({
         className,
       )}
     >
-      <span aria-hidden="true">{favorite ? '💖' : '♡'}</span>
+      <span aria-hidden="true" className={cn('leading-none', favorite ? 'text-rose-400' : '')}>
+        {favorite ? '♥' : '♡'}
+      </span>
     </button>
   )
 }
@@ -505,12 +537,43 @@ function HeroOverflowMenu({
   direction?: 'down' | 'up'
 }) {
   const [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const [menuPosition, setMenuPosition] = useState<{
+    top?: number
+    bottom?: number
+    left: number
+    width: number
+  } | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const updatePosition = () => {
+      const button = buttonRef.current
+      if (!button) return
+      const rect = button.getBoundingClientRect()
+      const width = Math.min(336, window.innerWidth - 32)
+      const left = Math.min(Math.max(16, rect.right - width), window.innerWidth - width - 16)
+      setMenuPosition(
+        direction === 'down'
+          ? { top: rect.bottom + 8, left, width }
+          : { bottom: window.innerHeight - rect.top + 8, left, width },
+      )
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [direction, open])
 
   useEffect(() => {
     if (!open) return
     const handlePointerDown = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node
+      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) {
         setOpen(false)
       }
     }
@@ -519,8 +582,9 @@ function HeroOverflowMenu({
   }, [open])
 
   return (
-    <div ref={menuRef} className={cn('relative', className)}>
+    <div className={cn('relative', className)}>
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-haspopup="menu"
@@ -529,12 +593,14 @@ function HeroOverflowMenu({
       >
         <MoreHorizontal size={18} />
       </button>
-      {open ? (
+      {open && menuPosition
+        ? createPortal(
         <div
+          ref={menuRef}
           className={cn(
-            'absolute right-0 z-40 min-w-[14rem] overflow-hidden rounded-[18px] border border-white/[0.08] bg-[#0f1520] p-2 shadow-[0_18px_44px_rgba(0,0,0,0.34)] backdrop-blur-xl',
-            direction === 'down' ? 'top-[calc(100%+0.5rem)]' : 'bottom-[calc(100%+0.5rem)]',
+            'fixed z-[1000] overflow-hidden rounded-[18px] border border-white/[0.08] bg-[#0f1520] p-2 shadow-[0_18px_44px_rgba(0,0,0,0.34)] backdrop-blur-xl',
           )}
+          style={menuPosition}
         >
           <button
             type="button"
@@ -559,8 +625,10 @@ function HeroOverflowMenu({
             <ArrowRightLeft size={16} />
             Reclassify
           </button>
-        </div>
-      ) : null}
+        </div>,
+        document.body,
+      )
+        : null}
     </div>
   )
 }
@@ -1086,6 +1154,7 @@ export function GameDetailPage() {
     [heroBackdropMedia],
   )
   const [selectedBrowserSourceId, setSelectedBrowserSourceId] = useState('')
+  const [selectedXcloudOptionKey, setSelectedXcloudOptionKey] = useState('')
   const browserSupported = gameData ? hasBrowserPlaySupport(gameData) : false
   const browserPlayResolution = useMemo(() => {
     if (!gameData) return null
@@ -1100,6 +1169,12 @@ export function GameDetailPage() {
   }, [gameData, selectedBrowserSourceId])
   const browserPlaySelections = browserPlayResolution?.selections ?? []
   const selectedBrowserSelection = browserPlayResolution?.selection ?? null
+  const serverLaunchOptions = gameData?.play?.options?.filter((option) => option.launchable) ?? []
+  const xcloudLaunchOptions = serverLaunchOptions.filter((option) => option.kind === 'xcloud' && option.url)
+  const primaryXcloudOption =
+    xcloudLaunchOptions.find((option) => launchOptionKey(option) === selectedXcloudOptionKey) ??
+    xcloudLaunchOptions[0] ??
+    null
   const browserPlayable = browserPlaySelections.length > 0
   const browserPlayIssue = browserPlayResolution?.issue ?? null
   const browserPlayRuntime = browserPlayResolution?.runtime ?? null
@@ -1138,6 +1213,7 @@ export function GameDetailPage() {
 
   useEffect(() => {
     setSelectedBrowserSourceId('')
+    setSelectedXcloudOptionKey('')
   }, [id])
 
   useEffect(() => {
@@ -1172,15 +1248,18 @@ export function GameDetailPage() {
     })
   }, [game.data, id, location.state, navigate])
 
-  const handleLaunchXcloud = () => {
-    if (!game.data?.xcloud_url) return
+  const handleLaunchXcloud = (option?: GameLaunchOptionDTO | null) => {
+    const currentGame = game.data
+    const launchUrl = option?.url ?? currentGame?.xcloud_url
+    if (!currentGame) return
+    if (!launchUrl) return
     recordLaunch({
-      gameId: game.data.id,
-      title: game.data.title,
-      platform: game.data.platform,
+      gameId: currentGame.id,
+      title: currentGame.title,
+      platform: currentGame.platform,
       coverUrl,
       launchKind: 'xcloud',
-      launchUrl: game.data.xcloud_url,
+      launchUrl,
     })
   }
 
@@ -1440,6 +1519,23 @@ export function GameDetailPage() {
                 </div>
               ) : null}
 
+              {xcloudLaunchOptions.length > 1 ? (
+                <div className="max-w-2xl rounded-[24px] bg-black/18 p-4 backdrop-blur-[6px]">
+                  <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-white/42">xCloud source</label>
+                  <select
+                    value={primaryXcloudOption ? launchOptionKey(primaryXcloudOption) : ''}
+                    onChange={(event) => setSelectedXcloudOptionKey(event.target.value)}
+                    className="w-full rounded-[16px] border border-white/10 bg-[#121a27] px-3 py-2.5 text-sm text-mga-text"
+                  >
+                    {xcloudLaunchOptions.map((option) => (
+                      <option key={launchOptionKey(option)} value={launchOptionKey(option)}>
+                        {launchOptionContext(option) || 'xCloud'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+
               <div className="flex flex-wrap gap-3">
                 {browserPlayable ? (
                   <HeroActionButton
@@ -1453,12 +1549,12 @@ export function GameDetailPage() {
                     Play
                   </HeroActionButton>
                 ) : null}
-                {data.xcloud_url ? (
+                {(primaryXcloudOption?.url ?? data.xcloud_url) ? (
                   <a
-                    href={data.xcloud_url}
+                    href={primaryXcloudOption?.url ?? data.xcloud_url}
                     target="_blank"
                     rel="noreferrer"
-                    onClick={handleLaunchXcloud}
+                    onClick={() => handleLaunchXcloud(primaryXcloudOption)}
                     className="inline-flex h-11 items-center justify-center gap-2 rounded-[15px] border border-white/[0.08] bg-[#101620] px-5 text-sm font-medium text-white transition-colors hover:bg-white/[0.06]"
                   >
                     <BrandIcon brand="xcloud" className="h-4 w-4 invert" />
@@ -1480,6 +1576,17 @@ export function GameDetailPage() {
               ) : null}
               {browserSupported && browserPlayable && !browserPlayResolution?.canLaunch && browserPlayIssue ? (
                 <p className="text-xs text-amber-300">{browserPlayIssue.message}</p>
+              ) : null}
+              {refreshBusy ? (
+                <div className="flex max-w-xl items-center gap-3 rounded-[18px] border border-sky-300/20 bg-sky-300/[0.08] px-4 py-3 text-sm text-sky-50 shadow-[0_12px_28px_rgba(0,0,0,0.2)]">
+                  <Loader2 size={18} className="shrink-0 animate-spin text-sky-200" />
+                  <div className="min-w-0">
+                    <p className="font-medium">Refreshing metadata and achievements...</p>
+                    <p className="text-xs text-sky-100/72">
+                      Updating provider matches, media, and achievement progress. This can take a moment.
+                    </p>
+                  </div>
+                </div>
               ) : null}
               {refreshNotice ? <p className="text-xs text-green-400">{refreshNotice}</p> : null}
               {deleteNotice ? <p className="text-xs text-green-400">{deleteNotice}</p> : null}
@@ -1647,12 +1754,18 @@ export function GameDetailPage() {
           ) : achievementSets.length > 0 ? (
             <div className="space-y-6">
               {achievementSets.map((set) => (
-                <div key={`${set.source}:${set.external_game_id}`} className="space-y-4">
+                <div key={`${set.source}:${set.external_game_id}:${set.source_game_id ?? ''}`} className="space-y-4">
                   <div className="grid gap-4 xl:grid-cols-[minmax(210px,240px)_repeat(4,minmax(0,1fr))]">
                     <div className="rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(72,104,236,0.95),rgba(51,75,171,0.96))] p-5 text-white shadow-[0_18px_40px_rgba(0,0,0,0.22)]">
                       <div className="flex h-full flex-col items-center justify-between gap-5 text-center">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="flex flex-col items-center gap-2">
                           <SourceBadge source={set.source} className="border-white/20 bg-white/10 text-white" />
+                          <div>
+                            <p className="text-sm font-semibold text-white">{achievementSetTitle(set)}</p>
+                            {achievementSetContext(set) ? (
+                              <p className="mt-1 text-xs leading-5 text-white/70">{achievementSetContext(set)}</p>
+                            ) : null}
+                          </div>
                         </div>
                         <div className="space-y-1">
                           <p className="text-sm font-medium text-white/84">Achievement summary</p>
@@ -1683,7 +1796,7 @@ export function GameDetailPage() {
                       </div>
                     </div>
                     {set.achievements.slice(0, 4).map((achievement) => (
-                      <AchievementPreviewCard key={`${set.source}:${achievement.external_id}`} achievement={achievement} />
+                      <AchievementPreviewCard key={`${set.source}:${set.external_game_id}:${achievement.external_id}`} achievement={achievement} />
                     ))}
                   </div>
                   {set.achievements.length > 4 ? (
@@ -1693,7 +1806,7 @@ export function GameDetailPage() {
                       </summary>
                       <div className="mt-4 space-y-3">
                         {set.achievements.map((achievement) => (
-                          <AchievementRow key={`${set.source}:${achievement.external_id}`} achievement={achievement} />
+                          <AchievementRow key={`${set.source}:${set.external_game_id}:${achievement.external_id}`} achievement={achievement} />
                         ))}
                       </div>
                     </details>
@@ -1798,7 +1911,7 @@ export function GameDetailPage() {
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-white">{data.title}</p>
               <p className="truncate text-xs text-white/52">
-                {browserPlayable ? 'Ready to play' : data.xcloud_url ? 'Available in xCloud' : `${data.source_games.length} source record${data.source_games.length === 1 ? '' : 's'}`}
+                {browserPlayable ? 'Ready to play' : (primaryXcloudOption?.url ?? data.xcloud_url) ? 'Available in xCloud' : `${data.source_games.length} source record${data.source_games.length === 1 ? '' : 's'}`}
               </p>
             </div>
           </div>
@@ -1809,12 +1922,12 @@ export function GameDetailPage() {
                 Play
               </HeroActionButton>
             ) : null}
-            {data.xcloud_url ? (
+            {(primaryXcloudOption?.url ?? data.xcloud_url) ? (
               <a
-                href={data.xcloud_url}
+                href={primaryXcloudOption?.url ?? data.xcloud_url}
                 target="_blank"
                 rel="noreferrer"
-                onClick={handleLaunchXcloud}
+                onClick={() => handleLaunchXcloud(primaryXcloudOption)}
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-[16px] border border-white/[0.08] bg-[#101620] px-5 text-sm font-medium text-white transition-colors hover:bg-white/[0.06]"
               >
                 <BrandIcon brand="xcloud" className="h-4 w-4 invert" />
@@ -1830,6 +1943,14 @@ export function GameDetailPage() {
           </div>
         </div>
       </div>
+      {refreshBusy ? (
+        <div className="fixed inset-x-0 bottom-24 z-30 px-4 md:px-6 lg:px-8">
+          <div className="mx-auto flex max-w-[1540px] items-center gap-3 rounded-[18px] border border-sky-300/20 bg-[rgba(9,18,30,0.94)] px-4 py-3 text-sm text-sky-50 shadow-[0_20px_44px_rgba(0,0,0,0.34)] backdrop-blur-xl">
+            <Loader2 size={18} className="shrink-0 animate-spin text-sky-200" />
+            <span>Refreshing metadata and achievements...</span>
+          </div>
+        </div>
+      ) : null}
       </div>
 
       <MediaViewerDialog media={selectedMedia} onClose={() => setSelectedMedia(null)} />

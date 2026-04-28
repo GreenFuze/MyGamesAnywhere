@@ -108,7 +108,9 @@ function FavoriteToggleButton({ favorite, busy, onClick }: FavoriteToggleButtonP
       aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}
       title={favorite ? 'Remove from favorites' : 'Add to favorites'}
     >
-      <span aria-hidden="true">{favorite ? '💖' : '♡'}</span>
+      <span aria-hidden="true" className={cn('leading-none', favorite ? 'text-rose-400' : '')}>
+        {favorite ? '♥' : '♡'}
+      </span>
     </button>
   )
 }

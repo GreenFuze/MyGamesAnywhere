@@ -209,15 +209,21 @@ type Game struct {
 
 // AchievementSet groups all achievements for a game from a single source.
 type AchievementSet struct {
-	GameID         string        `json:"game_id"`
-	Source         string        `json:"source"`           // e.g. "steam", "xbox", "retroachievements"
-	ExternalGameID string        `json:"external_game_id"` // ID in the source system
-	TotalCount     int           `json:"total_count"`
-	UnlockedCount  int           `json:"unlocked_count"`
-	TotalPoints    int           `json:"total_points,omitempty"`
-	EarnedPoints   int           `json:"earned_points,omitempty"`
-	Achievements   []Achievement `json:"achievements"`
-	FetchedAt      time.Time     `json:"fetched_at"`
+	GameID           string        `json:"game_id"`
+	Source           string        `json:"source"`           // e.g. "steam", "xbox", "retroachievements"
+	ExternalGameID   string        `json:"external_game_id"` // ID in the source system
+	SourceGameID     string        `json:"source_game_id,omitempty"`
+	SourceTitle      string        `json:"source_title,omitempty"`
+	Platform         string        `json:"platform,omitempty"`
+	IntegrationID    string        `json:"integration_id,omitempty"`
+	IntegrationLabel string        `json:"integration_label,omitempty"`
+	PluginID         string        `json:"plugin_id,omitempty"`
+	TotalCount       int           `json:"total_count"`
+	UnlockedCount    int           `json:"unlocked_count"`
+	TotalPoints      int           `json:"total_points,omitempty"`
+	EarnedPoints     int           `json:"earned_points,omitempty"`
+	Achievements     []Achievement `json:"achievements"`
+	FetchedAt        time.Time     `json:"fetched_at"`
 }
 
 // Achievement is a single achievement definition with optional user progress.

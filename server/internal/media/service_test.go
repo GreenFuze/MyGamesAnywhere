@@ -248,6 +248,35 @@ func TestMediaRequestPolicyRegistryAppliesHLTBHeaders(t *testing.T) {
 	}
 }
 
+func TestMediaRequestPolicyRegistryAppliesRetroAchievementsHeaders(t *testing.T) {
+	parsed, err := url.Parse("https://retroachievements.org/Images/000001.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	registry := mediaRequestPolicyRegistry{policies: []mediaRequestPolicyMatcher{retroAchievementsImageRequestPolicy{}}}
+	if err := registry.Apply(req, parsed); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := req.Header.Get("Referer"); got != "https://retroachievements.org/" {
+		t.Fatalf("Referer = %q, want %q", got, "https://retroachievements.org/")
+	}
+	if got := req.Header.Get("User-Agent"); got != defaultBrowserUserAgent {
+		t.Fatalf("User-Agent = %q, want %q", got, defaultBrowserUserAgent)
+	}
+	if got := req.Header.Get("Accept"); got == "" {
+		t.Fatal("Accept header was not set for RetroAchievements image fetch")
+	}
+	if got := req.Header.Get("Accept-Language"); got == "" {
+		t.Fatal("Accept-Language header was not set for RetroAchievements image fetch")
+	}
+}
+
 func TestMediaRequestPolicyRegistryLeavesOtherHostsUnchanged(t *testing.T) {
 	parsed, err := url.Parse("https://images.igdb.com/igdb/image/upload/t_cover_big/co1abc.jpg")
 	if err != nil {

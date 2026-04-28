@@ -10,7 +10,8 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
-	"regexp"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -55,6 +56,9 @@ const (
 var raAPIBase = "https://retroachievements.org/API"
 var rateLimiter = time.NewTicker(250 * time.Millisecond)
 var raHTTPClient = newRAHTTPClient()
+var raGameListCacheRoot = filepath.Join("cache", "retroachievements")
+var raGameListCacheTTL = 7 * 24 * time.Hour
+var raFailureBackoff = 15 * time.Minute
 
 // Platform -> RA console ID mapping.
 // RA uses numeric console IDs; a single platform may map to multiple.
@@ -222,7 +226,7 @@ func raGet(endpoint string, params url.Values) ([]byte, error) {
 func fetchGameList(consoleID int) ([]raGameListEntry, error) {
 	params := url.Values{
 		"i": {strconv.Itoa(consoleID)},
-		"h": {"1"}, // include hashes
+		"f": {"1"}, // title lookup only needs games with achievements, not hashes.
 	}
 	data, err := raGet("API_GetGameList.php", params)
 	if err != nil {
@@ -233,6 +237,48 @@ func fetchGameList(consoleID int) ([]raGameListEntry, error) {
 		return nil, fmt.Errorf("decode game list: %w", err)
 	}
 	return games, nil
+}
+
+type cachedGameListFile struct {
+	CachedAt int64             `json:"cached_at"`
+	Games    []raGameListEntry `json:"games"`
+}
+
+func gameListCachePath(consoleID int) string {
+	return filepath.Join(raGameListCacheRoot, fmt.Sprintf("game-list-v1-console-%d-f1.json", consoleID))
+}
+
+func readCachedGameList(consoleID int) ([]raGameListEntry, bool) {
+	data, err := os.ReadFile(gameListCachePath(consoleID))
+	if err != nil {
+		return nil, false
+	}
+	var cached cachedGameListFile
+	if err := json.Unmarshal(data, &cached); err != nil {
+		return nil, false
+	}
+	if cached.CachedAt <= 0 || time.Since(time.Unix(cached.CachedAt, 0)) > raGameListCacheTTL {
+		return nil, false
+	}
+	return cached.Games, true
+}
+
+func writeCachedGameList(consoleID int, games []raGameListEntry) {
+	if err := os.MkdirAll(raGameListCacheRoot, 0o755); err != nil {
+		log.Printf("RA cache directory %q unavailable: %v", raGameListCacheRoot, err)
+		return
+	}
+	data, err := json.Marshal(cachedGameListFile{
+		CachedAt: time.Now().Unix(),
+		Games:    games,
+	})
+	if err != nil {
+		log.Printf("RA cache marshal failed for console %d: %v", consoleID, err)
+		return
+	}
+	if err := os.WriteFile(gameListCachePath(consoleID), data, 0o644); err != nil {
+		log.Printf("RA cache write failed for console %d: %v", consoleID, err)
+	}
 }
 
 func fetchGameExtended(gameID int) (*raGameExtended, error) {
@@ -266,10 +312,6 @@ func fetchUserGameProgress(gameID int) (*raGameExtended, error) {
 	return &game, nil
 }
 
-// Title normalization for matching.
-
-var multiSpace = regexp.MustCompile(`\s+`)
-
 func normalizeTitle(s string) string {
 	return titlematch.NormalizeLookupTitle(s)
 }
@@ -298,15 +340,35 @@ func jaccardSimilarity(a, b map[string]bool) float64 {
 // Game list cache: console ID -> game list, to avoid re-fetching per query.
 var gameListCache = make(map[int][]raGameListEntry)
 
+type cachedFailure struct {
+	err   error
+	until time.Time
+}
+
+var gameListFailureCache = make(map[int]cachedFailure)
+
 func getGameList(consoleID int) ([]raGameListEntry, error) {
 	if cached, ok := gameListCache[consoleID]; ok {
 		return cached, nil
 	}
+	if cached, ok := readCachedGameList(consoleID); ok {
+		gameListCache[consoleID] = cached
+		return cached, nil
+	}
+	if failure, ok := gameListFailureCache[consoleID]; ok && time.Now().Before(failure.until) {
+		return nil, failure.err
+	}
 	games, err := fetchGameList(consoleID)
 	if err != nil {
+		gameListFailureCache[consoleID] = cachedFailure{
+			err:   err,
+			until: time.Now().Add(raFailureBackoff),
+		}
 		return nil, err
 	}
+	delete(gameListFailureCache, consoleID)
 	gameListCache[consoleID] = games
+	writeCachedGameList(consoleID, games)
 	log.Printf("cached %d games for console %d", len(games), consoleID)
 	return games, nil
 }
@@ -336,11 +398,12 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 
 	var bestGame *raGameListEntry
 	var bestScore float64
+	var lastErr error
 
 	for _, cid := range consoleIDs {
 		games, err := getGameList(cid)
 		if err != nil {
-			log.Printf("RA game list for console %d failed: %v", cid, err)
+			lastErr = err
 			continue
 		}
 
@@ -362,13 +425,15 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 		}
 	}
 
+	if bestGame == nil && lastErr != nil {
+		return nil, lastErr
+	}
 	if bestGame == nil || bestScore < minMatchScore {
 		return nil, nil
 	}
 
 	ext, err := fetchGameExtended(bestGame.ID)
 	if err != nil {
-		log.Printf("RA extended info for %d failed: %v", bestGame.ID, err)
 		r := &lookupResult{
 			Index:      q.Index,
 			Title:      bestGame.Title,
@@ -432,14 +497,25 @@ func handleLookup(params lookupParams) (any, *Error) {
 	}()
 
 	var results []lookupResult
+	var lookupErr error
+	errorCount := 0
 	for _, q := range params.Games {
 		r, err := matchGame(q)
 		if err != nil {
-			log.Printf("RA lookup error for %q: %v", q.Title, err)
+			errorCount++
+			if lookupErr == nil {
+				lookupErr = err
+			}
 			continue
 		}
 		if r != nil {
 			results = append(results, *r)
+		}
+	}
+	if lookupErr != nil {
+		log.Printf("RA metadata lookup had %d provider errors; first error: %v", errorCount, lookupErr)
+		if len(results) == 0 {
+			return nil, &Error{Code: "API_UNAVAILABLE", Message: lookupErr.Error()}
 		}
 	}
 
@@ -515,13 +591,22 @@ func buildRetroAchievementEntries(game *raGameExtended) ([]achievementEntry, int
 
 		achievements = append(achievements, entry)
 	}
+	sort.SliceStable(achievements, func(i, j int) bool {
+		leftID, leftErr := strconv.Atoi(achievements[i].ExternalID)
+		rightID, rightErr := strconv.Atoi(achievements[j].ExternalID)
+		if leftErr == nil && rightErr == nil && leftID != rightID {
+			return leftID < rightID
+		}
+		return achievements[i].ExternalID < achievements[j].ExternalID
+	})
 
 	return achievements, unlocked, totalPoints, earnedPoints
 }
 
 func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 	var p struct {
-		ExternalGameID string `json:"external_game_id"`
+		ExternalGameID string         `json:"external_game_id"`
+		Config         map[string]any `json:"config"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
@@ -529,9 +614,16 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 	if p.ExternalGameID == "" {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id required"}
 	}
-	if cfg.APIKey == "" || cfg.Username == "" {
+
+	effectiveCfg := effectiveConfig(p.Config)
+	if effectiveCfg.APIKey == "" || effectiveCfg.Username == "" {
 		return nil, &Error{Code: "NOT_CONFIGURED", Message: "retroachievements plugin not configured"}
 	}
+	origCfg := cfg
+	cfg = effectiveCfg
+	defer func() {
+		cfg = origCfg
+	}()
 
 	gameID, err := strconv.Atoi(p.ExternalGameID)
 	if err != nil {

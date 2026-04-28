@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -494,7 +495,7 @@ func TestAchievementControllerGetAchievementsNormalizesMixedStatesAndCaches(t *t
 			},
 		},
 	}
-	controller := NewAchievementController(store, host, noopLogger{}, nil)
+	controller := NewAchievementController(store, host, nil, noopLogger{}, nil)
 
 	router := chi.NewRouter()
 	router.Get("/api/games/{id}/achievements", controller.GetAchievements)
@@ -589,7 +590,7 @@ func TestAchievementControllerGetAchievementsQueriesMetadataProviderFallbackCand
 				Status:     "found",
 				ResolverMatches: []core.ResolverMatch{
 					{PluginID: "metadata-igdb", ExternalID: "igdb-1", Outvoted: false},
-					{PluginID: "retroachievements", ExternalID: "ra-42", Outvoted: true},
+					{PluginID: "retroachievements", ExternalID: "ra-42", Outvoted: false},
 				},
 			},
 		},
@@ -622,7 +623,7 @@ func TestAchievementControllerGetAchievementsQueriesMetadataProviderFallbackCand
 			},
 		},
 	}
-	controller := NewAchievementController(store, host, noopLogger{}, nil)
+	controller := NewAchievementController(store, host, nil, noopLogger{}, nil)
 
 	router := chi.NewRouter()
 	router.Get("/api/games/{id}/achievements", controller.GetAchievements)
@@ -669,6 +670,151 @@ func TestAchievementControllerGetAchievementsQueriesMetadataProviderFallbackCand
 	}
 }
 
+func TestAchievementControllerGetAchievementsReturnsMultipleSourceBackedSets(t *testing.T) {
+	game := &core.CanonicalGame{
+		ID: "game-altered-beast",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "source-arcade",
+				IntegrationID: "roms",
+				PluginID:      "game-source-mame",
+				RawTitle:      "Altered Beast (set 8) (8751 317-0078)",
+				Platform:      core.PlatformArcade,
+				Status:        "found",
+				ResolverMatches: []core.ResolverMatch{{
+					PluginID:   "retroachievements",
+					Title:      "Altered Beast",
+					ExternalID: "11975",
+				}},
+			},
+			{
+				ID:            "source-genesis",
+				IntegrationID: "roms",
+				PluginID:      "game-source-smb",
+				RawTitle:      "Altered Beast",
+				Platform:      core.PlatformGenesis,
+				Status:        "found",
+				ResolverMatches: []core.ResolverMatch{{
+					PluginID:   "retroachievements",
+					Title:      "Altered Beast",
+					ExternalID: "24",
+				}},
+			},
+		},
+	}
+	store := &fakeGameStore{game: game}
+	host := &fakePluginHost{
+		provides: map[string][]string{
+			"achievements.game.get": {"retroachievements"},
+		},
+		results: map[string]rawAchievementPluginResult{
+			"retroachievements": {
+				Source: "retroachievements",
+				Achievements: []rawAchievementPluginEntry{{
+					ExternalID: "ra-ach-1",
+					Title:      "Clear Round 1",
+					Unlocked:   true,
+				}},
+			},
+		},
+	}
+	controller := NewAchievementController(store, host, nil, noopLogger{}, nil)
+
+	router := chi.NewRouter()
+	router.Get("/api/games/{id}/achievements", controller.GetAchievements)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/games/game-altered-beast/achievements", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if len(host.calls) != 2 {
+		t.Fatalf("plugin calls = %d, want 2", len(host.calls))
+	}
+	externalIDs := []string{host.calls[0].externalGameID, host.calls[1].externalGameID}
+	sort.Strings(externalIDs)
+	if externalIDs[0] != "11975" || externalIDs[1] != "24" {
+		t.Fatalf("external ids = %+v, want 11975 and 24", externalIDs)
+	}
+	var sets []AchievementSetDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &sets); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(sets) != 2 {
+		t.Fatalf("sets = %d, want 2", len(sets))
+	}
+	bySource := map[string]AchievementSetDTO{}
+	for _, set := range sets {
+		bySource[set.SourceGameID] = set
+	}
+	if bySource["source-arcade"].ExternalGameID != "11975" || bySource["source-genesis"].ExternalGameID != "24" {
+		t.Fatalf("sets by source = %+v, want distinct RA sets", bySource)
+	}
+	if bySource["source-arcade"].Platform != string(core.PlatformArcade) || bySource["source-genesis"].Platform != string(core.PlatformGenesis) {
+		t.Fatalf("set platforms = %+v", bySource)
+	}
+	if len(store.cached) != 2 {
+		t.Fatalf("cache writes = %d, want 2", len(store.cached))
+	}
+}
+
+func TestAchievementControllerPassesConfiguredIntegrationConfig(t *testing.T) {
+	game := &core.CanonicalGame{
+		ID: "game-1",
+		SourceGames: []*core.SourceGame{{
+			ID:         "source-1",
+			PluginID:   "game-source-smb",
+			ExternalID: "share-1",
+			Status:     "found",
+			ResolverMatches: []core.ResolverMatch{{
+				PluginID:   "retroachievements",
+				ExternalID: "8751",
+			}},
+		}},
+	}
+	store := &fakeGameStore{game: game}
+	host := &fakePluginHost{
+		provides: map[string][]string{
+			"achievements.game.get": {"retroachievements"},
+		},
+		results: map[string]rawAchievementPluginResult{
+			"retroachievements": {
+				Source:         "retroachievements",
+				ExternalGameID: "8751",
+			},
+		},
+	}
+	repo := &fakeControllerIntegrationRepo{
+		byID: map[string]*core.Integration{
+			"ra-1": {
+				ID:              "ra-1",
+				PluginID:        "retroachievements",
+				Label:           "RetroAchievements",
+				IntegrationType: "metadata",
+				ConfigJSON:      `{"username":"retro-user","api_key":"retro-key"}`,
+			},
+		},
+	}
+	controller := NewAchievementController(store, host, repo, noopLogger{}, nil)
+
+	router := chi.NewRouter()
+	router.Get("/api/games/{id}/achievements", controller.GetAchievements)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/games/game-1/achievements", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if len(host.calls) != 1 {
+		t.Fatalf("plugin calls = %d, want 1", len(host.calls))
+	}
+	if host.calls[0].config["username"] != "retro-user" || host.calls[0].config["api_key"] != "retro-key" {
+		t.Fatalf("config = %+v, want RetroAchievements credentials", host.calls[0].config)
+	}
+}
+
 type noopLogger struct{}
 
 func (noopLogger) Info(string, ...any)         {}
@@ -685,6 +831,7 @@ type fakePluginCall struct {
 	pluginID       string
 	method         string
 	externalGameID string
+	config         map[string]any
 }
 
 type fakeGameStore struct {
@@ -912,10 +1059,12 @@ func (f *fakePluginHost) Call(_ context.Context, pluginID, method string, params
 	switch payload := params.(type) {
 	case map[string]any:
 		if externalGameID, ok := payload["external_game_id"].(string); ok {
+			configMap, _ := payload["config"].(map[string]any)
 			f.calls = append(f.calls, fakePluginCall{
 				pluginID:       pluginID,
 				method:         method,
 				externalGameID: externalGameID,
+				config:         configMap,
 			})
 		}
 	}

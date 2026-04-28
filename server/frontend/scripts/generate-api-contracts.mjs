@@ -127,9 +127,28 @@ export type GameLaunchCandidateDTO = {
   size: number;
 };
 
+export type GameLaunchOptionDTO = {
+  kind: "browser" | "xcloud" | string;
+  source_game_id: string;
+  source_title?: string;
+  platform?: string;
+  plugin_id?: string;
+  integration_id?: string;
+  integration_label?: string;
+  launchable: boolean;
+  file_id?: string;
+  root_file_id?: string;
+  path?: string;
+  file_kind?: string;
+  size?: number;
+  profile?: string;
+  url?: string;
+};
+
 export type GamePlayDTO = {
   available: boolean;
   platform_supported: boolean;
+  options?: GameLaunchOptionDTO[];
   launch_sources?: GameLaunchSourceDTO[];
   launch_candidates?: GameLaunchCandidateDTO[];
 };

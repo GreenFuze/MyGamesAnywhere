@@ -1233,13 +1233,15 @@ export function IntegrationsTab() {
         setScanMetadataOnly(Boolean(d.metadata_only));
         setScanError("");
         setCurrentPhase(d.metadata_only ? "metadata refresh" : "source scan");
-        setScanStatusText("Starting scan...");
+        setScanStatusText(
+          d.metadata_only ? "Starting metadata refresh..." : "Starting scan...",
+        );
         setScanTotalCount(d.integration_count ?? 0);
         setScanCompletedCount(0);
         setScanIntegrations(toIntegrationStateMap(d.integrations));
         setScanEventLog([]);
         appendScanEvent(
-          `Scan started${d.integration_count ? ` for ${d.integration_count} integration${d.integration_count === 1 ? "" : "s"}` : ""}.`,
+          `${d.metadata_only ? "Metadata refresh" : "Scan"} started${d.integration_count ? ` for ${d.integration_count} integration${d.integration_count === 1 ? "" : "s"}` : ""}.`,
           data,
         );
       }),
@@ -1259,7 +1261,11 @@ export function IntegrationsTab() {
             integration.phase = "starting";
             integration.error = undefined;
           });
-          setScanStatusText(`Scanning ${d.label ?? d.integration_id}...`);
+          setScanStatusText(
+            scanMetadataOnly
+              ? `Refreshing metadata for ${d.label ?? d.integration_id}...`
+              : `Scanning ${d.label ?? d.integration_id}...`,
+          );
         }
         setScanJobStatus("running");
         appendScanEvent(
@@ -1810,13 +1816,18 @@ export function IntegrationsTab() {
       // Scan finished.
       subscribe("scan_complete", (data: unknown) => {
         if (!matchesActiveScanEvent(data)) return;
+        const d = data as { metadata_only?: boolean };
+        const wasMetadataOnly = scanMetadataOnly || Boolean(d.metadata_only);
         setScanJobStatus("completed");
         setScanning(false);
         setScanMetadataOnly(false);
         setCurrentPhase("");
         setScanStatusText("");
         persistActiveScanJobId(null);
-        appendScanEvent("Scan complete.", data);
+        appendScanEvent(
+          wasMetadataOnly ? "Metadata refresh complete." : "Scan complete.",
+          data,
+        );
         queryClient.invalidateQueries({ queryKey: ["stats"] });
         queryClient.invalidateQueries({ queryKey: ["games"] });
         queryClient.invalidateQueries({ queryKey: ["integration-games"] });
@@ -1826,10 +1837,17 @@ export function IntegrationsTab() {
       // Scan error.
       subscribe("scan_error", (data: unknown) => {
         if (!matchesActiveScanEvent(data)) return;
-        const d = data as { integration_id?: string; error?: string };
+        const d = data as {
+          integration_id?: string;
+          error?: string;
+          metadata_only?: boolean;
+        };
+        const wasMetadataOnly = scanMetadataOnly || Boolean(d.metadata_only);
         setScanJobStatus("failed");
         setScanMetadataOnly(false);
-        setScanError(d.error ?? "Scan failed");
+        setScanError(
+          d.error ?? (wasMetadataOnly ? "Metadata refresh failed" : "Scan failed"),
+        );
         setScanning(false);
         setScanStatusText("");
         if (d.integration_id) {
@@ -1840,7 +1858,10 @@ export function IntegrationsTab() {
           });
         }
         persistActiveScanJobId(null);
-        appendScanEvent(`Scan failed: ${d.error ?? "unknown error"}.`, data);
+        appendScanEvent(
+          `${wasMetadataOnly ? "Metadata refresh" : "Scan"} failed: ${d.error ?? "unknown error"}.`,
+          data,
+        );
         queryClient.invalidateQueries({ queryKey: ["stats"] });
         queryClient.invalidateQueries({ queryKey: ["integration-games"] });
       }),
@@ -1851,6 +1872,7 @@ export function IntegrationsTab() {
     matchesActiveScanEvent,
     persistActiveScanJobId,
     queryClient,
+    scanMetadataOnly,
     setScanIntegration,
     subscribe,
   ]);

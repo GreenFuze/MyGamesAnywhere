@@ -52,6 +52,7 @@ func TestNormalizeForConsensus(t *testing.T) {
 		{"Doom", "doom"},
 		{"Half-Life 2", "half life 2"},
 		{"Castlevania: Symphony of the Night", "castlevania symphony of the night"},
+		{"Altered Beast (set 8) (8751 317-0078)", "altered beast"},
 		{"  Spaced  Out  ", "spaced out"},
 	}
 	for _, tc := range tests {
@@ -59,6 +60,37 @@ func TestNormalizeForConsensus(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("normalizeForConsensus(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestConsensus_NormalizesDumpSuffixes(t *testing.T) {
+	g := &core.Game{
+		Title:    "raw",
+		RawTitle: "altbeast",
+		Platform: core.PlatformArcade,
+		Kind:     core.GameKindBaseGame,
+		ResolverMatches: []core.ResolverMatch{
+			{PluginID: "metadata-mame-dat", Title: "Altered Beast (set 8) (8751 317-0078)", ExternalID: "mame-altbeast"},
+			{PluginID: "metadata-launchbox", Title: "Altered Beast", ExternalID: "launchbox-altered-beast"},
+		},
+	}
+	sources := []MetadataSource{
+		{PluginID: "metadata-mame-dat"},
+		{PluginID: "metadata-launchbox"},
+	}
+
+	runConsensus(g, sources)
+
+	if g.Status != "identified" {
+		t.Fatalf("status = %q, want identified", g.Status)
+	}
+	for _, match := range g.ResolverMatches {
+		if match.Outvoted {
+			t.Fatalf("%s should not be outvoted after suffix normalization: %+v", match.PluginID, g.ResolverMatches)
+		}
+	}
+	if len(g.ExternalIDs) != 2 {
+		t.Fatalf("external id count = %d, want 2: %+v", len(g.ExternalIDs), g.ExternalIDs)
 	}
 }
 

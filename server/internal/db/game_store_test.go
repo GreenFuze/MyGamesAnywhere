@@ -2110,6 +2110,170 @@ func persistBatch(t *testing.T, ctx context.Context, store *gameStore, batch *co
 	}
 }
 
+func TestCanonicalGroupingMergesProviderBackedCleanTitleVersions(t *testing.T) {
+	ctx := context.Background()
+	_, store := newTestGameStore(t)
+
+	persistBatch(t, ctx, store, &core.ScanBatch{
+		IntegrationID: "roms",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "source-arcade",
+				IntegrationID: "roms",
+				PluginID:      "game-source-mame",
+				ExternalID:    "mame-altbeast",
+				RawTitle:      "Altered Beast (set 8) (8751 317-0078)",
+				Platform:      core.PlatformArcade,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			},
+			{
+				ID:            "source-genesis",
+				IntegrationID: "roms",
+				PluginID:      "game-source-smb",
+				ExternalID:    "genesis-altbeast",
+				RawTitle:      "Altered Beast [!]",
+				Platform:      core.PlatformGenesis,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			},
+		},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"source-arcade": {{
+				PluginID:   "retroachievements",
+				Title:      "Altered Beast (set 8) (8751 317-0078)",
+				ExternalID: "11975",
+			}},
+			"source-genesis": {{
+				PluginID:   "retroachievements",
+				Title:      "Altered Beast",
+				ExternalID: "24",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	})
+
+	games, err := store.GetCanonicalGames(ctx)
+	if err != nil {
+		t.Fatalf("GetCanonicalGames: %v", err)
+	}
+	if len(games) != 1 {
+		t.Fatalf("canonical games = %d, want 1", len(games))
+	}
+	if len(games[0].SourceGames) != 2 {
+		t.Fatalf("source games = %d, want 2", len(games[0].SourceGames))
+	}
+	if games[0].Title != "Altered Beast" {
+		t.Fatalf("canonical title = %q, want Altered Beast", games[0].Title)
+	}
+	if games[0].SourceGames[0].RawTitle == games[0].Title && games[0].SourceGames[0].ID == "source-arcade" {
+		t.Fatalf("source raw title was unexpectedly cleaned: %+v", games[0].SourceGames[0])
+	}
+}
+
+func TestCanonicalGroupingDoesNotMergeRawTitleOnlyRecords(t *testing.T) {
+	ctx := context.Background()
+	_, store := newTestGameStore(t)
+
+	persistBatch(t, ctx, store, &core.ScanBatch{
+		IntegrationID: "manual",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "source-one",
+				IntegrationID: "manual",
+				PluginID:      "game-source-smb",
+				ExternalID:    "one",
+				RawTitle:      "Altered Beast",
+				Platform:      core.PlatformArcade,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+				ReviewState:   core.ManualReviewStateMatched,
+			},
+			{
+				ID:            "source-two",
+				IntegrationID: "manual",
+				PluginID:      "game-source-smb",
+				ExternalID:    "two",
+				RawTitle:      "Altered Beast [!]",
+				Platform:      core.PlatformGenesis,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+				ReviewState:   core.ManualReviewStateMatched,
+			},
+		},
+		ResolverMatches: map[string][]core.ResolverMatch{},
+		MediaItems:      map[string][]core.MediaRef{},
+	})
+
+	games, err := store.GetCanonicalGames(ctx)
+	if err != nil {
+		t.Fatalf("GetCanonicalGames: %v", err)
+	}
+	if len(games) != 2 {
+		t.Fatalf("canonical games = %d, want 2", len(games))
+	}
+}
+
+func TestCanonicalGroupingDoesNotMergeChildContentByTitle(t *testing.T) {
+	ctx := context.Background()
+	_, store := newTestGameStore(t)
+
+	persistBatch(t, ctx, store, &core.ScanBatch{
+		IntegrationID: "source",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "source-base",
+				IntegrationID: "source",
+				PluginID:      "game-source-smb",
+				ExternalID:    "base",
+				RawTitle:      "Doom",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			},
+			{
+				ID:            "source-dlc",
+				IntegrationID: "source",
+				PluginID:      "game-source-smb",
+				ExternalID:    "dlc",
+				RawTitle:      "Doom",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindDLC,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			},
+		},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"source-base": {{
+				PluginID:   "metadata-test",
+				Title:      "Doom",
+				ExternalID: "doom-base",
+			}},
+			"source-dlc": {{
+				PluginID:     "metadata-test",
+				Title:        "Doom",
+				Kind:         string(core.GameKindDLC),
+				ParentGameID: "doom-base",
+				ExternalID:   "doom-dlc",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	})
+
+	games, err := store.GetCanonicalGames(ctx)
+	if err != nil {
+		t.Fatalf("GetCanonicalGames: %v", err)
+	}
+	if len(games) != 2 {
+		t.Fatalf("canonical games = %d, want 2", len(games))
+	}
+}
+
 func TestPersistScanResultsExplicitEmptyEntriesClearStaleMetadataAndMedia(t *testing.T) {
 	ctx := context.Background()
 	db, store := newTestGameStore(t)

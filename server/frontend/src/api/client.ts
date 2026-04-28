@@ -33,6 +33,7 @@ export type {
   DateTimePrefs,
   FrontendConfig,
   GameLaunchCandidateDTO,
+  GameLaunchOptionDTO,
   GameLaunchSourceDTO,
   GamePlayDTO,
   GameFileDTO,
@@ -267,6 +268,12 @@ export type AchievementDTO = {
 export type AchievementSetDTO = {
   source: string;
   external_game_id: string;
+  source_game_id?: string;
+  source_title?: string;
+  platform?: string;
+  integration_id?: string;
+  integration_label?: string;
+  plugin_id?: string;
   total_count: number;
   unlocked_count: number;
   total_points?: number;

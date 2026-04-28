@@ -1669,15 +1669,17 @@ func (c *PluginController) DeleteIntegration(w http.ResponseWriter, r *http.Requ
 type AchievementController struct {
 	gameStore          core.GameStore
 	pluginHost         plugins.PluginHost
+	integrationRepo    core.IntegrationRepository
 	achievementFetcher *scan.AchievementFetchService
 	logger             core.Logger
 	eventBus           *events.EventBus
 }
 
-func NewAchievementController(gameStore core.GameStore, pluginHost plugins.PluginHost, logger core.Logger, eventBus *events.EventBus) *AchievementController {
+func NewAchievementController(gameStore core.GameStore, pluginHost plugins.PluginHost, integrationRepo core.IntegrationRepository, logger core.Logger, eventBus *events.EventBus) *AchievementController {
 	return &AchievementController{
 		gameStore:          gameStore,
 		pluginHost:         pluginHost,
+		integrationRepo:    integrationRepo,
 		achievementFetcher: scan.NewAchievementFetchService(gameStore, pluginHost, logger),
 		logger:             logger,
 		eventBus:           eventBus,
@@ -1697,24 +1699,36 @@ type AchievementDTO struct {
 }
 
 type AchievementSetDTO struct {
-	Source         string           `json:"source"`
-	ExternalGameID string           `json:"external_game_id"`
-	TotalCount     int              `json:"total_count"`
-	UnlockedCount  int              `json:"unlocked_count"`
-	TotalPoints    int              `json:"total_points,omitempty"`
-	EarnedPoints   int              `json:"earned_points,omitempty"`
-	Achievements   []AchievementDTO `json:"achievements"`
+	Source           string           `json:"source"`
+	ExternalGameID   string           `json:"external_game_id"`
+	SourceGameID     string           `json:"source_game_id,omitempty"`
+	SourceTitle      string           `json:"source_title,omitempty"`
+	Platform         string           `json:"platform,omitempty"`
+	IntegrationID    string           `json:"integration_id,omitempty"`
+	IntegrationLabel string           `json:"integration_label,omitempty"`
+	PluginID         string           `json:"plugin_id,omitempty"`
+	TotalCount       int              `json:"total_count"`
+	UnlockedCount    int              `json:"unlocked_count"`
+	TotalPoints      int              `json:"total_points,omitempty"`
+	EarnedPoints     int              `json:"earned_points,omitempty"`
+	Achievements     []AchievementDTO `json:"achievements"`
 }
 
 func achievementSetToDTO(set core.AchievementSet) AchievementSetDTO {
 	dto := AchievementSetDTO{
-		Source:         set.Source,
-		ExternalGameID: set.ExternalGameID,
-		TotalCount:     set.TotalCount,
-		UnlockedCount:  set.UnlockedCount,
-		TotalPoints:    set.TotalPoints,
-		EarnedPoints:   set.EarnedPoints,
-		Achievements:   make([]AchievementDTO, 0, len(set.Achievements)),
+		Source:           set.Source,
+		ExternalGameID:   set.ExternalGameID,
+		SourceGameID:     set.SourceGameID,
+		SourceTitle:      set.SourceTitle,
+		Platform:         set.Platform,
+		IntegrationID:    set.IntegrationID,
+		IntegrationLabel: set.IntegrationLabel,
+		PluginID:         set.PluginID,
+		TotalCount:       set.TotalCount,
+		UnlockedCount:    set.UnlockedCount,
+		TotalPoints:      set.TotalPoints,
+		EarnedPoints:     set.EarnedPoints,
+		Achievements:     make([]AchievementDTO, 0, len(set.Achievements)),
 	}
 	for _, achievement := range set.Achievements {
 		item := AchievementDTO{
@@ -2005,14 +2019,15 @@ func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	achPlugins := c.pluginHost.GetPluginIDsProviding("achievements.game.get")
-	if len(achPlugins) == 0 {
+	achievementSources := c.configuredAchievementSources(ctx)
+	if len(achievementSources) == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]any{})
 		return
 	}
 
-	fetchedSets, errs := c.achievementFetcher.FetchAndCacheForPlugins(ctx, game, achPlugins)
+	fetchedSets, errs := c.achievementFetcher.FetchAndCacheForSources(ctx, game, achievementSources)
+	c.enrichAchievementSetContext(ctx, game, fetchedSets)
 	sets := make([]AchievementSetDTO, 0, len(fetchedSets))
 	for _, set := range fetchedSets {
 		if set == nil {
@@ -2020,7 +2035,8 @@ func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.R
 		}
 		sets = append(sets, achievementSetToDTO(*set))
 	}
-	for pluginID, callErr := range errs {
+	for errKey, callErr := range errs {
+		pluginID := strings.SplitN(errKey, "|", 2)[0]
 		c.logger.Error("achievements.game.get failed", callErr, "plugin_id", pluginID, "game_id", gameID)
 		events.PublishJSON(c.eventBus, "operation_error", map[string]any{
 			"scope":     "achievements",
@@ -2032,4 +2048,106 @@ func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.R
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(sets)
+}
+
+func (c *AchievementController) enrichAchievementSetContext(ctx context.Context, game *core.CanonicalGame, sets []*core.AchievementSet) {
+	if game == nil || len(sets) == 0 {
+		return
+	}
+	labels := map[string]string{}
+	if c.integrationRepo != nil {
+		if integrations, err := c.integrationRepo.List(ctx); err == nil {
+			for _, integration := range integrations {
+				if integration != nil {
+					labels[integration.ID] = integration.Label
+				}
+			}
+		}
+	}
+	sourceByID := make(map[string]*core.SourceGame, len(game.SourceGames))
+	for _, sourceGame := range game.SourceGames {
+		if sourceGame != nil {
+			sourceByID[sourceGame.ID] = sourceGame
+		}
+	}
+	for _, set := range sets {
+		if set == nil {
+			continue
+		}
+		sourceGame := sourceByID[set.SourceGameID]
+		if sourceGame != nil {
+			if set.SourceTitle == "" {
+				set.SourceTitle = sourceGame.RawTitle
+			}
+			if set.Platform == "" {
+				set.Platform = string(sourceGame.Platform)
+			}
+			if set.IntegrationID == "" {
+				set.IntegrationID = sourceGame.IntegrationID
+			}
+			if set.PluginID == "" {
+				set.PluginID = set.Source
+			}
+		}
+		if set.IntegrationLabel == "" && set.IntegrationID != "" {
+			set.IntegrationLabel = labels[set.IntegrationID]
+		}
+	}
+}
+
+func (c *AchievementController) configuredAchievementSources(ctx context.Context) []scan.AchievementSource {
+	pluginIDs := c.pluginHost.GetPluginIDsProviding("achievements.game.get")
+	if len(pluginIDs) == 0 {
+		return nil
+	}
+	provides := make(map[string]struct{}, len(pluginIDs))
+	for _, pluginID := range pluginIDs {
+		if strings.TrimSpace(pluginID) != "" {
+			provides[pluginID] = struct{}{}
+		}
+	}
+
+	if c.integrationRepo == nil {
+		sources := make([]scan.AchievementSource, 0, len(provides))
+		for pluginID := range provides {
+			sources = append(sources, scan.AchievementSource{PluginID: pluginID})
+		}
+		return sources
+	}
+
+	integrations, err := c.integrationRepo.List(ctx)
+	if err != nil {
+		c.logger.Error("list achievement integrations", err)
+		return nil
+	}
+	sources := make([]scan.AchievementSource, 0, len(integrations))
+	seen := map[string]struct{}{}
+	for _, integration := range integrations {
+		if integration == nil {
+			continue
+		}
+		if _, ok := provides[integration.PluginID]; !ok {
+			continue
+		}
+		configMap, err := decodeIntegrationConfig(integration.ConfigJSON)
+		if err != nil {
+			c.logger.Error("decode achievement integration config", err, "integration_id", integration.ID, "plugin_id", integration.PluginID)
+			continue
+		}
+		key := integration.ID
+		if key == "" {
+			key = integration.PluginID
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		sources = append(sources, scan.AchievementSource{
+			IntegrationID: integration.ID,
+			Label:         integration.Label,
+			PluginID:      integration.PluginID,
+			Config:        configMap,
+		})
+	}
+	return sources
 }

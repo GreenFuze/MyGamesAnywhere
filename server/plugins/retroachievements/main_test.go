@@ -122,16 +122,22 @@ func TestHandleLookupUsesRequestConfigAndMatchesAlteredBeast(t *testing.T) {
 	origTicker := rateLimiter
 	origCfg := cfg
 	origCache := gameListCache
+	origFailureCache := gameListFailureCache
+	origCacheRoot := raGameListCacheRoot
 	defer func() {
 		raAPIBase = origBase
 		raHTTPClient = origClient
 		rateLimiter = origTicker
 		cfg = origCfg
 		gameListCache = origCache
+		gameListFailureCache = origFailureCache
+		raGameListCacheRoot = origCacheRoot
 	}()
 
 	cfg = raConfig{}
 	gameListCache = make(map[int][]raGameListEntry)
+	gameListFailureCache = make(map[int]cachedFailure)
+	raGameListCacheRoot = t.TempDir()
 	rateLimiter = time.NewTicker(time.Microsecond)
 	t.Cleanup(rateLimiter.Stop)
 
@@ -145,6 +151,12 @@ func TestHandleLookupUsesRequestConfigAndMatchesAlteredBeast(t *testing.T) {
 		case "/API_GetGameList.php":
 			if values.Get("i") != "1" {
 				t.Fatalf("console id = %q, want genesis console 1", values.Get("i"))
+			}
+			if values.Get("f") != "1" {
+				t.Fatalf("filter f = %q, want 1", values.Get("f"))
+			}
+			if values.Get("h") != "" {
+				t.Fatalf("hash flag h = %q, want empty for title lookup", values.Get("h"))
 			}
 			_ = json.NewEncoder(w).Encode([]raGameListEntry{{
 				ID:        1,
@@ -213,6 +225,228 @@ func TestHandleLookupUsesRequestConfigAndMatchesAlteredBeast(t *testing.T) {
 	}
 	if cfg.APIKey != "" || cfg.Username != "" {
 		t.Fatalf("global config leaked after lookup: %+v", cfg)
+	}
+}
+
+func TestFetchGameListRequestsFilteredGamesWithoutHashes(t *testing.T) {
+	origBase := raAPIBase
+	origClient := raHTTPClient
+	origTicker := rateLimiter
+	origCfg := cfg
+	defer func() {
+		raAPIBase = origBase
+		raHTTPClient = origClient
+		rateLimiter = origTicker
+		cfg = origCfg
+	}()
+
+	cfg = raConfig{Username: "retro-user", APIKey: "retro-key"}
+	rateLimiter = time.NewTicker(time.Microsecond)
+	t.Cleanup(rateLimiter.Stop)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		values := r.URL.Query()
+		if values.Get("i") != "27" {
+			t.Fatalf("console id = %q, want 27", values.Get("i"))
+		}
+		if values.Get("f") != "1" {
+			t.Fatalf("filter f = %q, want 1", values.Get("f"))
+		}
+		if values.Get("h") != "" {
+			t.Fatalf("hash flag h = %q, want empty", values.Get("h"))
+		}
+		_, _ = io.WriteString(w, `[{"ID":1,"Title":"Altered Beast"}]`)
+	}))
+	defer server.Close()
+
+	raAPIBase = server.URL
+	raHTTPClient = server.Client()
+
+	games, err := fetchGameList(27)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(games) != 1 || games[0].Title != "Altered Beast" {
+		t.Fatalf("games = %+v, want Altered Beast", games)
+	}
+}
+
+func TestGetGameListUsesPersistentCache(t *testing.T) {
+	origBase := raAPIBase
+	origClient := raHTTPClient
+	origTicker := rateLimiter
+	origCfg := cfg
+	origCache := gameListCache
+	origFailureCache := gameListFailureCache
+	origCacheRoot := raGameListCacheRoot
+	defer func() {
+		raAPIBase = origBase
+		raHTTPClient = origClient
+		rateLimiter = origTicker
+		cfg = origCfg
+		gameListCache = origCache
+		gameListFailureCache = origFailureCache
+		raGameListCacheRoot = origCacheRoot
+	}()
+
+	cfg = raConfig{Username: "retro-user", APIKey: "retro-key"}
+	gameListCache = make(map[int][]raGameListEntry)
+	gameListFailureCache = make(map[int]cachedFailure)
+	raGameListCacheRoot = t.TempDir()
+	rateLimiter = time.NewTicker(time.Microsecond)
+	t.Cleanup(rateLimiter.Stop)
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		_, _ = io.WriteString(w, `[{"ID":1,"Title":"Altered Beast"}]`)
+	}))
+	defer server.Close()
+
+	raAPIBase = server.URL
+	raHTTPClient = server.Client()
+
+	if _, err := getGameList(1); err != nil {
+		t.Fatal(err)
+	}
+	gameListCache = make(map[int][]raGameListEntry)
+	games, err := getGameList(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1 due persistent cache", requests)
+	}
+	if len(games) != 1 || games[0].Title != "Altered Beast" {
+		t.Fatalf("cached games = %+v, want Altered Beast", games)
+	}
+}
+
+func TestGetGameListBacksOffAfterFailure(t *testing.T) {
+	origBase := raAPIBase
+	origClient := raHTTPClient
+	origTicker := rateLimiter
+	origCfg := cfg
+	origCache := gameListCache
+	origFailureCache := gameListFailureCache
+	origCacheRoot := raGameListCacheRoot
+	defer func() {
+		raAPIBase = origBase
+		raHTTPClient = origClient
+		rateLimiter = origTicker
+		cfg = origCfg
+		gameListCache = origCache
+		gameListFailureCache = origFailureCache
+		raGameListCacheRoot = origCacheRoot
+	}()
+
+	cfg = raConfig{Username: "retro-user", APIKey: "retro-key"}
+	gameListCache = make(map[int][]raGameListEntry)
+	gameListFailureCache = make(map[int]cachedFailure)
+	raGameListCacheRoot = t.TempDir()
+	rateLimiter = time.NewTicker(time.Microsecond)
+	t.Cleanup(rateLimiter.Stop)
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "cloudflare block", http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	raAPIBase = server.URL
+	raHTTPClient = server.Client()
+
+	if _, err := getGameList(1); err == nil {
+		t.Fatal("expected first request to fail")
+	}
+	if _, err := getGameList(1); err == nil {
+		t.Fatal("expected cached failure to fail")
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1 due failure backoff", requests)
+	}
+}
+
+func TestHandleAchievementsUsesRequestConfig(t *testing.T) {
+	origBase := raAPIBase
+	origClient := raHTTPClient
+	origTicker := rateLimiter
+	origCfg := cfg
+	defer func() {
+		raAPIBase = origBase
+		raHTTPClient = origClient
+		rateLimiter = origTicker
+		cfg = origCfg
+	}()
+
+	cfg = raConfig{}
+	rateLimiter = time.NewTicker(time.Microsecond)
+	t.Cleanup(rateLimiter.Stop)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		values := r.URL.Query()
+		if values.Get("z") != "retro-user" || values.Get("y") != "retro-key" {
+			t.Fatalf("query credentials = %v, want request config credentials", values)
+		}
+		if values.Get("g") != "8751" || values.Get("u") != "retro-user" {
+			t.Fatalf("query = %v, want game and username", values)
+		}
+		_ = json.NewEncoder(w).Encode(raGameExtended{
+			ID:              8751,
+			Title:           "Altered Beast",
+			NumAchievements: 1,
+			Achievements: map[string]raAchievement{
+				"1": {
+					ID:         1,
+					Title:      "Rise from Your Grave",
+					Points:     5,
+					BadgeName:  "00001",
+					DateEarned: "2024-03-09T16:00:00Z",
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	raAPIBase = server.URL
+	raHTTPClient = server.Client()
+
+	params, err := json.Marshal(map[string]any{
+		"external_game_id": "8751",
+		"config": map[string]any{
+			"api_key":  "retro-key",
+			"username": "retro-user",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, errObj := handleAchievementsGet(params)
+	if errObj != nil {
+		t.Fatalf("handleAchievementsGet error = %+v", errObj)
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Source         string             `json:"source"`
+		ExternalGameID string             `json:"external_game_id"`
+		UnlockedCount  int                `json:"unlocked_count"`
+		Achievements   []achievementEntry `json:"achievements"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Source != "retroachievements" || decoded.ExternalGameID != "8751" {
+		t.Fatalf("result = %+v, want RetroAchievements 8751", decoded)
+	}
+	if decoded.UnlockedCount != 1 || len(decoded.Achievements) != 1 {
+		t.Fatalf("achievement result = %+v, want one unlocked achievement", decoded)
+	}
+	if cfg.APIKey != "" || cfg.Username != "" {
+		t.Fatalf("global config leaked after achievements: %+v", cfg)
 	}
 }
 

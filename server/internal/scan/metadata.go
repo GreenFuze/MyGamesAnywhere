@@ -3,12 +3,12 @@ package scan
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/pkg/titlematch"
 )
 
 const metadataGameLookupMethod = "metadata.game.lookup"
@@ -521,7 +521,10 @@ func applyUnifiedFields(g *core.Game, sources []MetadataSource) {
 	for _, w := range winners {
 		m := w.match
 		if m.Title != "" && !titleSet {
-			g.Title = m.Title
+			g.Title = titlematch.CleanDisplayTitle(m.Title)
+			if g.Title == "" {
+				g.Title = m.Title
+			}
 			titleSet = true
 		}
 		if m.Platform != "" && g.Platform == core.PlatformUnknown {
@@ -828,16 +831,8 @@ func matchToResolver(pluginID string, m metadataMatch) core.ResolverMatch {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-var (
-	consensusNonAlphaNum = regexp.MustCompile(`[^a-z0-9\s]+`)
-	consensusMultiSpace  = regexp.MustCompile(`\s{2,}`)
-)
-
 func normalizeForConsensus(s string) string {
-	s = strings.ToLower(s)
-	s = consensusNonAlphaNum.ReplaceAllString(s, " ")
-	s = consensusMultiSpace.ReplaceAllString(s, " ")
-	return strings.TrimSpace(s)
+	return titlematch.NormalizeLookupTitle(s)
 }
 
 func (r *MetadataResolver) logSummary(games []*core.Game) {
