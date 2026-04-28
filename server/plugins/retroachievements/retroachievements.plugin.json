@@ -3,7 +3,7 @@
   "plugin_version": "1.0.0",
   "api_major": 1,
   "capabilities": ["metadata", "achievements"],
-  "provides": ["metadata.game.lookup", "achievements.game.get"],
+  "provides": ["metadata.game.lookup", "achievements.game.get", "plugin.check_config"],
   "exec": "retroachievements.exe",
   "default_timeout_ms": 60000,
   "max_concurrency": 1,

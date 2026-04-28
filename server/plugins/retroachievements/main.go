@@ -59,24 +59,28 @@ var raHTTPClient = newRAHTTPClient()
 // Platform -> RA console ID mapping.
 // RA uses numeric console IDs; a single platform may map to multiple.
 var platformToConsoleIDs = map[string][]int{
-	"gba":       {5},
-	"gbc":       {6},
-	"gb":        {4},
-	"nes":       {7},
-	"snes":      {3},
-	"n64":       {2},
-	"nds":       {18},
-	"ps1":       {12},
-	"ps2":       {21},
-	"psp":       {41},
-	"arcade":    {27},
-	"genesis":   {1},
-	"megadrive": {1},
-	"sms":       {11},
-	"ms_dos":    {},
-	"xbox_360":  {},
-	"scummvm":   {},
-	"ps3":       {},
+	"gba":                {5},
+	"gbc":                {6},
+	"gb":                 {4},
+	"nes":                {7},
+	"snes":               {3},
+	"n64":                {2},
+	"nds":                {18},
+	"ps1":                {12},
+	"ps2":                {21},
+	"psp":                {41},
+	"arcade":             {27},
+	"genesis":            {1},
+	"megadrive":          {1},
+	"sega_master_system": {11},
+	"sms":                {11},
+	"game_gear":          {15},
+	"sega_cd":            {9},
+	"sega_32x":           {10},
+	"ms_dos":             {},
+	"xbox_360":           {},
+	"scummvm":            {},
+	"ps3":                {},
 }
 
 // IPC metadata request/response types (matching the server's contract).
@@ -416,9 +420,16 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 }
 
 func handleLookup(params lookupParams) (any, *Error) {
-	if cfg.APIKey == "" || cfg.Username == "" {
+	effectiveCfg := effectiveConfig(params.Config)
+	if effectiveCfg.APIKey == "" || effectiveCfg.Username == "" {
 		return map[string]any{"results": []any{}}, nil
 	}
+
+	origCfg := cfg
+	cfg = effectiveCfg
+	defer func() {
+		cfg = origCfg
+	}()
 
 	var results []lookupResult
 	for _, q := range params.Games {
@@ -433,6 +444,17 @@ func handleLookup(params lookupParams) (any, *Error) {
 	}
 
 	return map[string]any{"results": results}, nil
+}
+
+func effectiveConfig(config map[string]any) raConfig {
+	key, _ := config["api_key"].(string)
+	user, _ := config["username"].(string)
+	key = strings.TrimSpace(key)
+	user = strings.TrimSpace(user)
+	if key != "" || user != "" {
+		return raConfig{APIKey: key, Username: user}
+	}
+	return cfg
 }
 
 // achievements.game.get handler.

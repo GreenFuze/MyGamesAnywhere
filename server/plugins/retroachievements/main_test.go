@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -112,6 +113,106 @@ func TestValidateCheckConfigMissingCredentialsIsError(t *testing.T) {
 	result := validateCheckConfig(map[string]any{})
 	if got, _ := result["status"].(string); got != "error" {
 		t.Fatalf("status = %q, want %q", got, "error")
+	}
+}
+
+func TestHandleLookupUsesRequestConfigAndMatchesAlteredBeast(t *testing.T) {
+	origBase := raAPIBase
+	origClient := raHTTPClient
+	origTicker := rateLimiter
+	origCfg := cfg
+	origCache := gameListCache
+	defer func() {
+		raAPIBase = origBase
+		raHTTPClient = origClient
+		rateLimiter = origTicker
+		cfg = origCfg
+		gameListCache = origCache
+	}()
+
+	cfg = raConfig{}
+	gameListCache = make(map[int][]raGameListEntry)
+	rateLimiter = time.NewTicker(time.Microsecond)
+	t.Cleanup(rateLimiter.Stop)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		values := r.URL.Query()
+		if values.Get("z") != "retro-user" || values.Get("y") != "retro-key" {
+			t.Fatalf("query credentials = %v, want request config credentials", values)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/API_GetGameList.php":
+			if values.Get("i") != "1" {
+				t.Fatalf("console id = %q, want genesis console 1", values.Get("i"))
+			}
+			_ = json.NewEncoder(w).Encode([]raGameListEntry{{
+				ID:        1,
+				Title:     "Altered Beast",
+				ConsoleID: 1,
+				ImageIcon: "/Images/000001.png",
+			}})
+		case "/API_GetGameExtended.php":
+			if values.Get("i") != "1" {
+				t.Fatalf("game id = %q, want 1", values.Get("i"))
+			}
+			_ = json.NewEncoder(w).Encode(raGameExtended{
+				ID:          1,
+				Title:       "Altered Beast",
+				ConsoleID:   1,
+				ConsoleName: "Genesis/Mega Drive",
+				Genre:       "Action",
+				Developer:   "Sega",
+				Publisher:   "Sega",
+				Released:    "1988",
+				ImageBoxArt: "/Images/BoxArt/000001.png",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	raAPIBase = server.URL
+	raHTTPClient = server.Client()
+
+	result, errObj := handleLookup(lookupParams{
+		Config: map[string]any{
+			"api_key":  "retro-key",
+			"username": "retro-user",
+		},
+		Games: []gameQuery{{
+			Index:    0,
+			Title:    "Altered Beast (USA)",
+			Platform: "genesis",
+		}},
+	})
+	if errObj != nil {
+		t.Fatalf("handleLookup error = %+v", errObj)
+	}
+
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Results []lookupResult `json:"results"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Results) != 1 {
+		t.Fatalf("result count = %d, want 1: %s", len(decoded.Results), payload)
+	}
+	match := decoded.Results[0]
+	if match.Title != "Altered Beast" || match.ExternalID != "1" || match.Platform != "genesis" {
+		t.Fatalf("match = %+v, want Altered Beast genesis result", match)
+	}
+	if len(match.Media) != 1 || match.Media[0].URL != "https://retroachievements.org/Images/BoxArt/000001.png" {
+		t.Fatalf("media = %+v, want box art URL", match.Media)
+	}
+	if cfg.APIKey != "" || cfg.Username != "" {
+		t.Fatalf("global config leaked after lookup: %+v", cfg)
 	}
 }
 
