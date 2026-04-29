@@ -16,8 +16,7 @@ import {
   preferredSecondaryText,
   selectCoverUrl,
   selectPreviewImageUrl,
-  selectSourcePlugins,
-  sourceLabel,
+  selectSourceIntegrations,
 } from '@/lib/gameUtils'
 import { buildGameRouteState } from '@/lib/gameNavigation'
 import { cn } from '@/lib/utils'
@@ -135,7 +134,7 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
   const overlayMediaUrl = previewUrl ?? coverUrl
   const previewUsesLandscapeMedia = previewUrl !== null && previewUrl !== coverUrl
   const playable = isPlayable(game)
-  const sourcePlugins = selectSourcePlugins(game)
+  const sourceIntegrations = selectSourceIntegrations(game)
   const secondaryText = preferredSecondaryText(game) ?? 'Unknown source'
   const canOpenStream = !playable && typeof game.xcloud_url === 'string' && game.xcloud_url.length > 0
   const primaryActionLabel = playable ? 'Play' : canOpenStream ? 'Open' : 'Details'
@@ -337,9 +336,9 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
       <IconBadge label={game.platform}>
         <PlatformIcon platform={game.platform} showLabel={false} className="text-white" />
       </IconBadge>
-      {sourcePlugins.map((pluginId) => (
-        <IconBadge key={pluginId} label={sourceLabel(pluginId)}>
-          <BrandIcon brand={pluginId} className="h-3.5 w-3.5" />
+      {sourceIntegrations.map((source) => (
+        <IconBadge key={source.key} label={source.label}>
+          <BrandIcon brand={source.pluginId} className="h-3.5 w-3.5" />
         </IconBadge>
       ))}
     </>

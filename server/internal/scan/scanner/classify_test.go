@@ -132,6 +132,14 @@ func TestClassify_Synthetic(t *testing.T) {
 			groupKind: core.GroupKindExtras,
 		},
 		{
+			name:     "genesis md rom is not markdown extras",
+			platform: core.PlatformGenesis,
+			files: []AnnotatedFile{
+				{Kind: FileKindDocument, Extension: ".md"},
+			},
+			groupKind: core.GroupKindSelfContained,
+		},
+		{
 			name:     "windows extracted game",
 			platform: core.PlatformWindowsPC,
 			files: []AnnotatedFile{

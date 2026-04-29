@@ -236,6 +236,15 @@ func TestScanJobTracksMetadataProvidersByIntegrationID(t *testing.T) {
 		"phase":                   "identify",
 		"batch_size":              132,
 	})
+	events.PublishJSON(bus, "scan_metadata_plugin_error", map[string]any{
+		"job_id":                  started.JobID,
+		"integration_id":          "library-1",
+		"metadata_integration_id": "metadata-steam-primary",
+		"metadata_label":          "Steam Metadata",
+		"plugin_id":               "metadata-steam",
+		"phase":                   "identify",
+		"error":                   "rate limited",
+	})
 
 	waitForScanJob(t, 2*time.Second, func(job *core.ScanJobStatus) bool {
 		if job == nil || len(job.Integrations) != 1 {
@@ -251,7 +260,7 @@ func TestScanJobTracksMetadataProvidersByIntegrationID(t *testing.T) {
 		if len(integration.MetadataProviders) != 2 {
 			return false
 		}
-		return integration.MetadataProviders[0].Status == "running" && integration.MetadataProviders[1].Status == "error"
+		return integration.MetadataProviders[0].Status == "error" && integration.MetadataProviders[1].Status == "error"
 	}, func() *core.ScanJobStatus {
 		return controller.scanJobs.Get(started.JobID)
 	})
@@ -272,6 +281,9 @@ func TestScanJobTracksMetadataProvidersByIntegrationID(t *testing.T) {
 	}
 	if integration.MetadataProviders[1].Reason != "invalid_config" {
 		t.Fatalf("fallback provider reason = %q, want invalid_config", integration.MetadataProviders[1].Reason)
+	}
+	if integration.Error != "Steam Metadata: rate limited" {
+		t.Fatalf("integration error = %q, want provider-prefixed error", integration.Error)
 	}
 }
 

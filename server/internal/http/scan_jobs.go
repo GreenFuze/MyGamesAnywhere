@@ -495,15 +495,20 @@ func applyScanEvent(record *scanJobRecord, eventType string, payload map[string]
 	case "scan_metadata_plugin_error":
 		if integration != nil {
 			integration.MetadataPhase = readString(payload["phase"])
+			providerLabel := readMetadataProviderLabel(payload)
+			providerError := readString(payload["error"])
 			if metadataProvider != nil {
 				metadataProvider.Status = "error"
 				metadataProvider.Phase = integration.MetadataPhase
-				metadataProvider.Error = readString(payload["error"])
+				metadataProvider.Error = providerError
 				integration.MetadataIntegrationID = metadataProvider.IntegrationID
 				integration.MetadataLabel = metadataProvider.Label
 				integration.MetadataPluginID = metadataProvider.PluginID
 			} else {
 				integration.MetadataPluginID = readString(payload["plugin_id"])
+			}
+			if providerError != "" {
+				integration.Error = providerLabel + ": " + providerError
 			}
 			integration.Phase = scanPhaseForEvent(eventType, payload)
 		}

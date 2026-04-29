@@ -13,11 +13,9 @@ import {
   formatHLTB,
   isPlayable,
   preferredSecondaryText,
-  primarySourcePlugin,
   selectCoverUrl,
-  selectSourcePlugins,
+  selectSourceIntegrations,
   sourceMatchCount,
-  sourceLabel,
 } from '@/lib/gameUtils'
 import { buildGameRouteState } from '@/lib/gameNavigation'
 
@@ -31,8 +29,7 @@ export function GameRow({ game }: GameRowProps) {
   const [contextMenuPoint, setContextMenuPoint] = useState<{ x: number; y: number } | null>(null)
   const coverUrl = selectCoverUrl(game.media, game.cover_override)
   const playable = isPlayable(game)
-  const sources = selectSourcePlugins(game)
-  const primarySource = primarySourcePlugin(game)
+  const sourceIntegrations = selectSourceIntegrations(game)
   const hltb = formatHLTB(game.completion_time)
   const matchCount = sourceMatchCount(game)
   const secondaryText = preferredSecondaryText(game)
@@ -92,12 +89,13 @@ export function GameRow({ game }: GameRowProps) {
       {/* Sources */}
       <td className="px-3 py-2">
         <div className="flex flex-wrap items-center gap-1.5">
-          {primarySource ? (
-            <BrandBadge brand={primarySource} label={sourceLabel(primarySource)} />
+          {sourceIntegrations.length > 0 ? (
+            sourceIntegrations.map((source) => (
+              <BrandBadge key={source.key} brand={source.pluginId} label={source.label} />
+            ))
           ) : (
             <Badge variant="source">Unknown</Badge>
           )}
-          {sources.length > 1 && <Badge variant="muted">+{sources.length - 1}</Badge>}
         </div>
       </td>
 

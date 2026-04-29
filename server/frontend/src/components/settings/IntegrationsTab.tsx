@@ -227,6 +227,10 @@ function ensureMetadataProviderState(
   return provider;
 }
 
+function metadataProviderErrorMessage(providerLabel: string, error?: string) {
+  return `${providerLabel}: ${error ?? "unknown error"}`;
+}
+
 function formatScanStatusText(job: ScanJobStatus): string {
   if (job.status === "cancelling") return "Cancelling scan...";
   if (job.current_integration_label) {
@@ -1624,6 +1628,7 @@ export function IntegrationsTab() {
           error?: string;
         };
         const providerLabel = d.metadata_label ?? d.plugin_id ?? "Provider";
+        const errorMessage = metadataProviderErrorMessage(providerLabel, d.error);
         setScanStatusText(
           `${providerLabel} error: ${d.error ?? "unknown error"}`,
         );
@@ -1636,7 +1641,7 @@ export function IntegrationsTab() {
             integration.metadata_integration_id = d.metadata_integration_id;
             integration.metadata_label = d.metadata_label;
             integration.metadata_plugin_id = d.plugin_id;
-            integration.error = d.error;
+            integration.error = errorMessage;
             const provider = ensureMetadataProviderState(integration, {
               integration_id: d.metadata_integration_id ?? "",
               label: d.metadata_label,

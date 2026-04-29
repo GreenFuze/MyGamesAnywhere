@@ -59,6 +59,7 @@ import {
   pluginLabel,
   platformLabel,
   selectSourcePlugins,
+  sourceGameIntegrationLabel,
 } from '@/lib/gameUtils'
 import { GameMediaCollection, mediaOriginalUrl, mediaUrl, youtubeEmbedUrl, youtubeThumbnailUrl } from '@/lib/gameMedia'
 import { buildFeaturedMediaRail, mergeDisplayMedia } from '@/lib/gameMediaDisplay'
@@ -89,6 +90,7 @@ type ExternalLinkItem = {
 type GameFileDisplayRecord = {
   sourceGameId: string
   sourcePluginId: string
+  sourceIntegrationLabel: string
   sourceTitle: string
   isLaunchFile: boolean
   file: GameFileDTO
@@ -283,10 +285,17 @@ function achievementSetTitle(set: AchievementSetDTO): string {
   return platform ? `${source} • ${platform}` : source
 }
 
+function achievementVersionLabel(set: AchievementSetDTO): string {
+  if (set.platform === 'arcade') return 'MAME'
+  if (set.platform && set.platform !== 'unknown') return platformLabel(set.platform)
+  return set.source_title?.trim() || 'Version'
+}
+
 function achievementSetContext(set: AchievementSetDTO): string {
   const parts = [
-    set.integration_label?.trim(),
     set.source_title?.trim(),
+    set.external_game_id ? `${pluginLabel(set.source)} #${set.external_game_id}` : '',
+    set.integration_label?.trim(),
   ].filter((part): part is string => Boolean(part))
   return Array.from(new Set(parts)).join(' · ')
 }
@@ -346,6 +355,14 @@ function SectionCard({
 
 function SourceBadge({ source, className }: { source: string; className?: string }) {
   return <BrandBadge brand={source} label={brandLabel(source, pluginLabel(source))} className={className} />
+}
+
+function SourceGameBadge({ source, className }: { source: Pick<SourceGameDetailDTO, 'plugin_id' | 'integration_label'>; className?: string }) {
+  return <BrandBadge brand={source.plugin_id} label={sourceGameIntegrationLabel(source)} className={className} />
+}
+
+function SourceGameFileBadge({ entry }: { entry: GameFileDisplayRecord }) {
+  return <BrandBadge brand={entry.sourcePluginId} label={entry.sourceIntegrationLabel} />
 }
 
 function AttributionNote({ sources, prefix = 'Source' }: { sources?: string[] | null; prefix?: string }) {
@@ -717,6 +734,7 @@ function buildGameFileGroups(sourceGames: SourceGameDetailDTO[]) {
       source.files.map((file) => ({
         sourceGameId: source.id,
         sourcePluginId: source.plugin_id,
+        sourceIntegrationLabel: sourceGameIntegrationLabel(source),
         sourceTitle: source.raw_title || source.external_id,
         isLaunchFile: sourcePrimaryRootFileID(source) === file.id || file.role === 'root',
         file,
@@ -749,7 +767,7 @@ function GameFileRow({ entry }: { entry: GameFileDisplayRecord }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <SourceBadge source={entry.sourcePluginId} />
+            <SourceGameFileBadge entry={entry} />
             <Badge variant="muted">{fileRoleLabel(entry.file.role)}</Badge>
             {entry.isLaunchFile ? <Badge variant="accent">Launchable</Badge> : null}
             {fileKindLabel(entry.file.file_kind) ? <Badge>{fileKindLabel(entry.file.file_kind)}</Badge> : null}
@@ -893,7 +911,7 @@ function SourceRecordCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <SourceBadge source={source.plugin_id} />
+            <SourceGameBadge source={source} />
             <Badge variant="source">{source.status}</Badge>
             <Badge variant="platform"><PlatformIcon platform={source.platform} showLabel /></Badge>
             {browserPlayable ? <Badge variant="accent">Browser Play</Badge> : null}
@@ -966,6 +984,7 @@ function SourceRecordCard({
                 entry={{
                   sourceGameId: source.id,
                   sourcePluginId: source.plugin_id,
+                  sourceIntegrationLabel: sourceGameIntegrationLabel(source),
                   sourceTitle: source.raw_title || source.external_id,
                   isLaunchFile: sourcePrimaryRootFileID(source) === file.id || file.role === 'root',
                   file,
@@ -1760,6 +1779,9 @@ export function GameDetailPage() {
                       <div className="flex h-full flex-col items-center justify-between gap-5 text-center">
                         <div className="flex flex-col items-center gap-2">
                           <SourceBadge source={set.source} className="border-white/20 bg-white/10 text-white" />
+                          <div className="rounded-full border border-white/20 bg-white/14 px-4 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-white">
+                            {achievementVersionLabel(set)}
+                          </div>
                           <div>
                             <p className="text-sm font-semibold text-white">{achievementSetTitle(set)}</p>
                             {achievementSetContext(set) ? (

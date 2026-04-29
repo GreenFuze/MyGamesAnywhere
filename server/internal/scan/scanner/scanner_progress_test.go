@@ -75,3 +75,29 @@ func TestScanFilesHonorsContextCancellation(t *testing.T) {
 		t.Fatalf("ScanFiles error = %v, want context.Canceled", err)
 	}
 }
+
+func TestScanFilesKeepsGenesisMdRom(t *testing.T) {
+	files := []core.FileEntry{{
+		Path: "Platforms/Sega Genesis/Altered Beast (USA, Europe).md",
+		Name: "Altered Beast (USA, Europe).md",
+		Size: 512 * 1024,
+	}}
+
+	groups, err := New(progressTestLogger{}).ScanFiles(context.Background(), files)
+	if err != nil {
+		t.Fatalf("ScanFiles returned error: %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("groups = %d, want 1: %+v", len(groups), groups)
+	}
+	group := groups[0]
+	if group.Platform != core.PlatformGenesis {
+		t.Fatalf("platform = %q, want %q", group.Platform, core.PlatformGenesis)
+	}
+	if group.GroupKind != core.GroupKindSelfContained {
+		t.Fatalf("group kind = %q, want %q", group.GroupKind, core.GroupKindSelfContained)
+	}
+	if len(group.Files) != 1 || group.Files[0].Role != core.GameFileRoleRoot {
+		t.Fatalf("files = %+v, want one root file", group.Files)
+	}
+}

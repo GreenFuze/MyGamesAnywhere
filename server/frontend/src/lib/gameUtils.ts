@@ -1,4 +1,4 @@
-import type { CompletionTime, GameDetailResponse, GameMediaDetailDTO } from '@/api/client'
+import type { CompletionTime, GameDetailResponse, GameMediaDetailDTO, SourceGameDetailDTO } from '@/api/client'
 import {
   PLATFORM_META,
   platformEmoji,
@@ -297,6 +297,41 @@ export function selectSourcePlugins(game: GameDetailResponse): string[] {
 
 export function primarySourcePlugin(game: GameDetailResponse): string | null {
   return selectSourcePlugins(game)[0] ?? null
+}
+
+export type SourceIntegrationDisplay = {
+  key: string
+  pluginId: string
+  label: string
+}
+
+export function sourceGameIntegrationLabel(
+  source: Pick<SourceGameDetailDTO, 'plugin_id' | 'integration_label'>,
+): string {
+  return source.integration_label?.trim() || sourceLabel(source.plugin_id)
+}
+
+/** Unique concrete source integrations for a game, preserving source-game order. */
+export function selectSourceIntegrations(
+  game: Pick<GameDetailResponse, 'source_games'>,
+): SourceIntegrationDisplay[] {
+  const sourceGames = game.source_games ?? []
+  const seen = new Set<string>()
+  const displays: SourceIntegrationDisplay[] = []
+
+  for (const source of sourceGames) {
+    const label = sourceGameIntegrationLabel(source)
+    const key = source.integration_id?.trim() || `${source.plugin_id}:${label}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    displays.push({
+      key,
+      pluginId: source.plugin_id,
+      label,
+    })
+  }
+
+  return displays
 }
 
 function hasTextValue(value: string | undefined): value is string {

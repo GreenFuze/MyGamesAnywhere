@@ -55,6 +55,9 @@ func (c *GroupClassifier) classify(g *GameGroup) core.GroupKind {
 // (soundtracks, manuals, screenshots) with no game-relevant content.
 func classifyEmulated(g *GameGroup) core.GroupKind {
 	for _, f := range g.Files {
+		if rawROMExtensions[f.Extension] {
+			return core.GroupKindSelfContained
+		}
 		if !isPureMedia(f.Kind) {
 			return core.GroupKindSelfContained
 		}
