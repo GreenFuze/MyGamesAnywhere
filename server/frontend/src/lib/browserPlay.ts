@@ -416,7 +416,7 @@ class BrowserPlaySelectionController {
     const issue = selectionIssueForSelection(this.game, selection)
     return {
       kind: 'resolved',
-      runtime: this.runtime!,
+      runtime: selection.runtime,
       selections: this.selections,
       selection,
       reason: reason!,

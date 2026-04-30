@@ -64,9 +64,6 @@ func supportsDirectSourceGame(sourceGame *core.SourceGame) bool {
 	if sourceGame == nil {
 		return false
 	}
-	if sourceGame.PluginID == "game-source-smb" {
-		return true
-	}
 	rootPath := strings.TrimSpace(sourceGame.RootPath)
 	return rootPath != "" && filepath.IsAbs(rootPath)
 }

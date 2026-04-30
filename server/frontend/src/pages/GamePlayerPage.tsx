@@ -16,7 +16,7 @@ import {
   startGameSaveSyncPrefetch,
   type SaveSyncSlotSummary,
 } from '@/api/client'
-import { BrandBadge } from '@/components/ui/brand-icon'
+import { BrandBadge, BrandIcon } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -25,8 +25,6 @@ import { useRecentPlayed } from '@/hooks/useRecentPlayed'
 import {
   browserPlayJsdosExecutableLabel,
   clearBrowserPlaySourcePreference,
-  browserPlaySourceContext,
-  browserPlaySourceLabel,
   browserPlaySourceOptionLabel,
   browserPlayRuntimeLabel,
   browserPlaySelectionIsReady,
@@ -87,6 +85,17 @@ function BrowserRuntimeFrame({
       className={className}
     />
   )
+}
+
+function browserPlayRuntimeBrand(runtime: BrowserPlaySession['runtime']): string {
+  switch (runtime) {
+    case 'emulatorjs':
+      return 'emulatorjs'
+    case 'jsdos':
+      return 'js-dos'
+    case 'scummvm':
+      return 'scummvm'
+  }
 }
 
 type PendingBridgeRequest = {
@@ -183,6 +192,9 @@ export function GamePlayerPage() {
   const runtimeLabel = browserPlayResolution?.runtime
     ? browserPlayRuntimeLabel(browserPlayResolution.runtime)
     : null
+  const runtimeBrand = browserPlayResolution?.runtime
+    ? browserPlayRuntimeBrand(browserPlayResolution.runtime)
+    : null
   const jsdosExecutableOptions = useMemo(
     () => (selection?.runtime === 'jsdos' ? listBrowserPlayJsdosExecutables(selection.sourceGame.files) : []),
     [selection],
@@ -243,6 +255,9 @@ export function GamePlayerPage() {
   )
   const saveSyncRuntimeSupported = session ? sessionSupportsSaveSync(session) : false
   const saveSyncEnabled = Boolean(activeIntegrationId && session && saveSyncRuntimeSupported)
+  const usesSingleSaveSyncSnapshot = session?.runtime === 'jsdos'
+  const effectiveSelectedSlot = usesSingleSaveSyncSnapshot ? 'autosave' : selectedSlot
+  const saveSyncSnapshotLabel = usesSingleSaveSyncSnapshot ? 'DOS save snapshot' : selectedSlot
 
   useEffect(() => {
     setPendingSourceGameId(selection?.sourceGame.id ?? null)
@@ -460,8 +475,8 @@ export function GamePlayerPage() {
   }, [activeIntegrationId, baseSaveSyncEnabled, baseSession, id])
 
   const currentSlot = useMemo<SaveSyncSlotSummary | null>(() => {
-    return slotsQuery.data?.find((slot) => slot.slot_id === selectedSlot) ?? null
-  }, [selectedSlot, slotsQuery.data])
+    return slotsQuery.data?.find((slot) => slot.slot_id === effectiveSelectedSlot) ?? null
+  }, [effectiveSelectedSlot, slotsQuery.data])
 
   const togglePlayerFullscreen = async () => {
     const playerShell = playerShellRef.current
@@ -470,16 +485,22 @@ export function GamePlayerPage() {
     try {
       if (document.fullscreenElement === playerShell) {
         await document.exitFullscreen()
+        setPlayerFullscreen(false)
         return
       }
       if (document.fullscreenElement && document.fullscreenElement !== playerShell) {
         await document.exitFullscreen()
       }
       await playerShell.requestFullscreen()
+      setPlayerFullscreen(true)
     } catch (error) {
       console.warn('Unable to toggle browser-player fullscreen.', error)
     }
   }
+
+  useEffect(() => {
+    setPlayerFullscreen(document.fullscreenElement === playerShellRef.current)
+  }, [playerUrl])
 
   useEffect(() => {
     if (tokenRef.current) {
@@ -828,13 +849,13 @@ export function GamePlayerPage() {
         canonicalGameId: id,
         sourceGameId: session.sourceGameId,
         runtime: session.runtime,
-        slotId: selectedSlot,
+        slotId: effectiveSelectedSlot,
         files: local.files,
       })
 
       let result = await putGameSaveSyncSlot({
         gameId: id,
-        slotId: selectedSlot,
+        slotId: effectiveSelectedSlot,
         integrationId: activeIntegrationId,
         sourceGameId: session.sourceGameId,
         runtime: session.runtime,
@@ -844,7 +865,7 @@ export function GamePlayerPage() {
 
       if (result.conflict) {
         const confirmed = window.confirm(
-          `Remote ${selectedSlot} changed on ${new Date(result.conflict.remote_updated_at).toLocaleString()}. Overwrite it with local data?`,
+          `Remote ${saveSyncSnapshotLabel} changed on ${new Date(result.conflict.remote_updated_at).toLocaleString()}. Overwrite it with local data?`,
         )
         if (!confirmed) {
           setSaveSyncMessage('Save canceled.')
@@ -852,7 +873,7 @@ export function GamePlayerPage() {
         }
         result = await putGameSaveSyncSlot({
           gameId: id,
-          slotId: selectedSlot,
+          slotId: effectiveSelectedSlot,
           integrationId: activeIntegrationId,
           sourceGameId: session.sourceGameId,
           runtime: session.runtime,
@@ -867,7 +888,7 @@ export function GamePlayerPage() {
 
       setBaselineRemoteManifestHash(result.summary.manifest_hash ?? null)
       setBaselineLocalHash(await computeLocalSnapshotHash(local.files))
-      setSaveSyncMessage(`Saved ${selectedSlot} to the active integration.`)
+      setSaveSyncMessage(`Saved ${saveSyncSnapshotLabel} to the active integration.`)
       await slotsQuery.refetch()
     } catch (error) {
       setSaveSyncError(error instanceof Error ? error.message : 'Save failed.')
@@ -886,7 +907,7 @@ export function GamePlayerPage() {
       const localHash = await computeLocalSnapshotHash(local.files)
       if (baselineLocalHash && localHash !== baselineLocalHash) {
         const confirmed = window.confirm(
-          `Local save files changed since the last save or load. Replace them with remote ${selectedSlot}?`,
+          `Local save files changed since the last save or load. Replace them with remote ${saveSyncSnapshotLabel}?`,
         )
         if (!confirmed) {
           setSaveSyncMessage('Load canceled.')
@@ -899,13 +920,13 @@ export function GamePlayerPage() {
         integrationId: activeIntegrationId,
         sourceGameId: session.sourceGameId,
         runtime: session.runtime,
-        slotId: selectedSlot,
+        slotId: effectiveSelectedSlot,
       })
       const files = extractRuntimeFilesFromSnapshot(remote)
       await importRuntimeSnapshot({ files })
       setBaselineLocalHash(await computeLocalSnapshotHash(files))
       setBaselineRemoteManifestHash(remote.manifest_hash ?? null)
-      setSaveSyncMessage(`Loaded ${selectedSlot} from the active integration.`)
+      setSaveSyncMessage(`Loaded ${saveSyncSnapshotLabel} from the active integration.`)
       await slotsQuery.refetch()
     } catch (error) {
       setSaveSyncError(error instanceof Error ? error.message : 'Load failed.')
@@ -951,7 +972,11 @@ export function GamePlayerPage() {
   }
 
   const data = game.data
-  const showExternalSaveSyncBar = Boolean(session && session.runtime !== 'emulatorjs')
+  const showExternalSaveSyncBar = Boolean(session && session.runtime !== 'emulatorjs' && saveSyncRuntimeSupported)
+  const playerWindowTitle =
+    selection && availableSelections.length > 0
+      ? `${data.title} · ${browserPlaySourceOptionLabel(selection, availableSelections)}`
+      : data.title
 
   return (
     <div className="h-screen overflow-hidden bg-mga-bg text-mga-text">
@@ -976,20 +1001,15 @@ export function GamePlayerPage() {
             <Badge variant="platform">
               <PlatformIcon platform={data.platform} showLabel />
             </Badge>
-            {runtimeLabel && <Badge variant="playable">{runtimeLabel}</Badge>}
+            {runtimeBrand && runtimeLabel && (
+              <Badge variant="playable" title={runtimeLabel} aria-label={runtimeLabel}>
+                <BrandIcon brand={runtimeBrand} className="h-4 w-4" />
+              </Badge>
+            )}
             {data.xcloud_available && <BrandBadge brand="xcloud" label="xCloud" />}
           </div>
           <div className="mt-3">
             <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">{data.title}</h1>
-            <p className="mt-2 text-sm text-mga-muted">
-              Dedicated browser player route for fullscreen play, runtime lifecycle, and explicit save sync.
-            </p>
-            {selection && (
-              <p className="mt-2 text-xs text-mga-muted">
-                Source: {browserPlaySourceLabel(selection)}
-                {browserPlaySourceContext(selection) ? ` · ${browserPlaySourceContext(selection)}` : ''}
-              </p>
-            )}
             {(availableSelections.length > 1 || selectionIssue?.code === 'invalid_remembered_source') && (
               <div className="mt-4 max-w-xl">
                 <label className="mb-1 block text-xs uppercase tracking-wide text-mga-muted">Source</label>
@@ -1147,18 +1167,27 @@ export function GamePlayerPage() {
             {showExternalSaveSyncBar && (
             <section className="rounded-mga border border-mga-border bg-mga-surface p-4">
               <div className="flex flex-wrap items-end gap-3">
-                <div className="min-w-[12rem]">
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-mga-muted">Save Slot</label>
-                  <select
-                    value={selectedSlot}
-                    onChange={(event) => setSelectedSlot(event.target.value as (typeof SAVE_SYNC_SLOT_IDS)[number])}
-                    className="h-9 w-full rounded-mga border border-mga-border bg-mga-bg px-3 text-sm text-mga-text"
-                  >
-                    {SAVE_SYNC_SLOT_IDS.map((slot) => (
-                      <option key={slot} value={slot}>{slot}</option>
-                    ))}
-                  </select>
-                </div>
+                {usesSingleSaveSyncSnapshot ? (
+                  <div className="min-w-[12rem]">
+                    <span className="mb-1 block text-xs uppercase tracking-wide text-mga-muted">Save Sync</span>
+                    <div className="flex h-9 items-center rounded-mga border border-mga-border bg-mga-bg px-3 text-sm text-mga-text">
+                      DOS save snapshot
+                    </div>
+                  </div>
+                ) : (
+                  <div className="min-w-[12rem]">
+                    <label className="mb-1 block text-xs uppercase tracking-wide text-mga-muted">Save Slot</label>
+                    <select
+                      value={selectedSlot}
+                      onChange={(event) => setSelectedSlot(event.target.value as (typeof SAVE_SYNC_SLOT_IDS)[number])}
+                      className="h-9 w-full rounded-mga border border-mga-border bg-mga-bg px-3 text-sm text-mga-text"
+                    >
+                      {SAVE_SYNC_SLOT_IDS.map((slot) => (
+                        <option key={slot} value={slot}>{slot}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <Button
                   variant="outline"
@@ -1193,12 +1222,12 @@ export function GamePlayerPage() {
                     'This launch does not support save import/export. js-dos save sync requires a bundle-backed session.'}
                   {activeIntegrationId && bridgeReady && bridgeSupportsSaveSync && currentSlot?.exists && (
                     <>
-                      Remote {selectedSlot}: {currentSlot.file_count ?? 0} files, {currentSlot.total_size ?? 0} bytes
+                      Remote {saveSyncSnapshotLabel}: {currentSlot.file_count ?? 0} files, {currentSlot.total_size ?? 0} bytes
                       {currentSlot.updated_at ? `, updated ${new Date(currentSlot.updated_at).toLocaleString()}` : ''}
                     </>
                   )}
                   {activeIntegrationId && bridgeReady && bridgeSupportsSaveSync && currentSlot && !currentSlot.exists && (
-                    <>Remote {selectedSlot} is empty.</>
+                    <>Remote {saveSyncSnapshotLabel} is empty.</>
                   )}
                 </div>
               </div>
@@ -1220,9 +1249,9 @@ export function GamePlayerPage() {
               className="flex min-h-[70vh] min-w-0 flex-1 flex-col overflow-hidden rounded-[1.25rem] border border-mga-border bg-black shadow-lg shadow-black/25"
             >
               <div className="flex items-center justify-between border-b border-white/10 bg-black/80 px-4 py-3 text-sm text-white/80">
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 items-center gap-2">
                   <PlayCircle size={16} />
-                  <span>{data.title}</span>
+                  <span className="truncate" title={playerWindowTitle}>{playerWindowTitle}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   {session.runtime === 'scummvm' && (
@@ -1238,7 +1267,15 @@ export function GamePlayerPage() {
                       {playerFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
                     </Button>
                   )}
-                  <span className="text-xs uppercase tracking-wide text-white/50">{runtimeLabel}</span>
+                  {session && runtimeLabel ? (
+                    <span
+                      className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 px-2"
+                      title={runtimeLabel}
+                      aria-label={runtimeLabel}
+                    >
+                      <BrandIcon brand={browserPlayRuntimeBrand(session.runtime)} className="h-4 w-4" />
+                    </span>
+                  ) : null}
                 </div>
               </div>
               <div className="relative min-h-0 min-w-0 flex-1">

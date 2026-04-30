@@ -89,7 +89,7 @@ func Operations() []OperationDoc {
 			Method:       "GET",
 			Path:         "/api/games/{id}/play",
 			Summary:      "Stream one game file by file_id",
-			Description:  "Streams a single file that belongs to the requested canonical game. Requires query param file_id (stable id from game detail/list file metadata). Direct SMB/local sources stream immediately; materialized remote sources require `profile` so the server can open the prepared cached file. Supports GET, HEAD, and Range requests via http.ServeContent.",
+			Description:  "Streams a single file that belongs to the requested canonical game. Requires query param file_id (stable id from game detail/list file metadata). Direct local sources stream immediately; materialized sources such as SMB/Drive require `profile` so the server can open the prepared cached file. Supports GET, HEAD, and Range requests via http.ServeContent.",
 			ResponseDocs: map[string]string{"200": "Binary stream", "400": "Missing or invalid file_id", "404": "Game, file, source path, or prepared cache file not found", "500": "Internal server error"},
 		},
 		{

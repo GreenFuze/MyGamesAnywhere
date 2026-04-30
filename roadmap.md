@@ -606,3 +606,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [ ] Does cached data means in the frontend? or the server?
     - [ ] If on the frontend, explain the user what it means, because it is weird
     - [ ] If "cached" on the server - its a bug as the server should "bring" the achivement status from the plugin during scan. If you think this is wrong, you may push back just explain to the user and offer alternatives.
+- [ ] In settings, add a tab to find duplicated games acorss sources.
+  - [ ] duplications for games (ignoring versioning/platform)
+  - [ ] duplications for games including version/platform etc.
+- [ ] Home screen should have "library statistics" and "gamer statistics". Still not sure how to display these as different pages and conviniently, but it should support extensive statistics in a cool, colorful, way. Maybe, it should be in different pages, like "achivements" shows also statistics for achivements, so maybe a "library statistics", "gamer statistics" pages (where the latter includes achivements)?

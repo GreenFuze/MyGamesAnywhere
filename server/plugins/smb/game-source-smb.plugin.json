@@ -3,7 +3,7 @@
   "plugin_version": "1.0.0",
   "api_major": 1,
   "capabilities": ["source"],
-  "provides": ["source.filesystem.list", "source.filesystem.delete", "plugin.check_config"],
+  "provides": ["source.filesystem.list", "source.filesystem.delete", "source.file.materialize", "plugin.check_config"],
   "exec": "smb.exe",
   "default_timeout_ms": 60000,
   "max_concurrency": 2,

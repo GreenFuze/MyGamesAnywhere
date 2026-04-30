@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,9 +46,13 @@ func (r *testIntegrationRepo) GetByID(context.Context, string) (*core.Integratio
 }
 
 type testPluginHost struct {
-	plugin *core.Plugin
-	calls  int
-	body   []byte
+	plugin         *core.Plugin
+	mu             sync.Mutex
+	calls          int
+	activeCalls    int
+	maxActiveCalls int
+	delay          time.Duration
+	body           []byte
 }
 
 func (h *testPluginHost) Discover(context.Context) error { return nil }
@@ -55,7 +60,8 @@ func (h *testPluginHost) Call(_ context.Context, pluginID, method string, params
 	if h.plugin == nil || pluginID != h.plugin.Manifest.ID || method != sourceFileMaterializeMethod {
 		return nil
 	}
-	h.calls++
+	h.beginCall()
+	defer h.endCall()
 	req, ok := params.(core.SourceMaterializeRequest)
 	if !ok {
 		return nil
@@ -89,6 +95,38 @@ func (h *testPluginHost) GetPlugin(pluginID string) (*core.Plugin, bool) {
 func (h *testPluginHost) ListPlugins() []plugins.PluginInfo { return nil }
 func (h *testPluginHost) GetPluginIDsProviding(string) []string {
 	return nil
+}
+
+func (h *testPluginHost) beginCall() {
+	h.mu.Lock()
+	h.calls++
+	h.activeCalls++
+	if h.activeCalls > h.maxActiveCalls {
+		h.maxActiveCalls = h.activeCalls
+	}
+	delay := h.delay
+	h.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+}
+
+func (h *testPluginHost) endCall() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.activeCalls--
+}
+
+func (h *testPluginHost) callCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.calls
+}
+
+func (h *testPluginHost) maxConcurrentCalls() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.maxActiveCalls
 }
 
 func TestServicePrepareMaterializesAndReusesCache(t *testing.T) {
@@ -190,8 +228,8 @@ func TestServicePrepareMaterializesAndReusesCache(t *testing.T) {
 	if completed == nil {
 		t.Fatalf("job did not complete: %+v", job)
 	}
-	if host.calls != 1 {
-		t.Fatalf("materialize calls = %d, want 1", host.calls)
+	if calls := host.callCount(); calls != 1 {
+		t.Fatalf("materialize calls = %d, want 1", calls)
 	}
 
 	entry, file, localPath, err := svc.ResolveCachedFile(ctx, "source-1", core.BrowserProfileEmulatorJS, "roms/game.gba")
@@ -224,7 +262,170 @@ func TestServicePrepareMaterializesAndReusesCache(t *testing.T) {
 	if cacheHitJob == nil || cacheHitJob.Status != "completed" {
 		t.Fatalf("expected completed cache-hit job, got %+v", cacheHitJob)
 	}
-	if host.calls != 1 {
-		t.Fatalf("materialize calls after cache hit = %d, want 1", host.calls)
+	if calls := host.callCount(); calls != 1 {
+		t.Fatalf("materialize calls after cache hit = %d, want 1", calls)
 	}
+}
+
+func TestServicePrepareMaterializesFilesConcurrently(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	cacheRoot := filepath.Join(t.TempDir(), "source-cache")
+
+	database := dbpkg.NewSQLiteDatabase(testLogger{}, testConfig{values: map[string]string{"DB_PATH": dbPath}})
+	if err := database.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.GetDB().ExecContext(ctx, `INSERT INTO source_games
+		(id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, root_path, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"source-scumm", "integration-smb", "game-source-smb", "smb-scumm", "Scumm Game",
+		string(core.PlatformScummVM), string(core.GameKindBaseGame), string(core.GroupKindSelfContained), "Games/Scumm", "found", time.Now().Unix(),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	store := dbpkg.NewSourceCacheStore(database)
+	host := &testPluginHost{
+		plugin: &core.Plugin{
+			Manifest: core.PluginManifest{
+				ID:       "game-source-smb",
+				Provides: []string{sourceFileMaterializeMethod},
+			},
+		},
+		body:  []byte("scumm-data"),
+		delay: 75 * time.Millisecond,
+	}
+	svc := NewService(
+		store,
+		&testIntegrationRepo{integration: &core.Integration{ID: "integration-smb", PluginID: "game-source-smb", ConfigJSON: `{}`}},
+		host,
+		testConfig{values: map[string]string{"SOURCE_CACHE_ROOT": cacheRoot}},
+		testLogger{},
+	)
+
+	files := make([]core.GameFile, 12)
+	for i := range files {
+		files[i] = core.GameFile{
+			GameID:   "source-scumm",
+			Path:     filepath.ToSlash(filepath.Join("scumm", "file-"+string(rune('a'+i))+".dat")),
+			FileName: "file.dat",
+			Role:     core.GameFileRoleRequired,
+			Size:     10,
+		}
+	}
+	sourceGame := &core.SourceGame{
+		ID:            "source-scumm",
+		IntegrationID: "integration-smb",
+		PluginID:      "game-source-smb",
+		RawTitle:      "Scumm Game",
+		Platform:      core.PlatformScummVM,
+		GroupKind:     core.GroupKindSelfContained,
+		RootPath:      "Games/Scumm",
+		Status:        "found",
+		Files:         files,
+	}
+
+	job, immediate, err := svc.Prepare(ctx, core.SourceCachePrepareRequest{
+		CanonicalGameID: "game-scumm",
+		CanonicalTitle:  "Scumm Game",
+		SourceGameID:    "source-scumm",
+		Profile:         core.BrowserProfileScummVM,
+	}, core.PlatformScummVM, sourceGame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if immediate {
+		t.Fatal("expected async materialization job")
+	}
+
+	completed := waitForCompletedCacheJob(t, ctx, svc, job.JobID)
+	if completed.ProgressCurrent != len(files) || completed.ProgressTotal != len(files) {
+		t.Fatalf("progress = %d/%d, want %d/%d", completed.ProgressCurrent, completed.ProgressTotal, len(files), len(files))
+	}
+	if calls := host.callCount(); calls != len(files) {
+		t.Fatalf("materialize calls = %d, want %d", calls, len(files))
+	}
+	if maxConcurrent := host.maxConcurrentCalls(); maxConcurrent < 2 || maxConcurrent > sourceCacheMaterializeConcurrency {
+		t.Fatalf("max concurrent materialize calls = %d, want between 2 and %d", maxConcurrent, sourceCacheMaterializeConcurrency)
+	}
+}
+
+func TestServiceDescribeSMBSourceGameRequiresMaterialization(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	database := dbpkg.NewSQLiteDatabase(testLogger{}, testConfig{values: map[string]string{"DB_PATH": dbPath}})
+	if err := database.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+
+	store := dbpkg.NewSourceCacheStore(database)
+	host := &testPluginHost{
+		plugin: &core.Plugin{
+			Manifest: core.PluginManifest{
+				ID:       "game-source-smb",
+				Provides: []string{sourceFileMaterializeMethod},
+			},
+		},
+	}
+	svc := NewService(
+		store,
+		&testIntegrationRepo{integration: &core.Integration{ID: "integration-smb", PluginID: "game-source-smb", ConfigJSON: `{}`}},
+		host,
+		testConfig{values: map[string]string{}},
+		testLogger{},
+	)
+
+	sourceGame := &core.SourceGame{
+		ID:            "source-smb",
+		IntegrationID: "integration-smb",
+		PluginID:      "game-source-smb",
+		RawTitle:      "Island of Dr. Brain",
+		Platform:      core.PlatformScummVM,
+		GroupKind:     core.GroupKindSelfContained,
+		RootPath:      "ScummVM/Island",
+		Status:        "found",
+		Files: []core.GameFile{
+			{GameID: "source-smb", Path: "ScummVM/Island/ISLAND.EXE", FileName: "ISLAND.EXE", Role: core.GameFileRoleRoot, Size: 10},
+			{GameID: "source-smb", Path: "ScummVM/Island/resource.001", FileName: "resource.001", Role: core.GameFileRoleRequired, Size: 20},
+		},
+	}
+
+	delivery := svc.DescribeSourceGame(ctx, core.PlatformScummVM, sourceGame)
+	if len(delivery) != 1 {
+		t.Fatalf("delivery count = %d, want 1: %+v", len(delivery), delivery)
+	}
+	if delivery[0].Mode != core.SourceDeliveryModeMaterialized || !delivery[0].PrepareRequired || delivery[0].Ready {
+		t.Fatalf("unexpected SMB delivery: %+v", delivery[0])
+	}
+}
+
+func waitForCompletedCacheJob(t *testing.T, ctx context.Context, svc core.SourceCacheService, jobID string) *core.SourceCacheJobStatus {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var last *core.SourceCacheJobStatus
+	for time.Now().Before(deadline) {
+		current, err := svc.GetJob(ctx, jobID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		last = current
+		if current != nil && current.Status == "completed" {
+			return current
+		}
+		if current != nil && current.Status == "failed" {
+			t.Fatalf("job failed: %+v", current)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("job did not complete: %+v", last)
+	return nil
 }

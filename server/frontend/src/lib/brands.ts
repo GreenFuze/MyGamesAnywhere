@@ -313,17 +313,19 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
   {
     id: 'js-dos',
     label: 'js-dos',
+    iconPath: '/brands/dosbox.svg',
     websiteUrl: 'https://js-dos.com/',
     description: 'Browser runtime used for DOS playback in the embedded player.',
-    creditNote: 'No bundled logo asset; rendered as a text badge in-app.',
+    creditNote: 'Uses the bundled DOSBox icon for DOS runtime attribution.',
     presentation: 'light_tile',
   },
   {
     id: 'dosbox',
     label: 'DOSBox',
+    iconPath: '/brands/dosbox.svg',
     websiteUrl: 'https://www.dosbox.com/',
     description: 'DOS emulation core used behind the js-dos browser runtime.',
-    creditNote: 'No bundled logo asset; rendered as a text badge in-app.',
+    creditNote: 'Icon asset provided for MGA DOS runtime attribution.',
     presentation: 'light_tile',
   },
 ]

@@ -20,6 +20,7 @@ import (
 )
 
 const sourceFileMaterializeMethod = "source.file.materialize"
+const sourceCacheMaterializeConcurrency = 10
 
 type Service struct {
 	store           core.SourceCacheStore
@@ -312,79 +313,10 @@ func (s *Service) runPrepare(job *core.SourceCacheJobStatus, entry *core.SourceC
 		return
 	}
 
-	entryFiles := make([]core.SourceCacheEntryFile, 0, len(files))
-	var totalSize int64
-	for index, file := range files {
-		job.ProgressCurrent = index + 1
-		job.Message = "materializing " + file.Path
-		if err := s.store.UpdateJob(ctx, job); err != nil {
-			s.logger.Error("update cache job progress", err, "job_id", job.JobID)
-		}
-
-		relativePath, err := safeCacheRelativePath(entry.ID, file.Path)
-		if err != nil {
-			s.failJob(ctx, job, entry, err)
-			return
-		}
-		fullPath := filepath.Join(root, filepath.FromSlash(relativePath))
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-			s.failJob(ctx, job, entry, fmt.Errorf("create cache file dir: %w", err))
-			return
-		}
-		tempPath := fullPath + ".tmp-" + job.JobID
-		_ = os.Remove(tempPath)
-
-		var result core.SourceMaterializeResult
-		if err := s.pluginHost.Call(ctx, sourceGame.PluginID, sourceFileMaterializeMethod, core.SourceMaterializeRequest{
-			Config:   config,
-			Path:     file.Path,
-			ObjectID: file.ObjectID,
-			Revision: file.Revision,
-			Profile:  profile,
-			DestPath: tempPath,
-		}, &result); err != nil {
-			_ = os.Remove(tempPath)
-			s.failJob(ctx, job, entry, err)
-			return
-		}
-
-		if err := os.Rename(tempPath, fullPath); err != nil {
-			_ = os.Remove(tempPath)
-			s.failJob(ctx, job, entry, fmt.Errorf("rename cache file: %w", err))
-			return
-		}
-		info, err := os.Stat(fullPath)
-		if err != nil {
-			s.failJob(ctx, job, entry, fmt.Errorf("stat cache file: %w", err))
-			return
-		}
-
-		size := info.Size()
-		if result.Size > 0 {
-			size = result.Size
-		}
-		totalSize += size
-
-		cacheFile := core.SourceCacheEntryFile{
-			EntryID:   entry.ID,
-			Path:      file.Path,
-			LocalPath: filepath.ToSlash(relativePath),
-			ObjectID:  file.ObjectID,
-			Revision:  file.Revision,
-			Size:      size,
-		}
-		if result.Revision != "" {
-			cacheFile.Revision = result.Revision
-		}
-		if result.ModTime != "" {
-			if parsed, err := time.Parse(time.RFC3339, result.ModTime); err == nil {
-				parsed = parsed.UTC()
-				cacheFile.ModifiedAt = &parsed
-			}
-		} else if file.ModifiedAt != nil {
-			cacheFile.ModifiedAt = file.ModifiedAt
-		}
-		entryFiles = append(entryFiles, cacheFile)
+	entryFiles, totalSize, err := s.materializeFiles(ctx, job, entry, profile, sourceGame, files, config)
+	if err != nil {
+		s.failJob(ctx, job, entry, err)
+		return
 	}
 
 	now := time.Now().UTC()
@@ -410,6 +342,148 @@ func (s *Service) runPrepare(job *core.SourceCacheJobStatus, entry *core.SourceC
 	if err := s.store.UpdateJob(ctx, job); err != nil {
 		s.logger.Error("complete cache job", err, "job_id", job.JobID)
 	}
+}
+
+type materializeFileResult struct {
+	index int
+	file  core.SourceCacheEntryFile
+	size  int64
+	err   error
+}
+
+func (s *Service) materializeFiles(
+	ctx context.Context,
+	job *core.SourceCacheJobStatus,
+	entry *core.SourceCacheEntry,
+	profile string,
+	sourceGame *core.SourceGame,
+	files []core.GameFile,
+	config map[string]any,
+) ([]core.SourceCacheEntryFile, int64, error) {
+	if len(files) == 0 {
+		return nil, 0, nil
+	}
+
+	workerCount := min(sourceCacheMaterializeConcurrency, len(files))
+	workCh := make(chan int)
+	resultCh := make(chan materializeFileResult, len(files))
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(workerCount)
+	for workerIndex := 0; workerIndex < workerCount; workerIndex++ {
+		go func() {
+			defer wg.Done()
+			for index := range workCh {
+				cacheFile, size, err := s.materializeFile(runCtx, job, entry, profile, sourceGame, files[index], config)
+				resultCh <- materializeFileResult{index: index, file: cacheFile, size: size, err: err}
+			}
+		}()
+	}
+	go func() {
+		defer close(workCh)
+		for index := range files {
+			select {
+			case <-runCtx.Done():
+				return
+			case workCh <- index:
+			}
+		}
+	}()
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	entryFiles := make([]core.SourceCacheEntryFile, len(files))
+	var totalSize int64
+	completed := 0
+	for result := range resultCh {
+		if result.err != nil {
+			cancel()
+			return nil, 0, result.err
+		}
+		entryFiles[result.index] = result.file
+		totalSize += result.size
+		completed++
+		job.ProgressCurrent = completed
+		job.Message = fmt.Sprintf("materialized %d/%d files", completed, len(files))
+		if err := s.store.UpdateJob(ctx, job); err != nil {
+			s.logger.Error("update cache job progress", err, "job_id", job.JobID)
+		}
+	}
+
+	return entryFiles, totalSize, nil
+}
+
+func (s *Service) materializeFile(
+	ctx context.Context,
+	job *core.SourceCacheJobStatus,
+	entry *core.SourceCacheEntry,
+	profile string,
+	sourceGame *core.SourceGame,
+	file core.GameFile,
+	config map[string]any,
+) (core.SourceCacheEntryFile, int64, error) {
+	relativePath, err := safeCacheRelativePath(entry.ID, file.Path)
+	if err != nil {
+		return core.SourceCacheEntryFile{}, 0, err
+	}
+	fullPath := filepath.Join(s.cacheRoot(), filepath.FromSlash(relativePath))
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		return core.SourceCacheEntryFile{}, 0, fmt.Errorf("create cache file dir: %w", err)
+	}
+	tempPath := fullPath + ".tmp-" + job.JobID
+	_ = os.Remove(tempPath)
+
+	var result core.SourceMaterializeResult
+	if err := s.pluginHost.Call(ctx, sourceGame.PluginID, sourceFileMaterializeMethod, core.SourceMaterializeRequest{
+		Config:   config,
+		Path:     file.Path,
+		ObjectID: file.ObjectID,
+		Revision: file.Revision,
+		Profile:  profile,
+		DestPath: tempPath,
+	}, &result); err != nil {
+		_ = os.Remove(tempPath)
+		return core.SourceCacheEntryFile{}, 0, err
+	}
+
+	if err := os.Rename(tempPath, fullPath); err != nil {
+		_ = os.Remove(tempPath)
+		return core.SourceCacheEntryFile{}, 0, fmt.Errorf("rename cache file: %w", err)
+	}
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return core.SourceCacheEntryFile{}, 0, fmt.Errorf("stat cache file: %w", err)
+	}
+
+	size := info.Size()
+	if result.Size > 0 {
+		size = result.Size
+	}
+
+	cacheFile := core.SourceCacheEntryFile{
+		EntryID:   entry.ID,
+		Path:      file.Path,
+		LocalPath: filepath.ToSlash(relativePath),
+		ObjectID:  file.ObjectID,
+		Revision:  file.Revision,
+		Size:      size,
+	}
+	if result.Revision != "" {
+		cacheFile.Revision = result.Revision
+	}
+	if result.ModTime != "" {
+		if parsed, err := time.Parse(time.RFC3339, result.ModTime); err == nil {
+			parsed = parsed.UTC()
+			cacheFile.ModifiedAt = &parsed
+		}
+	} else if file.ModifiedAt != nil {
+		cacheFile.ModifiedAt = file.ModifiedAt
+	}
+	return cacheFile, size, nil
 }
 
 func (s *Service) failJob(ctx context.Context, job *core.SourceCacheJobStatus, entry *core.SourceCacheEntry, err error) {
@@ -487,9 +561,6 @@ func (s *Service) findEntryByID(ctx context.Context, entryID string) (*core.Sour
 func supportsDirectSourceGame(sourceGame *core.SourceGame) bool {
 	if sourceGame == nil {
 		return false
-	}
-	if sourceGame.PluginID == "game-source-smb" {
-		return true
 	}
 	rootPath := strings.TrimSpace(sourceGame.RootPath)
 	return rootPath != "" && filepath.IsAbs(rootPath)

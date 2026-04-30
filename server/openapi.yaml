@@ -478,7 +478,7 @@ paths:
   /api/games/{id}/play:
     get:
       summary: Stream one game file by file_id
-      description: Streams a single file that belongs to the requested canonical game. Requires query param file_id (stable id from game detail/list file metadata). Direct SMB/local sources stream immediately; materialized remote sources require `profile` so the server can open the prepared cached file. Supports GET, HEAD, and Range requests via http.ServeContent.
+      description: Streams a single file that belongs to the requested canonical game. Requires query param file_id (stable id from game detail/list file metadata). Direct local sources stream immediately; materialized sources such as SMB/Drive require `profile` so the server can open the prepared cached file. Supports GET, HEAD, and Range requests via http.ServeContent.
       parameters:
         - name: id
           in: path

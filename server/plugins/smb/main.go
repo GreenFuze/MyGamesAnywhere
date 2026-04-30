@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 	"github.com/hirochachacha/go-smb2"
@@ -47,6 +49,7 @@ func main() {
 	log.SetOutput(os.Stderr)
 	log.Println("SMB source plugin started")
 
+	var writeMu sync.Mutex
 	for {
 		var length uint32
 		err := binary.Read(os.Stdin, binary.BigEndian, &length)
@@ -72,6 +75,22 @@ func main() {
 		var resp Response
 		resp.ID = req.ID
 
+		if req.Method == "source.file.materialize" {
+			go func(req Request) {
+				resp := Response{ID: req.ID}
+				result, errObj := handleFileMaterialize(req.Params)
+				if errObj != nil {
+					resp.Error = errObj
+				} else {
+					resp.Result = result
+				}
+				if err := writeResponse(&writeMu, resp); err != nil {
+					log.Printf("write materialize response: %v", err)
+				}
+			}(req)
+			continue
+		}
+
 		switch req.Method {
 		case "plugin.init":
 			resp.Result = map[string]any{"status": "ok"}
@@ -80,6 +99,7 @@ func main() {
 				"plugin_id":      "game-source-smb",
 				"plugin_version": "1.0.0",
 				"capabilities":   []string{"source"},
+				"provides":       []string{"source.filesystem.list", "source.filesystem.delete", "source.file.materialize", "plugin.check_config"},
 				"config": map[string]any{
 					"host":     map[string]any{"type": "string", "required": true},
 					"share":    map[string]any{"type": "string", "required": true},
@@ -137,18 +157,29 @@ func main() {
 			resp.Error = &Error{Code: "NOT_SUPPORTED", Message: "Method not supported"}
 		}
 
-		respPayload, err := json.Marshal(resp)
-		if err != nil {
-			resp = Response{Error: &Error{Code: "INTERNAL", Message: "failed to encode response"}}
-			respPayload, err = json.Marshal(resp)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "marshal response: %v\n", err)
-				os.Exit(1)
-			}
+		if err := writeResponse(&writeMu, resp); err != nil {
+			fmt.Fprintf(os.Stderr, "write response: %v\n", err)
+			os.Exit(1)
 		}
-		binary.Write(os.Stdout, binary.BigEndian, uint32(len(respPayload)))
-		os.Stdout.Write(respPayload)
 	}
+}
+
+func writeResponse(mu *sync.Mutex, resp Response) error {
+	respPayload, err := json.Marshal(resp)
+	if err != nil {
+		resp = Response{ID: resp.ID, Error: &Error{Code: "INTERNAL", Message: "failed to encode response"}}
+		respPayload, err = json.Marshal(resp)
+		if err != nil {
+			return fmt.Errorf("marshal response: %w", err)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if err := binary.Write(os.Stdout, binary.BigEndian, uint32(len(respPayload))); err != nil {
+		return err
+	}
+	_, err = os.Stdout.Write(respPayload)
+	return err
 }
 
 func mountShare(config SMBConfig) (net.Conn, *smb2.Session, *smb2.Share, error) {
@@ -284,6 +315,70 @@ func handleSourceDelete(params json.RawMessage) (any, *Error) {
 	return map[string]any{"deleted_count": 1}, nil
 }
 
+func handleFileMaterialize(params json.RawMessage) (any, *Error) {
+	var body struct {
+		Config   SMBConfig `json:"config"`
+		Path     string    `json:"path"`
+		DestPath string    `json:"dest_path"`
+	}
+	if err := json.Unmarshal(params, &body); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	if strings.TrimSpace(body.Path) == "" {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "path is required"}
+	}
+	if strings.TrimSpace(body.DestPath) == "" {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "dest_path is required"}
+	}
+
+	sharePath, err := resolveSMBSharePath(body.Config.Path, body.Path)
+	if err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+
+	conn, session, share, err := mountShare(body.Config)
+	if err != nil {
+		return nil, &Error{Code: "MATERIALIZE_FAILED", Message: err.Error()}
+	}
+	defer conn.Close()
+	defer session.Logoff()
+	defer share.Umount()
+
+	source, err := share.Open(sharePath)
+	if err != nil {
+		return nil, &Error{Code: "MATERIALIZE_FAILED", Message: err.Error()}
+	}
+	defer source.Close()
+
+	if err := os.MkdirAll(filepath.Dir(body.DestPath), 0o755); err != nil {
+		return nil, &Error{Code: "MATERIALIZE_FAILED", Message: err.Error()}
+	}
+	dest, err := os.Create(body.DestPath)
+	if err != nil {
+		return nil, &Error{Code: "MATERIALIZE_FAILED", Message: err.Error()}
+	}
+	size, copyErr := io.Copy(dest, source)
+	closeErr := dest.Close()
+	if copyErr != nil {
+		_ = os.Remove(body.DestPath)
+		return nil, &Error{Code: "MATERIALIZE_FAILED", Message: copyErr.Error()}
+	}
+	if closeErr != nil {
+		_ = os.Remove(body.DestPath)
+		return nil, &Error{Code: "MATERIALIZE_FAILED", Message: closeErr.Error()}
+	}
+
+	result := map[string]any{"size": size}
+	if info, err := source.Stat(); err == nil {
+		result["size"] = info.Size()
+		if !info.ModTime().IsZero() {
+			result["mod_time"] = info.ModTime().UTC().Format(time.RFC3339)
+			result["revision"] = fmt.Sprintf("%s:%d", info.ModTime().UTC().Format(time.RFC3339), info.Size())
+		}
+	}
+	return result, nil
+}
+
 func normalizedIncludePaths(config SMBConfig) []sourcescope.IncludePath {
 	if len(config.IncludePaths) > 0 {
 		includes := make([]sourcescope.IncludePath, 0, len(config.IncludePaths))
@@ -317,6 +412,29 @@ func joinLogicalPath(basePath, child string) string {
 		return base
 	}
 	return filepath.ToSlash(base + "/" + part)
+}
+
+func resolveSMBSharePath(basePath, relativePath string) (string, error) {
+	path := strings.TrimSpace(relativePath)
+	if path == "" {
+		return "", fmt.Errorf("empty file path")
+	}
+	if filepath.IsAbs(path) {
+		return "", fmt.Errorf("absolute file path not allowed")
+	}
+	if strings.Contains(path, "..") {
+		return "", fmt.Errorf("path traversal")
+	}
+
+	full := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
+	base := strings.TrimSpace(basePath)
+	if base != "" && base != "." {
+		full = filepath.ToSlash(filepath.Clean(filepath.Join(filepath.FromSlash(base), filepath.FromSlash(path))))
+	}
+	if strings.HasPrefix(full, "../") || full == ".." {
+		return "", fmt.Errorf("outside smb root")
+	}
+	return full, nil
 }
 
 func recordSMBEntry(seen map[string]map[string]any, logicalPath string, entry fs.DirEntry) {
