@@ -44,6 +44,8 @@ var slotIDs = []string{
 	"save-ram",
 }
 
+const saveSyncPrefetchConcurrency = 10
+
 type PluginHost = plugins.PluginHost
 
 type service struct {
@@ -358,82 +360,54 @@ func (s *service) runPrefetch(req core.SaveSyncPrefetchRequest, jobID string) {
 		status.Message = "prefetching save slots"
 	})
 
-	for _, slotID := range emulatorJSSlotIDs() {
-		ref := core.SaveSyncSlotRef{
-			CanonicalGameID: req.CanonicalGameID,
-			SourceGameID:    req.SourceGameID,
-			Runtime:         req.Runtime,
-			SlotID:          slotID,
-			IntegrationID:   req.IntegrationID,
-		}
-		if !existingManifests[slotManifestPath(ref)] {
-			_ = s.removeSlotCachePayload(ref)
-			_ = s.writeSlotCacheStatus(ref, saveSyncCacheStatus{SyncState: "missing", UpdatedAt: time.Now().UTC()})
-			s.updatePrefetch(jobID, func(status *core.SaveSyncPrefetchStatus) {
-				status.ProgressCurrent++
-				status.SlotsMissing++
-				status.Message = "save slot " + slotID + " is empty"
-			})
-			continue
-		}
+	slots := emulatorJSSlotIDs()
+	prefetchCtx, stopPrefetch := context.WithCancel(ctx)
+	defer stopPrefetch()
 
-		manifest, manifestHash, err := s.fetchStoredManifest(ctx, integration, ref)
-		if err != nil {
+	type prefetchResult struct {
+		slotID string
+		err    error
+	}
+	slotCh := make(chan string)
+	resultCh := make(chan prefetchResult, len(slots))
+	workerCount := min(saveSyncPrefetchConcurrency, len(slots))
+
+	var wg sync.WaitGroup
+	wg.Add(workerCount)
+	for workerIndex := 0; workerIndex < workerCount; workerIndex++ {
+		go func() {
+			defer wg.Done()
+			for slotID := range slotCh {
+				err := s.prefetchSlot(prefetchCtx, integration, req, existingManifests, jobID, slotID)
+				resultCh <- prefetchResult{slotID: slotID, err: err}
+			}
+		}()
+	}
+	go func() {
+		defer close(slotCh)
+		for _, slotID := range slots {
+			select {
+			case <-prefetchCtx.Done():
+				return
+			case slotCh <- slotID:
+			}
+		}
+	}()
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	for result := range resultCh {
+		if result.err != nil {
+			stopPrefetch()
 			s.updatePrefetch(jobID, func(status *core.SaveSyncPrefetchStatus) {
 				status.SlotsFailed++
-				status.Message = "failed to prefetch " + slotID
+				status.Message = "failed to prefetch " + result.slotID
 			})
-			s.finishPrefetch(jobID, err)
+			s.finishPrefetch(jobID, result.err)
 			return
 		}
-		if manifest == nil {
-			_ = s.removeSlotCachePayload(ref)
-			_ = s.writeSlotCacheStatus(ref, saveSyncCacheStatus{SyncState: "missing", UpdatedAt: time.Now().UTC()})
-			s.updatePrefetch(jobID, func(status *core.SaveSyncPrefetchStatus) {
-				status.ProgressCurrent++
-				status.SlotsMissing++
-				status.Message = "save slot " + slotID + " is empty"
-			})
-			continue
-		}
-
-		archiveBytes, err := s.fetchArchiveBytes(ctx, integration, ref)
-		if err != nil {
-			s.updatePrefetch(jobID, func(status *core.SaveSyncPrefetchStatus) {
-				status.SlotsFailed++
-				status.Message = "failed to prefetch " + slotID
-			})
-			s.finishPrefetch(jobID, err)
-			return
-		}
-		if archiveBytes == nil {
-			_ = s.removeSlotCachePayload(ref)
-			_ = s.writeSlotCacheStatus(ref, saveSyncCacheStatus{SyncState: "missing", UpdatedAt: time.Now().UTC()})
-			s.updatePrefetch(jobID, func(status *core.SaveSyncPrefetchStatus) {
-				status.ProgressCurrent++
-				status.SlotsMissing++
-				status.Message = "save slot " + slotID + " is empty"
-			})
-			continue
-		}
-		manifestBytes, _, err := marshalManifest(*manifest)
-		if err != nil {
-			s.finishPrefetch(jobID, err)
-			return
-		}
-		if err := s.writeSlotCache(ref, manifestBytes, archiveBytes, saveSyncCacheStatus{
-			SyncState:          "synced",
-			RemoteManifestHash: manifestHash,
-			UpdatedAt:          manifest.UpdatedAt,
-		}); err != nil {
-			s.finishPrefetch(jobID, err)
-			return
-		}
-		s.updatePrefetch(jobID, func(status *core.SaveSyncPrefetchStatus) {
-			status.ProgressCurrent++
-			status.SlotsCached++
-			status.Message = "prefetched " + slotID
-		})
 	}
 
 	s.updatePrefetch(jobID, func(status *core.SaveSyncPrefetchStatus) {
@@ -441,6 +415,73 @@ func (s *service) runPrefetch(req core.SaveSyncPrefetchRequest, jobID string) {
 		status.Message = "save slots prefetched"
 		status.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 	})
+}
+
+func (s *service) prefetchSlot(ctx context.Context, integration *core.Integration, req core.SaveSyncPrefetchRequest, existingManifests map[string]bool, jobID string, slotID string) error {
+	ref := core.SaveSyncSlotRef{
+		CanonicalGameID: req.CanonicalGameID,
+		SourceGameID:    req.SourceGameID,
+		Runtime:         req.Runtime,
+		SlotID:          slotID,
+		IntegrationID:   req.IntegrationID,
+	}
+	if !existingManifests[slotManifestPath(ref)] {
+		_ = s.removeSlotCachePayload(ref)
+		_ = s.writeSlotCacheStatus(ref, saveSyncCacheStatus{SyncState: "missing", UpdatedAt: time.Now().UTC()})
+		s.updatePrefetch(jobID, func(status *core.SaveSyncPrefetchStatus) {
+			status.ProgressCurrent++
+			status.SlotsMissing++
+			status.Message = "save slot " + slotID + " is empty"
+		})
+		return nil
+	}
+
+	manifest, manifestHash, err := s.fetchStoredManifest(ctx, integration, ref)
+	if err != nil {
+		return err
+	}
+	if manifest == nil {
+		_ = s.removeSlotCachePayload(ref)
+		_ = s.writeSlotCacheStatus(ref, saveSyncCacheStatus{SyncState: "missing", UpdatedAt: time.Now().UTC()})
+		s.updatePrefetch(jobID, func(status *core.SaveSyncPrefetchStatus) {
+			status.ProgressCurrent++
+			status.SlotsMissing++
+			status.Message = "save slot " + slotID + " is empty"
+		})
+		return nil
+	}
+
+	archiveBytes, err := s.fetchArchiveBytes(ctx, integration, ref)
+	if err != nil {
+		return err
+	}
+	if archiveBytes == nil {
+		_ = s.removeSlotCachePayload(ref)
+		_ = s.writeSlotCacheStatus(ref, saveSyncCacheStatus{SyncState: "missing", UpdatedAt: time.Now().UTC()})
+		s.updatePrefetch(jobID, func(status *core.SaveSyncPrefetchStatus) {
+			status.ProgressCurrent++
+			status.SlotsMissing++
+			status.Message = "save slot " + slotID + " is empty"
+		})
+		return nil
+	}
+	manifestBytes, _, err := marshalManifest(*manifest)
+	if err != nil {
+		return err
+	}
+	if err := s.writeSlotCache(ref, manifestBytes, archiveBytes, saveSyncCacheStatus{
+		SyncState:          "synced",
+		RemoteManifestHash: manifestHash,
+		UpdatedAt:          manifest.UpdatedAt,
+	}); err != nil {
+		return err
+	}
+	s.updatePrefetch(jobID, func(status *core.SaveSyncPrefetchStatus) {
+		status.ProgressCurrent++
+		status.SlotsCached++
+		status.Message = "prefetched " + slotID
+	})
+	return nil
 }
 
 func (s *service) runMigration(req core.SaveSyncMigrationRequest, jobID string) {

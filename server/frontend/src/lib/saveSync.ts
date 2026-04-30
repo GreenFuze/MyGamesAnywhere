@@ -27,7 +27,7 @@ export type RuntimeBridgeEvent =
   | { type: 'import-result'; requestId: string; ok: boolean; error?: string }
   | { type: 'native-save-state'; requestId: string; slot: string; stateBase64: string }
   | { type: 'native-load-state'; requestId: string; slot: string }
-  | { type: 'native-save-ram'; requestId: string; saveBase64: string; savePath?: string }
+  | { type: 'native-save-ram'; requestId: string; files?: RuntimeSaveFile[]; saveBase64?: string; savePath?: string }
   | { type: 'native-load-ram'; requestId: string }
   | { type: 'runtime-error'; error: string }
 

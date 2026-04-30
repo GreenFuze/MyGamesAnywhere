@@ -278,6 +278,61 @@ func TestPrefetchCachesRemoteSlotsAndMarksMissingSlots(t *testing.T) {
 	}
 }
 
+func TestPrefetchDownloadsRemoteSlotsConcurrently(t *testing.T) {
+	ctx := context.Background()
+	svc, host, gameID := newTestService(t)
+	host.getDelay = 100 * time.Millisecond
+
+	for _, slotID := range emulatorJSSlotIDs() {
+		ref := core.SaveSyncSlotRef{
+			CanonicalGameID: gameID,
+			SourceGameID:    "source-1",
+			Runtime:         "emulatorjs",
+			SlotID:          slotID,
+			IntegrationID:   "integration-1",
+		}
+		manifest := saveSyncStoredManifest{
+			Version:         1,
+			CanonicalGameID: ref.CanonicalGameID,
+			SourceGameID:    ref.SourceGameID,
+			Runtime:         ref.Runtime,
+			SlotID:          ref.SlotID,
+			UpdatedAt:       time.Unix(1700000000, 0).UTC(),
+			Files:           []core.SaveSyncSnapshotFile{},
+		}
+		manifestBytes, _, err := marshalManifest(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		host.putRemote(slotManifestPath(ref), manifestBytes)
+		host.putRemote(slotArchivePath(ref), emptyZipBytes(t))
+	}
+
+	status, err := svc.StartPrefetch(ctx, core.SaveSyncPrefetchRequest{
+		CanonicalGameID: gameID,
+		SourceGameID:    "source-1",
+		Runtime:         "emulatorjs",
+		IntegrationID:   "integration-1",
+	})
+	if err != nil {
+		t.Fatalf("start prefetch: %v", err)
+	}
+	status = waitPrefetch(t, svc, status.JobID)
+	if status.Status != "completed" || status.SlotsCached != len(emulatorJSSlotIDs()) {
+		t.Fatalf("prefetch status = %+v, want all slots cached", status)
+	}
+
+	host.mu.Lock()
+	maxActiveGets := host.maxActiveGets
+	host.mu.Unlock()
+	if maxActiveGets < 2 {
+		t.Fatalf("max active remote gets = %d, want concurrent prefetch", maxActiveGets)
+	}
+	if maxActiveGets > saveSyncPrefetchConcurrency {
+		t.Fatalf("max active remote gets = %d, want bounded by %d", maxActiveGets, saveSyncPrefetchConcurrency)
+	}
+}
+
 func TestUploadFailureMarksCachedSlotFailed(t *testing.T) {
 	ctx := context.Background()
 	svc, host, gameID := newTestService(t)
@@ -335,10 +390,13 @@ func (saveSyncTestLogger) Debug(string, ...any)        {}
 func (saveSyncTestLogger) Warn(string, ...any)         {}
 
 type saveSyncTestPluginHost struct {
-	mu       sync.Mutex
-	remote   map[string][]byte
-	blockPut chan struct{}
-	putErr   bool
+	mu            sync.Mutex
+	remote        map[string][]byte
+	blockPut      chan struct{}
+	putErr        bool
+	getDelay      time.Duration
+	activeGets    int
+	maxActiveGets int
 }
 
 func (h *saveSyncTestPluginHost) Discover(context.Context) error { return nil }
@@ -366,6 +424,8 @@ func (h *saveSyncTestPluginHost) Call(_ context.Context, _ string, method string
 
 	switch method {
 	case "save_sync.get":
+		h.beginGet()
+		defer h.endGet()
 		h.mu.Lock()
 		value, ok := h.remote[req.Path]
 		h.mu.Unlock()
@@ -406,6 +466,25 @@ func (h *saveSyncTestPluginHost) Call(_ context.Context, _ string, method string
 	default:
 		return nil
 	}
+}
+
+func (h *saveSyncTestPluginHost) beginGet() {
+	h.mu.Lock()
+	h.activeGets++
+	if h.activeGets > h.maxActiveGets {
+		h.maxActiveGets = h.activeGets
+	}
+	delay := h.getDelay
+	h.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+}
+
+func (h *saveSyncTestPluginHost) endGet() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.activeGets--
 }
 
 func (h *saveSyncTestPluginHost) putRemote(path string, data []byte) {

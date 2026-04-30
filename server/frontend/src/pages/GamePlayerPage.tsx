@@ -617,9 +617,16 @@ export function GamePlayerPage() {
           return
         }
         if (message.type === 'native-save-ram') {
-          await saveNativeFiles(EMULATORJS_SAVE_RAM_SLOT_ID, [
-            { path: message.savePath || 'save.ram', base64: message.saveBase64 },
-          ])
+          const files =
+            message.files && message.files.length > 0
+              ? message.files
+              : message.saveBase64
+                ? [{ path: message.savePath || 'save.ram', base64: message.saveBase64 }]
+                : []
+          if (files.length === 0) {
+            throw new Error('No save RAM data to sync.')
+          }
+          await saveNativeFiles(EMULATORJS_SAVE_RAM_SLOT_ID, files)
           postNativeReply({ type: 'native-save-result', requestId: message.requestId, ok: true })
           return
         }
