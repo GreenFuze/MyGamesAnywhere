@@ -71,6 +71,9 @@ func (c *GameController) ServePlayFile(w http.ResponseWriter, r *http.Request) {
 	if contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(gameFile.Path))); contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
+	if strings.TrimSpace(contentName) != "" {
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": contentName}))
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	http.ServeContent(w, r, contentName, st.ModTime(), playFile)
 }

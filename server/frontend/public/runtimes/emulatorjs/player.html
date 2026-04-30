@@ -170,8 +170,14 @@
           if (session.runtime !== 'emulatorjs') {
             renderError('Invalid EmulatorJS session payload.')
           } else {
+            const runtimeVersion = 'mga-20260430-mame-filename'
             const runtimeDataUrl = new URL('./data/', window.location.href)
             const loaderUrl = new URL('./data/loader.js', window.location.href)
+            const emulatorScriptUrl = new URL('./data/emulator.min.js', window.location.href)
+            const emulatorStyleUrl = new URL('./data/emulator.min.css', window.location.href)
+            loaderUrl.searchParams.set('v', runtimeVersion)
+            emulatorScriptUrl.searchParams.set('v', runtimeVersion)
+            emulatorStyleUrl.searchParams.set('v', runtimeVersion)
             window.EJS_ready = () => {
               scheduleResizePass()
               postBridgeMessage({ type: 'ready', saveAdapter: true })
@@ -194,6 +200,10 @@
             window.EJS_gameUrl = session.gameUrl
             window.EJS_gameName = session.gameName
             window.EJS_pathtodata = runtimeDataUrl.href
+            window.EJS_paths = {
+              'emulator.min.js': emulatorScriptUrl.href,
+              'emulator.min.css': emulatorStyleUrl.href,
+            }
             window.EJS_startOnLoaded = true
             // Fullscreen-on-load usually gets blocked by the browser and leaves
             // the runtime controls in the wrong state. Enter fullscreen manually.

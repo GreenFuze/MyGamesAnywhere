@@ -779,6 +779,11 @@ class EmulatorJS {
         //Only once game and core is loaded
         if (!this.started && !force) return null;
         if (force && this.config.gameUrl !== "game" && !this.config.gameUrl.startsWith("blob:")) {
+            try {
+                const url = new URL(this.config.gameUrl, window.location.href);
+                const fileName = url.searchParams.get("filename");
+                if (fileName) return fileName.split(/[\\/]/).pop();
+            } catch {}
             return this.config.gameUrl.split("/").pop().split("#")[0].split("?")[0];
         }
         if (typeof this.config.gameName === "string") {

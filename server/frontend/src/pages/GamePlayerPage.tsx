@@ -859,13 +859,13 @@ export function GamePlayerPage() {
         ) : (
           <>
             <section className="rounded-mga border border-mga-border bg-mga-surface p-4">
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-end gap-3">
                 <div className="min-w-[12rem]">
                   <label className="mb-1 block text-xs uppercase tracking-wide text-mga-muted">Save Slot</label>
                   <select
                     value={selectedSlot}
                     onChange={(event) => setSelectedSlot(event.target.value as (typeof SAVE_SYNC_SLOT_IDS)[number])}
-                    className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text"
+                    className="h-9 w-full rounded-mga border border-mga-border bg-mga-bg px-3 text-sm text-mga-text"
                   >
                     {SAVE_SYNC_SLOT_IDS.map((slot) => (
                       <option key={slot} value={slot}>{slot}</option>
@@ -892,7 +892,7 @@ export function GamePlayerPage() {
                   {saveSyncBusy ? 'Working...' : 'Save'}
                 </Button>
 
-                <div className="min-w-[14rem] text-xs text-mga-muted">
+                <div className="min-w-[14rem] pb-2 text-xs text-mga-muted">
                   {!activeIntegrationId && 'Choose an active Save Sync integration in Settings to enable remote saves.'}
                   {activeIntegrationId && !bridgeReady && 'Waiting for runtime bridge...'}
                   {activeIntegrationId &&

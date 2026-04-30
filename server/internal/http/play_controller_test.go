@@ -251,6 +251,9 @@ func TestGameControllerServePlayFileSupportsRange(t *testing.T) {
 	if rr.Body.String() != "bcd" {
 		t.Fatalf("unexpected body: %q", rr.Body.String())
 	}
+	if got := rr.Header().Get("Content-Disposition"); got != `inline; filename=game.bin` {
+		t.Fatalf("content-disposition = %q, want filename game.bin", got)
+	}
 }
 
 func TestGameControllerServePlayFileSupportsHead(t *testing.T) {

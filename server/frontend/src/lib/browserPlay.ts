@@ -120,7 +120,7 @@ const EMULATORJS_CORES: Record<string, string> = {
   sega_cd: 'picodrive',
   sega_32x: 'picodrive',
   ps1: 'pcsx_rearmed',
-  arcade: 'fbneo',
+  arcade: 'mame2003_plus',
 }
 
 export function getBrowserPlayRuntime(platform: string): BrowserPlayRuntime | null {
@@ -192,9 +192,11 @@ function emulatorJsCoreForSelection(
   )
 }
 
-export function buildPlayFileUrl(gameId: string, fileId: string, profile?: string): string {
+export function buildPlayFileUrl(gameId: string, fileId: string, profile?: string, filePath?: string): string {
   const query = new URLSearchParams({ file_id: fileId })
   if (profile) query.set('profile', profile)
+  const fileName = filePath ? lastPathSegment(filePath) : ''
+  if (fileName) query.set('filename', fileName)
   return `/api/games/${encodeURIComponent(gameId)}/play?${query.toString()}`
 }
 
@@ -581,7 +583,7 @@ function buildSourceSessionFiles(
     role: file.role,
     size: file.size,
     fileKind: file.file_kind,
-    url: buildPlayFileUrl(game.id, file.id, profile),
+    url: buildPlayFileUrl(game.id, file.id, profile, file.path),
   }))
 }
 
@@ -739,7 +741,7 @@ export function buildBrowserPlaySession(
       title: game.title,
       sourceGameId: selection.sourceGame.id,
       gameName,
-      gameUrl: buildPlayFileUrl(game.id, selection.rootFile.id, selection.profile),
+      gameUrl: buildPlayFileUrl(game.id, selection.rootFile.id, selection.profile, selection.rootFile.path),
       core,
     }
   }
@@ -770,7 +772,7 @@ export function buildBrowserPlaySession(
       executablePath,
       launchDirectoryPath,
       files: buildSourceSessionFiles(game, selection.sourceGame, selection.profile),
-      bundleUrl: isBundle ? buildPlayFileUrl(game.id, selection.rootFile.id, selection.profile) : undefined,
+      bundleUrl: isBundle ? buildPlayFileUrl(game.id, selection.rootFile.id, selection.profile, selection.rootFile.path) : undefined,
     }
   }
 
