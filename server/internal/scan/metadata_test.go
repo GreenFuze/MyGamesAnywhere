@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -371,10 +372,13 @@ func TestEnrich_Unidentified(t *testing.T) {
 
 func TestEnrich_FillPhase(t *testing.T) {
 	callCount := map[string]int{}
+	var callCountMu sync.Mutex
 
 	caller := &mockCaller{
 		callFn: func(pluginID, method string, params any) (any, error) {
+			callCountMu.Lock()
 			callCount[pluginID]++
+			callCountMu.Unlock()
 
 			b, _ := json.Marshal(params)
 			var p struct {
@@ -503,10 +507,13 @@ func TestIdentifyStrictRunsSourcesConcurrently(t *testing.T) {
 
 func TestEnrich_OutvotedResolverRequeried(t *testing.T) {
 	callCount := map[string]int{}
+	var callCountMu sync.Mutex
 
 	caller := &mockCaller{
 		callFn: func(pluginID, method string, params any) (any, error) {
+			callCountMu.Lock()
 			callCount[pluginID]++
+			callCountMu.Unlock()
 
 			b, _ := json.Marshal(params)
 			var p struct {
@@ -586,10 +593,13 @@ func TestEnrich_OutvotedResolverRequeried(t *testing.T) {
 
 func TestEnrich_OutvotedResolverFillMismatchRejected(t *testing.T) {
 	callCount := map[string]int{}
+	var callCountMu sync.Mutex
 
 	caller := &mockCaller{
 		callFn: func(pluginID, method string, params any) (any, error) {
+			callCountMu.Lock()
 			callCount[pluginID]++
+			callCountMu.Unlock()
 
 			b, _ := json.Marshal(params)
 			var p struct {

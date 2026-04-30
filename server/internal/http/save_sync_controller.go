@@ -74,12 +74,12 @@ func (c *SaveSyncController) PutSlot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		IntegrationID    string                 `json:"integration_id"`
-		SourceGameID     string                 `json:"source_game_id"`
-		Runtime          string                 `json:"runtime"`
-		BaseManifestHash string                 `json:"base_manifest_hash"`
-		Force            bool                   `json:"force"`
-		Snapshot         core.SaveSyncSnapshot  `json:"snapshot"`
+		IntegrationID    string                `json:"integration_id"`
+		SourceGameID     string                `json:"source_game_id"`
+		Runtime          string                `json:"runtime"`
+		BaseManifestHash string                `json:"base_manifest_hash"`
+		Force            bool                  `json:"force"`
+		Snapshot         core.SaveSyncSnapshot `json:"snapshot"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -111,6 +111,57 @@ func (c *SaveSyncController) PutSlot(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(result)
+}
+
+func (c *SaveSyncController) StartPrefetch(w http.ResponseWriter, r *http.Request) {
+	gameID, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		IntegrationID string `json:"integration_id"`
+		SourceGameID  string `json:"source_game_id"`
+		Runtime       string `json:"runtime"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	status, err := c.service.StartPrefetch(r.Context(), core.SaveSyncPrefetchRequest{
+		CanonicalGameID: gameID,
+		SourceGameID:    body.SourceGameID,
+		Runtime:         body.Runtime,
+		IntegrationID:   body.IntegrationID,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(status)
+}
+
+func (c *SaveSyncController) GetPrefetchStatus(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "job_id")
+	if jobID == "" {
+		http.Error(w, "job_id is required", http.StatusBadRequest)
+		return
+	}
+	status, err := c.service.GetPrefetchStatus(r.Context(), jobID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if status == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(status)
 }
 
 func (c *SaveSyncController) StartMigration(w http.ResponseWriter, r *http.Request) {

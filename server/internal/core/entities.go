@@ -565,12 +565,16 @@ type SaveSyncSnapshot struct {
 }
 
 type SaveSyncSlotSummary struct {
-	SlotID       string `json:"slot_id"`
-	Exists       bool   `json:"exists"`
-	ManifestHash string `json:"manifest_hash,omitempty"`
-	UpdatedAt    string `json:"updated_at,omitempty"`
-	FileCount    int    `json:"file_count,omitempty"`
-	TotalSize    int64  `json:"total_size,omitempty"`
+	SlotID        string `json:"slot_id"`
+	Exists        bool   `json:"exists"`
+	ManifestHash  string `json:"manifest_hash,omitempty"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
+	FileCount     int    `json:"file_count,omitempty"`
+	TotalSize     int64  `json:"total_size,omitempty"`
+	Cached        bool   `json:"cached,omitempty"`
+	SyncState     string `json:"sync_state,omitempty"`
+	LastSyncError string `json:"last_sync_error,omitempty"`
+	UploadPending bool   `json:"upload_pending,omitempty"`
 }
 
 type SaveSyncConflict struct {
@@ -593,6 +597,31 @@ type SaveSyncPutResult struct {
 	OK       bool                `json:"ok"`
 	Summary  SaveSyncSlotSummary `json:"summary"`
 	Conflict *SaveSyncConflict   `json:"conflict,omitempty"`
+}
+
+type SaveSyncPrefetchRequest struct {
+	CanonicalGameID string `json:"canonical_game_id"`
+	SourceGameID    string `json:"source_game_id"`
+	Runtime         string `json:"runtime"`
+	IntegrationID   string `json:"integration_id"`
+}
+
+type SaveSyncPrefetchStatus struct {
+	JobID           string `json:"job_id"`
+	Status          string `json:"status"`
+	Message         string `json:"message,omitempty"`
+	Error           string `json:"error,omitempty"`
+	CanonicalGameID string `json:"canonical_game_id"`
+	SourceGameID    string `json:"source_game_id"`
+	Runtime         string `json:"runtime"`
+	IntegrationID   string `json:"integration_id"`
+	ProgressCurrent int    `json:"progress_current"`
+	ProgressTotal   int    `json:"progress_total"`
+	SlotsCached     int    `json:"slots_cached"`
+	SlotsMissing    int    `json:"slots_missing"`
+	SlotsFailed     int    `json:"slots_failed"`
+	StartedAt       string `json:"started_at,omitempty"`
+	FinishedAt      string `json:"finished_at,omitempty"`
 }
 
 type SaveSyncMigrationScope string

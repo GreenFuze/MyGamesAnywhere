@@ -17,6 +17,7 @@ import type {
   SourceDeliveryDTO,
   SaveSyncMigrationRequest,
   SaveSyncMigrationStatus,
+  SaveSyncPrefetchStatus,
   SaveSyncPutResult,
   SaveSyncSlotSummary,
   SaveSyncSnapshot,
@@ -59,6 +60,7 @@ export type {
   SaveSyncMigrationRequest,
   SaveSyncMigrationScope,
   SaveSyncMigrationStatus,
+  SaveSyncPrefetchStatus,
   SaveSyncPutResult,
   SaveSyncSlotSummary,
   SaveSyncSnapshot,
@@ -1042,6 +1044,30 @@ export async function putGameSaveSyncSlot(params: {
     );
   }
   return res.json() as Promise<SaveSyncPutResult>;
+}
+
+export async function startGameSaveSyncPrefetch(params: {
+  gameId: string;
+  integrationId: string;
+  sourceGameId: string;
+  runtime: string;
+}): Promise<SaveSyncPrefetchStatus> {
+  return postJson<SaveSyncPrefetchStatus>(
+    `/api/games/${encodeURIComponent(params.gameId)}/save-sync/prefetch`,
+    {
+      integration_id: params.integrationId,
+      source_game_id: params.sourceGameId,
+      runtime: params.runtime,
+    },
+  ) as Promise<SaveSyncPrefetchStatus>;
+}
+
+export async function getSaveSyncPrefetchStatus(
+  jobId: string,
+): Promise<SaveSyncPrefetchStatus> {
+  return getJson<SaveSyncPrefetchStatus>(
+    `/api/save-sync/prefetch/${encodeURIComponent(jobId)}`,
+  );
 }
 
 export async function startSaveSyncMigration(

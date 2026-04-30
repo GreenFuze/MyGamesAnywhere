@@ -9,7 +9,7 @@ var (
 	// Strip trailing ROM/dump/set suffixes while preserving meaningful middle-title qualifiers.
 	trailingBracketNoiseRE = regexp.MustCompile(`[\s._-]*[\(\[][^\)\]]*[\)\]]\s*$`)
 	setupPrefixRE          = regexp.MustCompile(`(?i)^setup[\s._-]+`)
-	versionSuffixRE        = regexp.MustCompile(`(?i)[\s._-]+(?:v|version[\s._-]*)\d+(?:\.\d+)+(?:[\s._-]+[a-z]{2,8}\d*)*\s*$`)
+	versionSuffixRE        = regexp.MustCompile(`(?i)[\s._-]+(?:(?:v|version[\s._-]*)\d+(?:\.\d+)+(?:[\s._-]+[a-z]{2,8}\d*)*|\d+(?:\.\d+)+[\s._-]+[a-z]{2,8}\d*(?:[\s._-]+[a-z]{2,8}\d*)*)\s*$`)
 	nonAlphaNumRE          = regexp.MustCompile(`[^a-z0-9\s]+`)
 	multiSpaceRE           = regexp.MustCompile(`\s+`)
 )

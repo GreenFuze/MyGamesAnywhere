@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"errors"
+	"fmt"
+	"testing"
+)
 
 func TestFilesystemIncludePathsFromConfigSupportsLegacyRootPath(t *testing.T) {
 	includes := filesystemIncludePathsFromConfig(map[string]any{
@@ -31,5 +35,12 @@ func TestFilesystemIncludePathsFromConfigReadsNormalizedIncludePaths(t *testing.
 	}
 	if includes[0].Recursive {
 		t.Fatal("recursive = true, want false")
+	}
+}
+
+func TestDrivePathNotFoundSentinelSurvivesWrapping(t *testing.T) {
+	err := fmt.Errorf("resolve save sync path: %w", errDrivePathNotFound)
+	if !errors.Is(err, errDrivePathNotFound) {
+		t.Fatalf("expected wrapped save-sync lookup error to classify as not found")
 	}
 }

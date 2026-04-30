@@ -531,10 +531,34 @@ paths:
         500:
           description: Internal server error
 
+  /api/games/{id}/save-sync/prefetch:
+    post:
+      summary: Prefetch save-sync slots into the local cache
+      description: Starts a background prefetch of EmulatorJS save-sync slots from the active remote integration into the server local cache. Missing remote slots are cached as empty; provider failures fail the job.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: 'JSON: { integration_id, source_game_id, runtime }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: SaveSyncPrefetchStatus JSON
+        400:
+          description: Invalid parameters
+        500:
+          description: Internal server error
+
   /api/games/{id}/save-sync/slots:
     get:
       summary: List save-sync slots for one browser runtime source
-      description: 'Returns summary metadata for `autosave` and `slot-1` through `slot-5` for the requested canonical game, source game, runtime, and save-sync integration. Query params: integration_id, source_game_id, runtime.'
+      description: 'Returns local cached summary metadata for save-sync slots for the requested canonical game, source game, runtime, and save-sync integration. Query params: integration_id, source_game_id, runtime.'
       parameters:
         - name: id
           in: path
@@ -553,8 +577,8 @@ paths:
 
   /api/games/{id}/save-sync/slots/{slot_id}:
     get:
-      summary: Get one remote save-sync slot snapshot
-      description: 'Loads the manifest metadata and opaque zip snapshot for one browser-runtime save slot. Query params: integration_id, source_game_id, runtime.'
+      summary: Get one cached save-sync slot snapshot
+      description: 'Loads the manifest metadata and opaque zip snapshot for one browser-runtime save slot from the server local cache. Query params: integration_id, source_game_id, runtime.'
       parameters:
         - name: id
           in: path
@@ -576,8 +600,8 @@ paths:
         500:
           description: Internal server error
     put:
-      summary: Store one remote save-sync slot snapshot
-      description: Uploads a whole runtime save snapshot for a single slot. The server validates ownership, runtime compatibility, file manifest integrity, and optional conflict state via `base_manifest_hash`. Use `force=true` to overwrite after a conflict warning.
+      summary: Store one save-sync slot snapshot
+      description: Stores a whole runtime save snapshot into the local server cache and queues a cloud upload. The server validates ownership, runtime compatibility, file manifest integrity, and optional conflict state via `base_manifest_hash`. Use `force=true` to overwrite after a conflict warning.
       parameters:
         - name: id
           in: path
@@ -1119,6 +1143,26 @@ paths:
       responses:
         200:
           description: SaveSyncMigrationStatus JSON
+        400:
+          description: Error response
+        404:
+          description: Unknown job id
+        500:
+          description: Internal server error
+
+  /api/save-sync/prefetch/{job_id}:
+    get:
+      summary: Get save-sync prefetch job status
+      description: Returns the latest in-memory status for a save-sync prefetch job, including progress, cached/missing/failed slot counts, and any terminal error.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: SaveSyncPrefetchStatus JSON
         400:
           description: Error response
         404:

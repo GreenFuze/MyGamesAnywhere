@@ -24,6 +24,7 @@ export type BrowserPlaySession =
       gameUrl: string
       gameName: string
       core: string
+      nativeSaveSync?: boolean
     }
   | {
       runtime: 'jsdos'
@@ -721,6 +722,7 @@ export function browserPlayJsdosExecutableLabel(
 
 type BuildBrowserPlaySessionOptions = {
   jsdosExecutablePath?: string | null
+  nativeSaveSync?: boolean
 }
 
 export function buildBrowserPlaySession(
@@ -743,6 +745,7 @@ export function buildBrowserPlaySession(
       gameName,
       gameUrl: buildPlayFileUrl(game.id, selection.rootFile.id, selection.profile, selection.rootFile.path),
       core,
+      nativeSaveSync: options?.nativeSaveSync === true,
     }
   }
 

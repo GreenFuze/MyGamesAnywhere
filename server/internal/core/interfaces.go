@@ -216,6 +216,8 @@ type SaveSyncService interface {
 	ListSlots(ctx context.Context, req SaveSyncListRequest) ([]SaveSyncSlotSummary, error)
 	GetSlot(ctx context.Context, req SaveSyncSlotRef) (*SaveSyncSnapshot, error)
 	PutSlot(ctx context.Context, req SaveSyncPutRequest) (*SaveSyncPutResult, error)
+	StartPrefetch(ctx context.Context, req SaveSyncPrefetchRequest) (*SaveSyncPrefetchStatus, error)
+	GetPrefetchStatus(ctx context.Context, jobID string) (*SaveSyncPrefetchStatus, error)
 	StartMigration(ctx context.Context, req SaveSyncMigrationRequest) (*SaveSyncMigrationStatus, error)
 	GetMigrationStatus(ctx context.Context, jobID string) (*SaveSyncMigrationStatus, error)
 }

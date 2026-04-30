@@ -308,6 +308,10 @@ export type SaveSyncSlotSummary = {
   updated_at?: string;
   file_count?: number;
   total_size?: number;
+  cached?: boolean;
+  sync_state?: string;
+  last_sync_error?: string;
+  upload_pending?: boolean;
 };
 
 export type SaveSyncConflict = {
@@ -323,6 +327,24 @@ export type SaveSyncPutResult = {
   ok: boolean;
   summary: SaveSyncSlotSummary;
   conflict?: SaveSyncConflict;
+};
+
+export type SaveSyncPrefetchStatus = {
+  job_id: string;
+  status: string;
+  message?: string;
+  error?: string;
+  canonical_game_id: string;
+  source_game_id: string;
+  runtime: string;
+  integration_id: string;
+  progress_current: number;
+  progress_total: number;
+  slots_cached: number;
+  slots_missing: number;
+  slots_failed: number;
+  started_at?: string;
+  finished_at?: string;
 };
 
 export type SaveSyncMigrationScope = "all" | "game";

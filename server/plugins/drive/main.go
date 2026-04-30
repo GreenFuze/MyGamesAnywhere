@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -58,6 +59,8 @@ var (
 	builtinClientID     string
 	builtinClientSecret string
 )
+
+var errDrivePathNotFound = errors.New("drive path not found")
 
 // oauthConfig is lazily initialized in loadConfig after credentials are resolved.
 var oauthConfig *oauth2.Config
@@ -191,7 +194,7 @@ func resolvePathToFolderID(srv *drive.Service, rootPath string) (string, error) 
 			return "", fmt.Errorf("find folder %q: %w", part, err)
 		}
 		if len(result.Files) == 0 {
-			return "", fmt.Errorf("folder %q not found under %s", part, currentID)
+			return "", fmt.Errorf("%w: folder %q not found under %s", errDrivePathNotFound, part, currentID)
 		}
 		currentID = result.Files[0].Id
 	}
@@ -557,12 +560,18 @@ func resolveObjectFile(srv *drive.Service, rootPath, objectPath string) (string,
 
 	rootFolderID, err := resolvePathToFolderID(srv, rootPath)
 	if err != nil {
+		if errors.Is(err, errDrivePathNotFound) {
+			return "", fileName, nil
+		}
 		return "", "", err
 	}
 	parentID := rootFolderID
 	if parentDir != "" {
 		parentID, err = resolvePathToFolderID(srv, strings.Trim(path.Join(rootPath, parentDir), "/"))
 		if err != nil {
+			if errors.Is(err, errDrivePathNotFound) {
+				return "", fileName, nil
+			}
 			return "", fileName, err
 		}
 	}

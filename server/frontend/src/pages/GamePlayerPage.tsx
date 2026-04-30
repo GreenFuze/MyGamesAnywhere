@@ -9,9 +9,11 @@ import {
   getFrontendConfig,
   getGame,
   getGameSaveSyncSlot,
+  getSaveSyncPrefetchStatus,
   listGameSaveSyncSlots,
   prepareGameCache,
   putGameSaveSyncSlot,
+  startGameSaveSyncPrefetch,
   type SaveSyncSlotSummary,
 } from '@/api/client'
 import { BrandBadge } from '@/components/ui/brand-icon'
@@ -45,12 +47,15 @@ import {
 } from '@/lib/browserPlay'
 import { hasBrowserPlaySupport } from '@/lib/gameUtils'
 import {
+  EMULATORJS_SAVE_RAM_SLOT_ID,
   SAVE_SYNC_SLOT_IDS,
   buildSaveSyncSnapshot,
   computeLocalSnapshotHash,
+  emulatorJsStateSlotId,
   extractRuntimeFilesFromSnapshot,
   type RuntimeBridgeCommand,
   type RuntimeBridgeEvent,
+  type RuntimeSaveFile,
   type RuntimeSaveSnapshot,
 } from '@/lib/saveSync'
 
@@ -90,6 +95,11 @@ type PendingBridgeRequest = {
   kind: 'export' | 'import'
 }
 
+type NativeBridgeReply =
+  | { type: 'native-save-result'; requestId: string; ok: boolean; error?: string }
+  | { type: 'native-load-state-result'; requestId: string; ok: boolean; stateBase64?: string; error?: string }
+  | { type: 'native-load-ram-result'; requestId: string; ok: boolean; files?: RuntimeSaveFile[]; error?: string }
+
 function activeSaveSyncIntegrationId(frontendConfig: FrontendConfig | undefined): string | null {
   const value = frontendConfig?.saveSyncActiveIntegrationId
   return typeof value === 'string' && value.trim().length > 0 ? value : null
@@ -116,6 +126,12 @@ export function GamePlayerPage() {
   const [prepareJobId, setPrepareJobId] = useState<string | null>(null)
   const [prepareStatusMessage, setPrepareStatusMessage] = useState('')
   const [prepareProgress, setPrepareProgress] = useState<{ current: number; total: number } | null>(null)
+  const [nativeSaveSyncPrefetchBusy, setNativeSaveSyncPrefetchBusy] = useState(false)
+  const [nativeSaveSyncPrefetchReady, setNativeSaveSyncPrefetchReady] = useState(false)
+  const [nativeSaveSyncPrefetchSucceeded, setNativeSaveSyncPrefetchSucceeded] = useState(false)
+  const [nativeSaveSyncPrefetchMessage, setNativeSaveSyncPrefetchMessage] = useState('')
+  const [nativeSaveSyncPrefetchError, setNativeSaveSyncPrefetchError] = useState('')
+  const [nativeSaveSyncPrefetchProgress, setNativeSaveSyncPrefetchProgress] = useState<{ current: number; total: number } | null>(null)
   const [pendingSourceGameId, setPendingSourceGameId] = useState<string | null>(null)
   const [appliedJsdosExecutablePath, setAppliedJsdosExecutablePath] = useState<string | null>(null)
   const [pendingJsdosExecutablePath, setPendingJsdosExecutablePath] = useState<string | null>(null)
@@ -173,7 +189,7 @@ export function GamePlayerPage() {
   )
   const requiresPrepare = selection ? browserPlaySelectionRequiresPrepare(selection) : false
   const selectionReady = selection ? (browserPlaySelectionIsReady(selection) || prepareReady) : false
-  const session = useMemo<BrowserPlaySession | null>(
+  const baseSession = useMemo<BrowserPlaySession | null>(
     () =>
       game.data && selection && selectionReady
         ? buildBrowserPlaySession(game.data, selection, {
@@ -182,6 +198,35 @@ export function GamePlayerPage() {
         : null,
     [appliedJsdosExecutablePath, game.data, selection, selectionReady],
   )
+  const activeIntegrationId = activeSaveSyncIntegrationId(frontendConfig.data)
+  const baseSaveSyncRuntimeSupported = baseSession ? sessionSupportsSaveSync(baseSession) : false
+  const baseSaveSyncEnabled = Boolean(activeIntegrationId && baseSession && baseSaveSyncRuntimeSupported)
+  const slotsQuery = useQuery({
+    queryKey: ['save-sync-slots', id, activeIntegrationId, baseSession?.sourceGameId, baseSession?.runtime],
+    queryFn: async () => {
+      if (!baseSession || !activeIntegrationId) return []
+      return listGameSaveSyncSlots({
+        gameId: id,
+        integrationId: activeIntegrationId,
+        sourceGameId: baseSession.sourceGameId,
+        runtime: baseSession.runtime,
+      })
+    },
+    enabled: baseSaveSyncEnabled && baseSession?.runtime !== 'emulatorjs',
+    retry: false,
+  })
+  const nativeSaveSyncPrefetchRequired = Boolean(baseSession?.runtime === 'emulatorjs' && baseSaveSyncEnabled)
+  const nativeSaveSyncPending = Boolean(nativeSaveSyncPrefetchRequired && !nativeSaveSyncPrefetchReady)
+  const nativeSaveSyncAvailable = Boolean(nativeSaveSyncPrefetchRequired && nativeSaveSyncPrefetchSucceeded)
+  const session = useMemo<BrowserPlaySession | null>(() => {
+    if (!baseSession) return null
+    if (baseSession.runtime !== 'emulatorjs') return baseSession
+    if (nativeSaveSyncPending) return null
+    return {
+      ...baseSession,
+      nativeSaveSync: nativeSaveSyncAvailable,
+    }
+  }, [baseSession, nativeSaveSyncAvailable, nativeSaveSyncPending])
   const playerUrl = useMemo(() => {
     if (!sessionToken || !session) return null
     return buildBrowserPlayerUrl(session.runtime, sessionToken)
@@ -196,10 +241,8 @@ export function GamePlayerPage() {
       pendingJsdosExecutablePath &&
       pendingJsdosExecutablePath !== appliedJsdosExecutablePath,
   )
-  const activeIntegrationId = activeSaveSyncIntegrationId(frontendConfig.data)
   const saveSyncRuntimeSupported = session ? sessionSupportsSaveSync(session) : false
   const saveSyncEnabled = Boolean(activeIntegrationId && session && saveSyncRuntimeSupported)
-  const saveSyncSlotsEnabled = saveSyncEnabled && bridgeReady && bridgeSupportsSaveSync
 
   useEffect(() => {
     setPendingSourceGameId(selection?.sourceGame.id ?? null)
@@ -339,20 +382,82 @@ export function GamePlayerPage() {
     }
   }, [game.data, selection])
 
-  const slotsQuery = useQuery({
-    queryKey: ['save-sync-slots', id, activeIntegrationId, session?.sourceGameId, session?.runtime],
-    queryFn: async () => {
-      if (!session || !activeIntegrationId) return []
-      return listGameSaveSyncSlots({
-        gameId: id,
-        integrationId: activeIntegrationId,
-        sourceGameId: session.sourceGameId,
-        runtime: session.runtime,
-      })
-    },
-    enabled: saveSyncSlotsEnabled,
-    retry: false,
-  })
+  useEffect(() => {
+    let cancelled = false
+
+    async function prefetchNativeSaveSync() {
+      if (!baseSession || baseSession.runtime !== 'emulatorjs' || !activeIntegrationId || !baseSaveSyncEnabled) {
+        setNativeSaveSyncPrefetchBusy(false)
+        setNativeSaveSyncPrefetchReady(false)
+        setNativeSaveSyncPrefetchSucceeded(false)
+        setNativeSaveSyncPrefetchMessage('')
+        setNativeSaveSyncPrefetchError('')
+        setNativeSaveSyncPrefetchProgress(null)
+        return
+      }
+
+      setNativeSaveSyncPrefetchBusy(true)
+      setNativeSaveSyncPrefetchReady(false)
+      setNativeSaveSyncPrefetchSucceeded(false)
+      setNativeSaveSyncPrefetchMessage('Prefetching save slots...')
+      setNativeSaveSyncPrefetchError('')
+      setNativeSaveSyncPrefetchProgress(null)
+
+      try {
+        const started = await startGameSaveSyncPrefetch({
+          gameId: id,
+          integrationId: activeIntegrationId,
+          sourceGameId: baseSession.sourceGameId,
+          runtime: baseSession.runtime,
+        })
+        if (cancelled) return
+        setNativeSaveSyncPrefetchProgress({
+          current: started.progress_current ?? 0,
+          total: started.progress_total ?? 0,
+        })
+
+        let status = started
+        while (!cancelled && status.status !== 'completed' && status.status !== 'failed') {
+          await new Promise((resolve) => window.setTimeout(resolve, 500))
+          status = await getSaveSyncPrefetchStatus(started.job_id)
+          if (cancelled) return
+          setNativeSaveSyncPrefetchMessage(status.message || 'Prefetching save slots...')
+          setNativeSaveSyncPrefetchProgress({
+            current: status.progress_current ?? 0,
+            total: status.progress_total ?? 0,
+          })
+        }
+        if (cancelled) return
+        setNativeSaveSyncPrefetchBusy(false)
+        setNativeSaveSyncPrefetchReady(true)
+        if (status.status === 'completed') {
+          setNativeSaveSyncPrefetchSucceeded(true)
+          setNativeSaveSyncPrefetchMessage('Save slots prefetched.')
+          return
+        }
+        setNativeSaveSyncPrefetchSucceeded(false)
+        setNativeSaveSyncPrefetchError(
+          status.error || status.message || 'MGA save-sync prefetch failed. Native save-sync is disabled for this session.',
+        )
+      } catch (error) {
+        if (cancelled) return
+        setNativeSaveSyncPrefetchBusy(false)
+        setNativeSaveSyncPrefetchReady(true)
+        setNativeSaveSyncPrefetchSucceeded(false)
+        setNativeSaveSyncPrefetchError(
+          error instanceof Error
+            ? `MGA save-sync prefetch failed: ${error.message}`
+            : 'MGA save-sync prefetch failed. Native save-sync is disabled for this session.',
+        )
+      }
+    }
+
+    void prefetchNativeSaveSync()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeIntegrationId, baseSaveSyncEnabled, baseSession, id])
 
   const currentSlot = useMemo<SaveSyncSlotSummary | null>(() => {
     return slotsQuery.data?.find((slot) => slot.slot_id === selectedSlot) ?? null
@@ -418,6 +523,130 @@ export function GamePlayerPage() {
   }, [game.data, playerUrl, recordLaunch, session])
 
   useEffect(() => {
+    const postNativeReply = (reply: NativeBridgeReply) => {
+      iframeRef.current?.contentWindow?.postMessage(reply, window.location.origin)
+    }
+
+    const saveNativeFiles = async (slotId: string, files: RuntimeSaveFile[]) => {
+      if (!session || !activeIntegrationId) {
+        throw new Error('Save sync is not available for this runtime session.')
+      }
+      const snapshot = await buildSaveSyncSnapshot({
+        canonicalGameId: id,
+        sourceGameId: session.sourceGameId,
+        runtime: session.runtime,
+        slotId,
+        files,
+      })
+      const result = await putGameSaveSyncSlot({
+        gameId: id,
+        slotId,
+        integrationId: activeIntegrationId,
+        sourceGameId: session.sourceGameId,
+        runtime: session.runtime,
+        force: true,
+        snapshot,
+      })
+      if (!result.ok) {
+        throw new Error(result.conflict?.message || 'Save sync failed.')
+      }
+    }
+
+    const loadNativeFiles = async (slotId: string): Promise<RuntimeSaveFile[] | null> => {
+      if (!session || !activeIntegrationId) {
+        throw new Error('Save sync is not available for this runtime session.')
+      }
+      try {
+        const remote = await getGameSaveSyncSlot({
+          gameId: id,
+          integrationId: activeIntegrationId,
+          sourceGameId: session.sourceGameId,
+          runtime: session.runtime,
+          slotId,
+        })
+        return extractRuntimeFilesFromSnapshot(remote)
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          return null
+        }
+        throw error
+      }
+    }
+
+    const handleNativeBridgeMessage = async (message: RuntimeBridgeEvent) => {
+      if (
+        message.type !== 'native-save-state' &&
+        message.type !== 'native-load-state' &&
+        message.type !== 'native-save-ram' &&
+        message.type !== 'native-load-ram'
+      ) {
+        return
+      }
+
+      if (!session || session.runtime !== 'emulatorjs' || !session.nativeSaveSync) {
+        postNativeReply({
+          type:
+            message.type === 'native-load-state'
+              ? 'native-load-state-result'
+              : message.type === 'native-load-ram'
+                ? 'native-load-ram-result'
+                : 'native-save-result',
+          requestId: message.requestId,
+          ok: false,
+          error: 'Native save sync is not enabled for this EmulatorJS session.',
+        })
+        return
+      }
+
+      try {
+        if (message.type === 'native-save-state') {
+          const slotId = emulatorJsStateSlotId(message.slot)
+          await saveNativeFiles(slotId, [{ path: 'state.state', base64: message.stateBase64 }])
+          postNativeReply({ type: 'native-save-result', requestId: message.requestId, ok: true })
+          return
+        }
+        if (message.type === 'native-load-state') {
+          const slotId = emulatorJsStateSlotId(message.slot)
+          const files = await loadNativeFiles(slotId)
+          postNativeReply({
+            type: 'native-load-state-result',
+            requestId: message.requestId,
+            ok: true,
+            stateBase64: files?.[0]?.base64,
+          })
+          return
+        }
+        if (message.type === 'native-save-ram') {
+          await saveNativeFiles(EMULATORJS_SAVE_RAM_SLOT_ID, [
+            { path: message.savePath || 'save.ram', base64: message.saveBase64 },
+          ])
+          postNativeReply({ type: 'native-save-result', requestId: message.requestId, ok: true })
+          return
+        }
+        if (message.type === 'native-load-ram') {
+          const files = await loadNativeFiles(EMULATORJS_SAVE_RAM_SLOT_ID)
+          postNativeReply({
+            type: 'native-load-ram-result',
+            requestId: message.requestId,
+            ok: true,
+            files: files ?? [],
+          })
+        }
+      } catch (error) {
+        postNativeReply({
+          type:
+            message.type === 'native-load-state'
+              ? 'native-load-state-result'
+              : message.type === 'native-load-ram'
+                ? 'native-load-ram-result'
+                : 'native-save-result',
+          requestId: message.requestId,
+          ok: false,
+          error: error instanceof Error ? error.message : 'Native save sync failed.',
+        })
+      }
+    }
+
     const onMessage = (event: MessageEvent<RuntimeBridgeEvent>) => {
       if (event.source !== iframeRef.current?.contentWindow) return
       const message = event.data
@@ -431,6 +660,16 @@ export function GamePlayerPage() {
 
       if (message.type === 'runtime-error') {
         setRuntimeError(message.error)
+        return
+      }
+
+      if (
+        message.type === 'native-save-state' ||
+        message.type === 'native-load-state' ||
+        message.type === 'native-save-ram' ||
+        message.type === 'native-load-ram'
+      ) {
+        void handleNativeBridgeMessage(message)
         return
       }
 
@@ -460,7 +699,7 @@ export function GamePlayerPage() {
 
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [])
+  }, [activeIntegrationId, id, session])
 
   const sendBridgeCommand = (command: RuntimeBridgeCommand) => {
     const target = iframeRef.current?.contentWindow
@@ -705,6 +944,7 @@ export function GamePlayerPage() {
   }
 
   const data = game.data
+  const showExternalSaveSyncBar = Boolean(session && session.runtime !== 'emulatorjs')
 
   return (
     <div className="h-screen overflow-hidden bg-mga-bg text-mga-text">
@@ -852,12 +1092,52 @@ export function GamePlayerPage() {
             {prepareJobId && <p className="mt-2 text-xs text-mga-muted">Job: {prepareJobId}</p>}
             {prepareError && <p className="mt-3 text-xs text-red-400">{prepareError}</p>}
           </section>
+        ) : nativeSaveSyncPending ? (
+          <section className="rounded-mga border border-mga-border bg-mga-surface p-6 text-sm text-mga-muted">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="font-medium text-mga-text">
+                  {nativeSaveSyncPrefetchBusy ? 'Prefetching save slots...' : 'Preparing save sync...'}
+                </p>
+                <p className="mt-2">
+                  {nativeSaveSyncPrefetchMessage || 'Loading cached saves before starting EmulatorJS.'}
+                </p>
+              </div>
+              {nativeSaveSyncPrefetchProgress && nativeSaveSyncPrefetchProgress.total > 0 && (
+                <span className="text-xs text-mga-muted">
+                  {nativeSaveSyncPrefetchProgress.current}/{nativeSaveSyncPrefetchProgress.total}
+                </span>
+              )}
+            </div>
+            {nativeSaveSyncPrefetchProgress && nativeSaveSyncPrefetchProgress.total > 0 && (
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-mga-bg">
+                <div
+                  className="h-full rounded-full bg-mga-accent transition-all"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        (nativeSaveSyncPrefetchProgress.current / nativeSaveSyncPrefetchProgress.total) * 100,
+                      ),
+                    )}%`,
+                  }}
+                />
+              </div>
+            )}
+          </section>
         ) : !session || !playerUrl ? (
           <section className="rounded-mga border border-red-500/30 bg-red-500/10 p-6 text-sm text-red-200">
             {selectionIssue?.message ?? 'Failed to assemble a browser-play launch session for this game.'}
           </section>
         ) : (
           <>
+            {session.runtime === 'emulatorjs' && nativeSaveSyncPrefetchError && (
+              <section className="rounded-mga border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">
+                {nativeSaveSyncPrefetchError}
+              </section>
+            )}
+            {showExternalSaveSyncBar && (
             <section className="rounded-mga border border-mga-border bg-mga-surface p-4">
               <div className="flex flex-wrap items-end gap-3">
                 <div className="min-w-[12rem]">
@@ -923,6 +1203,10 @@ export function GamePlayerPage() {
               {saveSyncError && <p className="mt-3 text-xs text-red-400">{saveSyncError}</p>}
               {runtimeError && <p className="mt-3 text-xs text-red-400">{runtimeError}</p>}
             </section>
+            )}
+            {!showExternalSaveSyncBar && runtimeError && (
+              <p className="text-xs text-red-400">{runtimeError}</p>
+            )}
 
             <section
               ref={playerShellRef}

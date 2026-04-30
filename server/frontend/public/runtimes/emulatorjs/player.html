@@ -39,6 +39,11 @@
       const runtimeOrigin = window.location.origin
       let latestSaveBase64 = null
       let latestSavePath = null
+      let nativeRequestCounter = 0
+      const pendingNativeRequests = new Map()
+      let saveRamSyncTimer = null
+      let saveRamSyncInFlight = false
+      let pendingSaveRamPayload = null
       function scheduleResizePass() {
         window.dispatchEvent(new Event('resize'))
         window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
@@ -71,8 +76,68 @@
         window.parent.postMessage(message, runtimeOrigin)
       }
 
+      function nextNativeRequestId() {
+        nativeRequestCounter += 1
+        return `native-${Date.now()}-${nativeRequestCounter}`
+      }
+
+      function requestParent(message, responseTypes) {
+        const requestId = nextNativeRequestId()
+        return new Promise((resolve) => {
+          pendingNativeRequests.set(requestId, { resolve, responseTypes })
+          postBridgeMessage({ ...message, requestId })
+        })
+      }
+
+      function displayMessage(message) {
+        try {
+          window.EJS_emulator?.displayMessage?.(message)
+        } catch {
+          // Runtime messages are best-effort only.
+        }
+      }
+
       function saveFilePath() {
         return window.EJS_emulator?.gameManager?.getSaveFilePath?.()
+      }
+
+      function currentStateSlot() {
+        return String(
+          window.EJS_emulator?.getSettingValue?.('save-state-slot') ||
+            window.EJS_emulator?.settings?.['save-state-slot'] ||
+            '1',
+        )
+      }
+
+      function ensureEmulatorDirectory(path) {
+        const parts = path.split('/')
+        let current = ''
+        for (let index = 0; index < parts.length - 1; index += 1) {
+          const segment = parts[index]
+          if (!segment) continue
+          current += `/${segment}`
+          if (!window.EJS_emulator.gameManager.FS.analyzePath(current).exists) {
+            window.EJS_emulator.gameManager.FS.mkdir(current)
+          }
+        }
+      }
+
+      function writeSaveFiles(files) {
+        const file = Array.isArray(files) ? files[0] : null
+        const path = file?.path || saveFilePath()
+        if (!path || !file?.base64) {
+          throw new Error('No EmulatorJS save file was provided.')
+        }
+        const normalizedPath = path.startsWith('/') ? path : `/${path}`
+        const bytes = base64ToBytes(file.base64)
+        ensureEmulatorDirectory(normalizedPath)
+        if (window.EJS_emulator.gameManager.FS.analyzePath(normalizedPath).exists) {
+          window.EJS_emulator.gameManager.FS.unlink(normalizedPath)
+        }
+        window.EJS_emulator.gameManager.FS.writeFile(normalizedPath, bytes)
+        window.EJS_emulator.gameManager.loadSaveFiles()
+        latestSavePath = normalizedPath
+        latestSaveBase64 = file.base64
       }
 
       function exportSnapshot(requestId) {
@@ -113,30 +178,7 @@
 
       function importSnapshot(requestId, files) {
         try {
-          const file = Array.isArray(files) ? files[0] : null
-          const path = file?.path || saveFilePath()
-          if (!path || !file?.base64) {
-            postBridgeMessage({ type: 'import-result', requestId, ok: false, error: 'No EmulatorJS save file was provided.' })
-            return
-          }
-          const bytes = base64ToBytes(file.base64)
-          const parts = path.split('/')
-          let current = ''
-          for (let index = 0; index < parts.length - 1; index += 1) {
-            const segment = parts[index]
-            if (!segment) continue
-            current += `/${segment}`
-            if (!window.EJS_emulator.gameManager.FS.analyzePath(current).exists) {
-              window.EJS_emulator.gameManager.FS.mkdir(current)
-            }
-          }
-          if (window.EJS_emulator.gameManager.FS.analyzePath(path).exists) {
-            window.EJS_emulator.gameManager.FS.unlink(path)
-          }
-          window.EJS_emulator.gameManager.FS.writeFile(path, bytes)
-          window.EJS_emulator.gameManager.loadSaveFiles()
-          latestSavePath = path
-          latestSaveBase64 = file.base64
+          writeSaveFiles(files)
           postBridgeMessage({ type: 'import-result', requestId, ok: true })
         } catch (error) {
           postBridgeMessage({
@@ -148,10 +190,108 @@
         }
       }
 
+      async function saveNativeState(slot, state, quiet = false) {
+        if (!state) {
+          if (!quiet) displayMessage('No state data to sync.')
+          return
+        }
+        const reply = await requestParent(
+          { type: 'native-save-state', slot: String(slot || '1'), stateBase64: bytesToBase64(state) },
+          ['native-save-result'],
+        )
+        if (!reply.ok) {
+          throw new Error(reply.error || 'Unable to sync save state.')
+        }
+        if (!quiet) displayMessage(`Synced save state slot ${slot || '1'}.`)
+      }
+
+      async function loadNativeState(slot) {
+        const effectiveSlot = String(slot || '1')
+        const reply = await requestParent(
+          { type: 'native-load-state', slot: effectiveSlot },
+          ['native-load-state-result'],
+        )
+        if (!reply.ok) {
+          throw new Error(reply.error || 'Unable to load synced save state.')
+        }
+        if (!reply.stateBase64) {
+          throw new Error(`No synced save state in slot ${effectiveSlot}.`)
+        }
+        window.EJS_emulator.gameManager.loadState(base64ToBytes(reply.stateBase64))
+        displayMessage(`Loaded synced save state slot ${effectiveSlot}.`)
+      }
+
+      async function saveNativeRam(save, quiet = false) {
+        if (!save) {
+          if (!quiet) displayMessage('No save RAM data to sync.')
+          return
+        }
+        const path = saveFilePath() || latestSavePath || 'save.ram'
+        const base64 = bytesToBase64(save)
+        const reply = await requestParent(
+          { type: 'native-save-ram', saveBase64: base64, savePath: path },
+          ['native-save-result'],
+        )
+        if (!reply.ok) {
+          throw new Error(reply.error || 'Unable to sync save RAM.')
+        }
+        latestSavePath = path
+        latestSaveBase64 = base64
+        if (!quiet) displayMessage('Synced save RAM.')
+      }
+
+      async function loadNativeRam() {
+        const reply = await requestParent({ type: 'native-load-ram' }, ['native-load-ram-result'])
+        if (!reply.ok) {
+          throw new Error(reply.error || 'Unable to load synced save RAM.')
+        }
+        if (!Array.isArray(reply.files) || reply.files.length === 0) {
+          throw new Error('No synced save RAM found.')
+        }
+        writeSaveFiles(reply.files)
+        displayMessage('Loaded synced save RAM.')
+      }
+
+      function queueSaveRamSync(payload) {
+        if (!payload?.save) return
+        pendingSaveRamPayload = payload
+        if (saveRamSyncTimer) {
+          window.clearTimeout(saveRamSyncTimer)
+        }
+        saveRamSyncTimer = window.setTimeout(() => {
+          void flushSaveRamSync()
+        }, 1000)
+      }
+
+      async function flushSaveRamSync() {
+        if (saveRamSyncInFlight || !pendingSaveRamPayload) return
+        const payload = pendingSaveRamPayload
+        pendingSaveRamPayload = null
+        saveRamSyncInFlight = true
+        try {
+          await saveNativeRam(payload.save, true)
+        } catch (error) {
+          displayMessage(error instanceof Error ? error.message : 'Unable to sync save RAM.')
+        } finally {
+          saveRamSyncInFlight = false
+          if (pendingSaveRamPayload) {
+            void flushSaveRamSync()
+          }
+        }
+      }
+
       window.addEventListener('message', (event) => {
         if (event.origin !== runtimeOrigin) return
         const message = event.data
         if (!message || typeof message !== 'object' || !('type' in message)) return
+        if (message.requestId && pendingNativeRequests.has(message.requestId)) {
+          const pending = pendingNativeRequests.get(message.requestId)
+          if (pending.responseTypes.includes(message.type)) {
+            pendingNativeRequests.delete(message.requestId)
+            pending.resolve(message)
+            return
+          }
+        }
         if (message.type === 'export-save-snapshot') {
           exportSnapshot(message.requestId)
         } else if (message.type === 'import-save-snapshot') {
@@ -170,7 +310,7 @@
           if (session.runtime !== 'emulatorjs') {
             renderError('Invalid EmulatorJS session payload.')
           } else {
-            const runtimeVersion = 'mga-20260430-mame-filename'
+            const runtimeVersion = 'mga-20260430-native-save-sync'
             const runtimeDataUrl = new URL('./data/', window.location.href)
             const loaderUrl = new URL('./data/loader.js', window.location.href)
             const emulatorScriptUrl = new URL('./data/emulator.min.js', window.location.href)
@@ -180,19 +320,48 @@
             emulatorStyleUrl.searchParams.set('v', runtimeVersion)
             window.EJS_ready = () => {
               scheduleResizePass()
-              postBridgeMessage({ type: 'ready', saveAdapter: true })
+              postBridgeMessage({
+                type: 'ready',
+                saveAdapter: true,
+                nativeSaveSync: session.nativeSaveSync === true,
+              })
             }
             window.EJS_onGameStart = () => {
               scheduleResizePass()
             }
-            window.EJS_onSaveSave = (payload) => {
-              if (payload?.save) {
-                latestSaveBase64 = bytesToBase64(payload.save)
+            if (session.nativeSaveSync === true) {
+              window.EJS_onSaveState = (payload) => {
+                void saveNativeState(currentStateSlot(), payload?.state).catch((error) => {
+                  displayMessage(error instanceof Error ? error.message : 'Unable to sync save state.')
+                })
               }
-            }
-            window.EJS_onSaveUpdate = (payload) => {
-              if (payload?.save) {
-                latestSaveBase64 = bytesToBase64(payload.save)
+              window.EJS_onLoadState = () => {
+                void loadNativeState(currentStateSlot()).catch((error) => {
+                  displayMessage(error instanceof Error ? error.message : 'Unable to load synced save state.')
+                })
+              }
+              window.EJS_onQuickSaveState = (payload) => {
+                void saveNativeState(payload?.slot || currentStateSlot(), payload?.state, true).catch((error) => {
+                  displayMessage(error instanceof Error ? error.message : 'Unable to sync quick-save state.')
+                })
+              }
+              window.EJS_onQuickLoadState = (payload) => {
+                void loadNativeState(payload?.slot || currentStateSlot()).catch((error) => {
+                  displayMessage(error instanceof Error ? error.message : 'Unable to load synced quick-save state.')
+                })
+              }
+              window.EJS_onSaveSave = (payload) => {
+                void saveNativeRam(payload?.save, false).catch((error) => {
+                  displayMessage(error instanceof Error ? error.message : 'Unable to sync save RAM.')
+                })
+              }
+              window.EJS_onLoadSave = () => {
+                void loadNativeRam().catch((error) => {
+                  displayMessage(error instanceof Error ? error.message : 'Unable to load synced save RAM.')
+                })
+              }
+              window.EJS_onSaveUpdate = (payload) => {
+                queueSaveRamSync(payload)
               }
             }
             window.EJS_player = '#game'

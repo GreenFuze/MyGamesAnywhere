@@ -1,6 +1,7 @@
 import type { SaveSyncSnapshot, SaveSyncSnapshotFile } from '@/api/client'
 
 export const SAVE_SYNC_SLOT_IDS = ['autosave', 'slot-1', 'slot-2', 'slot-3', 'slot-4', 'slot-5'] as const
+export const EMULATORJS_SAVE_RAM_SLOT_ID = 'save-ram'
 
 export type SaveSyncSlotId = (typeof SAVE_SYNC_SLOT_IDS)[number]
 
@@ -16,12 +17,27 @@ export type RuntimeSaveSnapshot = {
 export type RuntimeBridgeCommand =
   | { type: 'export-save-snapshot'; requestId: string }
   | { type: 'import-save-snapshot'; requestId: string; files: RuntimeSaveFile[] }
+  | { type: 'native-save-result'; requestId: string; ok: boolean; error?: string }
+  | { type: 'native-load-state-result'; requestId: string; ok: boolean; stateBase64?: string; error?: string }
+  | { type: 'native-load-ram-result'; requestId: string; ok: boolean; files?: RuntimeSaveFile[]; error?: string }
 
 export type RuntimeBridgeEvent =
-  | { type: 'ready'; saveAdapter: boolean }
+  | { type: 'ready'; saveAdapter: boolean; nativeSaveSync?: boolean }
   | { type: 'export-result'; requestId: string; snapshot?: RuntimeSaveSnapshot; error?: string }
   | { type: 'import-result'; requestId: string; ok: boolean; error?: string }
+  | { type: 'native-save-state'; requestId: string; slot: string; stateBase64: string }
+  | { type: 'native-load-state'; requestId: string; slot: string }
+  | { type: 'native-save-ram'; requestId: string; saveBase64: string; savePath?: string }
+  | { type: 'native-load-ram'; requestId: string }
   | { type: 'runtime-error'; error: string }
+
+export function emulatorJsStateSlotId(slot: string | number | null | undefined): string {
+  const numericSlot = Number.parseInt(String(slot ?? '1'), 10)
+  if (!Number.isFinite(numericSlot) || numericSlot < 1 || numericSlot > 9) {
+    return 'state-1'
+  }
+  return `state-${numericSlot}`
+}
 
 export async function buildSaveSyncSnapshot(params: {
   canonicalGameId: string

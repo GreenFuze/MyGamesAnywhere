@@ -233,6 +233,9 @@ IF EXIST AUTORUN.BAT CALL AUTORUN.BAT
         } catch(e) {}
         try {
             let data = this.getState();
+            if (this.EJS.callEvent("quickSaveState", { slot: slot.toString(), state: data }) > 0) {
+                return true;
+            }
             this.FS.writeFile("/" + name, data);
         } catch(e) {
             return false;
@@ -241,6 +244,9 @@ IF EXIST AUTORUN.BAT CALL AUTORUN.BAT
     }
     quickLoad(slot) {
         if (!slot) slot = 1;
+        if (this.EJS.callEvent("quickLoadState", { slot: slot.toString() }) > 0) {
+            return;
+        }
         (async () => {
             let name = slot + "-quick.state";
             this.clearEJSResetTimer();

@@ -14,9 +14,10 @@ import (
 )
 
 type fakeSaveSyncService struct {
-	listSlots func(context.Context, core.SaveSyncListRequest) ([]core.SaveSyncSlotSummary, error)
-	getSlot   func(context.Context, core.SaveSyncSlotRef) (*core.SaveSyncSnapshot, error)
-	putSlot   func(context.Context, core.SaveSyncPutRequest) (*core.SaveSyncPutResult, error)
+	listSlots     func(context.Context, core.SaveSyncListRequest) ([]core.SaveSyncSlotSummary, error)
+	getSlot       func(context.Context, core.SaveSyncSlotRef) (*core.SaveSyncSnapshot, error)
+	putSlot       func(context.Context, core.SaveSyncPutRequest) (*core.SaveSyncPutResult, error)
+	startPrefetch func(context.Context, core.SaveSyncPrefetchRequest) (*core.SaveSyncPrefetchStatus, error)
 }
 
 func (f *fakeSaveSyncService) ListSlots(ctx context.Context, req core.SaveSyncListRequest) ([]core.SaveSyncSlotSummary, error) {
@@ -29,6 +30,17 @@ func (f *fakeSaveSyncService) GetSlot(ctx context.Context, req core.SaveSyncSlot
 
 func (f *fakeSaveSyncService) PutSlot(ctx context.Context, req core.SaveSyncPutRequest) (*core.SaveSyncPutResult, error) {
 	return f.putSlot(ctx, req)
+}
+
+func (f *fakeSaveSyncService) StartPrefetch(ctx context.Context, req core.SaveSyncPrefetchRequest) (*core.SaveSyncPrefetchStatus, error) {
+	if f.startPrefetch == nil {
+		panic("unexpected call")
+	}
+	return f.startPrefetch(ctx, req)
+}
+
+func (f *fakeSaveSyncService) GetPrefetchStatus(context.Context, string) (*core.SaveSyncPrefetchStatus, error) {
+	panic("unexpected call")
 }
 
 func (f *fakeSaveSyncService) StartMigration(context.Context, core.SaveSyncMigrationRequest) (*core.SaveSyncMigrationStatus, error) {
@@ -108,13 +120,13 @@ func TestSaveSyncControllerListSlots(t *testing.T) {
 func TestSaveSyncControllerPutSlotReturnsConflict(t *testing.T) {
 	controller := NewSaveSyncController(&fakeSaveSyncService{
 		listSlots: func(context.Context, core.SaveSyncListRequest) ([]core.SaveSyncSlotSummary, error) { return nil, nil },
-		getSlot: func(context.Context, core.SaveSyncSlotRef) (*core.SaveSyncSnapshot, error) { return nil, nil },
+		getSlot:   func(context.Context, core.SaveSyncSlotRef) (*core.SaveSyncSnapshot, error) { return nil, nil },
 		putSlot: func(_ context.Context, req core.SaveSyncPutRequest) (*core.SaveSyncPutResult, error) {
 			if req.SaveSyncSlotRef.SlotID != "slot-1" || req.Runtime != "jsdos" || req.SourceGameID != "source-2" {
 				t.Fatalf("unexpected put request: %+v", req)
 			}
 			return &core.SaveSyncPutResult{
-				OK: false,
+				OK:      false,
 				Summary: core.SaveSyncSlotSummary{SlotID: "slot-1", Exists: true},
 				Conflict: &core.SaveSyncConflict{
 					SlotID:             "slot-1",
@@ -150,5 +162,97 @@ func TestSaveSyncControllerPutSlotReturnsConflict(t *testing.T) {
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSaveSyncControllerAcceptsNativeEmulatorJSSlotIDs(t *testing.T) {
+	for _, slotID := range []string{"state-9", "save-ram"} {
+		t.Run(slotID, func(t *testing.T) {
+			controller := NewSaveSyncController(&fakeSaveSyncService{
+				listSlots: func(context.Context, core.SaveSyncListRequest) ([]core.SaveSyncSlotSummary, error) { return nil, nil },
+				getSlot:   func(context.Context, core.SaveSyncSlotRef) (*core.SaveSyncSnapshot, error) { return nil, nil },
+				putSlot: func(_ context.Context, req core.SaveSyncPutRequest) (*core.SaveSyncPutResult, error) {
+					if req.SaveSyncSlotRef.SlotID != slotID || req.Runtime != "emulatorjs" || req.SourceGameID != "source-9" {
+						t.Fatalf("unexpected put request: %+v", req)
+					}
+					return &core.SaveSyncPutResult{
+						OK:      true,
+						Summary: core.SaveSyncSlotSummary{SlotID: slotID, Exists: true},
+					}, nil
+				},
+			}, noopLogger{})
+
+			router := chi.NewRouter()
+			router.Put("/api/games/{id}/save-sync/slots/{slot_id}", controller.PutSlot)
+
+			payload := map[string]any{
+				"integration_id": "integration-9",
+				"source_game_id": "source-9",
+				"runtime":        "emulatorjs",
+				"force":          true,
+				"snapshot": map[string]any{
+					"canonical_game_id": "game-9",
+					"source_game_id":    "source-9",
+					"runtime":           "emulatorjs",
+					"slot_id":           slotID,
+					"files":             []map[string]any{},
+					"archive_base64":    "UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA==",
+				},
+			}
+			data, _ := json.Marshal(payload)
+			req := httptest.NewRequest(http.MethodPut, "/api/games/game-9/save-sync/slots/"+slotID, bytes.NewReader(data))
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestSaveSyncControllerStartsPrefetch(t *testing.T) {
+	controller := NewSaveSyncController(&fakeSaveSyncService{
+		listSlots: func(context.Context, core.SaveSyncListRequest) ([]core.SaveSyncSlotSummary, error) { return nil, nil },
+		getSlot:   func(context.Context, core.SaveSyncSlotRef) (*core.SaveSyncSnapshot, error) { return nil, nil },
+		putSlot:   func(context.Context, core.SaveSyncPutRequest) (*core.SaveSyncPutResult, error) { return nil, nil },
+		startPrefetch: func(_ context.Context, req core.SaveSyncPrefetchRequest) (*core.SaveSyncPrefetchStatus, error) {
+			if req.CanonicalGameID != "game-10" || req.SourceGameID != "source-10" || req.Runtime != "emulatorjs" || req.IntegrationID != "integration-10" {
+				t.Fatalf("unexpected prefetch request: %+v", req)
+			}
+			return &core.SaveSyncPrefetchStatus{
+				JobID:           "job-10",
+				Status:          "started",
+				CanonicalGameID: req.CanonicalGameID,
+				SourceGameID:    req.SourceGameID,
+				Runtime:         req.Runtime,
+				IntegrationID:   req.IntegrationID,
+				ProgressTotal:   10,
+			}, nil
+		},
+	}, noopLogger{})
+
+	router := chi.NewRouter()
+	router.Post("/api/games/{id}/save-sync/prefetch", controller.StartPrefetch)
+
+	payload := map[string]any{
+		"integration_id": "integration-10",
+		"source_game_id": "source-10",
+		"runtime":        "emulatorjs",
+	}
+	data, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/games/game-10/save-sync/prefetch", bytes.NewReader(data))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 body=%s", rec.Code, rec.Body.String())
+	}
+	var body core.SaveSyncPrefetchStatus
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.JobID != "job-10" || body.ProgressTotal != 10 {
+		t.Fatalf("unexpected body: %+v", body)
 	}
 }
