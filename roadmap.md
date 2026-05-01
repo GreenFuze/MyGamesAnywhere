@@ -1,6 +1,11 @@
 # MyGamesAnywhere — Roadmap
 
-## Current Status — 2026-04-20
+## Current Status — 2026-05-01
+- Server startup now requires a complete config and supports `LISTEN_IP`, with released portable ZIP defaults kept local-only on `127.0.0.1:8900`; generated local URLs stay loopback even when the bind address is `0.0.0.0`.
+- Manual metadata search is now platform-aware and fuzzy: title cleanup, N64/platform filtering, broader ranked provider results, and concurrent provider lookup make cases like `pokemon stadium 2 (u) [!]` repairable from Undetected Games.
+- Manual metadata result descriptions are compact by default and expand/collapse on click, keeping long provider summaries from dominating the review page.
+- Undetected Games now supports deleting candidate files after a plugin-backed dry-delete preview, instead of only archiving a false positive as "not a game".
+- Filesystem-backed real deletes are safer: Google Drive moves explicit files to Drive trash, SMB deletes only explicit file targets, directory entries are rejected, and the UI requires a final checkbox before the real delete action is enabled.
 - Working tree now includes the April 15 session changes on top of `19cd0dc` (`dosbox fix`): active Undetected Games candidates are hidden from Library / Play-facing surfaces and library-facing counts.
 - Browser play now has automated end-to-end proof via `tools/browser-play`, including EmulatorJS/js-dos/ScummVM save import/export coverage, bundle-backed js-dos, explicit unsupported-state fast-fail for plain-file js-dos launches, ambiguous source selection, invalid remembered source handling, and same-title/different-source-record labeling.
 - Filesystem-backed SMB/Google Drive integrations use `include_paths[]` with per-include `recursive`, source-identity duplicate detection, and scope-aware final-scan cleanup.
@@ -22,11 +27,13 @@
 These are the next committed tasks after the completed Phase 7 / issue-cleanup work. Execute in this order unless a release blocker appears.
 
 1. **Configurable bind host / LAN access**
-   - Add a server config key for bind host/address, defaulting to loopback (`127.0.0.1`) for the current local-only behavior.
-   - Support explicit LAN binding (`0.0.0.0` or a concrete interface IP) without changing the existing `PORT` contract.
-   - Add a Settings → General surface for host/port visibility and bind-host selection, with a clear restart-required state if live rebinding is not implemented.
-   - Keep local tray/open-browser and OAuth callback URLs on loopback unless a separate public/base URL setting is intentionally introduced.
-   - Verification: server config tests, HTTP server address tests or focused startup proof, frontend build, and manual browser smoke for loopback + configured LAN host.
+   - [x] Add a server config key for bind host/address, defaulting to loopback (`127.0.0.1`) for the current local-only behavior.
+   - [x] Support explicit LAN binding (`0.0.0.0` or a concrete interface IP) without changing the existing `PORT` contract.
+   - [x] Keep local tray/open-browser and OAuth callback URLs on loopback unless a separate public/base URL setting is intentionally introduced.
+   - [x] Ship released portable ZIP config with `PORT: "8900"` and `LISTEN_IP: "127.0.0.1"`.
+   - [ ] Add a Settings → General surface for host/port visibility and bind-host selection, with a clear restart-required state if live rebinding is not implemented.
+   - [ ] Decide installer/service/firewall behavior for admin-required LAN exposure scenarios.
+   - Verification completed for server config tests, HTTP server address tests, focused Go tests, frontend build, and portable packaging config checks.
 
 2. **Auto-update check and release manifest**
    - Extend the release pipeline from artifact-only output to a versioned update source: GitHub Release assets or a static update manifest with version, URL, SHA256, and release notes URL.
@@ -550,11 +557,15 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 ### Undetected Games tab under settings
 - [x] Read-only Undetected Games review inventory exists in Settings, and `Reclassify` deep-links into a specific review candidate.
 - [x] Read-only metadata search exists for review candidates: MGA can query relevant configured metadata providers, show normalized results, and let the user refine the search.
+- [x] Manual metadata search now runs provider lookups concurrently and returns broader ranked fuzzy results, with platform-compatible matches first.
+- [x] Auto/manual metadata lookup now shares title variants such as raw and normalized titles, and uses platform hints when available without loosening auto-identify safety.
+- [x] Manual metadata result descriptions truncate long summaries and expand/collapse on click.
 - [x] A page that displays the undetected games. User should be able to either detect the game or mark as not a game
 - [x] To detect the game, the user can enter the game name (or a substring of it), MGA would use all the RELEVANT metadata providers to find the closest matches and display them to the user with some details. The user can select one of them or refine the search.
 - [x] If a game was selected by a user, MGA applies the manual match, runs configured metadata lookup/fill, persists resolver matches, and stores media refs returned by metadata providers.
 - [x] If a game is selected as "not a game" it is not displayed, but placed in "not games archive"
 - [x] The screen should have a button of no games archives where the user can "unarchive" if a "not a game" was misclassified
+- [x] File-backed false positives can be cleaned up through a delete-candidate-files flow that first asks the source plugin for a dry-delete preview.
 
 
 # Issues
@@ -599,6 +610,10 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Library / Play cards now use a squarer full-bleed cover area and share the same cover fallback selection as the game detail page when no explicit `cover` media item exists
 - [x] Browser-play source/version ambiguity: launch choice is source-record-scoped, ambiguous launchable sources require explicit selection, invalid remembered selections do not silently fall through to another source, same-title/different-source-record options render distinct labels, and js-dos executable selection stays separate from source selection.
 - [x] Source-record-scoped hard-delete from the game page for filesystem-backed sources: eligible SMB/Google Drive source records expose a strict confirmation flow, destructive provider deletion runs behind a backend deletion service, only the selected source record and dependent rows are removed, and canonical membership is recomputed without implicitly deleting sibling sources.
+- [x] Source-record and Undetected Games file deletes require a source-plugin dry-run preview before the UI exposes the real delete action.
+- [x] Google Drive source deletes move explicit candidate/source files to Drive trash and never call permanent Drive delete for this flow.
+- [x] SMB source deletes remove only explicit file targets and reject directory entries for this flow.
+- [x] Real file-backed delete dialogs require a checkbox confirmation before the final delete button is enabled.
 - [x] In library, we can use "right click" to open a menu with game specific actions (same actions available in the games page, but also add "change cover photo").
 - [x] Collapsed shelves in library should take almost the whole row. the "..." card should not look like a card, but as text, without the background and frame of a card. also it should be much smaller (and centerlized vertically).
   - 2026-04-17 follow-up: the overflow affordance now renders as compact text/expander UI rather than a peer card.
@@ -635,6 +650,8 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Add "favorites"
   - 2026-04-27 follow-up: canonical games now support server-persisted favorites, game detail/card heart toggles, and computed `Favorites` shelves as the first Library/Play shelf when favorite games exist in that scope.
 - [ ] Make MGA available in 0.0.0.0 or localhost. it needs to be configurable. I think using as 0.0.0.0 will require admin rights on start-up.
+  - [x] Server `LISTEN_IP` config supports `127.0.0.1`, `localhost`, `0.0.0.0`, concrete LAN IPs, and IPv6 literals.
+  - [x] Portable release config ships local-only with `LISTEN_IP: "127.0.0.1"` and `PORT: "8900"`.
   - [ ] This should be configurable from the frontend as well (under "settings/general" page?)
 - [ ] Make MGA installable friendly for windows:
   - [ ] As portable
@@ -652,3 +669,6 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] Home screen should have "library statistics" and "gamer statistics". Still not sure how to display these as different pages and conviniently, but it should support extensive statistics in a cool, colorful, way. Maybe, it should be in different pages, like "achivements" shows also statistics for achivements, so maybe a "library statistics", "gamer statistics" pages (where the latter includes achivements)?
 - [ ] Make sure MGA server (and frontend client) both supporting Linux + Windows
 - [ ] When playing a game, not all emulators support "retroachivements" achivements recording. check if our EmulatorJS does support it. If it does, check what it means to allow the user to run in that mode (which is restricting on "cheats" and stuff like that).
+- [ ] When showing source files of a game (in undetected games page and game page), show all the files in a single multi-line textbox. otherwise it takes too much space. Also no need to show size per file, show total size.
+- [ ] Support "exclude directories" for files-backed sources. Update Web frontend to support this.
+- [ ] I am searching for "desert strike". in launchbox db website I find "Desert Strike: Return to the Gulf", which is the right game, but in MGA it finds only "MiniTank: Desert Strike" from IGDB.

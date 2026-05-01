@@ -4,7 +4,7 @@ This is the product-facing roadmap. The detailed engineering history remains in 
 
 ## Now
 
-- Harden the Windows portable release and upgrade flow.
+- Harden the Windows portable release and upgrade flow, including safer file-backed delete flows.
 - Keep improving the poster-first library and game detail experience.
 - Expand integration reliability for Steam, Xbox, RetroAchievements, LaunchBox, Google Drive, SMB, browser-play materialization, and local save sync.
 - Continue cleanup around metadata detection, source provenance, and manual review.
@@ -13,6 +13,7 @@ This is the product-facing roadmap. The detailed engineering history remains in 
 
 - Improve packaging beyond the first Windows portable ZIP.
 - Add clearer install, troubleshooting, and upgrade documentation.
+- Add a Settings surface for server host/port visibility and LAN binding guidance.
 - Continue game-page UX work around cards, media, actions, badges, and achievements.
 - Continue source-backed version UX for launch options, achievements, and save-sync status.
 - Improve public screenshots, release notes, and comparison docs.

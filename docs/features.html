@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MGA Features | Canonical game pages, provenance, manual review, local-first runtime</title>
-    <meta name="description" content="How MyGamesAnywhere works: source records, resolver matches, canonical game pages, visible provenance, manual review, achievements, and local-first ownership." />
+    <title>MGA Features | Canonical game pages, provenance, manual review, safer deletes, local-first runtime</title>
+    <meta name="description" content="How MyGamesAnywhere works: source records, resolver matches, canonical game pages, visible provenance, platform-aware manual review, safer file deletes, achievements, and local-first ownership." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
@@ -50,7 +50,15 @@
             </article>
             <article>
               <h3>Repair workflow</h3>
-              <p>When the resolver cannot prove a match, the record stays visible in manual review with re-detect and provider-search actions.</p>
+              <p>When the resolver cannot prove a match, the record stays visible in manual review with re-detect and fuzzy, platform-aware provider-search actions.</p>
+            </article>
+            <article>
+              <h3>Safer file cleanup</h3>
+              <p>File-backed deletes use source-plugin previews first and require checkbox confirmation before the real delete call is enabled.</p>
+            </article>
+            <article>
+              <h3>Configurable listen IP</h3>
+              <p>The server can bind to loopback, a LAN address, or all IPv4 interfaces while portable releases stay local-only by default.</p>
             </article>
           </div>
         </div>
@@ -100,6 +108,7 @@
               <div class="architecture__leaf">Plugins</div>
               <div class="architecture__leaf architecture__leaf--muted">Optional sync providers</div>
             </div>
+            <p class="note">Portable builds ship with <code>LISTEN_IP: "127.0.0.1"</code> and <code>PORT: "8900"</code>. LAN access is explicit config, not the default.</p>
           </aside>
         </div>
       </section>

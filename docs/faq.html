@@ -74,7 +74,12 @@
 
           <div class="question">
             <h3>What happens when detection is wrong?</h3>
-            <p>MGA keeps unresolved or questionable records visible in a manual review workflow. You can re-detect, search configured metadata providers, apply a better match, or archive a false positive.</p>
+            <p>MGA keeps unresolved or questionable records visible in a manual review workflow. You can re-detect, search configured metadata providers with fuzzy platform-aware matching, apply a better match, or archive a false positive.</p>
+          </div>
+
+          <div class="question">
+            <h3>Can MGA delete false-positive source files?</h3>
+            <p>For file-backed sources, yes. MGA asks the source plugin for a dry-delete preview, displays the exact returned targets, and requires a checkbox before enabling the real delete action. Google Drive files move to Drive trash; SMB deletes only explicit file targets.</p>
           </div>
 
           <div class="question">
@@ -95,6 +100,11 @@
           <div class="question">
             <h3>Is MGA Windows-only right now?</h3>
             <p>The first packaged release is Windows-only and portable. Cross-platform installers are planned later.</p>
+          </div>
+
+          <div class="question">
+            <h3>Can MGA listen on my LAN?</h3>
+            <p>The server supports <code>LISTEN_IP</code> in <code>config.json</code>, including loopback, a concrete LAN IP, and <code>0.0.0.0</code>. Portable releases ship local-only on <code>127.0.0.1:8900</code> by default.</p>
           </div>
         </div>
       </section>

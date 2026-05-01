@@ -10,7 +10,7 @@ Most launchers start from a storefront or a folder. MGA starts from the game ide
 
 [Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest) · [View screenshots](#screenshots) · [GitHub Pages](https://greenfuze.github.io/MyGamesAnywhere/) · [GitHub](https://github.com/GreenFuze/MyGamesAnywhere) · [Public roadmap](docs/public-roadmap.md)
 
-**Current release line:** `v0.0.6`  
+**Current release line:** `v0.0.7`
 **Status:** pre-1.0, actively moving, local-first by design
 
 ![A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation](docs/screenshots/canonical-game-page.png)
@@ -151,7 +151,7 @@ TODO screenshot: capture a cross-system achievement example with Steam, Xbox, an
 
 - Unified cross-source library with canonical game merge
 - Source-backed game pages with metadata, media, files, external links, provider evidence, favorites, and per-version context
-- Manual review, provider search, and re-detect for unresolved records
+- Manual review, fuzzy provider search, platform-aware matching, and re-detect for unresolved records
 - Poster-first library browsing and game pages
 - Favorite games persisted by the local server, including automatic Favorites shelves in Library and Play
 - Source-backed Steam, Xbox, and RetroAchievements progress surfaces, including multiple achievement sets when one canonical game has multiple detected versions
@@ -160,6 +160,8 @@ TODO screenshot: capture a cross-system achievement example with Steam, Xbox, an
 - Game Pass / xCloud availability surfaced through Xbox-backed data where available
 - EmulatorJS-native save-sync hooks backed by a local server cache and optional sync providers
 - Save-sync and settings-sync surfaces
+- Configurable server `LISTEN_IP` for loopback or opt-in LAN binding, while released packages stay local-only by default
+- Plugin-backed dry-delete previews for file-backed source deletes, with checkbox confirmation before the real delete action
 - REST API and React web UI running on the same local server
 - Windows portable release packaging
 
@@ -188,8 +190,8 @@ TODO screenshot: capture a cross-system achievement example with Steam, Xbox, an
 | Steam | `game-source-steam` | Game source discovery, Steam-backed achievements | Steam Web API key |
 | Xbox / PC Game Pass | `game-source-xbox` | Xbox library source, Game Pass / xCloud availability, Xbox achievements | OAuth-backed |
 | Epic Games | `game-source-epic` | Epic library source | Source listing |
-| Google Drive | `game-source-google-drive` | Drive-backed game source, file browse/materialize/delete, browser-play materialization | OAuth-backed; include paths supported |
-| SMB / network shares | `game-source-smb` | Network-share game source, filesystem operations, browser-play materialization | Host/share credentials and include paths |
+| Google Drive | `game-source-google-drive` | Drive-backed game source, file browse/materialize/delete, browser-play materialization | OAuth-backed; include paths supported; source deletes move explicit files to Drive trash |
+| SMB / network shares | `game-source-smb` | Network-share game source, filesystem operations, browser-play materialization | Host/share credentials and include paths; source deletes remove only explicit files |
 
 ### Metadata providers
 
@@ -228,14 +230,14 @@ TODO screenshot: capture a cross-system achievement example with Steam, Xbox, an
 
 ## Install / Download
 
-MGA currently ships as a **Windows portable build**. It runs as a local server plus web UI on your machine and binds to `127.0.0.1` by default.
+MGA currently ships as a **Windows portable build**. It runs as a local server plus web UI on your machine and binds to `127.0.0.1:8900` by default.
 
-1. Download `mga-v0.0.6-windows-amd64-portable.zip` from [Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest)
+1. Download `mga-v0.0.7-windows-amd64-portable.zip` from [Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest)
 2. Extract it to a writable folder such as `C:\Games\MGA`
 3. Run `Start MGA.cmd`
-4. Open [http://127.0.0.1:8080](http://127.0.0.1:8080)
+4. Open [http://127.0.0.1:8900](http://127.0.0.1:8900)
 
-The current portable runtime stores config, database, plugins, media, and local state beside the runtime folder. Avoid extracting it under `Program Files`.
+The current portable runtime stores config, database, plugins, media, and local state beside the runtime folder. Avoid extracting it under `Program Files`. The shipped `config.json` includes `LISTEN_IP: "127.0.0.1"` and `PORT: "8900"`; LAN exposure is opt-in by editing the server config.
 
 ### Local-first ownership
 
@@ -274,7 +276,11 @@ Yes. ROM and emulator-style collections are first-class scenarios, not afterthou
 
 ### What happens when detection is wrong?
 
-MGA keeps unresolved or questionable records visible in the manual review flow. You can re-detect, search configured metadata providers, apply a better match, or mark an item as not a game.
+MGA keeps unresolved or questionable records visible in the manual review flow. You can re-detect, search configured metadata providers with broader fuzzy/platform-aware matching, apply a better match, or mark an item as not a game.
+
+### Can I delete false-positive source files from manual review?
+
+Yes, for file-backed sources. MGA asks the source plugin for a dry-delete preview first, shows the exact plugin-returned items, and requires a checkbox confirmation before the real delete button is enabled. Google Drive files are moved to Drive trash; SMB files are permanently deleted only when they are explicit file targets.
 
 ### Can I inspect where a game came from?
 
@@ -290,19 +296,20 @@ The short public roadmap lives in [docs/public-roadmap.md](docs/public-roadmap.m
 
 The important split is:
 
-- **Available now**: canonical game merge, local-first runtime, source-backed pages, favorites, manual review, source-backed achievements, browser-play surfaces, EmulatorJS save-sync, and Windows portable packaging
+- **Available now**: canonical game merge, local-first runtime, source-backed pages, favorites, platform-aware manual review, source-backed achievements, browser-play surfaces, EmulatorJS save-sync, safer file-backed delete previews, configurable listen IP, and Windows portable packaging
 - **In active development**: packaging hardening, UX refinement, broader metadata/runtime coverage, and better public proof/docs
 - **Planned later**: installers, desktop shell, mobile client, and multi-user flows
 
 ## Release And Upgrade Safety
 
-MGA carries a repository version source at [`VERSION`](VERSION). The current line is **`0.0.6`**.
+MGA carries a repository version source at [`VERSION`](VERSION). The current line is **`0.0.7`**.
 
 Upgrade policy:
 
 - upgrades must not silently discard user data
 - schema changes should be additive and idempotent where possible
 - releases that change runtime layout, schema behavior, or sync payload expectations must ship with migration notes
+- file-backed destructive actions should preview source-plugin targets before deletion and require explicit confirmation
 - until installers exist, upgrades assume a portable replacement flow with backup guidance for `config.json`, `data/`, and `media/`
 
 Detailed notes live in [docs/releases-and-upgrades.md](docs/releases-and-upgrades.md).

@@ -49,7 +49,7 @@
             trusting a hidden match.
           </p>
           <div class="hero__actions">
-            <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download v0.0.6</a>
+            <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download v0.0.7</a>
             <a class="button" href="./screenshots.html">View screenshots</a>
             <a class="button" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
             <a class="button" href="./install.html">Install guide</a>
@@ -92,7 +92,7 @@
             </article>
             <article>
               <h3>Manual review and repair</h3>
-              <p>Detection failures stay visible and repairable through an explicit review queue instead of being silently hidden behind a bad automatic match.</p>
+              <p>Detection failures stay visible and repairable through an explicit review queue with fuzzy, platform-aware provider search instead of being silently hidden behind a bad automatic match.</p>
             </article>
           </div>
         </div>
@@ -217,7 +217,7 @@
             </figure>
             <figure class="shot">
               <img src="./screenshots/manual-review.png" alt="The Undetected Games workflow showing pending review candidates, metadata search, source files, and repair actions" />
-              <figcaption>Detection failures stay fixable through a real review queue with re-detect, search, and repair actions.</figcaption>
+              <figcaption>Detection failures stay fixable through a real review queue with re-detect, fuzzy platform-aware search, and repair actions.</figcaption>
             </figure>
             <figure class="shot">
               <img src="./screenshots/game-detail.png" alt="An achievement section showing Xbox completion stats, a progress ring, and achievement cards" />
@@ -322,9 +322,11 @@
               <ul>
                 <li>Canonical game merge across multiple source types</li>
                 <li>Source-backed game pages with files, media, favorites, provider evidence, and per-version context</li>
-                <li>Manual review and re-detect for unresolved records</li>
+                <li>Manual review, fuzzy provider search, and re-detect for unresolved records</li>
                 <li>Source-backed achievements, browser-play surfaces, and REST API</li>
                 <li>Materialized Drive/SMB browser play and EmulatorJS save-sync</li>
+                <li>Plugin-backed delete previews with checkbox confirmation for file-backed deletes</li>
+                <li>Configurable server listen IP with local-only package defaults</li>
                 <li>Windows portable release</li>
               </ul>
             </article>
@@ -360,9 +362,9 @@
               <li>Download the latest Windows portable ZIP from GitHub Releases.</li>
               <li>Extract it to a writable folder.</li>
               <li>Run <code>Start MGA.cmd</code>.</li>
-              <li>Open <code>http://127.0.0.1:8080</code>.</li>
+              <li>Open <code>http://127.0.0.1:8900</code>.</li>
             </ol>
-            <p class="note">MGA runs locally on <code>127.0.0.1</code> by default and stores runtime state beside the portable folder unless sync integrations are configured.</p>
+            <p class="note">MGA runs locally on <code>127.0.0.1:8900</code> by default and stores runtime state beside the portable folder unless sync integrations are configured. LAN binding is opt-in through the server <code>LISTEN_IP</code> config.</p>
             <div class="hero__actions">
               <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download</a>
               <a class="button" href="./install.html">Read install details</a>
@@ -380,7 +382,7 @@
             </div>
             <div class="question compact-question">
               <h4>What happens when detection is wrong?</h4>
-              <p>MGA keeps unresolved records in a visible manual review workflow with repair actions.</p>
+              <p>MGA keeps unresolved records in a visible manual review workflow with fuzzy search and repair actions.</p>
             </div>
             <p><a href="./faq.html">Read the full FAQ</a></p>
           </aside>

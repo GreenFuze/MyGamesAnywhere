@@ -41,7 +41,7 @@
             </figure>
             <figure class="shot">
               <img src="./screenshots/manual-review.png" alt="The Undetected Games workflow showing pending review candidates, metadata search, source files, and repair actions" />
-              <figcaption>Detection failures stay fixable: unresolved source records remain reviewable, searchable, and repairable.</figcaption>
+              <figcaption>Detection failures stay fixable: unresolved source records remain reviewable, searchable with fuzzy platform-aware matching, and repairable.</figcaption>
             </figure>
             <figure class="shot">
               <img src="./screenshots/game-detail.png" alt="An achievement section showing Xbox completion stats, a progress ring, and achievement cards" />
@@ -55,6 +55,10 @@
               <img src="./screenshots/settings.png" alt="The integrations settings page showing configured sources, metadata providers, scan status, and control actions" />
               <figcaption>Integrations are explicit and local: sources, metadata providers, and scan state remain understandable control surfaces.</figcaption>
             </figure>
+            <article class="todo-card">
+              <h3>Safer file deletes</h3>
+              <p>File-backed cleanup now uses source-plugin dry-delete previews and a required checkbox before the real delete action. No screenshot is committed yet because live preview dialogs can expose local paths or account-specific collection data.</p>
+            </article>
           </div>
         </div>
       </section>

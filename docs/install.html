@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Install MGA | Windows portable local-first game launcher</title>
-    <meta name="description" content="Install MyGamesAnywhere as a Windows portable local-first game launcher and self-hosted game library running on 127.0.0.1." />
+    <meta name="description" content="Install MyGamesAnywhere as a Windows portable local-first game launcher and self-hosted game library running on 127.0.0.1:8900." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
@@ -28,14 +28,14 @@
             <p class="eyebrow">Windows portable release</p>
             <h1>Install MGA without an installer.</h1>
             <p class="section__intro">
-              MGA v0.0.6 ships as a Windows portable ZIP. It runs locally, stores runtime state
-              beside the portable folder, and binds to <code>127.0.0.1</code> by default.
+              MGA v0.0.7 ships as a Windows portable ZIP. It runs locally, stores runtime state
+              beside the portable folder, and binds to <code>127.0.0.1:8900</code> by default.
             </p>
             <ol class="steps">
-              <li>Download <code>mga-v0.0.6-windows-amd64-portable.zip</code> from <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">GitHub Releases</a>.</li>
+              <li>Download <code>mga-v0.0.7-windows-amd64-portable.zip</code> from <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">GitHub Releases</a>.</li>
               <li>Extract it into a writable folder such as <code>C:\Games\MGA</code>.</li>
               <li>Run <code>Start MGA.cmd</code>.</li>
-              <li>Open <code>http://127.0.0.1:8080</code>.</li>
+              <li>Open <code>http://127.0.0.1:8900</code>.</li>
             </ol>
           </div>
           <aside class="aside-card">
@@ -56,7 +56,7 @@
         <div class="section__inner split-grid">
           <div>
             <h2>Portable build notes</h2>
-            <p class="note">Avoid extracting the portable build under <code>Program Files</code>. The current runtime writes config, database, media, and local state inside the portable folder.</p>
+            <p class="note">Avoid extracting the portable build under <code>Program Files</code>. The current runtime writes config, database, media, and local state inside the portable folder. The shipped config uses <code>LISTEN_IP: "127.0.0.1"</code> and <code>PORT: "8900"</code>; LAN binding is opt-in by editing <code>config.json</code>.</p>
           </div>
           <div>
             <h2>Upgrade policy</h2>
