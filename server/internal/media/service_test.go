@@ -110,24 +110,75 @@ func TestServiceDoesNotMarkLocalPathOnFailedDownload(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	var asset *core.MediaAsset
 	waitForCondition(t, time.Second, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return requests > 0
+		var err error
+		asset, err = store.GetMediaAssetByID(ctx, assetID)
+		if err != nil {
+			t.Fatalf("GetMediaAssetByID: %v", err)
+		}
+		return asset != nil && asset.DownloadAttempts > 0
 	})
-
-	asset, err := store.GetMediaAssetByID(ctx, assetID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if asset == nil {
-		t.Fatal("expected media asset row")
-	}
 	if asset.LocalPath != "" {
 		t.Fatalf("local_path = %q, want empty after failed download", asset.LocalPath)
 	}
 	if asset.Hash != "" {
 		t.Fatalf("hash = %q, want empty after failed download", asset.Hash)
+	}
+	if asset.DownloadPermanentFailure {
+		t.Fatal("transient 502 should not mark permanent failure")
+	}
+
+	pending, err := store.GetPendingMediaDownloads(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending assets = %d, want 0 during retry cooldown", len(pending))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if requests != 1 {
+		t.Fatalf("requests = %d, want one attempt before cooldown", requests)
+	}
+}
+
+func TestServiceMarksPermanentDownloadFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+
+	store, cfg := newTestStore(t)
+	assetID := seedPendingAsset(t, ctx, store, server.URL+"/missing.png")
+
+	svc, ok := NewService(store, cfg, testLogger{}).(*Service)
+	if !ok {
+		t.Fatal("expected concrete media service")
+	}
+	if err := svc.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var asset *core.MediaAsset
+	waitForCondition(t, time.Second, func() bool {
+		var err error
+		asset, err = store.GetMediaAssetByID(ctx, assetID)
+		if err != nil {
+			t.Fatalf("GetMediaAssetByID: %v", err)
+		}
+		return asset != nil && asset.DownloadAttempts > 0
+	})
+	if !asset.DownloadPermanentFailure {
+		t.Fatal("404 should mark permanent failure")
+	}
+	pending, err := store.GetPendingMediaDownloads(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending assets = %d, want permanent failure excluded", len(pending))
 	}
 }
 

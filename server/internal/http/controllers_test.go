@@ -923,6 +923,9 @@ func (f *fakeGameStore) CacheAchievements(_ context.Context, sourceGameID string
 func (f *fakeGameStore) UpdateMediaAsset(context.Context, int, string, string) error {
 	panic("unexpected call")
 }
+func (f *fakeGameStore) MarkMediaAssetDownloadFailed(context.Context, int, string, bool) error {
+	panic("unexpected call")
+}
 func (f *fakeGameStore) UpdateMediaAssetMetadata(context.Context, int, int, int, string) error {
 	panic("unexpected call")
 }

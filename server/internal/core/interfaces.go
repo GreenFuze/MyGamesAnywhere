@@ -78,6 +78,8 @@ type GameStore interface {
 
 	// UpdateMediaAsset marks a media asset as downloaded (sets local_path, hash).
 	UpdateMediaAsset(ctx context.Context, assetID int, localPath, hash string) error
+	// MarkMediaAssetDownloadFailed records a failed media download attempt.
+	MarkMediaAssetDownloadFailed(ctx context.Context, assetID int, errMessage string, permanent bool) error
 	// UpdateMediaAssetMetadata backfills width/height/mime_type for an existing media asset.
 	UpdateMediaAssetMetadata(ctx context.Context, assetID, width, height int, mimeType string) error
 
@@ -108,7 +110,7 @@ type GameStore interface {
 	// GetSourceGamesForCanonical returns all source game records for a canonical game.
 	GetSourceGamesForCanonical(ctx context.Context, canonicalID string) ([]*SourceGame, error)
 
-	// GetPendingMediaDownloads returns media assets with no local_path.
+	// GetPendingMediaDownloads returns media assets with no local_path that are due for download.
 	GetPendingMediaDownloads(ctx context.Context, limit int) ([]*MediaAsset, error)
 
 	// GetCachedAchievements returns cached achievement data if it exists.

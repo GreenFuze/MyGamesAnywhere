@@ -22,7 +22,7 @@
 - TGDB has been removed from plugin/runtime discovery and product-facing branding/about references.
 - Scan preparation and metadata-provider fetching now run with bounded concurrency, while persistence remains serialized on the shared scan path to avoid partial-write races and SQLite lock churn.
 
-## Locked Next Tasks — 2026-04-30
+## Tasks
 
 These are the next committed tasks after the completed Phase 7 / issue-cleanup work. Execute in this order unless a release blocker appears.
 
@@ -33,34 +33,34 @@ These are the next committed tasks after the completed Phase 7 / issue-cleanup w
    - [x] Ship released portable ZIP config with `PORT: "8900"` and `LISTEN_IP: "127.0.0.1"`.
    - [ ] Add a Settings → General surface for host/port visibility and bind-host selection, with a clear restart-required state if live rebinding is not implemented.
    - [ ] Decide installer/service/firewall behavior for admin-required LAN exposure scenarios.
-   - Verification completed for server config tests, HTTP server address tests, focused Go tests, frontend build, and portable packaging config checks.
+   - [ ] Verification completed for server config tests, HTTP server address tests, focused Go tests, frontend build, and portable packaging config checks.
 
 2. **Auto-update check and release manifest**
-   - Extend the release pipeline from artifact-only output to a versioned update source: GitHub Release assets or a static update manifest with version, URL, SHA256, and release notes URL.
-   - Add a server-side update checker that compares current `VERSION` with the latest available release and exposes a small read-only API.
-   - Add a Settings UI card showing current version, latest version, release notes, and an explicit update action.
-   - Keep the first update action conservative: download/verify the package and guide restart, before attempting in-place replacement of the running executable.
-   - Verification: manifest parser tests, version-compare tests, checksum failure test, frontend build.
+   - [ ] Extend the release pipeline from artifact-only output to a versioned update source: GitHub Release assets or a static update manifest with version, URL, SHA256, and release notes URL.
+   - [ ] Add a server-side update checker that compares current `VERSION` with the latest available release and exposes a small read-only API.
+   - [ ] Add a Settings UI card showing current version, latest version, release notes, and an explicit update action.
+   - [ ] Keep the first update action conservative: download/verify the package and guide restart, before attempting in-place replacement of the running executable.
+   - [ ] Verification: manifest parser tests, version-compare tests, checksum failure test, frontend build.
 
 3. **Achievements refresh instead of cached-only confusion**
-   - Keep `/api/achievements` and `/api/achievements/explorer` read-only over cached rows for fast page load.
-   - Add an explicit `Refresh Achievements` job for all eligible games, reusing `AchievementFetchService` and existing achievement-capable integrations.
-   - Show refresh progress and last refreshed state in the Achievements page so "cached" means "last fetched", not "incomplete by design".
-   - Persist provider failures per game/source and surface degraded state without blocking unrelated games.
-   - Verification: achievement service/controller tests, SSE job progress tests, frontend build, focused manual refresh proof with one configured provider.
+   - [ ] Keep `/api/achievements` and `/api/achievements/explorer` read-only over cached rows for fast page load.
+   - [ ] Add an explicit `Refresh Achievements` job for all eligible games, reusing `AchievementFetchService` and existing achievement-capable integrations.
+   - [ ] Show refresh progress and last refreshed state in the Achievements page so "cached" means "last fetched", not "incomplete by design".
+   - [ ] Persist provider failures per game/source and surface degraded state without blocking unrelated games.
+   - [ ] Verification: achievement service/controller tests, SSE job progress tests, frontend build, focused manual refresh proof with one configured provider.
 
 4. **Duplicate games review in Settings**
-   - Add a Settings tab for duplicate candidates across source records.
-   - Support two modes: title-normalized duplicates ignoring platform/version, and stricter duplicates including platform/version/source metadata.
-   - Reuse existing canonical/source-game link data and shared title normalization instead of adding a separate duplicate model first.
-   - Provide review-only grouping in v1; defer destructive merge/split actions unless the report proves useful.
-   - Verification: duplicate-query tests with same-title/different-platform cases, frontend build, manual UI proof on seeded data.
+   - [ ] Add a Settings tab for duplicate candidates across source records.
+   - [ ] Support two modes: title-normalized duplicates ignoring platform/version, and stricter duplicates including platform/version/source metadata.
+   - [ ] Reuse existing canonical/source-game link data and shared title normalization instead of adding a separate duplicate model first.
+   - [ ] Provide review-only grouping in v1; defer destructive merge/split actions unless the report proves useful.
+   - [ ] Verification: duplicate-query tests with same-title/different-platform cases, frontend build, manual UI proof on seeded data.
 
 5. **Richer Library / Gamer statistics**
-   - Split Home stats conceptually into Library Statistics and Gamer Statistics while keeping the Home page as a concise summary.
-   - Library statistics should extend the current `/api/stats` surface: platform, source, decade, genre, metadata/media coverage, duplicates, and scan activity.
-   - Gamer statistics should build on the achievements dashboard and play history: achievement progress, points, recently played, favorites, completion-style summaries where data exists.
-   - Verification: stats aggregation tests, chart-empty-state proof, frontend build.
+   - [ ] Split Home stats conceptually into Library Statistics and Gamer Statistics while keeping the Home page as a concise summary.
+   - [ ] Library statistics should extend the current `/api/stats` surface: platform, source, decade, genre, metadata/media coverage, duplicates, and scan activity.
+   - [ ] Gamer statistics should build on the achievements dashboard and play history: achievement progress, points, recently played, favorites, completion-style summaries where data exists.
+   - [ ] Verification: stats aggregation tests, chart-empty-state proof, frontend build.
 
 Deferred until after the above: multi-user/profile support. It is a larger architecture change because profiles need ownership boundaries for integrations, games, saves, settings, achievement cache, scan jobs, and admin-only Settings access.
 
@@ -646,19 +646,25 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [ ] User image/icon should be shown on the top left, where user log-out
   - [ ] No passwords (at this stage)
 - [ ] Auto-update mechanism
-  - [ ] check if there's an update to MGA, if so, write that there's an update, and let the user click "update" button to update to the latest version.
+  - [ ] checks if there's an update to MGA, if so, write that there's an update, and let the user click "update" button to update to the latest version. Also in "About" there should be a button for "check for updates"...
 - [x] Add "favorites"
   - 2026-04-27 follow-up: canonical games now support server-persisted favorites, game detail/card heart toggles, and computed `Favorites` shelves as the first Library/Play shelf when favorite games exist in that scope.
 - [ ] Make MGA available in 0.0.0.0 or localhost. it needs to be configurable. I think using as 0.0.0.0 will require admin rights on start-up.
   - [x] Server `LISTEN_IP` config supports `127.0.0.1`, `localhost`, `0.0.0.0`, concrete LAN IPs, and IPv6 literals.
   - [x] Portable release config ships local-only with `LISTEN_IP: "127.0.0.1"` and `PORT: "8900"`.
   - [ ] This should be configurable from the frontend as well (under "settings/general" page?)
-- [ ] Make MGA installable friendly for windows:
+- [ ] Make MGA install (Windows/Linux):
   - [ ] As portable
     - [ ] running on 0.0.0.0 requires admin to run?
   - [ ] As installable
     - [ ] As "not-a-service" (installed as user level - no admin rights)
     - [ ] As a service (installed at the system level - admin rights for install)
+  - [ ] Make MSI installer? Or do you prefer something else?
+  - [ ] Installer should let the user decide how to install
+  - [ ] Installer should support update
+  - [ ] Installer should support silent mode
+  - [ ] Think about future auto-update feature that will be coming up soon
+  - [ ] Currently MGA write to its own directory, should this change?
 - [ ] Achivement page shows only cached data. It needs to be able to show all information of all games, not just cached data.
   - [ ] Does cached data means in the frontend? or the server?
     - [ ] If on the frontend, explain the user what it means, because it is weird
@@ -671,4 +677,4 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] When playing a game, not all emulators support "retroachivements" achivements recording. check if our EmulatorJS does support it. If it does, check what it means to allow the user to run in that mode (which is restricting on "cheats" and stuff like that).
 - [ ] When showing source files of a game (in undetected games page and game page), show all the files in a single multi-line textbox. otherwise it takes too much space. Also no need to show size per file, show total size.
 - [ ] Support "exclude directories" for files-backed sources. Update Web frontend to support this.
-- [ ] I am searching for "desert strike". in launchbox db website I find "Desert Strike: Return to the Gulf", which is the right game, but in MGA it finds only "MiniTank: Desert Strike" from IGDB.
+- [x] I am searching for "desert strike". in launchbox db website I find "Desert Strike: Return to the Gulf", which is the right game, but in MGA it finds only "MiniTank: Desert Strike" from IGDB.

@@ -216,6 +216,42 @@ func TestManualSearchReturnsNormalizedN64Matches(t *testing.T) {
 	}
 }
 
+func TestManualSearchReturnsSubtitlePrefixMatch(t *testing.T) {
+	desertStrike := &gameEntry{
+		DatabaseID: 3456,
+		Name:       "Desert Strike: Return to the Gulf",
+		Platform:   "Sega Genesis",
+	}
+	miniTank := &gameEntry{
+		DatabaseID: 3457,
+		Name:       "MiniTank: Desert Strike",
+		Platform:   "Sega Genesis",
+	}
+	idx := &launchBoxIndex{
+		files: map[string]*fileEntry{},
+		games: map[string]*gameEntry{},
+		normalized: map[string]*gameEntry{
+			"sega genesis\tdesert strike return to the gulf": desertStrike,
+			"sega genesis\tminitank desert strike":           miniTank,
+		},
+		byPlatform: map[string][]tokenedGame{
+			"sega genesis": {
+				{tokens: tokenize(desertStrike.Name), normalizedTitle: normalizeTitle(desertStrike.Name), game: desertStrike},
+				{tokens: tokenize(miniTank.Name), normalizedTitle: normalizeTitle(miniTank.Name), game: miniTank},
+			},
+		},
+		images: map[int][]gameImage{},
+	}
+
+	results := matchGamesForManualSearch(idx, gameQuery{Index: 0, Title: "desert strike", Platform: "genesis", LookupIntent: "manual_search"})
+	if len(results) == 0 {
+		t.Fatal("expected manual search results")
+	}
+	if results[0].Title != "Desert Strike: Return to the Gulf" || results[0].Platform != "genesis" {
+		t.Fatalf("first result = %+v, want Desert Strike: Return to the Gulf genesis", results[0])
+	}
+}
+
 func TestMatchGame_UnknownInstallerFallsBackToWindows(t *testing.T) {
 	idx := &launchBoxIndex{
 		files: map[string]*fileEntry{},

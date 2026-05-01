@@ -68,8 +68,9 @@ type gameImage struct {
 }
 
 type tokenedGame struct {
-	tokens map[string]bool
-	game   *gameEntry
+	tokens          map[string]bool
+	normalizedTitle string
+	game            *gameEntry
 }
 
 type launchBoxIndex struct {
@@ -119,9 +120,10 @@ func tokenize(s string) map[string]bool {
 }
 
 const (
-	minJaccard        = 0.5
-	minMatchingTokens = 2
-	maxManualResults  = 10
+	minJaccard                = 0.5
+	minMatchingTokens         = 2
+	maxManualResults          = 10
+	manualSubtitlePrefixScore = 0.93
 )
 
 // --- Title variations (roman ↔ arabic numerals) ---
@@ -223,8 +225,17 @@ type scoredGameEntry struct {
 }
 
 func tokenMatches(queryTokens map[string]bool, candidates []tokenedGame) []scoredGameEntry {
+	return tokenMatchesForNormalizedTitle("", queryTokens, candidates)
+}
+
+func tokenMatchesForNormalizedTitle(queryNormalized string, queryTokens map[string]bool, candidates []tokenedGame) []scoredGameEntry {
 	var matches []scoredGameEntry
 	for i := range candidates {
+		if isSubtitlePrefixMatch(queryNormalized, candidates[i].normalizedTitle) {
+			matches = append(matches, scoredGameEntry{game: candidates[i].game, score: manualSubtitlePrefixScore})
+			continue
+		}
+
 		intersection := 0
 		for t := range queryTokens {
 			if candidates[i].tokens[t] {
@@ -247,6 +258,16 @@ func tokenMatches(queryTokens map[string]bool, candidates []tokenedGame) []score
 		return matches[i].game.Name < matches[j].game.Name
 	})
 	return matches
+}
+
+func isSubtitlePrefixMatch(queryNormalized, candidateNormalized string) bool {
+	if queryNormalized == "" || candidateNormalized == "" || queryNormalized == candidateNormalized {
+		return false
+	}
+	if len(strings.Fields(queryNormalized)) < minMatchingTokens {
+		return false
+	}
+	return strings.HasPrefix(candidateNormalized, queryNormalized+" ")
 }
 
 // Plugin request/response types.
@@ -777,14 +798,15 @@ func loadIndex() (*launchBoxIndex, error) {
 			idx.games[key] = e
 		}
 
-		nkey := lp + "\t" + normalizeTitle(e.Name)
+		normalizedTitle := normalizeTitle(e.Name)
+		nkey := lp + "\t" + normalizedTitle
 		if _, exists := idx.normalized[nkey]; !exists {
 			idx.normalized[nkey] = e
 		}
 
 		tokens := tokenize(e.Name)
 		if len(tokens) >= minMatchingTokens {
-			idx.byPlatform[lp] = append(idx.byPlatform[lp], tokenedGame{tokens: tokens, game: e})
+			idx.byPlatform[lp] = append(idx.byPlatform[lp], tokenedGame{tokens: tokens, normalizedTitle: normalizedTitle, game: e})
 		}
 	}
 	for i := range imgEntries {
@@ -894,8 +916,9 @@ func matchGamesForManualSearch(idx *launchBoxIndex, q gameQuery) []lookupResult 
 		}
 		queryTokens := tokenize(variant)
 		if len(queryTokens) >= minMatchingTokens {
+			normalizedVariant := normalizeTitle(variant)
 			for _, lbp := range lbPlatforms {
-				for _, match := range tokenMatches(queryTokens, idx.byPlatform[strings.ToLower(lbp)]) {
+				for _, match := range tokenMatchesForNormalizedTitle(normalizedVariant, queryTokens, idx.byPlatform[strings.ToLower(lbp)]) {
 					add(match.game, match.score)
 				}
 			}

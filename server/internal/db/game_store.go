@@ -480,8 +480,35 @@ func (s *gameStore) UpdateMediaAsset(ctx context.Context, assetID int, localPath
 		return fmt.Errorf("assetID must be positive")
 	}
 	_, err := s.db.GetDB().ExecContext(ctx,
-		`UPDATE media_assets SET local_path=?, hash=? WHERE id=?`,
+		`UPDATE media_assets
+		 SET local_path=?,
+		     hash=?,
+		     download_attempts=0,
+		     download_failed_at=NULL,
+		     download_last_error=NULL,
+		     download_permanent_failure=0
+		 WHERE id=?`,
 		localPath, hash, assetID)
+	return err
+}
+
+func (s *gameStore) MarkMediaAssetDownloadFailed(ctx context.Context, assetID int, errMessage string, permanent bool) error {
+	if assetID <= 0 {
+		return fmt.Errorf("assetID must be positive")
+	}
+	permanentValue := 0
+	if permanent {
+		permanentValue = 1
+	}
+	_, err := s.db.GetDB().ExecContext(ctx, `
+		UPDATE media_assets
+		SET download_attempts = download_attempts + 1,
+		    download_failed_at = ?,
+		    download_last_error = ?,
+		    download_permanent_failure = ?
+		WHERE id = ?`,
+		time.Now().Unix(), strings.TrimSpace(errMessage), permanentValue, assetID,
+	)
 	return err
 }
 
@@ -648,19 +675,18 @@ func (s *gameStore) GetMediaAssetByID(ctx context.Context, id int) (*core.MediaA
 		return nil, nil
 	}
 	row := s.db.GetDB().QueryRowContext(ctx,
-		`SELECT id, url, local_path, hash, width, height, mime_type FROM media_assets WHERE id=?`, id)
-	var a core.MediaAsset
-	var lp, h, mt sql.NullString
-	if err := row.Scan(&a.ID, &a.URL, &lp, &h, &a.Width, &a.Height, &mt); err != nil {
+		`SELECT id, url, local_path, hash, width, height, mime_type,
+		        download_attempts, download_failed_at, download_last_error, download_permanent_failure
+		   FROM media_assets
+		  WHERE id=?`, id)
+	a, err := scanMediaAsset(row)
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
-	a.LocalPath = lp.String
-	a.Hash = h.String
-	a.MimeType = mt.String
-	return &a, nil
+	return a, nil
 }
 
 func (s *gameStore) GetCanonicalGameByID(ctx context.Context, canonicalID string) (*core.CanonicalGame, error) {
@@ -726,8 +752,26 @@ func (s *gameStore) GetSourceGamesForCanonical(ctx context.Context, canonicalID 
 }
 
 func (s *gameStore) GetPendingMediaDownloads(ctx context.Context, limit int) ([]*core.MediaAsset, error) {
+	now := time.Now().Unix()
 	rows, err := s.db.GetDB().QueryContext(ctx,
-		`SELECT id, url, local_path, hash, width, height, mime_type FROM media_assets WHERE local_path IS NULL OR local_path='' LIMIT ?`, limit)
+		`SELECT id, url, local_path, hash, width, height, mime_type,
+		        download_attempts, download_failed_at, download_last_error, download_permanent_failure
+		   FROM media_assets
+		  WHERE (local_path IS NULL OR local_path='')
+		    AND COALESCE(download_permanent_failure, 0) = 0
+		    AND (
+		      download_failed_at IS NULL
+		      OR download_failed_at = 0
+		      OR download_failed_at <= ? - CASE
+		        WHEN download_attempts <= 0 THEN 0
+		        WHEN download_attempts = 1 THEN 3600
+		        WHEN download_attempts = 2 THEN 21600
+		        WHEN download_attempts = 3 THEN 86400
+		        ELSE 604800
+		      END
+		    )
+		  ORDER BY COALESCE(download_failed_at, 0), id
+		  LIMIT ?`, now, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -735,17 +779,46 @@ func (s *gameStore) GetPendingMediaDownloads(ctx context.Context, limit int) ([]
 
 	var out []*core.MediaAsset
 	for rows.Next() {
-		var a core.MediaAsset
-		var lp, h, mt sql.NullString
-		if err := rows.Scan(&a.ID, &a.URL, &lp, &h, &a.Width, &a.Height, &mt); err != nil {
+		a, err := scanMediaAsset(rows)
+		if err != nil {
 			return nil, err
 		}
-		a.LocalPath = lp.String
-		a.Hash = h.String
-		a.MimeType = mt.String
-		out = append(out, &a)
+		out = append(out, a)
 	}
-	return out, nil
+	return out, rows.Err()
+}
+
+type mediaAssetScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanMediaAsset(scanner mediaAssetScanner) (*core.MediaAsset, error) {
+	var a core.MediaAsset
+	var lp, h, mt, lastErr sql.NullString
+	var failedAt sql.NullInt64
+	var permanent int
+	if err := scanner.Scan(
+		&a.ID,
+		&a.URL,
+		&lp,
+		&h,
+		&a.Width,
+		&a.Height,
+		&mt,
+		&a.DownloadAttempts,
+		&failedAt,
+		&lastErr,
+		&permanent,
+	); err != nil {
+		return nil, err
+	}
+	a.LocalPath = lp.String
+	a.Hash = h.String
+	a.MimeType = mt.String
+	a.DownloadFailedAt = failedAt.Int64
+	a.DownloadLastError = lastErr.String
+	a.DownloadPermanentFailure = permanent != 0
+	return &a, nil
 }
 
 func (s *gameStore) GetCachedAchievements(ctx context.Context, sourceGameID, source string) (*core.AchievementSet, error) {

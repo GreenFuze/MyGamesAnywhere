@@ -168,7 +168,11 @@ func (s *sqliteDatabase) EnsureSchema() error {
 			hash TEXT,
 			width INTEGER,
 			height INTEGER,
-			mime_type TEXT
+			mime_type TEXT,
+			download_attempts INTEGER NOT NULL DEFAULT 0,
+			download_failed_at INTEGER,
+			download_last_error TEXT,
+			download_permanent_failure INTEGER NOT NULL DEFAULT 0
 		);`,
 		`CREATE TABLE IF NOT EXISTS source_game_media (
 			source_game_id TEXT NOT NULL REFERENCES source_games(id),
@@ -303,6 +307,9 @@ func (s *sqliteDatabase) EnsureSchema() error {
 		return err
 	}
 	if err := s.ensureGameFileIdentitySchema(); err != nil {
+		return err
+	}
+	if err := s.ensureMediaAssetDownloadStateSchema(); err != nil {
 		return err
 	}
 	if err := s.backfillCanonicalGames(); err != nil {
@@ -445,6 +452,29 @@ func (s *sqliteDatabase) ensureGameFileIdentitySchema() error {
 	}
 	if err := s.ensureColumn("game_files", "modified_at",
 		`ALTER TABLE game_files ADD COLUMN modified_at INTEGER`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *sqliteDatabase) ensureMediaAssetDownloadStateSchema() error {
+	if s.db == nil {
+		return fmt.Errorf("database not connected")
+	}
+	if err := s.ensureColumn("media_assets", "download_attempts",
+		`ALTER TABLE media_assets ADD COLUMN download_attempts INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("media_assets", "download_failed_at",
+		`ALTER TABLE media_assets ADD COLUMN download_failed_at INTEGER`); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("media_assets", "download_last_error",
+		`ALTER TABLE media_assets ADD COLUMN download_last_error TEXT`); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("media_assets", "download_permanent_failure",
+		`ALTER TABLE media_assets ADD COLUMN download_permanent_failure INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return err
 	}
 	return nil

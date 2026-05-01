@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -29,6 +30,19 @@ const (
 	defaultBusyRetryDelay       = 100 * time.Millisecond
 	defaultBrowserUserAgent     = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
+
+type mediaDownloadError struct {
+	statusCode int
+	message    string
+}
+
+func (e mediaDownloadError) Error() string {
+	return e.message
+}
+
+func (e mediaDownloadError) Permanent() bool {
+	return e.statusCode == http.StatusNotFound || e.statusCode == http.StatusGone
+}
 
 type Service struct {
 	store  core.GameStore
@@ -143,6 +157,11 @@ func (s *Service) worker(ctx context.Context, rootAbs string) {
 				continue
 			}
 			if err := s.downloadAsset(ctx, rootAbs, asset); err != nil && ctx.Err() == nil {
+				if markErr := retrySQLiteBusy(ctx, func() error {
+					return s.store.MarkMediaAssetDownloadFailed(ctx, asset.ID, err.Error(), permanentMediaDownloadFailure(err))
+				}); markErr != nil {
+					s.logger.Warn("record media download failure failed", "asset_id", asset.ID, "url", asset.URL, "error", markErr)
+				}
 				s.logger.Warn("media download failed", "asset_id", asset.ID, "url", asset.URL, "error", err)
 			}
 			s.forgetInFlight(asset.ID)
@@ -181,7 +200,10 @@ func (s *Service) downloadAsset(ctx context.Context, rootAbs string, asset *core
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+		return mediaDownloadError{
+			statusCode: resp.StatusCode,
+			message:    fmt.Sprintf("unexpected status %d", resp.StatusCode),
+		}
 	}
 
 	relPath := buildMediaRelativePath(asset, resp.Header.Get("Content-Type"))
@@ -226,6 +248,11 @@ func (s *Service) downloadAsset(ctx context.Context, rootAbs string, asset *core
 		return fmt.Errorf("update media asset row: %w", err)
 	}
 	return nil
+}
+
+func permanentMediaDownloadFailure(err error) bool {
+	var downloadErr mediaDownloadError
+	return errors.As(err, &downloadErr) && downloadErr.Permanent()
 }
 
 type mediaRequestPolicy interface {

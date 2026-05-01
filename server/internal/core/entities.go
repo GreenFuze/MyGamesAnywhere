@@ -303,13 +303,17 @@ type SourceGame struct {
 
 // MediaAsset is a globally deduplicated media file.
 type MediaAsset struct {
-	ID        int
-	URL       string
-	LocalPath string
-	Hash      string
-	Width     int
-	Height    int
-	MimeType  string
+	ID                       int
+	URL                      string
+	LocalPath                string
+	Hash                     string
+	Width                    int
+	Height                   int
+	MimeType                 string
+	DownloadAttempts         int
+	DownloadFailedAt         int64
+	DownloadLastError        string
+	DownloadPermanentFailure bool
 }
 
 // MediaRef links a source game to a media asset.
