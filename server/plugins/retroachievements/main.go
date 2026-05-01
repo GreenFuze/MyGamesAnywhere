@@ -95,11 +95,12 @@ type lookupParams struct {
 }
 
 type gameQuery struct {
-	Index     int    `json:"index"`
-	Title     string `json:"title"`
-	Platform  string `json:"platform"`
-	RootPath  string `json:"root_path"`
-	GroupKind string `json:"group_kind"`
+	Index        int    `json:"index"`
+	Title        string `json:"title"`
+	Platform     string `json:"platform"`
+	RootPath     string `json:"root_path"`
+	GroupKind    string `json:"group_kind"`
+	LookupIntent string `json:"lookup_intent,omitempty"`
 }
 
 type mediaItem struct {
@@ -374,6 +375,8 @@ func getGameList(consoleID int) ([]raGameListEntry, error) {
 }
 
 const minMatchScore = 0.7
+const manualMinMatchScore = 0.45
+const maxManualResults = 10
 
 func raImageURL(path string) string {
 	if path == "" {
@@ -432,6 +435,84 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 		return nil, nil
 	}
 
+	return buildLookupResult(q, bestGame)
+}
+
+type scoredRAGame struct {
+	game  raGameListEntry
+	score float64
+}
+
+func matchGamesForManualSearch(q gameQuery) ([]lookupResult, error) {
+	consoleIDs, ok := platformToConsoleIDs[q.Platform]
+	if !ok || len(consoleIDs) == 0 {
+		return nil, nil
+	}
+
+	queryTokens := tokenize(q.Title)
+	if len(queryTokens) == 0 {
+		return nil, nil
+	}
+
+	candidates := map[int]scoredRAGame{}
+	var lastErr error
+	for _, cid := range consoleIDs {
+		games, err := getGameList(cid)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		for _, variant := range titlematch.LookupTitleVariants(q.Title) {
+			queryNorm := normalizeTitle(variant)
+			for i := range games {
+				g := games[i]
+				var score float64
+				if normalizeTitle(g.Title) == queryNorm {
+					score = 1.0
+				} else {
+					score = jaccardSimilarity(queryTokens, tokenize(g.Title))
+				}
+				if score < manualMinMatchScore {
+					continue
+				}
+				current, ok := candidates[g.ID]
+				if !ok || score > current.score {
+					candidates[g.ID] = scoredRAGame{game: g, score: score}
+				}
+			}
+		}
+	}
+	if len(candidates) == 0 && lastErr != nil {
+		return nil, lastErr
+	}
+
+	ranked := make([]scoredRAGame, 0, len(candidates))
+	for _, candidate := range candidates {
+		ranked = append(ranked, candidate)
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].score != ranked[j].score {
+			return ranked[i].score > ranked[j].score
+		}
+		return ranked[i].game.Title < ranked[j].game.Title
+	})
+	if len(ranked) > maxManualResults {
+		ranked = ranked[:maxManualResults]
+	}
+	results := make([]lookupResult, 0, len(ranked))
+	for i := range ranked {
+		result, err := buildLookupResult(q, &ranked[i].game)
+		if err != nil {
+			continue
+		}
+		if result != nil {
+			results = append(results, *result)
+		}
+	}
+	return results, nil
+}
+
+func buildLookupResult(q gameQuery, bestGame *raGameListEntry) (*lookupResult, error) {
 	ext, err := fetchGameExtended(bestGame.ID)
 	if err != nil {
 		r := &lookupResult{
@@ -500,6 +581,18 @@ func handleLookup(params lookupParams) (any, *Error) {
 	var lookupErr error
 	errorCount := 0
 	for _, q := range params.Games {
+		if q.LookupIntent == "manual_search" {
+			matches, err := matchGamesForManualSearch(q)
+			if err != nil {
+				errorCount++
+				if lookupErr == nil {
+					lookupErr = err
+				}
+				continue
+			}
+			results = append(results, matches...)
+			continue
+		}
 		r, err := matchGame(q)
 		if err != nil {
 			errorCount++

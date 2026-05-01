@@ -651,6 +651,4 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [ ] duplications for games including version/platform etc.
 - [ ] Home screen should have "library statistics" and "gamer statistics". Still not sure how to display these as different pages and conviniently, but it should support extensive statistics in a cool, colorful, way. Maybe, it should be in different pages, like "achivements" shows also statistics for achivements, so maybe a "library statistics", "gamer statistics" pages (where the latter includes achivements)?
 - [ ] Make sure MGA server (and frontend client) both supporting Linux + Windows
-- [ ] In "undetected games", when showing matches from a search:
-  - [ ] show icons of the detected metadata source instead of label
-  - [ ] don't show the full description, its too long. if its too long, cut after N characters and add "...". Clicking on the description would expand/collapse the description.
+- [ ] When playing a game, not all emulators support "retroachivements" achivements recording. check if our EmulatorJS does support it. If it does, check what it means to allow the user to run in that mode (which is restricting on "cheats" and stuff like that).

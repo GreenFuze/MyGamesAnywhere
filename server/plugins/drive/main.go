@@ -1052,10 +1052,28 @@ func handleFileMaterialize(params json.RawMessage) (any, *Error) {
 	return result, nil
 }
 
+type sourceDeleteFile struct {
+	Path     string `json:"path"`
+	IsDir    bool   `json:"is_dir"`
+	ObjectID string `json:"object_id"`
+	Size     int64  `json:"size"`
+}
+
+type sourceDeletePlanItem struct {
+	Path     string `json:"path"`
+	ObjectID string `json:"object_id,omitempty"`
+	IsDir    bool   `json:"is_dir,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+	Action   string `json:"action"`
+}
+
 func handleSourceDelete(params json.RawMessage) (any, *Error) {
 	var body struct {
-		Config   map[string]any `json:"config"`
-		RootPath string         `json:"root_path"`
+		Config       map[string]any     `json:"config"`
+		RootPath     string             `json:"root_path"`
+		SourceGameID string             `json:"source_game_id"`
+		Files        []sourceDeleteFile `json:"files"`
+		DryRun       bool               `json:"dry_run"`
 	}
 	if err := json.Unmarshal(params, &body); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
@@ -1067,22 +1085,104 @@ func handleSourceDelete(params json.RawMessage) (any, *Error) {
 	if !sourcescope.ScopeContainsRootPath(rootPath, filesystemIncludePathsFromConfig(body.Config)) {
 		return nil, &Error{Code: "NOT_ALLOWED", Message: "root_path is outside the configured include_paths scope"}
 	}
+	if len(body.Files) == 0 {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "files are required"}
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	var srv *drive.Service
+	if !body.DryRun || sourceDeletePlanNeedsResolution(body.Files) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
 
-	srv, err := getDriveService(ctx)
-	if err != nil {
-		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
+		var err error
+		srv, err = getDriveService(ctx)
+		if err != nil {
+			return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
+		}
 	}
-	objectID, err := resolvePathToObjectID(srv, rootPath)
-	if err != nil {
-		return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
+	items, errObj := buildSourceDeletePlan(srv, rootPath, body.Config, body.Files)
+	if errObj != nil {
+		return nil, errObj
 	}
-	if err := srv.Files.Delete(objectID).SupportsAllDrives(true).Do(); err != nil {
-		return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
+	if body.DryRun {
+		return sourceDeleteResponse(body.SourceGameID, "game-source-google-drive", "trash", items, 0), nil
 	}
-	return map[string]any{"deleted_count": 1}, nil
+
+	for _, item := range items {
+		objectID := strings.TrimSpace(item.ObjectID)
+		if _, err := srv.Files.Update(objectID, &drive.File{Trashed: true}).SupportsAllDrives(true).Fields("id,trashed").Do(); err != nil {
+			return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
+		}
+	}
+	return sourceDeleteResponse(body.SourceGameID, "game-source-google-drive", "trash", items, len(items)), nil
+}
+
+func buildSourceDeletePlan(srv *drive.Service, rootPath string, config map[string]any, files []sourceDeleteFile) ([]sourceDeletePlanItem, *Error) {
+	items := make([]sourceDeletePlanItem, 0, len(files))
+	for _, file := range files {
+		filePath := sourcescope.NormalizeLogicalPath(file.Path)
+		if filePath == "" {
+			return nil, &Error{Code: "INVALID_PARAMS", Message: "file path is required"}
+		}
+		if file.IsDir {
+			return nil, &Error{Code: "INVALID_PARAMS", Message: fmt.Sprintf("refusing to delete directory entry %q", filePath)}
+		}
+		if !sourceDeletePathWithinRoot(rootPath, filePath) {
+			return nil, &Error{Code: "NOT_ALLOWED", Message: fmt.Sprintf("file %q is outside root_path %q", filePath, rootPath)}
+		}
+		if !sourcescope.ScopeContainsRootPath(filePath, filesystemIncludePathsFromConfig(config)) {
+			return nil, &Error{Code: "NOT_ALLOWED", Message: fmt.Sprintf("file %q is outside the configured include_paths scope", filePath)}
+		}
+
+		objectID := strings.TrimSpace(file.ObjectID)
+		if objectID == "" {
+			if srv == nil {
+				return nil, &Error{Code: "AUTH_FAILED", Message: "drive service is required to resolve file paths"}
+			}
+			var err error
+			objectID, err = resolvePathToObjectID(srv, filePath)
+			if err != nil {
+				return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
+			}
+		}
+		items = append(items, sourceDeletePlanItem{
+			Path:     filePath,
+			ObjectID: objectID,
+			Size:     file.Size,
+			Action:   "trash",
+		})
+	}
+	return items, nil
+}
+
+func sourceDeletePlanNeedsResolution(files []sourceDeleteFile) bool {
+	for _, file := range files {
+		if strings.TrimSpace(file.ObjectID) == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceDeleteResponse(sourceGameID, pluginID, action string, items []sourceDeletePlanItem, deletedCount int) map[string]any {
+	return map[string]any{
+		"source_game_id": sourceGameID,
+		"plugin_id":      pluginID,
+		"action":         action,
+		"summary":        fmt.Sprintf("%d file(s) will be moved to Google Drive trash.", len(items)),
+		"items":          items,
+		"warnings":       []string{},
+		"deleted_count":  deletedCount,
+	}
+}
+
+func sourceDeletePathWithinRoot(rootPath, filePath string) bool {
+	rootPath = sourcescope.NormalizeLogicalPath(rootPath)
+	filePath = sourcescope.NormalizeLogicalPath(filePath)
+	if rootPath == "" {
+		return filePath != ""
+	}
+	return filePath == rootPath || strings.HasPrefix(filePath, rootPath+"/")
 }
 
 func handleSyncPush(params json.RawMessage) (any, *Error) {

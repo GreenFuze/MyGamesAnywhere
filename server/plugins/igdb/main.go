@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -44,11 +45,12 @@ type lookupParams struct {
 }
 
 type gameQuery struct {
-	Index     int    `json:"index"`
-	Title     string `json:"title"`
-	Platform  string `json:"platform"`
-	RootPath  string `json:"root_path"`
-	GroupKind string `json:"group_kind"`
+	Index        int    `json:"index"`
+	Title        string `json:"title"`
+	Platform     string `json:"platform"`
+	RootPath     string `json:"root_path"`
+	GroupKind    string `json:"group_kind"`
+	LookupIntent string `json:"lookup_intent,omitempty"`
 }
 
 type mediaItem struct {
@@ -151,6 +153,7 @@ var platformMap = map[string][]int{
 	"ms_dos":     {13},
 	"arcade":     {52},
 	"gba":        {24},
+	"n64":        {4},
 	"ps1":        {7},
 	"ps2":        {8},
 	"ps3":        {9},
@@ -425,6 +428,15 @@ func handleLookup(params lookupParams) (any, *Error) {
 
 	var results []lookupResult
 	for _, q := range params.Games {
+		if q.LookupIntent == "manual_search" {
+			matches, err := matchGamesForManualSearch(q)
+			if err != nil {
+				log.Printf("IGDB manual lookup error for %q: %v", q.Title, err)
+				continue
+			}
+			results = append(results, matches...)
+			continue
+		}
 		r, err := matchGame(q)
 		if err != nil {
 			log.Printf("IGDB lookup error for %q: %v", q.Title, err)
@@ -440,6 +452,8 @@ func handleLookup(params lookupParams) (any, *Error) {
 
 const minMatchScore = 0.7
 const goodMatchScore = 0.9
+const manualMinMatchScore = 0.45
+const maxManualResults = 10
 
 func matchGame(q gameQuery) (*lookupResult, error) {
 	igdbPlatforms := platformMap[q.Platform]
@@ -477,29 +491,91 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 		return nil, nil
 	}
 
-	igdbURL := overallBest.URL
-	if igdbURL == "" {
-		igdbURL = fmt.Sprintf("https://www.igdb.com/games/%s", overallBest.Slug)
-	}
+	return buildResult(q, overallBest), nil
+}
 
+func matchGamesForManualSearch(q gameQuery) ([]lookupResult, error) {
+	igdbPlatforms := platformMap[q.Platform]
+	queryTokens := tokenize(q.Title)
+	type candidate struct {
+		game  igdbGame
+		score float64
+	}
+	candidates := map[int]candidate{}
+	for _, variant := range titlematch.LookupTitleVariants(q.Title) {
+		cleanedTitle := normalizeTitle(variant)
+		if cleanedTitle == "" {
+			continue
+		}
+		for _, query := range buildSearchQueries(cleanedTitle, igdbPlatforms) {
+			games, err := runQuery(query)
+			if err != nil {
+				return nil, err
+			}
+			for i := range games {
+				score := scoreCandidate(cleanedTitle, queryTokens, &games[i])
+				if score < manualMinMatchScore {
+					continue
+				}
+				current, ok := candidates[games[i].ID]
+				if !ok || score > current.score {
+					candidates[games[i].ID] = candidate{game: games[i], score: score}
+				}
+			}
+		}
+	}
+	ranked := make([]candidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		ranked = append(ranked, candidate)
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		leftPlatform := gamePlatformMatches(ranked[i].game.Platforms, igdbPlatforms)
+		rightPlatform := gamePlatformMatches(ranked[j].game.Platforms, igdbPlatforms)
+		if leftPlatform != rightPlatform {
+			return leftPlatform
+		}
+		if ranked[i].score != ranked[j].score {
+			return ranked[i].score > ranked[j].score
+		}
+		return ranked[i].game.Name < ranked[j].game.Name
+	})
+	if len(ranked) > maxManualResults {
+		ranked = ranked[:maxManualResults]
+	}
+	results := make([]lookupResult, 0, len(ranked))
+	for _, item := range ranked {
+		results = append(results, *buildResult(q, &item.game))
+	}
+	return results, nil
+}
+
+func buildResult(q gameQuery, game *igdbGame) *lookupResult {
+	igdbPlatforms := platformMap[q.Platform]
+	igdbURL := game.URL
+	if igdbURL == "" {
+		igdbURL = fmt.Sprintf("https://www.igdb.com/games/%s", game.Slug)
+	}
 	r := &lookupResult{
 		Index:       q.Index,
-		Title:       overallBest.Name,
-		ExternalID:  fmt.Sprintf("%d", overallBest.ID),
+		Title:       game.Name,
+		ExternalID:  fmt.Sprintf("%d", game.ID),
 		URL:         igdbURL,
-		Description: overallBest.Summary,
-		Rating:      overallBest.AggregatedRating,
+		Description: game.Summary,
+		Rating:      game.AggregatedRating,
+	}
+	if len(igdbPlatforms) > 0 && gamePlatformMatches(game.Platforms, igdbPlatforms) {
+		r.Platform = q.Platform
 	}
 
-	if overallBest.FirstReleaseDate > 0 {
-		r.ReleaseDate = time.Unix(overallBest.FirstReleaseDate, 0).UTC().Format("2006-01-02")
+	if game.FirstReleaseDate > 0 {
+		r.ReleaseDate = time.Unix(game.FirstReleaseDate, 0).UTC().Format("2006-01-02")
 	}
 
-	for _, g := range overallBest.Genres {
+	for _, g := range game.Genres {
 		r.Genres = append(r.Genres, g.Name)
 	}
 
-	for _, ic := range overallBest.InvolvedCompanies {
+	for _, ic := range game.InvolvedCompanies {
 		if ic.Developer && r.Developer == "" {
 			r.Developer = ic.Company.Name
 		}
@@ -508,13 +584,13 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 		}
 	}
 
-	if overallBest.Cover != nil && overallBest.Cover.ImageID != "" {
+	if game.Cover != nil && game.Cover.ImageID != "" {
 		r.Media = append(r.Media, mediaItem{
 			Type: "cover",
-			URL:  fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_cover_big/%s.jpg", overallBest.Cover.ImageID),
+			URL:  fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_cover_big/%s.jpg", game.Cover.ImageID),
 		})
 	}
-	for _, ss := range overallBest.Screenshots {
+	for _, ss := range game.Screenshots {
 		if ss.ImageID != "" {
 			r.Media = append(r.Media, mediaItem{
 				Type: "screenshot",
@@ -522,7 +598,7 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 			})
 		}
 	}
-	for _, aw := range overallBest.Artworks {
+	for _, aw := range game.Artworks {
 		if aw.ImageID != "" {
 			r.Media = append(r.Media, mediaItem{
 				Type: "artwork",
@@ -530,7 +606,7 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 			})
 		}
 	}
-	for _, v := range overallBest.Videos {
+	for _, v := range game.Videos {
 		if v.VideoID != "" {
 			r.Media = append(r.Media, mediaItem{
 				Type: "video",
@@ -540,7 +616,7 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 	}
 
 	maxP := 0
-	for _, mm := range overallBest.MultiplayerModes {
+	for _, mm := range game.MultiplayerModes {
 		if mm.OnlineMax > maxP {
 			maxP = mm.OnlineMax
 		}
@@ -550,11 +626,11 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 	}
 	if maxP > 0 {
 		r.MaxPlayers = maxP
-	} else if len(overallBest.GameModes) == 1 && overallBest.GameModes[0].Name == "Single player" {
+	} else if len(game.GameModes) == 1 && game.GameModes[0].Name == "Single player" {
 		r.MaxPlayers = 1
 	}
 
-	return r, nil
+	return r
 }
 
 func scoreCandidate(normalizedQuery string, queryTokens map[string]bool, g *igdbGame) float64 {

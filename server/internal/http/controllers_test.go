@@ -50,12 +50,29 @@ func (f *fakeGameMetadataRefreshService) RefreshGameMetadata(context.Context, st
 
 type fakeGameDeletionService struct {
 	result            *core.DeleteSourceGameResult
+	preview           *core.DeleteSourceGamePreview
 	err               error
+	previewErr        error
+	canonicalID       string
+	sourceGameID      string
 	reviewCandidateID string
 }
 
-func (f *fakeGameDeletionService) DeleteSourceGame(context.Context, string, string) (*core.DeleteSourceGameResult, error) {
+func (f *fakeGameDeletionService) PreviewDeleteSourceGame(_ context.Context, canonicalID, sourceGameID string) (*core.DeleteSourceGamePreview, error) {
+	f.canonicalID = canonicalID
+	f.sourceGameID = sourceGameID
+	return f.preview, f.previewErr
+}
+
+func (f *fakeGameDeletionService) DeleteSourceGame(_ context.Context, canonicalID, sourceGameID string) (*core.DeleteSourceGameResult, error) {
+	f.canonicalID = canonicalID
+	f.sourceGameID = sourceGameID
 	return f.result, f.err
+}
+
+func (f *fakeGameDeletionService) PreviewDeleteReviewCandidateFiles(_ context.Context, candidateID string) (*core.DeleteSourceGamePreview, error) {
+	f.reviewCandidateID = candidateID
+	return f.preview, f.previewErr
 }
 
 func (f *fakeGameDeletionService) DeleteReviewCandidateFiles(_ context.Context, candidateID string) (*core.DeleteSourceGameResult, error) {
@@ -141,6 +158,44 @@ func TestGameControllerRefreshMetadataMapsFastFailErrors(t *testing.T) {
 				t.Fatalf("status = %d, want %d", rec.Code, tc.wantStatus)
 			}
 		})
+	}
+}
+
+func TestGameControllerPreviewDeleteSourceGameReturnsPluginPlan(t *testing.T) {
+	deleteSvc := &fakeGameDeletionService{
+		preview: &core.DeleteSourceGamePreview{
+			SourceGameID: "source-1",
+			PluginID:     "game-source-google-drive",
+			Action:       "trash",
+			Summary:      "1 file will be moved to Google Drive trash.",
+			Items: []core.DeleteSourceGamePreviewItem{{
+				Path:     "Games/Platforms/SNES/Game.sfc",
+				ObjectID: "drive-file-1",
+				Size:     1024,
+				Action:   "trash",
+			}},
+		},
+	}
+	controller := NewGameController(&fakeGameStore{}, nil, deleteSvc, nil, nil, noopLogger{})
+	router := chi.NewRouter()
+	router.Post("/api/games/{id}/sources/{source_game_id}/delete-preview", controller.PreviewDeleteSourceGame)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/games/game-1/sources/source-1/delete-preview", http.NoBody)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if deleteSvc.canonicalID != "game-1" || deleteSvc.sourceGameID != "source-1" {
+		t.Fatalf("preview args = %q/%q, want game-1/source-1", deleteSvc.canonicalID, deleteSvc.sourceGameID)
+	}
+	var resp DeleteSourceGamePreviewResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Action != "trash" || len(resp.Items) != 1 || resp.Items[0].Path != "Games/Platforms/SNES/Game.sfc" {
+		t.Fatalf("response = %+v, want plugin trash preview item", resp)
 	}
 }
 
@@ -1053,11 +1108,12 @@ func (f *fakeGameStore) ClearCanonicalCoverOverride(_ context.Context, canonical
 }
 
 type fakePluginHost struct {
-	provides          map[string][]string
-	results           map[string]rawAchievementPluginResult
-	metadataResults   map[string]reviewMetadataLookupResponse
-	metadataCallError map[string]error
-	calls             []fakePluginCall
+	provides               map[string][]string
+	results                map[string]rawAchievementPluginResult
+	metadataResults        map[string]reviewMetadataLookupResponse
+	metadataCallError      map[string]error
+	metadataLookupRequests []reviewMetadataLookupRequest
+	calls                  []fakePluginCall
 }
 
 func (f *fakePluginHost) Discover(context.Context) error { panic("unexpected call") }
@@ -1080,12 +1136,21 @@ func (f *fakePluginHost) Call(_ context.Context, pluginID, method string, params
 		if !ok {
 			return nil
 		}
-		data, err := json.Marshal(payload)
+		responseData, err := json.Marshal(payload)
 		if err != nil {
 			return err
 		}
-		return json.Unmarshal(data, result)
+		return json.Unmarshal(responseData, result)
 	case reviewMetadataLookupMethod:
+		data, err := json.Marshal(params)
+		if err != nil {
+			return err
+		}
+		var req reviewMetadataLookupRequest
+		if err := json.Unmarshal(data, &req); err != nil {
+			return err
+		}
+		f.metadataLookupRequests = append(f.metadataLookupRequests, req)
 		if err, ok := f.metadataCallError[pluginID]; ok {
 			return err
 		}
@@ -1093,11 +1158,11 @@ func (f *fakePluginHost) Call(_ context.Context, pluginID, method string, params
 		if !ok {
 			return nil
 		}
-		data, err := json.Marshal(payload)
+		responseData, err := json.Marshal(payload)
 		if err != nil {
 			return err
 		}
-		return json.Unmarshal(data, result)
+		return json.Unmarshal(responseData, result)
 	default:
 		panic("unexpected call")
 	}

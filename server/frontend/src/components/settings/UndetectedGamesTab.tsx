@@ -9,10 +9,12 @@ import {
   getManualReviewCandidate,
   listManualReviewCandidates,
   markManualReviewCandidateNotAGame,
+  previewDeleteManualReviewCandidateFiles,
   redetectActiveManualReviewCandidates,
   redetectManualReviewCandidate,
   searchManualReviewCandidate,
   unarchiveManualReviewCandidate,
+  type DeleteSourceGamePreview,
   type ManualReviewCandidateDetail,
   type ManualReviewCandidateSummary,
   type ManualReviewScope,
@@ -29,6 +31,7 @@ import { brandLabel } from '@/lib/brands'
 import { pluginLabel } from '@/lib/gameUtils'
 
 const CANDIDATE_LIMIT = 200
+const RESULT_DESCRIPTION_PREVIEW_LENGTH = 280
 
 function safeText(value: string | null | undefined): string {
   return typeof value === 'string' ? value : ''
@@ -110,6 +113,19 @@ function preferredSearchQuery(candidate: ManualReviewCandidateDetail | undefined
   return safeText(candidate.current_title).trim() || safeText(candidate.raw_title).trim()
 }
 
+function manualSearchResultKey(result: ManualReviewSearchResult): string {
+  return `${result.provider_integration_id}:${result.provider_plugin_id}:${result.external_id}`
+}
+
+function previewDescription(description: string): { text: string; truncated: boolean } {
+  const text = description.trim()
+  if (text.length <= RESULT_DESCRIPTION_PREVIEW_LENGTH) return { text, truncated: false }
+  return {
+    text: `${text.slice(0, RESULT_DESCRIPTION_PREVIEW_LENGTH).trimEnd()}...`,
+    truncated: true,
+  }
+}
+
 function selectInitialCandidate(
   candidates: ManualReviewCandidateSummary[],
   legacy: { canonicalGameId?: string | null; title?: string | null; platform?: string | null; source?: string | null },
@@ -163,6 +179,9 @@ export function UndetectedGamesTab() {
   const [seededCandidateId, setSeededCandidateId] = useState<string | null>(null)
   const [redetectNotice, setRedetectNotice] = useState<string | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deletePreview, setDeletePreview] = useState<DeleteSourceGamePreview | null>(null)
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false)
+  const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(() => new Set())
 
   const scope: ManualReviewScope = searchParams.get('scope') === 'archive' ? 'archive' : 'active'
   const activeCandidateId = searchParams.get('candidate_id')?.trim() ?? ''
@@ -314,7 +333,10 @@ export function UndetectedGamesTab() {
 
   const deleteFilesMutation = useMutation({
     mutationFn: (candidateId: string) => deleteManualReviewCandidateFiles(candidateId),
-    onMutate: () => setRedetectNotice(null),
+    onMutate: () => {
+      setRedetectNotice(null)
+      setDeleteConfirmed(false)
+    },
     onSuccess: (result) => {
       const deletedCandidateId = result.deleted_candidate_id
       invalidateReviewQueries(deletedCandidateId)
@@ -325,6 +347,20 @@ export function UndetectedGamesTab() {
       next.set('scope', scope)
       next.delete('candidate_id')
       setSearchParams(next, { replace: true })
+    },
+  })
+
+  const deletePreviewMutation = useMutation({
+    mutationFn: (candidateId: string) => previewDeleteManualReviewCandidateFiles(candidateId),
+    onMutate: () => {
+      setRedetectNotice(null)
+      setDeletePreview(null)
+      setDeleteConfirmed(false)
+    },
+    onSuccess: (preview) => {
+      setDeletePreview(preview)
+      setDeleteConfirmed(false)
+      setDeleteDialogOpen(true)
     },
   })
 
@@ -356,9 +392,10 @@ export function UndetectedGamesTab() {
     unarchiveMutation.error ??
     redetectMutation.error ??
     batchRedetectMutation.error ??
+    deletePreviewMutation.error ??
     deleteFilesMutation.error
   const applyBusyKey = applyMutation.isPending && applyMutation.variables
-    ? `${applyMutation.variables.result.provider_plugin_id}:${applyMutation.variables.result.external_id}`
+    ? manualSearchResultKey(applyMutation.variables.result)
     : null
   const candidateTitle =
     (candidateQuery.data && (safeText(candidateQuery.data.current_title) || safeText(candidateQuery.data.raw_title))) ||
@@ -370,12 +407,32 @@ export function UndetectedGamesTab() {
   const candidateReviewReasons = safeList(candidateQuery.data?.review_reasons)
   const candidateFiles = safeList(candidateQuery.data?.files)
   const candidateResolverMatches = safeList(candidateQuery.data?.resolver_matches)
+  const deleteActionDescription =
+    deletePreview?.plugin_id === 'game-source-google-drive'
+      ? 'moves the source files shown below to Google Drive trash and removes the candidate from MGA'
+      : deletePreview?.action === 'trash'
+        ? 'moves the source files shown below to trash and removes the candidate from MGA'
+      : 'permanently deletes the source files shown below and removes the candidate from MGA'
+  const deletePreviewItems = safeList(deletePreview?.items)
 
   const submitSearch = () => {
     const nextQuery = searchQuery.trim()
     if (!nextQuery) return
     setSubmittedQuery(nextQuery)
   }
+
+  const toggleDescription = (resultKey: string) => {
+    setExpandedDescriptions((current) => {
+      const next = new Set(current)
+      if (next.has(resultKey)) next.delete(resultKey)
+      else next.add(resultKey)
+      return next
+    })
+  }
+
+  useEffect(() => {
+    setExpandedDescriptions(new Set())
+  }, [activeCandidateId, submittedQuery])
 
   return (
     <div className="space-y-6">
@@ -678,11 +735,11 @@ export function UndetectedGamesTab() {
                     type="button"
                     variant="outline"
                     className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"
-                    onClick={() => setDeleteDialogOpen(true)}
-                    disabled={candidateFiles.length === 0 || deleteFilesMutation.isPending}
+                    onClick={() => candidateQuery.data && deletePreviewMutation.mutate(candidateQuery.data.id)}
+                    disabled={candidateFiles.length === 0 || deletePreviewMutation.isPending || deleteFilesMutation.isPending}
                     title={candidateFiles.length === 0 ? 'No source files were recorded for this candidate.' : 'Delete candidate files'}
                   >
-                    {deleteFilesMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                    {deletePreviewMutation.isPending || deleteFilesMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
                     Delete Candidate Files
                   </Button>
                 </div>
@@ -764,7 +821,12 @@ export function UndetectedGamesTab() {
                         const isSelected =
                           activeManualMatch?.plugin_id === result.provider_plugin_id &&
                           activeManualMatch?.external_id === result.external_id
-                        const resultKey = `${result.provider_plugin_id}:${result.external_id}`
+                        const resultKey = manualSearchResultKey(result)
+                        const description = safeText(result.description).trim()
+                        const descriptionPreview = previewDescription(description)
+                        const descriptionExpanded = expandedDescriptions.has(resultKey)
+                        const visibleDescription =
+                          descriptionExpanded || !descriptionPreview.truncated ? description : descriptionPreview.text
                         return (
                           <article
                             key={`${result.provider_integration_id}:${result.provider_plugin_id}:${result.external_id}`}
@@ -806,7 +868,21 @@ export function UndetectedGamesTab() {
                                   {isSelected ? <Badge variant="accent">Current selection</Badge> : null}
                                 </div>
 
-                                {result.description ? <p className="text-sm leading-6 text-mga-muted">{result.description}</p> : null}
+                                {description ? (
+                                  descriptionPreview.truncated ? (
+                                    <button
+                                      type="button"
+                                      className="block w-full cursor-pointer break-words text-left text-sm leading-6 text-mga-muted transition hover:text-mga-text"
+                                      aria-expanded={descriptionExpanded}
+                                      title={descriptionExpanded ? 'Collapse description' : 'Expand description'}
+                                      onClick={() => toggleDescription(resultKey)}
+                                    >
+                                      {visibleDescription}
+                                    </button>
+                                  ) : (
+                                    <p className="break-words text-sm leading-6 text-mga-muted">{visibleDescription}</p>
+                                  )
+                                ) : null}
                                 {result.genres?.length ? (
                                   <div className="flex flex-wrap gap-2">
                                     {result.genres.map((genre) => <Badge key={`${result.external_id}:${genre}`} variant="accent">{genre}</Badge>)}
@@ -903,31 +979,64 @@ export function UndetectedGamesTab() {
       </section>
       <Dialog
         open={deleteDialogOpen}
-        onClose={() => !deleteFilesMutation.isPending && setDeleteDialogOpen(false)}
+        onClose={() => {
+          if (deleteFilesMutation.isPending) return
+          setDeleteDialogOpen(false)
+          setDeletePreview(null)
+          setDeleteConfirmed(false)
+        }}
         title="Delete Candidate Files"
       >
         <div className="space-y-4">
-          <div className="rounded-mga border border-red-500/30 bg-red-500/10 p-4 text-sm leading-6 text-red-100">
-            This permanently deletes the source files recorded for <span className="font-semibold">{candidateTitle}</span> and removes this
-            candidate from MGA. This is different from marking it as not a game, which only archives the record.
+          <div className="space-y-3 rounded-mga border border-red-500/30 bg-red-500/10 p-4 text-sm leading-6 text-red-100">
+            <p>
+              This {deleteActionDescription} for <span className="font-semibold">{candidateTitle}</span>. This is different from marking it as
+              not a game, which only archives the record.
+            </p>
+            <div className="border-t border-red-500/30 pt-3">
+              <p className="font-medium text-red-50">
+                {deletePreviewItems.length === 1 ? 'This file will be affected:' : 'These files will be affected:'}
+              </p>
+              <div className="mt-2 max-h-48 space-y-2 overflow-auto">
+                {deletePreviewItems.length === 0 ? (
+                  <p className="text-red-100/80">Delete preview did not return any files.</p>
+                ) : (
+                  deletePreviewItems.map((file) => (
+                    <div key={`${file.path}:${file.object_id ?? file.action}`} className="flex items-start justify-between gap-3">
+                      <span className="break-all text-red-50">{file.path}</span>
+                      <span className="shrink-0 text-red-100/80">{formatBytes(file.size ?? 0)}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+            {deletePreview?.warnings?.length ? (
+              <div className="border-t border-red-500/30 pt-3">
+                {deletePreview.warnings.map((warning) => (
+                  <p key={warning} className="text-red-100/80">{warning}</p>
+                ))}
+              </div>
+            ) : null}
           </div>
-          <div className="max-h-48 space-y-2 overflow-auto rounded-mga border border-mga-border bg-mga-bg p-3">
-            {candidateFiles.length === 0 ? (
-              <p className="text-sm text-mga-muted">No source files were recorded for this candidate.</p>
-            ) : (
-              candidateFiles.map((file) => (
-                <div key={`${file.path}:${file.role}`} className="flex items-start justify-between gap-3 text-sm">
-                  <span className="break-all text-mga-text">{file.path}</span>
-                  <span className="shrink-0 text-mga-muted">{formatBytes(file.size)}</span>
-                </div>
-              ))
-            )}
-          </div>
+          <label className="flex items-start gap-3 rounded-mga border border-red-500/30 bg-red-500/5 p-3 text-sm leading-6 text-red-100">
+            <input
+              type="checkbox"
+              checked={deleteConfirmed}
+              onChange={(event) => setDeleteConfirmed(event.target.checked)}
+              disabled={deleteFilesMutation.isPending || deletePreviewItems.length === 0}
+              className="mt-1 h-4 w-4 rounded border-red-400 bg-mga-bg accent-red-600"
+            />
+            <span>I understand this is the real delete action and want to continue.</span>
+          </label>
           <div className="flex justify-end gap-3">
             <Button
               type="button"
               variant="outline"
-              onClick={() => setDeleteDialogOpen(false)}
+              onClick={() => {
+                setDeleteDialogOpen(false)
+                setDeletePreview(null)
+                setDeleteConfirmed(false)
+              }}
               disabled={deleteFilesMutation.isPending}
             >
               Cancel
@@ -938,10 +1047,14 @@ export function UndetectedGamesTab() {
               onClick={() => {
                 if (!candidateQuery.data) return
                 deleteFilesMutation.mutate(candidateQuery.data.id, {
-                  onSuccess: () => setDeleteDialogOpen(false),
+                  onSuccess: () => {
+                    setDeleteDialogOpen(false)
+                    setDeletePreview(null)
+                    setDeleteConfirmed(false)
+                  },
                 })
               }}
-              disabled={!candidateQuery.data || candidateFiles.length === 0 || deleteFilesMutation.isPending}
+              disabled={!candidateQuery.data || deletePreviewItems.length === 0 || !deleteConfirmed || deleteFilesMutation.isPending}
             >
               {deleteFilesMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
               Delete Files

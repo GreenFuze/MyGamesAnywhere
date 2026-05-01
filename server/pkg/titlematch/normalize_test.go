@@ -9,6 +9,8 @@ func TestNormalizeLookupTitleStripsCommonDumpNoise(t *testing.T) {
 		want string
 	}{
 		{name: "region and dump tags", in: "aladdin (u) [!]", want: "aladdin"},
+		{name: "pokemon stadium dump tags", in: "pokemon stadium 2 (u) [!]", want: "pokemon stadium 2"},
+		{name: "accented pokemon title", in: "Pokémon Stadium 2", want: "pokemon stadium 2"},
 		{name: "mame set suffixes", in: "Altered Beast (set 8) (8751 317-0078)", want: "altered beast"},
 		{name: "multiple bracket suffixes", in: "Sonic The Hedgehog [!] (USA) [Rev A]", want: "sonic the hedgehog"},
 		{name: "setup prefix and version", in: "setup_aladdin_v1.2", want: "aladdin"},
@@ -25,6 +27,19 @@ func TestNormalizeLookupTitleStripsCommonDumpNoise(t *testing.T) {
 				t.Fatalf("NormalizeLookupTitle(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestLookupTitleVariantsReturnsRawThenNormalized(t *testing.T) {
+	got := LookupTitleVariants("pokemon stadium 2 (u) [!]")
+	want := []string{"pokemon stadium 2 (u) [!]", "pokemon stadium 2"}
+	if len(got) != len(want) {
+		t.Fatalf("LookupTitleVariants length = %d, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("LookupTitleVariants[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
 

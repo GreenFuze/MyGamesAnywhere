@@ -131,6 +131,11 @@ func TestBuildSearchQueries(t *testing.T) {
 		t.Errorf("pass 3 should use name~ wildcard: %s", queries[2])
 	}
 
+	n64Queries := buildSearchQueries("Pokemon Stadium 2", platformMap["n64"])
+	if len(n64Queries) == 0 || !strings.Contains(n64Queries[0], "platforms = 4") {
+		t.Fatalf("n64 query should contain IGDB platform 4: %v", n64Queries)
+	}
+
 	queriesNoPlatform := buildSearchQueries("Tetris", nil)
 	if len(queriesNoPlatform) != 2 {
 		t.Fatalf("expected 2 queries without platform, got %d", len(queriesNoPlatform))
@@ -283,11 +288,11 @@ func TestTV2GamesCoverage(t *testing.T) {
 	platformDirMap := map[string]string{
 		"MS DOS":                     "ms_dos",
 		"Nintendo Game Boy Advanced": "gba",
-		"Playstation":               "ps1",
-		"Playstation 2":             "ps2",
-		"Playstation 3":             "ps3",
-		"Playstation Portable":      "psp",
-		"XBox 360":                  "xbox_360",
+		"Playstation":                "ps1",
+		"Playstation 2":              "ps2",
+		"Playstation 3":              "ps3",
+		"Playstation Portable":       "psp",
+		"XBox 360":                   "xbox_360",
 	}
 
 	seenDirs := map[string]bool{}

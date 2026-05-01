@@ -82,7 +82,28 @@ func (c *deletionTestPluginCaller) Call(_ context.Context, pluginID string, meth
 		return c.err
 	}
 	if result != nil {
-		payload, _ := json.Marshal(map[string]any{"deleted_count": 1})
+		response := map[string]any{"deleted_count": 1}
+		if dryRun, _ := decoded["dry_run"].(bool); dryRun {
+			files, _ := decoded["files"].([]any)
+			items := make([]map[string]any, 0, len(files))
+			for _, file := range files {
+				entry, _ := file.(map[string]any)
+				items = append(items, map[string]any{
+					"path":   entry["path"],
+					"size":   entry["size"],
+					"action": "delete",
+				})
+			}
+			response = map[string]any{
+				"source_game_id": decoded["source_game_id"],
+				"plugin_id":      pluginID,
+				"action":         "delete",
+				"summary":        "test delete preview",
+				"items":          items,
+				"warnings":       []string{},
+			}
+		}
+		payload, _ := json.Marshal(response)
 		_ = json.Unmarshal(payload, result)
 	}
 	return nil
@@ -124,6 +145,50 @@ func TestDeletionServiceDeletesOneEligibleSourceRecord(t *testing.T) {
 	if caller.calls[0].method != sourceFilesystemDeleteMethod {
 		t.Fatalf("plugin delete method = %q, want %q", caller.calls[0].method, sourceFilesystemDeleteMethod)
 	}
+	if dryRun, _ := caller.calls[0].params["dry_run"].(bool); dryRun {
+		t.Fatal("dry_run param = true for real delete, want false")
+	}
+}
+
+func TestDeletionServicePreviewsSourceRecordDeleteWithoutMutation(t *testing.T) {
+	ctx := context.Background()
+	store := newDeletionTestStore(t)
+	canonicalID := persistDeletionTestSources(t, ctx, store, true)
+
+	repo := deletionTestIntegrationRepo{items: map[string]*core.Integration{
+		"source-a": {
+			ID:         "source-a",
+			PluginID:   "game-source-smb",
+			ConfigJSON: `{"host":"test","share":"games","username":"u","password":"p","include_paths":[{"path":"Games","recursive":true}]}`,
+		},
+	}}
+	caller := &deletionTestPluginCaller{}
+	service := NewDeletionService(store, repo, caller, deletionTestLogger{})
+
+	preview, err := service.PreviewDeleteSourceGame(ctx, canonicalID, "scan:source-a")
+	if err != nil {
+		t.Fatalf("PreviewDeleteSourceGame: %v", err)
+	}
+	if preview.SourceGameID != "scan:source-a" || preview.PluginID != "game-source-smb" || preview.Action != "delete" {
+		t.Fatalf("preview = %+v, want source/plugin/action", preview)
+	}
+	if len(preview.Items) != 1 || preview.Items[0].Path != "Alpha.exe" {
+		t.Fatalf("preview items = %+v, want Alpha.exe", preview.Items)
+	}
+	if len(caller.calls) != 1 {
+		t.Fatalf("plugin calls = %d, want 1", len(caller.calls))
+	}
+	if dryRun, _ := caller.calls[0].params["dry_run"].(bool); !dryRun {
+		t.Fatalf("dry_run param = %v, want true", caller.calls[0].params["dry_run"])
+	}
+
+	remaining, err := store.GetManualReviewCandidate(ctx, "scan:source-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining == nil {
+		t.Fatal("source record was removed during preview")
+	}
 }
 
 func TestDeletionServiceDeletesManualReviewCandidateFiles(t *testing.T) {
@@ -153,6 +218,135 @@ func TestDeletionServiceDeletesManualReviewCandidateFiles(t *testing.T) {
 	}
 	if len(caller.calls) != 1 {
 		t.Fatalf("plugin delete calls = %d, want 1", len(caller.calls))
+	}
+}
+
+func TestDeletionServiceDeletesManualReviewCandidateFilesWithoutCanonicalMembership(t *testing.T) {
+	ctx := context.Background()
+	store := newDeletionTestStore(t)
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "source-a",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:review-only",
+			IntegrationID: "source-a",
+			PluginID:      "game-source-smb",
+			ExternalID:    "review-only",
+			RawTitle:      "Review Only",
+			Platform:      core.PlatformUnknown,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindUnknown,
+			RootPath:      "Games/Review Only",
+			Status:        "found",
+			ReviewState:   core.ManualReviewStatePending,
+			Files: []core.GameFile{{
+				GameID:   "scan:review-only",
+				Path:     "Review Only.exe",
+				FileName: "Review Only.exe",
+				Role:     core.GameFileRoleRoot,
+				FileKind: "exe",
+				Size:     4096,
+			}},
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{},
+		MediaItems:      map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := deletionTestIntegrationRepo{items: map[string]*core.Integration{
+		"source-a": {
+			ID:         "source-a",
+			PluginID:   "game-source-smb",
+			ConfigJSON: `{"host":"test","share":"games","username":"u","password":"p","include_paths":[{"path":"Games","recursive":true}]}`,
+		},
+	}}
+	caller := &deletionTestPluginCaller{}
+	service := NewDeletionService(store, repo, caller, deletionTestLogger{})
+
+	result, err := service.DeleteReviewCandidateFiles(ctx, "scan:review-only")
+	if err != nil {
+		t.Fatalf("DeleteReviewCandidateFiles: %v", err)
+	}
+	if result.DeletedSourceGameID != "scan:review-only" {
+		t.Fatalf("deleted source game id = %q, want scan:review-only", result.DeletedSourceGameID)
+	}
+	if result.CanonicalExists || result.CanonicalGame != nil {
+		t.Fatalf("result = %+v, want no canonical after deleting candidate without membership", result)
+	}
+	if len(caller.calls) != 1 {
+		t.Fatalf("plugin delete calls = %d, want 1", len(caller.calls))
+	}
+	files, ok := caller.calls[0].params["files"].([]any)
+	if !ok || len(files) != 1 {
+		t.Fatalf("plugin files payload = %#v, want one file", caller.calls[0].params["files"])
+	}
+	remaining, err := store.GetManualReviewCandidate(ctx, "scan:review-only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining != nil {
+		t.Fatalf("remaining candidate = %+v, want deleted", remaining)
+	}
+}
+
+func TestDeletionServicePreviewsManualReviewCandidateWithoutCanonicalMembership(t *testing.T) {
+	ctx := context.Background()
+	store := newDeletionTestStore(t)
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "source-a",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:review-only",
+			IntegrationID: "source-a",
+			PluginID:      "game-source-smb",
+			ExternalID:    "review-only",
+			RawTitle:      "Review Only",
+			Platform:      core.PlatformUnknown,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindUnknown,
+			RootPath:      "Games/Review Only",
+			Status:        "found",
+			ReviewState:   core.ManualReviewStatePending,
+			Files: []core.GameFile{{
+				GameID:   "scan:review-only",
+				Path:     "Review Only.exe",
+				FileName: "Review Only.exe",
+				Role:     core.GameFileRoleRoot,
+				FileKind: "exe",
+				Size:     4096,
+			}},
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{},
+		MediaItems:      map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := deletionTestIntegrationRepo{items: map[string]*core.Integration{
+		"source-a": {
+			ID:         "source-a",
+			PluginID:   "game-source-smb",
+			ConfigJSON: `{"host":"test","share":"games","username":"u","password":"p","include_paths":[{"path":"Games","recursive":true}]}`,
+		},
+	}}
+	caller := &deletionTestPluginCaller{}
+	service := NewDeletionService(store, repo, caller, deletionTestLogger{})
+
+	preview, err := service.PreviewDeleteReviewCandidateFiles(ctx, "scan:review-only")
+	if err != nil {
+		t.Fatalf("PreviewDeleteReviewCandidateFiles: %v", err)
+	}
+	if preview.SourceGameID != "scan:review-only" || len(preview.Items) != 1 {
+		t.Fatalf("preview = %+v, want one review candidate item", preview)
+	}
+	if dryRun, _ := caller.calls[0].params["dry_run"].(bool); !dryRun {
+		t.Fatalf("dry_run param = %v, want true", caller.calls[0].params["dry_run"])
+	}
+	remaining, err := store.GetManualReviewCandidate(ctx, "scan:review-only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining == nil {
+		t.Fatal("candidate was removed during preview")
 	}
 }
 

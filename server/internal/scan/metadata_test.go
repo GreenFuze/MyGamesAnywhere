@@ -505,6 +505,62 @@ func TestIdentifyStrictRunsSourcesConcurrently(t *testing.T) {
 	}
 }
 
+func TestLookupMetadataSourcesRunsSourcesConcurrentlyAndPreservesOrder(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
+
+	caller := &mockCaller{
+		callFn: func(pluginID, method string, params any) (any, error) {
+			if method != metadataGameLookupMethod {
+				return nil, nil
+			}
+			started <- pluginID
+			<-release
+			return metadataLookupResponse{
+				Results: []metadataMatch{{
+					Index:      0,
+					Title:      pluginID,
+					ExternalID: pluginID,
+				}},
+			}, nil
+		},
+	}
+
+	sources := []MetadataSource{
+		{PluginID: "plugin-a", IntegrationID: "a"},
+		{PluginID: "plugin-b", IntegrationID: "b"},
+	}
+	queries := []MetadataLookupQuery{{
+		Index: 0,
+		Title: "proof",
+	}}
+
+	done := make(chan []MetadataLookupSourceResult, 1)
+	go func() {
+		done <- LookupMetadataSources(context.Background(), caller, sources, queries)
+	}()
+
+	seen := map[string]bool{}
+	timeout := time.After(2 * time.Second)
+	for len(seen) < 2 {
+		select {
+		case pluginID := <-started:
+			seen[pluginID] = true
+		case <-timeout:
+			t.Fatalf("LookupMetadataSources did not start both providers concurrently; saw=%v", seen)
+		}
+	}
+
+	close(release)
+	results := <-done
+	if len(results) != 2 {
+		t.Fatalf("len(results) = %d, want 2", len(results))
+	}
+	if results[0].Source.PluginID != "plugin-a" || results[1].Source.PluginID != "plugin-b" {
+		t.Fatalf("source order = %+v, want plugin-a then plugin-b", results)
+	}
+}
+
 func TestEnrich_OutvotedResolverRequeried(t *testing.T) {
 	callCount := map[string]int{}
 	var callCountMu sync.Mutex

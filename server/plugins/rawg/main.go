@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/pkg/titlematch"
@@ -42,11 +43,12 @@ type lookupParams struct {
 }
 
 type gameQuery struct {
-	Index     int    `json:"index"`
-	Title     string `json:"title"`
-	Platform  string `json:"platform"`
-	RootPath  string `json:"root_path"`
-	GroupKind string `json:"group_kind"`
+	Index        int    `json:"index"`
+	Title        string `json:"title"`
+	Platform     string `json:"platform"`
+	RootPath     string `json:"root_path"`
+	GroupKind    string `json:"group_kind"`
+	LookupIntent string `json:"lookup_intent,omitempty"`
 }
 
 type mediaItem struct {
@@ -131,6 +133,7 @@ var platformMap = map[string]int{
 	"windows_pc": 4,
 	"ms_dos":     4,
 	"gba":        24,
+	"n64":        83,
 	"ps1":        27,
 	"ps2":        15,
 	"ps3":        16,
@@ -343,6 +346,15 @@ func handleLookup(params lookupParams) (any, *Error) {
 
 	var results []lookupResult
 	for _, q := range params.Games {
+		if q.LookupIntent == "manual_search" {
+			matches, err := matchGamesForManualSearch(q)
+			if err != nil {
+				log.Printf("RAWG manual lookup error for %q: %v", q.Title, err)
+				continue
+			}
+			results = append(results, matches...)
+			continue
+		}
 		r, err := matchGame(q)
 		if err != nil {
 			log.Printf("RAWG lookup error for %q: %v", q.Title, err)
@@ -358,6 +370,8 @@ func handleLookup(params lookupParams) (any, *Error) {
 
 const minMatchScore = 0.7
 const goodMatchScore = 0.9
+const manualMinMatchScore = 0.45
+const maxManualResults = 10
 
 func matchGame(q gameQuery) (*lookupResult, error) {
 	cleanedTitle := normalizeTitle(q.Title)
@@ -393,11 +407,75 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 		return nil, nil
 	}
 
+	return buildResult(q, overallBest), nil
+}
+
+func matchGamesForManualSearch(q gameQuery) ([]lookupResult, error) {
+	queryTokens := tokenize(q.Title)
+	type candidate struct {
+		game  rawgGame
+		score float64
+	}
+	candidates := map[int]candidate{}
+	for _, variant := range titlematch.LookupTitleVariants(q.Title) {
+		cleanedTitle := normalizeTitle(variant)
+		if cleanedTitle == "" {
+			continue
+		}
+		for _, pass := range buildSearchQueries(q.Platform) {
+			games, err := rawgSearch(cleanedTitle, pass.platformID, pass.exact)
+			if err != nil {
+				return nil, err
+			}
+			for i := range games {
+				score := scoreCandidate(cleanedTitle, queryTokens, &games[i])
+				if score < manualMinMatchScore {
+					continue
+				}
+				current, ok := candidates[games[i].ID]
+				if !ok || score > current.score {
+					candidates[games[i].ID] = candidate{game: games[i], score: score}
+				}
+			}
+		}
+	}
+
+	rawgID := platformMap[q.Platform]
+	ranked := make([]candidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		ranked = append(ranked, candidate)
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		leftPlatform := rawgGamePlatformMatches(ranked[i].game, rawgID)
+		rightPlatform := rawgGamePlatformMatches(ranked[j].game, rawgID)
+		if leftPlatform != rightPlatform {
+			return leftPlatform
+		}
+		if ranked[i].score != ranked[j].score {
+			return ranked[i].score > ranked[j].score
+		}
+		return ranked[i].game.Name < ranked[j].game.Name
+	})
+	if len(ranked) > maxManualResults {
+		ranked = ranked[:maxManualResults]
+	}
+	results := make([]lookupResult, 0, len(ranked))
+	for _, item := range ranked {
+		results = append(results, *buildResult(q, &item.game))
+	}
+	return results, nil
+}
+
+func buildResult(q gameQuery, overallBest *rawgGame) *lookupResult {
+	rawgID := platformMap[q.Platform]
 	r := &lookupResult{
 		Index:      q.Index,
 		Title:      overallBest.Name,
 		ExternalID: fmt.Sprintf("%d", overallBest.ID),
 		URL:        fmt.Sprintf("https://rawg.io/games/%s", overallBest.Slug),
+	}
+	if rawgID > 0 && rawgGamePlatformMatches(*overallBest, rawgID) {
+		r.Platform = q.Platform
 	}
 
 	r.ReleaseDate = overallBest.Released
@@ -429,7 +507,19 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 		}
 	}
 
-	return r, nil
+	return r
+}
+
+func rawgGamePlatformMatches(game rawgGame, wanted int) bool {
+	if wanted <= 0 {
+		return false
+	}
+	for _, platform := range game.Platforms {
+		if platform.Platform.ID == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Main ---

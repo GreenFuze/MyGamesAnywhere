@@ -21,9 +21,11 @@ import {
   deleteSourceGame,
   getGame,
   getGameAchievements,
+  previewDeleteSourceGame,
   refreshGameMetadata,
   type AchievementDTO,
   type AchievementSetDTO,
+  type DeleteSourceGamePreview,
   type ExternalIDDTO,
   type GameFileDTO,
   type GameLaunchOptionDTO,
@@ -1119,6 +1121,9 @@ export function GameDetailPage() {
   const [refreshNotice, setRefreshNotice] = useState('')
   const [refreshError, setRefreshError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<SourceGameDetailDTO | null>(null)
+  const [deletePreview, setDeletePreview] = useState<DeleteSourceGamePreview | null>(null)
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false)
+  const [deletePreviewBusy, setDeletePreviewBusy] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteNotice, setDeleteNotice] = useState('')
   const [showFloatingActions, setShowFloatingActions] = useState(false)
@@ -1357,14 +1362,31 @@ export function GameDetailPage() {
     }
   }
 
-  const handleRequestHardDelete = (source: SourceGameDetailDTO) => {
+  const handleRequestHardDelete = async (source: SourceGameDetailDTO) => {
+    if (!game.data || deletePreviewBusy || deleteBusy) return
     setDeleteError('')
     setDeleteNotice('')
+    setDeletePreview(null)
+    setDeleteConfirmed(false)
     setDeleteTarget(source)
+    setDeletePreviewBusy(true)
+    try {
+      const preview = await previewDeleteSourceGame(game.data.id, source.id)
+      setDeletePreview(preview)
+      setDeleteConfirmed(false)
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.responseText?.trim() || error.message
+          : (error instanceof Error ? error.message : 'Delete preview failed.')
+      setDeleteError(message)
+    } finally {
+      setDeletePreviewBusy(false)
+    }
   }
 
   const handleConfirmHardDelete = async () => {
-    if (!game.data || !deleteTarget || deleteBusy) return
+    if (!game.data || !deleteTarget || !deletePreview || deletePreview.items.length === 0 || !deleteConfirmed || deleteBusy) return
     setDeleteBusy(true)
     setDeleteError('')
     setDeleteNotice('')
@@ -1391,6 +1413,8 @@ export function GameDetailPage() {
         navigate('/library', { replace: true })
       }
       setDeleteTarget(null)
+      setDeletePreview(null)
+      setDeleteConfirmed(false)
     } catch (error) {
       const message =
         error instanceof ApiError
@@ -1979,44 +2003,96 @@ export function GameDetailPage() {
       <Dialog
         open={deleteTarget !== null}
         onClose={() => {
-          if (!deleteBusy) setDeleteTarget(null)
+          if (deleteBusy || deletePreviewBusy) return
+          setDeleteTarget(null)
+          setDeletePreview(null)
+          setDeleteConfirmed(false)
         }}
         title="Hard Delete Source Record"
       >
         {deleteTarget && (
           <div className="space-y-4">
             <p className="text-sm text-mga-muted">
-              This permanently deletes the backing files and stored source record for
+              This {deletePreview?.plugin_id === 'game-source-google-drive'
+                ? 'moves the backing files shown below to Google Drive trash'
+                : deletePreview?.action === 'trash'
+                  ? 'moves the backing files shown below to trash'
+                  : 'permanently deletes the backing files shown below'} and removes the stored source record for
               {' '}
               <span className="font-medium text-mga-text">{sourceRecordLabel(deleteTarget)}</span>.
             </p>
-            {deleteTarget.root_path && (
+            {deletePreviewBusy ? (
+              <div className="flex items-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-muted">
+                <Loader2 size={16} className="animate-spin" />
+                Building delete preview from source plugin...
+              </div>
+            ) : null}
+            {deletePreview ? (
+              <div className="space-y-3 rounded-mga border border-red-500/30 bg-red-500/10 p-4 text-sm leading-6 text-red-100">
+                <p className="font-medium text-red-50">{deletePreview.summary}</p>
+                <div className="max-h-56 space-y-2 overflow-auto">
+                  {deletePreview.items.map((item) => (
+                    <div key={`${item.path}:${item.object_id ?? item.action}`} className="flex items-start justify-between gap-3">
+                      <span className="break-all text-red-50">{item.path}</span>
+                      <span className="shrink-0 text-red-100/80">{formatBytes(item.size ?? 0)}</span>
+                    </div>
+                  ))}
+                </div>
+                {deletePreview.warnings?.length ? (
+                  <div className="border-t border-red-500/30 pt-3">
+                    {deletePreview.warnings.map((warning) => (
+                      <p key={warning} className="text-red-100/80">{warning}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {!deletePreview && deleteTarget.root_path && (
               <p className="rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-xs text-mga-muted">
                 Root path: {deleteTarget.root_path}
               </p>
             )}
+            {deleteError ? <p className="text-xs text-red-400">{deleteError}</p> : null}
             {deleteTarget.hard_delete?.reason && !deleteTarget.hard_delete.eligible && (
               <p className="text-xs text-amber-300">{deleteTarget.hard_delete.reason}</p>
             )}
+            {deletePreview ? (
+              <label className="flex items-start gap-3 rounded-mga border border-red-500/30 bg-red-500/5 p-3 text-sm leading-6 text-red-100">
+                <input
+                  type="checkbox"
+                  checked={deleteConfirmed}
+                  onChange={(event) => setDeleteConfirmed(event.target.checked)}
+                  disabled={deleteBusy || deletePreview.items.length === 0}
+                  className="mt-1 h-4 w-4 rounded border-red-400 bg-mga-bg accent-red-600"
+                />
+                <span>I understand this is the real delete action and want to continue.</span>
+              </label>
+            ) : null}
             <div className="flex justify-end gap-3">
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setDeleteTarget(null)}
-                disabled={deleteBusy}
+                onClick={() => {
+                  setDeleteTarget(null)
+                  setDeletePreview(null)
+                  setDeleteConfirmed(false)
+                }}
+                disabled={deleteBusy || deletePreviewBusy}
               >
                 Cancel
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void handleConfirmHardDelete()}
-                disabled={deleteBusy}
-                className="border-red-500/30 text-red-200 hover:bg-red-500/10"
-              >
-                <FileText size={16} />
-                {deleteBusy ? 'Deleting...' : 'Delete Source Record'}
-              </Button>
+              {deletePreview ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleConfirmHardDelete()}
+                  disabled={deleteBusy || deletePreview.items.length === 0 || !deleteConfirmed}
+                  className="border-red-500/30 text-red-200 hover:bg-red-500/10"
+                >
+                  <FileText size={16} />
+                  {deleteBusy ? 'Deleting...' : 'Delete Source Record'}
+                </Button>
+              ) : null}
             </div>
           </div>
         )}

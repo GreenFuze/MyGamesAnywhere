@@ -187,6 +187,35 @@ func TestMatchGame_UsesExpandedPlatformMappings(t *testing.T) {
 	}
 }
 
+func TestManualSearchReturnsNormalizedN64Matches(t *testing.T) {
+	idx := &launchBoxIndex{
+		files: map[string]*fileEntry{},
+		games: map[string]*gameEntry{
+			"nintendo 64\tpokemon stadium 2": {DatabaseID: 2000, Name: "Pokemon Stadium 2", Platform: "Nintendo 64"},
+			"nintendo 64\tpokemon stadium":   {DatabaseID: 1999, Name: "Pokemon Stadium", Platform: "Nintendo 64"},
+		},
+		normalized: map[string]*gameEntry{
+			"nintendo 64\tpokemon stadium 2": {DatabaseID: 2000, Name: "Pokemon Stadium 2", Platform: "Nintendo 64"},
+			"nintendo 64\tpokemon stadium":   {DatabaseID: 1999, Name: "Pokemon Stadium", Platform: "Nintendo 64"},
+		},
+		byPlatform: map[string][]tokenedGame{
+			"nintendo 64": {
+				{tokens: tokenize("Pokemon Stadium 2"), game: &gameEntry{DatabaseID: 2000, Name: "Pokemon Stadium 2", Platform: "Nintendo 64"}},
+				{tokens: tokenize("Pokemon Stadium"), game: &gameEntry{DatabaseID: 1999, Name: "Pokemon Stadium", Platform: "Nintendo 64"}},
+			},
+		},
+		images: map[int][]gameImage{},
+	}
+
+	results := matchGamesForManualSearch(idx, gameQuery{Index: 0, Title: "pokemon stadium 2 (u) [!]", Platform: "n64", LookupIntent: "manual_search"})
+	if len(results) == 0 {
+		t.Fatal("expected manual search results")
+	}
+	if results[0].Title != "Pokemon Stadium 2" || results[0].Platform != "n64" {
+		t.Fatalf("first result = %+v, want Pokemon Stadium 2 n64", results[0])
+	}
+}
+
 func TestMatchGame_UnknownInstallerFallsBackToWindows(t *testing.T) {
 	idx := &launchBoxIndex{
 		files: map[string]*fileEntry{},

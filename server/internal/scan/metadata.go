@@ -14,6 +14,8 @@ import (
 const metadataGameLookupMethod = "metadata.game.lookup"
 const metadataLookupChunkSize = 10
 const maxMetadataSourceConcurrency = 4
+const MetadataLookupIntentIdentify = "identify"
+const MetadataLookupIntentManualSearch = "manual_search"
 
 // MetadataSource identifies a metadata plugin and its config.
 // Sources are ordered by priority: index 0 is highest priority.
@@ -31,11 +33,12 @@ type metadataLookupRequest struct {
 }
 
 type metadataGameQuery struct {
-	Index     int    `json:"index"`
-	Title     string `json:"title"`
-	Platform  string `json:"platform"`
-	RootPath  string `json:"root_path"`
-	GroupKind string `json:"group_kind"`
+	Index        int    `json:"index"`
+	Title        string `json:"title"`
+	Platform     string `json:"platform"`
+	RootPath     string `json:"root_path"`
+	GroupKind    string `json:"group_kind"`
+	LookupIntent string `json:"lookup_intent,omitempty"`
 }
 
 type metadataLookupResponse struct {
@@ -307,11 +310,12 @@ func (r *MetadataResolver) callPluginIdentify(
 	queries := make([]metadataGameQuery, len(games))
 	for i, g := range games {
 		queries[i] = metadataGameQuery{
-			Index:     i,
-			Title:     g.RawTitle,
-			Platform:  string(g.Platform),
-			RootPath:  g.RootPath,
-			GroupKind: string(g.GroupKind),
+			Index:        i,
+			Title:        g.RawTitle,
+			Platform:     string(g.Platform),
+			RootPath:     g.RootPath,
+			GroupKind:    string(g.GroupKind),
+			LookupIntent: MetadataLookupIntentIdentify,
 		}
 	}
 
@@ -365,14 +369,47 @@ func LookupMetadataSources(
 	sources []MetadataSource,
 	queries []MetadataLookupQuery,
 ) []MetadataLookupSourceResult {
-	results := make([]MetadataLookupSourceResult, 0, len(sources))
-	for _, src := range sources {
-		matches, err := lookupMetadataSource(ctx, caller, src, queries, nil)
-		results = append(results, MetadataLookupSourceResult{
-			Source:  src,
-			Matches: matches,
-			Error:   err,
-		})
+	if len(sources) == 0 {
+		return nil
+	}
+
+	type indexedResult struct {
+		index  int
+		result MetadataLookupSourceResult
+	}
+	results := make([]MetadataLookupSourceResult, len(sources))
+	resultCh := make(chan indexedResult, len(sources))
+	sem := make(chan struct{}, metadataSourceConcurrency(len(sources)))
+	var wg sync.WaitGroup
+
+	for i, src := range sources {
+		index := i
+		source := src
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				resultCh <- indexedResult{index: index, result: MetadataLookupSourceResult{Source: source, Error: ctx.Err()}}
+				return
+			}
+			defer func() { <-sem }()
+
+			matches, err := lookupMetadataSource(ctx, caller, source, queries, nil)
+			resultCh <- indexedResult{index: index, result: MetadataLookupSourceResult{
+				Source:  source,
+				Matches: matches,
+				Error:   err,
+			}}
+		}()
+	}
+
+	wg.Wait()
+	close(resultCh)
+	for item := range resultCh {
+		results[item.index] = item.result
 	}
 	return results
 }
@@ -631,11 +668,12 @@ func (r *MetadataResolver) fillWithPolicy(
 		for j, e := range entries {
 			g := games[e.gameIdx]
 			queries[j] = metadataGameQuery{
-				Index:     j,
-				Title:     g.Title,
-				Platform:  string(g.Platform),
-				RootPath:  g.RootPath,
-				GroupKind: string(g.GroupKind),
+				Index:        j,
+				Title:        g.Title,
+				Platform:     string(g.Platform),
+				RootPath:     g.RootPath,
+				GroupKind:    string(g.GroupKind),
+				LookupIntent: MetadataLookupIntentIdentify,
 			}
 		}
 

@@ -95,6 +95,11 @@ func TestBuildSearchQueries(t *testing.T) {
 		t.Errorf("pass 3 should be exact without platform filter: %+v", passes[2])
 	}
 
+	n64Passes := buildSearchQueries("n64")
+	if len(n64Passes) != 3 || n64Passes[0].platformID != 83 {
+		t.Fatalf("n64 passes = %+v, want first platformID=83", n64Passes)
+	}
+
 	// Arcade has no RAWG platform → only 2 passes (no platform-filtered pass).
 	arcadePasses := buildSearchQueries("arcade")
 	if len(arcadePasses) != 2 {
@@ -210,11 +215,11 @@ func TestTV2GamesCoverage(t *testing.T) {
 	platformDirMap := map[string]string{
 		"MS DOS":                     "ms_dos",
 		"Nintendo Game Boy Advanced": "gba",
-		"Playstation":               "ps1",
-		"Playstation 2":             "ps2",
-		"Playstation 3":             "ps3",
-		"Playstation Portable":      "psp",
-		"XBox 360":                  "xbox_360",
+		"Playstation":                "ps1",
+		"Playstation 2":              "ps2",
+		"Playstation 3":              "ps3",
+		"Playstation Portable":       "psp",
+		"XBox 360":                   "xbox_360",
 	}
 
 	seenDirs := map[string]bool{}

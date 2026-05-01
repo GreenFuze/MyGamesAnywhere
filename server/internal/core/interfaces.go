@@ -297,8 +297,27 @@ type DeleteSourceGameResult struct {
 	CanonicalGame       *CanonicalGame
 }
 
+type DeleteSourceGamePreviewItem struct {
+	Path     string `json:"path"`
+	ObjectID string `json:"object_id,omitempty"`
+	IsDir    bool   `json:"is_dir,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+	Action   string `json:"action"`
+}
+
+type DeleteSourceGamePreview struct {
+	SourceGameID string                        `json:"source_game_id"`
+	PluginID     string                        `json:"plugin_id"`
+	Action       string                        `json:"action"`
+	Summary      string                        `json:"summary"`
+	Items        []DeleteSourceGamePreviewItem `json:"items"`
+	Warnings     []string                      `json:"warnings,omitempty"`
+}
+
 // GameDeletionService handles destructive, source-scoped file-backed deletions.
 type GameDeletionService interface {
+	PreviewDeleteSourceGame(ctx context.Context, canonicalID, sourceGameID string) (*DeleteSourceGamePreview, error)
 	DeleteSourceGame(ctx context.Context, canonicalID, sourceGameID string) (*DeleteSourceGameResult, error)
+	PreviewDeleteReviewCandidateFiles(ctx context.Context, candidateID string) (*DeleteSourceGamePreview, error)
 	DeleteReviewCandidateFiles(ctx context.Context, candidateID string) (*DeleteSourceGameResult, error)
 }

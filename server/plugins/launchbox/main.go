@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -120,6 +121,7 @@ func tokenize(s string) map[string]bool {
 const (
 	minJaccard        = 0.5
 	minMatchingTokens = 2
+	maxManualResults  = 10
 )
 
 // --- Title variations (roman ↔ arabic numerals) ---
@@ -215,6 +217,38 @@ func bestTokenMatch(queryTokens map[string]bool, candidates []tokenedGame) *game
 	return nil
 }
 
+type scoredGameEntry struct {
+	game  *gameEntry
+	score float64
+}
+
+func tokenMatches(queryTokens map[string]bool, candidates []tokenedGame) []scoredGameEntry {
+	var matches []scoredGameEntry
+	for i := range candidates {
+		intersection := 0
+		for t := range queryTokens {
+			if candidates[i].tokens[t] {
+				intersection++
+			}
+		}
+		if intersection < minMatchingTokens {
+			continue
+		}
+		union := len(queryTokens) + len(candidates[i].tokens) - intersection
+		score := float64(intersection) / float64(union)
+		if score >= minJaccard {
+			matches = append(matches, scoredGameEntry{game: candidates[i].game, score: score})
+		}
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].score != matches[j].score {
+			return matches[i].score > matches[j].score
+		}
+		return matches[i].game.Name < matches[j].game.Name
+	})
+	return matches
+}
+
 // Plugin request/response types.
 
 type lookupParams struct {
@@ -223,11 +257,12 @@ type lookupParams struct {
 }
 
 type gameQuery struct {
-	Index     int    `json:"index"`
-	Title     string `json:"title"`
-	Platform  string `json:"platform"`
-	RootPath  string `json:"root_path"`
-	GroupKind string `json:"group_kind"`
+	Index        int    `json:"index"`
+	Title        string `json:"title"`
+	Platform     string `json:"platform"`
+	RootPath     string `json:"root_path"`
+	GroupKind    string `json:"group_kind"`
+	LookupIntent string `json:"lookup_intent,omitempty"`
 }
 
 type mediaItemIPC struct {
@@ -784,6 +819,21 @@ func handleLookup(params lookupParams) (any, *Error) {
 
 	var results []lookupResult
 	for _, q := range params.Games {
+		if q.LookupIntent == "manual_search" {
+			matches := matchGamesForManualSearch(idx, q)
+			results = append(results, matches...)
+			if len(matches) > 0 {
+				continue
+			}
+			log.Printf(
+				"launchbox manual lookup miss: index=%d title=%q platform=%q root_path=%q",
+				q.Index,
+				q.Title,
+				q.Platform,
+				q.RootPath,
+			)
+			continue
+		}
 		if r := matchGame(idx, q); r != nil {
 			results = append(results, *r)
 			continue
@@ -798,6 +848,84 @@ func handleLookup(params lookupParams) (any, *Error) {
 	}
 
 	return map[string]any{"results": results}, nil
+}
+
+func matchGamesForManualSearch(idx *launchBoxIndex, q gameQuery) []lookupResult {
+	lbPlatforms := lookupPlatformsForQuery(q.Platform)
+	if len(lbPlatforms) == 0 {
+		lbPlatforms = fallbackPlatforms(q)
+	}
+	if len(lbPlatforms) == 0 {
+		lbPlatforms = []string{q.Platform}
+	}
+
+	type candidate struct {
+		entry *gameEntry
+		score float64
+	}
+	candidates := map[int]candidate{}
+	add := func(ge *gameEntry, score float64) {
+		if ge == nil {
+			return
+		}
+		current, ok := candidates[ge.DatabaseID]
+		if !ok || score > current.score {
+			candidates[ge.DatabaseID] = candidate{entry: ge, score: score}
+		}
+	}
+
+	filename := strings.TrimSuffix(q.Title, filepath.Ext(q.Title))
+	for _, lbp := range lbPlatforms {
+		if fe := idx.lookupFile(lbp, filename); fe != nil {
+			add(idx.lookupGame(fe.Platform, fe.GameName), 1.0)
+		}
+	}
+
+	for _, variant := range titlematch.LookupTitleVariants(q.Title) {
+		for _, lbp := range lbPlatforms {
+			add(idx.lookupGame(lbp, variant), 0.99)
+			add(idx.lookupNormalized(lbp, variant), 0.98)
+		}
+		normTitle := normalizeTitle(variant)
+		for _, titleVariant := range titleVariations(normTitle) {
+			for _, lbp := range lbPlatforms {
+				add(idx.normalized[strings.ToLower(lbp)+"\t"+titleVariant], 0.94)
+			}
+		}
+		queryTokens := tokenize(variant)
+		if len(queryTokens) >= minMatchingTokens {
+			for _, lbp := range lbPlatforms {
+				for _, match := range tokenMatches(queryTokens, idx.byPlatform[strings.ToLower(lbp)]) {
+					add(match.game, match.score)
+				}
+			}
+		}
+	}
+
+	ranked := make([]candidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		ranked = append(ranked, candidate)
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].score != ranked[j].score {
+			return ranked[i].score > ranked[j].score
+		}
+		if ranked[i].entry.Name != ranked[j].entry.Name {
+			return ranked[i].entry.Name < ranked[j].entry.Name
+		}
+		return ranked[i].entry.DatabaseID < ranked[j].entry.DatabaseID
+	})
+	if len(ranked) > maxManualResults {
+		ranked = ranked[:maxManualResults]
+	}
+
+	results := make([]lookupResult, 0, len(ranked))
+	for _, item := range ranked {
+		if result := buildResult(q.Index, item.entry, idx); result != nil {
+			results = append(results, *result)
+		}
+	}
+	return results
 }
 
 func matchGame(idx *launchBoxIndex, q gameQuery) *lookupResult {

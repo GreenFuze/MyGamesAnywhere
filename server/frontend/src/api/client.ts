@@ -326,6 +326,23 @@ export type DeleteSourceGameResponse = {
   game?: GameDetailResponse;
 };
 
+export type DeleteSourceGamePreviewItem = {
+  path: string;
+  object_id?: string;
+  is_dir?: boolean;
+  size?: number;
+  action: string;
+};
+
+export type DeleteSourceGamePreview = {
+  source_game_id: string;
+  plugin_id: string;
+  action: string;
+  summary: string;
+  items: DeleteSourceGamePreviewItem[];
+  warnings?: string[];
+};
+
 export type ListGamesResponse = {
   total: number;
   page: number;
@@ -479,6 +496,16 @@ export async function deleteSourceGame(
     );
   }
   return res.json() as Promise<DeleteSourceGameResponse>;
+}
+
+export async function previewDeleteSourceGame(
+  gameId: string,
+  sourceGameId: string,
+): Promise<DeleteSourceGamePreview> {
+  return postJson<DeleteSourceGamePreview>(
+    `/api/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/delete-preview`,
+    {},
+  ) as Promise<DeleteSourceGamePreview>;
 }
 
 export async function getFrontendConfig(): Promise<FrontendConfig> {
@@ -878,6 +905,15 @@ export async function deleteManualReviewCandidateFiles(
     throw await buildApiError(path, res);
   }
   return res.json() as Promise<ManualReviewDeleteCandidateFilesResponse>;
+}
+
+export async function previewDeleteManualReviewCandidateFiles(
+  id: string,
+): Promise<DeleteSourceGamePreview> {
+  return postJson<DeleteSourceGamePreview>(
+    `/api/review-candidates/${encodeURIComponent(id)}/files/delete-preview`,
+    {},
+  ) as Promise<DeleteSourceGamePreview>;
 }
 
 export async function listPlugins(): Promise<PluginInfo[]> {

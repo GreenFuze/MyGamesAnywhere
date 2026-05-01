@@ -86,6 +86,8 @@ type DeleteSourceGameResponse struct {
 	Game                *GameDetailResponse `json:"game,omitempty"`
 }
 
+type DeleteSourceGamePreviewResponse = core.DeleteSourceGamePreview
+
 type SetCoverOverrideRequest struct {
 	MediaAssetID int `json:"media_asset_id"`
 }
@@ -698,6 +700,44 @@ func (c *GameController) DeleteSourceGame(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (c *GameController) PreviewDeleteSourceGame(w http.ResponseWriter, r *http.Request) {
+	canonicalID, err := decodedPathParam(r, "id")
+	if err != nil {
+		writeActionError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	sourceGameID, err := decodedPathParam(r, "source_game_id")
+	if err != nil {
+		writeActionError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if canonicalID == "" || sourceGameID == "" {
+		writeActionError(w, http.StatusBadRequest, "id and source_game_id are required")
+		return
+	}
+	if c.deleteSvc == nil {
+		writeActionError(w, http.StatusNotImplemented, "source record hard delete preview is not available")
+		return
+	}
+
+	preview, err := c.deleteSvc.PreviewDeleteSourceGame(r.Context(), canonicalID, sourceGameID)
+	if err != nil {
+		switch {
+		case errors.Is(err, core.ErrSourceGameDeleteNotFound):
+			http.NotFound(w, r)
+		case errors.Is(err, core.ErrSourceGameDeleteNotEligible):
+			writeActionError(w, http.StatusConflict, err.Error())
+		default:
+			c.logger.Error("preview source game delete", err, "game_id", canonicalID, "source_game_id", sourceGameID)
+			writeActionError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(DeleteSourceGamePreviewResponse(*preview))
 }
 
 // Stats returns aggregate library statistics (GET /api/stats).

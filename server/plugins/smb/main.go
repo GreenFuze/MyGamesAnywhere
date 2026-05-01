@@ -285,10 +285,26 @@ func listFiles(config SMBConfig) ([]map[string]any, error) {
 	return files, nil
 }
 
+type sourceDeleteFile struct {
+	Path  string `json:"path"`
+	IsDir bool   `json:"is_dir"`
+	Size  int64  `json:"size"`
+}
+
+type sourceDeletePlanItem struct {
+	Path   string `json:"path"`
+	IsDir  bool   `json:"is_dir,omitempty"`
+	Size   int64  `json:"size,omitempty"`
+	Action string `json:"action"`
+}
+
 func handleSourceDelete(params json.RawMessage) (any, *Error) {
 	var body struct {
-		Config   SMBConfig `json:"config"`
-		RootPath string    `json:"root_path"`
+		Config       SMBConfig          `json:"config"`
+		RootPath     string             `json:"root_path"`
+		SourceGameID string             `json:"source_game_id"`
+		Files        []sourceDeleteFile `json:"files"`
+		DryRun       bool               `json:"dry_run"`
 	}
 	if err := json.Unmarshal(params, &body); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
@@ -300,6 +316,17 @@ func handleSourceDelete(params json.RawMessage) (any, *Error) {
 	if !sourcescope.ScopeContainsRootPath(rootPath, normalizedIncludePaths(body.Config)) {
 		return nil, &Error{Code: "NOT_ALLOWED", Message: "root_path is outside the configured include_paths scope"}
 	}
+	if len(body.Files) == 0 {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "files are required"}
+	}
+
+	items, errObj := buildSourceDeletePlan(rootPath, body.Config, body.Files)
+	if errObj != nil {
+		return nil, errObj
+	}
+	if body.DryRun {
+		return sourceDeleteResponse(body.SourceGameID, "game-source-smb", "delete", items, 0), nil
+	}
 
 	conn, session, share, err := mountShare(body.Config)
 	if err != nil {
@@ -309,10 +336,58 @@ func handleSourceDelete(params json.RawMessage) (any, *Error) {
 	defer session.Logoff()
 	defer share.Umount()
 
-	if err := share.RemoveAll(rootPath); err != nil {
-		return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
+	for _, item := range items {
+		if err := share.Remove(item.Path); err != nil {
+			return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
+		}
 	}
-	return map[string]any{"deleted_count": 1}, nil
+	return sourceDeleteResponse(body.SourceGameID, "game-source-smb", "delete", items, len(items)), nil
+}
+
+func buildSourceDeletePlan(rootPath string, config SMBConfig, files []sourceDeleteFile) ([]sourceDeletePlanItem, *Error) {
+	items := make([]sourceDeletePlanItem, 0, len(files))
+	for _, file := range files {
+		filePath := sourcescope.NormalizeLogicalPath(file.Path)
+		if filePath == "" {
+			return nil, &Error{Code: "INVALID_PARAMS", Message: "file path is required"}
+		}
+		if file.IsDir {
+			return nil, &Error{Code: "INVALID_PARAMS", Message: fmt.Sprintf("refusing to delete directory entry %q", filePath)}
+		}
+		if !sourceDeletePathWithinRoot(rootPath, filePath) {
+			return nil, &Error{Code: "NOT_ALLOWED", Message: fmt.Sprintf("file %q is outside root_path %q", filePath, rootPath)}
+		}
+		if !sourcescope.ScopeContainsRootPath(filePath, normalizedIncludePaths(config)) {
+			return nil, &Error{Code: "NOT_ALLOWED", Message: fmt.Sprintf("file %q is outside the configured include_paths scope", filePath)}
+		}
+		items = append(items, sourceDeletePlanItem{
+			Path:   filePath,
+			Size:   file.Size,
+			Action: "delete",
+		})
+	}
+	return items, nil
+}
+
+func sourceDeleteResponse(sourceGameID, pluginID, action string, items []sourceDeletePlanItem, deletedCount int) map[string]any {
+	return map[string]any{
+		"source_game_id": sourceGameID,
+		"plugin_id":      pluginID,
+		"action":         action,
+		"summary":        fmt.Sprintf("%d file(s) will be permanently deleted.", len(items)),
+		"items":          items,
+		"warnings":       []string{},
+		"deleted_count":  deletedCount,
+	}
+}
+
+func sourceDeletePathWithinRoot(rootPath, filePath string) bool {
+	rootPath = sourcescope.NormalizeLogicalPath(rootPath)
+	filePath = sourcescope.NormalizeLogicalPath(filePath)
+	if rootPath == "" {
+		return filePath != ""
+	}
+	return filePath == rootPath || strings.HasPrefix(filePath, rootPath+"/")
 }
 
 func handleFileMaterialize(params json.RawMessage) (any, *Error) {

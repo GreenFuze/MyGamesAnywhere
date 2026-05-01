@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -147,37 +148,38 @@ func TestReviewControllerGetCandidateReturnsDetail(t *testing.T) {
 }
 
 func TestReviewControllerSearchCandidateDefaultsQueryAndKeepsProviderFailures(t *testing.T) {
+	host := &fakePluginHost{
+		provides: map[string][]string{
+			reviewMetadataLookupMethod: {"metadata-igdb", "metadata-steamgriddb"},
+		},
+		metadataResults: map[string]reviewMetadataLookupResponse{
+			"metadata-igdb": {
+				Results: []reviewMetadataMatch{{
+					Title:       "Mystery Game",
+					Platform:    string(core.PlatformWindowsPC),
+					Kind:        string(core.GameKindBaseGame),
+					ExternalID:  "igdb-1",
+					URL:         "https://example.com/igdb-1",
+					Description: "A match from IGDB",
+					Genres:      []string{"Action"},
+					Media: []reviewMetadataMedia{{
+						Type: "cover",
+						URL:  "https://example.com/cover.png",
+					}},
+				}},
+			},
+		},
+		metadataCallError: map[string]error{
+			"metadata-steamgriddb": errors.New("provider offline"),
+		},
+	}
 	controller := NewReviewController(
 		&fakeIntegrationRepo{items: []*core.Integration{
 			{ID: "metadata-ok", Label: "IGDB", PluginID: "metadata-igdb", IntegrationType: "metadata", ConfigJSON: `{"api_key":"x"}`},
 			{ID: "metadata-fail", Label: "SteamGridDB", PluginID: "metadata-steamgriddb", IntegrationType: "metadata", ConfigJSON: `{"api_key":"y"}`},
 			{ID: "source-1", Label: "Steam Library", PluginID: "game-source-steam", IntegrationType: "source"},
 		}},
-		&fakePluginHost{
-			provides: map[string][]string{
-				reviewMetadataLookupMethod: {"metadata-igdb", "metadata-steamgriddb"},
-			},
-			metadataResults: map[string]reviewMetadataLookupResponse{
-				"metadata-igdb": {
-					Results: []reviewMetadataMatch{{
-						Title:       "Mystery Game",
-						Platform:    string(core.PlatformWindowsPC),
-						Kind:        string(core.GameKindBaseGame),
-						ExternalID:  "igdb-1",
-						URL:         "https://example.com/igdb-1",
-						Description: "A match from IGDB",
-						Genres:      []string{"Action"},
-						Media: []reviewMetadataMedia{{
-							Type: "cover",
-							URL:  "https://example.com/cover.png",
-						}},
-					}},
-				},
-			},
-			metadataCallError: map[string]error{
-				"metadata-steamgriddb": errors.New("provider offline"),
-			},
-		},
+		host,
 		&fakeGameStore{
 			manualReviewByID: map[string]*core.ManualReviewCandidate{
 				"scan:review-1": {
@@ -234,6 +236,12 @@ func TestReviewControllerSearchCandidateDefaultsQueryAndKeepsProviderFailures(t 
 	}
 	if resp.Providers[1].Status != "error" {
 		t.Fatalf("providers[1].status = %q, want %q", resp.Providers[1].Status, "error")
+	}
+	if len(host.metadataLookupRequests) == 0 || len(host.metadataLookupRequests[0].Games) != 1 {
+		t.Fatalf("metadata lookup requests = %+v, want one game query", host.metadataLookupRequests)
+	}
+	if got := host.metadataLookupRequests[0].Games[0].LookupIntent; got != scan.MetadataLookupIntentManualSearch {
+		t.Fatalf("lookup_intent = %q, want %q", got, scan.MetadataLookupIntentManualSearch)
 	}
 }
 
@@ -296,6 +304,75 @@ func TestReviewControllerSearchCandidatePreservesMetadataSourceOrder(t *testing.
 	}
 	if resp.Providers[0].IntegrationID != "metadata-z" || resp.Providers[1].IntegrationID != "metadata-a" {
 		t.Fatalf("provider order = %+v, want repo/source order metadata-z then metadata-a", resp.Providers)
+	}
+}
+
+func TestReviewControllerSearchCandidateRanksCandidatePlatformMatchesFirst(t *testing.T) {
+	controller := NewReviewController(
+		&fakeIntegrationRepo{items: []*core.Integration{
+			{ID: "metadata-a", Label: "Alpha", PluginID: "metadata-a", IntegrationType: "metadata", ConfigJSON: `{}`},
+			{ID: "metadata-b", Label: "Beta", PluginID: "metadata-b", IntegrationType: "metadata", ConfigJSON: `{}`},
+		}},
+		&fakePluginHost{
+			provides: map[string][]string{
+				reviewMetadataLookupMethod: {"metadata-a", "metadata-b"},
+			},
+			metadataResults: map[string]reviewMetadataLookupResponse{
+				"metadata-a": {Results: []reviewMetadataMatch{
+					{Title: "Pokemon Stadium 2 Windows", Platform: string(core.PlatformWindowsPC), ExternalID: "a-windows"},
+					{Title: "Pokemon Stadium 2", Platform: string(core.PlatformN64), ExternalID: "a-n64"},
+				}},
+				"metadata-b": {Results: []reviewMetadataMatch{
+					{Title: "Pokemon Stadium 2 Unknown", ExternalID: "b-unknown"},
+				}},
+			},
+		},
+		&fakeGameStore{
+			manualReviewByID: map[string]*core.ManualReviewCandidate{
+				"scan:pokemon": {
+					ID:            "scan:pokemon",
+					CurrentTitle:  "pokemon stadium 2 (u) [!]",
+					RawTitle:      "pokemon stadium 2 (u) [!]",
+					Platform:      core.PlatformN64,
+					Kind:          core.GameKindBaseGame,
+					GroupKind:     core.GroupKindSelfContained,
+					IntegrationID: "source-1",
+					PluginID:      "game-source-local",
+					ExternalID:    "pokemon",
+					Status:        "found",
+					ReviewState:   core.ManualReviewStatePending,
+					CreatedAt:     time.Unix(1710000000, 0).UTC(),
+				},
+			},
+		},
+		&fakeManualReviewService{},
+		nil,
+		noopLogger{},
+	)
+
+	router := chi.NewRouter()
+	router.Post("/api/review-candidates/{id}/search", controller.SearchCandidate)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/review-candidates/scan%3Apokemon/search", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var resp ManualReviewSearchResponseDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(resp.Results) != 3 {
+		t.Fatalf("len(results) = %d, want 3", len(resp.Results))
+	}
+	if resp.Results[0].ExternalID != "a-n64" {
+		t.Fatalf("first result external_id = %q, want n64 platform match first: %+v", resp.Results[0].ExternalID, resp.Results)
+	}
+	if resp.Results[1].ExternalID != "b-unknown" {
+		t.Fatalf("second result external_id = %q, want unknown platform before mismatch", resp.Results[1].ExternalID)
 	}
 }
 
@@ -688,6 +765,52 @@ func TestReviewControllerDeleteCandidateFilesReturnsDeletedCandidate(t *testing.
 	}
 	if resp.DeletedCandidateID != "scan:review-1" || resp.CanonicalExists {
 		t.Fatalf("response = %+v, want deleted candidate without canonical", resp)
+	}
+}
+
+func TestReviewControllerPreviewDeleteCandidateFilesReturnsPluginPlan(t *testing.T) {
+	deleteSvc := &fakeGameDeletionService{
+		preview: &core.DeleteSourceGamePreview{
+			SourceGameID: "scan:review-1",
+			PluginID:     "game-source-google-drive",
+			Action:       "trash",
+			Summary:      "1 file will be moved to Google Drive trash.",
+			Items: []core.DeleteSourceGamePreviewItem{{
+				Path:     "Games/Platforms/SNES/Game.sfc",
+				ObjectID: "drive-file-1",
+				Size:     1024,
+				Action:   "trash",
+			}},
+		},
+	}
+	controller := NewReviewController(
+		&fakeIntegrationRepo{},
+		&fakePluginHost{},
+		&fakeGameStore{},
+		&fakeManualReviewService{},
+		deleteSvc,
+		noopLogger{},
+	)
+
+	router := chi.NewRouter()
+	router.Post("/api/review-candidates/{id}/files/delete-preview", controller.PreviewDeleteCandidateFiles)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/review-candidates/scan%3Areview-1/files/delete-preview", http.NoBody)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if deleteSvc.reviewCandidateID != "scan:review-1" {
+		t.Fatalf("review candidate id = %q, want scan:review-1", deleteSvc.reviewCandidateID)
+	}
+	var resp ManualReviewDeleteCandidateFilesPreviewDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Action != "trash" || len(resp.Items) != 1 || resp.Items[0].Path != "Games/Platforms/SNES/Game.sfc" {
+		t.Fatalf("response = %+v, want plugin trash preview item", resp)
 	}
 }
 

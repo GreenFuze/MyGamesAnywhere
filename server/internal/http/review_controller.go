@@ -126,16 +126,19 @@ type ManualReviewDeleteCandidateFilesResponseDTO struct {
 	CanonicalExists    bool   `json:"canonical_exists"`
 }
 
+type ManualReviewDeleteCandidateFilesPreviewDTO = core.DeleteSourceGamePreview
+
 type reviewMetadataLookupRequest struct {
 	Games []reviewMetadataGameQuery `json:"games"`
 }
 
 type reviewMetadataGameQuery struct {
-	Index     int    `json:"index"`
-	Title     string `json:"title"`
-	Platform  string `json:"platform"`
-	RootPath  string `json:"root_path"`
-	GroupKind string `json:"group_kind"`
+	Index        int    `json:"index"`
+	Title        string `json:"title"`
+	Platform     string `json:"platform"`
+	RootPath     string `json:"root_path"`
+	GroupKind    string `json:"group_kind"`
+	LookupIntent string `json:"lookup_intent,omitempty"`
 }
 
 type reviewMetadataLookupResponse struct {
@@ -307,11 +310,12 @@ func (c *ReviewController) SearchCandidate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	lookupResults := scan.LookupMetadataSources(r.Context(), c.pluginHost, lookupSources, []scan.MetadataLookupQuery{{
-		Index:     0,
-		Title:     query,
-		Platform:  string(candidate.Platform),
-		RootPath:  candidate.RootPath,
-		GroupKind: string(candidate.GroupKind),
+		Index:        0,
+		Title:        query,
+		Platform:     string(candidate.Platform),
+		RootPath:     candidate.RootPath,
+		GroupKind:    string(candidate.GroupKind),
+		LookupIntent: scan.MetadataLookupIntentManualSearch,
 	}})
 	lookupResultsByIntegrationID := make(map[string]scan.MetadataLookupSourceResult, len(lookupResults))
 	for _, lookup := range lookupResults {
@@ -394,20 +398,41 @@ func (c *ReviewController) SearchCandidate(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	sort.Slice(resp.Results, func(i, j int) bool {
-		left := resp.Results[i]
-		right := resp.Results[j]
-		if left.ProviderLabel == right.ProviderLabel {
-			if left.Title == right.Title {
-				return left.ExternalID < right.ExternalID
-			}
-			return left.Title < right.Title
-		}
-		return left.ProviderLabel < right.ProviderLabel
-	})
+	sortManualReviewSearchResults(resp.Results, candidate.Platform)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func sortManualReviewSearchResults(results []ManualReviewSearchResultDTO, candidatePlatform core.Platform) {
+	sort.Slice(results, func(i, j int) bool {
+		left := results[i]
+		right := results[j]
+		if leftRank, rightRank := manualReviewPlatformRank(left.Platform, candidatePlatform), manualReviewPlatformRank(right.Platform, candidatePlatform); leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		if left.ProviderLabel != right.ProviderLabel {
+			return left.ProviderLabel < right.ProviderLabel
+		}
+		if left.Title != right.Title {
+			return left.Title < right.Title
+		}
+		return left.ExternalID < right.ExternalID
+	})
+}
+
+func manualReviewPlatformRank(platform string, candidatePlatform core.Platform) int {
+	if candidatePlatform == core.PlatformUnknown {
+		return 0
+	}
+	normalized := core.NormalizePlatformAlias(platform)
+	if normalized == candidatePlatform {
+		return 0
+	}
+	if normalized == core.PlatformUnknown {
+		return 1
+	}
+	return 2
 }
 
 func (c *ReviewController) RedetectCandidate(w http.ResponseWriter, r *http.Request) {
@@ -546,6 +571,39 @@ func (c *ReviewController) DeleteCandidateFiles(w http.ResponseWriter, r *http.R
 		DeletedCandidateID: result.DeletedSourceGameID,
 		CanonicalExists:    result.CanonicalExists,
 	})
+}
+
+func (c *ReviewController) PreviewDeleteCandidateFiles(w http.ResponseWriter, r *http.Request) {
+	candidateID, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if candidateID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+	if c.deleteSvc == nil {
+		http.Error(w, "candidate file deletion preview is not available", http.StatusNotImplemented)
+		return
+	}
+
+	preview, err := c.deleteSvc.PreviewDeleteReviewCandidateFiles(r.Context(), candidateID)
+	if err != nil {
+		switch {
+		case errors.Is(err, core.ErrManualReviewCandidateNotFound), errors.Is(err, core.ErrSourceGameDeleteNotFound):
+			http.NotFound(w, r)
+		case errors.Is(err, core.ErrSourceGameDeleteNotEligible):
+			http.Error(w, err.Error(), http.StatusConflict)
+		default:
+			c.logger.Error("preview delete manual review candidate files", err, "candidate_id", candidateID)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(ManualReviewDeleteCandidateFilesPreviewDTO(*preview))
 }
 
 func (c *ReviewController) updateCandidateReviewState(w http.ResponseWriter, r *http.Request, state core.ManualReviewState) {

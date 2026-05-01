@@ -658,6 +658,33 @@ paths:
         500:
           description: Internal server error
 
+  /api/games/{id}/sources/{source_game_id}/delete-preview:
+    post:
+      summary: Preview hard delete for one source record
+      description: Calls the file-backed source plugin in dry-run mode with the real delete arguments and returns the plugin-resolved file deletion plan without deleting files or database rows.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: DeleteSourceGamePreview JSON
+        400:
+          description: Error response
+        404:
+          description: Game or source record not found
+        409:
+          description: Source record is not eligible for hard delete
+        500:
+          description: Internal server error
+
   /api/integration-refresh/jobs/{job_id}:
     get:
       parameters:
@@ -1039,6 +1066,28 @@ paths:
       responses:
         200:
           description: ManualReviewDeleteCandidateFilesResponse JSON
+        400:
+          description: Missing id
+        404:
+          description: Candidate not found
+        409:
+          description: Candidate source is not eligible for destructive deletion
+        500:
+          description: Internal server error
+
+  /api/review-candidates/{id}/files/delete-preview:
+    post:
+      summary: Preview delete for a manual-review candidate's backing files
+      description: Calls the file-backed source plugin in dry-run mode with the real candidate file delete arguments and returns the plugin-resolved deletion plan without deleting files or database rows.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: DeleteSourceGamePreview JSON
         400:
           description: Missing id
         404:

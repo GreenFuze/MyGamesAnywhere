@@ -79,6 +79,13 @@ func Operations() []OperationDoc {
 			ResponseDocs: map[string]string{"200": "Updated GameDetailResponse", "404": "Game not found", "409": "No eligible source records remain for refresh", "422": "Metadata providers unavailable or refresh failed fast", "500": "Internal server error"},
 		},
 		{
+			Method:       "POST",
+			Path:         "/api/games/{id}/sources/{source_game_id}/delete-preview",
+			Summary:      "Preview hard delete for one source record",
+			Description:  "Calls the file-backed source plugin in dry-run mode with the real delete arguments and returns the plugin-resolved file deletion plan without deleting files or database rows.",
+			ResponseDocs: map[string]string{"200": "DeleteSourceGamePreview JSON", "404": "Game or source record not found", "409": "Source record is not eligible for hard delete", "500": "Internal server error"},
+		},
+		{
 			Method:       "DELETE",
 			Path:         "/api/games/{id}/sources/{source_game_id}",
 			Summary:      "Hard delete one source record",
@@ -443,6 +450,13 @@ func Operations() []OperationDoc {
 			Summary:      "Restore an archived manual-review candidate",
 			Description:  "Moves an archived candidate back into the active queue and resets its review_state to pending so it can be worked again.",
 			ResponseDocs: map[string]string{"200": "Updated ManualReviewCandidateDetail JSON", "400": "Missing id", "404": "Candidate not found", "500": "Internal server error"},
+		},
+		{
+			Method:       "POST",
+			Path:         "/api/review-candidates/{id}/files/delete-preview",
+			Summary:      "Preview delete for a manual-review candidate's backing files",
+			Description:  "Calls the file-backed source plugin in dry-run mode with the real candidate file delete arguments and returns the plugin-resolved deletion plan without deleting files or database rows.",
+			ResponseDocs: map[string]string{"200": "DeleteSourceGamePreview JSON", "400": "Missing id", "404": "Candidate not found", "409": "Candidate source is not eligible for destructive deletion", "500": "Internal server error"},
 		},
 		{
 			Method:       "DELETE",
