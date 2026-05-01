@@ -5,7 +5,7 @@ class Client:
     """
     Client for the MyGamesAnywhere Server REST API.
     """
-    def __init__(self, base_url="http://localhost:8080"):
+    def __init__(self, base_url="http://127.0.0.1:8900"):
         self.base_url = base_url.rstrip("/")
 
     def get_health(self):

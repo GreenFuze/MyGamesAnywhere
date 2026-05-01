@@ -42,6 +42,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	if err := configSvc.Validate(); err != nil {
+		log.Fatalf("validate config: %v", err)
+	}
 	dbSvc := db.NewSQLiteDatabase(logSvc, configSvc)
 
 	settingRepo := db.NewSettingRepository(dbSvc)
@@ -71,7 +74,7 @@ func main() {
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, gameStore, configSvc, logSvc, eventBus)
 	integrationRefreshCtrl := http.NewIntegrationRefreshController(integrationRepo, pluginHost, integrationRefreshSvc, eventBus, logSvc)
-	reviewCtrl := http.NewReviewController(integrationRepo, pluginHost, gameStore, manualReviewSvc, logSvc)
+	reviewCtrl := http.NewReviewController(integrationRepo, pluginHost, gameStore, manualReviewSvc, deletionSvc, logSvc)
 	achievementCtrl := http.NewAchievementController(gameStore, pluginHost, integrationRepo, logSvc, eventBus)
 	syncCtrl := http.NewSyncController(syncSvc, logSvc, eventBus)
 	saveSyncCtrl := http.NewSaveSyncController(saveSyncSvc, logSvc)
@@ -85,11 +88,11 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	port := configSvc.Get("PORT")
-	if port == "" {
-		port = "8900"
+	baseURL, err := config.LocalBaseURL(configSvc)
+	if err != nil {
+		log.Fatalf("resolve local URL: %v", err)
 	}
-	go runTray(cancel, "http://127.0.0.1:"+port)
+	go runTray(cancel, baseURL)
 
 	if err := a.Run(ctx); err != nil {
 		log.Fatalf("application failed: %v", err)

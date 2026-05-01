@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	appconfig "github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
@@ -71,9 +72,9 @@ func NewHttpServer(
 }
 
 func (h *httpServer) Start(ctx context.Context) error {
-	port := h.config.Get("PORT")
-	if port == "" {
-		panic("No port was defined")
+	addr, err := appconfig.ListenAddr(h.config)
+	if err != nil {
+		return fmt.Errorf("http server listen address: %w", err)
 	}
 
 	spaDir := h.config.Get("FRONTEND_DIST")
@@ -104,11 +105,11 @@ func (h *httpServer) Start(ctx context.Context) error {
 	}, 60*time.Second, spaDir)
 
 	h.server = &http.Server{
-		Addr:    "127.0.0.1:" + port,
+		Addr:    addr,
 		Handler: r,
 	}
 
-	h.logger.Info("Starting HTTP server", "port", port)
+	h.logger.Info("Starting HTTP server", "addr", addr)
 
 	if err := h.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("http server start failed: %w", err)

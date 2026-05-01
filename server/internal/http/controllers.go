@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	appconfig "github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
@@ -944,11 +945,12 @@ func (c *PluginController) publishNotification(typ string, payload map[string]an
 
 // oauthRedirectURI computes the OAuth callback URL for a given plugin.
 func (c *PluginController) oauthRedirectURI(pluginID string) string {
-	port := c.config.Get("PORT")
-	if port == "" {
-		port = "8900"
+	redirectURI, err := appconfig.OAuthCallbackURL(c.config, pluginID)
+	if err != nil {
+		c.logger.Error("oauth redirect url", err, "plugin_id", pluginID)
+		return ""
 	}
-	return fmt.Sprintf("http://localhost:%s/api/auth/callback/%s", port, pluginID)
+	return redirectURI
 }
 
 func (c *PluginController) ListPlugins(w http.ResponseWriter, r *http.Request) {

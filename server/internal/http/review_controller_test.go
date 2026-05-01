@@ -43,6 +43,7 @@ func TestReviewControllerListCandidatesReturnsSummaries(t *testing.T) {
 			}},
 		},
 		&fakeManualReviewService{},
+		nil,
 		noopLogger{},
 	)
 
@@ -112,6 +113,7 @@ func TestReviewControllerGetCandidateReturnsDetail(t *testing.T) {
 			},
 		},
 		&fakeManualReviewService{},
+		nil,
 		noopLogger{},
 	)
 
@@ -195,6 +197,7 @@ func TestReviewControllerSearchCandidateDefaultsQueryAndKeepsProviderFailures(t 
 			},
 		},
 		&fakeManualReviewService{},
+		nil,
 		noopLogger{},
 	)
 
@@ -268,6 +271,7 @@ func TestReviewControllerSearchCandidatePreservesMetadataSourceOrder(t *testing.
 			},
 		},
 		&fakeManualReviewService{},
+		nil,
 		noopLogger{},
 	)
 
@@ -326,6 +330,7 @@ func TestReviewControllerApplyCandidateReturnsUpdatedDetail(t *testing.T) {
 		&fakePluginHost{},
 		store,
 		manualReviewSvc,
+		nil,
 		noopLogger{},
 	)
 
@@ -367,6 +372,7 @@ func TestReviewControllerApplyCandidateMapsValidationErrors(t *testing.T) {
 		&fakePluginHost{},
 		&fakeGameStore{},
 		&fakeManualReviewService{applyErr: core.ErrManualReviewSelectionInvalid},
+		nil,
 		noopLogger{},
 	)
 
@@ -423,6 +429,7 @@ func TestReviewControllerRedetectCandidateReturnsResultAndUpdatedDetail(t *testi
 		&fakePluginHost{},
 		store,
 		manualReviewSvc,
+		nil,
 		noopLogger{},
 	)
 
@@ -458,6 +465,7 @@ func TestReviewControllerRedetectCandidateMapsValidationErrors(t *testing.T) {
 		&fakePluginHost{},
 		&fakeGameStore{},
 		&fakeManualReviewService{redetectErr: core.ErrManualReviewCandidateNotEligible},
+		nil,
 		noopLogger{},
 	)
 
@@ -487,6 +495,7 @@ func TestReviewControllerRedetectActiveReturnsBatchResult(t *testing.T) {
 				Status:      core.ManualReviewRedetectStatusMatched,
 			}},
 		}},
+		nil,
 		noopLogger{},
 	)
 
@@ -524,6 +533,7 @@ func TestReviewControllerRedetectActiveReturnsFailFastBatchError(t *testing.T) {
 			},
 			redetectBatchErr: core.ErrMetadataProvidersUnavailable,
 		},
+		nil,
 		noopLogger{},
 	)
 
@@ -571,6 +581,7 @@ func TestReviewControllerMarkCandidateNotAGameReturnsUpdatedDetail(t *testing.T)
 		&fakePluginHost{},
 		store,
 		&fakeManualReviewService{},
+		nil,
 		noopLogger{},
 	)
 
@@ -618,6 +629,7 @@ func TestReviewControllerUnarchiveCandidateReturnsUpdatedDetail(t *testing.T) {
 		&fakePluginHost{},
 		store,
 		&fakeManualReviewService{},
+		nil,
 		noopLogger{},
 	)
 
@@ -638,6 +650,66 @@ func TestReviewControllerUnarchiveCandidateReturnsUpdatedDetail(t *testing.T) {
 	}
 	if item.ReviewState != string(core.ManualReviewStatePending) {
 		t.Fatalf("review_state = %q, want %q", item.ReviewState, core.ManualReviewStatePending)
+	}
+}
+
+func TestReviewControllerDeleteCandidateFilesReturnsDeletedCandidate(t *testing.T) {
+	deleteSvc := &fakeGameDeletionService{
+		result: &core.DeleteSourceGameResult{
+			DeletedSourceGameID: "scan:review-1",
+			CanonicalExists:     false,
+		},
+	}
+	controller := NewReviewController(
+		&fakeIntegrationRepo{},
+		&fakePluginHost{},
+		&fakeGameStore{},
+		&fakeManualReviewService{},
+		deleteSvc,
+		noopLogger{},
+	)
+
+	router := chi.NewRouter()
+	router.Delete("/api/review-candidates/{id}/files", controller.DeleteCandidateFiles)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/review-candidates/scan%3Areview-1/files", http.NoBody)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if deleteSvc.reviewCandidateID != "scan:review-1" {
+		t.Fatalf("review candidate id = %q, want scan:review-1", deleteSvc.reviewCandidateID)
+	}
+	var resp ManualReviewDeleteCandidateFilesResponseDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.DeletedCandidateID != "scan:review-1" || resp.CanonicalExists {
+		t.Fatalf("response = %+v, want deleted candidate without canonical", resp)
+	}
+}
+
+func TestReviewControllerDeleteCandidateFilesRejectsIneligibleCandidate(t *testing.T) {
+	controller := NewReviewController(
+		&fakeIntegrationRepo{},
+		&fakePluginHost{},
+		&fakeGameStore{},
+		&fakeManualReviewService{},
+		&fakeGameDeletionService{err: core.ErrSourceGameDeleteNotEligible},
+		noopLogger{},
+	)
+
+	router := chi.NewRouter()
+	router.Delete("/api/review-candidates/{id}/files", controller.DeleteCandidateFiles)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/review-candidates/scan%3Areview-1/files", http.NoBody)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
 	}
 }
 

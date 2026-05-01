@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	appconfig "github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 )
@@ -119,14 +120,14 @@ func (s *IntegrationRefreshService) validateIntegration(ctx context.Context, int
 }
 
 func (s *IntegrationRefreshService) oauthRedirectURI(pluginID string) string {
-	port := ""
-	if s.config != nil {
-		port = s.config.Get("PORT")
+	redirectURI, err := appconfig.OAuthCallbackURL(s.config, pluginID)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("oauth redirect url", err, "plugin_id", pluginID)
+		}
+		return ""
 	}
-	if port == "" {
-		port = "8900"
-	}
-	return fmt.Sprintf("http://localhost:%s/api/auth/callback/%s", port, pluginID)
+	return redirectURI
 }
 
 func (s *IntegrationRefreshService) refreshMetadata(ctx context.Context, integration *core.Integration, allIntegrations []*core.Integration, callbacks IntegrationRefreshCallbacks) error {

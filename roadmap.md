@@ -17,6 +17,46 @@
 - TGDB has been removed from plugin/runtime discovery and product-facing branding/about references.
 - Scan preparation and metadata-provider fetching now run with bounded concurrency, while persistence remains serialized on the shared scan path to avoid partial-write races and SQLite lock churn.
 
+## Locked Next Tasks — 2026-04-30
+
+These are the next committed tasks after the completed Phase 7 / issue-cleanup work. Execute in this order unless a release blocker appears.
+
+1. **Configurable bind host / LAN access**
+   - Add a server config key for bind host/address, defaulting to loopback (`127.0.0.1`) for the current local-only behavior.
+   - Support explicit LAN binding (`0.0.0.0` or a concrete interface IP) without changing the existing `PORT` contract.
+   - Add a Settings → General surface for host/port visibility and bind-host selection, with a clear restart-required state if live rebinding is not implemented.
+   - Keep local tray/open-browser and OAuth callback URLs on loopback unless a separate public/base URL setting is intentionally introduced.
+   - Verification: server config tests, HTTP server address tests or focused startup proof, frontend build, and manual browser smoke for loopback + configured LAN host.
+
+2. **Auto-update check and release manifest**
+   - Extend the release pipeline from artifact-only output to a versioned update source: GitHub Release assets or a static update manifest with version, URL, SHA256, and release notes URL.
+   - Add a server-side update checker that compares current `VERSION` with the latest available release and exposes a small read-only API.
+   - Add a Settings UI card showing current version, latest version, release notes, and an explicit update action.
+   - Keep the first update action conservative: download/verify the package and guide restart, before attempting in-place replacement of the running executable.
+   - Verification: manifest parser tests, version-compare tests, checksum failure test, frontend build.
+
+3. **Achievements refresh instead of cached-only confusion**
+   - Keep `/api/achievements` and `/api/achievements/explorer` read-only over cached rows for fast page load.
+   - Add an explicit `Refresh Achievements` job for all eligible games, reusing `AchievementFetchService` and existing achievement-capable integrations.
+   - Show refresh progress and last refreshed state in the Achievements page so "cached" means "last fetched", not "incomplete by design".
+   - Persist provider failures per game/source and surface degraded state without blocking unrelated games.
+   - Verification: achievement service/controller tests, SSE job progress tests, frontend build, focused manual refresh proof with one configured provider.
+
+4. **Duplicate games review in Settings**
+   - Add a Settings tab for duplicate candidates across source records.
+   - Support two modes: title-normalized duplicates ignoring platform/version, and stricter duplicates including platform/version/source metadata.
+   - Reuse existing canonical/source-game link data and shared title normalization instead of adding a separate duplicate model first.
+   - Provide review-only grouping in v1; defer destructive merge/split actions unless the report proves useful.
+   - Verification: duplicate-query tests with same-title/different-platform cases, frontend build, manual UI proof on seeded data.
+
+5. **Richer Library / Gamer statistics**
+   - Split Home stats conceptually into Library Statistics and Gamer Statistics while keeping the Home page as a concise summary.
+   - Library statistics should extend the current `/api/stats` surface: platform, source, decade, genre, metadata/media coverage, duplicates, and scan activity.
+   - Gamer statistics should build on the achievements dashboard and play history: achievement progress, points, recently played, favorites, completion-style summaries where data exists.
+   - Verification: stats aggregation tests, chart-empty-state proof, frontend build.
+
+Deferred until after the above: multi-user/profile support. It is a larger architecture change because profiles need ownership boundaries for integrations, games, saves, settings, achievement cache, scan jobs, and admin-only Settings access.
+
 ## Completed
 
 ### Server Core
@@ -610,3 +650,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [ ] duplications for games (ignoring versioning/platform)
   - [ ] duplications for games including version/platform etc.
 - [ ] Home screen should have "library statistics" and "gamer statistics". Still not sure how to display these as different pages and conviniently, but it should support extensive statistics in a cool, colorful, way. Maybe, it should be in different pages, like "achivements" shows also statistics for achivements, so maybe a "library statistics", "gamer statistics" pages (where the latter includes achivements)?
+- [ ] Make sure MGA server (and frontend client) both supporting Linux + Windows
+- [ ] In "undetected games", when showing matches from a search:
+  - [ ] show icons of the detected metadata source instead of label
+  - [ ] don't show the full description, its too long. if its too long, cut after N characters and add "...". Clicking on the description would expand/collapse the description.

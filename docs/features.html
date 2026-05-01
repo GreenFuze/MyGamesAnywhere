@@ -42,7 +42,11 @@
             </article>
             <article>
               <h3>Canonical game page</h3>
-              <p>The game page pulls together metadata, launch availability, media, achievements, files, source records, and external links.</p>
+              <p>The game page pulls together metadata, launch availability, media, favorites, achievements, files, source records, and external links.</p>
+            </article>
+            <article>
+              <h3>Concrete versions</h3>
+              <p>Source games remain concrete versions under the canonical page, so play options and achievement sets can show the source/platform they belong to.</p>
             </article>
             <article>
               <h3>Repair workflow</h3>
@@ -63,6 +67,7 @@
               <li>What files belong to it?</li>
               <li>Where can it run?</li>
               <li>What achievements are known?</li>
+              <li>Which source/version owns each launch option and achievement set?</li>
               <li>Which links point back to external providers?</li>
               <li>What needs manual repair if the match is wrong?</li>
             </ul>
@@ -82,6 +87,8 @@
               MGA behaves more like a self-hosted game library on your machine than a cloud-first
               account dashboard. The local server, local database, local media cache, config, and
               plugins are part of the architecture, not incidental implementation details.
+              Remote and network-backed browser play can be materialized into a local cache before
+              launch, and EmulatorJS save states can sync through MGA's local save-sync cache.
             </p>
           </div>
           <aside class="aside-card">

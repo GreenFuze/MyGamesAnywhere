@@ -300,4 +300,5 @@ type DeleteSourceGameResult struct {
 // GameDeletionService handles destructive, source-scoped file-backed deletions.
 type GameDeletionService interface {
 	DeleteSourceGame(ctx context.Context, canonicalID, sourceGameID string) (*DeleteSourceGameResult, error)
+	DeleteReviewCandidateFiles(ctx context.Context, candidateID string) (*DeleteSourceGameResult, error)
 }

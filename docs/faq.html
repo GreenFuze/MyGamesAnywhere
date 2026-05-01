@@ -49,7 +49,27 @@
 
           <div class="question">
             <h3>Can MGA handle ROMs and emulators?</h3>
-            <p>Yes. ROM and emulator-style collections are part of the core product direction alongside storefront, cloud, and file-backed sources.</p>
+            <p>Yes. ROM and emulator-style collections are part of the core product direction alongside storefront, cloud, and file-backed sources. Browser-play surfaces include EmulatorJS, js-dos, and ScummVM where configured.</p>
+          </div>
+
+          <div class="question">
+            <h3>Can one canonical game have multiple playable versions?</h3>
+            <p>Yes. MGA keeps concrete source records under the canonical game and exposes source-backed launch options so clients can choose the specific source/version to run.</p>
+          </div>
+
+          <div class="question">
+            <h3>Can achievements differ by source or platform?</h3>
+            <p>Yes. Achievement sets are source-backed, so a canonical game can show multiple sets such as an arcade version and a console version when both are detected.</p>
+          </div>
+
+          <div class="question">
+            <h3>How does browser play work with cloud or network files?</h3>
+            <p>Remote and network-backed files can be materialized into a local server cache before launch, so browser runtimes do not have to stream many small files directly from Drive or SMB during play.</p>
+          </div>
+
+          <div class="question">
+            <h3>Does save sync work inside EmulatorJS?</h3>
+            <p>MGA can hook EmulatorJS save-state and save-RAM actions through the server-side save-sync cache when a save-sync integration is active.</p>
           </div>
 
           <div class="question">

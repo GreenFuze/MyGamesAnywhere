@@ -445,6 +445,13 @@ func Operations() []OperationDoc {
 			ResponseDocs: map[string]string{"200": "Updated ManualReviewCandidateDetail JSON", "400": "Missing id", "404": "Candidate not found", "500": "Internal server error"},
 		},
 		{
+			Method:       "DELETE",
+			Path:         "/api/review-candidates/{id}/files",
+			Summary:      "Delete a manual-review candidate's backing files",
+			Description:  "Destructively deletes the filesystem-backed source files for one manual-review candidate, removes the candidate source record, and recomputes canonical membership.",
+			ResponseDocs: map[string]string{"200": "ManualReviewDeleteCandidateFilesResponse JSON", "400": "Missing id", "404": "Candidate not found", "409": "Candidate source is not eligible for destructive deletion", "500": "Internal server error"},
+		},
+		{
 			Method:         "PUT",
 			Path:           "/api/integrations/{id}",
 			Summary:        "Update one integration",

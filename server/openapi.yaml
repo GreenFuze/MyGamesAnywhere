@@ -1026,6 +1026,28 @@ paths:
         500:
           description: Internal server error
 
+  /api/review-candidates/{id}/files:
+    delete:
+      summary: Delete a manual-review candidate's backing files
+      description: Destructively deletes the filesystem-backed source files for one manual-review candidate, removes the candidate source record, and recomputes canonical membership.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: ManualReviewDeleteCandidateFilesResponse JSON
+        400:
+          description: Missing id
+        404:
+          description: Candidate not found
+        409:
+          description: Candidate source is not eligible for destructive deletion
+        500:
+          description: Internal server error
+
   /api/review-candidates/{id}/not-a-game:
     post:
       summary: Archive a candidate as not a game

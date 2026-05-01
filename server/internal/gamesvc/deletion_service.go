@@ -94,6 +94,23 @@ func (s *DeletionService) DeleteSourceGame(ctx context.Context, canonicalID, sou
 	}, nil
 }
 
+func (s *DeletionService) DeleteReviewCandidateFiles(ctx context.Context, candidateID string) (*core.DeleteSourceGameResult, error) {
+	if strings.TrimSpace(candidateID) == "" {
+		return nil, core.ErrManualReviewCandidateNotFound
+	}
+	candidate, err := s.gameStore.GetManualReviewCandidate(ctx, candidateID)
+	if err != nil {
+		return nil, fmt.Errorf("get manual review candidate %s: %w", candidateID, err)
+	}
+	if candidate == nil {
+		return nil, core.ErrManualReviewCandidateNotFound
+	}
+	if strings.TrimSpace(candidate.CanonicalGameID) == "" {
+		return nil, fmt.Errorf("%w: candidate has no canonical membership", core.ErrSourceGameDeleteNotEligible)
+	}
+	return s.DeleteSourceGame(ctx, candidate.CanonicalGameID, candidate.ID)
+}
+
 func (s *DeletionService) buildDeletionPlan(ctx context.Context, canonicalID string, sourceGame *core.SourceGame) (*sourceDeletionPlan, error) {
 	eligible, reason := sourcegames.HardDeleteEligibility(sourceGame)
 	if !eligible {

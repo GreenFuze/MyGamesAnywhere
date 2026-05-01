@@ -28,6 +28,7 @@ Real game collections are fragmented by default. One library can span:
 - ROM sets
 - emulator runtimes
 - xCloud and browser-play runtimes
+- source-backed save sync
 - SMB / NAS shares
 - removable drives
 - metadata providers
@@ -39,6 +40,7 @@ If you are looking for a **local-first game launcher**, **unified game library**
 ## What Makes MGA Different
 
 - **Canonical game merge**: MGA merges many source records, provider matches, media items, files, and runtime facts into one canonical game instead of leaving you with duplicate rows.
+- **Source-backed versions**: A canonical game can keep multiple concrete versions/platforms under one page, with per-version play options and achievement sets.
 - **Source provenance**: Storefront imports, ROM records, network-share records, metadata matches, resolver output, and provider IDs remain inspectable as evidence, not hidden importer magic.
 - **Local-first ownership**: The database, config, plugins, and media cache live on your machine unless you explicitly configure sync integrations.
 - **Manual review and repair**: Detection failures stay visible. MGA exposes unresolved records, lets you search providers again, re-detect, apply a match, or archive a false positive.
@@ -85,6 +87,7 @@ The game page is the centerpiece of MGA. A good canonical game page should tell 
 - which source records matched
 - what files and media are attached
 - what achievements are known
+- which version/source each achievement set belongs to
 - what can be manually fixed if detection was wrong
 
 That is the core differentiator. MGA is not just a prettier launcher row. It is a source-backed game identity layer over a messy local game library.
@@ -147,12 +150,15 @@ TODO screenshot: capture a cross-system achievement example with Steam, Xbox, an
 ## Available Now
 
 - Unified cross-source library with canonical game merge
-- Source-backed game pages with metadata, media, files, external links, and provider evidence
+- Source-backed game pages with metadata, media, files, external links, provider evidence, favorites, and per-version context
 - Manual review, provider search, and re-detect for unresolved records
 - Poster-first library browsing and game pages
-- Cached Steam, Xbox, and RetroAchievements progress surfaces
-- Browser-play support for configured runtimes such as EmulatorJS, js-dos, and ScummVM
+- Favorite games persisted by the local server, including automatic Favorites shelves in Library and Play
+- Source-backed Steam, Xbox, and RetroAchievements progress surfaces, including multiple achievement sets when one canonical game has multiple detected versions
+- Browser-play support for configured runtimes such as EmulatorJS, js-dos, and ScummVM, with source-backed launch options
+- Materialized browser play for Drive and SMB-backed game files so network/cloud sources can be cached locally before launch
 - Game Pass / xCloud availability surfaced through Xbox-backed data where available
+- EmulatorJS-native save-sync hooks backed by a local server cache and optional sync providers
 - Save-sync and settings-sync surfaces
 - REST API and React web UI running on the same local server
 - Windows portable release packaging
@@ -182,8 +188,8 @@ TODO screenshot: capture a cross-system achievement example with Steam, Xbox, an
 | Steam | `game-source-steam` | Game source discovery, Steam-backed achievements | Steam Web API key |
 | Xbox / PC Game Pass | `game-source-xbox` | Xbox library source, Game Pass / xCloud availability, Xbox achievements | OAuth-backed |
 | Epic Games | `game-source-epic` | Epic library source | Source listing |
-| Google Drive | `game-source-google-drive` | Drive-backed game source, file browse/materialize/delete | OAuth-backed; include paths supported |
-| SMB / network shares | `game-source-smb` | Network-share game source and filesystem operations | Host/share credentials and include paths |
+| Google Drive | `game-source-google-drive` | Drive-backed game source, file browse/materialize/delete, browser-play materialization | OAuth-backed; include paths supported |
+| SMB / network shares | `game-source-smb` | Network-share game source, filesystem operations, browser-play materialization | Host/share credentials and include paths |
 
 ### Metadata providers
 
@@ -203,11 +209,14 @@ TODO screenshot: capture a cross-system achievement example with Steam, Xbox, an
 |---|---|---|---|
 | Steam | `game-source-steam` | Steam-backed achievement progress | Steam Web API key |
 | Xbox | `game-source-xbox` | Xbox-backed achievement progress | OAuth-backed |
-| RetroAchievements | `retroachievements` | RetroAchievements metadata and achievements | API key and username |
+| RetroAchievements | `retroachievements` | RetroAchievements metadata and source-backed achievement sets | API key and username |
 
 ### Runtime / launch providers
 
 - Built-in browser-play surfaces for configured **EmulatorJS**, **js-dos**, and **ScummVM** runtimes
+- Server-provided launch options for concrete source/version selection
+- Local materialization for remote/network-backed browser play where required
+- EmulatorJS-native save-state and save-RAM sync through MGA save-sync integrations
 - Xbox-backed **xCloud** launch availability where the connected source exposes it
 
 ### Storage / sync providers
@@ -215,7 +224,7 @@ TODO screenshot: capture a cross-system achievement example with Steam, Xbox, an
 | Provider | Plugin ID(s) | What MGA uses it for | Config / notes |
 |---|---|---|---|
 | Local disk | `save-sync-local-disk` | Local save-sync target | No external service required |
-| Google Drive | `save-sync-google-drive`, `sync-settings-google-drive` | Save sync and settings sync | OAuth-backed |
+| Google Drive | `save-sync-google-drive`, `sync-settings-google-drive` | Save sync and settings sync | OAuth-backed; EmulatorJS saves are cached locally before cloud upload |
 
 ## Install / Download
 
@@ -281,7 +290,7 @@ The short public roadmap lives in [docs/public-roadmap.md](docs/public-roadmap.m
 
 The important split is:
 
-- **Available now**: canonical game merge, local-first runtime, source-backed pages, manual review, achievements, browser-play surfaces, and Windows portable packaging
+- **Available now**: canonical game merge, local-first runtime, source-backed pages, favorites, manual review, source-backed achievements, browser-play surfaces, EmulatorJS save-sync, and Windows portable packaging
 - **In active development**: packaging hardening, UX refinement, broader metadata/runtime coverage, and better public proof/docs
 - **Planned later**: installers, desktop shell, mobile client, and multi-user flows
 

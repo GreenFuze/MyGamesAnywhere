@@ -4,18 +4,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
 const defaultConfigPath = "config.json"
+const defaultLocalAccessIP = "127.0.0.1"
+
+var (
+	currentMu sync.RWMutex
+	current   core.Configuration
+)
 
 type configService struct {
 	values map[string]any
+	path   string
 }
 
 // NewConfigService loads configuration from a JSON file. If filePath is empty, "config.json" in the current working directory is used.
@@ -30,7 +40,7 @@ func NewConfigService(filePath string) (core.Configuration, error) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read config file %s: %w", path, err)
+		return nil, fmt.Errorf("read config file at expected path %s: %w", path, err)
 	}
 	var values map[string]any
 	if err := json.Unmarshal(data, &values); err != nil {
@@ -41,12 +51,28 @@ func NewConfigService(filePath string) (core.Configuration, error) {
 	for k, v := range values {
 		normalized[strings.ToUpper(k)] = v
 	}
-	return &configService{values: normalized}, nil
+	cfg := &configService{values: normalized, path: path}
+	SetCurrent(cfg)
+	return cfg, nil
 }
 
 func (c *configService) getRaw(key string) (any, bool) {
 	v, ok := c.values[strings.ToUpper(key)]
 	return v, ok
+}
+
+// SetCurrent stores the process-wide configuration instance.
+func SetCurrent(cfg core.Configuration) {
+	currentMu.Lock()
+	defer currentMu.Unlock()
+	current = cfg
+}
+
+// Current returns the process-wide configuration instance loaded during startup.
+func Current() core.Configuration {
+	currentMu.RLock()
+	defer currentMu.RUnlock()
+	return current
 }
 
 func (c *configService) Get(key string) string {
@@ -107,11 +133,93 @@ func (c *configService) GetBool(key string) bool {
 }
 
 func (c *configService) Validate() error {
-	required := []string{"PORT", "DB_PATH"}
+	required := []string{"PORT", "LISTEN_IP", "DB_PATH"}
 	for _, key := range required {
 		if c.Get(key) == "" {
-			return errors.New("required config missing: " + key)
+			return fmt.Errorf("required config missing: %s in %s", key, c.path)
 		}
 	}
+	if _, err := NormalizeListenIP(c.Get("LISTEN_IP")); err != nil {
+		return fmt.Errorf("invalid LISTEN_IP in %s: %w", c.path, err)
+	}
 	return nil
+}
+
+// NormalizeListenIP validates and normalizes the server listen IP.
+func NormalizeListenIP(value string) (string, error) {
+	listenIP := strings.TrimSpace(value)
+	if strings.EqualFold(listenIP, "localhost") {
+		return defaultLocalAccessIP, nil
+	}
+	if listenIP == "" {
+		return "", errors.New("value is empty")
+	}
+	if net.ParseIP(listenIP) == nil {
+		return "", fmt.Errorf("must be an IP address or localhost, got %q", value)
+	}
+	return listenIP, nil
+}
+
+// ListenIP returns the normalized LISTEN_IP value.
+func ListenIP(cfg core.Configuration) (string, error) {
+	if cfg == nil {
+		return "", errors.New("configuration is not initialized")
+	}
+	return NormalizeListenIP(cfg.Get("LISTEN_IP"))
+}
+
+// Port returns the configured server port.
+func Port(cfg core.Configuration) string {
+	if cfg == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Get("PORT"))
+}
+
+// ListenAddr returns the address the HTTP server should bind.
+func ListenAddr(cfg core.Configuration) (string, error) {
+	listenIP, err := ListenIP(cfg)
+	if err != nil {
+		return "", err
+	}
+	port := Port(cfg)
+	if port == "" {
+		return "", errors.New("PORT is required")
+	}
+	return net.JoinHostPort(listenIP, port), nil
+}
+
+// LocalAccessHost returns a browser/callback-safe host for server-generated local URLs.
+func LocalAccessHost(cfg core.Configuration) (string, error) {
+	listenIP, err := ListenIP(cfg)
+	if err != nil {
+		return "", err
+	}
+	if listenIP == "0.0.0.0" || listenIP == "::" {
+		return defaultLocalAccessIP, nil
+	}
+	return listenIP, nil
+}
+
+// LocalBaseURL returns the local browser/callback-safe base URL for the server.
+func LocalBaseURL(cfg core.Configuration) (string, error) {
+	host, err := LocalAccessHost(cfg)
+	if err != nil {
+		return "", err
+	}
+	port := Port(cfg)
+	if port == "" {
+		return "", errors.New("PORT is required")
+	}
+	u := url.URL{Scheme: "http", Host: net.JoinHostPort(host, port)}
+	return u.String(), nil
+}
+
+// OAuthCallbackURL returns the local callback URL for a plugin OAuth flow.
+func OAuthCallbackURL(cfg core.Configuration, pluginID string) (string, error) {
+	baseURL, err := LocalBaseURL(cfg)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s/api/auth/callback/%s", baseURL, url.PathEscape(pluginID)), nil
 }

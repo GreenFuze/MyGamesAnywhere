@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowRightLeft, ExternalLink, FileSearch, Loader2, RefreshCw, Search } from 'lucide-react'
+import { AlertCircle, ArrowRightLeft, ExternalLink, FileSearch, Loader2, RefreshCw, Search, Trash2 } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ApiError,
   applyManualReviewCandidate,
+  deleteManualReviewCandidateFiles,
   getManualReviewCandidate,
   listManualReviewCandidates,
   markManualReviewCandidateNotAGame,
@@ -21,6 +22,7 @@ import { BrandBadge } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CoverImage } from '@/components/ui/cover-image'
+import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { PlatformIcon } from '@/components/ui/platform-icon'
 import { brandLabel } from '@/lib/brands'
@@ -160,6 +162,7 @@ export function UndetectedGamesTab() {
   const [submittedQuery, setSubmittedQuery] = useState('')
   const [seededCandidateId, setSeededCandidateId] = useState<string | null>(null)
   const [redetectNotice, setRedetectNotice] = useState<string | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   const scope: ManualReviewScope = searchParams.get('scope') === 'archive' ? 'archive' : 'active'
   const activeCandidateId = searchParams.get('candidate_id')?.trim() ?? ''
@@ -309,6 +312,22 @@ export function UndetectedGamesTab() {
     },
   })
 
+  const deleteFilesMutation = useMutation({
+    mutationFn: (candidateId: string) => deleteManualReviewCandidateFiles(candidateId),
+    onMutate: () => setRedetectNotice(null),
+    onSuccess: (result) => {
+      const deletedCandidateId = result.deleted_candidate_id
+      invalidateReviewQueries(deletedCandidateId)
+      void queryClient.removeQueries({ queryKey: ['manual-review-candidate', deletedCandidateId], exact: true })
+      if (focusNextCandidateInScope(deletedCandidateId)) return
+      const next = new URLSearchParams(searchParams)
+      next.set('tab', 'undetected')
+      next.set('scope', scope)
+      next.delete('candidate_id')
+      setSearchParams(next, { replace: true })
+    },
+  })
+
   useEffect(() => {
     if (activeCandidateId || !candidatesQuery.data || candidatesQuery.data.length === 0) return
     const nextCandidate = selectInitialCandidate(candidatesQuery.data, {
@@ -336,7 +355,8 @@ export function UndetectedGamesTab() {
     notAGameMutation.error ??
     unarchiveMutation.error ??
     redetectMutation.error ??
-    batchRedetectMutation.error
+    batchRedetectMutation.error ??
+    deleteFilesMutation.error
   const applyBusyKey = applyMutation.isPending && applyMutation.variables
     ? `${applyMutation.variables.result.provider_plugin_id}:${applyMutation.variables.result.external_id}`
     : null
@@ -654,6 +674,17 @@ export function UndetectedGamesTab() {
                       Mark as Not a Game
                     </Button>
                   )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"
+                    onClick={() => setDeleteDialogOpen(true)}
+                    disabled={candidateFiles.length === 0 || deleteFilesMutation.isPending}
+                    title={candidateFiles.length === 0 ? 'No source files were recorded for this candidate.' : 'Delete candidate files'}
+                  >
+                    {deleteFilesMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                    Delete Candidate Files
+                  </Button>
                 </div>
               </section>
 
@@ -870,6 +901,54 @@ export function UndetectedGamesTab() {
           )}
         </div>
       </section>
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => !deleteFilesMutation.isPending && setDeleteDialogOpen(false)}
+        title="Delete Candidate Files"
+      >
+        <div className="space-y-4">
+          <div className="rounded-mga border border-red-500/30 bg-red-500/10 p-4 text-sm leading-6 text-red-100">
+            This permanently deletes the source files recorded for <span className="font-semibold">{candidateTitle}</span> and removes this
+            candidate from MGA. This is different from marking it as not a game, which only archives the record.
+          </div>
+          <div className="max-h-48 space-y-2 overflow-auto rounded-mga border border-mga-border bg-mga-bg p-3">
+            {candidateFiles.length === 0 ? (
+              <p className="text-sm text-mga-muted">No source files were recorded for this candidate.</p>
+            ) : (
+              candidateFiles.map((file) => (
+                <div key={`${file.path}:${file.role}`} className="flex items-start justify-between gap-3 text-sm">
+                  <span className="break-all text-mga-text">{file.path}</span>
+                  <span className="shrink-0 text-mga-muted">{formatBytes(file.size)}</span>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={deleteFilesMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-red-600 text-white hover:bg-red-500"
+              onClick={() => {
+                if (!candidateQuery.data) return
+                deleteFilesMutation.mutate(candidateQuery.data.id, {
+                  onSuccess: () => setDeleteDialogOpen(false),
+                })
+              }}
+              disabled={!candidateQuery.data || candidateFiles.length === 0 || deleteFilesMutation.isPending}
+            >
+              {deleteFilesMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+              Delete Files
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   )
 }

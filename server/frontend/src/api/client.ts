@@ -861,6 +861,25 @@ export async function unarchiveManualReviewCandidate(
   ) as Promise<ManualReviewCandidateDetail>;
 }
 
+export type ManualReviewDeleteCandidateFilesResponse = {
+  deleted_candidate_id: string;
+  canonical_exists: boolean;
+};
+
+export async function deleteManualReviewCandidateFiles(
+  id: string,
+): Promise<ManualReviewDeleteCandidateFilesResponse> {
+  const path = `/api/review-candidates/${encodeURIComponent(id)}/files`;
+  const res = await fetch(path, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw await buildApiError(path, res);
+  }
+  return res.json() as Promise<ManualReviewDeleteCandidateFilesResponse>;
+}
+
 export async function listPlugins(): Promise<PluginInfo[]> {
   return getJson<PluginInfo[]>("/api/plugins");
 }

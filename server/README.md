@@ -65,5 +65,5 @@ Run from the directory containing the binary and config (e.g. `bin/`), or from a
 
 ## Configuration
 
-- `config.json`: Must contain `PORT` and `DB_PATH`. Optional: `PLUGINS_DIR` (defaults to `plugins` if omitted from config).
+- `config.json`: Must contain `PORT`, `LISTEN_IP`, and `DB_PATH`. Released portable ZIPs ship with `PORT: "8900"` and `LISTEN_IP: "127.0.0.1"` for local-only access. Optional: `PLUGINS_DIR` (defaults to `plugins` if omitted from config).
 - Google Drive (and other sources like SMB): Configure via integrations. Create an integration with `POST /api/integrations`; use `plugin_id: "game-source-google-drive"` for Drive as a game source, or `plugin_id: "sync-settings-google-drive"` for settings sync (body includes `config` with `credentials_json` and `folder_id`). Use `plugin_id: "game-source-smb"` for SMB. Credentials are stored in the SQLite database (integrations table). The internal settings sync uses the first integration with `sync-settings-google-drive`.

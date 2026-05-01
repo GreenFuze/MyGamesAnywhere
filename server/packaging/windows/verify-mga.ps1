@@ -18,22 +18,26 @@ function Require-Path {
     }
 }
 
-function Get-ConfiguredPort {
+function Get-MgaConfig {
     param([string]$ConfigPath)
 
     try {
-        $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+        return Get-Content $ConfigPath -Raw | ConvertFrom-Json
     } catch {
         Fail "Failed to parse config.json: $($_.Exception.Message)"
     }
+}
 
-    if (-not $config.PORT) {
+function Get-ConfiguredPort {
+    param($Config)
+
+    if (-not $Config.PORT) {
         Fail "config.json is missing PORT."
     }
 
     $port = 0
-    if (-not [int]::TryParse([string]$config.PORT, [ref]$port)) {
-        Fail "config.json PORT must be numeric. Got '$($config.PORT)'."
+    if (-not [int]::TryParse([string]$Config.PORT, [ref]$port)) {
+        Fail "config.json PORT must be numeric. Got '$($Config.PORT)'."
     }
 
     if ($port -lt 1 -or $port -gt 65535) {
@@ -41,6 +45,26 @@ function Get-ConfiguredPort {
     }
 
     return $port
+}
+
+function Get-ConfiguredListenIP {
+    param($Config)
+
+    if (-not $Config.LISTEN_IP) {
+        Fail "config.json is missing LISTEN_IP."
+    }
+
+    $listenIP = ([string]$Config.LISTEN_IP).Trim()
+    if ($listenIP -ieq "localhost") {
+        return "127.0.0.1"
+    }
+
+    $parsed = $null
+    if (-not [System.Net.IPAddress]::TryParse($listenIP, [ref]$parsed)) {
+        Fail "config.json LISTEN_IP must be an IP address or localhost. Got '$listenIP'."
+    }
+
+    return $listenIP
 }
 
 function Test-PortAvailable {
@@ -85,11 +109,14 @@ try {
     Fail "MGA needs a writable runtime folder. Failed to write inside '$rootDir': $($_.Exception.Message)"
 }
 
-$port = Get-ConfiguredPort -ConfigPath $configPath
+$config = Get-MgaConfig -ConfigPath $configPath
+$port = Get-ConfiguredPort -Config $config
+$listenIP = Get-ConfiguredListenIP -Config $config
 if (-not (Test-PortAvailable -Port $port)) {
     Fail "Port $port is already in use. Stop the process using it or change PORT in config.json before starting MGA."
 }
 
 Write-Host "MGA runtime verification passed." -ForegroundColor Green
 Write-Host "Runtime folder: $rootDir"
+Write-Host "Configured listen IP: $listenIP"
 Write-Host "Configured port: $port"

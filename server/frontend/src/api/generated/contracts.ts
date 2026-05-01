@@ -502,4 +502,9 @@ export type ManualReviewRedetectBatchResult = {
   results: ManualReviewRedetectResult[];
 };
 
+export type ManualReviewDeleteCandidateFilesResponse = {
+  deleted_candidate_id: string;
+  canonical_exists: boolean;
+};
+
 export type ManualReviewScope = "active" | "archive";

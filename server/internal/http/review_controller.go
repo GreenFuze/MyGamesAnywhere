@@ -23,6 +23,7 @@ type ReviewController struct {
 	pluginHost      plugins.PluginHost
 	gameStore       core.GameStore
 	manualReviewSvc core.ManualReviewService
+	deleteSvc       core.GameDeletionService
 	logger          core.Logger
 }
 
@@ -31,6 +32,7 @@ func NewReviewController(
 	pluginHost plugins.PluginHost,
 	gameStore core.GameStore,
 	manualReviewSvc core.ManualReviewService,
+	deleteSvc core.GameDeletionService,
 	logger core.Logger,
 ) *ReviewController {
 	return &ReviewController{
@@ -38,6 +40,7 @@ func NewReviewController(
 		pluginHost:      pluginHost,
 		gameStore:       gameStore,
 		manualReviewSvc: manualReviewSvc,
+		deleteSvc:       deleteSvc,
 		logger:          logger,
 	}
 }
@@ -116,6 +119,11 @@ type ManualReviewSearchResponseDTO struct {
 type ManualReviewRedetectResponseDTO struct {
 	Result    core.ManualReviewRedetectResult `json:"result"`
 	Candidate ManualReviewCandidateDetailDTO  `json:"candidate"`
+}
+
+type ManualReviewDeleteCandidateFilesResponseDTO struct {
+	DeletedCandidateID string `json:"deleted_candidate_id"`
+	CanonicalExists    bool   `json:"canonical_exists"`
 }
 
 type reviewMetadataLookupRequest struct {
@@ -502,6 +510,42 @@ func (c *ReviewController) MarkCandidateNotAGame(w http.ResponseWriter, r *http.
 
 func (c *ReviewController) UnarchiveCandidate(w http.ResponseWriter, r *http.Request) {
 	c.updateCandidateReviewState(w, r, core.ManualReviewStatePending)
+}
+
+func (c *ReviewController) DeleteCandidateFiles(w http.ResponseWriter, r *http.Request) {
+	candidateID, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if candidateID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+	if c.deleteSvc == nil {
+		http.Error(w, "candidate file deletion is not available", http.StatusNotImplemented)
+		return
+	}
+
+	result, err := c.deleteSvc.DeleteReviewCandidateFiles(r.Context(), candidateID)
+	if err != nil {
+		switch {
+		case errors.Is(err, core.ErrManualReviewCandidateNotFound), errors.Is(err, core.ErrSourceGameDeleteNotFound):
+			http.NotFound(w, r)
+		case errors.Is(err, core.ErrSourceGameDeleteNotEligible):
+			http.Error(w, err.Error(), http.StatusConflict)
+		default:
+			c.logger.Error("delete manual review candidate files", err, "candidate_id", candidateID)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(ManualReviewDeleteCandidateFilesResponseDTO{
+		DeletedCandidateID: result.DeletedSourceGameID,
+		CanonicalExists:    result.CanonicalExists,
+	})
 }
 
 func (c *ReviewController) updateCandidateReviewState(w http.ResponseWriter, r *http.Request, state core.ManualReviewState) {

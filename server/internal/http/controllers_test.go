@@ -49,11 +49,17 @@ func (f *fakeGameMetadataRefreshService) RefreshGameMetadata(context.Context, st
 }
 
 type fakeGameDeletionService struct {
-	result *core.DeleteSourceGameResult
-	err    error
+	result            *core.DeleteSourceGameResult
+	err               error
+	reviewCandidateID string
 }
 
 func (f *fakeGameDeletionService) DeleteSourceGame(context.Context, string, string) (*core.DeleteSourceGameResult, error) {
+	return f.result, f.err
+}
+
+func (f *fakeGameDeletionService) DeleteReviewCandidateFiles(_ context.Context, candidateID string) (*core.DeleteSourceGameResult, error) {
+	f.reviewCandidateID = candidateID
 	return f.result, f.err
 }
 
@@ -1135,7 +1141,7 @@ func TestPluginControllerStartIntegrationAuthReturnsOAuthRequired(t *testing.T) 
 			},
 		},
 	}
-	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900"}}, noopLogger{}, nil)
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil)
 
 	router := chi.NewRouter()
 	router.Post("/api/integrations/{id}/authorize", controller.StartIntegrationAuth)
@@ -1192,7 +1198,7 @@ func TestPluginControllerUpdateIntegrationReturnsOAuthRequired(t *testing.T) {
 			},
 		},
 	}
-	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900"}}, noopLogger{}, nil)
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil)
 
 	router := chi.NewRouter()
 	router.Put("/api/integrations/{id}", controller.UpdateIntegration)
@@ -1252,7 +1258,7 @@ func TestPluginControllerCreateRejectsDuplicateFilesystemSourceIdentity(t *testi
 			},
 		},
 	}
-	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900"}}, noopLogger{}, nil)
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil)
 
 	router := chi.NewRouter()
 	router.Post("/api/integrations", controller.Create)
@@ -1307,7 +1313,7 @@ func TestPluginControllerUpdateRejectsDuplicateFilesystemSourceIdentity(t *testi
 			},
 		},
 	}
-	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900"}}, noopLogger{}, nil)
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil)
 
 	router := chi.NewRouter()
 	router.Put("/api/integrations/{id}", controller.UpdateIntegration)

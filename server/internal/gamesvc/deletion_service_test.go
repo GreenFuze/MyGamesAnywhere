@@ -126,6 +126,36 @@ func TestDeletionServiceDeletesOneEligibleSourceRecord(t *testing.T) {
 	}
 }
 
+func TestDeletionServiceDeletesManualReviewCandidateFiles(t *testing.T) {
+	ctx := context.Background()
+	store := newDeletionTestStore(t)
+	_ = persistDeletionTestSources(t, ctx, store, false)
+
+	repo := deletionTestIntegrationRepo{items: map[string]*core.Integration{
+		"source-a": {
+			ID:         "source-a",
+			PluginID:   "game-source-smb",
+			ConfigJSON: `{"host":"test","share":"games","username":"u","password":"p","include_paths":[{"path":"Games","recursive":true}]}`,
+		},
+	}}
+	caller := &deletionTestPluginCaller{}
+	service := NewDeletionService(store, repo, caller, deletionTestLogger{})
+
+	result, err := service.DeleteReviewCandidateFiles(ctx, "scan:source-a")
+	if err != nil {
+		t.Fatalf("DeleteReviewCandidateFiles: %v", err)
+	}
+	if result.DeletedSourceGameID != "scan:source-a" {
+		t.Fatalf("deleted source game id = %q, want scan:source-a", result.DeletedSourceGameID)
+	}
+	if result.CanonicalExists {
+		t.Fatal("expected solo canonical game to be removed after deleting candidate")
+	}
+	if len(caller.calls) != 1 {
+		t.Fatalf("plugin delete calls = %d, want 1", len(caller.calls))
+	}
+}
+
 func TestDeletionServiceRejectsIneligibleSourceWithoutMutation(t *testing.T) {
 	ctx := context.Background()
 	store := newDeletionTestStore(t)

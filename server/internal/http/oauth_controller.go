@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	appconfig "github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
@@ -71,11 +72,12 @@ func (c *OAuthController) handleOAuth2Callback(w http.ResponseWriter, r *http.Re
 	}
 
 	// Build the redirect_uri that was used (must match what was sent to the provider).
-	port := c.config.Get("PORT")
-	if port == "" {
-		port = "8900"
+	redirectURI, err := appconfig.OAuthCallbackURL(c.config, pluginID)
+	if err != nil {
+		c.logger.Error("OAuth callback redirect URL", err, "plugin_id", pluginID)
+		c.renderCallbackPage(w, false, "Server network configuration is invalid")
+		return
 	}
-	redirectURI := fmt.Sprintf("http://localhost:%s/api/auth/callback/%s", port, pluginID)
 
 	c.finishCallback(w, r, pluginID, state, map[string]any{
 		"code":         code,
