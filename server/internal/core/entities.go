@@ -21,8 +21,25 @@ type Session struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+type ProfileRole string
+
+const (
+	ProfileRoleAdminPlayer ProfileRole = "admin_player"
+	ProfileRolePlayer      ProfileRole = "player"
+)
+
+type Profile struct {
+	ID          string      `json:"id"`
+	DisplayName string      `json:"display_name"`
+	AvatarKey   string      `json:"avatar_key"`
+	Role        ProfileRole `json:"role"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
+}
+
 type Integration struct {
 	ID              string    `json:"id"`
+	ProfileID       string    `json:"profile_id,omitempty"`
 	PluginID        string    `json:"plugin_id"`
 	Label           string    `json:"label"`
 	ConfigJSON      string    `json:"config_json"`
@@ -32,6 +49,7 @@ type Integration struct {
 }
 
 type Setting struct {
+	ProfileID string    `json:"profile_id,omitempty"`
 	Key       string    `json:"key"`
 	Value     string    `json:"value"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -405,6 +423,7 @@ type SyncPayload struct {
 	Version      int               `json:"version"`
 	ExportedAt   time.Time         `json:"exported_at"`
 	MGAVersion   string            `json:"mga_version"`
+	Profiles     []Profile         `json:"profiles,omitempty"`
 	Integrations []SyncIntegration `json:"integrations"`
 	Settings     []Setting         `json:"settings"`
 }
@@ -412,6 +431,7 @@ type SyncPayload struct {
 // SyncIntegration is an integration record within a sync payload.
 // ConfigEncrypted holds the AES-256-GCM encrypted config_json (base64).
 type SyncIntegration struct {
+	ProfileID       string    `json:"profile_id,omitempty"`
 	PluginID        string    `json:"plugin_id"`
 	Label           string    `json:"label"`
 	IntegrationType string    `json:"integration_type"`

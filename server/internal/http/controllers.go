@@ -839,7 +839,7 @@ func (c *DiscoveryController) Scan(w http.ResponseWriter, r *http.Request) {
 	if len(body.GameSources) > 0 {
 		integrationIDs = body.GameSources
 	}
-	status, alreadyRunning, err := c.scanJobs.Start(ScanRequest{
+	status, alreadyRunning, err := c.scanJobs.Start(r.Context(), ScanRequest{
 		GameSources:  integrationIDs,
 		MetadataOnly: body.MetadataOnly,
 	})

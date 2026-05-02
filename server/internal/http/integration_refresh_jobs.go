@@ -44,7 +44,7 @@ func newIntegrationRefreshJobManager(runner integrationRefreshRunner, bus *event
 	}
 }
 
-func (m *integrationRefreshJobManager) Start(integration *core.Integration) (*core.IntegrationRefreshJobStatus, bool, error) {
+func (m *integrationRefreshJobManager) Start(parent context.Context, integration *core.Integration) (*core.IntegrationRefreshJobStatus, bool, error) {
 	if integration == nil || integration.ID == "" {
 		return nil, false, http.ErrMissingFile
 	}
@@ -73,7 +73,7 @@ func (m *integrationRefreshJobManager) Start(integration *core.Integration) (*co
 	out := cloneIntegrationRefreshJobStatus(status)
 	m.mu.Unlock()
 
-	go m.run(integration, status.JobID)
+	go m.run(parent, integration, status.JobID)
 	return out, false, nil
 }
 
@@ -87,8 +87,11 @@ func (m *integrationRefreshJobManager) Get(jobID string) *core.IntegrationRefres
 	return cloneIntegrationRefreshJobStatus(record.status)
 }
 
-func (m *integrationRefreshJobManager) run(integration *core.Integration, jobID string) {
+func (m *integrationRefreshJobManager) run(parent context.Context, integration *core.Integration, jobID string) {
 	ctx := context.Background()
+	if profile, ok := core.ProfileFromContext(parent); ok {
+		ctx = core.WithProfile(ctx, profile)
+	}
 	m.update(jobID, func(status *core.IntegrationRefreshJobStatus) {
 		status.Status = "running"
 		status.Phase = "starting"
@@ -261,7 +264,7 @@ func (c *IntegrationRefreshController) Start(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	status, alreadyRunning, err := c.jobs.Start(integration)
+	status, alreadyRunning, err := c.jobs.Start(r.Context(), integration)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

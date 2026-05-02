@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { SearchProvider } from '@/hooks/useSearchContext'
+import { ProfileProvider } from '@/hooks/useProfiles'
 import { SSEProvider } from '@/hooks/useSSE'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AppNotifications } from '@/components/notifications/AppNotifications'
@@ -34,30 +35,32 @@ export function App() {
         <ToastProvider>
           <ThemeProvider>
             <SearchProvider>
-              <BrowserRouter>
-                <AppNotifications />
-                <AppQueryInvalidation />
-                <ErrorBoundary>
-                  <Routes>
-                    <Route path="/" element={<AppLayout />}>
-                      <Route index element={<HomePage />} />
-                      <Route path="play" element={<PlayPage />} />
-                      <Route path="play/section/:sectionId" element={<PlayPage />} />
-                      <Route path="library" element={<LibraryPage />} />
-                      <Route path="library/section/:sectionId" element={<LibraryPage />} />
-                      <Route path="achievements" element={<AchievementsPage />} />
-                      <Route path="playable" element={<Navigate to="/play" replace />} />
-                      <Route path="xcloud" element={<Navigate to="/play" replace />} />
-                      <Route path="settings" element={<SettingsPage />} />
-                      <Route path="about" element={<AboutPage />} />
-                    </Route>
-                    <Route path="/game/:id/play" element={<GamePlayerPage />} />
-                    <Route path="/game/:id/media" element={<GameMediaPage />} />
-                    <Route path="/game/:id" element={<GameDetailPage />} />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </Routes>
-                </ErrorBoundary>
-              </BrowserRouter>
+              <ProfileProvider>
+                <BrowserRouter>
+                  <AppNotifications />
+                  <AppQueryInvalidation />
+                  <ErrorBoundary>
+                    <Routes>
+                      <Route path="/" element={<AppLayout />}>
+                        <Route index element={<HomePage />} />
+                        <Route path="play" element={<PlayPage />} />
+                        <Route path="play/section/:sectionId" element={<PlayPage />} />
+                        <Route path="library" element={<LibraryPage />} />
+                        <Route path="library/section/:sectionId" element={<LibraryPage />} />
+                        <Route path="achievements" element={<AchievementsPage />} />
+                        <Route path="playable" element={<Navigate to="/play" replace />} />
+                        <Route path="xcloud" element={<Navigate to="/play" replace />} />
+                        <Route path="settings" element={<SettingsPage />} />
+                        <Route path="about" element={<AboutPage />} />
+                      </Route>
+                      <Route path="/game/:id/play" element={<GamePlayerPage />} />
+                      <Route path="/game/:id/media" element={<GameMediaPage />} />
+                      <Route path="/game/:id" element={<GameDetailPage />} />
+                      <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
+                  </ErrorBoundary>
+                </BrowserRouter>
+              </ProfileProvider>
             </SearchProvider>
           </ThemeProvider>
         </ToastProvider>

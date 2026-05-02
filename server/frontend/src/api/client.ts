@@ -78,6 +78,30 @@ export type {
 
 /** Same-origin in prod (SPA behind Go); Vite proxy in dev. */
 const base = "";
+export const SELECTED_PROFILE_STORAGE_KEY = "mga.selectedProfileId";
+
+function selectedProfileId(): string {
+  try {
+    return localStorage.getItem(SELECTED_PROFILE_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function withProfileHeaders(headers?: HeadersInit): Headers {
+  const out = new Headers(headers);
+  const profileId = selectedProfileId();
+  if (profileId && !out.has("X-MGA-Profile-ID")) {
+    out.set("X-MGA-Profile-ID", profileId);
+  }
+  return out;
+}
+
+function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const url = typeof input === "string" ? input : input.toString();
+  const headers = url.includes("/api/") ? withProfileHeaders(init.headers) : new Headers(init.headers);
+  return fetch(input, { ...init, headers });
+}
 
 export class ApiError extends Error {
   constructor(
@@ -102,8 +126,8 @@ async function buildApiError(path: string, res: Response): Promise<ApiError> {
 }
 
 export async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${base}${path}`, {
-    headers: { Accept: "application/json" },
+  const res = await apiFetch(`${base}${path}`, {
+    headers: withProfileHeaders({ Accept: "application/json" }),
   });
   if (!res.ok) {
     throw await buildApiError(path, res);
@@ -115,9 +139,9 @@ export async function postJson<T>(
   path: string,
   body: unknown,
 ): Promise<T | void> {
-  const res = await fetch(`${base}${path}`, {
+  const res = await apiFetch(`${base}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: withProfileHeaders({ "Content-Type": "application/json", Accept: "application/json" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -132,9 +156,9 @@ export async function postJson<T>(
 }
 
 export async function putJson<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${base}${path}`, {
+  const res = await apiFetch(`${base}${path}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: withProfileHeaders({ "Content-Type": "application/json", Accept: "application/json" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -144,7 +168,7 @@ export async function putJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function deleteRequest(path: string): Promise<void> {
-  const res = await fetch(`${base}${path}`, { method: "DELETE" });
+  const res = await apiFetch(`${base}${path}`, { method: "DELETE" });
   if (!res.ok) {
     throw await buildApiError(path, res);
   }
@@ -154,6 +178,49 @@ export async function getHealth(): Promise<string> {
   const res = await fetch(`${base}/health`);
   if (!res.ok) throw new Error(`health: ${res.status}`);
   return res.text();
+}
+
+export type ProfileRole = "admin_player" | "player";
+
+export type Profile = {
+  id: string;
+  display_name: string;
+  avatar_key: string;
+  role: ProfileRole;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SetupStatus = {
+  setup_required: boolean;
+  profiles: Profile[];
+};
+
+export async function getSetupStatus(): Promise<SetupStatus> {
+  return getJson<SetupStatus>("/api/setup/status");
+}
+
+export async function listProfiles(): Promise<Profile[]> {
+  return getJson<Profile[]>("/api/profiles");
+}
+
+export async function startFreshSetup(body: { display_name: string; avatar_key?: string }): Promise<Profile> {
+  return postJson<Profile>("/api/setup/start-fresh", body) as Promise<Profile>;
+}
+
+export async function createProfile(body: { display_name: string; avatar_key?: string; role: ProfileRole }): Promise<Profile> {
+  return postJson<Profile>("/api/profiles", body) as Promise<Profile>;
+}
+
+export async function updateProfile(
+  id: string,
+  body: { display_name: string; avatar_key?: string; role: ProfileRole },
+): Promise<Profile> {
+  return putJson<Profile>(`/api/profiles/${encodeURIComponent(id)}`, body);
+}
+
+export async function deleteProfile(id: string): Promise<void> {
+  return deleteRequest(`/api/profiles/${encodeURIComponent(id)}`);
 }
 
 /** Lightweight row used in scan/report contexts (not used for GET /api/games/{id}). */
@@ -401,7 +468,7 @@ export async function setGameCoverOverride(
 
 export async function clearGameCoverOverride(id: string): Promise<GameDetailResponse> {
   const path = `/api/games/${encodeURIComponent(id)}/cover-override`;
-  const res = await fetch(`${base}${path}`, {
+  const res = await apiFetch(`${base}${path}`, {
     method: "DELETE",
     headers: { Accept: "application/json" },
   });
@@ -440,7 +507,7 @@ export async function setGameFavorite(id: string): Promise<GameDetailResponse> {
 
 export async function clearGameFavorite(id: string): Promise<GameDetailResponse> {
   const path = `/api/games/${encodeURIComponent(id)}/favorite`;
-  const res = await fetch(`${base}${path}`, {
+  const res = await apiFetch(`${base}${path}`, {
     method: "DELETE",
     headers: { Accept: "application/json" },
   });
@@ -455,7 +522,7 @@ export async function updateMediaAssetMetadata(
   body: { width: number; height: number; mime_type?: string },
 ): Promise<void> {
   const path = `/api/media/${encodeURIComponent(String(assetId))}/metadata`;
-  const res = await fetch(`${base}${path}`, {
+  const res = await apiFetch(`${base}${path}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body),
@@ -482,7 +549,7 @@ export async function deleteSourceGame(
   gameId: string,
   sourceGameId: string,
 ): Promise<DeleteSourceGameResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${base}/api/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}`,
     {
       method: "DELETE",
@@ -678,7 +745,7 @@ export async function createIntegration(body: {
   integration_type: string;
   config?: Record<string, unknown>;
 }): Promise<CreateIntegrationResult> {
-  const res = await fetch(`${base}/api/integrations`, {
+  const res = await apiFetch(`${base}/api/integrations`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body),
@@ -727,7 +794,7 @@ export async function updateIntegration(
   },
 ): Promise<UpdateIntegrationResult> {
   const path = `/api/integrations/${encodeURIComponent(id)}`;
-  const res = await fetch(`${base}${path}`, {
+  const res = await apiFetch(`${base}${path}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body),
@@ -755,7 +822,7 @@ export async function startIntegrationAuth(
   id: string,
 ): Promise<StartIntegrationAuthResult> {
   const path = `/api/integrations/${encodeURIComponent(id)}/authorize`;
-  const res = await fetch(`${base}${path}`, {
+  const res = await apiFetch(`${base}${path}`, {
     method: "POST",
     headers: { Accept: "application/json" },
   });
@@ -796,7 +863,7 @@ export async function startIntegrationRefresh(
   id: string,
 ): Promise<TriggerIntegrationRefreshResult> {
   const path = `/api/integrations/${encodeURIComponent(id)}/refresh`;
-  const res = await fetch(`${base}${path}`, {
+  const res = await apiFetch(`${base}${path}`, {
     method: "POST",
     headers: { Accept: "application/json" },
   });
@@ -897,7 +964,7 @@ export async function deleteManualReviewCandidateFiles(
   id: string,
 ): Promise<ManualReviewDeleteCandidateFilesResponse> {
   const path = `/api/review-candidates/${encodeURIComponent(id)}/files`;
-  const res = await fetch(path, {
+  const res = await apiFetch(path, {
     method: "DELETE",
     headers: { Accept: "application/json" },
   });
@@ -931,7 +998,7 @@ export async function triggerScan(
   const body: Record<string, unknown> = {};
   if (integrationIds) body.game_sources = integrationIds;
   if (opts?.metadataOnly) body.metadata_only = true;
-  const res = await fetch(`${base}/api/scan`, {
+  const res = await apiFetch(`${base}/api/scan`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body),
@@ -950,7 +1017,7 @@ export async function getScanJob(jobId: string): Promise<ScanJobStatus> {
 }
 
 export async function cancelScanJob(jobId: string): Promise<CancelScanResult> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${base}/api/scan/jobs/${encodeURIComponent(jobId)}/cancel`,
     {
       method: "POST",
@@ -1070,7 +1137,7 @@ export async function putGameSaveSyncSlot(params: {
   force?: boolean;
   snapshot: SaveSyncSnapshot;
 }): Promise<SaveSyncPutResult> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${base}/api/games/${encodeURIComponent(params.gameId)}/save-sync/slots/${encodeURIComponent(params.slotId)}`,
     {
       method: "PUT",
@@ -1147,7 +1214,7 @@ export async function prepareGameCache(params: {
   sourceGameId: string;
   profile: string;
 }): Promise<{ accepted: boolean; immediate: boolean; job?: SourceCacheJobStatus }> {
-  const res = await fetch(`${base}/api/games/${encodeURIComponent(params.gameId)}/cache/prepare`, {
+  const res = await apiFetch(`${base}/api/games/${encodeURIComponent(params.gameId)}/cache/prepare`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({

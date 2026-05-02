@@ -5,9 +5,11 @@ import { PluginsTab } from '@/components/settings/PluginsTab'
 import { AppearanceTab } from '@/components/settings/AppearanceTab'
 import { UndetectedGamesTab } from '@/components/settings/UndetectedGamesTab'
 import { CacheTab } from '@/components/settings/CacheTab'
+import { ProfilesTab } from '@/components/settings/ProfilesTab'
 
 const TABS: Tab[] = [
   { id: 'integrations', label: 'Integrations' },
+  { id: 'profiles', label: 'Profiles' },
   { id: 'plugins', label: 'Plugins' },
   { id: 'cache', label: 'Cache' },
   { id: 'appearance', label: 'Appearance' },
@@ -16,6 +18,7 @@ const TABS: Tab[] = [
 
 const TAB_COMPONENTS: Record<string, React.FC> = {
   integrations: IntegrationsTab,
+  profiles: ProfilesTab,
   plugins: PluginsTab,
   cache: CacheTab,
   appearance: AppearanceTab,

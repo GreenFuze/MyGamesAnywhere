@@ -31,6 +31,8 @@ type httpServer struct {
 	cacheCtrl              *CacheController
 	sseCtrl                *SSEController
 	oauthCtrl              *OAuthController
+	profileCtrl            *ProfileController
+	profileRepo            core.ProfileRepository
 }
 
 func NewHttpServer(
@@ -50,6 +52,8 @@ func NewHttpServer(
 	cacheCtrl *CacheController,
 	sseCtrl *SSEController,
 	oauthCtrl *OAuthController,
+	profileCtrl *ProfileController,
+	profileRepo core.ProfileRepository,
 ) core.Server {
 	return &httpServer{
 		logger:                 logger,
@@ -68,6 +72,8 @@ func NewHttpServer(
 		cacheCtrl:              cacheCtrl,
 		sseCtrl:                sseCtrl,
 		oauthCtrl:              oauthCtrl,
+		profileCtrl:            profileCtrl,
+		profileRepo:            profileRepo,
 	}
 }
 
@@ -102,6 +108,8 @@ func (h *httpServer) Start(ctx context.Context) error {
 		CacheCtrl:              h.cacheCtrl,
 		SSECtrl:                h.sseCtrl,
 		OAuthCtrl:              h.oauthCtrl,
+		ProfileCtrl:            h.profileCtrl,
+		ProfileRepo:            h.profileRepo,
 	}, 60*time.Second, spaDir)
 
 	h.server = &http.Server{

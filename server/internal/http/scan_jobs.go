@@ -57,7 +57,7 @@ func newScanJobManager(runner scanRunner, bus *events.EventBus, logger core.Logg
 	}
 }
 
-func (m *scanJobManager) Start(req ScanRequest) (*core.ScanJobStatus, bool, error) {
+func (m *scanJobManager) Start(parent context.Context, req ScanRequest) (*core.ScanJobStatus, bool, error) {
 	m.mu.Lock()
 	if current := m.activeRunningJobLocked(); current != nil {
 		out := cloneScanJobStatus(current.status)
@@ -66,7 +66,11 @@ func (m *scanJobManager) Start(req ScanRequest) (*core.ScanJobStatus, bool, erro
 	}
 
 	jobID := uuid.NewString()
-	ctx, cancel := context.WithCancel(scan.WithScanJobID(context.Background(), jobID))
+	bg := scan.WithScanJobID(context.Background(), jobID)
+	if profile, ok := core.ProfileFromContext(parent); ok {
+		bg = core.WithProfile(bg, profile)
+	}
+	ctx, cancel := context.WithCancel(bg)
 	now := time.Now().UTC().Format(time.RFC3339)
 	job := &core.ScanJobStatus{
 		JobID:          jobID,

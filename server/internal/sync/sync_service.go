@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const payloadVersion = 1
+const payloadVersion = 2
 
 // PluginHost is the subset of plugins.PluginHost that SyncService needs.
 type PluginHost = plugins.PluginHost
@@ -23,6 +23,7 @@ type PluginHost = plugins.PluginHost
 type syncService struct {
 	integrationRepo core.IntegrationRepository
 	settingRepo     core.SettingRepository
+	profileRepo     core.ProfileRepository
 	pluginHost      PluginHost
 	keyStore        core.KeyStore
 	logger          core.Logger
@@ -31,6 +32,7 @@ type syncService struct {
 func NewSyncService(
 	integrationRepo core.IntegrationRepository,
 	settingRepo core.SettingRepository,
+	profileRepo core.ProfileRepository,
 	pluginHost PluginHost,
 	ks core.KeyStore,
 	logger core.Logger,
@@ -38,6 +40,7 @@ func NewSyncService(
 	return &syncService{
 		integrationRepo: integrationRepo,
 		settingRepo:     settingRepo,
+		profileRepo:     profileRepo,
 		pluginHost:      pluginHost,
 		keyStore:        ks,
 		logger:          logger,
@@ -222,6 +225,11 @@ func (s *syncService) buildPayload(ctx context.Context, key string) (*core.SyncP
 		return nil, fmt.Errorf("list integrations: %w", err)
 	}
 
+	profiles, err := s.profileRepo.List(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("list profiles: %w", err)
+	}
+
 	syncInts := make([]core.SyncIntegration, 0, len(integrations))
 	for _, ig := range integrations {
 		encrypted, err := crypto.Encrypt([]byte(ig.ConfigJSON), key)
@@ -229,6 +237,7 @@ func (s *syncService) buildPayload(ctx context.Context, key string) (*core.SyncP
 			return nil, fmt.Errorf("encrypt config for %s: %w", ig.PluginID, err)
 		}
 		syncInts = append(syncInts, core.SyncIntegration{
+			ProfileID:       ig.ProfileID,
 			PluginID:        ig.PluginID,
 			Label:           ig.Label,
 			IntegrationType: ig.IntegrationType,
@@ -247,6 +256,7 @@ func (s *syncService) buildPayload(ctx context.Context, key string) (*core.SyncP
 		Version:      payloadVersion,
 		ExportedAt:   time.Now().UTC(),
 		MGAVersion:   buildinfo.Version,
+		Profiles:     derefProfiles(profiles),
 		Integrations: syncInts,
 		Settings:     allSettings,
 	}, nil
@@ -270,15 +280,20 @@ func (s *syncService) listAllSettings(ctx context.Context) ([]core.Setting, erro
 func (s *syncService) mergePayload(ctx context.Context, payload *core.SyncPayload, key string) (*core.PullResult, error) {
 	pr := &core.PullResult{RemoteExportedAt: payload.ExportedAt}
 
+	profileMap, err := s.ensurePayloadProfiles(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+
 	existing, err := s.integrationRepo.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list local integrations: %w", err)
 	}
 
-	type igKey struct{ pluginID, label string }
+	type igKey struct{ profileID, pluginID, label string }
 	localMap := make(map[igKey]*core.Integration, len(existing))
 	for _, ig := range existing {
-		localMap[igKey{ig.PluginID, ig.Label}] = ig
+		localMap[igKey{ig.ProfileID, ig.PluginID, ig.Label}] = ig
 	}
 
 	for _, remote := range payload.Integrations {
@@ -287,12 +302,17 @@ func (s *syncService) mergePayload(ctx context.Context, payload *core.SyncPayloa
 			return nil, fmt.Errorf("decrypt config for %s/%s: %w", remote.PluginID, remote.Label, err)
 		}
 
-		k := igKey{remote.PluginID, remote.Label}
+		profileID := remote.ProfileID
+		if profileID == "" {
+			profileID = profileMap[""]
+		}
+		k := igKey{profileID, remote.PluginID, remote.Label}
 		local, exists := localMap[k]
 
 		if !exists {
 			ig := &core.Integration{
 				ID:              uuid.New().String(),
+				ProfileID:       profileID,
 				PluginID:        remote.PluginID,
 				Label:           remote.Label,
 				IntegrationType: remote.IntegrationType,
@@ -300,7 +320,8 @@ func (s *syncService) mergePayload(ctx context.Context, payload *core.SyncPayloa
 				CreatedAt:       time.Now(),
 				UpdatedAt:       remote.UpdatedAt,
 			}
-			if err := s.integrationRepo.Create(ctx, ig); err != nil {
+			createCtx := core.WithProfile(ctx, &core.Profile{ID: profileID, Role: core.ProfileRoleAdminPlayer})
+			if err := s.integrationRepo.Create(createCtx, ig); err != nil {
 				return nil, fmt.Errorf("create integration %s/%s: %w", remote.PluginID, remote.Label, err)
 			}
 			pr.IntegrationsAdded++
@@ -308,7 +329,8 @@ func (s *syncService) mergePayload(ctx context.Context, payload *core.SyncPayloa
 			local.ConfigJSON = string(configJSON)
 			local.IntegrationType = remote.IntegrationType
 			local.UpdatedAt = remote.UpdatedAt
-			if err := s.integrationRepo.Update(ctx, local); err != nil {
+			updateCtx := core.WithProfile(ctx, &core.Profile{ID: profileID, Role: core.ProfileRoleAdminPlayer})
+			if err := s.integrationRepo.Update(updateCtx, local); err != nil {
 				return nil, fmt.Errorf("update integration %s/%s: %w", remote.PluginID, remote.Label, err)
 			}
 			pr.IntegrationsUpdated++
@@ -339,4 +361,73 @@ func (s *syncService) mergePayload(ctx context.Context, payload *core.SyncPayloa
 	}
 
 	return pr, nil
+}
+
+func derefProfiles(profiles []*core.Profile) []core.Profile {
+	out := make([]core.Profile, 0, len(profiles))
+	for _, profile := range profiles {
+		if profile == nil {
+			continue
+		}
+		out = append(out, *profile)
+	}
+	return out
+}
+
+func (s *syncService) ensurePayloadProfiles(ctx context.Context, payload *core.SyncPayload) (map[string]string, error) {
+	out := map[string]string{}
+	existing, err := s.profileRepo.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list local profiles: %w", err)
+	}
+	existingByID := make(map[string]*core.Profile, len(existing))
+	for _, profile := range existing {
+		existingByID[profile.ID] = profile
+	}
+
+	if len(payload.Profiles) == 0 {
+		if len(existing) > 0 {
+			out[""] = existing[0].ID
+			return out, nil
+		}
+		now := time.Now()
+		profile := &core.Profile{
+			ID:          uuid.NewString(),
+			DisplayName: "Admin Player",
+			AvatarKey:   "player-1",
+			Role:        core.ProfileRoleAdminPlayer,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if err := s.profileRepo.Create(ctx, profile); err != nil {
+			return nil, fmt.Errorf("create fallback profile: %w", err)
+		}
+		out[""] = profile.ID
+		return out, nil
+	}
+
+	for _, remote := range payload.Profiles {
+		if remote.ID == "" {
+			continue
+		}
+		if local := existingByID[remote.ID]; local != nil {
+			out[remote.ID] = local.ID
+			continue
+		}
+		profile := remote
+		if profile.Role == "" {
+			profile.Role = core.ProfileRolePlayer
+		}
+		if err := s.profileRepo.Create(ctx, &profile); err != nil {
+			return nil, fmt.Errorf("create profile %s: %w", profile.DisplayName, err)
+		}
+		out[remote.ID] = profile.ID
+	}
+	if out[""] == "" {
+		for _, id := range out {
+			out[""] = id
+			break
+		}
+	}
+	return out, nil
 }

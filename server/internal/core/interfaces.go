@@ -19,6 +19,8 @@ var (
 	ErrCoverOverrideMediaNotFound       = errors.New("cover override media asset is not linked to this game")
 	ErrHoverOverrideMediaNotFound       = errors.New("hover override media asset is not linked to this game")
 	ErrBackgroundOverrideMediaNotFound  = errors.New("background override media asset is not linked to this game")
+	ErrProfileRequired                  = errors.New("profile is required")
+	ErrProfileForbidden                 = errors.New("profile role is not allowed")
 )
 
 // Logger defines the interface for structured logging.
@@ -49,6 +51,17 @@ type SettingRepository interface {
 	Upsert(ctx context.Context, setting *Setting) error
 	Get(ctx context.Context, key string) (*Setting, error)
 	List(ctx context.Context) ([]*Setting, error)
+}
+
+type ProfileRepository interface {
+	Create(ctx context.Context, profile *Profile) error
+	Update(ctx context.Context, profile *Profile) error
+	Delete(ctx context.Context, id string) error
+	List(ctx context.Context) ([]*Profile, error)
+	GetByID(ctx context.Context, id string) (*Profile, error)
+	Count(ctx context.Context) (int, error)
+	CountAdmins(ctx context.Context) (int, error)
+	EnsureDefaultForExistingData(ctx context.Context) (*Profile, error)
 }
 
 type IntegrationRepository interface {

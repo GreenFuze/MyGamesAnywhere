@@ -2,6 +2,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { THEME_IDS, THEME_LABELS, type ThemeId } from '@/theme/presets'
 import { useTheme } from '@/theme/ThemeProvider'
 import { useSearch } from '@/hooks/useSearchContext'
+import { ProfileAvatar, useProfiles } from '@/hooks/useProfiles'
 import { cn } from '@/lib/utils'
 
 const nav = [
@@ -16,6 +17,7 @@ const nav = [
 export function AppLayout() {
   const { themeId, setThemeId } = useTheme()
   const { searchQuery, setSearchQuery, searchRef } = useSearch()
+  const { currentProfile, clearProfile } = useProfiles()
   const loc = useLocation()
 
   const isWideRoute = ['/library', '/play', '/achievements'].some((p) =>
@@ -61,10 +63,25 @@ export function AppLayout() {
               ))}
             </select>
           </label>
+          {currentProfile ? (
+            <button
+              type="button"
+              onClick={clearProfile}
+              className="flex shrink-0 items-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-2 py-1.5 text-left transition-colors hover:bg-mga-elevated"
+              title="Switch profile"
+            >
+              <ProfileAvatar profile={currentProfile} className="h-7 w-7 text-xs" />
+              <span className="hidden min-w-0 max-w-[10rem] truncate text-sm font-medium text-mga-text sm:inline">
+                {currentProfile.display_name}
+              </span>
+            </button>
+          ) : null}
         </div>
         <nav className="overflow-x-auto border-t border-mga-border/70 px-3 md:px-4">
           <div className="flex min-w-max gap-1 py-2">
-            {nav.map(({ to, label }) => (
+            {nav
+              .filter(({ to }) => to !== '/settings' || currentProfile?.role === 'admin_player')
+              .map(({ to, label }) => (
               <NavLink
                 key={to}
                 to={to}

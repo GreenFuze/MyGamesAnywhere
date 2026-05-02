@@ -638,13 +638,20 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Package MGA for real distribution (Windows/Linux/macOS and/or Docker) with an installer/start path that does not require source checkout.
   - 2026-04-23 follow-up: Windows-first portable ZIP packaging, bootstrap verification scripts, and a version/tag-based release flow are now in-repo. Cross-platform installers and non-Windows packaging remain future work.
 - [x] Refresh `README.md` into a user-facing landing document with quick start, screenshots, packaging/install guidance, and feature overview.
-- [ ] Add multi-user / user management for MGA (on server-side).
-  - [ ] Web-client frontend should support users + user management in settings
-  - [ ] Set roles: Admin Player and Player. Admin player can access settings, other than that, they're the same.
-  - [ ] each profile has its own integrations + games etc.
-  - [ ] Web-client: Surfing to the web client, the user can choose a profile (and set it to default so next time it won't ask).
-  - [ ] User image/icon should be shown on the top left, where user log-out
-  - [ ] No passwords (at this stage)
+- [ ] Add multi-user / user management for MGA (profile-based, no passwords at this stage).
+  - [x] Phase 1: Profile schema, repositories, migration, and stale auth cleanup
+  - [ ] Phase 2: Profile context middleware, admin/player API enforcement, and profile-scoped repositories
+  - [ ] Phase 3: First-run setup APIs and frontend wizard
+  - [x] Phase 4: Profile picker/header/default-profile frontend flow
+  - [x] Phase 5: Settings -> Profiles management UI
+  - [ ] Phase 6: Settings sync payload v2 with profile restore/bootstrap
+  - [ ] Phase 7: Full profile-scoped library verification and regression tests
+  - [ ] Web-client frontend should support profiles + profile management in settings
+  - [ ] Set roles: Admin Player and Player. Admin Player can access settings; other than that, they are the same.
+  - [ ] Each profile has its own integrations, library data, scans, favorites, achievements, and profile settings.
+  - [ ] Plugin binaries/capabilities and media assets remain global.
+  - [ ] Web-client: surfing to the web client, the user can choose a profile and set it as the browser default.
+  - [ ] User image/icon should be shown on the top left, where profile switch/log-out lives.
 - [ ] Auto-update mechanism
   - [ ] checks if there's an update to MGA, if so, write that there's an update, and let the user click "update" button to update to the latest version. Also in "About" there should be a button for "check for updates"...
 - [x] Add "favorites"

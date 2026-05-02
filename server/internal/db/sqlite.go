@@ -97,8 +97,24 @@ func (s *sqliteDatabase) EnsureSchema() error {
 			value TEXT,
 			updated_at INTEGER
 		);`,
+		`CREATE TABLE IF NOT EXISTS profiles (
+			id TEXT PRIMARY KEY,
+			display_name TEXT NOT NULL,
+			avatar_key TEXT,
+			role TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS profile_settings (
+			profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+			key TEXT NOT NULL,
+			value TEXT,
+			updated_at INTEGER,
+			PRIMARY KEY(profile_id, key)
+		);`,
 		`CREATE TABLE IF NOT EXISTS integrations (
 			id TEXT PRIMARY KEY,
+			profile_id TEXT,
 			plugin_id TEXT NOT NULL,
 			label TEXT NOT NULL,
 			config_json TEXT,
@@ -108,6 +124,7 @@ func (s *sqliteDatabase) EnsureSchema() error {
 		);`,
 		`CREATE TABLE IF NOT EXISTS source_games (
 			id TEXT PRIMARY KEY,
+			profile_id TEXT,
 			integration_id TEXT NOT NULL,
 			plugin_id TEXT NOT NULL,
 			external_id TEXT NOT NULL,
@@ -233,6 +250,7 @@ func (s *sqliteDatabase) EnsureSchema() error {
 		`CREATE INDEX IF NOT EXISTS idx_ach_set ON achievements(set_id);`,
 		`CREATE TABLE IF NOT EXISTS scan_reports (
 			id TEXT PRIMARY KEY,
+			profile_id TEXT,
 			started_at INTEGER NOT NULL,
 			finished_at INTEGER NOT NULL,
 			duration_ms INTEGER NOT NULL,
@@ -312,12 +330,104 @@ func (s *sqliteDatabase) EnsureSchema() error {
 	if err := s.ensureMediaAssetDownloadStateSchema(); err != nil {
 		return err
 	}
+	if err := s.ensureProfileSchema(); err != nil {
+		return err
+	}
+	if err := s.ensureDefaultProfileForExistingData(); err != nil {
+		return err
+	}
 	if err := s.backfillCanonicalGames(); err != nil {
 		return err
 	}
 	if err := s.migrateLegacyCanonicalIDs(); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (s *sqliteDatabase) ensureProfileSchema() error {
+	if s.db == nil {
+		return fmt.Errorf("database not connected")
+	}
+	if err := s.ensureColumn("integrations", "profile_id",
+		`ALTER TABLE integrations ADD COLUMN profile_id TEXT`); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("source_games", "profile_id",
+		`ALTER TABLE source_games ADD COLUMN profile_id TEXT`); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("scan_reports", "profile_id",
+		`ALTER TABLE scan_reports ADD COLUMN profile_id TEXT`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_integrations_profile ON integrations(profile_id)`); err != nil {
+		return fmt.Errorf("create integrations profile index: %w", err)
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_source_games_profile ON source_games(profile_id)`); err != nil {
+		return fmt.Errorf("create source games profile index: %w", err)
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_scan_reports_profile ON scan_reports(profile_id)`); err != nil {
+		return fmt.Errorf("create scan reports profile index: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteDatabase) ensureDefaultProfileForExistingData() error {
+	if s.db == nil {
+		return fmt.Errorf("database not connected")
+	}
+	var profileCount int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM profiles`).Scan(&profileCount); err != nil {
+		return fmt.Errorf("count profiles: %w", err)
+	}
+	if profileCount > 0 {
+		return nil
+	}
+
+	var dataRows int
+	if err := s.db.QueryRow(`
+		SELECT
+			(SELECT COUNT(*) FROM integrations) +
+			(SELECT COUNT(*) FROM source_games) +
+			(SELECT COUNT(*) FROM scan_reports) +
+			(SELECT COUNT(*) FROM settings)
+	`).Scan(&dataRows); err != nil {
+		return fmt.Errorf("count existing profile-owned data: %w", err)
+	}
+	if dataRows == 0 {
+		return nil
+	}
+
+	profileID := uuid.NewString()
+	now := time.Now().Unix()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin default profile migration: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`INSERT INTO profiles (id, display_name, avatar_key, role, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)`, profileID, defaultProfileName, "player-1", string(core.ProfileRoleAdminPlayer), now, now); err != nil {
+		return fmt.Errorf("create default profile: %w", err)
+	}
+	for _, q := range []string{
+		`UPDATE integrations SET profile_id=? WHERE profile_id IS NULL OR profile_id=''`,
+		`UPDATE source_games SET profile_id=? WHERE profile_id IS NULL OR profile_id=''`,
+		`UPDATE scan_reports SET profile_id=? WHERE profile_id IS NULL OR profile_id=''`,
+	} {
+		if _, err := tx.Exec(q, profileID); err != nil {
+			return fmt.Errorf("assign existing rows to default profile: %w", err)
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO profile_settings (profile_id, key, value, updated_at)
+		SELECT ?, key, value, updated_at FROM settings WHERE key IN ('frontend', 'last_sync_push', 'last_sync_pull')`, profileID); err != nil {
+		return fmt.Errorf("copy profile settings: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit default profile migration: %w", err)
+	}
+	s.logger.Info("created default admin profile for existing data", "profile_id", profileID)
 	return nil
 }
 

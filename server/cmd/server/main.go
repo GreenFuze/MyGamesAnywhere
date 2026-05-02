@@ -48,6 +48,7 @@ func main() {
 	dbSvc := db.NewSQLiteDatabase(logSvc, configSvc)
 
 	settingRepo := db.NewSettingRepository(dbSvc)
+	profileRepo := db.NewProfileRepository(dbSvc)
 	integrationRepo := db.NewIntegrationRepository(dbSvc)
 	gameStore := db.NewGameStore(dbSvc, logSvc)
 	cacheStore := db.NewSourceCacheStore(dbSvc)
@@ -57,7 +58,7 @@ func main() {
 	pluginHost := plugins.NewPluginHost(logSvc, configSvc, processManager, eventBus)
 
 	ks := keystore.New()
-	syncSvc := mgasync.NewSyncService(integrationRepo, settingRepo, pluginHost, ks, logSvc)
+	syncSvc := mgasync.NewSyncService(integrationRepo, settingRepo, profileRepo, pluginHost, ks, logSvc)
 	saveSyncSvc := saveSync.NewService(integrationRepo, gameStore, pluginHost, logSvc, eventBus)
 	cacheSvc := sourcecache.NewService(cacheStore, integrationRepo, pluginHost, configSvc, logSvc)
 	mediaSvc := media.NewService(gameStore, configSvc, logSvc)
@@ -81,8 +82,9 @@ func main() {
 	cacheCtrl := http.NewCacheController(gameStore, integrationRepo, cacheSvc, logSvc)
 	sseCtrl := http.NewSSEController(eventBus, logSvc)
 	oauthCtrl := http.NewOAuthController(pluginHost, configSvc, logSvc, eventBus)
+	profileCtrl := http.NewProfileController(profileRepo, logSvc)
 
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, syncCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, syncCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo)
 
 	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost, eventBus, mediaSvc)
 
