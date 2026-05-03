@@ -1437,6 +1437,38 @@ paths:
         500:
           description: Internal server error
 
+  /api/update/apply:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/update/check:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/update/download:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/update/status:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /health:
     get:
       summary: Health check

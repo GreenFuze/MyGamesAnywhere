@@ -23,6 +23,7 @@ interface LibraryToolbarProps {
   subtitle?: string
   totalCount: number
   filteredCount: number
+  isLoading?: boolean
   viewMode: LibraryPrefs['viewMode']
   onViewModeChange: (mode: LibraryPrefs['viewMode']) => void
   sortBy: LibraryPrefs['sortBy']
@@ -42,6 +43,7 @@ export function LibraryToolbar({
   subtitle,
   totalCount,
   filteredCount,
+  isLoading = false,
   viewMode,
   onViewModeChange,
   sortBy,
@@ -63,7 +65,9 @@ export function LibraryToolbar({
         {subtitle && <p className="text-sm text-mga-muted">{subtitle}</p>}
       </div>
       <span className="text-sm text-mga-muted">
-        {filteredCount === totalCount
+        {isLoading
+          ? 'Loading games...'
+          : filteredCount === totalCount
           ? `${totalCount} games`
           : `${filteredCount} of ${totalCount}`}
       </span>

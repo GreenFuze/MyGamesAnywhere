@@ -71,6 +71,8 @@ if (-not $SkipBuild) {
 
 $requiredPaths = @(
     (Join-Path $binDir "mga_server.exe"),
+    (Join-Path $binDir "mga_tray.exe"),
+    (Join-Path $binDir "mga.ico"),
     $configTemplate,
     (Join-Path $binDir "plugins"),
     (Join-Path $binDir "frontend\dist\index.html"),
@@ -99,6 +101,8 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stageDir "media") | Out-Nu
 New-Item -ItemType Directory -Force -Path (Join-Path $stageDir "frontend") | Out-Null
 
 Copy-Item (Join-Path $binDir "mga_server.exe") -Destination $stageDir -Force
+Copy-Item (Join-Path $binDir "mga_tray.exe") -Destination $stageDir -Force
+Copy-Item (Join-Path $binDir "mga.ico") -Destination $stageDir -Force
 Copy-Item $configTemplate -Destination (Join-Path $stageDir "config.json") -Force
 Copy-Item (Join-Path $binDir "plugins") -Destination $stageDir -Recurse -Force
 Copy-Item (Join-Path $binDir "frontend\dist") -Destination (Join-Path $stageDir "frontend") -Recurse -Force

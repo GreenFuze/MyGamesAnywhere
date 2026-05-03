@@ -148,7 +148,17 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const { searchQuery } = useSearch()
-  const { data: allGames = [], isPending, isError, error } = useLibraryData()
+  const {
+    data: allGames = [],
+    totalCount,
+    loadedCount,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+    isPending,
+    isError,
+    error,
+  } = useLibraryData()
   const { recentPlayed, removeRecentPlayed } = useRecentPlayed()
   const {
     prefs,
@@ -227,6 +237,8 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   const emptyMessage = focusedSection
     ? 'No games in this section match the current filters.'
     : scopeMeta.emptyMessage
+  const canUseRemoteTotal = !focusedSection && scope === 'library' && activeFilterCount === 0 && searchQuery.trim() === ''
+  const toolbarTotalCount = canUseRemoteTotal ? Math.max(totalCount, filteredScopeGames.length) : filteredScopeGames.length
 
   const recentPlayedGames = useMemo(() => {
     if (scope !== 'play') return []
@@ -310,8 +322,9 @@ export function CollectionPage({ scope }: CollectionPageProps) {
             ? `Filtered section view in ${scopeMeta.title}`
             : scopeMeta.subtitle
         }
-        totalCount={filteredScopeGames.length}
+        totalCount={toolbarTotalCount}
         filteredCount={displayedGames.length}
+        isLoading={isPending}
         viewMode={focusedSection ? 'grid' : prefs.viewMode}
         onViewModeChange={setViewMode}
         sortBy={prefs.sortBy}
@@ -420,6 +433,22 @@ export function CollectionPage({ scope }: CollectionPageProps) {
           </p>
         </div>
       )}
+
+      {!isPending && !isError && hasNextPage ? (
+        <div className="flex flex-col items-center gap-2 py-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+          >
+            {isFetchingNextPage ? 'Loading more games...' : 'Load more games'}
+          </Button>
+          <p className="text-xs text-mga-muted">
+            {loadedCount} of {totalCount} loaded. Filters and shelves use loaded games.
+          </p>
+        </div>
+      ) : null}
 
       <SectionPickerDialog
         open={sectionPickerOpen}

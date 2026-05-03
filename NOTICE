@@ -4,6 +4,10 @@ Copyright 2026 GreenFuze and contributors
 This project is licensed under the Apache License, Version 2.0.
 See LICENSE.md for the full license text.
 
+Windows installer packaging uses Inno Setup. Inno Setup is distributed under
+its own license terms; see https://jrsoftware.org/isinfo.php and the SPDX
+Inno Setup License entry at https://spdx.org/licenses/InnoSetup.html.
+
 Attribution request:
 If you use this project or substantial portions of its code in a product,
 service, fork, or public deployment, please preserve visible credit to

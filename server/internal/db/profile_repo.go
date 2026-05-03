@@ -162,7 +162,7 @@ func (r *profileRepository) EnsureDefaultForExistingData(ctx context.Context) (*
 			(SELECT COUNT(*) FROM integrations) +
 			(SELECT COUNT(*) FROM source_games) +
 			(SELECT COUNT(*) FROM scan_reports) +
-			(SELECT COUNT(*) FROM settings)
+			(SELECT COUNT(*) FROM source_cache_entries)
 	`).Scan(&dataRows); err != nil {
 		return nil, err
 	}

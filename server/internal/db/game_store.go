@@ -1018,31 +1018,90 @@ func (s *gameStore) GetLibraryStats(ctx context.Context) (*core.LibraryStats, er
 		out.PercentWithResolverTitle = float64(out.CanonicalWithResolverTitle) / float64(out.CanonicalGameCount) * 100
 	}
 
-	games, err := s.GetCanonicalGames(ctx)
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT l.canonical_id)
+		FROM canonical_source_games_link l
+		JOIN source_games sg ON sg.id = l.source_game_id AND `+visibleSourceGameWhere(ctx, "sg")+`
+		JOIN source_game_media media ON media.source_game_id = sg.id`).Scan(&out.GamesWithMedia); err != nil {
+		return nil, err
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT l.canonical_id)
+		FROM canonical_source_games_link l
+		JOIN source_games sg ON sg.id = l.source_game_id AND `+visibleSourceGameWhere(ctx, "sg")+`
+		JOIN achievement_sets a ON a.source_game_id = sg.id`).Scan(&out.GamesWithAchievements); err != nil {
+		return nil, err
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT l.canonical_id)
+		FROM canonical_source_games_link l
+		JOIN source_games sg ON sg.id = l.source_game_id AND `+visibleSourceGameWhere(ctx, "sg")+`
+		JOIN metadata_resolver_matches m ON m.source_game_id = sg.id
+		WHERE m.outvoted=0 AND TRIM(IFNULL(json_extract(m.metadata_json, '$.description'), '')) != ''`).Scan(&out.GamesWithDescription); err != nil {
+		return nil, err
+	}
+	decadeRows, err := db.QueryContext(ctx, `SELECT l.canonical_id, MIN(m.release_date)
+		FROM canonical_source_games_link l
+		JOIN source_games sg ON sg.id = l.source_game_id AND `+visibleSourceGameWhere(ctx, "sg")+`
+		JOIN metadata_resolver_matches m ON m.source_game_id = sg.id
+		WHERE m.outvoted=0 AND TRIM(IFNULL(m.release_date, '')) != ''
+		GROUP BY l.canonical_id`)
 	if err != nil {
 		return nil, err
 	}
-	for _, game := range games {
-		if game == nil {
-			continue
+	for decadeRows.Next() {
+		var canonicalID string
+		var releaseDate string
+		if err := decadeRows.Scan(&canonicalID, &releaseDate); err != nil {
+			decadeRows.Close()
+			return nil, err
 		}
-		if strings.TrimSpace(game.Description) != "" {
-			out.GamesWithDescription++
-		}
-		if len(game.Media) > 0 {
-			out.GamesWithMedia++
-		}
-		if game.AchievementSummary != nil && game.AchievementSummary.SourceCount > 0 {
-			out.GamesWithAchievements++
-		}
-		if decade := decadeLabel(game.ReleaseDate); decade != "" {
+		if decade := decadeLabel(releaseDate); decade != "" {
 			out.ByDecade[decade]++
 		}
-		for _, genre := range game.Genres {
+	}
+	if err := decadeRows.Err(); err != nil {
+		decadeRows.Close()
+		return nil, err
+	}
+	decadeRows.Close()
+
+	genreRows, err := db.QueryContext(ctx, `SELECT l.canonical_id, m.metadata_json
+		FROM canonical_source_games_link l
+		JOIN source_games sg ON sg.id = l.source_game_id AND `+visibleSourceGameWhere(ctx, "sg")+`
+		JOIN metadata_resolver_matches m ON m.source_game_id = sg.id
+		WHERE m.outvoted=0 AND TRIM(IFNULL(m.metadata_json, '')) != ''`)
+	if err != nil {
+		return nil, err
+	}
+	genresByCanonical := make(map[string]map[string]struct{})
+	for genreRows.Next() {
+		var canonicalID string
+		var metadataJSON string
+		if err := genreRows.Scan(&canonicalID, &metadataJSON); err != nil {
+			genreRows.Close()
+			return nil, err
+		}
+		var extra metadataExtra
+		if err := json.Unmarshal([]byte(metadataJSON), &extra); err != nil || len(extra.Genres) == 0 {
+			continue
+		}
+		seen := genresByCanonical[canonicalID]
+		if seen == nil {
+			seen = make(map[string]struct{})
+			genresByCanonical[canonicalID] = seen
+		}
+		for _, genre := range extra.Genres {
 			genre = strings.TrimSpace(genre)
-			if genre == "" {
-				continue
+			if genre != "" {
+				seen[genre] = struct{}{}
 			}
+		}
+	}
+	if err := genreRows.Err(); err != nil {
+		genreRows.Close()
+		return nil, err
+	}
+	genreRows.Close()
+	for _, genres := range genresByCanonical {
+		for genre := range genres {
 			out.TopGenres[genre]++
 		}
 	}

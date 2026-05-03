@@ -473,6 +473,50 @@ type AboutInfo struct {
 	AuthorCredits []string `json:"author_credits"`
 }
 
+type UpdateAsset struct {
+	OS      string `json:"os"`
+	Arch    string `json:"arch"`
+	Type    string `json:"type"`
+	URL     string `json:"url"`
+	SHA256  string `json:"sha256"`
+	Size    int64  `json:"size"`
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
+type UpdateManifest struct {
+	Version                 string        `json:"version"`
+	ReleaseNotesURL         string        `json:"release_notes_url"`
+	MinimumSupportedUpdater string        `json:"minimum_supported_updater_version,omitempty"`
+	Assets                  []UpdateAsset `json:"assets"`
+}
+
+type UpdateStatus struct {
+	CurrentVersion   string       `json:"current_version"`
+	LatestVersion    string       `json:"latest_version,omitempty"`
+	UpdateAvailable  bool         `json:"update_available"`
+	ManifestURL      string       `json:"manifest_url,omitempty"`
+	ReleaseNotesURL  string       `json:"release_notes_url,omitempty"`
+	InstallType      string       `json:"install_type"`
+	DownloadedPath   string       `json:"downloaded_path,omitempty"`
+	DownloadedSHA256 string       `json:"downloaded_sha256,omitempty"`
+	SelectedAsset    *UpdateAsset `json:"selected_asset,omitempty"`
+	Message          string       `json:"message,omitempty"`
+}
+
+type UpdateDownloadResult struct {
+	Status UpdateStatus `json:"status"`
+	Path   string       `json:"path"`
+	SHA256 string       `json:"sha256"`
+	Size   int64        `json:"size"`
+}
+
+type UpdateApplyResult struct {
+	Applied bool   `json:"applied"`
+	Message string `json:"message"`
+	Path    string `json:"path,omitempty"`
+}
+
 type ScanJobProgress struct {
 	Current       int    `json:"current"`
 	Total         int    `json:"total,omitempty"`

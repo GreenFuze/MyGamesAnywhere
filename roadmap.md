@@ -36,10 +36,10 @@ These are the next committed tasks after the completed Phase 7 / issue-cleanup w
    - [ ] Verification completed for server config tests, HTTP server address tests, focused Go tests, frontend build, and portable packaging config checks.
 
 2. **Auto-update check and release manifest**
-   - [ ] Extend the release pipeline from artifact-only output to a versioned update source: GitHub Release assets or a static update manifest with version, URL, SHA256, and release notes URL.
-   - [ ] Add a server-side update checker that compares current `VERSION` with the latest available release and exposes a small read-only API.
-   - [ ] Add a Settings UI card showing current version, latest version, release notes, and an explicit update action.
-   - [ ] Keep the first update action conservative: download/verify the package and guide restart, before attempting in-place replacement of the running executable.
+   - [x] Extend the release pipeline from artifact-only output to a versioned update source: GitHub Release assets or a static update manifest with version, URL, SHA256, and release notes URL.
+   - [x] Add a server-side update checker that compares current `VERSION` with the latest available release and exposes update status/check/download/apply APIs.
+   - [x] Add an About UI card showing current version, latest version, release notes, and explicit update actions.
+   - [x] Keep portable updates conservative: download/verify the package and guide restart/replacement instead of attempting in-place replacement of the running executable.
    - [ ] Verification: manifest parser tests, version-compare tests, checksum failure test, frontend build.
 
 3. **Achievements refresh instead of cached-only confusion**
@@ -653,7 +653,13 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [ ] Web-client: surfing to the web client, the user can choose a profile and set it as the browser default.
   - [ ] User image/icon should be shown on the top left, where profile switch/log-out lives.
 - [ ] Auto-update mechanism
-  - [ ] checks if there's an update to MGA, if so, write that there's an update, and let the user click "update" button to update to the latest version. Also in "About" there should be a button for "check for updates"...
+  - [x] Add `mga-update.json` release manifest support with version, release notes URL, asset URL, SHA256, size, OS/arch/type, and minimum updater version.
+  - [x] Add server update APIs: `GET /api/update/status`, `POST /api/update/check`, `POST /api/update/download`, and `POST /api/update/apply`.
+  - [x] Download update assets into the runtime update cache and verify SHA256 before apply.
+  - [x] Installed Windows update flow launches the verified Inno installer with silent update arguments.
+  - [x] Portable update v1 checks/downloads/verifies the portable ZIP and returns manual replacement guidance.
+  - [x] Add About page update UI with current/latest version, release notes, check, download, and apply actions.
+  - [ ] Add signed release verification after code signing is introduced.
 - [x] Add "favorites"
   - 2026-04-27 follow-up: canonical games now support server-persisted favorites, game detail/card heart toggles, and computed `Favorites` shelves as the first Library/Play shelf when favorite games exist in that scope.
 - [ ] Make MGA available in 0.0.0.0 or localhost. it needs to be configurable. I think using as 0.0.0.0 will require admin rights on start-up.
@@ -661,17 +667,20 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [x] Portable release config ships local-only with `LISTEN_IP: "127.0.0.1"` and `PORT: "8900"`.
   - [ ] This should be configurable from the frontend as well (under "settings/general" page?)
 - [ ] Make MGA install (Windows/Linux):
-  - [ ] As portable
-    - [ ] running on 0.0.0.0 requires admin to run?
-  - [ ] As installable
-    - [ ] As "not-a-service" (installed as user level - no admin rights)
-    - [ ] As a service (installed at the system level - admin rights for install)
-  - [ ] Make MSI installer? Or do you prefer something else?
-  - [ ] Installer should let the user decide how to install
-  - [ ] Installer should support update
-  - [ ] Installer should support silent mode
-  - [ ] Think about future auto-update feature that will be coming up soon
-  - [ ] Currently MGA write to its own directory, should this change?
+  - [x] Windows Phase 1: runtime layout resolver with portable, per-user, and machine/service data directories.
+  - [x] Windows Phase 2: server startup flags/env for `--config`, `--data-dir`, `--app-dir`, `--service`, `--no-tray`, and `--runtime-mode`.
+  - [x] Windows Phase 3: keep portable ZIP support with self-contained writable app directory.
+  - [x] Windows Phase 4: add Inno Setup installer script and package builder.
+  - [x] Windows Phase 5: support per-user user-process install without admin rights.
+  - [x] Windows Phase 6: support all-users/service install with native Windows service execution.
+  - [x] Windows Phase 7: installer choices for runtime mode, start after install, tray at login, local-only/LAN bind, and optional firewall rule.
+  - [x] Windows Phase 8: uninstall removes service/startup/firewall/app files and keeps user data by default with explicit delete-data prompt.
+  - [x] Windows Phase 9: installer/update manifest artifacts in GitHub Actions packaging workflow.
+  - [x] Windows Phase 10: mutable data moved out of Program Files for installed layouts; portable layout remains self-contained.
+  - [x] Packaging attribution: Inno Setup attribution added to NOTICE/README/release docs.
+  - [ ] Linux Phase 1: map runtime path resolver to XDG config/data/cache paths.
+  - [ ] Linux Phase 2: add tarball packaging, then decide on `.deb`, `.rpm`, or AppImage.
+  - [ ] Linux Phase 3: add systemd user unit and system service install options.
 - [ ] Achivement page shows only cached data. It needs to be able to show all information of all games, not just cached data.
   - [ ] Does cached data means in the frontend? or the server?
     - [ ] If on the frontend, explain the user what it means, because it is weird

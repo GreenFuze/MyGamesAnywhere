@@ -4,5 +4,9 @@
   "DB_PATH": "./data/db.sqlite",
   "PLUGINS_DIR": "./plugins",
   "FRONTEND_DIST": "./frontend/dist",
-  "MEDIA_ROOT": "./media"
+  "MEDIA_ROOT": "./media",
+  "SOURCE_CACHE_ROOT": "./source_cache",
+  "UPDATES_DIR": "./updates",
+  "APP_INSTALL_TYPE": "portable",
+  "UPDATE_MANIFEST_URL": "https://github.com/GreenFuze/MyGamesAnywhere/releases/latest/download/mga-update.json"
 }

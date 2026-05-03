@@ -22,6 +22,7 @@ type RouteBuilder struct {
 	ReviewCtrl             *ReviewController
 	AchievementCtrl        *AchievementController
 	SyncCtrl               *SyncController
+	UpdateCtrl             *UpdateController
 	SaveSyncCtrl           *SaveSyncController
 	CacheCtrl              *CacheController
 	SSECtrl                *SSEController
@@ -135,6 +136,10 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Post("/sync/pull", adminOnly(b.SyncCtrl.Pull))
 				r.Post("/sync/key", adminOnly(b.SyncCtrl.StoreKey))
 				r.Delete("/sync/key", adminOnly(b.SyncCtrl.ClearKey))
+				r.Get("/update/status", adminOnly(b.UpdateCtrl.Status))
+				r.Post("/update/check", adminOnly(b.UpdateCtrl.Check))
+				r.Post("/update/download", adminOnly(b.UpdateCtrl.Download))
+				r.Post("/update/apply", adminOnly(b.UpdateCtrl.Apply))
 				r.Post("/save-sync/migrations", adminOnly(b.SaveSyncCtrl.StartMigration))
 				r.Get("/save-sync/migrations/{job_id}", adminOnly(b.SaveSyncCtrl.GetMigrationStatus))
 				r.Get("/save-sync/prefetch/{job_id}", b.SaveSyncCtrl.GetPrefetchStatus)
@@ -228,6 +233,10 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Post("/sync/pull", noopHandler())
 			api.Post("/sync/key", noopHandler())
 			api.Delete("/sync/key", noopHandler())
+			api.Get("/update/status", noopHandler())
+			api.Post("/update/check", noopHandler())
+			api.Post("/update/download", noopHandler())
+			api.Post("/update/apply", noopHandler())
 			api.Post("/save-sync/migrations", noopHandler())
 			api.Get("/save-sync/migrations/{job_id}", noopHandler())
 			api.Get("/save-sync/prefetch/{job_id}", noopHandler())

@@ -12,6 +12,14 @@ if (-not (Test-Path $server)) {
 }
 
 Set-Location $BinDir
-Write-Host "Running $server" -ForegroundColor Cyan
-& $server @args
+$portableArgs = @(
+    "--runtime-mode", "portable",
+    "--app-dir", $BinDir,
+    "--data-dir", $BinDir
+)
+$allArgs = @()
+$allArgs += $portableArgs
+$allArgs += $args
+Write-Host "Running $server in portable mode from $BinDir" -ForegroundColor Cyan
+& $server @allArgs
 exit $LASTEXITCODE

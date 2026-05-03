@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
-import { ExternalLink } from 'lucide-react'
-import { getAboutInfo } from '@/api/client'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Download, ExternalLink, Play, RefreshCw } from 'lucide-react'
+import { applyUpdate, checkForUpdates, downloadUpdate, getAboutInfo, getUpdateStatus } from '@/api/client'
+import { Button } from '@/components/ui/button'
 import { BrandMark } from '@/components/ui/brand-icon'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -85,12 +86,36 @@ function CreditRowSkeleton() {
 }
 
 export function AboutPage() {
+  const queryClient = useQueryClient()
   const aboutQuery = useQuery({
     queryKey: ['about'],
     queryFn: getAboutInfo,
   })
+  const updateQuery = useQuery({
+    queryKey: ['update-status'],
+    queryFn: getUpdateStatus,
+  })
+
+  const invalidateUpdateStatus = () => {
+    void queryClient.invalidateQueries({ queryKey: ['update-status'] })
+  }
+
+  const checkMutation = useMutation({
+    mutationFn: checkForUpdates,
+    onSuccess: invalidateUpdateStatus,
+  })
+  const downloadMutation = useMutation({
+    mutationFn: downloadUpdate,
+    onSuccess: invalidateUpdateStatus,
+  })
+  const applyMutation = useMutation({
+    mutationFn: applyUpdate,
+    onSuccess: invalidateUpdateStatus,
+  })
 
   const about = aboutQuery.data
+  const update = updateQuery.data
+  const updateBusy = checkMutation.isPending || downloadMutation.isPending || applyMutation.isPending
 
   return (
     <div className="space-y-8">
@@ -166,6 +191,99 @@ export function AboutPage() {
               detail="Server-provided credits"
             />
           </div>
+        ) : null}
+      </section>
+
+      <section className="rounded-mga border border-mga-border bg-mga-surface p-5 shadow-sm shadow-black/10 md:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-mga-text">Updates</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-mga-muted">
+              MGA checks the release manifest, downloads the matching Windows asset, and verifies
+              SHA256 before applying installer updates. Portable builds download the ZIP and show
+              the verified path for manual replacement.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => checkMutation.mutate()}
+              disabled={updateBusy}
+            >
+              <RefreshCw size={16} />
+              Check
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => downloadMutation.mutate()}
+              disabled={updateBusy || !update?.selected_asset}
+            >
+              <Download size={16} />
+              Download
+            </Button>
+            <Button
+              type="button"
+              onClick={() => applyMutation.mutate()}
+              disabled={updateBusy || !update?.downloaded_path}
+            >
+              <Play size={16} />
+              Apply
+            </Button>
+          </div>
+        </div>
+
+        {updateQuery.isPending ? (
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }, (_, index) => (
+              <InfoCardSkeleton key={`update-skeleton-${index}`} />
+            ))}
+          </div>
+        ) : null}
+
+        {updateQuery.isError ? (
+          <p className="mt-4 text-sm text-red-300">Failed to load update status: {updateQuery.error.message}</p>
+        ) : null}
+
+        {update ? (
+          <>
+            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <InfoCard label="Current" value={update.current_version} />
+              <InfoCard label="Latest" value={update.latest_version || 'Not checked'} />
+              <InfoCard label="Install Type" value={update.install_type} />
+              <InfoCard
+                label="State"
+                value={update.update_available ? 'Update available' : 'No update'}
+                detail={update.message}
+              />
+            </div>
+            {update.downloaded_path ? (
+              <p className="mt-4 break-all rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-muted">
+                Verified download: {update.downloaded_path}
+              </p>
+            ) : null}
+            {update.release_notes_url ? (
+              <a
+                href={update.release_notes_url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-mga-accent hover:underline"
+              >
+                Release notes
+                <ExternalLink size={14} />
+              </a>
+            ) : null}
+          </>
+        ) : null}
+
+        {[checkMutation.error, downloadMutation.error, applyMutation.error].filter(Boolean).map((error, index) => (
+          <p key={index} className="mt-3 text-sm text-red-300">
+            {(error as Error).message}
+          </p>
+        ))}
+        {applyMutation.data ? (
+          <p className="mt-3 text-sm text-mga-muted">{applyMutation.data.message}</p>
         ) : null}
       </section>
 

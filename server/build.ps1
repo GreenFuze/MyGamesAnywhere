@@ -57,6 +57,9 @@ if ((Test-Path $fePkg) -and -not $SkipFrontend) {
     if (-not (Test-Path (Join-Path $feDir "dist\index.html"))) {
         throw "frontend build did not produce dist/index.html"
     }
+    if (Test-Path $feOut) {
+        Remove-Item $feOut -Recurse -Force
+    }
     New-Item -ItemType Directory -Force -Path $feOut | Out-Null
     Copy-Item -Path (Join-Path $feDir "dist\*") -Destination $feOut -Recurse -Force
 } elseif ((Test-Path $fePkg) -and $SkipFrontend) {
@@ -112,10 +115,24 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "server build failed" }
 } finally { Pop-Location }
 
+if ($env:OS -eq "Windows_NT") {
+    Write-Host "Building tray companion..." -ForegroundColor Cyan
+    Push-Location $RootDir
+    try {
+        go build -ldflags ($serverLdflags -join " ") -o (Join-Path $BinDir "mga_tray.exe") ./cmd/tray
+        if ($LASTEXITCODE -ne 0) { throw "tray build failed" }
+    } finally { Pop-Location }
+    Copy-Item (Join-Path $serverPkg "mga.ico") -Destination (Join-Path $BinDir "mga.ico") -Force
+}
+
 # --- Plugins ---
 # Auto-discover: every subdirectory under server/plugins that contains a main.go
 $pluginsSrc = Join-Path $RootDir "plugins"
 $pluginsOut = Join-Path $BinDir  "plugins"
+if (Test-Path $pluginsOut) {
+    Remove-Item $pluginsOut -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path $pluginsOut | Out-Null
 
 Get-ChildItem -Path $pluginsSrc -Directory | ForEach-Object {
     $name    = $_.Name
@@ -128,6 +145,9 @@ Get-ChildItem -Path $pluginsSrc -Directory | ForEach-Object {
     }
 
     $outDir = Join-Path $pluginsOut $name
+    if (Test-Path $outDir) {
+        Remove-Item $outDir -Recurse -Force
+    }
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
     Write-Host "Building plugin: $name..." -ForegroundColor Cyan

@@ -163,11 +163,11 @@ TODO screenshot: capture a cross-system achievement example with Steam, Xbox, an
 - Configurable server `LISTEN_IP` for loopback or opt-in LAN binding, while released packages stay local-only by default
 - Plugin-backed dry-delete previews for file-backed source deletes, with checkbox confirmation before the real delete action
 - REST API and React web UI running on the same local server
-- Windows portable release packaging
+- Windows portable and installer release packaging
 
 ## In Active Development
 
-- Packaging hardening beyond the first Windows portable release
+- Packaging hardening beyond the first Windows installer release
 - Game page and card UX iteration
 - More metadata and runtime coverage
 - Broader upgrade-safe packaging flow
@@ -230,11 +230,11 @@ TODO screenshot: capture a cross-system achievement example with Steam, Xbox, an
 
 ## Install / Download
 
-MGA currently ships as a **Windows portable build**. It runs as a local server plus web UI on your machine and binds to `127.0.0.1:8900` by default.
+MGA ships Windows portable and installer builds. It runs as a local server plus web UI on your machine and binds to `127.0.0.1:8900` by default.
 
-1. Download `mga-v0.0.7-windows-amd64-portable.zip` from [Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest)
-2. Extract it to a writable folder such as `C:\Games\MGA`
-3. Run `Start MGA.cmd`
+1. Download the portable ZIP or installer EXE from [Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest)
+2. For portable, extract it to a writable folder such as `C:\Games\MGA` and run `Start MGA.cmd`
+3. For the installer, choose per-user or all-users install, then choose user-process or Windows-service runtime mode
 4. Open [http://127.0.0.1:8900](http://127.0.0.1:8900)
 
 The current portable runtime stores config, database, plugins, media, and local state beside the runtime folder. Avoid extracting it under `Program Files`. The shipped `config.json` includes `LISTEN_IP: "127.0.0.1"` and `PORT: "8900"`; LAN exposure is opt-in by editing the server config.
@@ -296,9 +296,9 @@ The short public roadmap lives in [docs/public-roadmap.md](docs/public-roadmap.m
 
 The important split is:
 
-- **Available now**: canonical game merge, local-first runtime, source-backed pages, favorites, platform-aware manual review, source-backed achievements, browser-play surfaces, EmulatorJS save-sync, safer file-backed delete previews, configurable listen IP, and Windows portable packaging
+- **Available now**: canonical game merge, local-first runtime, source-backed pages, favorites, platform-aware manual review, source-backed achievements, browser-play surfaces, EmulatorJS save-sync, safer file-backed delete previews, configurable listen IP, and Windows portable/installer packaging
 - **In active development**: packaging hardening, UX refinement, broader metadata/runtime coverage, and better public proof/docs
-- **Planned later**: installers, desktop shell, mobile client, and multi-user flows
+- **Planned later**: Linux packaging, desktop shell, mobile client, and deeper multi-user flows
 
 ## Release And Upgrade Safety
 
@@ -310,7 +310,9 @@ Upgrade policy:
 - schema changes should be additive and idempotent where possible
 - releases that change runtime layout, schema behavior, or sync payload expectations must ship with migration notes
 - file-backed destructive actions should preview source-plugin targets before deletion and require explicit confirmation
-- until installers exist, upgrades assume a portable replacement flow with backup guidance for `config.json`, `data/`, and `media/`
+- installed updates download and verify the installer before launching it; portable updates remain a checked/downloaded manual replacement flow
+
+Windows installer packaging uses Inno Setup, which is distributed under its own license terms. MGA preserves Inno Setup attribution in NOTICE and package documentation.
 
 Detailed notes live in [docs/releases-and-upgrades.md](docs/releases-and-upgrades.md).
 

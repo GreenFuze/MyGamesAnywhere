@@ -21,8 +21,9 @@ func runTray(cancel context.CancelFunc, baseURL string) {
 		systray.SetTitle("MGA Server")
 		systray.SetTooltip("MyGamesAnywhere Server")
 		systray.SetIcon(mgaIcon)
-		openItem := systray.AddMenuItem("Open Web Frontend", "Open UI in default browser")
-		exitItem := systray.AddMenuItem("Exit", "Close the application")
+		openItem := systray.AddMenuItem("Open MGA", "Open MyGamesAnywhere in the default browser")
+		systray.AddSeparator()
+		exitItem := systray.AddMenuItem("Shutdown MGA", "Stop the server and close the tray")
 		go func() {
 			for range openItem.ClickedCh {
 				_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", baseURL).Start()

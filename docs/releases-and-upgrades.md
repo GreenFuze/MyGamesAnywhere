@@ -32,14 +32,19 @@ Every tagged release should include:
 2. a Git tag in the form `vX.Y.Z`
 3. release notes with user-visible changes
 4. upgrade notes if runtime layout, schema, or sync behavior changed
-5. packaged artifacts once packaging lands
+5. packaged artifacts:
+   - `mga-vX.Y.Z-windows-amd64-portable.zip`
+   - `mga-vX.Y.Z-windows-amd64-installer.exe`
+   - `mga-update.json`
+   - `SHA256SUMS.txt`
 
 The current public release flow is:
 
 1. bump `VERSION`
 2. build the portable package locally with `./server/package-portable.ps1`
-3. create an annotated Git tag in the form `vX.Y.Z`
-4. publish the GitHub Release manually with `gh release create --latest`
+3. build the Windows installer and update manifest with `./server/package-installer.ps1 -SkipBuild`
+4. create an annotated Git tag in the form `vX.Y.Z`
+5. publish the GitHub Release manually with `gh release create --latest`
 
 GitHub Actions remains available as an opt-in packaging helper via manual workflow dispatch, but it no longer publishes releases automatically from pushed tags.
 
@@ -56,7 +61,9 @@ Principles:
 
 ## Portable upgrade flow
 
-Until a real installer exists, MGA upgrades should assume a portable runtime.
+Portable builds remain supported and self-contained. Auto-update v1 can check
+the release manifest and download/verify the portable ZIP, but portable
+self-replacement is intentionally manual.
 
 Recommended user flow:
 
@@ -69,17 +76,21 @@ Recommended user flow:
 
 ## Packaging policy
 
-The intended order is:
+The supported Windows packaging modes are:
 
-1. portable builds
-2. installer-ready runtime layout
-3. platform installers
+1. portable ZIP, with app files and mutable data beside `mga_server.exe`
+2. per-user installer, with app files under `%LOCALAPPDATA%\Programs\MyGamesAnywhere` and mutable data under `%LOCALAPPDATA%\MyGamesAnywhere`
+3. all-users/service installer, with app files under `%ProgramFiles%\MyGamesAnywhere` and mutable data under `%ProgramData%\MyGamesAnywhere`
 
-Installer work should not happen before MGA has a clean answer for writable runtime locations on:
+Linux packaging is deferred, but the runtime path abstraction should map to:
 
-- Windows (`%LOCALAPPDATA%` / `%APPDATA%`)
-- Linux (XDG-style paths)
-- macOS (`~/Library/Application Support/...`)
+- config: `$XDG_CONFIG_HOME/mga`
+- data: `$XDG_DATA_HOME/mga`
+- cache: `$XDG_CACHE_HOME/mga`
+
+Windows installer packaging uses Inno Setup. Inno Setup is open source under
+its own license terms; keep this attribution in package docs and NOTICE, and
+decide later whether to buy a commercial license for project compliance comfort.
 
 ## Migration notes expectation
 

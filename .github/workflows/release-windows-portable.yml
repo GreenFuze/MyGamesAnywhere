@@ -1,4 +1,4 @@
-name: Build Windows Portable Package
+name: Build Windows Release Packages
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 jobs:
-  release-windows-portable:
+  release-windows:
     runs-on: windows-latest
 
     steps:
@@ -42,6 +42,14 @@ jobs:
         shell: pwsh
         run: ./server/package-portable.ps1
 
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build installer package and update manifest
+        shell: pwsh
+        run: ./server/package-installer.ps1 -SkipBuild
+
       - name: Ensure release notes exist
         shell: pwsh
         run: |
@@ -50,10 +58,12 @@ jobs:
             throw "Missing release notes file: $notes"
           }
 
-      - name: Upload portable package artifact
+      - name: Upload Windows package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mga-${{ steps.version.outputs.tag }}-windows-portable
+          name: mga-${{ steps.version.outputs.tag }}-windows
           path: |
             server/release/*.zip
+            server/release/*.exe
+            server/release/mga-update.json
             server/release/SHA256SUMS.txt

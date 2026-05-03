@@ -226,6 +226,13 @@ type SyncService interface {
 	ClearKey() error
 }
 
+type UpdateService interface {
+	Status(ctx context.Context) (*UpdateStatus, error)
+	Check(ctx context.Context) (*UpdateStatus, error)
+	Download(ctx context.Context) (*UpdateDownloadResult, error)
+	Apply(ctx context.Context) (*UpdateApplyResult, error)
+}
+
 // SaveSyncService handles browser-runtime save snapshot storage and migration.
 type SaveSyncService interface {
 	ListSlots(ctx context.Context, req SaveSyncListRequest) ([]SaveSyncSlotSummary, error)

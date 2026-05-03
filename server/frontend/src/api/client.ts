@@ -697,6 +697,43 @@ export type AboutInfo = {
   author_credits: string[];
 };
 
+export type UpdateAsset = {
+  os: string;
+  arch: string;
+  type: string;
+  url: string;
+  sha256: string;
+  size: number;
+  name?: string;
+  version?: string;
+};
+
+export type UpdateStatus = {
+  current_version: string;
+  latest_version?: string;
+  update_available: boolean;
+  manifest_url?: string;
+  release_notes_url?: string;
+  install_type: string;
+  downloaded_path?: string;
+  downloaded_sha256?: string;
+  selected_asset?: UpdateAsset;
+  message?: string;
+};
+
+export type UpdateDownloadResult = {
+  status: UpdateStatus;
+  path: string;
+  sha256: string;
+  size: number;
+};
+
+export type UpdateApplyResult = {
+  applied: boolean;
+  message: string;
+  path?: string;
+};
+
 // ─── Admin / Settings API functions ─────────────────────────────────
 
 export async function listIntegrations(): Promise<Integration[]> {
@@ -1076,6 +1113,22 @@ export async function getStats(): Promise<LibraryStats> {
 
 export async function getAboutInfo(): Promise<AboutInfo> {
   return getJson<AboutInfo>("/api/about");
+}
+
+export async function getUpdateStatus(): Promise<UpdateStatus> {
+  return getJson<UpdateStatus>("/api/update/status");
+}
+
+export async function checkForUpdates(): Promise<UpdateStatus> {
+  return postJson<UpdateStatus>("/api/update/check", {}) as Promise<UpdateStatus>;
+}
+
+export async function downloadUpdate(): Promise<UpdateDownloadResult> {
+  return postJson<UpdateDownloadResult>("/api/update/download", {}) as Promise<UpdateDownloadResult>;
+}
+
+export async function applyUpdate(): Promise<UpdateApplyResult> {
+  return postJson<UpdateApplyResult>("/api/update/apply", {}) as Promise<UpdateApplyResult>;
 }
 
 // ─── Plugin Browse API ──────────────────────────────────────────────
