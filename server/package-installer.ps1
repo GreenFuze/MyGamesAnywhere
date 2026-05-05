@@ -108,7 +108,10 @@ $required = @(
     $issPath,
     (Join-Path $rootDir "packaging\windows\install-config.ps1"),
     (Join-Path $rootDir "packaging\windows\service.ps1"),
-    (Join-Path $rootDir "packaging\windows\firewall.ps1")
+    (Join-Path $rootDir "packaging\windows\firewall.ps1"),
+    (Join-Path $rootDir "packaging\windows\update-installed.ps1"),
+    (Join-Path $rootDir "packaging\windows\mga_update.cmd"),
+    (Join-Path $rootDir "packaging\windows\mga_update.ps1")
 )
 foreach ($path in $required) {
     if (-not (Test-Path $path)) { throw "Required installer input is missing: $path" }

@@ -361,6 +361,71 @@ func TestMediaRequestPolicyRegistryFailsFastOnNilInputs(t *testing.T) {
 	}
 }
 
+func TestServiceStatusAndRetryFailedUseDownloadState(t *testing.T) {
+	ctx := context.Background()
+	store, cfg := newTestStore(t)
+	assetID := seedPendingAssetWithID(t, ctx, store, "retry", "https://example.test/retry.png")
+	if err := store.MarkMediaAssetDownloadFailed(ctx, assetID, "temporary error", false); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(store, cfg, testLogger{})
+	status, err := svc.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.ItemsLeft != 1 || status.RetryWaiting != 1 || status.LastError != "temporary error" {
+		t.Fatalf("unexpected status before retry: %+v", status)
+	}
+
+	status, err = svc.RetryFailed(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.ItemsLeft != 1 || status.RetryWaiting != 0 || status.FailedPermanent != 0 {
+		t.Fatalf("unexpected status after retry reset: %+v", status)
+	}
+}
+
+func TestServiceClearCacheDeletesFilesAndPreservesMediaRows(t *testing.T) {
+	ctx := context.Background()
+	store, cfg := newTestStore(t)
+	assetID := seedPendingAssetWithID(t, ctx, store, "clear", "https://example.test/clear.png")
+	localRel := filepath.ToSlash(filepath.Join("assets", "clear.png"))
+	localAbs := filepath.Join(cfg.mediaRoot, filepath.FromSlash(localRel))
+	if err := os.MkdirAll(filepath.Dir(localAbs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(localAbs, []byte("cached"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateMediaAsset(ctx, assetID, localRel, "hash"); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(store, cfg, testLogger{})
+	status, err := svc.ClearCache(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(localAbs); !os.IsNotExist(err) {
+		t.Fatalf("expected cached file to be removed, stat err=%v", err)
+	}
+	if status.Total != 1 || status.Downloaded != 0 || status.ItemsLeft != 1 {
+		t.Fatalf("unexpected status after clear: %+v", status)
+	}
+	asset, err := store.GetMediaAssetByID(ctx, assetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asset == nil || asset.URL == "" {
+		t.Fatalf("expected media asset row to remain: %+v", asset)
+	}
+	if asset.LocalPath != "" || asset.Hash != "" || asset.DownloadAttempts != 0 || asset.DownloadLastError != "" {
+		t.Fatalf("expected local download state to be reset: %+v", asset)
+	}
+}
+
 func newTestStore(t *testing.T) (core.GameStore, testConfig) {
 	t.Helper()
 
@@ -384,15 +449,20 @@ func newTestStore(t *testing.T) (core.GameStore, testConfig) {
 }
 
 func seedPendingAsset(t *testing.T, ctx context.Context, store core.GameStore, assetURL string) int {
+	return seedPendingAssetWithID(t, ctx, store, fmt.Sprintf("media-%d", time.Now().UnixNano()), assetURL)
+}
+
+func seedPendingAssetWithID(t *testing.T, ctx context.Context, store core.GameStore, suffix string, assetURL string) int {
 	t.Helper()
+	sourceID := "scan:media-seed-" + suffix
 
 	if err := store.PersistScanResults(ctx, &core.ScanBatch{
 		IntegrationID: "integration-1",
 		SourceGames: []*core.SourceGame{{
-			ID:            "scan:media-seed",
+			ID:            sourceID,
 			IntegrationID: "integration-1",
 			PluginID:      "game-source-steam",
-			ExternalID:    fmt.Sprintf("media-%d", time.Now().UnixNano()),
+			ExternalID:    suffix,
 			RawTitle:      "Media Seed",
 			Platform:      core.PlatformWindowsPC,
 			Kind:          core.GameKindBaseGame,
@@ -400,7 +470,7 @@ func seedPendingAsset(t *testing.T, ctx context.Context, store core.GameStore, a
 			Status:        "found",
 		}},
 		ResolverMatches: map[string][]core.ResolverMatch{
-			"scan:media-seed": {{
+			sourceID: {{
 				PluginID:   "metadata-igdb",
 				Title:      "Media Seed",
 				Platform:   string(core.PlatformWindowsPC),
@@ -408,7 +478,7 @@ func seedPendingAsset(t *testing.T, ctx context.Context, store core.GameStore, a
 			}},
 		},
 		MediaItems: map[string][]core.MediaRef{
-			"scan:media-seed": {{
+			sourceID: {{
 				Type: core.MediaTypeCover,
 				URL:  assetURL,
 			}},

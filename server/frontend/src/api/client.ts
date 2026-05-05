@@ -1429,3 +1429,27 @@ export async function deleteCacheEntry(entryId: string): Promise<void> {
 export async function clearCacheEntries(): Promise<void> {
   await postJson(`/api/cache/clear`, {});
 }
+
+export type MediaDownloadStatus = {
+  items_left: number;
+  downloading: number;
+  queued: number;
+  retry_waiting: number;
+  failed_permanent: number;
+  downloaded: number;
+  total: number;
+  last_error?: string;
+  last_activity_at?: string;
+};
+
+export async function getMediaQueueStatus(): Promise<MediaDownloadStatus> {
+  return getJson<MediaDownloadStatus>(`/api/media/queue/status`);
+}
+
+export async function retryFailedMediaDownloads(): Promise<MediaDownloadStatus> {
+  return postJson<MediaDownloadStatus>(`/api/media/queue/retry-failed`, {}) as Promise<MediaDownloadStatus>;
+}
+
+export async function clearMediaCache(): Promise<MediaDownloadStatus> {
+  return postJson<MediaDownloadStatus>(`/api/media/cache/clear`, {}) as Promise<MediaDownloadStatus>;
+}

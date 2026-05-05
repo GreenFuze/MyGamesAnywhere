@@ -90,6 +90,8 @@ $requiredPaths = @(
     (Join-Path $binDir "frontend\dist\index.html"),
     (Join-Path $packageTemplates "Start MGA.cmd"),
     (Join-Path $packageTemplates "Start MGA.ps1"),
+    (Join-Path $packageTemplates "mga_update.cmd"),
+    (Join-Path $packageTemplates "mga_update.ps1"),
     (Join-Path $packageTemplates "verify-mga.ps1")
 )
 

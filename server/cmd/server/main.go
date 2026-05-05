@@ -165,7 +165,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	deletionSvc := gamesvc.NewDeletionService(gameStore, integrationRepo, pluginHost, logSvc)
 
 	gameCtrl := http.NewGameController(gameStore, orchestrator, deletionSvc, integrationRepo, cacheSvc, logSvc)
-	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc)
+	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc, mediaSvc)
 	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc, eventBus)
 	aboutCtrl := http.NewAboutController(logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)

@@ -652,13 +652,13 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [ ] Plugin binaries/capabilities and media assets remain global.
   - [ ] Web-client: surfing to the web client, the user can choose a profile and set it as the browser default.
   - [ ] User image/icon should be shown on the top left, where profile switch/log-out lives.
-- [ ] Auto-update mechanism
+- [x] Auto-update mechanism
   - [x] Add `mga-update.json` release manifest support with version, release notes URL, asset URL, SHA256, size, OS/arch/type, and minimum updater version.
   - [x] Add server update APIs: `GET /api/update/status`, `POST /api/update/check`, `POST /api/update/download`, and `POST /api/update/apply`.
   - [x] Download update assets into the runtime update cache and verify SHA256 before apply.
   - [x] Installed Windows update flow launches the verified Inno installer with silent update arguments.
-  - [x] Portable update v1 checks/downloads/verifies the portable ZIP and returns manual replacement guidance.
-  - [x] Add About page update UI with current/latest version, release notes, check, download, and apply actions.
+  - [x] Portable Windows update checks/downloads/verifies the portable ZIP, launches an external updater helper, preserves mutable data, and restarts MGA.
+  - [x] Add Settings -> Update UI with current/latest version, release notes, check, download, and apply actions.
   - [ ] Add signed release verification after code signing is introduced.
 - [x] Add "favorites"
   - 2026-04-27 follow-up: canonical games now support server-persisted favorites, game detail/card heart toggles, and computed `Favorites` shelves as the first Library/Play shelf when favorite games exist in that scope.
@@ -694,3 +694,8 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] When showing source files of a game (in undetected games page and game page), show all the files in a single multi-line textbox. otherwise it takes too much space. Also no need to show size per file, show total size.
 - [ ] Support "exclude directories" for files-backed sources. Update Web frontend to support this.
 - [x] I am searching for "desert strike". in launchbox db website I find "Desert Strike: Return to the Gulf", which is the right game, but in MGA it finds only "MiniTank: Desert Strike" from IGDB.
+- [ ] In undetected games, "Inca 2 (MS DOS)" was not found. if I manually search for "Inca 2", also not found. If I search for "Inca II", it is found. Now if I remember correctly the normalization and cadidates to search, if there's no match, we remove the parenthesis (i.e. "Inca 2"), and if that is not found, we replace the numbers to roman numbers (i.e. Inca II) -> meaning, the undetected games search of "Inca 2 (MS DOS)" should have displayed "Inca II". Am I wrong?
+- [x] Its time to release v0.0.8.
+- [x] The auto update (in the settings->update) should ignore versions that are not in the format of "vX.X.X". Meaning, it shouldn't detect latest versions of the format "v0.0.8-beta" and such. Or, at the least, let the user decide their track (cutting edge vs stable)
+- [x] The auto update, how does that work? MGA server should update the code and restart, how do you think to do that exactly? Remember MGA is still running, so it needs to be restarted. What is the plan. I think maybe the update setup executable can shutdown MGA -> update -> restart MGA. What do you think? it just needs to mind the type of installation.
+- [ ] What do we do with the integrations redirect URL when the server is listening to 0.0.0.0 and we are NOT accessing from localhost/127.0.0.1 ?

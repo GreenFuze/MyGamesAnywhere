@@ -10,7 +10,7 @@ Most launchers start from a storefront or a folder. MGA starts from the game ide
 
 [Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest) · [View screenshots](#screenshots) · [GitHub Pages](https://greenfuze.github.io/MyGamesAnywhere/) · [GitHub](https://github.com/GreenFuze/MyGamesAnywhere) · [Public roadmap](docs/public-roadmap.md)
 
-**Current release line:** `v0.0.8-beta`
+**Current release line:** `v0.0.8`
 **Status:** pre-1.0, actively moving, local-first by design
 
 ![A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation](docs/screenshots/canonical-game-page.png)
@@ -163,13 +163,14 @@ Additional screenshot coverage is tracked in the public docs, but the committed 
 - First-run profile flow, browser-local profile picker, profile menu, and admin-managed profile settings
 - Profile-owned integrations and library data, so storefront credentials, source scans, favorites, achievements, and settings can be separated per profile
 - Windows installer with clear per-user or all-users modes: per-user runs after sign-in as a local-only process, while all-users installs an admin-approved service with LAN access enabled by default, optional firewall setup, and rotating file logs
-- Auto-update v1: release manifest checks, SHA256-verified downloads, silent installer apply for installed Windows layouts, and verified manual replacement guidance for portable ZIPs
+- Auto-update v1: release manifest checks, SHA256-verified downloads, silent installer apply for installed Windows layouts, and Windows portable self-update/restart through an external helper
+- Media cache status in Settings, including queue counts, retry failed downloads, and local media cache clearing without deleting library metadata
 - REST API and React web UI running on the same local server
 - Windows portable and installer release packaging
 
 ## In Active Development
 
-- Packaging hardening beyond the first Windows installer release
+- Packaging hardening beyond the first Windows installer and portable updater release
 - Game page and card UX iteration
 - More metadata and runtime coverage
 - Broader upgrade-safe packaging flow
@@ -305,7 +306,7 @@ The important split is:
 
 ## Release And Upgrade Safety
 
-MGA carries a repository version source at [`VERSION`](VERSION). The current beta line is **`0.0.8-beta`**.
+MGA carries a repository version source at [`VERSION`](VERSION). The current stable line is **`0.0.8`**.
 
 Upgrade policy:
 
@@ -313,7 +314,7 @@ Upgrade policy:
 - schema changes should be additive and idempotent where possible
 - releases that change runtime layout, schema behavior, or sync payload expectations must ship with migration notes
 - file-backed destructive actions should preview source-plugin targets before deletion and require explicit confirmation
-- installed updates download and verify the installer before launching it; portable updates remain a checked/downloaded manual replacement flow
+- installed updates download and verify the installer before launching it; Windows portable updates download and verify the ZIP before an external helper restarts MGA and replaces app files while preserving local data
 
 Windows installer packaging uses Inno Setup, which is distributed under its own license terms. MGA preserves Inno Setup attribution in NOTICE and package documentation.
 

@@ -120,6 +120,76 @@ func (s *Service) EnqueuePending(ctx context.Context) error {
 	return nil
 }
 
+func (s *Service) Status(ctx context.Context) (*core.MediaDownloadStatus, error) {
+	status, err := s.store.GetMediaDownloadStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	queued, downloading := s.queueStats()
+	status.Queued = queued
+	status.Downloading = downloading
+	return status, nil
+}
+
+func (s *Service) RetryFailed(ctx context.Context) (*core.MediaDownloadStatus, error) {
+	if err := s.store.ResetRetryableMediaDownloadFailures(ctx); err != nil {
+		return nil, err
+	}
+	s.enqueuePendingAsync("retry failed media")
+	return s.Status(ctx)
+}
+
+func (s *Service) ClearCache(ctx context.Context) (*core.MediaDownloadStatus, error) {
+	rootAbs, err := mediaRootAbs(s.config)
+	if err != nil {
+		return nil, fmt.Errorf("resolve media root: %w", err)
+	}
+	if err := clearMediaRootContents(rootAbs); err != nil {
+		return nil, err
+	}
+	if err := s.store.ClearMediaDownloadState(ctx); err != nil {
+		return nil, err
+	}
+	s.enqueuePendingAsync("clear media cache")
+	return s.Status(ctx)
+}
+
+func (s *Service) MarkLocalFileMissing(ctx context.Context, assetID int) error {
+	if assetID <= 0 {
+		return fmt.Errorf("assetID must be positive")
+	}
+	if err := s.store.ResetMediaAssetDownloadState(ctx, assetID); err != nil {
+		return err
+	}
+	s.forgetInFlight(assetID)
+	s.enqueuePendingAsync("missing local media")
+	return nil
+}
+
+func (s *Service) queueStats() (queued int, downloading int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.queue != nil {
+		queued = len(s.queue)
+	}
+	inFlight := len(s.inFlight)
+	downloading = inFlight - queued
+	if downloading < 0 {
+		downloading = 0
+	}
+	return queued, downloading
+}
+
+func (s *Service) enqueuePendingAsync(reason string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := s.EnqueuePending(ctx); err != nil {
+			s.logger.Warn("media downloader enqueue failed", "reason", reason, "error", err)
+		}
+	}()
+}
+
 func (s *Service) enqueueAsset(ctx context.Context, asset *core.MediaAsset) error {
 	if asset == nil || asset.ID <= 0 || strings.TrimSpace(asset.LocalPath) != "" {
 		return nil
@@ -374,6 +444,27 @@ func mediaRootAbs(config core.Configuration) (string, error) {
 		return "", err
 	}
 	return filepath.Abs(filepath.Join(wd, root))
+}
+
+func clearMediaRootContents(rootAbs string) error {
+	root := filepath.Clean(strings.TrimSpace(rootAbs))
+	if root == "" || root == string(filepath.Separator) || filepath.VolumeName(root) == root || filepath.Dir(root) == root {
+		return fmt.Errorf("unsafe media root %q", rootAbs)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return fmt.Errorf("create media root: %w", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Errorf("read media root: %w", err)
+	}
+	for _, entry := range entries {
+		full := filepath.Join(root, entry.Name())
+		if err := os.RemoveAll(full); err != nil {
+			return fmt.Errorf("remove media cache entry %s: %w", full, err)
+		}
+	}
+	return nil
 }
 
 func buildMediaRelativePath(asset *core.MediaAsset, contentType string) string {

@@ -4,14 +4,14 @@ This is the product-facing roadmap. The detailed engineering history remains in 
 
 ## Now
 
-- Verify the v0.0.8-beta Windows portable and installer release flow on clean machines.
+- Monitor the v0.0.8 Windows portable, installer, and auto-update release flow on clean machines.
 - Keep improving the poster-first library and game detail experience.
 - Expand integration reliability for Steam, Xbox, RetroAchievements, LaunchBox, Google Drive, SMB, browser-play materialization, and local save sync.
 - Continue cleanup around metadata detection, source provenance, manual review, local profiles, and profile-owned integration behavior.
 
 ## Next
 
-- Harden Windows installer updates, tray/service restart behavior, and troubleshooting documentation.
+- Continue hardening Windows update recovery, tray/service restart behavior, and troubleshooting documentation.
 - Add a Settings surface for server host/port visibility and LAN binding guidance.
 - Continue game-page UX work around cards, media, actions, badges, and achievements.
 - Continue source-backed version UX for launch options, achievements, and save-sync status.

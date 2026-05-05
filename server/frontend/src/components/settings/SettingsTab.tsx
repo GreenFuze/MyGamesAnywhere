@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, ExternalLink, Play, RefreshCw } from 'lucide-react'
 import {
@@ -42,6 +43,7 @@ function updateErrorMessage(error: unknown) {
 
 export function UpdateTab() {
   const queryClient = useQueryClient()
+  const [applyStarted, setApplyStarted] = useState(false)
   const updateQuery = useQuery({
     queryKey: ['update-status'],
     queryFn: getUpdateStatus,
@@ -61,12 +63,19 @@ export function UpdateTab() {
   })
   const applyMutation = useMutation({
     mutationFn: applyUpdate,
-    onSuccess: invalidateUpdateStatus,
+    onSuccess: () => {
+      setApplyStarted(true)
+      invalidateUpdateStatus()
+    },
   })
 
   const update = updateQuery.data
   const updateBusy = checkMutation.isPending || downloadMutation.isPending || applyMutation.isPending
   const updateErrors = [checkMutation.error, downloadMutation.error, applyMutation.error].filter(Boolean)
+  const updateDescription =
+    update?.install_type === 'portable'
+      ? 'MGA checks the release manifest, downloads the matching portable ZIP, verifies SHA256, then restarts through the portable updater while app files are replaced.'
+      : 'MGA checks the release manifest, downloads the matching Windows installer, verifies SHA256, then restarts automatically while the installer replaces app files.'
 
   return (
     <div className="space-y-6">
@@ -75,9 +84,7 @@ export function UpdateTab() {
           <div>
             <h2 className="text-lg font-semibold text-mga-text">Updates</h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-mga-muted">
-              MGA checks the release manifest, downloads the matching Windows asset, and verifies
-              SHA256 before applying installer updates. Portable builds download the ZIP and show
-              the verified path for manual replacement.
+              {updateDescription}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -102,7 +109,7 @@ export function UpdateTab() {
             <Button
               type="button"
               onClick={() => applyMutation.mutate()}
-              disabled={updateBusy || !update?.downloaded_path}
+              disabled={updateBusy || applyStarted || !update?.downloaded_path}
             >
               <Play size={16} />
               Apply

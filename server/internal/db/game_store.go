@@ -837,6 +837,110 @@ func (s *gameStore) GetPendingMediaDownloads(ctx context.Context, limit int) ([]
 	return out, rows.Err()
 }
 
+func (s *gameStore) GetMediaDownloadStatus(ctx context.Context) (*core.MediaDownloadStatus, error) {
+	now := time.Now().Unix()
+	status := &core.MediaDownloadStatus{}
+	err := s.db.GetDB().QueryRowContext(ctx, `
+		SELECT
+			COUNT(1) AS total,
+			COALESCE(SUM(CASE WHEN local_path IS NOT NULL AND local_path <> '' THEN 1 ELSE 0 END), 0) AS downloaded,
+			COALESCE(SUM(CASE WHEN (local_path IS NULL OR local_path = '') AND COALESCE(download_permanent_failure, 0) = 1 THEN 1 ELSE 0 END), 0) AS failed_permanent,
+			COALESCE(SUM(CASE
+				WHEN (local_path IS NULL OR local_path = '')
+				 AND COALESCE(download_permanent_failure, 0) = 0
+				 AND download_failed_at IS NOT NULL
+				 AND download_failed_at <> 0
+				 AND download_failed_at > ? - CASE
+					WHEN download_attempts <= 0 THEN 0
+					WHEN download_attempts = 1 THEN 3600
+					WHEN download_attempts = 2 THEN 21600
+					WHEN download_attempts = 3 THEN 86400
+					ELSE 604800
+				 END
+				THEN 1 ELSE 0 END), 0) AS retry_waiting,
+			COALESCE(SUM(CASE WHEN (local_path IS NULL OR local_path = '') AND COALESCE(download_permanent_failure, 0) = 0 THEN 1 ELSE 0 END), 0) AS items_left,
+			MAX(COALESCE(download_failed_at, 0)) AS last_activity_at
+		FROM media_assets`, now).Scan(
+		&status.Total,
+		&status.Downloaded,
+		&status.FailedPermanent,
+		&status.RetryWaiting,
+		&status.ItemsLeft,
+		&lastActivityScanner{target: &status.LastActivityAt},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var lastErr sql.NullString
+	err = s.db.GetDB().QueryRowContext(ctx, `
+		SELECT download_last_error
+		FROM media_assets
+		WHERE download_last_error IS NOT NULL AND download_last_error <> ''
+		ORDER BY COALESCE(download_failed_at, 0) DESC, id DESC
+		LIMIT 1`).Scan(&lastErr)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	status.LastError = lastErr.String
+	return status, nil
+}
+
+func (s *gameStore) ResetRetryableMediaDownloadFailures(ctx context.Context) error {
+	_, err := s.db.GetDB().ExecContext(ctx, `
+		UPDATE media_assets
+		SET download_attempts = 0,
+		    download_failed_at = NULL,
+		    download_last_error = NULL
+		WHERE (local_path IS NULL OR local_path = '')
+		  AND COALESCE(download_permanent_failure, 0) = 0
+		  AND download_last_error IS NOT NULL
+		  AND download_last_error <> ''`)
+	return err
+}
+
+func (s *gameStore) ClearMediaDownloadState(ctx context.Context) error {
+	_, err := s.db.GetDB().ExecContext(ctx, `
+		UPDATE media_assets
+		SET local_path = NULL,
+		    hash = NULL,
+		    download_attempts = 0,
+		    download_failed_at = NULL,
+		    download_last_error = NULL,
+		    download_permanent_failure = 0`)
+	return err
+}
+
+func (s *gameStore) ResetMediaAssetDownloadState(ctx context.Context, assetID int) error {
+	if assetID <= 0 {
+		return fmt.Errorf("assetID must be positive")
+	}
+	_, err := s.db.GetDB().ExecContext(ctx, `
+		UPDATE media_assets
+		SET local_path = NULL,
+		    hash = NULL,
+		    download_attempts = 0,
+		    download_failed_at = NULL,
+		    download_last_error = NULL,
+		    download_permanent_failure = 0
+		WHERE id = ?`, assetID)
+	return err
+}
+
+type lastActivityScanner struct {
+	target *string
+}
+
+func (s *lastActivityScanner) Scan(src any) error {
+	var value sql.NullInt64
+	if err := value.Scan(src); err != nil {
+		return err
+	}
+	if value.Valid && value.Int64 > 0 && s.target != nil {
+		*s.target = time.Unix(value.Int64, 0).UTC().Format(time.RFC3339)
+	}
+	return nil
+}
+
 type mediaAssetScanner interface {
 	Scan(dest ...any) error
 }

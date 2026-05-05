@@ -127,6 +127,14 @@ type GameStore interface {
 
 	// GetPendingMediaDownloads returns media assets with no local_path that are due for download.
 	GetPendingMediaDownloads(ctx context.Context, limit int) ([]*MediaAsset, error)
+	// GetMediaDownloadStatus returns DB-backed media download counters.
+	GetMediaDownloadStatus(ctx context.Context) (*MediaDownloadStatus, error)
+	// ResetRetryableMediaDownloadFailures clears retryable failure state so pending media can be retried.
+	ResetRetryableMediaDownloadFailures(ctx context.Context) error
+	// ClearMediaDownloadState clears local media cache state without removing media rows or links.
+	ClearMediaDownloadState(ctx context.Context) error
+	// ResetMediaAssetDownloadState clears one stale local media path after its file disappears.
+	ResetMediaAssetDownloadState(ctx context.Context, assetID int) error
 
 	// GetCachedAchievements returns cached achievement data if it exists.
 	GetCachedAchievements(ctx context.Context, sourceGameID, source string) (*AchievementSet, error)
@@ -263,6 +271,10 @@ type MediaDownloadQueue interface {
 type MediaDownloadService interface {
 	BackgroundService
 	MediaDownloadQueue
+	Status(ctx context.Context) (*MediaDownloadStatus, error)
+	RetryFailed(ctx context.Context) (*MediaDownloadStatus, error)
+	ClearCache(ctx context.Context) (*MediaDownloadStatus, error)
+	MarkLocalFileMissing(ctx context.Context, assetID int) error
 }
 
 type SourceCacheStore interface {

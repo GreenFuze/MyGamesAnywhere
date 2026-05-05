@@ -20,6 +20,7 @@ const (
 	sourceFilesystemListMethod    = "source.filesystem.list"
 	sourceGamesListMethod         = "source.games.list"
 	maxScanPreparationConcurrency = 2
+	mediaEnqueueKickTimeout       = 10 * time.Second
 )
 
 // PluginCaller is the subset of PluginHost that the orchestrator needs.
@@ -261,11 +262,6 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			o.publishScanError(ctx, item.integration.ID, err)
 			return nil, fmt.Errorf("persist scan results for integration %q: %w", item.integration.ID, err)
 		}
-		if o.mediaDownloadQueue != nil {
-			if err := o.mediaDownloadQueue.EnqueuePending(ctx); err != nil {
-				o.logger.Warn("orchestrator: enqueue pending media downloads failed", "integration_id", item.integration.ID, "error", err)
-			}
-		}
 		o.logger.Info("orchestrator: persisted", "integration_id", item.integration.ID, "source_games", len(batch.SourceGames))
 		o.publishEventWithContext(ctx, "scan_integration_complete", map[string]any{
 			"integration_id": item.integration.ID,
@@ -273,6 +269,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			"label":          item.integration.Label,
 			"games_found":    len(batch.SourceGames),
 		})
+		o.enqueuePendingMediaAsync(item.integration.ID)
 
 		item.result.GamesFound = len(batch.SourceGames)
 		integResults = append(integResults, item.result)
@@ -301,6 +298,21 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		"games_removed":   report.GamesRemoved,
 	})
 	return result, nil
+}
+
+func (o *Orchestrator) enqueuePendingMediaAsync(integrationID string) {
+	if o.mediaDownloadQueue == nil {
+		return
+	}
+	queue := o.mediaDownloadQueue
+	logger := o.logger
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), mediaEnqueueKickTimeout)
+		defer cancel()
+		if err := queue.EnqueuePending(ctx); err != nil {
+			logger.Warn("orchestrator: enqueue pending media downloads failed", "integration_id", integrationID, "error", err)
+		}
+	}()
 }
 
 // RunMetadataRefresh re-enriches existing source games without re-discovering.

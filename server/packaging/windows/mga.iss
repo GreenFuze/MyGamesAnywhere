@@ -63,6 +63,11 @@ Source: "{#SourceDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion skipifs
 Source: "{#SourceDir}\packaging\windows\install-config.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\packaging\windows\service.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\packaging\windows\firewall.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\packaging\windows\update-installed.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\packaging\windows\mga_update.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\packaging\windows\mga_update.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\packaging\windows\service.ps1"; Flags: dontcopy
+Source: "{#SourceDir}\packaging\windows\update-installed.ps1"; Flags: dontcopy
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MyGamesAnywhere"; ValueData: """{app}\{#AppExeName}"" --app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: startup_server; Flags: uninsdeletevalue
@@ -95,6 +100,16 @@ begin
   Result := '-' + Name + ' ' + DQ(Value);
 end;
 
+function ParamValue(Name: String; Default: String): String;
+begin
+  Result := ExpandConstant('{param:' + Name + '|' + Default + '}');
+end;
+
+function IsUpdateMode: Boolean;
+begin
+  Result := ParamValue('MGAUPDATE', '0') = '1';
+end;
+
 function ReadFailureDetails(LogPath: String): String;
 begin
   Result := '';
@@ -110,13 +125,13 @@ begin
   Result := 'Details were written to: ' + LogPath;
 end;
 
-procedure RunPowerShellStep(ScriptName: String; Parameters: String; Description: String; DetailsPath: String);
+procedure RunPowerShellScript(ScriptPath: String; Parameters: String; Description: String; DetailsPath: String);
 var
   ResultCode: Integer;
   PowerShellParameters: String;
   Details: String;
 begin
-  PowerShellParameters := '-NoProfile -ExecutionPolicy Bypass -File ' + DQ(ExpandConstant('{app}\') + ScriptName);
+  PowerShellParameters := '-NoProfile -ExecutionPolicy Bypass -File ' + DQ(ScriptPath);
   if Parameters <> '' then
     PowerShellParameters := PowerShellParameters + ' ' + Parameters;
 
@@ -138,8 +153,18 @@ begin
   end;
 end;
 
+procedure RunPowerShellStep(ScriptName: String; Parameters: String; Description: String; DetailsPath: String);
+begin
+  RunPowerShellScript(ExpandConstant('{app}\') + ScriptName, Parameters, Description, DetailsPath);
+end;
+
 function IsAllUsersMode: Boolean;
 begin
+  if IsUpdateMode then
+  begin
+    Result := ParamValue('MGAINSTALLTYPE', '') = 'service';
+    Exit;
+  end;
   if InstallScopePage <> nil then
     Result := InstallScopePage.SelectedValueIndex = 1
   else
@@ -158,7 +183,9 @@ end;
 
 function GetDefaultDir(Param: String): String;
 begin
-  if IsAllUsersMode then
+  if IsUpdateMode and (ParamValue('MGAAPPDIR', '') <> '') then
+    Result := ParamValue('MGAAPPDIR', '')
+  else if IsAllUsersMode then
     Result := ExpandConstant('{autopf}\MyGamesAnywhere')
   else
     Result := ExpandConstant('{localappdata}\Programs\MyGamesAnywhere');
@@ -166,7 +193,9 @@ end;
 
 function GetDataDir(Param: String): String;
 begin
-  if IsAllUsersMode then
+  if IsUpdateMode and (ParamValue('MGADATADIR', '') <> '') then
+    Result := ParamValue('MGADATADIR', '')
+  else if IsAllUsersMode then
     Result := ExpandConstant('{commonappdata}\MyGamesAnywhere')
   else
     Result := ExpandConstant('{localappdata}\MyGamesAnywhere');
@@ -174,7 +203,10 @@ end;
 
 function GetConfigPath(Param: String): String;
 begin
-  Result := GetDataDir('') + '\config.json';
+  if IsUpdateMode and (ParamValue('MGACONFIG', '') <> '') then
+    Result := ParamValue('MGACONFIG', '')
+  else
+    Result := GetDataDir('') + '\config.json';
 end;
 
 function GetInstallLogPath(Param: String): String;
@@ -192,7 +224,9 @@ end;
 
 function GetInstallType(Param: String): String;
 begin
-  if IsAllUsersMode then
+  if IsUpdateMode and (ParamValue('MGAINSTALLTYPE', '') <> '') then
+    Result := ParamValue('MGAINSTALLTYPE', '')
+  else if IsAllUsersMode then
     Result := 'service'
   else
     Result := 'user';
@@ -221,6 +255,9 @@ end;
 
 procedure InitializeWizard;
 begin
+  if IsUpdateMode then
+    Exit;
+
   InstallScopePage := CreateInputOptionPage(
     wpWelcome,
     'Choose how MGA should run',
@@ -239,6 +276,44 @@ begin
   begin
     InstallScopePage.Add('All users (restarts installer)');
     InstallScopePage.SelectedValueIndex := 0;
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  StopParameters: String;
+  LogPath: String;
+  ScriptPath: String;
+begin
+  Result := '';
+  if not IsUpdateMode then
+    Exit;
+
+  LogPath := GetInstallLogPath('');
+  if IsServiceInstall then
+  begin
+    ExtractTemporaryFile('service.ps1');
+    ScriptPath := ExpandConstant('{tmp}\service.ps1');
+    StopParameters :=
+      '-Action stop ' +
+      PSArg('AppDir', ExpandConstant('{app}')) + ' ' +
+      PSArg('DataDir', GetDataDir('')) + ' ' +
+      PSArg('ConfigPath', GetConfigPath('')) + ' ' +
+      PSArg('LogPath', LogPath);
+    RunPowerShellScript(ScriptPath, StopParameters, 'MGA service stop', LogPath);
+  end
+  else
+  begin
+    ExtractTemporaryFile('update-installed.ps1');
+    ScriptPath := ExpandConstant('{tmp}\update-installed.ps1');
+    StopParameters :=
+      '-Action stop-user ' +
+      PSArg('AppDir', ExpandConstant('{app}')) + ' ' +
+      PSArg('DataDir', GetDataDir('')) + ' ' +
+      PSArg('ConfigPath', GetConfigPath('')) + ' ' +
+      PSArg('LogPath', LogPath) + ' ' +
+      '-Pid ' + ParamValue('MGAPID', '0');
+    RunPowerShellScript(ScriptPath, StopParameters, 'MGA user process stop', LogPath);
   end;
 end;
 
@@ -294,6 +369,8 @@ begin
       PSArg('DataDir', GetDataDir('')) + ' ' +
       PSArg('ListenMode', GetListenMode('')) + ' ' +
       PSArg('InstallType', GetInstallType(''));
+    if IsUpdateMode then
+      ConfigParameters := ConfigParameters + ' -PreserveExistingNetwork';
     RunPowerShellStep('install-config.ps1', ConfigParameters, 'MGA config generation', '');
 
     if IsServiceInstall then
@@ -314,7 +391,7 @@ begin
         RunPowerShellStep('firewall.ps1', FirewallParameters, 'MGA firewall rule installation', '');
       end;
 
-      if WizardIsTaskSelected('start_service_after') then
+      if IsUpdateMode or WizardIsTaskSelected('start_service_after') then
         RunPowerShellStep(
           'service.ps1',
           '-Action start ' +
@@ -324,6 +401,18 @@ begin
           PSArg('LogPath', GetInstallLogPath('')),
           'MGA service start',
           GetInstallLogPath(''));
+    end
+    else if IsUpdateMode then
+    begin
+      RunPowerShellStep(
+        'update-installed.ps1',
+        '-Action start-user ' +
+        PSArg('AppDir', ExpandConstant('{app}')) + ' ' +
+        PSArg('DataDir', GetDataDir('')) + ' ' +
+        PSArg('ConfigPath', GetConfigPath('')) + ' ' +
+        PSArg('LogPath', GetInstallLogPath('')),
+        'MGA user process start',
+        GetInstallLogPath(''));
     end;
   end;
 end;

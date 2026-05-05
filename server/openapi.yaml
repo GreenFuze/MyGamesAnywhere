@@ -883,6 +883,42 @@ paths:
         500:
           description: Internal server error
 
+  /api/media/cache/clear:
+    post:
+      summary: Clear downloaded media cache
+      description: Deletes local downloaded artwork/video files under MEDIA_ROOT, clears media local_path/hash and failure state, keeps media rows and library metadata, then enqueues media downloads again.
+      responses:
+        200:
+          description: MediaDownloadStatus JSON
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
+  /api/media/queue/retry-failed:
+    post:
+      summary: Retry failed media downloads
+      description: Clears retryable media download failures and enqueues pending media downloads in the background. Permanent failures remain untouched.
+      responses:
+        200:
+          description: MediaDownloadStatus JSON
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
+  /api/media/queue/status:
+    get:
+      summary: Get media download queue status
+      description: Returns DB-backed media download counts plus in-memory queued and downloading counts for the asynchronous media cache.
+      responses:
+        200:
+          description: MediaDownloadStatus JSON
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
   /api/media/{assetID}:
     get:
       summary: Stream cached media file

@@ -1,6 +1,7 @@
 package update
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -31,13 +32,15 @@ const (
 )
 
 var githubReleasesAPIBase = "https://api.github.com/repos"
+var startDetachedCommand = func(cmd *exec.Cmd) error { return cmd.Start() }
 
 type Service struct {
-	cfg        core.Configuration
-	logger     core.Logger
-	client     *http.Client
-	mu         sync.Mutex
-	lastStatus core.UpdateStatus
+	cfg         core.Configuration
+	logger      core.Logger
+	client      *http.Client
+	mu          sync.Mutex
+	lastStatus  core.UpdateStatus
+	exitProcess func(int)
 }
 
 type githubRelease struct {
@@ -52,9 +55,10 @@ type githubRelease struct {
 
 func NewService(cfg core.Configuration, logger core.Logger) *Service {
 	return &Service{
-		cfg:    cfg,
-		logger: logger,
-		client: &http.Client{Timeout: 60 * time.Second},
+		cfg:         cfg,
+		logger:      logger,
+		client:      &http.Client{Timeout: 60 * time.Second},
+		exitProcess: os.Exit,
 	}
 }
 
@@ -144,25 +148,84 @@ func (s *Service) Apply(ctx context.Context) (*core.UpdateApplyResult, error) {
 		}
 		status = &download.Status
 	}
+	if goruntime.GOOS != "windows" {
+		return nil, errors.New("auto-update apply is currently supported only on Windows")
+	}
 	if s.installType() == assetTypePortable {
+		if err := s.applyPortable(status); err != nil {
+			return nil, err
+		}
 		return &core.UpdateApplyResult{
-			Applied: false,
-			Message: "Portable updates are downloaded only in this version. Stop MGA, replace the portable folder with the downloaded ZIP contents, then start MGA again.",
+			Applied: true,
+			Message: "Portable update started. MGA will restart shortly while the updater replaces app files.",
 			Path:    status.DownloadedPath,
 		}, nil
 	}
-	if goruntime.GOOS != "windows" {
-		return nil, errors.New("installer apply is currently supported only on Windows")
-	}
-	cmd := exec.CommandContext(ctx, status.DownloadedPath, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS")
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("launch installer update: %w", err)
+	if err := s.applyInstaller(status); err != nil {
+		return nil, err
 	}
 	return &core.UpdateApplyResult{
 		Applied: true,
-		Message: "Installer update launched. MGA may stop and restart while the installer replaces app files.",
+		Message: "Installer update started. MGA will restart shortly while the installer replaces app files.",
 		Path:    status.DownloadedPath,
 	}, nil
+}
+
+func (s *Service) applyInstaller(status *core.UpdateStatus) error {
+	paths, err := s.resolveUpdatePaths()
+	if err != nil {
+		return err
+	}
+	flavor := s.installFlavor()
+	args := []string{
+		"/VERYSILENT",
+		"/SUPPRESSMSGBOXES",
+		"/NORESTART",
+		"/CLOSEAPPLICATIONS",
+		"/MGAUPDATE=1",
+		"/MGAINSTALLTYPE=" + flavor,
+		"/MGAAPPDIR=" + paths.AppDir,
+		"/MGADATADIR=" + paths.DataDir,
+		"/MGACONFIG=" + paths.ConfigPath,
+		fmt.Sprintf("/MGAPID=%d", os.Getpid()),
+	}
+	if flavor == "service" {
+		args = append(args, "/ALLUSERS")
+	} else {
+		args = append(args, "/CURRENTUSER")
+	}
+	cmd := exec.Command(status.DownloadedPath, args...)
+	if err := startDetachedCommand(cmd); err != nil {
+		return fmt.Errorf("launch installer update: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) applyPortable(status *core.UpdateStatus) error {
+	if err := validatePortableZip(status.DownloadedPath); err != nil {
+		return err
+	}
+	paths, err := s.resolveUpdatePaths()
+	if err != nil {
+		return err
+	}
+	helper := filepath.Join(paths.AppDir, "mga_update.ps1")
+	if _, err := os.Stat(helper); err != nil {
+		return fmt.Errorf("portable updater helper is unavailable: %w", err)
+	}
+	planPath, err := s.writePortableUpdatePlan(status, paths)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", helper, "-PlanPath", planPath)
+	if err := startDetachedCommand(cmd); err != nil {
+		return fmt.Errorf("launch portable updater: %w", err)
+	}
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		s.exitProcess(0)
+	}()
+	return nil
 }
 
 func (s *Service) fetchManifest(ctx context.Context) (*core.UpdateManifest, error) {
@@ -368,6 +431,20 @@ func (s *Service) installType() string {
 	}
 }
 
+func (s *Service) installFlavor() string {
+	value := strings.ToLower(strings.TrimSpace(s.cfg.Get("APP_INSTALL_TYPE")))
+	switch value {
+	case "service", "machine", "installed", "installer":
+		return "service"
+	case "user":
+		return "user"
+	case assetTypePortable:
+		return assetTypePortable
+	default:
+		return defaultInstallType
+	}
+}
+
 func (s *Service) updatesDir() string {
 	if value := strings.TrimSpace(s.cfg.Get("UPDATES_DIR")); value != "" {
 		return value
@@ -376,6 +453,120 @@ func (s *Service) updatesDir() string {
 		return filepath.Join(base, "MyGamesAnywhere", "updates")
 	}
 	return "updates"
+}
+
+type updatePaths struct {
+	AppDir     string `json:"app_dir"`
+	DataDir    string `json:"data_dir"`
+	ConfigPath string `json:"config_path"`
+}
+
+type portableUpdatePlan struct {
+	Version    string `json:"version"`
+	AssetPath  string `json:"asset_path"`
+	AppDir     string `json:"app_dir"`
+	DataDir    string `json:"data_dir"`
+	ConfigPath string `json:"config_path"`
+	ServerPID  int    `json:"server_pid"`
+}
+
+func (s *Service) resolveUpdatePaths() (updatePaths, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return updatePaths{}, fmt.Errorf("resolve executable path: %w", err)
+	}
+	appDir := filepath.Dir(exePath)
+	if pluginsDir := strings.TrimSpace(s.cfg.Get("PLUGINS_DIR")); pluginsDir != "" {
+		appDir = filepath.Dir(filepath.Clean(pluginsDir))
+	}
+	if abs, err := filepath.Abs(appDir); err == nil {
+		appDir = abs
+	}
+
+	updatesDir := s.updatesDir()
+	dataDir := filepath.Dir(filepath.Clean(updatesDir))
+	if s.installFlavor() == assetTypePortable {
+		dataDir = appDir
+	}
+	if abs, err := filepath.Abs(dataDir); err == nil {
+		dataDir = abs
+	}
+
+	configPath := filepath.Join(dataDir, "config.json")
+	if s.installFlavor() == assetTypePortable {
+		configPath = filepath.Join(appDir, "config.json")
+	}
+	if abs, err := filepath.Abs(configPath); err == nil {
+		configPath = abs
+	}
+	if strings.TrimSpace(appDir) == "" || strings.TrimSpace(dataDir) == "" || strings.TrimSpace(configPath) == "" {
+		return updatePaths{}, errors.New("update paths could not be resolved")
+	}
+	return updatePaths{AppDir: appDir, DataDir: dataDir, ConfigPath: configPath}, nil
+}
+
+func (s *Service) writePortableUpdatePlan(status *core.UpdateStatus, paths updatePaths) (string, error) {
+	updatesDir := s.updatesDir()
+	if err := os.MkdirAll(updatesDir, 0o755); err != nil {
+		return "", fmt.Errorf("create updates directory: %w", err)
+	}
+	plan := portableUpdatePlan{
+		Version:    status.LatestVersion,
+		AssetPath:  status.DownloadedPath,
+		AppDir:     paths.AppDir,
+		DataDir:    paths.DataDir,
+		ConfigPath: paths.ConfigPath,
+		ServerPID:  os.Getpid(),
+	}
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal portable update plan: %w", err)
+	}
+	planPath := filepath.Join(updatesDir, "mga_update_plan.json")
+	if err := os.WriteFile(planPath, append(data, '\n'), 0o600); err != nil {
+		return "", fmt.Errorf("write portable update plan: %w", err)
+	}
+	return planPath, nil
+}
+
+func validatePortableZip(path string) error {
+	reader, err := zip.OpenReader(path)
+	if err != nil {
+		return fmt.Errorf("open portable update ZIP: %w", err)
+	}
+	defer reader.Close()
+	roots := map[string]map[string]bool{}
+	for _, file := range reader.File {
+		name := strings.TrimLeft(filepath.ToSlash(file.Name), "/")
+		if name == "" {
+			continue
+		}
+		parts := strings.Split(name, "/")
+		root := ""
+		rel := name
+		if len(parts) > 1 {
+			root = parts[0] + "/"
+			rel = strings.TrimPrefix(name, root)
+		}
+		if roots[root] == nil {
+			roots[root] = map[string]bool{}
+		}
+		if rel == "mga_server.exe" {
+			roots[root]["server"] = true
+		}
+		if rel == "frontend/dist/index.html" {
+			roots[root]["frontend"] = true
+		}
+		if strings.HasPrefix(rel, "plugins/") && rel != "plugins/" {
+			roots[root]["plugins"] = true
+		}
+	}
+	for _, found := range roots {
+		if found["server"] && found["frontend"] && found["plugins"] {
+			return nil
+		}
+	}
+	return errors.New("portable update ZIP is missing mga_server.exe, plugins, or frontend/dist/index.html")
 }
 
 func (s *Service) downloadAndVerify(ctx context.Context, url, path, expectedSHA string) (string, int64, error) {

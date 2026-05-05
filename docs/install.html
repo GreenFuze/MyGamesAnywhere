@@ -28,12 +28,12 @@
             <p class="eyebrow">Windows release</p>
             <h1>Install MGA as portable, for-me-only, or all-users mode.</h1>
             <p class="section__intro">
-              MGA v0.0.8-beta ships as a Windows portable ZIP and a Windows installer. It runs
+              MGA v0.0.8 ships as a Windows portable ZIP and a Windows installer. It runs
               locally, keeps portable installs self-contained, moves installed mutable data and logs
               out of the app directory, and keeps portable/for-me installs on <code>127.0.0.1:8900</code>.
             </p>
             <ol class="steps">
-              <li>Download <code>mga-v0.0.8-beta-windows-amd64-portable.zip</code> or <code>mga-v0.0.8-beta-windows-amd64-installer.exe</code> from <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">GitHub Releases</a>.</li>
+              <li>Download <code>mga-v0.0.8-windows-amd64-portable.zip</code> or <code>mga-v0.0.8-windows-amd64-installer.exe</code> from <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">GitHub Releases</a>.</li>
               <li>For portable, extract it into a writable folder such as <code>C:\Games\MGA</code> and run <code>Start MGA.cmd</code>.</li>
               <li>For installer, choose for-me-only mode for a login process or all-users mode for a Windows service.</li>
               <li>Open <code>http://127.0.0.1:8900</code>.</li>
@@ -72,15 +72,15 @@
           <div>
             <h2>Portable upgrade policy</h2>
             <ol class="steps">
-              <li>Stop MGA.</li>
-              <li>Back up <code>config.json</code>, <code>data/</code>, and <code>media/</code>.</li>
-              <li>Replace the bundled binaries, plugins, and frontend files with the new package.</li>
-              <li>Start MGA and verify the version in About.</li>
+              <li>Use Settings -> Update to check the release manifest.</li>
+              <li>MGA downloads and verifies the portable ZIP with SHA256.</li>
+              <li>The portable updater restarts MGA, replaces app files, and preserves <code>config.json</code>, <code>data/</code>, <code>media/</code>, <code>source_cache/</code>, <code>updates/</code>, and <code>logs/</code>.</li>
+              <li>Verify the version in Settings after restart.</li>
             </ol>
           </div>
           <div>
             <h2>Auto-update v1</h2>
-            <p class="note">The About page can check a release manifest, download the matching asset, and verify SHA256. Installed Windows layouts launch the verified installer with silent update arguments. Portable layouts download and verify the ZIP, then show the path for manual replacement.</p>
+            <p class="note">Settings -> Update can check a release manifest, download the matching asset, and verify SHA256. Installed Windows layouts launch the verified installer with silent update arguments. Portable Windows layouts launch an external updater script so the running server never overwrites itself.</p>
           </div>
         </div>
       </section>

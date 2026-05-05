@@ -41,7 +41,7 @@ Every tagged release should include:
 
 The current public release flow is:
 
-1. choose the release version, for example `0.0.8-beta`
+1. choose the release version, for example `0.0.8`
 2. build the portable package locally with `./server/package-portable.ps1 -Version <version>`
 3. build the Windows installer and update manifest with `./server/package-installer.ps1 -Version <version> -SkipBuild -ReleaseBaseUrl https://github.com/GreenFuze/MyGamesAnywhere/releases/download/v<version>`
 4. publish the GitHub Release manually with `gh release create v<version>` and upload the generated artifacts
@@ -63,17 +63,19 @@ Principles:
 ## Portable upgrade flow
 
 Portable builds remain supported and self-contained. Auto-update v1 can check
-the release manifest and download/verify the portable ZIP, but portable
-self-replacement is intentionally manual.
+the release manifest, download/verify the portable ZIP, and launch an external
+Windows updater script that restarts MGA while replacing immutable app files.
 
 Recommended user flow:
 
-1. stop MGA
-2. back up `config.json`
-3. back up `data/`
-4. back up `media/` if local media or overrides matter
-5. replace binaries and shipped assets with the new release
-6. start MGA and verify the About page version/build metadata
+1. open Settings -> Update
+2. check for updates
+3. download and verify the portable ZIP
+4. apply the update and wait for MGA to restart
+5. verify the Settings/About version metadata
+
+The portable updater preserves `config.json`, `data/`, `media/`,
+`source_cache/`, `updates/`, and `logs/`.
 
 ## Packaging policy
 
@@ -99,6 +101,11 @@ Auto-update checks use SemVer precedence. A stable release is newer than a
 prerelease with the same numeric version, so an installed `v0.0.8-beta` build
 will detect `v0.0.8` as an available update once the stable manifest is
 published. Build metadata such as `+build.1` is ignored for precedence.
+
+Installed Windows updates launch the verified installer in silent update mode.
+Per-user installs stop and restart the user-mode server process. All-users
+installs stop and restart the Windows service. Portable Windows updates use the
+packaged updater script instead of the installer.
 
 ## Migration notes expectation
 

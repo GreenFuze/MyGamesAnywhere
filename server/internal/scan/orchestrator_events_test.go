@@ -27,6 +27,24 @@ func (q *eventTestMediaDownloadQueue) EnqueuePending(context.Context) error {
 	return nil
 }
 
+type blockingEventTestMediaDownloadQueue struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (q *blockingEventTestMediaDownloadQueue) EnqueuePending(ctx context.Context) error {
+	select {
+	case q.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-q.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func TestPublishEventWithContextInjectsJobID(t *testing.T) {
 	bus := events.New()
 	defer bus.Close()
@@ -288,5 +306,85 @@ func TestRunScanPreparesMultipleIntegrationsConcurrently(t *testing.T) {
 	}
 	if len(games) != 2 {
 		t.Fatalf("canonical games = %d, want 2", len(games))
+	}
+}
+
+func TestRunScanCompletesBeforePendingMediaEnqueueReturns(t *testing.T) {
+	ctx := context.Background()
+	store := newManualReviewTestStore(t)
+	bus := events.New()
+	defer bus.Close()
+
+	sub := bus.Subscribe()
+	defer bus.Unsubscribe(sub)
+
+	caller := &mockCaller{
+		callFn: func(pluginID, method string, params any) (any, error) {
+			if method != sourceGamesListMethod {
+				return nil, nil
+			}
+			return map[string]any{
+				"games": []map[string]any{{
+					"external_id": "drive-1",
+					"title":       "Drive Game",
+					"platform":    "windows_pc",
+				}},
+			}, nil
+		},
+	}
+	discovery := sourceFilterTestDiscovery{
+		plugins: map[string]*core.Plugin{
+			"game-source-google-drive": {
+				Manifest: core.PluginManifest{
+					ID:       "game-source-google-drive",
+					Provides: []string{sourceGamesListMethod},
+				},
+			},
+		},
+	}
+	repo := manualReviewTestIntegrationRepo{items: []*core.Integration{
+		{ID: "drive-1", PluginID: "game-source-google-drive", Label: "Drive", IntegrationType: "source", ConfigJSON: `{}`},
+	}}
+	queue := &blockingEventTestMediaDownloadQueue{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	defer close(queue.release)
+
+	orchestrator := NewOrchestrator(caller, discovery, repo, store, queue, eventTestLogger{})
+	orchestrator.SetEventBus(bus)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := orchestrator.RunScan(ctx, nil)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunScan returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunScan blocked on pending media enqueue")
+	}
+
+	select {
+	case <-queue.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("media enqueue was not started")
+	}
+
+	var sawComplete bool
+	timeout := time.After(2 * time.Second)
+	for !sawComplete {
+		select {
+		case ev := <-sub:
+			if ev.Type == "scan_integration_complete" {
+				sawComplete = true
+			}
+		case <-timeout:
+			t.Fatal("timed out waiting for scan_integration_complete")
+		}
 	}
 }

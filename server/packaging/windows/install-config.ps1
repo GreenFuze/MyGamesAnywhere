@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory=$true)][string]$AppDir,
     [Parameter(Mandatory=$true)][string]$DataDir,
     [ValidateSet("local","lan")][string]$ListenMode = "local",
-    [ValidateSet("user","machine","service")][string]$InstallType = "user"
+    [ValidateSet("user","machine","service")][string]$InstallType = "user",
+    [switch]$PreserveExistingNetwork
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,7 +45,11 @@ New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "logs") | Out-Null
 
 if (Test-Path $configPath) {
     $existing = Get-Content $configPath -Raw | ConvertFrom-Json
-    Set-JsonProperty -Object $existing -Name "LISTEN_IP" -Value $listenIP
+    if (-not $PreserveExistingNetwork) {
+        Set-JsonProperty -Object $existing -Name "LISTEN_IP" -Value $listenIP
+    } elseif (-not $existing.PSObject.Properties["LISTEN_IP"]) {
+        Set-JsonProperty -Object $existing -Name "LISTEN_IP" -Value $listenIP
+    }
     Set-JsonProperty -Object $existing -Name "PORT" -Value ($(if ($existing.PSObject.Properties["PORT"]) { [string]$existing.PORT } else { "8900" }))
     Set-JsonProperty -Object $existing -Name "DB_PATH" -Value ($(if ($existing.PSObject.Properties["DB_PATH"]) { [string]$existing.DB_PATH } else { Join-Path $DataDir "data\db.sqlite" }))
     Set-JsonProperty -Object $existing -Name "MEDIA_ROOT" -Value ($(if ($existing.PSObject.Properties["MEDIA_ROOT"]) { [string]$existing.MEDIA_ROOT } else { Join-Path $DataDir "media" }))

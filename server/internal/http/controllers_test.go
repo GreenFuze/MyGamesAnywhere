@@ -912,6 +912,8 @@ type fakeGameStore struct {
 	clearCoverOverrideID       string
 	manualReviewCandidates     []*core.ManualReviewCandidate
 	manualReviewByID           map[string]*core.ManualReviewCandidate
+	mediaAsset                 *core.MediaAsset
+	mediaStatus                *core.MediaDownloadStatus
 }
 
 func (f *fakeGameStore) PersistScanResults(context.Context, *core.ScanBatch) error {
@@ -947,7 +949,7 @@ func (f *fakeGameStore) GetCanonicalGameByID(context.Context, string) (*core.Can
 	return f.game, nil
 }
 func (f *fakeGameStore) GetMediaAssetByID(context.Context, int) (*core.MediaAsset, error) {
-	panic("unexpected call")
+	return f.mediaAsset, nil
 }
 func (f *fakeGameStore) GetSourceGamesForCanonical(context.Context, string) ([]*core.SourceGame, error) {
 	panic("unexpected call")
@@ -955,6 +957,15 @@ func (f *fakeGameStore) GetSourceGamesForCanonical(context.Context, string) ([]*
 func (f *fakeGameStore) GetPendingMediaDownloads(context.Context, int) ([]*core.MediaAsset, error) {
 	panic("unexpected call")
 }
+func (f *fakeGameStore) GetMediaDownloadStatus(context.Context) (*core.MediaDownloadStatus, error) {
+	if f.mediaStatus != nil {
+		return f.mediaStatus, nil
+	}
+	return &core.MediaDownloadStatus{}, nil
+}
+func (f *fakeGameStore) ResetRetryableMediaDownloadFailures(context.Context) error { return nil }
+func (f *fakeGameStore) ClearMediaDownloadState(context.Context) error             { return nil }
+func (f *fakeGameStore) ResetMediaAssetDownloadState(context.Context, int) error   { return nil }
 func (f *fakeGameStore) GetCachedAchievements(context.Context, string, string) (*core.AchievementSet, error) {
 	panic("unexpected call")
 }

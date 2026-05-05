@@ -189,6 +189,27 @@ func Operations() []OperationDoc {
 		},
 		{
 			Method:       "GET",
+			Path:         "/api/media/queue/status",
+			Summary:      "Get media download queue status",
+			Description:  "Returns DB-backed media download counts plus in-memory queued and downloading counts for the asynchronous media cache.",
+			ResponseDocs: map[string]string{"200": "MediaDownloadStatus JSON", "403": "Admin profile required", "500": "Internal server error"},
+		},
+		{
+			Method:       "POST",
+			Path:         "/api/media/queue/retry-failed",
+			Summary:      "Retry failed media downloads",
+			Description:  "Clears retryable media download failures and enqueues pending media downloads in the background. Permanent failures remain untouched.",
+			ResponseDocs: map[string]string{"200": "MediaDownloadStatus JSON", "403": "Admin profile required", "500": "Internal server error"},
+		},
+		{
+			Method:       "POST",
+			Path:         "/api/media/cache/clear",
+			Summary:      "Clear downloaded media cache",
+			Description:  "Deletes local downloaded artwork/video files under MEDIA_ROOT, clears media local_path/hash and failure state, keeps media rows and library metadata, then enqueues media downloads again.",
+			ResponseDocs: map[string]string{"200": "MediaDownloadStatus JSON", "403": "Admin profile required", "500": "Internal server error"},
+		},
+		{
+			Method:       "GET",
 			Path:         "/api/stats",
 			Summary:      "Library statistics",
 			Description:  "Single JSON document: canonical and source game counts, breakdowns by platform/kind/integration/plugin, metadata coverage, decade and genre summaries, and canonical-game coverage for media and achievements.",

@@ -1,17 +1,22 @@
 package update
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/buildinfo"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
 type testConfig map[string]string
@@ -263,6 +268,119 @@ func TestDownloadAcceptsVerifiedAsset(t *testing.T) {
 	}
 	if result.Path != filepath.Join(updatesDir, "mga.zip") {
 		t.Fatalf("Path = %q", result.Path)
+	}
+}
+
+func TestApplyInstallerLaunchesSilentUpdateWithInstallMode(t *testing.T) {
+	oldStarter := startDetachedCommand
+	t.Cleanup(func() { startDetachedCommand = oldStarter })
+
+	var captured []string
+	startDetachedCommand = func(cmd *exec.Cmd) error {
+		captured = append([]string{}, cmd.Args...)
+		return nil
+	}
+
+	root := t.TempDir()
+	appDir := filepath.Join(root, "app")
+	dataDir := filepath.Join(root, "data")
+	if err := os.MkdirAll(filepath.Join(appDir, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(testConfig{
+		"APP_INSTALL_TYPE": "service",
+		"PLUGINS_DIR":      filepath.Join(appDir, "plugins"),
+		"UPDATES_DIR":      filepath.Join(dataDir, "updates"),
+	}, testLogger{})
+
+	if err := svc.applyInstaller(coreUpdateStatus("1.1.0", filepath.Join(root, "installer.exe"))); err != nil {
+		t.Fatalf("applyInstaller() error = %v", err)
+	}
+	joined := strings.Join(captured, " ")
+	for _, want := range []string{"/VERYSILENT", "/MGAUPDATE=1", "/MGAINSTALLTYPE=service", "/ALLUSERS", "/MGAAPPDIR=" + appDir, "/MGADATADIR=" + dataDir} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("installer args %q do not contain %q", joined, want)
+		}
+	}
+}
+
+func TestValidatePortableZipRejectsMalformedPackage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bad.zip")
+	writeZip(t, path, map[string]string{"mga_server.exe": "server"})
+	if err := validatePortableZip(path); err == nil {
+		t.Fatal("expected malformed portable ZIP to be rejected")
+	}
+}
+
+func TestApplyPortableWritesPlanAndLaunchesHelper(t *testing.T) {
+	oldStarter := startDetachedCommand
+	t.Cleanup(func() { startDetachedCommand = oldStarter })
+	var captured []string
+	startDetachedCommand = func(cmd *exec.Cmd) error {
+		captured = append([]string{}, cmd.Args...)
+		return nil
+	}
+
+	root := t.TempDir()
+	appDir := filepath.Join(root, "app")
+	updatesDir := filepath.Join(appDir, "updates")
+	if err := os.MkdirAll(updatesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "mga_update.ps1"), []byte("param()"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	zipPath := filepath.Join(updatesDir, "mga.zip")
+	writeZip(t, zipPath, map[string]string{
+		"mga-v1.1.0-windows-amd64/mga_server.exe":             "server",
+		"mga-v1.1.0-windows-amd64/plugins/source/plugin.json": "{}",
+		"mga-v1.1.0-windows-amd64/frontend/dist/index.html":   "<html></html>",
+	})
+	svc := NewService(testConfig{
+		"APP_INSTALL_TYPE": "portable",
+		"PLUGINS_DIR":      filepath.Join(appDir, "plugins"),
+		"UPDATES_DIR":      updatesDir,
+	}, testLogger{})
+	svc.exitProcess = func(int) {}
+
+	if err := svc.applyPortable(coreUpdateStatus("1.1.0", zipPath)); err != nil {
+		t.Fatalf("applyPortable() error = %v", err)
+	}
+	planPath := filepath.Join(updatesDir, "mga_update_plan.json")
+	if _, err := os.Stat(planPath); err != nil {
+		t.Fatalf("expected update plan: %v", err)
+	}
+	joined := strings.Join(captured, " ")
+	if !strings.Contains(joined, "mga_update.ps1") || !strings.Contains(joined, planPath) {
+		t.Fatalf("portable updater args = %q", joined)
+	}
+}
+
+func coreUpdateStatus(version, path string) *core.UpdateStatus {
+	return &core.UpdateStatus{LatestVersion: version, DownloadedPath: path}
+}
+
+func writeZip(t *testing.T, path string, entries map[string]string) {
+	t.Helper()
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(file)
+	for name, body := range entries {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

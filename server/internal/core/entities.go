@@ -334,6 +334,18 @@ type MediaAsset struct {
 	DownloadPermanentFailure bool
 }
 
+type MediaDownloadStatus struct {
+	ItemsLeft       int    `json:"items_left"`
+	Downloading     int    `json:"downloading"`
+	Queued          int    `json:"queued"`
+	RetryWaiting    int    `json:"retry_waiting"`
+	FailedPermanent int    `json:"failed_permanent"`
+	Downloaded      int    `json:"downloaded"`
+	Total           int    `json:"total"`
+	LastError       string `json:"last_error,omitempty"`
+	LastActivityAt  string `json:"last_activity_at,omitempty"`
+}
+
 // MediaRef links a source game to a media asset.
 type MediaRef struct {
 	AssetID int // FK to MediaAsset.ID (0 if not yet persisted)
