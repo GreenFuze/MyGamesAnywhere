@@ -61,6 +61,8 @@ const knownTypes = [
   // Sync notifications.
   'sync_operation_started',
   'sync_operation_finished',
+  'settings_sync_auto_push_complete',
+  'settings_sync_auto_push_failed',
   'sync_key_stored',
   'sync_key_cleared',
 

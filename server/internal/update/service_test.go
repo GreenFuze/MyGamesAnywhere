@@ -90,6 +90,81 @@ func TestCheckTreatsStableReleaseAsNewerThanInstalledPrerelease(t *testing.T) {
 	}
 }
 
+func TestFetchNewestGitHubReleaseManifestIncludesPrereleases(t *testing.T) {
+	oldBase := githubReleasesAPIBase
+	t.Cleanup(func() { githubReleasesAPIBase = oldBase })
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo/releases":
+			_, _ = fmt.Fprintf(w, `[
+				{"tag_name":"v0.0.7","draft":false,"prerelease":false,"assets":[]},
+				{"tag_name":"v0.0.8-beta","draft":false,"prerelease":true,"assets":[
+					{"name":"mga-update.json","browser_download_url":"%s/v0.0.8-beta/mga-update.json"}
+				]}
+			]`, server.URL)
+		case "/v0.0.8-beta/mga-update.json":
+			_, _ = fmt.Fprint(w, `{
+				"version":"v0.0.8-beta",
+				"assets":[
+					{"os":"windows","arch":"amd64","type":"portable","url":"https://example.invalid/mga.zip","sha256":"abc","size":12}
+				]
+			}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	githubReleasesAPIBase = server.URL + "/repos"
+
+	svc := NewService(testConfig{}, testLogger{})
+	manifest, err := svc.fetchNewestGitHubReleaseManifest(context.Background(), "https://github.com/owner/repo/releases/latest/download/mga-update.json")
+	if err != nil {
+		t.Fatalf("fetchNewestGitHubReleaseManifest() error = %v", err)
+	}
+	if manifest.Version != "v0.0.8-beta" {
+		t.Fatalf("manifest version = %q, want v0.0.8-beta", manifest.Version)
+	}
+}
+
+func TestFetchNewestGitHubReleaseManifestPrefersStableOverMatchingBeta(t *testing.T) {
+	oldBase := githubReleasesAPIBase
+	t.Cleanup(func() { githubReleasesAPIBase = oldBase })
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo/releases":
+			_, _ = fmt.Fprintf(w, `[
+				{"tag_name":"v0.0.8-beta","draft":false,"prerelease":true,"assets":[
+					{"name":"mga-update.json","browser_download_url":"%s/v0.0.8-beta/mga-update.json"}
+				]},
+				{"tag_name":"v0.0.8","draft":false,"prerelease":false,"assets":[
+					{"name":"mga-update.json","browser_download_url":"%s/v0.0.8/mga-update.json"}
+				]}
+			]`, server.URL, server.URL)
+		case "/v0.0.8-beta/mga-update.json":
+			_, _ = fmt.Fprint(w, `{"version":"v0.0.8-beta","assets":[]}`)
+		case "/v0.0.8/mga-update.json":
+			_, _ = fmt.Fprint(w, `{"version":"v0.0.8","assets":[]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	githubReleasesAPIBase = server.URL + "/repos"
+
+	svc := NewService(testConfig{}, testLogger{})
+	manifest, err := svc.fetchNewestGitHubReleaseManifest(context.Background(), "https://github.com/owner/repo/releases/latest/download/mga-update.json")
+	if err != nil {
+		t.Fatalf("fetchNewestGitHubReleaseManifest() error = %v", err)
+	}
+	if manifest.Version != "v0.0.8" {
+		t.Fatalf("manifest version = %q, want v0.0.8", manifest.Version)
+	}
+}
+
 func TestCompareVersionsSupportsSemverPrereleasePrecedence(t *testing.T) {
 	tests := []struct {
 		name    string

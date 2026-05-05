@@ -488,6 +488,14 @@ func Operations() []OperationDoc {
 		},
 		{
 			Method:         "POST",
+			Path:           "/api/plugins/{plugin_id}/check-config",
+			Summary:        "Validate draft plugin config",
+			Description:    "Runs schema validation and plugin.check_config for a draft config without creating or updating an integration. OAuth-backed plugins may return oauth_required so the frontend can authenticate before enabling remote browsing.",
+			RequestBodyDoc: "JSON: { config: object }",
+			ResponseDocs:   map[string]string{"200": "Plugin check result JSON", "202": "OAuthRequiredResponse JSON with authorize_url and state", "400": "Invalid plugin id, JSON body, or config", "500": "Internal server error"},
+		},
+		{
+			Method:         "POST",
 			Path:           "/api/plugins/{plugin_id}/browse",
 			Summary:        "Browse source paths via a plugin",
 			Description:    "Proxies a source.browse IPC call to a plugin so the frontend can browse remote/local path trees during integration setup.",
@@ -544,6 +552,13 @@ func Operations() []OperationDoc {
 			Path:         "/auth/google/callback/{plugin_id}",
 			Summary:      "Handle Google OAuth callback for a Drive plugin",
 			Description:  "Compatibility callback path registered with the MGA Google OAuth client. It behaves like /api/auth/callback/{plugin_id}, invokes auth.oauth.callback on the plugin, publishes oauth_complete or oauth_error over SSE, and returns a small HTML page that closes the tab.",
+			ResponseDocs: map[string]string{"200": "HTML callback result page", "500": "Internal server error"},
+		},
+		{
+			Method:       "GET",
+			Path:         "/auth/xbox/callback",
+			Summary:      "Handle Xbox OAuth callback",
+			Description:  "Compatibility callback path registered with the MGA Microsoft/Xbox OAuth client. Xbox's generated authorize URL uses /api/auth/callback/game-source-xbox; keep this route available because it is also registered with Microsoft.",
 			ResponseDocs: map[string]string{"200": "HTML callback result page", "500": "Internal server error"},
 		},
 		{

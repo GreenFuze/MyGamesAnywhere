@@ -983,6 +983,32 @@ paths:
         500:
           description: Browse failed
 
+  /api/plugins/{plugin_id}/check-config:
+    post:
+      summary: Validate draft plugin config
+      description: Runs schema validation and plugin.check_config for a draft config without creating or updating an integration. OAuth-backed plugins may return oauth_required so the frontend can authenticate before enabling remote browsing.
+      parameters:
+        - name: plugin_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: 'JSON: { config: object }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Plugin check result JSON
+        202:
+          description: OAuthRequiredResponse JSON with authorize_url and state
+        400:
+          description: Invalid plugin id, JSON body, or config
+        500:
+          description: Internal server error
+
   /api/profiles:
     get:
       responses:
@@ -1381,6 +1407,14 @@ paths:
         500:
           description: Error response
 
+  /api/setup/restore-sync/points:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/setup/start-fresh:
     post:
       responses:
@@ -1527,6 +1561,18 @@ paths:
           required: true
           schema:
             type: string
+      responses:
+        200:
+          description: HTML callback result page
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
+  /auth/xbox/callback:
+    get:
+      summary: Handle Xbox OAuth callback
+      description: Compatibility callback path registered with the MGA Microsoft/Xbox OAuth client. Xbox's generated authorize URL uses /api/auth/callback/game-source-xbox; keep this route available because it is also registered with Microsoft.
       responses:
         200:
           description: HTML callback result page

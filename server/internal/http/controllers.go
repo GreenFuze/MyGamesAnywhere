@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	appconfig "github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
@@ -27,6 +28,8 @@ const (
 	maxGamesPageSize     = 2000
 	maxGamesFetchAll     = 20000
 )
+
+var integrationStatusTimeout = time.Minute
 
 // ListGamesResponse is the response for GET /api/games (paginated, full detail rows for library UI).
 type ListGamesResponse struct {
@@ -971,20 +974,86 @@ func (c *ConfigController) Set(w http.ResponseWriter, r *http.Request) {
 }
 
 type PluginController struct {
-	repo       core.IntegrationRepository
-	pluginHost plugins.PluginHost
-	gameStore  core.GameStore
-	config     core.Configuration
-	logger     core.Logger
-	eventBus   *events.EventBus
+	repo        core.IntegrationRepository
+	pluginHost  plugins.PluginHost
+	gameStore   core.GameStore
+	config      core.Configuration
+	logger      core.Logger
+	eventBus    *events.EventBus
+	syncSvc     core.SyncService
+	oauthStates *OAuthStateStore
 }
 
-func NewPluginController(repo core.IntegrationRepository, pluginHost plugins.PluginHost, gameStore core.GameStore, config core.Configuration, logger core.Logger, eventBus *events.EventBus) *PluginController {
-	return &PluginController{repo: repo, pluginHost: pluginHost, gameStore: gameStore, config: config, logger: logger, eventBus: eventBus}
+func NewPluginController(repo core.IntegrationRepository, pluginHost plugins.PluginHost, gameStore core.GameStore, config core.Configuration, logger core.Logger, eventBus *events.EventBus, syncSvc ...core.SyncService) *PluginController {
+	ctrl := &PluginController{repo: repo, pluginHost: pluginHost, gameStore: gameStore, config: config, logger: logger, eventBus: eventBus, oauthStates: defaultOAuthStateStore}
+	if len(syncSvc) > 0 {
+		ctrl.syncSvc = syncSvc[0]
+	}
+	return ctrl
 }
 
 func (c *PluginController) publishNotification(typ string, payload map[string]any) {
 	events.PublishJSON(c.eventBus, typ, payload)
+}
+
+func (c *PluginController) registerOAuthState(state string, integration *core.Integration) {
+	if c.oauthStates == nil || integration == nil {
+		return
+	}
+	c.oauthStates.Register(state, OAuthState{
+		IntegrationID: integration.ID,
+		ProfileID:     integration.ProfileID,
+	})
+}
+
+func (c *PluginController) autoPushSettingsSync(ctx context.Context, reason string, integration *core.Integration) {
+	if c.syncSvc == nil || integration == nil {
+		return
+	}
+	profile, ok := core.ProfileFromContext(ctx)
+	if !ok || strings.TrimSpace(profile.ID) == "" {
+		return
+	}
+	pushCtx := core.WithProfile(context.Background(), profile)
+	go func() {
+		timeoutCtx, cancel := context.WithTimeout(pushCtx, 2*time.Minute)
+		defer cancel()
+		result, err := c.syncSvc.Push(timeoutCtx, "")
+		if err != nil {
+			if isAutoSyncSkipError(err) {
+				c.logger.Warn("settings sync auto-push skipped", "reason", reason, "integration_id", integration.ID, "error", err)
+				return
+			}
+			c.logger.Warn("settings sync auto-push failed", "reason", reason, "integration_id", integration.ID, "error", err)
+			c.publishNotification("settings_sync_auto_push_failed", map[string]any{
+				"reason":         reason,
+				"integration_id": integration.ID,
+				"plugin_id":      integration.PluginID,
+				"label":          integration.Label,
+				"error":          err.Error(),
+			})
+			return
+		}
+		c.publishNotification("settings_sync_auto_push_complete", map[string]any{
+			"reason":             reason,
+			"integration_id":     integration.ID,
+			"plugin_id":          integration.PluginID,
+			"label":              integration.Label,
+			"integrations":       result.Integrations,
+			"remote_versions":    result.RemoteVersions,
+			"remote_exported_at": result.ExportedAt,
+		})
+	}()
+}
+
+func isAutoSyncSkipError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no sync integration configured") ||
+		strings.Contains(msg, "no sync plugin installed") ||
+		strings.Contains(msg, "no encryption key available")
 }
 
 // oauthRedirectURI computes the OAuth callback URL for a given plugin.
@@ -1041,11 +1110,12 @@ type IntegrationStatusEntry struct {
 }
 
 type integrationCheckResult struct {
-	Status         string `json:"status"`
-	Message        string `json:"message"`
-	AuthorizeURL   string `json:"authorize_url,omitempty"`
-	State          string `json:"state,omitempty"`
-	SourceIdentity string `json:"source_identity,omitempty"`
+	Status         string         `json:"status"`
+	Message        string         `json:"message"`
+	AuthorizeURL   string         `json:"authorize_url,omitempty"`
+	State          string         `json:"state,omitempty"`
+	SourceIdentity string         `json:"source_identity,omitempty"`
+	ConfigUpdates  map[string]any `json:"config_updates,omitempty"`
 }
 
 func decodeIntegrationConfig(configJSON string) (map[string]any, error) {
@@ -1076,6 +1146,10 @@ func (c *PluginController) validateIntegrationConfig(ctx context.Context, plugin
 		return nil, integrationCheckResult{}, nil, err
 	}
 
+	if !pluginProvidesMethod(plugin, "plugin.check_config") {
+		return plugin, integrationCheckResult{Status: "ok"}, normalizedConfig, nil
+	}
+
 	var checkResult integrationCheckResult
 	if err := c.pluginHost.Call(ctx, pluginID, "plugin.check_config", map[string]any{
 		"config":       normalizedConfig,
@@ -1083,8 +1157,21 @@ func (c *PluginController) validateIntegrationConfig(ctx context.Context, plugin
 	}, &checkResult); err != nil {
 		return nil, integrationCheckResult{}, nil, fmt.Errorf("plugin validation failed: %w", err)
 	}
+	mergeConfigUpdates(normalizedConfig, checkResult.ConfigUpdates)
 
 	return plugin, checkResult, normalizedConfig, nil
+}
+
+func mergeConfigUpdates(config map[string]any, updates map[string]any) {
+	if config == nil || len(updates) == 0 {
+		return
+	}
+	for key, value := range updates {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		config[key] = value
+	}
 }
 
 func (c *PluginController) writeOAuthRequired(w http.ResponseWriter, pluginID string, checkResult integrationCheckResult) {
@@ -1107,78 +1194,31 @@ func (c *PluginController) Status(w http.ResponseWriter, r *http.Request) {
 	total := len(integrations)
 	c.publishNotification("integration_status_run_started", map[string]any{"total": total})
 
-	results := make([]IntegrationStatusEntry, 0, len(integrations))
+	results := make([]IntegrationStatusEntry, len(integrations))
+	var wg sync.WaitGroup
 	for i, integration := range integrations {
 		idx := i + 1
-		var configMap map[string]any
-		if integration.ConfigJSON != "" {
-			if err := json.Unmarshal([]byte(integration.ConfigJSON), &configMap); err != nil {
-				entry := IntegrationStatusEntry{
-					IntegrationID: integration.ID,
-					PluginID:      integration.PluginID,
-					Label:         integration.Label,
-					Status:        "error",
-					Message:       "Invalid config JSON",
-				}
-				results = append(results, entry)
-				c.publishNotification("integration_status_checked", map[string]any{
-					"index": idx, "total": total,
-					"integration_id": entry.IntegrationID, "plugin_id": entry.PluginID, "label": entry.Label,
-					"status": entry.Status, "message": entry.Message,
-				})
-				continue
-			}
-		}
-		if configMap == nil {
-			configMap = map[string]any{}
-		}
-		configMap = sourcescope.NormalizeConfig(integration.PluginID, configMap)
-		_, pluginOk := c.pluginHost.GetPlugin(integration.PluginID)
-		if !pluginOk {
-			entry := IntegrationStatusEntry{
-				IntegrationID: integration.ID,
-				PluginID:      integration.PluginID,
-				Label:         integration.Label,
-				Status:        "unavailable",
-				Message:       "plugin not found",
-			}
-			results = append(results, entry)
-			c.publishNotification("integration_status_checked", map[string]any{
-				"index": idx, "total": total,
-				"integration_id": entry.IntegrationID, "plugin_id": entry.PluginID, "label": entry.Label,
-				"status": entry.Status, "message": entry.Message,
-			})
-			continue
-		}
-		var checkResult integrationCheckResult
-		callErr := c.pluginHost.Call(r.Context(), integration.PluginID, "plugin.check_config", map[string]any{
-			"config":       configMap,
-			"redirect_uri": c.oauthRedirectURI(integration.PluginID),
-		}, &checkResult)
-		status := "ok"
-		message := checkResult.Message
-		if callErr != nil {
-			status = "error"
-			message = callErr.Error()
-		} else if checkResult.Status != "" && checkResult.Status != "ok" {
-			status = checkResult.Status
-		}
-		entry := IntegrationStatusEntry{
-			IntegrationID: integration.ID,
-			PluginID:      integration.PluginID,
-			Label:         integration.Label,
-			Status:        status,
-			Message:       message,
-		}
-		results = append(results, entry)
-		c.publishNotification("integration_status_checked", map[string]any{
-			"index": idx, "total": total,
-			"integration_id": entry.IntegrationID, "plugin_id": entry.PluginID, "label": entry.Label,
-			"status": entry.Status, "message": entry.Message,
-		})
+		integrationCopy := integration
+		resultIndex := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			entry := c.checkOneIntegration(r.Context(), integrationCopy)
+			results[resultIndex] = entry
+			c.publishIntegrationStatusChecked(idx, total, entry)
+		}()
 	}
+	wg.Wait()
 	c.publishNotification("integration_status_run_complete", map[string]any{"total": total})
 	json.NewEncoder(w).Encode(results)
+}
+
+func (c *PluginController) publishIntegrationStatusChecked(index, total int, entry IntegrationStatusEntry) {
+	c.publishNotification("integration_status_checked", map[string]any{
+		"index": index, "total": total,
+		"integration_id": entry.IntegrationID, "plugin_id": entry.PluginID, "label": entry.Label,
+		"status": entry.Status, "message": entry.Message,
+	})
 }
 
 // checkOneIntegration validates a single integration's config via the plugin IPC.
@@ -1200,7 +1240,7 @@ func (c *PluginController) checkOneIntegration(ctx context.Context, integration 
 	}
 	configMap = sourcescope.NormalizeConfig(integration.PluginID, configMap)
 
-	_, pluginOk := c.pluginHost.GetPlugin(integration.PluginID)
+	plugin, pluginOk := c.pluginHost.GetPlugin(integration.PluginID)
 	if !pluginOk {
 		return IntegrationStatusEntry{
 			IntegrationID: integration.ID,
@@ -1210,9 +1250,21 @@ func (c *PluginController) checkOneIntegration(ctx context.Context, integration 
 			Message:       "plugin not found",
 		}
 	}
+	if !pluginProvidesMethod(plugin, "plugin.check_config") {
+		return IntegrationStatusEntry{
+			IntegrationID: integration.ID,
+			PluginID:      integration.PluginID,
+			Label:         integration.Label,
+			Status:        "ok",
+			Message:       "No configuration check is required.",
+		}
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, integrationStatusTimeout)
+	defer cancel()
 
 	var checkResult integrationCheckResult
-	callErr := c.pluginHost.Call(ctx, integration.PluginID, "plugin.check_config", map[string]any{
+	callErr := c.pluginHost.Call(checkCtx, integration.PluginID, "plugin.check_config", map[string]any{
 		"config":       configMap,
 		"redirect_uri": c.oauthRedirectURI(integration.PluginID),
 	}, &checkResult)
@@ -1221,9 +1273,15 @@ func (c *PluginController) checkOneIntegration(ctx context.Context, integration 
 	message := checkResult.Message
 	if callErr != nil {
 		status = "error"
-		message = callErr.Error()
+		message = integrationStatusErrorMessage(callErr)
 	} else if checkResult.Status != "" && checkResult.Status != "ok" {
 		status = checkResult.Status
+	}
+	if callErr == nil && len(checkResult.ConfigUpdates) > 0 {
+		if err := c.persistIntegrationConfigUpdates(ctx, integration, configMap, checkResult.ConfigUpdates); err != nil {
+			status = "error"
+			message = "Persist integration auth state: " + err.Error()
+		}
 	}
 
 	return IntegrationStatusEntry{
@@ -1233,6 +1291,42 @@ func (c *PluginController) checkOneIntegration(ctx context.Context, integration 
 		Status:        status,
 		Message:       message,
 	}
+}
+
+func (c *PluginController) persistIntegrationConfigUpdates(ctx context.Context, integration *core.Integration, currentConfig map[string]any, updates map[string]any) error {
+	if integration == nil || len(updates) == 0 {
+		return nil
+	}
+	if currentConfig == nil {
+		currentConfig = map[string]any{}
+	}
+	before := integration.ConfigJSON
+	mergeConfigUpdates(currentConfig, updates)
+	configBytes, err := json.Marshal(currentConfig)
+	if err != nil {
+		return fmt.Errorf("encode integration config: %w", err)
+	}
+	after := string(configBytes)
+	if after == before {
+		return nil
+	}
+	integration.ConfigJSON = after
+	integration.UpdatedAt = time.Now()
+	if err := c.repo.Update(ctx, integration); err != nil {
+		return err
+	}
+	c.autoPushSettingsSync(ctx, "integration_auth_state_updated", integration)
+	return nil
+}
+
+func integrationStatusErrorMessage(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Sprintf("Status check timed out after %s.", integrationStatusTimeout)
+	}
+	if errors.Is(err, context.Canceled) {
+		return "Status check was cancelled."
+	}
+	return err.Error()
 }
 
 // StatusOne validates a single integration (GET /api/integrations/{id}/status).
@@ -1285,6 +1379,7 @@ func (c *PluginController) StartIntegrationAuth(w http.ResponseWriter, r *http.R
 		return
 	}
 	if checkResult.Status == "oauth_required" {
+		c.registerOAuthState(checkResult.State, integration)
 		c.writeOAuthRequired(w, integration.PluginID, checkResult)
 		return
 	}
@@ -1309,6 +1404,50 @@ func (c *PluginController) StartIntegrationAuth(w http.ResponseWriter, r *http.R
 		Status:        status,
 		Message:       message,
 	})
+}
+
+// CheckPluginConfig validates a draft plugin config without creating or updating
+// an integration. OAuth-backed browse plugins use this to complete sign-in before
+// the frontend enables remote folder browsing.
+func (c *PluginController) CheckPluginConfig(w http.ResponseWriter, r *http.Request) {
+	pluginID := chi.URLParam(r, "plugin_id")
+	if pluginID == "" {
+		http.Error(w, "plugin_id is required", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		Config json.RawMessage `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var configMap map[string]any
+	if len(body.Config) > 0 {
+		if err := json.Unmarshal(body.Config, &configMap); err != nil {
+			http.Error(w, "config must be a JSON object", http.StatusBadRequest)
+			return
+		}
+	}
+	if configMap == nil {
+		configMap = map[string]any{}
+	}
+
+	_, checkResult, _, err := c.validateIntegrationConfig(r.Context(), pluginID, configMap)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if checkResult.Status == "oauth_required" {
+		c.writeOAuthRequired(w, pluginID, checkResult)
+		return
+	}
+	if checkResult.Status == "" {
+		checkResult.Status = "ok"
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(checkResult)
 }
 
 // IntegrationGames returns canonical games discovered by a source integration.
@@ -1535,6 +1674,7 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 		"label":            integration.Label,
 		"integration_type": integration.IntegrationType,
 	})
+	c.autoPushSettingsSync(r.Context(), "integration_created", integration)
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(integration)
 }
@@ -1588,6 +1728,7 @@ func (c *PluginController) UpdateIntegration(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		if checkResult.Status == "oauth_required" {
+			c.registerOAuthState(checkResult.State, existing)
 			c.writeOAuthRequired(w, existing.PluginID, checkResult)
 			return
 		}
@@ -1637,6 +1778,7 @@ func (c *PluginController) UpdateIntegration(w http.ResponseWriter, r *http.Requ
 		"label":            existing.Label,
 		"integration_type": existing.IntegrationType,
 	})
+	c.autoPushSettingsSync(r.Context(), "integration_updated", existing)
 	json.NewEncoder(w).Encode(existing)
 }
 
@@ -1708,6 +1850,7 @@ func (c *PluginController) DeleteIntegration(w http.ResponseWriter, r *http.Requ
 		"plugin_id":      existing.PluginID,
 		"label":          existing.Label,
 	})
+	c.autoPushSettingsSync(r.Context(), "integration_deleted", existing)
 	w.WriteHeader(http.StatusNoContent)
 }
 

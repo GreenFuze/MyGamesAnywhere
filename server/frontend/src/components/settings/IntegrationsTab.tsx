@@ -658,6 +658,7 @@ export function IntegrationsTab() {
   const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
   const [authPendingIds, setAuthPendingIds] = useState<Set<string>>(new Set());
   const oauthStateToIntegrationIdRef = useRef<Map<string, string>>(new Map());
+  const oauthPopupCloseTimersRef = useRef<Map<string, number>>(new Map());
 
   // ── Scan state (absorbed from ScanTab) ──
 
@@ -1976,6 +1977,44 @@ export function IntegrationsTab() {
 
   const handleStartAuth = useCallback(async (integration: Integration) => {
     let waitingForBrowser = false;
+    const authWindow = window.open("", "_blank");
+    let popupCloseTimer: number | undefined;
+    const clearPopupCloseTimer = () => {
+      const trackedTimer = oauthPopupCloseTimersRef.current.get(integration.id);
+      if (trackedTimer !== undefined) {
+        window.clearInterval(trackedTimer);
+        oauthPopupCloseTimersRef.current.delete(integration.id);
+      }
+      if (popupCloseTimer !== undefined) {
+        window.clearInterval(popupCloseTimer);
+        popupCloseTimer = undefined;
+      }
+    };
+    const resetAuthPending = (message?: string) => {
+      setAuthPendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(integration.id);
+        return next;
+      });
+      for (const [state, integrationId] of oauthStateToIntegrationIdRef.current.entries()) {
+        if (integrationId === integration.id) {
+          oauthStateToIntegrationIdRef.current.delete(state);
+        }
+      }
+      if (message) {
+        setStatusMap((prev) => {
+          const next = new Map(prev);
+          next.set(integration.id, {
+            integration_id: integration.id,
+            plugin_id: integration.plugin_id,
+            label: integration.label,
+            status: "oauth_required",
+            message,
+          });
+          return next;
+        });
+      }
+    };
     setAuthPendingIds((prev) => new Set([...prev, integration.id]));
     try {
       const result = await startIntegrationAuth(integration.id);
@@ -1994,16 +2033,40 @@ export function IntegrationsTab() {
           });
           return next;
         });
-        window.open(result.authorize_url, "_blank");
+        if (authWindow) {
+          authWindow.location.href = result.authorize_url;
+          popupCloseTimer = window.setInterval(() => {
+            if (!authWindow.closed) return;
+            clearPopupCloseTimer();
+            resetAuthPending("Browser sign-in window was closed before MGA received the callback.");
+          }, 1000);
+          oauthPopupCloseTimersRef.current.set(integration.id, popupCloseTimer);
+        } else {
+          waitingForBrowser = false;
+          oauthStateToIntegrationIdRef.current.delete(result.state);
+          setStatusMap((prev) => {
+            const next = new Map(prev);
+            next.set(integration.id, {
+              integration_id: integration.id,
+              plugin_id: result.plugin_id || integration.plugin_id,
+              label: integration.label,
+              status: "oauth_required",
+              message: "Browser blocked the sign-in popup. Allow popups for MGA and try again.",
+            });
+            return next;
+          });
+        }
         return;
       }
 
+      authWindow?.close();
       setStatusMap((prev) => {
         const next = new Map(prev);
         next.set(result.integration_id, result);
         return next;
       });
     } catch (err) {
+      authWindow?.close();
       setStatusMap((prev) => {
         const next = new Map(prev);
         next.set(integration.id, {
@@ -2020,11 +2083,9 @@ export function IntegrationsTab() {
       });
     } finally {
       if (!waitingForBrowser) {
-        setAuthPendingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(integration.id);
-          return next;
-        });
+        clearPopupCloseTimer();
+        authWindow?.close();
+        resetAuthPending();
       }
     }
   }, []);
@@ -2036,7 +2097,17 @@ export function IntegrationsTab() {
         if (!d.state) return;
         const integrationId = oauthStateToIntegrationIdRef.current.get(d.state);
         if (!integrationId) return;
+        const popupCloseTimer = oauthPopupCloseTimersRef.current.get(integrationId);
+        if (popupCloseTimer !== undefined) {
+          window.clearInterval(popupCloseTimer);
+          oauthPopupCloseTimersRef.current.delete(integrationId);
+        }
         oauthStateToIntegrationIdRef.current.delete(d.state);
+        for (const [state, mappedIntegrationId] of oauthStateToIntegrationIdRef.current.entries()) {
+          if (mappedIntegrationId === integrationId) {
+            oauthStateToIntegrationIdRef.current.delete(state);
+          }
+        }
         setAuthPendingIds((prev) => {
           const next = new Set(prev);
           next.delete(integrationId);
@@ -2049,7 +2120,17 @@ export function IntegrationsTab() {
         if (!d.state) return;
         const integrationId = oauthStateToIntegrationIdRef.current.get(d.state);
         if (!integrationId) return;
+        const popupCloseTimer = oauthPopupCloseTimersRef.current.get(integrationId);
+        if (popupCloseTimer !== undefined) {
+          window.clearInterval(popupCloseTimer);
+          oauthPopupCloseTimersRef.current.delete(integrationId);
+        }
         oauthStateToIntegrationIdRef.current.delete(d.state);
+        for (const [state, mappedIntegrationId] of oauthStateToIntegrationIdRef.current.entries()) {
+          if (mappedIntegrationId === integrationId) {
+            oauthStateToIntegrationIdRef.current.delete(state);
+          }
+        }
         setAuthPendingIds((prev) => {
           const next = new Set(prev);
           next.delete(integrationId);

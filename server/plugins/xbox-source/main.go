@@ -42,8 +42,9 @@ type Error struct {
 // --------------- Config ---------------
 
 type xboxConfig struct {
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"`
+	ClientID     string       `json:"client_id"`
+	ClientSecret string       `json:"client_secret"`
+	Tokens       *savedTokens `json:"tokens,omitempty"`
 	// XBLMarket is sent as x-xbl-market (default US). Optional.
 	XBLMarket string `json:"xbl_market,omitempty"`
 	// PlayLaunchLocale is the xbox.com path segment for play URLs, e.g. en-US.
@@ -101,6 +102,37 @@ func saveTokens() error {
 		return err
 	}
 	return os.WriteFile(tokenFile, data, 0600)
+}
+
+func useConfiguredTokens(configTokens *savedTokens) bool {
+	if configTokens == nil {
+		return false
+	}
+	tokenMu.Lock()
+	tokens = *configTokens
+	tokenMu.Unlock()
+	return true
+}
+
+func currentTokensConfigUpdate() map[string]any {
+	tokenMu.Lock()
+	tokenCopy := tokens
+	tokenMu.Unlock()
+	if tokenCopy.MSRefreshToken == "" && tokenCopy.XSTSToken == "" {
+		return nil
+	}
+	return map[string]any{"tokens": tokenCopy}
+}
+
+func xboxAuthOKResponse() map[string]any {
+	tokenMu.Lock()
+	xuid := tokens.XUID
+	tokenMu.Unlock()
+	result := map[string]any{"status": "ok", "xuid": xuid}
+	if updates := currentTokensConfigUpdate(); updates != nil {
+		result["config_updates"] = updates
+	}
+	return result
 }
 
 // --------------- Config loading ---------------
@@ -950,7 +982,9 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 	}
 
-	// Check for valid cached XSTS tokens.
+	useConfiguredTokens(p.Config.Tokens)
+
+	// Check for valid profile-owned or cached XSTS tokens.
 	tokenMu.Lock()
 	if tokens.XSTSToken == "" {
 		loadTokens()
@@ -959,7 +993,7 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 	tokenMu.Unlock()
 
 	if hasValid {
-		return map[string]any{"status": "ok"}, nil
+		return xboxAuthOKResponse(), nil
 	}
 
 	// Try silent refresh if we have a refresh token.
@@ -983,7 +1017,7 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 				tokenMu.Lock()
 				saveTokens()
 				tokenMu.Unlock()
-				return map[string]any{"status": "ok"}, nil
+				return xboxAuthOKResponse(), nil
 			}
 		}
 	}
@@ -1046,7 +1080,7 @@ func handleOAuthCallback(params json.RawMessage) (any, *Error) {
 	tokenMu.Unlock()
 
 	log.Printf("OAuth callback complete, XUID=%s", xuid)
-	return map[string]any{"status": "ok", "xuid": xuid}, nil
+	return xboxAuthOKResponse(), nil
 }
 
 // --------------- Main ---------------

@@ -207,6 +207,48 @@ func (c *ProfileController) CheckRestoreSync(w http.ResponseWriter, r *http.Requ
 	_ = json.NewEncoder(w).Encode(result)
 }
 
+func (c *ProfileController) RestoreSyncPoints(w http.ResponseWriter, r *http.Request) {
+	count, err := c.repo.Count(r.Context())
+	if err != nil {
+		c.logger.Error("count profiles", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if count > 0 {
+		http.Error(w, "setup is already complete", http.StatusConflict)
+		return
+	}
+
+	var body core.RestoreSyncRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(body.PluginID) == "" {
+		body.PluginID = "sync-settings-google-drive"
+	}
+	redirectURI, err := appconfig.OAuthCallbackURL(c.config, body.PluginID)
+	if err != nil {
+		http.Error(w, "server network configuration is invalid", http.StatusInternalServerError)
+		return
+	}
+	body.RedirectURI = redirectURI
+
+	result, err := c.syncSvc.ListBootstrapPayloads(r.Context(), body)
+	if err != nil {
+		c.logger.Error("list first-run sync payloads", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if result.Status == "oauth_required" {
+		w.WriteHeader(http.StatusAccepted)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	_ = json.NewEncoder(w).Encode(result)
+}
+
 func (c *ProfileController) BrowseRestoreSync(w http.ResponseWriter, r *http.Request) {
 	count, err := c.repo.Count(r.Context())
 	if err != nil {

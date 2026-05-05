@@ -225,6 +225,7 @@ type SyncService interface {
 	Pull(ctx context.Context, passphrase string) (*PullResult, error)
 	CheckBootstrap(ctx context.Context, req RestoreSyncRequest) (*RestoreSyncResult, error)
 	BrowseBootstrap(ctx context.Context, req RestoreSyncBrowseRequest) (any, error)
+	ListBootstrapPayloads(ctx context.Context, req RestoreSyncRequest) (*RestoreSyncPointsResult, error)
 	RestoreBootstrap(ctx context.Context, req RestoreSyncRequest) (*RestoreSyncResult, error)
 	Status(ctx context.Context) (*SyncStatus, error)
 	StoreKey(ctx context.Context, passphrase string, currentPassphrase string) error

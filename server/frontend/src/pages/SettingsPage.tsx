@@ -6,9 +6,11 @@ import { AppearanceTab } from '@/components/settings/AppearanceTab'
 import { UndetectedGamesTab } from '@/components/settings/UndetectedGamesTab'
 import { CacheTab } from '@/components/settings/CacheTab'
 import { ProfilesTab } from '@/components/settings/ProfilesTab'
+import { UpdateTab } from '@/components/settings/SettingsTab'
 
 const TABS: Tab[] = [
   { id: 'integrations', label: 'Integrations' },
+  { id: 'update', label: 'Update' },
   { id: 'profiles', label: 'Profiles' },
   { id: 'plugins', label: 'Plugins' },
   { id: 'cache', label: 'Cache' },
@@ -18,6 +20,7 @@ const TABS: Tab[] = [
 
 const TAB_COMPONENTS: Record<string, React.FC> = {
   integrations: IntegrationsTab,
+  update: UpdateTab,
   profiles: ProfilesTab,
   plugins: PluginsTab,
   cache: CacheTab,
@@ -28,7 +31,8 @@ const TAB_COMPONENTS: Record<string, React.FC> = {
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
-  const activeTab = tabParam && TAB_COMPONENTS[tabParam] ? tabParam : 'integrations'
+  const normalizedTabParam = tabParam === 'settings' ? 'update' : tabParam
+  const activeTab = normalizedTabParam && TAB_COMPONENTS[normalizedTabParam] ? normalizedTabParam : 'integrations'
 
   const handleTabChange = (id: string) => {
     const next = new URLSearchParams(searchParams)
@@ -43,7 +47,7 @@ export function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold text-mga-text">Settings</h1>
         <p className="text-sm text-mga-muted mt-1">
-          Manage integrations, cached source data, plugins, and appearance
+          Manage integrations, updates, cached source data, plugins, and appearance
         </p>
       </div>
 

@@ -19,7 +19,7 @@ type PluginInfo struct {
 	PluginID     string         `json:"plugin_id"`
 	Version      string         `json:"plugin_version"`
 	Provides     []string       `json:"provides"`
-	Capabilities []string        `json:"capabilities"`
+	Capabilities []string       `json:"capabilities"`
 	ConfigSchema map[string]any `json:"config,omitempty"`
 }
 
@@ -54,7 +54,7 @@ func (h *pluginHost) ListPlugins() []PluginInfo {
 	for _, p := range h.plugins {
 		out = append(out, PluginInfo{
 			PluginID:     p.Manifest.ID,
-			Version:     p.Manifest.Version,
+			Version:      p.Manifest.Version,
 			Provides:     p.Manifest.Provides,
 			Capabilities: p.Manifest.Capabilities,
 			ConfigSchema: p.Manifest.ConfigSchema,
@@ -84,7 +84,17 @@ type pluginHost struct {
 	plugins        map[string]*core.Plugin
 	mu             sync.Mutex
 	clients        map[string]IpcClient
+	starting       map[string]*pluginClientStart
+	clientFactory  ipcClientFactory
 }
+
+type pluginClientStart struct {
+	ready  chan struct{}
+	client IpcClient
+	err    error
+}
+
+type ipcClientFactory func(process Process, logger core.Logger, pluginID string, onDisconnect DisconnectFunc) IpcClient
 
 // NewPluginHost constructs the plugin host. eventBus may be nil (no SSE notifications).
 func NewPluginHost(logger core.Logger, config core.Configuration, processManager ProcessManager, eventBus *events.EventBus) PluginHost {
@@ -95,6 +105,8 @@ func NewPluginHost(logger core.Logger, config core.Configuration, processManager
 		eventBus:       eventBus,
 		plugins:        make(map[string]*core.Plugin),
 		clients:        make(map[string]IpcClient),
+		starting:       make(map[string]*pluginClientStart),
+		clientFactory:  NewIpcClient,
 	}
 }
 
@@ -159,14 +171,14 @@ func (h *pluginHost) Discover(ctx context.Context) error {
 				h.logger.Warn("Failed to unmarshal plugin manifest", "path", manifestPath, "error", err)
 				continue
 			}
-		if manifest.Enabled != nil && !*manifest.Enabled {
-			h.logger.Info("Plugin disabled by manifest", "id", manifest.ID, "path", manifestPath)
-			continue
-		}
-		if _, exists := h.plugins[manifest.ID]; exists {
-			h.logger.Warn("Duplicate plugin id, skipping", "id", manifest.ID, "path", manifestPath)
-			continue
-		}
+			if manifest.Enabled != nil && !*manifest.Enabled {
+				h.logger.Info("Plugin disabled by manifest", "id", manifest.ID, "path", manifestPath)
+				continue
+			}
+			if _, exists := h.plugins[manifest.ID]; exists {
+				h.logger.Warn("Duplicate plugin id, skipping", "id", manifest.ID, "path", manifestPath)
+				continue
+			}
 			// Plugin ID convention: lowercase, hyphenated; no reverse-DNS (no dots). E.g. game-source-smb, sync-settings-google-drive.
 			if !validPluginID(manifest.ID) {
 				h.logger.Warn("Invalid plugin id (use lowercase hyphenated, e.g. game-source-smb), skipping", "id", manifest.ID, "path", manifestPath)
@@ -203,24 +215,65 @@ func (h *pluginHost) Call(ctx context.Context, pluginID string, method string, p
 
 func (h *pluginHost) getClient(ctx context.Context, pluginID string) (IpcClient, error) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
 	if client, ok := h.clients[pluginID]; ok {
+		h.mu.Unlock()
 		return client, nil
+	}
+	if start, ok := h.starting[pluginID]; ok {
+		h.mu.Unlock()
+		return h.waitForClientStart(ctx, pluginID, start)
 	}
 
 	plugin, ok := h.plugins[pluginID]
 	if !ok {
+		h.mu.Unlock()
 		return nil, fmt.Errorf("plugin not found: %s", pluginID)
 	}
+	start := &pluginClientStart{ready: make(chan struct{})}
+	h.starting[pluginID] = start
+	h.mu.Unlock()
 
+	go h.startPluginClient(pluginID, plugin, start)
+	return h.waitForClientStart(ctx, pluginID, start)
+}
+
+func (h *pluginHost) waitForClientStart(ctx context.Context, pluginID string, start *pluginClientStart) (IpcClient, error) {
+	select {
+	case <-start.ready:
+		if start.err != nil {
+			return nil, start.err
+		}
+		if start.client == nil {
+			return nil, fmt.Errorf("plugin startup completed without client: %s", pluginID)
+		}
+		return start.client, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (h *pluginHost) startPluginClient(pluginID string, plugin *core.Plugin, start *pluginClientStart) {
+	client, err := h.createPluginClient(pluginID, plugin)
+
+	h.mu.Lock()
+	if err == nil {
+		h.clients[pluginID] = client
+	}
+	start.client = client
+	start.err = err
+	delete(h.starting, pluginID)
+	close(start.ready)
+	h.mu.Unlock()
+}
+
+func (h *pluginHost) createPluginClient(pluginID string, plugin *core.Plugin) (IpcClient, error) {
 	execPath := filepath.Join(plugin.Path, plugin.Manifest.Exec)
 	process, err := h.processManager.Spawn(context.Background(), execPath, nil, plugin.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn plugin process: %w", err)
 	}
 
-	client := NewIpcClient(process, h.logger, pluginID, h.onPluginStdoutClosed)
+	client := h.clientFactory(process, h.logger, pluginID, h.onPluginStdoutClosed)
 
 	initTimeout := time.Duration(plugin.Manifest.DefaultTimeout) * time.Millisecond
 	if initTimeout <= 0 {
@@ -236,7 +289,6 @@ func (h *pluginHost) getClient(ctx context.Context, pluginID string) (IpcClient,
 		h.logger.Info("plugin.init completed", "plugin_id", pluginID)
 	}
 
-	h.clients[pluginID] = client
 	return client, nil
 }
 

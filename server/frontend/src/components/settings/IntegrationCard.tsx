@@ -191,9 +191,9 @@ export function IntegrationCard({
   const showAuthAction =
     oauthCapable &&
     onStartAuth &&
-    (!status || status.status === "oauth_required");
+    (!status || status.status === "oauth_required" || status.status === "error");
   const authLabel =
-    status?.status === "oauth_required" ? "Re-auth" : "Connect";
+    status?.status === "oauth_required" || status?.status === "error" ? "Re-auth" : "Connect";
 
   return (
     <div className="border border-mga-border rounded-mga bg-mga-surface p-4 flex flex-col gap-2 transition-colors hover:border-mga-muted/50">

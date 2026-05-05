@@ -71,9 +71,9 @@ func loadIdentity() string {
 	return id.SteamID
 }
 
-func saveIdentity(steamID string) {
+func saveIdentity(steamID string) error {
 	data, _ := json.MarshalIndent(savedIdentity{SteamID: steamID}, "", "  ")
-	os.WriteFile(tokenFile, data, 0600)
+	return os.WriteFile(tokenFile, data, 0600)
 }
 
 func randomState() string {
@@ -229,8 +229,11 @@ func loadConfig() (*steamConfig, error) {
 		return nil, fmt.Errorf("config.json must contain api_key")
 	}
 
-	// Load cached Steam identity from tokens.json.
-	c.SteamID = loadIdentity()
+	// Prefer the profile-owned integration config. tokens.json is kept only as
+	// a legacy fallback for existing portable installs.
+	if c.SteamID == "" {
+		c.SteamID = loadIdentity()
+	}
 
 	return &c, nil
 }
@@ -603,15 +606,21 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 		return map[string]any{"status": "error", "message": "api_key required"}, nil
 	}
 
-	// Check if we already have a cached Steam identity.
-	steamID := loadIdentity()
+	steamID := configString(p.Config, "steam_id")
+	if steamID == "" {
+		steamID = cfg.SteamID
+	}
+	if steamID == "" {
+		steamID = loadIdentity()
+	}
 	if steamID != "" {
 		// Verify the key works with this steam ID.
 		_, err := fetchOwnedGames(apiKey, steamID)
 		if err != nil {
 			return map[string]any{"status": "error", "message": err.Error()}, nil
 		}
-		return map[string]any{"status": "ok", "steam_id": steamID}, nil
+		cfg.SteamID = steamID
+		return steamAuthOKResponse(steamID), nil
 	}
 
 	// No Steam identity yet — redirect user to Steam OpenID login.
@@ -649,6 +658,22 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 		"authorize_url": authorizeURL,
 		"state":         state,
 	}, nil
+}
+
+func configString(config map[string]any, key string) string {
+	value, _ := config[key].(string)
+	return strings.TrimSpace(value)
+}
+
+func steamAuthOKResponse(steamID string) map[string]any {
+	return map[string]any{
+		"status":          "ok",
+		"steam_id":        steamID,
+		"source_identity": steamID,
+		"config_updates": map[string]any{
+			"steam_id": steamID,
+		},
+	}
 }
 
 // --- OAuth callback (Steam OpenID return) ---
@@ -690,12 +715,15 @@ func handleOAuthCallback(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "AUTH_FAILED", Message: "empty steam ID in claimed_id"}
 	}
 
-	// Persist identity and update in-memory config.
-	saveIdentity(steamID)
+	// Update profile-owned integration config via the server callback result.
+	// tokens.json is only a best-effort legacy fallback for portable installs.
+	if err := saveIdentity(steamID); err != nil {
+		log.Printf("Steam OpenID legacy token cache write failed: %v", err)
+	}
 	cfg.SteamID = steamID
 
 	log.Printf("Steam OpenID login successful: Steam ID %s", steamID)
-	return map[string]any{"status": "ok", "steam_id": steamID}, nil
+	return steamAuthOKResponse(steamID), nil
 }
 
 // --- Main ---

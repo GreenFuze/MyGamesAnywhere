@@ -1,8 +1,9 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   listPlugins,
   createIntegration,
+  checkPluginConfig,
   isOAuthRequired,
   updateIntegration,
   DuplicateIntegrationError,
@@ -34,6 +35,7 @@ import { ArrowLeft, Check } from 'lucide-react'
 // ═══════════════════════════════════════════════════════════════════════════
 
 type WizardStep = 'category' | 'plugin' | 'config' | 'label' | 'oauth' | 'browse'
+type OAuthPurpose = 'create' | 'verify_config'
 
 interface AddIntegrationWizardProps {
   onClose: () => void
@@ -56,6 +58,9 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
   // OAuth flow state.
   const [oauthState, setOauthState] = useState<string | null>(null)
   const [oauthError, setOauthError] = useState<string | null>(null)
+  const [oauthPurpose, setOauthPurpose] = useState<OAuthPurpose>('create')
+  const [configVerified, setConfigVerified] = useState(false)
+  const oauthWindowRef = useRef<Window | null>(null)
   const { subscribe } = useSSE()
 
   // Browse state (for plugins that provide source.browse).
@@ -99,6 +104,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
   const selectPlugin = (plugin: PluginInfo) => {
     setSelectedPluginId(plugin.plugin_id)
     setConfigFields({})
+    setConfigVerified(false)
     setError('')
 
     // Pre-fill defaults from schema.
@@ -152,21 +158,31 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
 
   // Check if the selected plugin supports folder browsing.
   const supportsBrowse = selectedPlugin?.provides?.includes('source.browse') ?? false
+  const supportsOAuth = selectedPlugin?.provides?.includes('auth.oauth.callback') ?? false
+  const requiresVerifiedConfigBeforeBrowse = supportsOAuth && supportsBrowse && hasConfig
+  const browseDisabledReason = 'Connect this integration first so MGA can browse remote folders.'
+
+  const mergeDraftConfigUpdates = useCallback((updates?: Record<string, unknown>) => {
+    if (!updates || Object.keys(updates).length === 0) return
+    setConfigFields((prev) => ({ ...prev, ...updates }))
+  }, [])
 
   // After successful integration creation, either go to browse step or finish.
   const finishCreate = useCallback((integrationId: string) => {
-    if (supportsBrowse) {
+    if (supportsBrowse && !hasConfig && selectedPlugin?.capabilities?.includes('source')) {
       setCreatedIntegrationId(integrationId)
       setStep('browse')
     } else {
       onSaved()
     }
-  }, [supportsBrowse, onSaved])
+  }, [hasConfig, selectedPlugin, supportsBrowse, onSaved])
 
   const handleCreate = async () => {
     if (!selectedPlugin || !label || !integrationType) return
     setError('')
     setSaving(true)
+    const authWindow = selectedPlugin.provides?.includes('auth.oauth.callback') ? window.open('', '_blank') : null
+    oauthWindowRef.current = authWindow
 
     try {
       const result = await createIntegration({
@@ -178,15 +194,22 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
 
       // OAuth consent required — open the authorize URL in a new tab.
       if (isOAuthRequired(result)) {
+        setOauthPurpose('create')
         setOauthState(result.state)
         setOauthError(null)
         setStep('oauth')
-        window.open(result.authorize_url, '_blank')
+        if (authWindow) {
+          authWindow.location.href = result.authorize_url
+        } else {
+          setOauthError('Browser blocked the sign-in popup. Allow popups for MGA and try again.')
+        }
         return
       }
 
+      authWindow?.close()
       finishCreate(result.id)
     } catch (err) {
+      authWindow?.close()
       if (err instanceof DuplicateIntegrationError) {
         setError(err.message)
       } else {
@@ -196,6 +219,74 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
       setSaving(false)
     }
   }
+
+  const handleVerifyConfig = useCallback(async () => {
+    if (!selectedPlugin) return
+    setError('')
+    setOauthError(null)
+    setSaving(true)
+    const authWindow = supportsOAuth ? window.open('', '_blank') : null
+    oauthWindowRef.current = authWindow
+
+    try {
+      const result = await checkPluginConfig(selectedPlugin.plugin_id, buildConfig())
+      if (isOAuthRequired(result)) {
+        setOauthPurpose('verify_config')
+        setOauthState(result.state)
+        setOauthError(null)
+        setStep('oauth')
+        if (authWindow) {
+          authWindow.location.href = result.authorize_url
+        } else {
+          setOauthError('Browser blocked the sign-in popup. Allow popups for MGA and try again.')
+        }
+        return
+      }
+
+      authWindow?.close()
+      if (result.status && result.status !== 'ok') {
+        setError(result.message || result.status)
+        return
+      }
+      mergeDraftConfigUpdates(result.config_updates)
+      setConfigVerified(true)
+    } catch (err) {
+      authWindow?.close()
+      setError(err instanceof Error ? err.message : 'Failed to verify integration')
+    } finally {
+      setSaving(false)
+    }
+  }, [buildConfig, mergeDraftConfigUpdates, selectedPlugin, supportsOAuth])
+
+  const retryVerifyConfigAfterOAuth = useCallback(async () => {
+    if (!selectedPlugin) return
+    setSaving(true)
+    setOauthError(null)
+    setError('')
+
+    try {
+      const result = await checkPluginConfig(selectedPlugin.plugin_id, buildConfig())
+      if (isOAuthRequired(result)) {
+        setOauthError('Authentication incomplete. Please try again.')
+        return
+      }
+      if (result.status && result.status !== 'ok') {
+        setOauthError(result.message || result.status)
+        return
+      }
+      mergeDraftConfigUpdates(result.config_updates)
+      setConfigVerified(true)
+      oauthWindowRef.current?.close()
+      oauthWindowRef.current = null
+      setOauthState(null)
+      setOauthError(null)
+      setStep('config')
+    } catch (err) {
+      setOauthError(err instanceof Error ? err.message : 'Failed to verify integration')
+    } finally {
+      setSaving(false)
+    }
+  }, [buildConfig, mergeDraftConfigUpdates, selectedPlugin])
 
   // After OAuth completes, retry creating the integration (tokens are now valid).
   const retryCreateAfterOAuth = useCallback(async () => {
@@ -216,6 +307,8 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
         return
       }
 
+      oauthWindowRef.current?.close()
+      oauthWindowRef.current = null
       finishCreate(result.id)
     } catch (err) {
       setOauthError(err instanceof Error ? err.message : 'Failed to create integration')
@@ -231,7 +324,11 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
     const unsubComplete = subscribe('oauth_complete', (data: unknown) => {
       const d = data as { state?: string }
       if (d.state === oauthState) {
-        retryCreateAfterOAuth()
+        if (oauthPurpose === 'verify_config') {
+          void retryVerifyConfigAfterOAuth()
+        } else {
+          void retryCreateAfterOAuth()
+        }
       }
     })
 
@@ -243,7 +340,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
     })
 
     return () => { unsubComplete(); unsubError() }
-  }, [step, oauthState, subscribe, retryCreateAfterOAuth])
+  }, [step, oauthState, oauthPurpose, subscribe, retryCreateAfterOAuth, retryVerifyConfigAfterOAuth])
 
   // Step titles for the dialog.
   const stepTitles: Record<WizardStep, string> = {
@@ -259,13 +356,9 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
     <Dialog open onClose={onClose} title={stepTitles[step]} className="max-w-2xl">
       {/* Back button (not shown on first step, during OAuth, or while browsing) */}
       {step !== 'category' && step !== 'oauth' && step !== 'browse' && (
-        <button
-          type="button"
-          onClick={goBack}
-          className="flex items-center gap-1 text-xs text-mga-muted hover:text-mga-text mb-4 transition-colors"
-        >
+        <Button type="button" variant="outline" size="sm" onClick={goBack} className="mb-4">
           <ArrowLeft size={14} /> Back
-        </button>
+        </Button>
       )}
 
       {/* Step 1: Choose category */}
@@ -312,7 +405,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
                   </div>
                   <p className="text-xs text-mga-muted mt-0.5">
                     {pSchema.length === 0
-                      ? 'No configuration needed'
+                      ? (plugin.provides?.includes('auth.oauth.callback') ? 'Browser sign-in required' : 'No configuration needed')
                       : `${pSchema.length} config field${pSchema.length !== 1 ? 's' : ''}`}
                   </p>
                 </div>
@@ -335,18 +428,35 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
             </span>
           </div>
 
-          <ConfigFieldsRenderer
-            schema={schema}
-            values={configFields}
-            onChange={(key, value) => setConfigFields((prev) => ({ ...prev, [key]: value }))}
-            browsePluginId={supportsBrowse ? selectedPlugin.plugin_id : null}
-          />
+          {requiresVerifiedConfigBeforeBrowse && !configVerified ? (
+            <div className="rounded-mga border border-mga-border bg-mga-surface/70 p-4">
+              <p className="text-sm font-medium text-mga-text">Connect before choosing folders</p>
+              <p className="mt-1 text-sm text-mga-muted">
+                MGA needs browser sign-in before it can browse your Google Drive folders. After the connection is verified, this dialog will unlock the shared folder browser so you can choose an existing save folder or create a new path.
+              </p>
+            </div>
+          ) : (
+            <ConfigFieldsRenderer
+              schema={schema}
+              values={configFields}
+              onChange={(key, value) => setConfigFields((prev) => ({ ...prev, [key]: value }))}
+              browsePluginId={supportsBrowse ? selectedPlugin.plugin_id : null}
+              browseDisabled={requiresVerifiedConfigBeforeBrowse && !configVerified}
+              browseDisabledReason={browseDisabledReason}
+            />
+          )}
 
           {error && <p className="text-sm text-red-400">{error}</p>}
 
           <div className="flex justify-end pt-2">
-            <Button size="sm" onClick={advanceToLabel}>
-              Next
+            <Button
+              size="sm"
+              onClick={requiresVerifiedConfigBeforeBrowse && !configVerified ? handleVerifyConfig : advanceToLabel}
+              disabled={saving}
+            >
+              {saving
+                ? (requiresVerifiedConfigBeforeBrowse && !configVerified ? 'Connecting...' : 'Working...')
+                : (requiresVerifiedConfigBeforeBrowse && !configVerified ? 'Connect' : 'Next')}
             </Button>
           </div>
         </div>
@@ -407,14 +517,16 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
           </div>
 
           {saving ? (
-            <p className="text-mga-muted">Creating integration...</p>
+            <p className="text-mga-muted">
+              {oauthPurpose === 'verify_config' ? 'Verifying connection...' : 'Creating integration...'}
+            </p>
           ) : oauthError ? (
             <div className="space-y-3">
               <p className="text-sm text-red-400">{oauthError}</p>
               <Button
                 size="sm"
                 onClick={() => {
-                  setStep('label')
+                  setStep(oauthPurpose === 'verify_config' ? 'config' : 'label')
                   setOauthError(null)
                   setOauthState(null)
                 }}
@@ -508,6 +620,7 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
   const [error, setError] = useState('')
   const [oauthState, setOauthState] = useState<string | null>(null)
   const [oauthError, setOauthError] = useState<string | null>(null)
+  const editOAuthWindowRef = useRef<Window | null>(null)
 
   // Folder browsing for plugins that support source.browse.
   const editSupportsBrowse = plugin?.provides?.includes('source.browse') ?? false
@@ -558,6 +671,8 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
   }, [configFields, schema, secretMask])
 
   const saveChanges = useCallback(async () => {
+    const authWindow = plugin?.provides?.includes('auth.oauth.callback') ? window.open('', '_blank') : null
+    editOAuthWindowRef.current = authWindow
     try {
       const result = await updateIntegration(integration.id, {
         label,
@@ -567,18 +682,24 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
       if (isOAuthRequired(result)) {
         setOauthState(result.state)
         setOauthError(null)
-        window.open(result.authorize_url, '_blank')
+        if (authWindow) {
+          authWindow.location.href = result.authorize_url
+        } else {
+          setOauthError('Browser blocked the sign-in popup. Allow popups for MGA and try again.')
+        }
         return
       }
+      authWindow?.close()
       onSaved()
     } catch (err) {
+      authWindow?.close()
       if (err instanceof DuplicateIntegrationError) {
         setError(err.message)
       } else {
         setError(err instanceof Error ? err.message : 'Failed to save')
       }
     }
-  }, [buildConfig, integration.id, integrationType, label, onSaved])
+  }, [buildConfig, integration.id, integrationType, label, onSaved, plugin])
 
   const retrySaveAfterOAuth = useCallback(async () => {
     setSaving(true)
@@ -594,6 +715,8 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
         setOauthError('Authentication incomplete. Please try again.')
         return
       }
+      editOAuthWindowRef.current?.close()
+      editOAuthWindowRef.current = null
       onSaved()
     } catch (err) {
       setOauthError(err instanceof Error ? err.message : 'Failed to save')

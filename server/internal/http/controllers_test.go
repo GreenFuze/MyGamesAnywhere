@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1196,6 +1197,7 @@ func TestPluginControllerStartIntegrationAuthReturnsOAuthRequired(t *testing.T) 
 			"plugin.oauth": {
 				Manifest: core.PluginManifest{
 					ID:           "plugin.oauth",
+					Provides:     []string{"plugin.check_config", "auth.oauth.callback"},
 					ConfigSchema: map[string]any{},
 				},
 			},
@@ -1237,6 +1239,98 @@ func TestPluginControllerStartIntegrationAuthReturnsOAuthRequired(t *testing.T) 
 	}
 }
 
+func TestPluginControllerCheckPluginConfigReturnsOAuthRequiredWithoutPersisting(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{}
+	host := &fakeControllerIntegrationPluginHost{
+		plugins: map[string]*core.Plugin{
+			"plugin.oauth": {
+				Manifest: core.PluginManifest{
+					ID:           "plugin.oauth",
+					Provides:     []string{"plugin.check_config", "auth.oauth.callback", "source.browse"},
+					ConfigSchema: map[string]any{},
+				},
+			},
+		},
+		checkResults: map[string]integrationCheckResult{
+			"plugin.oauth": {
+				Status:       "oauth_required",
+				AuthorizeURL: "https://example.com/auth",
+				State:        "state-draft",
+			},
+		},
+	}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil)
+
+	router := chi.NewRouter()
+	router.Post("/api/plugins/{plugin_id}/check-config", controller.CheckPluginConfig)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/plugins/plugin.oauth/check-config",
+		bytes.NewBufferString(`{"config":{"root_path":"Games"}}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if got := body["state"]; got != "state-draft" {
+		t.Fatalf("state = %v, want state-draft", got)
+	}
+	if repo.updated != nil {
+		t.Fatal("draft config check must not update integrations")
+	}
+}
+
+func TestPluginControllerCheckPluginConfigReturnsConfigUpdates(t *testing.T) {
+	host := &fakeControllerIntegrationPluginHost{
+		plugins: map[string]*core.Plugin{
+			"plugin.oauth": {
+				Manifest: core.PluginManifest{
+					ID:           "plugin.oauth",
+					Provides:     []string{"plugin.check_config", "auth.oauth.callback", "source.browse"},
+					ConfigSchema: map[string]any{},
+				},
+			},
+		},
+		checkResults: map[string]integrationCheckResult{
+			"plugin.oauth": {
+				Status:        "ok",
+				ConfigUpdates: map[string]any{"tokens": map[string]any{"access_token": "token"}},
+			},
+		},
+	}
+	controller := NewPluginController(&fakeControllerIntegrationRepo{}, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil)
+
+	router := chi.NewRouter()
+	router.Post("/api/plugins/{plugin_id}/check-config", controller.CheckPluginConfig)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/plugins/plugin.oauth/check-config", bytes.NewBufferString(`{"config":{}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["status"] != "ok" {
+		t.Fatalf("status payload = %v, want ok", body["status"])
+	}
+	if _, ok := body["config_updates"].(map[string]any); !ok {
+		t.Fatalf("config_updates missing from response: %#v", body)
+	}
+}
+
 func TestPluginControllerUpdateIntegrationReturnsOAuthRequired(t *testing.T) {
 	repo := &fakeControllerIntegrationRepo{
 		byID: map[string]*core.Integration{
@@ -1253,6 +1347,7 @@ func TestPluginControllerUpdateIntegrationReturnsOAuthRequired(t *testing.T) {
 			"plugin.oauth": {
 				Manifest: core.PluginManifest{
 					ID:           "plugin.oauth",
+					Provides:     []string{"plugin.check_config", "auth.oauth.callback"},
 					ConfigSchema: map[string]any{},
 				},
 			},
@@ -1315,6 +1410,7 @@ func TestPluginControllerCreateRejectsDuplicateFilesystemSourceIdentity(t *testi
 			"game-source-google-drive": {
 				Manifest: core.PluginManifest{
 					ID:           "game-source-google-drive",
+					Provides:     []string{"plugin.check_config", "auth.oauth.callback", "source.browse"},
 					ConfigSchema: map[string]any{},
 				},
 			},
@@ -1370,6 +1466,7 @@ func TestPluginControllerUpdateRejectsDuplicateFilesystemSourceIdentity(t *testi
 			"game-source-google-drive": {
 				Manifest: core.PluginManifest{
 					ID:           "game-source-google-drive",
+					Provides:     []string{"plugin.check_config", "auth.oauth.callback", "source.browse"},
 					ConfigSchema: map[string]any{},
 				},
 			},
@@ -1400,6 +1497,76 @@ func TestPluginControllerUpdateRejectsDuplicateFilesystemSourceIdentity(t *testi
 	}
 	if repo.updated != nil {
 		t.Fatal("update should not persist duplicate source identities")
+	}
+}
+
+func TestPluginControllerStatusChecksIntegrationsConcurrentlyWithTimeout(t *testing.T) {
+	oldTimeout := integrationStatusTimeout
+	integrationStatusTimeout = 25 * time.Millisecond
+	defer func() { integrationStatusTimeout = oldTimeout }()
+
+	repo := &fakeControllerIntegrationRepo{
+		byID: map[string]*core.Integration{
+			"fast": {ID: "fast", PluginID: "plugin.fast", Label: "Fast", ConfigJSON: `{}`},
+			"slow": {ID: "slow", PluginID: "plugin.slow", Label: "Slow", ConfigJSON: `{}`},
+		},
+	}
+	host := &timeoutStatusPluginHost{
+		plugins: map[string]*core.Plugin{
+			"plugin.fast": {Manifest: core.PluginManifest{ID: "plugin.fast", Provides: []string{"plugin.check_config"}}},
+			"plugin.slow": {Manifest: core.PluginManifest{ID: "plugin.slow", Provides: []string{"plugin.check_config"}}},
+		},
+	}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/integrations/status", nil)
+	rec := httptest.NewRecorder()
+	controller.Status(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var entries []IntegrationStatusEntry
+	if err := json.Unmarshal(rec.Body.Bytes(), &entries); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("entries = %d, want 2", len(entries))
+	}
+	byID := map[string]IntegrationStatusEntry{}
+	for _, entry := range entries {
+		byID[entry.IntegrationID] = entry
+	}
+	if byID["fast"].Status != "ok" {
+		t.Fatalf("fast status = %q, want ok", byID["fast"].Status)
+	}
+	if byID["slow"].Status != "error" || !strings.Contains(byID["slow"].Message, "timed out") {
+		t.Fatalf("slow entry = %#v, want timeout error", byID["slow"])
+	}
+}
+
+func TestPluginControllerStatusSkipsPluginsWithoutCheckConfig(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{
+		byID: map[string]*core.Integration{
+			"launchbox": {ID: "launchbox", PluginID: "metadata-launchbox", Label: "LaunchBox", ConfigJSON: `{}`},
+		},
+	}
+	host := &timeoutStatusPluginHost{
+		plugins: map[string]*core.Plugin{
+			"metadata-launchbox": {Manifest: core.PluginManifest{ID: "metadata-launchbox", Provides: []string{"metadata.game.lookup"}}},
+		},
+	}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil)
+
+	entry := controller.checkOneIntegration(context.Background(), repo.byID["launchbox"])
+	if entry.Status != "ok" {
+		t.Fatalf("status = %q, want ok", entry.Status)
+	}
+	if !strings.Contains(entry.Message, "No configuration check") {
+		t.Fatalf("message = %q, want no configuration check", entry.Message)
+	}
+	if host.calls != 0 {
+		t.Fatalf("plugin.check_config calls = %d, want 0", host.calls)
 	}
 }
 
@@ -1488,5 +1655,43 @@ func (f *fakeControllerIntegrationPluginHost) GetPlugin(pluginID string) (*core.
 }
 func (f *fakeControllerIntegrationPluginHost) ListPlugins() []plugins.PluginInfo { return nil }
 func (f *fakeControllerIntegrationPluginHost) GetPluginIDsProviding(string) []string {
+	return nil
+}
+
+type timeoutStatusPluginHost struct {
+	plugins map[string]*core.Plugin
+	mu      sync.Mutex
+	calls   int
+}
+
+func (f *timeoutStatusPluginHost) Discover(context.Context) error { panic("unexpected call") }
+func (f *timeoutStatusPluginHost) Call(ctx context.Context, pluginID, method string, _ any, result any) error {
+	f.mu.Lock()
+	f.calls++
+	f.mu.Unlock()
+	if method != "plugin.check_config" {
+		panic("unexpected call")
+	}
+	if pluginID == "plugin.slow" {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	payload := integrationCheckResult{Status: "ok"}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, result)
+}
+func (f *timeoutStatusPluginHost) Close() error { return nil }
+func (f *timeoutStatusPluginHost) GetPluginIDs() []string {
+	return nil
+}
+func (f *timeoutStatusPluginHost) GetPlugin(pluginID string) (*core.Plugin, bool) {
+	plugin, ok := f.plugins[pluginID]
+	return plugin, ok
+}
+func (f *timeoutStatusPluginHost) ListPlugins() []plugins.PluginInfo { return nil }
+func (f *timeoutStatusPluginHost) GetPluginIDsProviding(string) []string {
 	return nil
 }

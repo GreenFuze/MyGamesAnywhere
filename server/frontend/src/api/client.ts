@@ -215,6 +215,9 @@ export type RestoreSyncSetupBody = {
   config?: Record<string, unknown>;
   passphrase: string;
   store_key?: boolean;
+  payload_id?: string;
+  payload_name?: string;
+  selected_integrations?: string[];
 };
 
 export type RestoreSyncSetupResult = {
@@ -242,6 +245,37 @@ export type RestoreSyncSetupOAuthRequired = {
 
 export type RestoreSyncSetupResponse = RestoreSyncSetupResult | RestoreSyncSetupOAuthRequired;
 
+export type RestoreSyncPointIntegration = {
+  key: string;
+  profile_id?: string;
+  plugin_id: string;
+  label: string;
+  integration_type: string;
+  updated_at: string;
+};
+
+export type RestoreSyncPoint = {
+  id: string;
+  name: string;
+  is_latest: boolean;
+  version: number;
+  exported_at: string;
+  mga_version: string;
+  profile_count: number;
+  integration_count: number;
+  integrations: RestoreSyncPointIntegration[];
+  unsupported_payload?: boolean;
+  error?: string;
+};
+
+export type RestoreSyncPointsResult = {
+  status: "ok";
+  plugin_id: string;
+  payloads: RestoreSyncPoint[];
+};
+
+export type RestoreSyncPointsResponse = RestoreSyncPointsResult | RestoreSyncSetupOAuthRequired;
+
 export function isRestoreSyncOAuthRequired(
   result: RestoreSyncSetupResponse,
 ): result is RestoreSyncSetupOAuthRequired {
@@ -254,6 +288,10 @@ export async function restoreSyncSetup(body: RestoreSyncSetupBody): Promise<Rest
 
 export async function checkRestoreSyncSetup(body: RestoreSyncSetupBody): Promise<RestoreSyncSetupResponse> {
   return postJson<RestoreSyncSetupResponse>("/api/setup/restore-sync/check", body) as Promise<RestoreSyncSetupResponse>;
+}
+
+export async function listRestoreSyncPoints(body: RestoreSyncSetupBody): Promise<RestoreSyncPointsResponse> {
+  return postJson<RestoreSyncPointsResponse>("/api/setup/restore-sync/points", body) as Promise<RestoreSyncPointsResponse>;
 }
 
 export async function browseRestoreSyncSetup(pluginId: string, path: string): Promise<BrowseResponse> {
@@ -816,6 +854,15 @@ export type OAuthRequiredResponse = {
   state: string;
 };
 
+export type PluginConfigCheckResult = {
+  status: "ok" | "error" | "unavailable" | "oauth_required" | string;
+  message?: string;
+  authorize_url?: string;
+  state?: string;
+  source_identity?: string;
+  config_updates?: Record<string, unknown>;
+};
+
 export type CreateIntegrationResult = Integration | OAuthRequiredResponse;
 export type UpdateIntegrationResult = Integration | OAuthRequiredResponse;
 export type StartIntegrationAuthResult =
@@ -826,7 +873,8 @@ export function isOAuthRequired(
   result:
     | CreateIntegrationResult
     | UpdateIntegrationResult
-    | StartIntegrationAuthResult,
+    | StartIntegrationAuthResult
+    | PluginConfigCheckResult,
 ): result is OAuthRequiredResponse {
   return "status" in result && result.status === "oauth_required";
 }
@@ -861,6 +909,27 @@ export async function createIntegration(body: {
   }
 
   return res.json() as Promise<Integration>;
+}
+
+export async function checkPluginConfig(
+  pluginId: string,
+  config?: Record<string, unknown>,
+): Promise<PluginConfigCheckResult | OAuthRequiredResponse> {
+  const path = `/api/plugins/${encodeURIComponent(pluginId)}/check-config`;
+  const res = await apiFetch(`${base}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ config: config ?? {} }),
+  });
+
+  if (res.status === 202) {
+    return res.json() as Promise<OAuthRequiredResponse>;
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `${res.status} ${res.statusText}`);
+  }
+  return res.json() as Promise<PluginConfigCheckResult>;
 }
 
 /** Thrown when creating an integration that already exists with the same config. */

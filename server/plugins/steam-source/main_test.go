@@ -28,6 +28,84 @@ func TestHandleGamesListRequiresConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadConfigPrefersProfileOwnedSteamID(t *testing.T) {
+	withTempWorkingDir(t)
+
+	if err := os.WriteFile(configFile, []byte(`{"api_key":"key","steam_id":"profile-steam-id"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tokenFile, []byte(`{"steam_id":"legacy-token-id"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.SteamID != "profile-steam-id" {
+		t.Fatalf("steam id = %q, want profile-owned config id", loaded.SteamID)
+	}
+}
+
+func TestHandleOAuthCallbackReturnsConfigUpdate(t *testing.T) {
+	withTempWorkingDir(t)
+
+	originalCfg := cfg
+	originalPending := oauthPending
+	t.Cleanup(func() {
+		cfg = originalCfg
+		oauthPending = originalPending
+	})
+
+	oauthPending = map[string]bool{"state-1": true}
+	payload := map[string]any{
+		"state": "state-1",
+		"params": map[string]string{
+			"openid.claimed_id": "https://steamcommunity.com/openid/id/76561198012345678",
+		},
+	}
+	params, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, errObj := handleOAuthCallback(params)
+	if errObj != nil {
+		t.Fatalf("callback error: %+v", errObj)
+	}
+	resultMap, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T, want map", result)
+	}
+	updates, ok := resultMap["config_updates"].(map[string]any)
+	if !ok {
+		t.Fatalf("config_updates = %#v, want map", resultMap["config_updates"])
+	}
+	if updates["steam_id"] != "76561198012345678" {
+		t.Fatalf("steam_id update = %#v", updates["steam_id"])
+	}
+	if cfg.SteamID != "76561198012345678" {
+		t.Fatalf("in-memory steam id = %q", cfg.SteamID)
+	}
+}
+
+func withTempWorkingDir(t *testing.T) {
+	t.Helper()
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tempDir := t.TempDir()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(originalDir); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
+	})
+}
+
 // ipcCall sends a single IPC request and reads the response via stdin/stdout
 // of the given process.
 func ipcCall(stdin io.Writer, stdout io.Reader, method string, params any) (*Response, error) {

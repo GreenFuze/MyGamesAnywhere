@@ -6,17 +6,20 @@ import {
   checkRestoreSyncSetup,
   getSetupStatus,
   isRestoreSyncOAuthRequired,
+  listRestoreSyncPoints,
   listProfiles,
   restoreSyncSetup,
   SELECTED_PROFILE_STORAGE_KEY,
   startFreshSetup,
   type Profile,
+  type RestoreSyncPoint,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { FolderBrowser } from '@/components/settings/FolderBrowser'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { useSSE } from '@/hooks/useSSE'
+import { pluginLabel } from '@/lib/gameUtils'
 
 type ProfileContextValue = {
   profiles: Profile[]
@@ -135,9 +138,52 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
   const [oauthState, setOauthState] = useState('')
   const [driveConnected, setDriveConnected] = useState(false)
   const [showFolderBrowser, setShowFolderBrowser] = useState(false)
+  const [restorePoints, setRestorePoints] = useState<RestoreSyncPoint[]>([])
+  const [selectedPayloadId, setSelectedPayloadId] = useState('')
+  const [selectedIntegrationKeys, setSelectedIntegrationKeys] = useState<Set<string>>(new Set())
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const selectedRestorePoint = restorePoints.find((point) => point.id === selectedPayloadId) ?? restorePoints[0] ?? null
+  const restoreConfig = useCallback((pathOverride?: string) => ({
+    sync_path: (pathOverride ?? syncPath).trim() || DEFAULT_GOOGLE_DRIVE_SYNC_PATH,
+    max_versions: 10,
+  }), [syncPath])
+
+  const loadRestorePoints = useCallback(async (pathOverride?: string) => {
+    setSaving(true)
+    setError('')
+    try {
+      const result = await listRestoreSyncPoints({
+        plugin_id: GOOGLE_DRIVE_SYNC_PLUGIN_ID,
+        label: 'Google Drive Sync',
+        integration_type: 'sync',
+        config: restoreConfig(pathOverride),
+        passphrase: '',
+      })
+      if (result.status === 'oauth_required') {
+        setOauthState(result.state)
+        setDriveConnected(false)
+        const authWindow = window.open('', '_blank')
+        if (authWindow) {
+          authWindow.location.href = result.authorize_url
+        }
+        setMessage('Finish Google Drive sign-in in the browser, then choose the sync folder.')
+        return
+      }
+      const payloads = [...(result.payloads ?? [])].sort((a, b) => Number(b.is_latest) - Number(a.is_latest))
+      setRestorePoints(payloads)
+      const latest = payloads.find((point) => point.is_latest) ?? payloads[0]
+      setSelectedPayloadId(latest?.id ?? '')
+      setSelectedIntegrationKeys(new Set(latest?.integrations.map((integration) => integration.key) ?? []))
+      setMessage(payloads.length > 0 ? 'Choose the restore point and integrations to import.' : 'No sync payloads were found in this folder.')
+    } catch (err) {
+      setError(apiErrorText(err, 'Failed to list restore points'))
+    } finally {
+      setSaving(false)
+    }
+  }, [restoreConfig])
 
   async function submit() {
     setSaving(true)
@@ -163,12 +209,12 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
         plugin_id: GOOGLE_DRIVE_SYNC_PLUGIN_ID,
         label: 'Google Drive Sync',
         integration_type: 'sync',
-        config: {
-          sync_path: syncPath.trim() || DEFAULT_GOOGLE_DRIVE_SYNC_PATH,
-          max_versions: 10,
-        },
+        config: restoreConfig(),
         passphrase,
         store_key: true,
+        payload_id: selectedRestorePoint?.id,
+        payload_name: selectedRestorePoint?.name,
+        selected_integrations: Array.from(selectedIntegrationKeys),
       })
       if (isRestoreSyncOAuthRequired(result)) {
         setOauthState(result.state)
@@ -185,38 +231,43 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
     } finally {
       setSaving(false)
     }
-  }, [onCreated, passphrase, queryClient, syncPath])
+  }, [onCreated, passphrase, queryClient, restoreConfig, selectedIntegrationKeys, selectedRestorePoint])
 
   const connectGoogleDrive = useCallback(async () => {
     setSaving(true)
     setError('')
     setMessage('')
+    const authWindow = window.open('', '_blank')
     try {
       const result = await checkRestoreSyncSetup({
         plugin_id: GOOGLE_DRIVE_SYNC_PLUGIN_ID,
         label: 'Google Drive Sync',
         integration_type: 'sync',
-        config: {
-          sync_path: syncPath.trim() || DEFAULT_GOOGLE_DRIVE_SYNC_PATH,
-          max_versions: 10,
-        },
+        config: restoreConfig(),
         passphrase: '',
       })
       if (isRestoreSyncOAuthRequired(result)) {
         setOauthState(result.state)
         setMessage('Finish Google Drive sign-in in the browser, then choose the sync folder.')
-        window.open(result.authorize_url, '_blank')
+        if (authWindow) {
+          authWindow.location.href = result.authorize_url
+        } else {
+          setError('Browser blocked the Google sign-in popup. Allow popups for MGA and try again.')
+        }
         return
       }
+      authWindow?.close()
       setDriveConnected(true)
       if (!syncPath.trim()) setSyncPath(DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
       setMessage('Google Drive connected. Choose the sync folder that contains latest.json, then restore.')
+      await loadRestorePoints()
     } catch (err) {
+      authWindow?.close()
       setError(apiErrorText(err, 'Google Drive sign-in failed'))
     } finally {
       setSaving(false)
     }
-  }, [syncPath])
+  }, [loadRestorePoints, restoreConfig, syncPath])
 
   useEffect(() => {
     if (!oauthState) return
@@ -227,6 +278,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
         setDriveConnected(true)
         if (!syncPath.trim()) setSyncPath(DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
         setMessage('Google Drive connected. Choose the sync folder that contains latest.json, then restore.')
+        void loadRestorePoints()
       }
     })
     const unsubError = subscribe('oauth_error', (data: unknown) => {
@@ -237,7 +289,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
       }
     })
     return () => { unsubComplete(); unsubError() }
-  }, [oauthState, subscribe, syncPath])
+  }, [loadRestorePoints, oauthState, subscribe, syncPath])
 
   if (mode === 'choose') {
     return (
@@ -318,8 +370,10 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
                         pluginId={GOOGLE_DRIVE_SYNC_PLUGIN_ID}
                         initialPath={syncPath.trim()}
                         onSelect={(path) => {
-                          setSyncPath(path || DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
+                          const nextPath = path || DEFAULT_GOOGLE_DRIVE_SYNC_PATH
+                          setSyncPath(nextPath)
                           setShowFolderBrowser(false)
+                          void loadRestorePoints(nextPath)
                         }}
                         browse={(path) => browseRestoreSyncSetup(GOOGLE_DRIVE_SYNC_PLUGIN_ID, path)}
                       />
@@ -335,6 +389,66 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
                 className="h-11"
                 placeholder="Leave blank to use a stored key on this PC"
               />
+              {driveConnected ? (
+                <div className="space-y-3 rounded-mga border border-mga-border/70 bg-mga-surface/70 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-bold text-mga-text">Restore point</div>
+                      <div className="text-xs text-mga-muted">Choose which sync JSON to restore. latest.json is selected by default.</div>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={() => { void loadRestorePoints() }} disabled={saving}>
+                      Refresh
+                    </Button>
+                  </div>
+                  {restorePoints.length > 0 ? (
+                    <select
+                      value={selectedPayloadId}
+                      onChange={(event) => {
+                        const nextID = event.target.value
+                        const point = restorePoints.find((item) => item.id === nextID)
+                        setSelectedPayloadId(nextID)
+                        setSelectedIntegrationKeys(new Set(point?.integrations.map((integration) => integration.key) ?? []))
+                      }}
+                      className="h-11 w-full rounded-mga border border-mga-border bg-mga-bg px-3 text-sm text-mga-text"
+                    >
+                      {restorePoints.map((point) => (
+                        <option key={point.id || point.name} value={point.id}>
+                          {point.name}{point.is_latest ? ' (latest)' : ''} - {point.integration_count} integrations
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-sm text-mga-muted">No restore points loaded yet.</p>
+                  )}
+                  {selectedRestorePoint ? (
+                    <div className="space-y-2">
+                      <div className="text-xs leading-5 text-mga-muted">
+                        Version {selectedRestorePoint.version || 'unknown'} · {selectedRestorePoint.profile_count || 1} profile(s) · {selectedRestorePoint.exported_at ? new Date(selectedRestorePoint.exported_at).toLocaleString() : 'unknown export time'}
+                      </div>
+                      <div className="max-h-44 space-y-2 overflow-y-auto rounded-mga border border-mga-border bg-mga-bg p-2">
+                        {selectedRestorePoint.integrations.map((integration) => (
+                          <label key={integration.key} className="flex items-center gap-2 rounded-mga px-2 py-1.5 text-sm text-mga-text hover:bg-mga-elevated">
+                            <input
+                              type="checkbox"
+                              checked={selectedIntegrationKeys.has(integration.key)}
+                              onChange={(event) => {
+                                setSelectedIntegrationKeys((prev) => {
+                                  const next = new Set(prev)
+                                  if (event.target.checked) next.add(integration.key)
+                                  else next.delete(integration.key)
+                                  return next
+                                })
+                              }}
+                            />
+                            <span className="min-w-0 flex-1 truncate">{integration.label || pluginLabel(integration.plugin_id)}</span>
+                            <span className="text-xs text-mga-muted">{pluginLabel(integration.plugin_id)}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <p className="text-xs leading-5 text-mga-muted">Integration configs inside the sync file are encrypted. Enter the passphrase used when this sync was pushed, or leave it blank if this Windows user already has the stored MGA sync key. The default folder path comes from the Google Drive settings-sync plugin and can be changed before restore.</p>
             </div>
           </div>
@@ -345,7 +459,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
               <ArrowLeft className="h-4 w-4" />
               <span>Back</span>
             </Button>
-            <Button onClick={submitRestore} disabled={saving || Boolean(oauthState) || !driveConnected} className="h-12 flex-1 justify-between px-4">
+            <Button onClick={submitRestore} disabled={saving || Boolean(oauthState) || !driveConnected || !selectedRestorePoint} className="h-12 flex-1 justify-between px-4">
               <span>{driveConnected ? 'Restore From Selected Folder' : 'Sign In First'}</span>
               <CloudDownload className="h-4 w-4" />
             </Button>

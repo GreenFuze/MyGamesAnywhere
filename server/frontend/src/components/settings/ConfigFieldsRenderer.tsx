@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import type { FilesystemIncludePath, PluginConfigField } from '@/lib/gameUtils'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { Eye, EyeOff, ExternalLink } from 'lucide-react'
 import { FolderBrowser } from './FolderBrowser'
 
@@ -17,6 +18,9 @@ interface ConfigFieldsRendererProps {
   onRevealSecret?: (key: string) => void
   /** Plugin id used for folder browsing where supported. */
   browsePluginId?: string | null
+  /** Disables remote browsing until the integration has been verified/authenticated. */
+  browseDisabled?: boolean
+  browseDisabledReason?: string
 }
 
 /**
@@ -30,6 +34,8 @@ export function ConfigFieldsRenderer({
   secretMask,
   onRevealSecret,
   browsePluginId,
+  browseDisabled = false,
+  browseDisabledReason,
 }: ConfigFieldsRendererProps) {
   if (schema.length === 0) {
     return (
@@ -51,6 +57,8 @@ export function ConfigFieldsRenderer({
           isMasked={secretMask?.has(key) ?? false}
           onReveal={onRevealSecret}
           browsePluginId={browsePluginId}
+          browseDisabled={browseDisabled}
+          browseDisabledReason={browseDisabledReason}
         />
       ))}
     </div>
@@ -69,6 +77,8 @@ interface ConfigFieldProps {
   isMasked: boolean
   onReveal?: (key: string) => void
   browsePluginId?: string | null
+  browseDisabled: boolean
+  browseDisabledReason?: string
 }
 
 /** Renders field description text with an optional help link. */
@@ -95,7 +105,7 @@ function FieldHint({ field }: { field: PluginConfigField }) {
   )
 }
 
-function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal, browsePluginId }: ConfigFieldProps) {
+function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal, browsePluginId, browseDisabled, browseDisabledReason }: ConfigFieldProps) {
   const [showSecret, setShowSecret] = useState(false)
   const isSecret = field['x-secret'] === true
   const isRequired = field.required === true
@@ -122,6 +132,22 @@ function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal, bro
         value={value}
         onChange={onChange}
         browsePluginId={browsePluginId}
+        browseDisabled={browseDisabled}
+        browseDisabledReason={browseDisabledReason}
+      />
+    )
+  }
+
+  if (fieldType === 'array' && fieldKey === 'exclude_paths') {
+    return (
+      <StringPathsField
+        fieldKey={fieldKey}
+        field={field}
+        value={value}
+        onChange={onChange}
+        browsePluginId={browsePluginId}
+        browseDisabled={browseDisabled}
+        browseDisabledReason={browseDisabledReason}
       />
     )
   }
@@ -193,6 +219,21 @@ function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal, bro
     )
   }
 
+  if (fieldType === 'string' && browsePluginId && isBrowsablePathField(fieldKey)) {
+    return (
+      <BrowsableStringField
+        fieldKey={fieldKey}
+        field={field}
+        value={stringValue}
+        onChange={handleChange}
+        isRequired={isRequired}
+        browsePluginId={browsePluginId}
+        browseDisabled={browseDisabled}
+        browseDisabledReason={browseDisabledReason}
+      />
+    )
+  }
+
   // Standard text/number input.
   return (
     <Input
@@ -205,18 +246,162 @@ function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal, bro
   )
 }
 
-function IncludePathsField({
+function BrowsableStringField({
+  fieldKey,
+  field,
+  value,
+  onChange,
+  isRequired,
+  browsePluginId,
+  browseDisabled,
+  browseDisabledReason,
+}: {
+  fieldKey: string
+  field: PluginConfigField
+  value: string
+  onChange: (value: string) => void
+  isRequired: boolean
+  browsePluginId: string
+  browseDisabled: boolean
+  browseDisabledReason?: string
+}) {
+  const [showBrowser, setShowBrowser] = useState(false)
+  return (
+    <div className="space-y-2">
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+        <Input
+          label={displayLabel(fieldKey) + (isRequired ? ' *' : '')}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={field.description ?? (field.default != null ? String(field.default) : undefined)}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={browseDisabled}
+          onClick={() => setShowBrowser((open) => !open)}
+        >
+          {showBrowser ? 'Hide Browse' : 'Browse'}
+        </Button>
+      </div>
+      {browseDisabled && browseDisabledReason && (
+        <p className="text-xs text-amber-200">{browseDisabledReason}</p>
+      )}
+      {showBrowser && (
+        <div className="rounded-mga border border-mga-border bg-mga-surface/70 p-3">
+          <FolderBrowser
+            pluginId={browsePluginId}
+            initialPath={value}
+            onSelect={(path) => {
+              onChange(path)
+              setShowBrowser(false)
+            }}
+          />
+        </div>
+      )}
+      <FieldHint field={field} />
+    </div>
+  )
+}
+
+function StringPathsField({
   fieldKey,
   field,
   value,
   onChange,
   browsePluginId,
+  browseDisabled = false,
+  browseDisabledReason,
 }: {
   fieldKey: string
   field: PluginConfigField
   value: unknown
   onChange: (key: string, value: unknown) => void
   browsePluginId?: string | null
+  browseDisabled?: boolean
+  browseDisabledReason?: string
+}) {
+  const [browserIndex, setBrowserIndex] = useState<number | null>(null)
+  const paths = normalizeStringPathsValue(value)
+  const update = (next: string[]) => onChange(fieldKey, next)
+  const setPath = (index: number, path: string) => {
+    update(paths.map((entry, current) => (current === index ? path : entry)))
+  }
+  const remove = (index: number) => update(paths.filter((_, current) => current !== index))
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-mga-text">{displayLabel(fieldKey)}</span>
+        <button type="button" onClick={() => update([...paths, ''])} className="text-xs text-mga-accent hover:underline">
+          Add excluded folder
+        </button>
+      </div>
+      {paths.length === 0 ? (
+        <p className="text-xs text-mga-muted">No folders excluded.</p>
+      ) : paths.map((entry, index) => (
+        <div key={`${index}:${entry}`} className="rounded-mga border border-mga-border p-3 space-y-3">
+          <div className="flex gap-2 items-start">
+            <div className="flex-1">
+              <Input
+                label={`Folder ${index + 1}`}
+                value={entry}
+                onChange={(e) => setPath(index, e.target.value)}
+                placeholder="Folder to skip recursively"
+              />
+            </div>
+            <button type="button" onClick={() => remove(index)} className="text-xs text-red-300 hover:text-red-200 mt-7">
+              Remove
+            </button>
+          </div>
+          {browsePluginId && (
+            <div className="space-y-2">
+              <button
+                type="button"
+                disabled={browseDisabled}
+                onClick={() => setBrowserIndex(browserIndex === index ? null : index)}
+                className="text-xs text-mga-accent hover:underline disabled:text-mga-muted disabled:no-underline disabled:cursor-not-allowed"
+              >
+                {browserIndex === index ? 'Hide browser' : 'Browse...'}
+              </button>
+              {browseDisabled && browseDisabledReason && (
+                <p className="text-xs text-amber-200">{browseDisabledReason}</p>
+              )}
+              {browserIndex === index && (
+                <FolderBrowser
+                  pluginId={browsePluginId}
+                  initialPath={entry}
+                  onSelect={(path) => {
+                    setPath(index, path)
+                    setBrowserIndex(null)
+                  }}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+      <FieldHint field={field} />
+    </div>
+  )
+}
+
+function IncludePathsField({
+  fieldKey,
+  field,
+  value,
+  onChange,
+  browsePluginId,
+  browseDisabled = false,
+  browseDisabledReason,
+}: {
+  fieldKey: string
+  field: PluginConfigField
+  value: unknown
+  onChange: (key: string, value: unknown) => void
+  browsePluginId?: string | null
+  browseDisabled?: boolean
+  browseDisabledReason?: string
 }) {
   const [browserIndex, setBrowserIndex] = useState<number | null>(null)
   const includePaths = normalizeIncludePathsValue(value)
@@ -292,11 +477,15 @@ function IncludePathsField({
             <div className="space-y-2">
               <button
                 type="button"
+                disabled={browseDisabled}
                 onClick={() => setBrowserIndex(browserIndex === index ? null : index)}
-                className="text-xs text-mga-accent hover:underline"
+                className="text-xs text-mga-accent hover:underline disabled:text-mga-muted disabled:no-underline disabled:cursor-not-allowed"
               >
                 {browserIndex === index ? 'Hide browser' : 'Browse...'}
               </button>
+              {browseDisabled && browseDisabledReason && (
+                <p className="text-xs text-amber-200">{browseDisabledReason}</p>
+              )}
               {browserIndex === index && (
                 <FolderBrowser
                   pluginId={browsePluginId}
@@ -334,6 +523,17 @@ function normalizeIncludePathsValue(value: unknown): FilesystemIncludePath[] {
     }
   }
   return [{ path: '', recursive: true }]
+}
+
+function normalizeStringPathsValue(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => (typeof entry === 'string' ? entry : ''))
+    .filter((entry, index, all) => entry !== '' || index === all.length - 1)
+}
+
+function isBrowsablePathField(fieldKey: string): boolean {
+  return fieldKey === 'root_path' || fieldKey === 'sync_path' || fieldKey.endsWith('_path')
 }
 
 function displayLabel(fieldKey: string): string {

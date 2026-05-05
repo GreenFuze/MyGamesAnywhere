@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +54,12 @@ type remotePayloadListResult struct {
 type remotePayloadUpdateResult struct {
 	Status  string `json:"status"`
 	Message string `json:"message"`
+}
+
+type remotePullParams struct {
+	Config      map[string]any `json:"config"`
+	PayloadID   string         `json:"payload_id,omitempty"`
+	PayloadName string         `json:"payload_name,omitempty"`
 }
 
 func NewSyncService(
@@ -266,7 +273,11 @@ func (s *syncService) RestoreBootstrap(ctx context.Context, req core.RestoreSync
 		Data    string `json:"data"`
 		Message string `json:"message"`
 	}
-	if err := s.pluginHost.Call(ctx, req.PluginID, "sync.pull", map[string]any{"config": req.Config}, &pull); err != nil {
+	if err := s.pluginHost.Call(ctx, req.PluginID, "sync.pull", remotePullParams{
+		Config:      req.Config,
+		PayloadID:   req.PayloadID,
+		PayloadName: req.PayloadName,
+	}, &pull); err != nil {
 		return nil, fmt.Errorf("sync.pull plugin call: %w", err)
 	}
 	if pull.Status == "empty" {
@@ -284,6 +295,7 @@ func (s *syncService) RestoreBootstrap(ctx context.Context, req core.RestoreSync
 	if err := json.Unmarshal([]byte(pull.Data), &payload); err != nil {
 		return nil, fmt.Errorf("parse remote payload: %w", err)
 	}
+	filterPayloadIntegrations(&payload, req.SelectedIntegrations)
 	pr, err := s.mergePayload(ctx, &payload, key)
 	if err != nil {
 		return nil, fmt.Errorf("merge payload: %w", err)
@@ -354,6 +366,64 @@ func (s *syncService) CheckBootstrap(ctx context.Context, req core.RestoreSyncRe
 		return nil, fmt.Errorf("plugin validation failed: %s", msg)
 	}
 	return &core.RestoreSyncResult{Status: "ok", PluginID: req.PluginID}, nil
+}
+
+func (s *syncService) ListBootstrapPayloads(ctx context.Context, req core.RestoreSyncRequest) (*core.RestoreSyncPointsResult, error) {
+	if count, err := s.profileRepo.Count(ctx); err != nil {
+		return nil, fmt.Errorf("count profiles: %w", err)
+	} else if count > 0 {
+		return nil, fmt.Errorf("first-run restore requires an empty profile set")
+	}
+	req.PluginID = strings.TrimSpace(req.PluginID)
+	if req.PluginID == "" {
+		return nil, fmt.Errorf("plugin_id is required")
+	}
+	if !s.pluginProvides(req.PluginID, "sync.list_payloads") {
+		return nil, fmt.Errorf("plugin %s does not provide sync.list_payloads", req.PluginID)
+	}
+	if req.Config == nil {
+		req.Config = map[string]any{}
+	}
+
+	var check integrationCheckResult
+	if err := s.pluginHost.Call(ctx, req.PluginID, "plugin.check_config", map[string]any{
+		"config":       req.Config,
+		"redirect_uri": req.RedirectURI,
+	}, &check); err != nil {
+		return nil, fmt.Errorf("plugin validation failed: %w", err)
+	}
+	if check.Status == "oauth_required" {
+		return &core.RestoreSyncPointsResult{
+			Status:       "oauth_required",
+			PluginID:     req.PluginID,
+			AuthorizeURL: check.AuthorizeURL,
+			State:        check.State,
+		}, nil
+	}
+	if check.Status != "" && check.Status != "ok" {
+		msg := check.Message
+		if msg == "" {
+			msg = check.Status
+		}
+		return nil, fmt.Errorf("plugin validation failed: %s", msg)
+	}
+
+	var list remotePayloadListResult
+	if err := s.pluginHost.Call(ctx, req.PluginID, "sync.list_payloads", map[string]any{"config": req.Config}, &list); err != nil {
+		return nil, fmt.Errorf("sync.list_payloads plugin call: %w", err)
+	}
+	if list.Status != "" && list.Status != "ok" {
+		msg := list.Message
+		if msg == "" {
+			msg = list.Status
+		}
+		return nil, fmt.Errorf("sync.list_payloads failed: %s", msg)
+	}
+	points := make([]core.SyncRestorePoint, 0, len(list.Payloads))
+	for _, payloadRef := range list.Payloads {
+		points = append(points, previewRestorePoint(payloadRef))
+	}
+	return &core.RestoreSyncPointsResult{Status: "ok", PluginID: req.PluginID, Payloads: points}, nil
 }
 
 func (s *syncService) BrowseBootstrap(ctx context.Context, req core.RestoreSyncBrowseRequest) (any, error) {
@@ -734,6 +804,61 @@ func normalizeSyncIntegrationType(pluginID string, integrationType string) strin
 		return "sync"
 	}
 	return integrationType
+}
+
+func restoreIntegrationKey(pluginID, label, integrationType string) string {
+	raw := strings.Join([]string{pluginID, label, normalizeSyncIntegrationType(pluginID, integrationType)}, "\x00")
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
+func previewRestorePoint(payloadRef remotePayloadRef) core.SyncRestorePoint {
+	point := core.SyncRestorePoint{
+		ID:       payloadRef.ID,
+		Name:     payloadRef.Name,
+		IsLatest: strings.EqualFold(payloadRef.Name, "latest.json"),
+	}
+	var payload core.SyncPayload
+	if err := json.Unmarshal([]byte(payloadRef.Data), &payload); err != nil {
+		point.UnsupportedPayload = true
+		point.Error = "invalid sync payload: " + err.Error()
+		return point
+	}
+	point.Version = payload.Version
+	point.ExportedAt = payload.ExportedAt
+	point.MGAVersion = payload.MGAVersion
+	point.ProfileCount = len(payload.Profiles)
+	point.IntegrationCount = len(payload.Integrations)
+	point.Integrations = make([]core.SyncRestorePointIntegration, 0, len(payload.Integrations))
+	for _, integration := range payload.Integrations {
+		integration.IntegrationType = normalizeSyncIntegrationType(integration.PluginID, integration.IntegrationType)
+		point.Integrations = append(point.Integrations, core.SyncRestorePointIntegration{
+			Key:             restoreIntegrationKey(integration.PluginID, integration.Label, integration.IntegrationType),
+			ProfileID:       integration.ProfileID,
+			PluginID:        integration.PluginID,
+			Label:           integration.Label,
+			IntegrationType: integration.IntegrationType,
+			UpdatedAt:       integration.UpdatedAt,
+		})
+	}
+	return point
+}
+
+func filterPayloadIntegrations(payload *core.SyncPayload, selected []string) {
+	if selected == nil {
+		return
+	}
+	allowed := make(map[string]bool, len(selected))
+	for _, key := range selected {
+		allowed[strings.TrimSpace(key)] = true
+	}
+	filtered := make([]core.SyncIntegration, 0, len(payload.Integrations))
+	for _, integration := range payload.Integrations {
+		key := restoreIntegrationKey(integration.PluginID, integration.Label, integration.IntegrationType)
+		if allowed[key] {
+			filtered = append(filtered, integration)
+		}
+	}
+	payload.Integrations = filtered
 }
 
 func derefProfiles(profiles []*core.Profile) []core.Profile {

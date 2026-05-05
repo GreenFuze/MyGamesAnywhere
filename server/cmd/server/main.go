@@ -169,7 +169,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc, eventBus)
 	aboutCtrl := http.NewAboutController(logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
-	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, gameStore, configSvc, logSvc, eventBus)
+	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, gameStore, configSvc, logSvc, eventBus, syncSvc)
 	integrationRefreshCtrl := http.NewIntegrationRefreshController(integrationRepo, pluginHost, integrationRefreshSvc, eventBus, logSvc)
 	reviewCtrl := http.NewReviewController(integrationRepo, pluginHost, gameStore, manualReviewSvc, deletionSvc, logSvc)
 	achievementCtrl := http.NewAchievementController(gameStore, pluginHost, integrationRepo, logSvc, eventBus)
@@ -178,7 +178,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	saveSyncCtrl := http.NewSaveSyncController(saveSyncSvc, logSvc)
 	cacheCtrl := http.NewCacheController(gameStore, integrationRepo, cacheSvc, logSvc)
 	sseCtrl := http.NewSSEController(eventBus, logSvc)
-	oauthCtrl := http.NewOAuthController(pluginHost, configSvc, logSvc, eventBus)
+	oauthCtrl := http.NewOAuthController(pluginHost, configSvc, logSvc, eventBus, integrationRepo)
 	profileCtrl := http.NewProfileController(profileRepo, syncSvc, discoCtrl, configSvc, logSvc)
 
 	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo)

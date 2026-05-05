@@ -52,6 +52,14 @@ export function AppNotifications() {
             : readString(data.error) ?? `Cloud ${operation} failed.`,
         })
       }),
+      subscribe('settings_sync_auto_push_failed', (raw) => {
+        const data = (raw ?? {}) as EventPayload
+        notify({
+          tone: 'error',
+          title: 'Settings sync needs attention',
+          description: readString(data.error) ?? 'The integration was saved, but MGA could not push settings sync automatically.',
+        })
+      }),
       subscribe('plugin_process_exited', (raw) => {
         const data = (raw ?? {}) as EventPayload
         notify({

@@ -37,6 +37,9 @@ func (restoreSyncService) CheckBootstrap(context.Context, core.RestoreSyncReques
 func (restoreSyncService) BrowseBootstrap(context.Context, core.RestoreSyncBrowseRequest) (any, error) {
 	return nil, nil
 }
+func (restoreSyncService) ListBootstrapPayloads(context.Context, core.RestoreSyncRequest) (*core.RestoreSyncPointsResult, error) {
+	return &core.RestoreSyncPointsResult{Status: "ok"}, nil
+}
 func (restoreSyncService) RestoreBootstrap(context.Context, core.RestoreSyncRequest) (*core.RestoreSyncResult, error) {
 	return &core.RestoreSyncResult{Status: "ok", ProfileID: "profile-1", IntegrationID: "sync-1"}, nil
 }

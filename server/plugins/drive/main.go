@@ -150,6 +150,63 @@ func saveToken(tok *oauth2.Token) {
 	os.WriteFile(tokenFile, data, 0600)
 }
 
+func tokenFromConfig(config map[string]any) *oauth2.Token {
+	raw, ok := config["tokens"]
+	if !ok {
+		return nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var st savedTokens
+	if err := json.Unmarshal(data, &st); err != nil {
+		return nil
+	}
+	if st.AccessToken == "" && st.RefreshToken == "" {
+		return nil
+	}
+	return &oauth2.Token{
+		AccessToken:  st.AccessToken,
+		RefreshToken: st.RefreshToken,
+		TokenType:    st.TokenType,
+		Expiry:       st.Expiry,
+	}
+}
+
+func setCachedToken(tok *oauth2.Token) {
+	tokenMu.Lock()
+	cachedToken = tok
+	tokenMu.Unlock()
+}
+
+func tokenConfigUpdates(tok *oauth2.Token) map[string]any {
+	if tok == nil || (tok.AccessToken == "" && tok.RefreshToken == "") {
+		return nil
+	}
+	return map[string]any{
+		"tokens": savedTokens{
+			AccessToken:  tok.AccessToken,
+			RefreshToken: tok.RefreshToken,
+			TokenType:    tok.TokenType,
+			Expiry:       tok.Expiry,
+		},
+	}
+}
+
+func driveAuthOKResponse(ctx context.Context, tok *oauth2.Token) map[string]any {
+	setCachedToken(tok)
+	result := map[string]any{"status": "ok"}
+	if updates := tokenConfigUpdates(tok); updates != nil {
+		result["config_updates"] = updates
+	}
+	identity, err := driveSourceIdentity(ctx)
+	if err == nil {
+		result["source_identity"] = identity
+	}
+	return result
+}
+
 // --------------- OAuth helpers ---------------
 
 func randomState() string {
@@ -249,7 +306,7 @@ func resolvePathToObjectID(srv *drive.Service, rootPath string) (string, error) 
 
 // --------------- File listing (source.filesystem.list) ---------------
 
-func listFiles(ctx context.Context, includes []sourcescope.IncludePath) ([]map[string]any, error) {
+func listFiles(ctx context.Context, includes []sourcescope.IncludePath, excludes []string) ([]map[string]any, error) {
 	srv, err := getDriveService(ctx)
 	if err != nil {
 		return nil, err
@@ -296,6 +353,9 @@ func listFiles(ctx context.Context, includes []sourcescope.IncludePath) ([]map[s
 						entryPath = current.path + "/" + f.Name
 					}
 					entryPath = sourcescope.NormalizeLogicalPath(entryPath)
+					if drivePathExcluded(entryPath, excludes) {
+						continue
+					}
 
 					entry := map[string]any{
 						"path":      entryPath,
@@ -344,7 +404,9 @@ type syncPushParams struct {
 }
 
 type syncPullParams struct {
-	Config map[string]any `json:"config"`
+	Config      map[string]any `json:"config"`
+	PayloadID   string         `json:"payload_id,omitempty"`
+	PayloadName string         `json:"payload_name,omitempty"`
 }
 
 type syncUpdatePayloadParams struct {
@@ -515,24 +577,38 @@ func syncPull(ctx context.Context, params syncPullParams) (map[string]any, error
 		return map[string]any{"status": "empty"}, nil
 	}
 
-	query := fmt.Sprintf("name = 'latest.json' and '%s' in parents and trashed = false", folderID)
-	found, err := srv.Files.List().Q(query).Fields("files(id)").Do()
-	if err != nil {
-		return nil, fmt.Errorf("find latest.json: %w", err)
-	}
-	if len(found.Files) == 0 {
-		return map[string]any{"status": "empty"}, nil
+	fileID := strings.TrimSpace(params.PayloadID)
+	fileName := strings.TrimSpace(params.PayloadName)
+	if fileID == "" {
+		if fileName == "" {
+			fileName = "latest.json"
+		}
+		query := fmt.Sprintf("name = '%s' and '%s' in parents and trashed = false", strings.ReplaceAll(fileName, "'", "\\'"), folderID)
+		found, err := srv.Files.List().Q(query).Fields("files(id)").Do()
+		if err != nil {
+			return nil, fmt.Errorf("find %s: %w", fileName, err)
+		}
+		if len(found.Files) == 0 {
+			return map[string]any{"status": "empty"}, nil
+		}
+		fileID = found.Files[0].Id
 	}
 
-	resp, err := srv.Files.Get(found.Files[0].Id).Download()
+	resp, err := srv.Files.Get(fileID).Download()
 	if err != nil {
-		return nil, fmt.Errorf("download latest.json: %w", err)
+		if fileName == "" {
+			fileName = fileID
+		}
+		return nil, fmt.Errorf("download %s: %w", fileName, err)
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read latest.json: %w", err)
+		if fileName == "" {
+			fileName = fileID
+		}
+		return nil, fmt.Errorf("read %s: %w", fileName, err)
 	}
 
 	return map[string]any{
@@ -852,7 +928,12 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 	}
 
-	// Check for valid cached token.
+	configToken := tokenFromConfig(p.Config)
+	if configToken != nil {
+		setCachedToken(configToken)
+	}
+
+	// Check for valid profile-owned or cached token.
 	tokenMu.Lock()
 	if cachedToken == nil {
 		cachedToken = loadTokens()
@@ -863,11 +944,7 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 	if tok != nil && tok.Valid() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		identity, err := driveSourceIdentity(ctx)
-		if err != nil {
-			return map[string]any{"status": "ok"}, nil
-		}
-		return map[string]any{"status": "ok", "source_identity": identity}, nil
+		return driveAuthOKResponse(ctx, tok), nil
 	}
 
 	// Try silent refresh if we have a refresh token.
@@ -879,16 +956,10 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 		src := oauthConfig.TokenSource(ctx, tok)
 		newTok, err := src.Token()
 		if err == nil {
-			tokenMu.Lock()
-			cachedToken = newTok
-			tokenMu.Unlock()
+			setCachedToken(newTok)
 			saveToken(newTok)
 			log.Printf("refreshed Google token (expires %s)", newTok.Expiry.Format(time.RFC3339))
-			identity, identityErr := driveSourceIdentity(ctx)
-			if identityErr != nil {
-				return map[string]any{"status": "ok"}, nil
-			}
-			return map[string]any{"status": "ok", "source_identity": identity}, nil
+			return driveAuthOKResponse(ctx, newTok), nil
 		}
 		log.Printf("refresh failed: %v, requesting consent", err)
 	}
@@ -968,13 +1039,11 @@ func handleOAuthCallback(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "TOKEN_EXCHANGE_FAILED", Message: err.Error()}
 	}
 
-	tokenMu.Lock()
-	cachedToken = tok
-	tokenMu.Unlock()
+	setCachedToken(tok)
 	saveToken(tok)
 
 	log.Println("Google Drive OAuth callback complete")
-	return map[string]any{"status": "ok"}, nil
+	return driveAuthOKResponse(ctx, tok), nil
 }
 
 // handleBrowse lists immediate child folders of the given path.
@@ -1037,11 +1106,12 @@ func handleFileList(params json.RawMessage) (any, *Error) {
 		config = nestedConfig
 	}
 	includes := filesystemIncludePathsFromConfig(config)
+	excludes := filesystemExcludePathsFromConfig(config)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 540*time.Second)
 	defer cancel()
 
-	files, err := listFiles(ctx, includes)
+	files, err := listFiles(ctx, includes, excludes)
 	if err != nil {
 		return nil, &Error{Code: "SCAN_FAILED", Message: err.Error()}
 	}
@@ -1052,6 +1122,45 @@ func handleFileList(params json.RawMessage) (any, *Error) {
 func filesystemIncludePathsFromConfig(config map[string]any) []sourcescope.IncludePath {
 	normalized := sourcescope.NormalizeConfig("game-source-google-drive", config)
 	return sourcescope.ReadIncludePaths("game-source-google-drive", normalized)
+}
+
+func filesystemExcludePathsFromConfig(config map[string]any) []string {
+	raw, ok := config["exclude_paths"]
+	if !ok {
+		return nil
+	}
+	var values []string
+	switch typed := raw.(type) {
+	case []any:
+		for _, item := range typed {
+			if s, ok := item.(string); ok {
+				if normalized := sourcescope.NormalizeLogicalPath(s); normalized != "" {
+					values = append(values, normalized)
+				}
+			}
+		}
+	case []string:
+		for _, item := range typed {
+			if normalized := sourcescope.NormalizeLogicalPath(item); normalized != "" {
+				values = append(values, normalized)
+			}
+		}
+	}
+	return values
+}
+
+func drivePathExcluded(logicalPath string, excludes []string) bool {
+	logicalPath = sourcescope.NormalizeLogicalPath(logicalPath)
+	for _, exclude := range excludes {
+		exclude = sourcescope.NormalizeLogicalPath(exclude)
+		if exclude == "" {
+			continue
+		}
+		if logicalPath == exclude || strings.HasPrefix(logicalPath, exclude+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func handleFileMaterialize(params json.RawMessage) (any, *Error) {

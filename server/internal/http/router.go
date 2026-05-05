@@ -47,9 +47,11 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 	if b != nil {
 		r.Get("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) })
 		r.Get("/auth/google/callback/{plugin_id}", b.OAuthCtrl.Callback)
+		r.Get("/auth/xbox/callback", b.OAuthCtrl.XboxCallback)
 	} else {
 		r.Get("/health", noopHandler())
 		r.Get("/auth/google/callback/{plugin_id}", noopHandler())
+		r.Get("/auth/xbox/callback", noopHandler())
 	}
 
 	r.Route("/api", func(api chi.Router) {
@@ -58,6 +60,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Post("/setup/start-fresh", b.ProfileCtrl.StartFresh)
 			api.Post("/setup/restore-sync/check", b.ProfileCtrl.CheckRestoreSync)
 			api.Post("/setup/restore-sync/browse", b.ProfileCtrl.BrowseRestoreSync)
+			api.Post("/setup/restore-sync/points", b.ProfileCtrl.RestoreSyncPoints)
 			api.Post("/setup/restore-sync", b.ProfileCtrl.RestoreSync)
 			api.Get("/profiles", b.ProfileCtrl.ListProfiles)
 			api.Get("/media/{assetID}", b.MediaCtrl.ServeMedia)
@@ -113,6 +116,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Post("/integrations", adminOnly(b.PluginCtrl.Create))
 				r.Get("/integrations/{id}/status", adminOnly(b.PluginCtrl.StatusOne))
 				r.Post("/integrations/{id}/authorize", adminOnly(b.PluginCtrl.StartIntegrationAuth))
+				r.Post("/plugins/{plugin_id}/check-config", adminOnly(b.PluginCtrl.CheckPluginConfig))
 				if b.IntegrationRefreshCtrl != nil {
 					r.Post("/integrations/{id}/refresh", adminOnly(b.IntegrationRefreshCtrl.Start))
 					r.Get("/integration-refresh/jobs/{job_id}", adminOnly(b.IntegrationRefreshCtrl.GetJob))
@@ -175,6 +179,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Post("/setup/start-fresh", noopHandler())
 			api.Post("/setup/restore-sync/check", noopHandler())
 			api.Post("/setup/restore-sync/browse", noopHandler())
+			api.Post("/setup/restore-sync/points", noopHandler())
 			api.Post("/setup/restore-sync", noopHandler())
 			api.Get("/profiles", noopHandler())
 			api.Get("/auth/callback/{plugin_id}", noopHandler())
@@ -222,6 +227,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Post("/integrations", noopHandler())
 			api.Get("/integrations/{id}/status", noopHandler())
 			api.Post("/integrations/{id}/authorize", noopHandler())
+			api.Post("/plugins/{plugin_id}/check-config", noopHandler())
 			api.Post("/integrations/{id}/refresh", noopHandler())
 			api.Get("/integrations/{id}/games", noopHandler())
 			api.Get("/integrations/{id}/enriched-games", noopHandler())

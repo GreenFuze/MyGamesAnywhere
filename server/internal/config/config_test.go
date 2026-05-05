@@ -190,6 +190,45 @@ func TestOAuthCallbackURLUsesGoogleCallbackPathForDrivePlugins(t *testing.T) {
 	}
 }
 
+func TestOAuthCallbackURLLocksXboxRegisteredCallbackPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		listenIP string
+		want     string
+	}{
+		{
+			name:     "loopback",
+			listenIP: "127.0.0.1",
+			want:     "http://127.0.0.1:8900/api/auth/callback/game-source-xbox",
+		},
+		{
+			name:     "lan bind uses local callback host",
+			listenIP: "0.0.0.0",
+			want:     "http://127.0.0.1:8900/api/auth/callback/game-source-xbox",
+		},
+		{
+			name:     "localhost normalizes to registered loopback",
+			listenIP: "localhost",
+			want:     "http://127.0.0.1:8900/api/auth/callback/game-source-xbox",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &configService{values: map[string]any{
+				"PORT":      "8900",
+				"LISTEN_IP": tc.listenIP,
+			}}
+			got, err := OAuthCallbackURL(cfg, "game-source-xbox")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("OAuthCallbackURL = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestLocalBaseURLKeepsLoopbackBindForNonGoogleProviders(t *testing.T) {
 	cfg := &configService{values: map[string]any{
 		"PORT":      "8900",

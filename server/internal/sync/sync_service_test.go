@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/crypto"
@@ -117,5 +118,59 @@ func TestNormalizeSyncIntegrationTypeUpgradesLegacyStorageSettingsSync(t *testin
 	}
 	if got := normalizeSyncIntegrationType("save-sync-google-drive", "storage"); got != "storage" {
 		t.Fatalf("normalizeSyncIntegrationType save sync = %q, want storage", got)
+	}
+}
+
+func TestPreviewRestorePointIncludesStableIntegrationKeys(t *testing.T) {
+	exportedAt := time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC)
+	updatedAt := exportedAt.Add(-time.Hour)
+	payload := core.SyncPayload{
+		Version:    2,
+		ExportedAt: exportedAt,
+		MGAVersion: "0.0.8-beta",
+		Profiles:   []core.Profile{{ID: "profile-1"}},
+		Integrations: []core.SyncIntegration{{
+			ProfileID:       "profile-1",
+			PluginID:        "sync-settings-google-drive",
+			Label:           "Google Drive Sync",
+			IntegrationType: "storage",
+			UpdatedAt:       updatedAt,
+		}},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	point := previewRestorePoint(remotePayloadRef{ID: "file-1", Name: "latest.json", Data: string(data)})
+	if !point.IsLatest {
+		t.Fatal("expected latest payload")
+	}
+	if point.ProfileCount != 1 || point.IntegrationCount != 1 {
+		t.Fatalf("counts = profiles %d integrations %d", point.ProfileCount, point.IntegrationCount)
+	}
+	if got := point.Integrations[0].IntegrationType; got != "sync" {
+		t.Fatalf("integration type = %q, want sync", got)
+	}
+	wantKey := restoreIntegrationKey("sync-settings-google-drive", "Google Drive Sync", "sync")
+	if point.Integrations[0].Key != wantKey {
+		t.Fatalf("key = %q, want %q", point.Integrations[0].Key, wantKey)
+	}
+}
+
+func TestFilterPayloadIntegrationsKeepsSelectedKeysOnly(t *testing.T) {
+	payload := &core.SyncPayload{Integrations: []core.SyncIntegration{
+		{PluginID: "game-source-steam", Label: "Steam", IntegrationType: "source"},
+		{PluginID: "game-source-xbox", Label: "Xbox", IntegrationType: "source"},
+	}}
+	selected := []string{restoreIntegrationKey("game-source-xbox", "Xbox", "source")}
+
+	filterPayloadIntegrations(payload, selected)
+
+	if len(payload.Integrations) != 1 {
+		t.Fatalf("integrations = %d, want 1", len(payload.Integrations))
+	}
+	if payload.Integrations[0].PluginID != "game-source-xbox" {
+		t.Fatalf("kept plugin = %q, want xbox", payload.Integrations[0].PluginID)
 	}
 }

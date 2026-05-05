@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,12 +30,24 @@ const (
 	defaultManifestURL = "https://github.com/GreenFuze/MyGamesAnywhere/releases/latest/download/mga-update.json"
 )
 
+var githubReleasesAPIBase = "https://api.github.com/repos"
+
 type Service struct {
 	cfg        core.Configuration
 	logger     core.Logger
 	client     *http.Client
 	mu         sync.Mutex
 	lastStatus core.UpdateStatus
+}
+
+type githubRelease struct {
+	TagName    string `json:"tag_name"`
+	Draft      bool   `json:"draft"`
+	Prerelease bool   `json:"prerelease"`
+	Assets     []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+	} `json:"assets"`
 }
 
 func NewService(cfg core.Configuration, logger core.Logger) *Service {
@@ -154,7 +167,22 @@ func (s *Service) Apply(ctx context.Context) (*core.UpdateApplyResult, error) {
 
 func (s *Service) fetchManifest(ctx context.Context) (*core.UpdateManifest, error) {
 	url := s.manifestURL()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	manifest, err := s.fetchManifestURL(ctx, url)
+	if err == nil {
+		return manifest, nil
+	}
+	if !isGitHubLatestManifestURL(url) {
+		return nil, err
+	}
+	fallbackManifest, fallbackErr := s.fetchNewestGitHubReleaseManifest(ctx, url)
+	if fallbackErr == nil {
+		return fallbackManifest, nil
+	}
+	return nil, fmt.Errorf("%w; GitHub release fallback failed: %v", err, fallbackErr)
+}
+
+func (s *Service) fetchManifestURL(ctx context.Context, manifestURL string) (*core.UpdateManifest, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create manifest request: %w", err)
 	}
@@ -174,6 +202,98 @@ func (s *Service) fetchManifest(ctx context.Context) (*core.UpdateManifest, erro
 		return nil, errors.New("update manifest missing version")
 	}
 	return &manifest, nil
+}
+
+func (s *Service) fetchNewestGitHubReleaseManifest(ctx context.Context, manifestURL string) (*core.UpdateManifest, error) {
+	apiURL, err := githubReleasesAPIURL(manifestURL)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create GitHub releases request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	res, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch GitHub releases: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return nil, fmt.Errorf("fetch GitHub releases: unexpected status %d", res.StatusCode)
+	}
+	var releases []githubRelease
+	if err := json.NewDecoder(io.LimitReader(res.Body, 8<<20)).Decode(&releases); err != nil {
+		return nil, fmt.Errorf("parse GitHub releases: %w", err)
+	}
+
+	var selected *core.UpdateManifest
+	for _, release := range releases {
+		if release.Draft {
+			continue
+		}
+		assetURL := githubReleaseManifestAssetURL(release)
+		if assetURL == "" {
+			continue
+		}
+		manifest, err := s.fetchManifestURL(ctx, assetURL)
+		if err != nil {
+			s.logger.Warn("skip update manifest from GitHub release", "tag", release.TagName, "error", err)
+			continue
+		}
+		if selected == nil {
+			selected = manifest
+			continue
+		}
+		if cmp, ok := compareVersions(manifest.Version, selected.Version); ok && cmp > 0 {
+			selected = manifest
+		}
+	}
+	if selected == nil {
+		return nil, errors.New("no mga-update.json asset found in GitHub releases")
+	}
+	return selected, nil
+}
+
+func githubReleaseManifestAssetURL(release githubRelease) string {
+	for _, asset := range release.Assets {
+		if strings.EqualFold(asset.Name, "mga-update.json") {
+			return strings.TrimSpace(asset.BrowserDownloadURL)
+		}
+	}
+	return ""
+}
+
+func isGitHubLatestManifestURL(value string) bool {
+	u, err := parseHTTPSURL(value)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Host, "github.com") &&
+		strings.Contains(u.Path, "/releases/latest/download/")
+}
+
+func githubReleasesAPIURL(value string) (string, error) {
+	u, err := parseHTTPSURL(value)
+	if err != nil {
+		return "", err
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("cannot infer GitHub repository from %q", value)
+	}
+	return fmt.Sprintf("%s/%s/%s/releases?per_page=20", strings.TrimRight(githubReleasesAPIBase, "/"), parts[0], parts[1]), nil
+}
+
+func parseHTTPSURL(value string) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme != "https" || u.Host == "" {
+		return nil, fmt.Errorf("expected absolute https URL, got %q", value)
+	}
+	return u, nil
 }
 
 func (s *Service) selectAsset(manifest *core.UpdateManifest) (*core.UpdateAsset, error) {

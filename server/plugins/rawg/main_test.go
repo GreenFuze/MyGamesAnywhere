@@ -110,6 +110,18 @@ func TestBuildSearchQueries(t *testing.T) {
 	}
 }
 
+func TestRAWGStatusMessageDistinguishesRateLimit(t *testing.T) {
+	if msg, failed := rawgStatusMessage(429); !failed || msg != "RAWG rate limit reached" {
+		t.Fatalf("429 = (%q, %t), want RAWG rate limit reached", msg, failed)
+	}
+	if msg, failed := rawgStatusMessage(401); !failed || msg != "invalid API key" {
+		t.Fatalf("401 = (%q, %t), want invalid API key", msg, failed)
+	}
+	if _, failed := rawgStatusMessage(200); failed {
+		t.Fatal("200 should not fail")
+	}
+}
+
 // --- Integration tests (require real RAWG API key) ---
 
 func loadTestConfig(t *testing.T) {

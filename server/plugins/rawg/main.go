@@ -279,6 +279,21 @@ func rawgGameDetail_fetch(gameID int) (*rawgGameDetail, error) {
 	return &detail, nil
 }
 
+func rawgStatusMessage(statusCode int) (string, bool) {
+	switch statusCode {
+	case http.StatusOK:
+		return "", false
+	case http.StatusUnauthorized:
+		return "invalid API key", true
+	case http.StatusTooManyRequests:
+		return "RAWG rate limit reached", true
+	case http.StatusForbidden:
+		return "RAWG rejected the request (forbidden or quota/account restriction)", true
+	default:
+		return fmt.Sprintf("RAWG API returned status %d", statusCode), true
+	}
+}
+
 // buildSearchQueries returns an ordered list of (platformID, exact) pairs to try.
 type searchPass struct {
 	platformID int
@@ -326,11 +341,14 @@ func handleInit() (any, *Error) {
 		return nil, &Error{Code: "API_ERROR", Message: fmt.Sprintf("test request failed: %v", err)}
 	}
 	resp.Body.Close()
-	if resp.StatusCode == 401 {
-		return nil, &Error{Code: "AUTH_FAILED", Message: "invalid API key"}
-	}
-	if resp.StatusCode != 200 {
-		return nil, &Error{Code: "API_ERROR", Message: fmt.Sprintf("test request returned status %d", resp.StatusCode)}
+	if msg, failed := rawgStatusMessage(resp.StatusCode); failed {
+		code := "API_ERROR"
+		if resp.StatusCode == http.StatusUnauthorized {
+			code = "AUTH_FAILED"
+		} else if resp.StatusCode == http.StatusTooManyRequests {
+			code = "RATE_LIMITED"
+		}
+		return nil, &Error{Code: code, Message: msg}
 	}
 
 	log.Println("RAWG plugin initialized and authenticated")
@@ -585,12 +603,12 @@ func main() {
 						resp.Result = map[string]any{"status": "error", "message": err.Error()}
 					} else {
 						testResp.Body.Close()
-						if testResp.StatusCode == 401 {
-							resp.Result = map[string]any{"status": "error", "message": "invalid API key"}
-						} else if testResp.StatusCode == 200 {
+						if testResp.StatusCode == 200 {
 							resp.Result = map[string]any{"status": "ok"}
+						} else if msg, failed := rawgStatusMessage(testResp.StatusCode); failed {
+							resp.Result = map[string]any{"status": "error", "message": msg}
 						} else {
-							resp.Result = map[string]any{"status": "error", "message": fmt.Sprintf("API returned status %d", testResp.StatusCode)}
+							resp.Result = map[string]any{"status": "error", "message": "RAWG API returned an unexpected response"}
 						}
 					}
 				} else {

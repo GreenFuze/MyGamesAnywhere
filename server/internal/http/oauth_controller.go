@@ -1,8 +1,13 @@
 package http
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+	"sync"
+	"time"
 
 	appconfig "github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
@@ -18,6 +23,8 @@ type OAuthController struct {
 	config     core.Configuration
 	logger     core.Logger
 	eventBus   *events.EventBus
+	repo       core.IntegrationRepository
+	states     *OAuthStateStore
 }
 
 func NewOAuthController(
@@ -25,13 +32,58 @@ func NewOAuthController(
 	config core.Configuration,
 	logger core.Logger,
 	eventBus *events.EventBus,
+	repo ...core.IntegrationRepository,
 ) *OAuthController {
+	var integrationRepo core.IntegrationRepository
+	if len(repo) > 0 {
+		integrationRepo = repo[0]
+	}
 	return &OAuthController{
 		pluginHost: pluginHost,
 		config:     config,
 		logger:     logger,
 		eventBus:   eventBus,
+		repo:       integrationRepo,
+		states:     defaultOAuthStateStore,
 	}
+}
+
+var defaultOAuthStateStore = NewOAuthStateStore()
+
+type OAuthState struct {
+	IntegrationID string
+	ProfileID     string
+}
+
+type OAuthStateStore struct {
+	mu     sync.Mutex
+	states map[string]OAuthState
+}
+
+func NewOAuthStateStore() *OAuthStateStore {
+	return &OAuthStateStore{states: make(map[string]OAuthState)}
+}
+
+func (s *OAuthStateStore) Register(state string, value OAuthState) {
+	if s == nil || strings.TrimSpace(state) == "" || strings.TrimSpace(value.IntegrationID) == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.states[state] = value
+}
+
+func (s *OAuthStateStore) Consume(state string) (OAuthState, bool) {
+	if s == nil || strings.TrimSpace(state) == "" {
+		return OAuthState{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value, ok := s.states[state]
+	if ok {
+		delete(s.states, state)
+	}
+	return value, ok
 }
 
 // Callback handles GET /api/auth/callback/{plugin_id}.
@@ -42,7 +94,16 @@ func (c *OAuthController) Callback(w http.ResponseWriter, r *http.Request) {
 		c.renderCallbackPage(w, false, "Missing plugin_id in callback URL")
 		return
 	}
+	c.callbackForPlugin(w, r, pluginID)
+}
 
+// XboxCallback is a compatibility route registered in the Microsoft app.
+// Keep /auth/xbox/callback active unless the Microsoft app registration changes.
+func (c *OAuthController) XboxCallback(w http.ResponseWriter, r *http.Request) {
+	c.callbackForPlugin(w, r, "game-source-xbox")
+}
+
+func (c *OAuthController) callbackForPlugin(w http.ResponseWriter, r *http.Request, pluginID string) {
 	state := r.URL.Query().Get("state")
 
 	// Route to the appropriate handler based on query params.
@@ -115,10 +176,7 @@ func (c *OAuthController) handleOpenIDCallback(w http.ResponseWriter, r *http.Re
 
 // finishCallback calls the plugin's auth.oauth.callback IPC and handles the result.
 func (c *OAuthController) finishCallback(w http.ResponseWriter, r *http.Request, pluginID, state string, ipcPayload map[string]any) {
-	var result struct {
-		Status  string `json:"status"`
-		Message string `json:"message"`
-	}
+	var result oauthCallbackResult
 	err := c.pluginHost.Call(r.Context(), pluginID, "auth.oauth.callback", ipcPayload, &result)
 
 	if err != nil {
@@ -135,6 +193,11 @@ func (c *OAuthController) finishCallback(w http.ResponseWriter, r *http.Request,
 		c.publishErrorAndRender(w, pluginID, state, msg)
 		return
 	}
+	if err := c.persistOAuthConfigUpdates(r.Context(), pluginID, state, result.ConfigUpdates); err != nil {
+		c.logger.Error("persist oauth config updates", err, "plugin_id", pluginID, "state", state)
+		c.publishErrorAndRender(w, pluginID, state, err.Error())
+		return
+	}
 
 	// Success — publish SSE event so the frontend wizard knows.
 	events.PublishJSON(c.eventBus, "oauth_complete", map[string]any{
@@ -142,6 +205,52 @@ func (c *OAuthController) finishCallback(w http.ResponseWriter, r *http.Request,
 		"state":     state,
 	})
 	c.renderCallbackPage(w, true, "Authentication successful!")
+}
+
+type oauthCallbackResult struct {
+	Status        string         `json:"status"`
+	Message       string         `json:"message"`
+	ConfigUpdates map[string]any `json:"config_updates,omitempty"`
+}
+
+func (c *OAuthController) persistOAuthConfigUpdates(ctx context.Context, pluginID, state string, updates map[string]any) error {
+	oauthState, ok := c.states.Consume(state)
+	if !ok || len(updates) == 0 {
+		return nil
+	}
+	if c.repo == nil {
+		return nil
+	}
+
+	repoCtx := ctx
+	if oauthState.ProfileID != "" {
+		repoCtx = core.WithProfile(ctx, &core.Profile{ID: oauthState.ProfileID})
+	}
+	integration, err := c.repo.GetByID(repoCtx, oauthState.IntegrationID)
+	if err != nil {
+		return fmt.Errorf("load integration for OAuth update: %w", err)
+	}
+	if integration == nil {
+		return fmt.Errorf("integration for OAuth state was not found")
+	}
+	if integration.PluginID != pluginID {
+		return fmt.Errorf("OAuth state plugin mismatch: got %s, want %s", pluginID, integration.PluginID)
+	}
+	configMap, err := decodeIntegrationConfig(integration.ConfigJSON)
+	if err != nil {
+		return fmt.Errorf("decode integration config: %w", err)
+	}
+	mergeConfigUpdates(configMap, updates)
+	configBytes, err := json.Marshal(configMap)
+	if err != nil {
+		return fmt.Errorf("encode integration config: %w", err)
+	}
+	integration.ConfigJSON = string(configBytes)
+	integration.UpdatedAt = time.Now()
+	if err := c.repo.Update(repoCtx, integration); err != nil {
+		return fmt.Errorf("save OAuth config update: %w", err)
+	}
+	return nil
 }
 
 // publishErrorAndRender publishes an oauth_error SSE event and renders the error page.

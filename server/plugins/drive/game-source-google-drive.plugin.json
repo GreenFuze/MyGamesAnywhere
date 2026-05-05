@@ -18,6 +18,11 @@
           "recursive": { "type": "boolean" }
         }
       }
+    },
+    "exclude_paths": {
+      "type": "array",
+      "description": "Folders under the selected scan root to skip recursively.",
+      "items": { "type": "string" }
     }
   }
 }

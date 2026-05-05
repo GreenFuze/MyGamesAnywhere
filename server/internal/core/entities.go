@@ -439,6 +439,29 @@ type SyncIntegration struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
+type SyncRestorePointIntegration struct {
+	Key             string    `json:"key"`
+	ProfileID       string    `json:"profile_id,omitempty"`
+	PluginID        string    `json:"plugin_id"`
+	Label           string    `json:"label"`
+	IntegrationType string    `json:"integration_type"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+type SyncRestorePoint struct {
+	ID                 string                        `json:"id"`
+	Name               string                        `json:"name"`
+	IsLatest           bool                          `json:"is_latest"`
+	Version            int                           `json:"version"`
+	ExportedAt         time.Time                     `json:"exported_at"`
+	MGAVersion         string                        `json:"mga_version"`
+	ProfileCount       int                           `json:"profile_count"`
+	IntegrationCount   int                           `json:"integration_count"`
+	Integrations       []SyncRestorePointIntegration `json:"integrations"`
+	UnsupportedPayload bool                          `json:"unsupported_payload,omitempty"`
+	Error              string                        `json:"error,omitempty"`
+}
+
 // PushResult is returned after a successful sync push.
 type PushResult struct {
 	ExportedAt     time.Time `json:"exported_at"`
@@ -459,13 +482,16 @@ type PullResult struct {
 }
 
 type RestoreSyncRequest struct {
-	PluginID        string         `json:"plugin_id"`
-	Label           string         `json:"label"`
-	IntegrationType string         `json:"integration_type"`
-	Config          map[string]any `json:"config"`
-	Passphrase      string         `json:"passphrase"`
-	StoreKey        bool           `json:"store_key"`
-	RedirectURI     string         `json:"-"`
+	PluginID             string         `json:"plugin_id"`
+	Label                string         `json:"label"`
+	IntegrationType      string         `json:"integration_type"`
+	Config               map[string]any `json:"config"`
+	Passphrase           string         `json:"passphrase"`
+	StoreKey             bool           `json:"store_key"`
+	PayloadID            string         `json:"payload_id,omitempty"`
+	PayloadName          string         `json:"payload_name,omitempty"`
+	SelectedIntegrations []string       `json:"selected_integrations,omitempty"`
+	RedirectURI          string         `json:"-"`
 }
 
 type RestoreSyncBrowseRequest struct {
@@ -482,6 +508,14 @@ type RestoreSyncResult struct {
 	IntegrationID string         `json:"integration_id,omitempty"`
 	ScanJob       *ScanJobStatus `json:"scan_job,omitempty"`
 	Result        PullResult     `json:"result,omitempty"`
+}
+
+type RestoreSyncPointsResult struct {
+	Status       string             `json:"status"`
+	PluginID     string             `json:"plugin_id,omitempty"`
+	AuthorizeURL string             `json:"authorize_url,omitempty"`
+	State        string             `json:"state,omitempty"`
+	Payloads     []SyncRestorePoint `json:"payloads,omitempty"`
 }
 
 // SyncStatus describes the current sync configuration state.

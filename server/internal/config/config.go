@@ -217,6 +217,12 @@ func LocalBaseURL(cfg core.Configuration) (string, error) {
 	return u.String(), nil
 }
 
+const (
+	xboxPluginID                    = "game-source-xbox"
+	xboxRegisteredOAuthPath         = "/api/auth/callback/game-source-xbox"
+	googleRegisteredOAuthPathPrefix = "/auth/google/callback"
+)
+
 // OAuthCallbackURL returns the local callback URL for a plugin OAuth flow.
 func OAuthCallbackURL(cfg core.Configuration, pluginID string) (string, error) {
 	baseURL, err := LocalBaseURL(cfg)
@@ -224,8 +230,20 @@ func OAuthCallbackURL(cfg core.Configuration, pluginID string) (string, error) {
 		return "", err
 	}
 	escapedPluginID := url.PathEscape(pluginID)
+	// Provider callback URLs are registered externally and must not drift:
+	// - Google Drive uses /auth/google/callback/{plugin_id}.
+	// - Xbox must keep /api/auth/callback/game-source-xbox. The Microsoft app
+	//   registration currently allows:
+	//   http://localhost:8900/api/auth/callback/game-source-xbox
+	//   http://127.0.0.1:8900/api/auth/callback/game-source-xbox
+	//   http://localhost:8900/auth/xbox/callback
+	//   http://127.0.0.1:8900/auth/xbox/callback
+	// Do not change these paths without updating the provider app registrations.
+	if pluginID == xboxPluginID {
+		return baseURL + xboxRegisteredOAuthPath, nil
+	}
 	if IsGoogleDrivePluginID(pluginID) {
-		return fmt.Sprintf("%s/auth/google/callback/%s", baseURL, escapedPluginID), nil
+		return fmt.Sprintf("%s%s/%s", baseURL, googleRegisteredOAuthPathPrefix, escapedPluginID), nil
 	}
 	return fmt.Sprintf("%s/api/auth/callback/%s", baseURL, escapedPluginID), nil
 }

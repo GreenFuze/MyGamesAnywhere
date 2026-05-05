@@ -45,6 +45,43 @@ func ipcCall(stdin io.Writer, stdout io.Reader, method string, params any) (*Res
 	return &resp, nil
 }
 
+func TestConfiguredXboxTokensBecomeConfigUpdates(t *testing.T) {
+	originalTokens := tokens
+	t.Cleanup(func() {
+		tokenMu.Lock()
+		tokens = originalTokens
+		tokenMu.Unlock()
+	})
+
+	expiry := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	configTokens := &savedTokens{
+		MSRefreshToken: "refresh",
+		XSTSToken:      "xsts",
+		UserHash:       "user-hash",
+		XUID:           "xuid-1",
+		XSTSExpiresAt:  expiry,
+	}
+	if !useConfiguredTokens(configTokens) {
+		t.Fatal("expected configured tokens to be applied")
+	}
+
+	updates := currentTokensConfigUpdate()
+	if updates == nil {
+		t.Fatal("expected config updates")
+	}
+	raw, err := json.Marshal(updates["tokens"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roundTrip savedTokens
+	if err := json.Unmarshal(raw, &roundTrip); err != nil {
+		t.Fatal(err)
+	}
+	if roundTrip.MSRefreshToken != "refresh" || roundTrip.XSTSToken != "xsts" || roundTrip.XUID != "xuid-1" || !roundTrip.XSTSExpiresAt.Equal(expiry) {
+		t.Fatalf("roundTrip = %+v, want configured tokens", roundTrip)
+	}
+}
+
 func TestXboxSourcePlugin(t *testing.T) {
 	if os.Getenv("XBOX_SOURCE_INTEGRATION") != "1" {
 		t.Skip("set XBOX_SOURCE_INTEGRATION=1 to run")
