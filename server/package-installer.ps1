@@ -29,6 +29,11 @@ function Resolve-Version {
     return (Get-Content $versionFile -Raw).Trim().TrimStart("v")
 }
 
+function Test-SemVer {
+    param([string]$Value)
+    return $Value -match '^\d+\.\d+\.\d+(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9A-Za-z][0-9A-Za-z.-]*)?$'
+}
+
 function Resolve-ISCC {
     param([string]$Explicit)
     if ($Explicit) {
@@ -56,23 +61,41 @@ function Get-FileHashEntry {
     }
 }
 
+function Write-Utf8NoBom {
+    param(
+        [Parameter(Mandatory=$true)][string]$Path,
+        [Parameter(Mandatory=$true)][string]$Value
+    )
+
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $Value, $encoding)
+}
+
 Require-WindowsAmd64
 
 $rootDir = $PSScriptRoot
 $binDir = Join-Path $rootDir "bin"
 $stageDir = Join-Path $OutputDir "installer-stage"
 $issPath = Join-Path $rootDir "packaging\windows\mga.iss"
+$configTemplate = Join-Path $rootDir "config.json.example"
 $resolvedVersion = Resolve-Version -RootDir $rootDir -ExplicitVersion $Version
 
-if ($resolvedVersion -notmatch '^\d+\.\d+\.\d+$') {
-    throw "VERSION must be in X.Y.Z format. Got '$resolvedVersion'."
+if (-not (Test-SemVer $resolvedVersion)) {
+    throw "VERSION must be in SemVer format X.Y.Z[-prerelease][+build]. Got '$resolvedVersion'."
 }
 
 if (-not $SkipBuild) {
     $buildArgs = @{ FrontendInstallMode = "Clean" }
+    $buildArgs.WindowsGUI = $true
     if ($SkipFrontend) { $buildArgs.SkipFrontend = $true }
-    & (Join-Path $rootDir "build.ps1") @buildArgs
-    if ($LASTEXITCODE -ne 0) { throw "build.ps1 failed with exit code $LASTEXITCODE" }
+    $oldMGAVersion = $env:MGA_VERSION
+    $env:MGA_VERSION = "v$resolvedVersion"
+    try {
+        & (Join-Path $rootDir "build.ps1") @buildArgs
+        if ($LASTEXITCODE -ne 0) { throw "build.ps1 failed with exit code $LASTEXITCODE" }
+    } finally {
+        $env:MGA_VERSION = $oldMGAVersion
+    }
 }
 
 $required = @(
@@ -81,6 +104,7 @@ $required = @(
     (Join-Path $binDir "mga.ico"),
     (Join-Path $binDir "plugins"),
     (Join-Path $binDir "frontend\dist\index.html"),
+    $configTemplate,
     $issPath,
     (Join-Path $rootDir "packaging\windows\install-config.ps1"),
     (Join-Path $rootDir "packaging\windows\service.ps1"),
@@ -99,7 +123,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stageDir "packaging\window
 Copy-Item (Join-Path $binDir "mga_server.exe") -Destination $stageDir -Force
 Copy-Item (Join-Path $binDir "mga_tray.exe") -Destination $stageDir -Force
 Copy-Item (Join-Path $binDir "mga.ico") -Destination $stageDir -Force
-Copy-Item (Join-Path $binDir "config.json") -Destination $stageDir -Force -ErrorAction SilentlyContinue
+Copy-Item $configTemplate -Destination (Join-Path $stageDir "config.json") -Force
 Copy-Item (Join-Path $binDir "plugins") -Destination $stageDir -Recurse -Force
 Copy-Item (Join-Path $binDir "frontend\dist") -Destination (Join-Path $stageDir "frontend") -Recurse -Force
 Copy-Item (Join-Path $rootDir "packaging\windows\*") -Destination (Join-Path $stageDir "packaging\windows") -Force
@@ -158,7 +182,7 @@ $manifest = [ordered]@{
     assets = $assets
 }
 $manifestPath = Join-Path $OutputDir "mga-update.json"
-$manifest | ConvertTo-Json -Depth 8 | Set-Content -Path $manifestPath -Encoding UTF8
+Write-Utf8NoBom -Path $manifestPath -Value (($manifest | ConvertTo-Json -Depth 8) + [Environment]::NewLine)
 
 $sumLines = @()
 foreach ($asset in $assets) {

@@ -66,3 +66,31 @@ func TestEnsureSchemaCreatesDefaultProfileForExistingIntegrationData(t *testing.
 		t.Fatalf("profiles = %d, want 1", profiles)
 	}
 }
+
+func TestEnsureSchemaNormalizesLegacySettingsSyncIntegrationType(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabase(testLogger{}, testDBConfig{dbPath: dbPath})
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatalf("EnsureSchema() initial error = %v", err)
+	}
+	now := time.Now().Unix()
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO integrations (id, plugin_id, label, config_json, integration_type, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, "sync-1", "sync-settings-google-drive", "Google Drive Sync", "{}", "storage", now, now); err != nil {
+		t.Fatalf("insert integration: %v", err)
+	}
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatalf("EnsureSchema() second error = %v", err)
+	}
+
+	var integrationType string
+	if err := dbSvc.GetDB().QueryRow(`SELECT integration_type FROM integrations WHERE id = ?`, "sync-1").Scan(&integrationType); err != nil {
+		t.Fatalf("get integration type: %v", err)
+	}
+	if integrationType != "sync" {
+		t.Fatalf("integration_type = %q, want sync", integrationType)
+	}
+}

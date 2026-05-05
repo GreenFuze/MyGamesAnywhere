@@ -521,9 +521,9 @@ func Operations() []OperationDoc {
 			Method:         "POST",
 			Path:           "/api/sync/key",
 			Summary:        "Store sync passphrase locally",
-			Description:    "Stores the sync passphrase/key for later push/pull operations so the frontend does not need to resend it every time.",
-			RequestBodyDoc: "JSON: { passphrase: string }",
-			ResponseDocs:   map[string]string{"200": "Status ok JSON", "400": "Invalid JSON body or missing passphrase", "500": "Failed to store sync key"},
+			Description:    "Stores the sync passphrase/key for later push/pull operations so the frontend does not need to resend it every time. If a key is already stored and the new passphrase differs, current_passphrase is required and must match the stored key.",
+			RequestBodyDoc: "JSON: { passphrase: string, current_passphrase?: string }",
+			ResponseDocs:   map[string]string{"200": "Status ok JSON", "400": "Invalid JSON body, missing passphrase, missing current passphrase, or incorrect current passphrase", "500": "Failed to store sync key"},
 		},
 		{
 			Method:       "DELETE",
@@ -537,6 +537,13 @@ func Operations() []OperationDoc {
 			Path:         "/api/auth/callback/{plugin_id}",
 			Summary:      "Handle OAuth callback for a plugin",
 			Description:  "Consumes the browser redirect callback for OAuth2 or OpenID-style plugin consent flows, invokes auth.oauth.callback on the plugin, publishes oauth_complete or oauth_error over SSE, and returns a small HTML page that closes the tab.",
+			ResponseDocs: map[string]string{"200": "HTML callback result page", "500": "Internal server error"},
+		},
+		{
+			Method:       "GET",
+			Path:         "/auth/google/callback/{plugin_id}",
+			Summary:      "Handle Google OAuth callback for a Drive plugin",
+			Description:  "Compatibility callback path registered with the MGA Google OAuth client. It behaves like /api/auth/callback/{plugin_id}, invokes auth.oauth.callback on the plugin, publishes oauth_complete or oauth_error over SSE, and returns a small HTML page that closes the tab.",
 			ResponseDocs: map[string]string{"200": "HTML callback result page", "500": "Internal server error"},
 		},
 		{

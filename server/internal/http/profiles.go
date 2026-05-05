@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	appconfig "github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -16,12 +18,19 @@ import (
 const profileHeader = "X-MGA-Profile-ID"
 
 type ProfileController struct {
-	repo   core.ProfileRepository
-	logger core.Logger
+	repo        core.ProfileRepository
+	syncSvc     core.SyncService
+	scanStarter firstRunScanStarter
+	config      core.Configuration
+	logger      core.Logger
 }
 
-func NewProfileController(repo core.ProfileRepository, logger core.Logger) *ProfileController {
-	return &ProfileController{repo: repo, logger: logger}
+type firstRunScanStarter interface {
+	StartScan(ctx context.Context, req ScanRequest) (*core.ScanJobStatus, bool, error)
+}
+
+func NewProfileController(repo core.ProfileRepository, syncSvc core.SyncService, scanStarter firstRunScanStarter, cfg core.Configuration, logger core.Logger) *ProfileController {
+	return &ProfileController{repo: repo, syncSvc: syncSvc, scanStarter: scanStarter, config: cfg, logger: logger}
 }
 
 type setupStatusResponse struct {
@@ -91,7 +100,140 @@ func (c *ProfileController) StartFresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *ProfileController) RestoreSync(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "first-run sync restore is not implemented yet", http.StatusNotImplemented)
+	count, err := c.repo.Count(r.Context())
+	if err != nil {
+		c.logger.Error("count profiles", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if count > 0 {
+		http.Error(w, "setup is already complete", http.StatusConflict)
+		return
+	}
+
+	var body core.RestoreSyncRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(body.PluginID) == "" {
+		body.PluginID = "sync-settings-google-drive"
+	}
+	if strings.TrimSpace(body.Label) == "" {
+		body.Label = "Google Drive Sync"
+	}
+	if strings.TrimSpace(body.IntegrationType) == "" {
+		body.IntegrationType = "sync"
+	}
+	redirectURI, err := appconfig.OAuthCallbackURL(c.config, body.PluginID)
+	if err != nil {
+		http.Error(w, "server network configuration is invalid", http.StatusInternalServerError)
+		return
+	}
+	body.RedirectURI = redirectURI
+
+	result, err := c.syncSvc.RestoreBootstrap(r.Context(), body)
+	if err != nil {
+		c.logger.Error("restore first-run sync", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	c.startFirstRunScan(r.Context(), result)
+	w.Header().Set("Content-Type", "application/json")
+	if result.Status == "oauth_required" {
+		w.WriteHeader(http.StatusAccepted)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	_ = json.NewEncoder(w).Encode(result)
+}
+
+func (c *ProfileController) startFirstRunScan(ctx context.Context, result *core.RestoreSyncResult) {
+	if c.scanStarter == nil || result == nil || result.Status != "ok" || strings.TrimSpace(result.ProfileID) == "" {
+		return
+	}
+	scanCtx := core.WithProfile(ctx, &core.Profile{ID: result.ProfileID, Role: core.ProfileRoleAdminPlayer})
+	job, alreadyRunning, err := c.scanStarter.StartScan(scanCtx, ScanRequest{})
+	if err != nil {
+		c.logger.Error("start first-run restore scan", err, "profile_id", result.ProfileID)
+		return
+	}
+	if alreadyRunning {
+		c.logger.Warn("first-run restore scan skipped because a scan is already running", "profile_id", result.ProfileID)
+		return
+	}
+	result.ScanJob = job
+}
+
+func (c *ProfileController) CheckRestoreSync(w http.ResponseWriter, r *http.Request) {
+	count, err := c.repo.Count(r.Context())
+	if err != nil {
+		c.logger.Error("count profiles", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if count > 0 {
+		http.Error(w, "setup is already complete", http.StatusConflict)
+		return
+	}
+
+	var body core.RestoreSyncRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(body.PluginID) == "" {
+		body.PluginID = "sync-settings-google-drive"
+	}
+	redirectURI, err := appconfig.OAuthCallbackURL(c.config, body.PluginID)
+	if err != nil {
+		http.Error(w, "server network configuration is invalid", http.StatusInternalServerError)
+		return
+	}
+	body.RedirectURI = redirectURI
+
+	result, err := c.syncSvc.CheckBootstrap(r.Context(), body)
+	if err != nil {
+		c.logger.Error("check first-run sync", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if result.Status == "oauth_required" {
+		w.WriteHeader(http.StatusAccepted)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	_ = json.NewEncoder(w).Encode(result)
+}
+
+func (c *ProfileController) BrowseRestoreSync(w http.ResponseWriter, r *http.Request) {
+	count, err := c.repo.Count(r.Context())
+	if err != nil {
+		c.logger.Error("count profiles", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if count > 0 {
+		http.Error(w, "setup is already complete", http.StatusConflict)
+		return
+	}
+	var body core.RestoreSyncBrowseRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(body.PluginID) == "" {
+		body.PluginID = "sync-settings-google-drive"
+	}
+	result, err := c.syncSvc.BrowseBootstrap(r.Context(), body)
+	if err != nil {
+		c.logger.Error("browse first-run sync", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (c *ProfileController) ListProfiles(w http.ResponseWriter, r *http.Request) {

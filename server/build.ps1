@@ -2,7 +2,9 @@ param(
     # Skip npm/Vite when you only need Go/plugins (e.g. CI without Node).
     [switch]$SkipFrontend,
     [ValidateSet("Auto", "Clean")]
-    [string]$FrontendInstallMode = "Auto"
+    [string]$FrontendInstallMode = "Auto",
+    # Windows packaging uses GUI subsystem so process mode does not show a console window.
+    [switch]$WindowsGUI
 )
 
 $ErrorActionPreference = "Stop"
@@ -95,6 +97,9 @@ $serverLdflags = @(
     "-X", "$buildInfoPkg.Commit=$commit",
     "-X", "$buildInfoPkg.BuildDate=$buildDate"
 )
+if ($WindowsGUI -and $env:OS -eq "Windows_NT") {
+    $serverLdflags += "-H=windowsgui"
+}
 
 # Windows: Explorer .exe icon (separate from systray //go:embed — needs COFF .syso)
 if ($env:OS -eq "Windows_NT") {

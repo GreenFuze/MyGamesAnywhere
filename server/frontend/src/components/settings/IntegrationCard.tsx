@@ -65,7 +65,7 @@ interface IntegrationCardProps {
   };
   onPush?: () => void;
   onPull?: () => void;
-  onStoreKey?: (passphrase: string) => void;
+  onStoreKey?: (passphrase: string, currentPassphrase?: string) => void;
   onClearKey?: () => void;
 
   // Save-sync-specific props.
@@ -170,6 +170,7 @@ export function IntegrationCard({
 
   // Sync passphrase local state.
   const [passphrase, setPassphrase] = useState("");
+  const [currentPassphrase, setCurrentPassphrase] = useState("");
   const [confirmPush, setConfirmPush] = useState(false);
 
   // Determine if this card is expandable (has a games list or sync controls).
@@ -461,26 +462,36 @@ export function IntegrationCard({
       {/* Expandable content: sync controls (passphrase management) */}
       {capability === "sync" && expanded && onStoreKey && onClearKey && (
         <div className="space-y-3 pt-2 border-t border-mga-border/50">
-          <div className="flex gap-2 items-end">
-            <div className="flex-1">
+          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] md:items-end">
+            {syncStatus?.has_stored_key && (
               <Input
-                label="Encryption Passphrase"
+                label="Current Passphrase"
+                type="password"
+                value={currentPassphrase}
+                onChange={(e) => setCurrentPassphrase(e.target.value)}
+                placeholder="Required to replace stored key"
+              />
+            )}
+            <div className={syncStatus?.has_stored_key ? "" : "md:col-span-2"}>
+              <Input
+                label={syncStatus?.has_stored_key ? "New Passphrase" : "Encryption Passphrase"}
                 type="password"
                 value={passphrase}
                 onChange={(e) => setPassphrase(e.target.value)}
-                placeholder="Enter passphrase..."
+                placeholder={syncStatus?.has_stored_key ? "Enter replacement passphrase..." : "Enter passphrase..."}
               />
             </div>
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
-                onStoreKey(passphrase);
+                onStoreKey(passphrase, currentPassphrase);
                 setPassphrase("");
+                setCurrentPassphrase("");
               }}
-              disabled={!passphrase}
+              disabled={!passphrase || (syncStatus?.has_stored_key && !currentPassphrase)}
             >
-              Store Key
+              {syncStatus?.has_stored_key ? "Replace Key" : "Store Key"}
             </Button>
             <Button
               variant="ghost"

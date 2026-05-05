@@ -61,6 +61,62 @@ func TestCheckSelectsPortableAsset(t *testing.T) {
 	}
 }
 
+func TestCheckTreatsStableReleaseAsNewerThanInstalledPrerelease(t *testing.T) {
+	oldVersion := buildinfo.Version
+	buildinfo.Version = "v0.0.8-beta"
+	defer func() { buildinfo.Version = oldVersion }()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{
+			"version":"v0.0.8",
+			"assets":[
+				{"os":"%s","arch":"%s","type":"portable","url":"https://example.invalid/mga.zip","sha256":"abc","size":12}
+			]
+		}`, runtimeGOOS(), runtimeGOARCH())
+	}))
+	defer server.Close()
+
+	svc := NewService(testConfig{
+		"UPDATE_MANIFEST_URL": server.URL,
+		"APP_INSTALL_TYPE":    "portable",
+	}, testLogger{})
+
+	status, err := svc.Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	if !status.UpdateAvailable {
+		t.Fatalf("UpdateAvailable = false for stable release after installed prerelease")
+	}
+}
+
+func TestCompareVersionsSupportsSemverPrereleasePrecedence(t *testing.T) {
+	tests := []struct {
+		name    string
+		latest  string
+		current string
+		want    int
+	}{
+		{name: "stable beats beta", latest: "v0.0.8", current: "v0.0.8-beta", want: 1},
+		{name: "beta is older than stable", latest: "v0.0.8-beta", current: "v0.0.8", want: -1},
+		{name: "newer beta beats older stable", latest: "v0.0.9-beta", current: "v0.0.8", want: 1},
+		{name: "numeric prerelease ordering", latest: "v0.0.8-beta.10", current: "v0.0.8-beta.2", want: 1},
+		{name: "build metadata ignored", latest: "v0.0.8+build.2", current: "v0.0.8+build.1", want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := compareVersions(tt.latest, tt.current)
+			if !ok {
+				t.Fatalf("compareVersions(%q, %q) failed", tt.latest, tt.current)
+			}
+			if got != tt.want {
+				t.Fatalf("compareVersions(%q, %q) = %d, want %d", tt.latest, tt.current, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDownloadRejectsSHA256Mismatch(t *testing.T) {
 	oldVersion := buildinfo.Version
 	buildinfo.Version = "1.0.0"

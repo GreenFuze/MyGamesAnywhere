@@ -347,6 +347,12 @@ type syncPullParams struct {
 	Config map[string]any `json:"config"`
 }
 
+type syncUpdatePayloadParams struct {
+	Config map[string]any `json:"config"`
+	ID     string         `json:"id"`
+	Data   string         `json:"data"`
+}
+
 type saveSyncListParams struct {
 	Config map[string]any `json:"config"`
 	Prefix string         `json:"prefix"`
@@ -533,6 +539,63 @@ func syncPull(ctx context.Context, params syncPullParams) (map[string]any, error
 		"status": "ok",
 		"data":   string(data),
 	}, nil
+}
+
+func syncListPayloads(ctx context.Context, params syncPullParams) (map[string]any, error) {
+	srv, err := getDriveService(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	syncPath := syncPathFromConfig(params.Config)
+	folderID, err := resolvePathToFolderID(srv, syncPath)
+	if err != nil {
+		log.Printf("sync folder %q not found: %v", syncPath, err)
+		return map[string]any{"status": "ok", "payloads": []map[string]any{}}, nil
+	}
+
+	query := fmt.Sprintf("(name = 'latest.json' or (name contains 'mga_sync_' and name contains '.json')) and '%s' in parents and trashed = false", folderID)
+	result, err := srv.Files.List().Q(query).Fields("files(id, name, modifiedTime)").OrderBy("modifiedTime desc").PageSize(200).Do()
+	if err != nil {
+		return nil, fmt.Errorf("list sync payloads: %w", err)
+	}
+
+	payloads := make([]map[string]any, 0, len(result.Files))
+	for _, file := range result.Files {
+		resp, err := srv.Files.Get(file.Id).Download()
+		if err != nil {
+			return nil, fmt.Errorf("download %s: %w", file.Name, err)
+		}
+		data, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read %s: %w", file.Name, readErr)
+		}
+		payloads = append(payloads, map[string]any{
+			"id":   file.Id,
+			"name": file.Name,
+			"data": string(data),
+		})
+	}
+	return map[string]any{"status": "ok", "payloads": payloads}, nil
+}
+
+func syncUpdatePayload(ctx context.Context, params syncUpdatePayloadParams) (map[string]any, error) {
+	if strings.TrimSpace(params.ID) == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	if strings.TrimSpace(params.Data) == "" {
+		return nil, fmt.Errorf("data is required")
+	}
+	srv, err := getDriveService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reader := strings.NewReader(params.Data)
+	if _, err := srv.Files.Update(params.ID, nil).Media(reader).Do(); err != nil {
+		return nil, fmt.Errorf("update payload: %w", err)
+	}
+	return map[string]any{"status": "ok"}, nil
 }
 
 func normalizeObjectPath(p string) (string, error) {
@@ -1325,6 +1388,26 @@ func main() {
 			result, errObj := handleSyncPull(req.Params)
 			if errObj != nil {
 				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "sync.list_payloads":
+			var p syncPullParams
+			if err := json.Unmarshal(req.Params, &p); err != nil {
+				resp.Error = &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+			} else if result, err := syncListPayloads(context.Background(), p); err != nil {
+				resp.Error = &Error{Code: "SYNC_LIST_FAILED", Message: err.Error()}
+			} else {
+				resp.Result = result
+			}
+
+		case "sync.update_payload":
+			var p syncUpdatePayloadParams
+			if err := json.Unmarshal(req.Params, &p); err != nil {
+				resp.Error = &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+			} else if result, err := syncUpdatePayload(context.Background(), p); err != nil {
+				resp.Error = &Error{Code: "SYNC_UPDATE_FAILED", Message: err.Error()}
 			} else {
 				resp.Result = result
 			}

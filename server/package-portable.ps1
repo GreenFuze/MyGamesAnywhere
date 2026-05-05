@@ -38,6 +38,11 @@ function Resolve-Version {
     return (Get-Content $versionFile -Raw).Trim()
 }
 
+function Test-SemVer {
+    param([string]$Value)
+    return $Value -match '^\d+\.\d+\.\d+(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9A-Za-z][0-9A-Za-z.-]*)?$'
+}
+
 Require-WindowsAmd64
 
 $rootDir = $PSScriptRoot
@@ -46,8 +51,8 @@ $packageTemplates = Join-Path $rootDir "packaging\windows"
 $configTemplate = Join-Path $rootDir "config.json.example"
 $resolvedVersion = Resolve-Version -RootDir $rootDir -ExplicitVersion $Version
 
-if ($resolvedVersion -notmatch '^\d+\.\d+\.\d+$') {
-    throw "VERSION must be in X.Y.Z format. Got '$resolvedVersion'."
+if (-not (Test-SemVer $resolvedVersion)) {
+    throw "VERSION must be in SemVer format X.Y.Z[-prerelease][+build]. Got '$resolvedVersion'."
 }
 
 $artifactStem = "mga-v$resolvedVersion-windows-amd64"
@@ -59,13 +64,20 @@ $checksumPath = Join-Path $OutputDir "SHA256SUMS.txt"
 if (-not $SkipBuild) {
     $buildArgs = @{
         FrontendInstallMode = "Clean"
+        WindowsGUI = $true
     }
     if ($SkipFrontend) {
         $buildArgs.SkipFrontend = $true
     }
-    & (Join-Path $rootDir "build.ps1") @buildArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "build.ps1 failed with exit code $LASTEXITCODE"
+    $oldMGAVersion = $env:MGA_VERSION
+    $env:MGA_VERSION = "v$resolvedVersion"
+    try {
+        & (Join-Path $rootDir "build.ps1") @buildArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw "build.ps1 failed with exit code $LASTEXITCODE"
+        }
+    } finally {
+        $env:MGA_VERSION = $oldMGAVersion
     }
 }
 

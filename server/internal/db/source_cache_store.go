@@ -31,9 +31,15 @@ func (s *sourceCacheStore) MarkInFlightJobsInterrupted(ctx context.Context) erro
 }
 
 func (s *sourceCacheStore) GetEntryBySourceProfile(ctx context.Context, sourceGameID, profile string) (*core.SourceCacheEntry, error) {
-	row := s.db.GetDB().QueryRowContext(ctx, `SELECT id, cache_key, canonical_game_id, canonical_title, source_game_id, source_title,
+	query := `SELECT id, cache_key, canonical_game_id, canonical_title, source_game_id, source_title,
 		integration_id, plugin_id, profile, mode, status, source_path, file_count, size, created_at, updated_at, last_accessed_at
-		FROM source_cache_entries WHERE source_game_id=? AND profile=?`, sourceGameID, profile)
+		FROM source_cache_entries WHERE source_game_id=? AND profile=?`
+	args := []any{sourceGameID, profile}
+	if filter, filterArgs := sourceCacheProfileFilter(ctx, "source_cache_entries.source_game_id"); filter != "" {
+		query += filter
+		args = append(args, filterArgs...)
+	}
+	row := s.db.GetDB().QueryRowContext(ctx, query, args...)
 	entry, err := scanSourceCacheEntry(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -50,12 +56,18 @@ func (s *sourceCacheStore) GetEntryBySourceProfile(ctx context.Context, sourceGa
 }
 
 func (s *sourceCacheStore) GetEntryFileBySourceProfile(ctx context.Context, sourceGameID, profile, path string) (*core.SourceCacheEntry, *core.SourceCacheEntryFile, error) {
-	row := s.db.GetDB().QueryRowContext(ctx, `SELECT e.id, e.cache_key, e.canonical_game_id, e.canonical_title, e.source_game_id, e.source_title,
+	query := `SELECT e.id, e.cache_key, e.canonical_game_id, e.canonical_title, e.source_game_id, e.source_title,
 		e.integration_id, e.plugin_id, e.profile, e.mode, e.status, e.source_path, e.file_count, e.size, e.created_at, e.updated_at, e.last_accessed_at,
 		f.entry_id, f.path, f.local_path, f.object_id, f.revision, f.modified_at, f.size
 		FROM source_cache_entries e
 		JOIN source_cache_entry_files f ON f.entry_id = e.id
-		WHERE e.source_game_id=? AND e.profile=? AND f.path=?`, sourceGameID, profile, path)
+		WHERE e.source_game_id=? AND e.profile=? AND f.path=?`
+	args := []any{sourceGameID, profile, path}
+	if filter, filterArgs := sourceCacheProfileFilter(ctx, "e.source_game_id"); filter != "" {
+		query += filter
+		args = append(args, filterArgs...)
+	}
+	row := s.db.GetDB().QueryRowContext(ctx, query, args...)
 	var entry core.SourceCacheEntry
 	var file core.SourceCacheEntryFile
 	var canonicalGameID, canonicalTitle, sourceTitle, sourcePath sql.NullString
@@ -163,9 +175,16 @@ func (s *sourceCacheStore) TouchEntry(ctx context.Context, entryID string, at ti
 }
 
 func (s *sourceCacheStore) ListEntries(ctx context.Context) ([]*core.SourceCacheEntry, error) {
-	rows, err := s.db.GetDB().QueryContext(ctx, `SELECT id, cache_key, canonical_game_id, canonical_title, source_game_id, source_title,
+	query := `SELECT id, cache_key, canonical_game_id, canonical_title, source_game_id, source_title,
 		integration_id, plugin_id, profile, mode, status, source_path, file_count, size, created_at, updated_at, last_accessed_at
-		FROM source_cache_entries ORDER BY updated_at DESC, id DESC`)
+		FROM source_cache_entries WHERE 1=1`
+	var args []any
+	if filter, filterArgs := sourceCacheProfileFilter(ctx, "source_cache_entries.source_game_id"); filter != "" {
+		query += filter
+		args = append(args, filterArgs...)
+	}
+	query += ` ORDER BY updated_at DESC, id DESC`
+	rows, err := s.db.GetDB().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -183,12 +202,24 @@ func (s *sourceCacheStore) ListEntries(ctx context.Context) ([]*core.SourceCache
 }
 
 func (s *sourceCacheStore) DeleteEntry(ctx context.Context, entryID string) error {
-	_, err := s.db.GetDB().ExecContext(ctx, `DELETE FROM source_cache_entries WHERE id=?`, entryID)
+	query := `DELETE FROM source_cache_entries WHERE id=?`
+	args := []any{entryID}
+	if filter, filterArgs := sourceCacheProfileFilter(ctx, "source_cache_entries.source_game_id"); filter != "" {
+		query += filter
+		args = append(args, filterArgs...)
+	}
+	_, err := s.db.GetDB().ExecContext(ctx, query, args...)
 	return err
 }
 
 func (s *sourceCacheStore) ClearEntries(ctx context.Context) error {
-	_, err := s.db.GetDB().ExecContext(ctx, `DELETE FROM source_cache_entries`)
+	query := `DELETE FROM source_cache_entries WHERE 1=1`
+	var args []any
+	if filter, filterArgs := sourceCacheProfileFilter(ctx, "source_cache_entries.source_game_id"); filter != "" {
+		query += filter
+		args = append(args, filterArgs...)
+	}
+	_, err := s.db.GetDB().ExecContext(ctx, query, args...)
 	return err
 }
 
@@ -236,9 +267,15 @@ func (s *sourceCacheStore) UpdateJob(ctx context.Context, job *core.SourceCacheJ
 }
 
 func (s *sourceCacheStore) GetJob(ctx context.Context, jobID string) (*core.SourceCacheJobStatus, error) {
-	row := s.db.GetDB().QueryRowContext(ctx, `SELECT job_id, cache_key, canonical_game_id, canonical_title, source_game_id, source_title, integration_id, plugin_id,
+	query := `SELECT job_id, cache_key, canonical_game_id, canonical_title, source_game_id, source_title, integration_id, plugin_id,
 		profile, status, message, error, entry_id, progress_current, progress_total, created_at, updated_at, finished_at
-		FROM source_cache_jobs WHERE job_id=?`, jobID)
+		FROM source_cache_jobs WHERE job_id=?`
+	args := []any{jobID}
+	if filter, filterArgs := sourceCacheProfileFilter(ctx, "source_cache_jobs.source_game_id"); filter != "" {
+		query += filter
+		args = append(args, filterArgs...)
+	}
+	row := s.db.GetDB().QueryRowContext(ctx, query, args...)
 	job, err := scanSourceCacheJob(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -253,9 +290,17 @@ func (s *sourceCacheStore) ListJobs(ctx context.Context, limit int) ([]*core.Sou
 	if limit <= 0 {
 		limit = 25
 	}
-	rows, err := s.db.GetDB().QueryContext(ctx, `SELECT job_id, cache_key, canonical_game_id, canonical_title, source_game_id, source_title, integration_id, plugin_id,
+	query := `SELECT job_id, cache_key, canonical_game_id, canonical_title, source_game_id, source_title, integration_id, plugin_id,
 		profile, status, message, error, entry_id, progress_current, progress_total, created_at, updated_at, finished_at
-		FROM source_cache_jobs ORDER BY updated_at DESC, job_id DESC LIMIT ?`, limit)
+		FROM source_cache_jobs WHERE 1=1`
+	var args []any
+	if filter, filterArgs := sourceCacheProfileFilter(ctx, "source_cache_jobs.source_game_id"); filter != "" {
+		query += filter
+		args = append(args, filterArgs...)
+	}
+	query += ` ORDER BY updated_at DESC, job_id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.GetDB().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -272,12 +317,19 @@ func (s *sourceCacheStore) ListJobs(ctx context.Context, limit int) ([]*core.Sou
 }
 
 func (s *sourceCacheStore) FindActiveJobByCacheKey(ctx context.Context, cacheKey string) (*core.SourceCacheJobStatus, error) {
-	row := s.db.GetDB().QueryRowContext(ctx, `SELECT job_id, cache_key, canonical_game_id, canonical_title, source_game_id, source_title, integration_id, plugin_id,
+	query := `SELECT job_id, cache_key, canonical_game_id, canonical_title, source_game_id, source_title, integration_id, plugin_id,
 		profile, status, message, error, entry_id, progress_current, progress_total, created_at, updated_at, finished_at
 		FROM source_cache_jobs
-		WHERE cache_key=? AND status IN ('queued', 'running')
+		WHERE cache_key=? AND status IN ('queued', 'running')`
+	args := []any{cacheKey}
+	if filter, filterArgs := sourceCacheProfileFilter(ctx, "source_cache_jobs.source_game_id"); filter != "" {
+		query += filter
+		args = append(args, filterArgs...)
+	}
+	query += `
 		ORDER BY updated_at DESC
-		LIMIT 1`, cacheKey)
+		LIMIT 1`
+	row := s.db.GetDB().QueryRowContext(ctx, query, args...)
 	job, err := scanSourceCacheJob(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -286,6 +338,17 @@ func (s *sourceCacheStore) FindActiveJobByCacheKey(ctx context.Context, cacheKey
 		return nil, err
 	}
 	return job, nil
+}
+
+func sourceCacheProfileFilter(ctx context.Context, sourceGameColumn string) (string, []any) {
+	profileID := core.ProfileIDFromContext(ctx)
+	if profileID == "" {
+		return "", nil
+	}
+	return fmt.Sprintf(` AND EXISTS (
+		SELECT 1 FROM source_games sg
+		WHERE sg.id = %s AND sg.profile_id = ?
+	)`, sourceGameColumn), []any{profileID}
 }
 
 func (s *sourceCacheStore) loadEntryFiles(ctx context.Context, entryID string) ([]core.SourceCacheEntryFile, error) {

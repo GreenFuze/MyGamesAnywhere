@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Install MGA | Windows portable local-first game launcher</title>
-    <meta name="description" content="Install MyGamesAnywhere as a Windows portable local-first game launcher and self-hosted game library running on 127.0.0.1:8900." />
+    <title>Install MGA | Windows portable and installer local-first game launcher</title>
+    <meta name="description" content="Install MyGamesAnywhere as a Windows portable ZIP or installer-based local-first game launcher and self-hosted game library running on 127.0.0.1:8900." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
@@ -25,17 +25,19 @@
       <section class="section">
         <div class="section__inner split-grid">
           <div>
-            <p class="eyebrow">Windows portable release</p>
-            <h1>Install MGA without an installer.</h1>
+            <p class="eyebrow">Windows release</p>
+            <h1>Install MGA as portable, for-me-only, or all-users mode.</h1>
             <p class="section__intro">
-              MGA v0.0.7 ships as a Windows portable ZIP. It runs locally, stores runtime state
-              beside the portable folder, and binds to <code>127.0.0.1:8900</code> by default.
+              MGA v0.0.8-beta ships as a Windows portable ZIP and a Windows installer. It runs
+              locally, keeps portable installs self-contained, moves installed mutable data and logs
+              out of the app directory, and keeps portable/for-me installs on <code>127.0.0.1:8900</code>.
             </p>
             <ol class="steps">
-              <li>Download <code>mga-v0.0.7-windows-amd64-portable.zip</code> from <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">GitHub Releases</a>.</li>
-              <li>Extract it into a writable folder such as <code>C:\Games\MGA</code>.</li>
-              <li>Run <code>Start MGA.cmd</code>.</li>
+              <li>Download <code>mga-v0.0.8-beta-windows-amd64-portable.zip</code> or <code>mga-v0.0.8-beta-windows-amd64-installer.exe</code> from <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">GitHub Releases</a>.</li>
+              <li>For portable, extract it into a writable folder such as <code>C:\Games\MGA</code> and run <code>Start MGA.cmd</code>.</li>
+              <li>For installer, choose for-me-only mode for a login process or all-users mode for a Windows service.</li>
               <li>Open <code>http://127.0.0.1:8900</code>.</li>
+              <li>Create or select a local profile in the first-run/profile picker flow.</li>
             </ol>
           </div>
           <aside class="aside-card">
@@ -56,16 +58,29 @@
         <div class="section__inner split-grid">
           <div>
             <h2>Portable build notes</h2>
-            <p class="note">Avoid extracting the portable build under <code>Program Files</code>. The current runtime writes config, database, media, and local state inside the portable folder. The shipped config uses <code>LISTEN_IP: "127.0.0.1"</code> and <code>PORT: "8900"</code>; LAN binding is opt-in by editing <code>config.json</code>.</p>
+            <p class="note">Avoid extracting the portable build under <code>Program Files</code>. Portable runtime writes config, database, media, logs, update cache, and local state inside the portable folder. The shipped config uses <code>LISTEN_IP: "127.0.0.1"</code> and <code>PORT: "8900"</code>; LAN binding is opt-in by editing <code>config.json</code>.</p>
           </div>
           <div>
-            <h2>Upgrade policy</h2>
+            <h2>Installer notes</h2>
+            <p class="note">For-me-only installs place app files under <code>%LOCALAPPDATA%\Programs\MyGamesAnywhere</code> and data/logs under <code>%LOCALAPPDATA%\MyGamesAnywhere</code>; MGA starts after that Windows user signs in and listens only on this PC by default. All-users installs place app files under <code>%ProgramFiles%\MyGamesAnywhere</code> and data/logs under <code>%ProgramData%\MyGamesAnywhere</code>; MGA runs as a Windows service, requires administrator approval, starts even when nobody is signed in, and enables LAN access by default.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__inner split-grid">
+          <div>
+            <h2>Portable upgrade policy</h2>
             <ol class="steps">
               <li>Stop MGA.</li>
               <li>Back up <code>config.json</code>, <code>data/</code>, and <code>media/</code>.</li>
               <li>Replace the bundled binaries, plugins, and frontend files with the new package.</li>
               <li>Start MGA and verify the version in About.</li>
             </ol>
+          </div>
+          <div>
+            <h2>Auto-update v1</h2>
+            <p class="note">The About page can check a release manifest, download the matching asset, and verify SHA256. Installed Windows layouts launch the verified installer with silent update arguments. Portable layouts download and verify the ZIP, then show the path for manual replacement.</p>
           </div>
         </div>
       </section>

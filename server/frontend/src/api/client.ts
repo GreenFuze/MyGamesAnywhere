@@ -208,6 +208,61 @@ export async function startFreshSetup(body: { display_name: string; avatar_key?:
   return postJson<Profile>("/api/setup/start-fresh", body) as Promise<Profile>;
 }
 
+export type RestoreSyncSetupBody = {
+  plugin_id?: string;
+  label?: string;
+  integration_type?: string;
+  config?: Record<string, unknown>;
+  passphrase: string;
+  store_key?: boolean;
+};
+
+export type RestoreSyncSetupResult = {
+  status: "ok";
+  profile_id: string;
+  integration_id?: string;
+  scan_job?: ScanJobStatus;
+  result?: {
+    integrations_added: number;
+    integrations_updated: number;
+    integrations_skipped: number;
+    settings_added: number;
+    settings_updated: number;
+    settings_skipped: number;
+    remote_exported_at: string;
+  };
+};
+
+export type RestoreSyncSetupOAuthRequired = {
+  status: "oauth_required";
+  plugin_id: string;
+  authorize_url: string;
+  state: string;
+};
+
+export type RestoreSyncSetupResponse = RestoreSyncSetupResult | RestoreSyncSetupOAuthRequired;
+
+export function isRestoreSyncOAuthRequired(
+  result: RestoreSyncSetupResponse,
+): result is RestoreSyncSetupOAuthRequired {
+  return result.status === "oauth_required";
+}
+
+export async function restoreSyncSetup(body: RestoreSyncSetupBody): Promise<RestoreSyncSetupResponse> {
+  return postJson<RestoreSyncSetupResponse>("/api/setup/restore-sync", body) as Promise<RestoreSyncSetupResponse>;
+}
+
+export async function checkRestoreSyncSetup(body: RestoreSyncSetupBody): Promise<RestoreSyncSetupResponse> {
+  return postJson<RestoreSyncSetupResponse>("/api/setup/restore-sync/check", body) as Promise<RestoreSyncSetupResponse>;
+}
+
+export async function browseRestoreSyncSetup(pluginId: string, path: string): Promise<BrowseResponse> {
+  return postJson<BrowseResponse>("/api/setup/restore-sync/browse", {
+    plugin_id: pluginId,
+    path,
+  }) as Promise<BrowseResponse>;
+}
+
 export async function createProfile(body: { display_name: string; avatar_key?: string; role: ProfileRole }): Promise<Profile> {
   return postJson<Profile>("/api/profiles", body) as Promise<Profile>;
 }
@@ -1099,8 +1154,11 @@ export async function syncPull(passphrase?: string): Promise<PullResult> {
   ) as Promise<PullResult>;
 }
 
-export async function storeKey(passphrase: string): Promise<void> {
-  await postJson("/api/sync/key", { passphrase });
+export async function storeKey(passphrase: string, currentPassphrase?: string): Promise<void> {
+  await postJson("/api/sync/key", {
+    passphrase,
+    ...(currentPassphrase ? { current_passphrase: currentPassphrase } : {}),
+  });
 }
 
 export async function clearKey(): Promise<void> {

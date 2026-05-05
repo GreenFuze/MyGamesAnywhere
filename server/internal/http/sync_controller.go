@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
@@ -44,11 +45,11 @@ func (c *SyncController) Push(w http.ResponseWriter, r *http.Request) {
 	}
 
 	events.PublishJSON(c.eventBus, "sync_operation_finished", map[string]any{
-		"operation":         "push",
-		"ok":                true,
-		"integrations":      result.Integrations,
-		"settings":          result.Settings,
-		"remote_versions":   result.RemoteVersions,
+		"operation":           "push",
+		"ok":                  true,
+		"integrations":        result.Integrations,
+		"settings":            result.Settings,
+		"remote_versions":     result.RemoteVersions,
 		"exported_at_rfc3339": result.ExportedAt.Format("2006-01-02T15:04:05Z07:00"),
 	})
 	w.Header().Set("Content-Type", "application/json")
@@ -86,14 +87,14 @@ func (c *SyncController) Pull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	events.PublishJSON(c.eventBus, "sync_operation_finished", map[string]any{
-		"operation": "pull",
-		"ok":        true,
-		"integrations_added":   result.IntegrationsAdded,
-		"integrations_updated": result.IntegrationsUpdated,
-		"integrations_skipped": result.IntegrationsSkipped,
-		"settings_added":       result.SettingsAdded,
-		"settings_updated":     result.SettingsUpdated,
-		"settings_skipped":     result.SettingsSkipped,
+		"operation":                  "pull",
+		"ok":                         true,
+		"integrations_added":         result.IntegrationsAdded,
+		"integrations_updated":       result.IntegrationsUpdated,
+		"integrations_skipped":       result.IntegrationsSkipped,
+		"settings_added":             result.SettingsAdded,
+		"settings_updated":           result.SettingsUpdated,
+		"settings_skipped":           result.SettingsSkipped,
 		"remote_exported_at_rfc3339": result.RemoteExportedAt.Format("2006-01-02T15:04:05Z07:00"),
 	})
 	w.Header().Set("Content-Type", "application/json")
@@ -117,7 +118,8 @@ func (c *SyncController) Status(w http.ResponseWriter, r *http.Request) {
 
 func (c *SyncController) StoreKey(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Passphrase string `json:"passphrase"`
+		Passphrase        string `json:"passphrase"`
+		CurrentPassphrase string `json:"current_passphrase"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -128,11 +130,15 @@ func (c *SyncController) StoreKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := c.syncSvc.StoreKey(body.Passphrase); err != nil {
+	if err := c.syncSvc.StoreKey(r.Context(), body.Passphrase, body.CurrentPassphrase); err != nil {
 		c.logger.Error("store sync key", err)
 		events.PublishJSON(c.eventBus, "operation_error", map[string]any{
 			"scope": "sync_key", "operation": "store", "error": err.Error(),
 		})
+		if errors.Is(err, core.ErrSyncKeyCurrentRequired) || errors.Is(err, core.ErrSyncKeyCurrentIncorrect) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

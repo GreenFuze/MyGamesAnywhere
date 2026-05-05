@@ -28,6 +28,22 @@ func TestConfigService_Get(t *testing.T) {
 	}
 }
 
+func TestConfigService_AllowsUTF8BOM(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	data := append([]byte{0xEF, 0xBB, 0xBF}, []byte(`{"PORT": "8080", "LISTEN_IP": "127.0.0.1", "DB_PATH": "test.db"}`)...)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := NewConfigService(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Get("PORT") != "8080" {
+		t.Errorf("expected 8080, got %s", cfg.Get("PORT"))
+	}
+}
+
 func TestConfigService_Validate(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
@@ -137,5 +153,53 @@ func TestListenAddrAndLocalBaseURL(t *testing.T) {
 	}
 	if baseURL != "http://127.0.0.1:8900" {
 		t.Fatalf("LocalBaseURL = %q, want http://127.0.0.1:8900", baseURL)
+	}
+}
+
+func TestOAuthCallbackURLUsesGoogleCallbackPathForDrivePlugins(t *testing.T) {
+	cfg := &configService{values: map[string]any{
+		"PORT":      "8900",
+		"LISTEN_IP": "127.0.0.1",
+	}}
+
+	got, err := OAuthCallbackURL(cfg, "sync-settings-google-drive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "http://127.0.0.1:8900/auth/google/callback/sync-settings-google-drive"
+	if got != want {
+		t.Fatalf("OAuthCallbackURL = %q, want %q", got, want)
+	}
+
+	got, err = OAuthCallbackURL(cfg, "game-source-google-drive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = "http://127.0.0.1:8900/auth/google/callback/game-source-google-drive"
+	if got != want {
+		t.Fatalf("OAuthCallbackURL normal plugin = %q, want %q", got, want)
+	}
+
+	got, err = OAuthCallbackURL(cfg, "game-source-xbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = "http://127.0.0.1:8900/api/auth/callback/game-source-xbox"
+	if got != want {
+		t.Fatalf("OAuthCallbackURL non-Google plugin = %q, want %q", got, want)
+	}
+}
+
+func TestLocalBaseURLKeepsLoopbackBindForNonGoogleProviders(t *testing.T) {
+	cfg := &configService{values: map[string]any{
+		"PORT":      "8900",
+		"LISTEN_IP": "127.0.0.1",
+	}}
+	got, err := LocalBaseURL(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "http://127.0.0.1:8900" {
+		t.Fatalf("LocalBaseURL = %q, want http://127.0.0.1:8900", got)
 	}
 }

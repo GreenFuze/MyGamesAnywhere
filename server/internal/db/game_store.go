@@ -442,7 +442,7 @@ func (s *gameStore) SetCanonicalFavorite(ctx context.Context, canonicalID string
 	if strings.TrimSpace(canonicalID) == "" {
 		return core.ErrCanonicalGameNotFound
 	}
-	exists, err := s.canonicalGameExists(ctx, canonicalID)
+	exists, err := s.canonicalGameVisibleInContext(ctx, canonicalID)
 	if err != nil {
 		return err
 	}
@@ -461,18 +461,19 @@ func (s *gameStore) ClearCanonicalFavorite(ctx context.Context, canonicalID stri
 	if strings.TrimSpace(canonicalID) == "" {
 		return core.ErrCanonicalGameNotFound
 	}
+	exists, err := s.canonicalGameVisibleInContext(ctx, canonicalID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return core.ErrCanonicalGameNotFound
+	}
 	res, err := s.db.GetDB().ExecContext(ctx, `DELETE FROM canonical_game_favorites WHERE canonical_id=?`, canonicalID)
 	if err != nil {
 		return err
 	}
 	if rows, _ := res.RowsAffected(); rows == 0 {
-		exists, err := s.canonicalGameExists(ctx, canonicalID)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			return core.ErrCanonicalGameNotFound
-		}
+		return nil
 	}
 	return nil
 }
@@ -618,6 +619,18 @@ func (s *gameStore) CountVisibleCanonicalGames(ctx context.Context) (int, error)
 func (s *gameStore) canonicalGameExists(ctx context.Context, canonicalID string) (bool, error) {
 	var n int
 	err := s.db.GetDB().QueryRowContext(ctx, `SELECT COUNT(1) FROM canonical_games WHERE id=?`, canonicalID).Scan(&n)
+	return n > 0, err
+}
+
+func (s *gameStore) canonicalGameVisibleInContext(ctx context.Context, canonicalID string) (bool, error) {
+	if core.ProfileIDFromContext(ctx) == "" {
+		return s.canonicalGameExists(ctx, canonicalID)
+	}
+	var n int
+	err := s.db.GetDB().QueryRowContext(ctx, `SELECT COUNT(1)
+		FROM canonical_source_games_link l
+		JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE l.canonical_id=?`+profileFilterSQL(ctx, "sg"), canonicalID).Scan(&n)
 	return n > 0, err
 }
 
@@ -1512,6 +1525,7 @@ func (s *gameStore) ListManualReviewCandidates(ctx context.Context, scope core.M
 	if scope == core.ManualReviewScopeArchive {
 		whereClause = "sg.status = 'found' AND IFNULL(sg.review_state, 'pending') = 'not_a_game'"
 	}
+	whereClause += profileFilterSQL(ctx, "sg")
 
 	rows, err := db.QueryContext(ctx, fmt.Sprintf(`SELECT
 		sg.id,
@@ -1690,7 +1704,7 @@ func (s *gameStore) SaveManualReviewResult(
 			review_state = ?,
 			manual_review_json = ?,
 			last_seen_at = COALESCE(?, last_seen_at)
-		WHERE id = ?`,
+		WHERE id = ?`+profileFilterSQL(ctx, "source_games"),
 		sourceGame.RawTitle,
 		string(sourceGame.Platform),
 		string(sourceGame.Kind),
@@ -1793,7 +1807,7 @@ func (s *gameStore) SaveRefreshedMetadataProviderResults(ctx context.Context, so
 		}
 
 		var existingID string
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM source_games WHERE id = ?`, sourceGame.ID).Scan(&existingID); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM source_games WHERE id = ?`+profileFilterSQL(ctx, "source_games"), sourceGame.ID).Scan(&existingID); err != nil {
 			if err == sql.ErrNoRows {
 				return core.ErrSourceGameDeleteNotFound
 			}
@@ -1878,7 +1892,7 @@ func (s *gameStore) SetManualReviewState(ctx context.Context, candidateID string
 
 	result, err := tx.ExecContext(ctx, `UPDATE source_games
 		SET review_state = ?, manual_review_json = NULL
-		WHERE id = ?`, string(state), candidateID)
+		WHERE id = ?`+profileFilterSQL(ctx, "source_games"), string(state), candidateID)
 	if err != nil {
 		return fmt.Errorf("update manual review state %s: %w", candidateID, err)
 	}
@@ -2001,7 +2015,7 @@ func (s *gameStore) DeleteGamesByIntegrationID(ctx context.Context, integrationI
 	defer tx.Rollback()
 
 	// Collect source game IDs for this integration.
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM source_games WHERE integration_id = ?`, integrationID)
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM source_games WHERE integration_id = ?`+profileFilterSQL(ctx, "source_games"), integrationID)
 	if err != nil {
 		return fmt.Errorf("list source games: %w", err)
 	}
@@ -2047,7 +2061,7 @@ func (s *gameStore) DeleteSourceGameByID(ctx context.Context, sourceGameID strin
 	defer tx.Rollback()
 
 	var existingID string
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM source_games WHERE id = ?`, sourceGameID).Scan(&existingID); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM source_games WHERE id = ?`+profileFilterSQL(ctx, "source_games"), sourceGameID).Scan(&existingID); err != nil {
 		if err == sql.ErrNoRows {
 			return core.ErrSourceGameDeleteNotFound
 		}
@@ -2994,7 +3008,7 @@ func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string)
 	var rootPath, url, manualReviewJSON sql.NullString
 	err := db.QueryRowContext(ctx, `SELECT id, integration_id, plugin_id, external_id, raw_title,
 		platform, kind, group_kind, root_path, url, status, COALESCE(review_state, 'pending'), COALESCE(manual_review_json, ''), last_seen_at, created_at
-		FROM source_games WHERE id=?`, sgID).Scan(
+		FROM source_games WHERE id=?`+profileFilterSQL(ctx, "source_games"), sgID).Scan(
 		&sg.ID, &sg.IntegrationID, &sg.PluginID, &sg.ExternalID, &sg.RawTitle,
 		(*string)(&sg.Platform), (*string)(&sg.Kind), (*string)(&sg.GroupKind),
 		&rootPath, &url, &sg.Status, (*string)(&sg.ReviewState), &manualReviewJSON, &lastSeen, &createdAt)

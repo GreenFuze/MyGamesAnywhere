@@ -370,6 +370,9 @@ func (s *sqliteDatabase) ensureProfileSchema() error {
 	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_scan_reports_profile ON scan_reports(profile_id)`); err != nil {
 		return fmt.Errorf("create scan reports profile index: %w", err)
 	}
+	if _, err := s.db.Exec(`UPDATE integrations SET integration_type='sync' WHERE plugin_id='sync-settings-google-drive' AND integration_type='storage'`); err != nil {
+		return fmt.Errorf("normalize settings sync integration type: %w", err)
+	}
 	return nil
 }
 

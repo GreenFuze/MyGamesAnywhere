@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,6 +43,7 @@ func NewConfigService(filePath string) (core.Configuration, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read config file at expected path %s: %w", path, err)
 	}
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
 	var values map[string]any
 	if err := json.Unmarshal(data, &values); err != nil {
 		return nil, fmt.Errorf("parse config file %s: %w", path, err)
@@ -221,5 +223,18 @@ func OAuthCallbackURL(cfg core.Configuration, pluginID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s/api/auth/callback/%s", baseURL, url.PathEscape(pluginID)), nil
+	escapedPluginID := url.PathEscape(pluginID)
+	if IsGoogleDrivePluginID(pluginID) {
+		return fmt.Sprintf("%s/auth/google/callback/%s", baseURL, escapedPluginID), nil
+	}
+	return fmt.Sprintf("%s/api/auth/callback/%s", baseURL, escapedPluginID), nil
+}
+
+func IsGoogleDrivePluginID(pluginID string) bool {
+	switch pluginID {
+	case "game-source-google-drive", "save-sync-google-drive", "sync-settings-google-drive":
+		return true
+	default:
+		return false
+	}
 }

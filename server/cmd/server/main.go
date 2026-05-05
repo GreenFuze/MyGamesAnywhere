@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/app"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
@@ -37,7 +39,11 @@ func main() {
 		log.Fatalf("parse options: %v", err)
 	}
 	run := func(ctx context.Context) error {
-		return runServer(ctx, opts)
+		err := runServer(ctx, opts)
+		if err != nil {
+			writeBootstrapError(opts, err)
+		}
+		return err
 	}
 	if opts.service {
 		if err := runWindowsService("MyGamesAnywhere", run); err != nil {
@@ -48,6 +54,25 @@ func main() {
 	if err := run(context.Background()); err != nil {
 		log.Fatalf("application failed: %v", err)
 	}
+}
+
+func writeBootstrapError(opts serverOptions, err error) {
+	if err == nil {
+		return
+	}
+	dataDir := strings.TrimSpace(opts.dataDir)
+	if dataDir == "" {
+		return
+	}
+	if abs, absErr := filepath.Abs(dataDir); absErr == nil {
+		dataDir = abs
+	}
+	if mkErr := os.MkdirAll(dataDir, 0o755); mkErr != nil {
+		return
+	}
+	path := filepath.Join(dataDir, "mga_server_bootstrap.log")
+	line := fmt.Sprintf("%s startup failed: %v\n", time.Now().Format(time.RFC3339Nano), err)
+	_ = os.WriteFile(path, []byte(line), 0o644)
 }
 
 type serverOptions struct {
@@ -92,13 +117,28 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	if err := os.Chdir(layout.AppDir); err != nil {
 		return fmt.Errorf("chdir to app directory %s: %w", layout.AppDir, err)
 	}
-	logSvc := logger.NewLogService()
 	configSvc, err := config.NewConfigService(layout.ConfigPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 	if err := configSvc.Validate(); err != nil {
 		return fmt.Errorf("validate config: %w", err)
+	}
+	logFile := strings.TrimSpace(configSvc.Get("LOG_FILE"))
+	if logFile == "" {
+		logFile = layout.LogFile
+	}
+	logSvc, err := logger.NewLogServiceWithOptions(logger.Options{
+		FilePath:   logFile,
+		BaseDir:    layout.DataDir,
+		MaxSizeMB:  configSvc.GetInt("LOG_MAX_SIZE_MB"),
+		MaxBackups: configSvc.GetInt("LOG_MAX_BACKUPS"),
+	})
+	if err != nil {
+		return fmt.Errorf("configure logging: %w", err)
+	}
+	if closer, ok := logSvc.(interface{ Close() error }); ok {
+		defer func() { _ = closer.Close() }()
 	}
 	dbSvc := db.NewSQLiteDatabase(logSvc, configSvc)
 
@@ -139,7 +179,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	cacheCtrl := http.NewCacheController(gameStore, integrationRepo, cacheSvc, logSvc)
 	sseCtrl := http.NewSSEController(eventBus, logSvc)
 	oauthCtrl := http.NewOAuthController(pluginHost, configSvc, logSvc, eventBus)
-	profileCtrl := http.NewProfileController(profileRepo, logSvc)
+	profileCtrl := http.NewProfileController(profileRepo, syncSvc, discoCtrl, configSvc, logSvc)
 
 	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo)
 

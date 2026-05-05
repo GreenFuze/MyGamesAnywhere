@@ -4,7 +4,8 @@
 
 MGA uses a repository-level version file at [`../VERSION`](../VERSION).
 
-- release tags are formatted as `vX.Y.Z`
+- stable release tags are formatted as `vX.Y.Z`
+- beta/release-candidate tags use SemVer prerelease suffixes such as `vX.Y.Z-beta` or `vX.Y.Z-rc.1`
 - the `VERSION` file is the default source of truth for release packaging and build metadata
 - `MGA_VERSION` can still override builds in CI or ad hoc packaging flows
 
@@ -28,23 +29,23 @@ The working rule is:
 
 Every tagged release should include:
 
-1. a repository version bump in `VERSION`
-2. a Git tag in the form `vX.Y.Z`
+1. a repository version bump in `VERSION`, or an explicit `MGA_VERSION` / packaging `-Version` override for beta validation artifacts
+2. a GitHub release tag in SemVer form such as `vX.Y.Z` or `vX.Y.Z-beta`
 3. release notes with user-visible changes
 4. upgrade notes if runtime layout, schema, or sync behavior changed
 5. packaged artifacts:
-   - `mga-vX.Y.Z-windows-amd64-portable.zip`
-   - `mga-vX.Y.Z-windows-amd64-installer.exe`
+   - `mga-vX.Y.Z[-prerelease]-windows-amd64-portable.zip`
+   - `mga-vX.Y.Z[-prerelease]-windows-amd64-installer.exe`
    - `mga-update.json`
    - `SHA256SUMS.txt`
 
 The current public release flow is:
 
-1. bump `VERSION`
-2. build the portable package locally with `./server/package-portable.ps1`
-3. build the Windows installer and update manifest with `./server/package-installer.ps1 -SkipBuild`
-4. create an annotated Git tag in the form `vX.Y.Z`
-5. publish the GitHub Release manually with `gh release create --latest`
+1. choose the release version, for example `0.0.8-beta`
+2. build the portable package locally with `./server/package-portable.ps1 -Version <version>`
+3. build the Windows installer and update manifest with `./server/package-installer.ps1 -Version <version> -SkipBuild -ReleaseBaseUrl https://github.com/GreenFuze/MyGamesAnywhere/releases/download/v<version>`
+4. publish the GitHub Release manually with `gh release create v<version>` and upload the generated artifacts
+5. mark beta builds as prereleases and stable builds as latest
 
 GitHub Actions remains available as an opt-in packaging helper via manual workflow dispatch, but it no longer publishes releases automatically from pushed tags.
 
@@ -91,6 +92,13 @@ Linux packaging is deferred, but the runtime path abstraction should map to:
 Windows installer packaging uses Inno Setup. Inno Setup is open source under
 its own license terms; keep this attribution in package docs and NOTICE, and
 decide later whether to buy a commercial license for project compliance comfort.
+
+## Auto-update policy
+
+Auto-update checks use SemVer precedence. A stable release is newer than a
+prerelease with the same numeric version, so an installed `v0.0.8-beta` build
+will detect `v0.0.8` as an available update once the stable manifest is
+published. Build metadata such as `+build.1` is ignored for precedence.
 
 ## Migration notes expectation
 

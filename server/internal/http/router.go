@@ -46,17 +46,22 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 
 	if b != nil {
 		r.Get("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) })
+		r.Get("/auth/google/callback/{plugin_id}", b.OAuthCtrl.Callback)
 	} else {
 		r.Get("/health", noopHandler())
+		r.Get("/auth/google/callback/{plugin_id}", noopHandler())
 	}
 
 	r.Route("/api", func(api chi.Router) {
 		if b != nil {
 			api.Get("/setup/status", b.ProfileCtrl.SetupStatus)
 			api.Post("/setup/start-fresh", b.ProfileCtrl.StartFresh)
+			api.Post("/setup/restore-sync/check", b.ProfileCtrl.CheckRestoreSync)
+			api.Post("/setup/restore-sync/browse", b.ProfileCtrl.BrowseRestoreSync)
 			api.Post("/setup/restore-sync", b.ProfileCtrl.RestoreSync)
 			api.Get("/profiles", b.ProfileCtrl.ListProfiles)
 			api.Get("/media/{assetID}", b.MediaCtrl.ServeMedia)
+			api.Get("/auth/callback/{plugin_id}", b.OAuthCtrl.Callback)
 			api.Put("/media/{assetID}/metadata", ProfileContextMiddleware(b.ProfileRepo)(RequireAdminProfile(http.HandlerFunc(b.MediaCtrl.UpdateMediaMetadata))).ServeHTTP)
 			api.Get("/games/{id}/play", b.GameCtrl.ServePlayFile)
 			api.Head("/games/{id}/play", b.GameCtrl.ServePlayFile)
@@ -149,7 +154,6 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Delete("/cache/entries/{entry_id}", adminOnly(b.CacheCtrl.DeleteEntry))
 				r.Post("/cache/clear", adminOnly(b.CacheCtrl.Clear))
 
-				r.Get("/auth/callback/{plugin_id}", b.OAuthCtrl.Callback)
 			})
 
 			// Scan can take many minutes; no middleware timeout.
@@ -167,6 +171,13 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			// Long-lived SSE stream; no middleware timeout.
 			api.Get("/events", b.SSECtrl.Events)
 		} else {
+			api.Get("/setup/status", noopHandler())
+			api.Post("/setup/start-fresh", noopHandler())
+			api.Post("/setup/restore-sync/check", noopHandler())
+			api.Post("/setup/restore-sync/browse", noopHandler())
+			api.Post("/setup/restore-sync", noopHandler())
+			api.Get("/profiles", noopHandler())
+			api.Get("/auth/callback/{plugin_id}", noopHandler())
 			api.Get("/games", noopHandler())
 			api.Delete("/games", noopHandler())
 			api.Get("/games/{id}/detail", noopHandler())
@@ -245,7 +256,6 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/cache/entries", noopHandler())
 			api.Delete("/cache/entries/{entry_id}", noopHandler())
 			api.Post("/cache/clear", noopHandler())
-			api.Get("/auth/callback/{plugin_id}", noopHandler())
 			api.Get("/events", noopHandler())
 		}
 	})

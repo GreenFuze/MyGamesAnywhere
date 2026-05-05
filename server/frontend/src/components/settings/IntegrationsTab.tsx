@@ -2234,12 +2234,12 @@ export function IntegrationsTab() {
   }, []);
 
   const handleStoreKey = useCallback(
-    async (passphrase: string) => {
+    async (passphrase: string, currentPassphrase?: string) => {
       if (!passphrase) return;
       setSyncError("");
       setSyncMessage("");
       try {
-        await storeKey(passphrase);
+        await storeKey(passphrase, currentPassphrase);
         setSyncMessage("Key stored securely");
         queryClient.invalidateQueries({ queryKey: ["sync", "status"] });
       } catch (err) {

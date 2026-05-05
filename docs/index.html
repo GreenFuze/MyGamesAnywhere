@@ -49,7 +49,7 @@
             trusting a hidden match.
           </p>
           <div class="hero__actions">
-            <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download v0.0.7</a>
+            <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download v0.0.8-beta</a>
             <a class="button" href="./screenshots.html">View screenshots</a>
             <a class="button" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
             <a class="button" href="./install.html">Install guide</a>
@@ -89,6 +89,10 @@
             <article>
               <h3>Local-first ownership</h3>
               <p>Your database, media cache, config, and plugins stay on your machine unless you explicitly add sync integrations.</p>
+            </article>
+            <article>
+              <h3>Local profiles</h3>
+              <p>Profiles are local convenience identities with profile-owned integrations, libraries, scans, favorites, achievements, and settings.</p>
             </article>
             <article>
               <h3>Manual review and repair</h3>
@@ -231,13 +235,13 @@
               <img src="./screenshots/settings.png" alt="The integrations settings page showing configured sources, metadata providers, scan status, and control actions" />
               <figcaption>Integrations are explicit and local: sources, metadata providers, and scan state remain understandable control surfaces.</figcaption>
             </figure>
-            <article class="todo-card">
-              <h3>TODO screenshot</h3>
-              <p>Capture a canonical game page with at least 3 source/provider records visible in the same frame.</p>
+            <article class="note-card">
+              <h3>Profile setup</h3>
+              <p>The first-run flow creates the first Admin Player, and the header profile menu lets the browser switch or log out to the profile picker.</p>
             </article>
-            <article class="todo-card">
-              <h3>TODO screenshot</h3>
-              <p>Capture a cross-system achievement example with Steam, Xbox, and RetroAchievements visible in one proof set.</p>
+            <article class="note-card">
+              <h3>Installer and updates</h3>
+              <p>Windows users can choose a portable ZIP or installer. For-me-only installs run after sign-in and stay local-only by default; all-users installs run as a service with LAN access enabled by default and SHA256-verified update downloads.</p>
             </article>
           </div>
         </div>
@@ -327,13 +331,15 @@
                 <li>Materialized Drive/SMB browser play and EmulatorJS save-sync</li>
                 <li>Plugin-backed delete previews with checkbox confirmation for file-backed deletes</li>
                 <li>Configurable server listen IP with local-only package defaults</li>
-                <li>Windows portable release</li>
+                <li>Local profiles with profile-owned integrations and library data</li>
+                <li>Windows portable ZIP and installer with for-me-only process mode and all-users service mode</li>
+                <li>Auto-update v1 with manifest checks and SHA256-verified downloads</li>
               </ul>
             </article>
             <article>
               <h3>In active development</h3>
               <ul>
-                <li>Packaging hardening</li>
+                <li>Packaging and installer update hardening</li>
                 <li>Game page and card UX iteration</li>
                 <li>Broader metadata and runtime coverage</li>
                 <li>Upgrade-safe packaging flow</li>
@@ -345,7 +351,7 @@
                 <li>Cross-platform installers</li>
                 <li>Windows desktop client</li>
                 <li>Mobile client</li>
-                <li>Multi-user support</li>
+                <li>Password/PIN-backed user management beyond local convenience profiles</li>
                 <li>Cross-source user file and profile view</li>
               </ul>
             </article>
@@ -357,14 +363,14 @@
         <div class="section__inner split-grid">
           <div>
             <p class="eyebrow">Install / download</p>
-            <h2>Windows portable build, local server, local library.</h2>
+            <h2>Windows portable or installer, local server, local library.</h2>
             <ol class="steps">
-              <li>Download the latest Windows portable ZIP from GitHub Releases.</li>
-              <li>Extract it to a writable folder.</li>
-              <li>Run <code>Start MGA.cmd</code>.</li>
+              <li>Download the latest Windows portable ZIP or installer EXE from GitHub Releases.</li>
+              <li>For portable, extract it to a writable folder and run <code>Start MGA.cmd</code>.</li>
+              <li>For installer, choose for-me-only mode for a login process or all-users mode for a Windows service.</li>
               <li>Open <code>http://127.0.0.1:8900</code>.</li>
             </ol>
-            <p class="note">MGA runs locally on <code>127.0.0.1:8900</code> by default and stores runtime state beside the portable folder unless sync integrations are configured. LAN binding is opt-in through the server <code>LISTEN_IP</code> config.</p>
+            <p class="note">Portable and for-me installs run on <code>127.0.0.1:8900</code> by default. All-users installs run as a service on <code>0.0.0.0:8900</code> by default, with an explicit firewall-rule choice. Installed data and logs move to per-user or machine data directories.</p>
             <div class="hero__actions">
               <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download</a>
               <a class="button" href="./install.html">Read install details</a>

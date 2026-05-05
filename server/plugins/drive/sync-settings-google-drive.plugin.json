@@ -3,7 +3,7 @@
   "plugin_version": "2.1.0",
   "api_major": 1,
   "capabilities": ["sync"],
-  "provides": ["sync.push", "sync.pull", "plugin.check_config", "auth.oauth.callback"],
+  "provides": ["sync.push", "sync.pull", "sync.list_payloads", "sync.update_payload", "source.browse", "plugin.check_config", "auth.oauth.callback"],
   "exec": "drive.exe",
   "default_timeout_ms": 600000,
   "max_concurrency": 1,

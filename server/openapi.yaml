@@ -983,6 +983,14 @@ paths:
         500:
           description: Browse failed
 
+  /api/profiles:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/review-candidates:
     get:
       summary: List manual-review candidates
@@ -1349,6 +1357,46 @@ paths:
         500:
           description: Internal server error
 
+  /api/setup/restore-sync:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/setup/restore-sync/browse:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/setup/restore-sync/check:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/setup/start-fresh:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/setup/status:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/stats:
     get:
       summary: Library statistics
@@ -1374,9 +1422,9 @@ paths:
           description: Failed to clear sync key
     post:
       summary: Store sync passphrase locally
-      description: Stores the sync passphrase/key for later push/pull operations so the frontend does not need to resend it every time.
+      description: Stores the sync passphrase/key for later push/pull operations so the frontend does not need to resend it every time. If a key is already stored and the new passphrase differs, current_passphrase is required and must match the stored key.
       requestBody:
-        description: 'JSON: { passphrase: string }'
+        description: 'JSON: { passphrase: string, current_passphrase?: string }'
         content:
           application/json:
             schema:
@@ -1385,7 +1433,7 @@ paths:
         200:
           description: Status ok JSON
         400:
-          description: Invalid JSON body or missing passphrase
+          description: Invalid JSON body, missing passphrase, missing current passphrase, or incorrect current passphrase
         500:
           description: Failed to store sync key
 
@@ -1468,6 +1516,24 @@ paths:
           description: Error response
         500:
           description: Error response
+
+  /auth/google/callback/{plugin_id}:
+    get:
+      summary: Handle Google OAuth callback for a Drive plugin
+      description: Compatibility callback path registered with the MGA Google OAuth client. It behaves like /api/auth/callback/{plugin_id}, invokes auth.oauth.callback on the plugin, publishes oauth_complete or oauth_error over SSE, and returns a small HTML page that closes the tab.
+      parameters:
+        - name: plugin_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: HTML callback result page
+        400:
+          description: Error response
+        500:
+          description: Internal server error
 
   /health:
     get:

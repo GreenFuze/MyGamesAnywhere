@@ -255,9 +255,21 @@ func (s *Service) ClearEntries(ctx context.Context) error {
 	if err := s.ensureInitialized(ctx); err != nil {
 		return err
 	}
+	entries, err := s.store.ListEntries(ctx)
+	if err != nil {
+		return err
+	}
 	root := s.cacheRoot()
 	if err := s.store.ClearEntries(ctx); err != nil {
 		return err
+	}
+	if core.ProfileIDFromContext(ctx) != "" {
+		for _, entry := range entries {
+			if entry != nil && entry.ID != "" {
+				_ = os.RemoveAll(filepath.Join(root, filepath.FromSlash(entry.ID)))
+			}
+		}
+		return os.MkdirAll(root, 0o755)
 	}
 	if err := os.RemoveAll(root); err != nil {
 		return err

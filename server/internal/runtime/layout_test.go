@@ -37,6 +37,9 @@ func TestResolveUserLayoutUsesSeparateDataDir(t *testing.T) {
 	if layout.MediaRoot != filepath.Join(dataDir, "media") {
 		t.Fatalf("MediaRoot = %q", layout.MediaRoot)
 	}
+	if layout.LogFile != filepath.Join(dataDir, "logs", "mga_server.log") {
+		t.Fatalf("LogFile = %q", layout.LogFile)
+	}
 }
 
 func TestEnsureConfigWritesAbsoluteInstalledPaths(t *testing.T) {
@@ -58,13 +61,16 @@ func TestEnsureConfigWritesAbsoluteInstalledPaths(t *testing.T) {
 		t.Fatalf("parse config: %v", err)
 	}
 	wants := map[string]string{
-		"DB_PATH":       layout.DBPath,
-		"MEDIA_ROOT":    layout.MediaRoot,
-		"PLUGINS_DIR":   layout.PluginsDir,
-		"FRONTEND_DIST": layout.Frontend,
+		"DB_PATH":         layout.DBPath,
+		"MEDIA_ROOT":      layout.MediaRoot,
+		"PLUGINS_DIR":     layout.PluginsDir,
+		"FRONTEND_DIST":   layout.Frontend,
+		"LOG_FILE":        layout.LogFile,
+		"LOG_MAX_SIZE_MB": "50",
+		"LOG_MAX_BACKUPS": "5",
 	}
 	for key, want := range wants {
-		if !filepath.IsAbs(want) {
+		if key != "LOG_MAX_SIZE_MB" && key != "LOG_MAX_BACKUPS" && !filepath.IsAbs(want) {
 			t.Fatalf("test path is not absolute: %q", want)
 		}
 		if cfg[key] != want {

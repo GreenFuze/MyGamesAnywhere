@@ -10,7 +10,7 @@ Most launchers start from a storefront or a folder. MGA starts from the game ide
 
 [Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest) · [View screenshots](#screenshots) · [GitHub Pages](https://greenfuze.github.io/MyGamesAnywhere/) · [GitHub](https://github.com/GreenFuze/MyGamesAnywhere) · [Public roadmap](docs/public-roadmap.md)
 
-**Current release line:** `v0.0.7`
+**Current release line:** `v0.0.8-beta`
 **Status:** pre-1.0, actively moving, local-first by design
 
 ![A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation](docs/screenshots/canonical-game-page.png)
@@ -130,9 +130,7 @@ That is the core differentiator. MGA is not just a prettier launcher row. It is 
 
 *Integrations are explicit and local: sources, metadata providers, achievements, and sync surfaces are visible control surfaces, not hidden importer state.*
 
-TODO screenshot: capture a canonical game page with at least 3 source/provider records visible in the same frame.  
-TODO screenshot: capture a mixed library view with visible storefront, ROM, and cloud-ready entries in one screenshot.  
-TODO screenshot: capture a cross-system achievement example with Steam, Xbox, and RetroAchievements visible in one proof set.
+Additional screenshot coverage is tracked in the public docs, but the committed screenshots already cover canonical pages, provenance, manual review, achievements, mixed library browsing, and integration control surfaces.
 
 ## MGA vs Traditional Launchers
 
@@ -162,6 +160,10 @@ TODO screenshot: capture a cross-system achievement example with Steam, Xbox, an
 - Save-sync and settings-sync surfaces
 - Configurable server `LISTEN_IP` for loopback or opt-in LAN binding, while released packages stay local-only by default
 - Plugin-backed dry-delete previews for file-backed source deletes, with checkbox confirmation before the real delete action
+- First-run profile flow, browser-local profile picker, profile menu, and admin-managed profile settings
+- Profile-owned integrations and library data, so storefront credentials, source scans, favorites, achievements, and settings can be separated per profile
+- Windows installer with clear per-user or all-users modes: per-user runs after sign-in as a local-only process, while all-users installs an admin-approved service with LAN access enabled by default, optional firewall setup, and rotating file logs
+- Auto-update v1: release manifest checks, SHA256-verified downloads, silent installer apply for installed Windows layouts, and verified manual replacement guidance for portable ZIPs
 - REST API and React web UI running on the same local server
 - Windows portable and installer release packaging
 
@@ -175,7 +177,7 @@ TODO screenshot: capture a cross-system achievement example with Steam, Xbox, an
 
 ## Planned Later
 
-- Multi-user / user management
+- Deeper multi-user flows with passwords/PINs and stronger access boundaries
 - Cross-source user file and profile view
 - Cross-platform installers
 - Windows desktop client
@@ -234,10 +236,11 @@ MGA ships Windows portable and installer builds. It runs as a local server plus 
 
 1. Download the portable ZIP or installer EXE from [Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest)
 2. For portable, extract it to a writable folder such as `C:\Games\MGA` and run `Start MGA.cmd`
-3. For the installer, choose per-user or all-users install, then choose user-process or Windows-service runtime mode
+3. For the installer, choose per-user mode for a login process or all-users mode for a Windows service
 4. Open [http://127.0.0.1:8900](http://127.0.0.1:8900)
+5. On first run, create the first Admin Player profile or use the profile picker if profiles already exist
 
-The current portable runtime stores config, database, plugins, media, and local state beside the runtime folder. Avoid extracting it under `Program Files`. The shipped `config.json` includes `LISTEN_IP: "127.0.0.1"` and `PORT: "8900"`; LAN exposure is opt-in by editing the server config.
+The current portable runtime stores config, database, plugins, media, logs, and local state beside the runtime folder. Avoid extracting it under `Program Files`. The shipped `config.json` includes `LISTEN_IP: "127.0.0.1"` and `PORT: "8900"`; LAN exposure is opt-in by editing the server config. Installed all-users mode intentionally writes `LISTEN_IP: "0.0.0.0"` because it is the service/LAN mode.
 
 ### Local-first ownership
 
@@ -296,13 +299,13 @@ The short public roadmap lives in [docs/public-roadmap.md](docs/public-roadmap.m
 
 The important split is:
 
-- **Available now**: canonical game merge, local-first runtime, source-backed pages, favorites, platform-aware manual review, source-backed achievements, browser-play surfaces, EmulatorJS save-sync, safer file-backed delete previews, configurable listen IP, and Windows portable/installer packaging
+- **Available now**: canonical game merge, local-first runtime, source-backed pages, favorites, local profiles, profile-owned integrations/library data, platform-aware manual review, source-backed achievements, browser-play surfaces, EmulatorJS save-sync, safer file-backed delete previews, configurable listen IP, Windows portable/installer packaging, and auto-update v1
 - **In active development**: packaging hardening, UX refinement, broader metadata/runtime coverage, and better public proof/docs
 - **Planned later**: Linux packaging, desktop shell, mobile client, and deeper multi-user flows
 
 ## Release And Upgrade Safety
 
-MGA carries a repository version source at [`VERSION`](VERSION). The current line is **`0.0.7`**.
+MGA carries a repository version source at [`VERSION`](VERSION). The current beta line is **`0.0.8-beta`**.
 
 Upgrade policy:
 

@@ -458,6 +458,32 @@ type PullResult struct {
 	RemoteExportedAt    time.Time `json:"remote_exported_at"`
 }
 
+type RestoreSyncRequest struct {
+	PluginID        string         `json:"plugin_id"`
+	Label           string         `json:"label"`
+	IntegrationType string         `json:"integration_type"`
+	Config          map[string]any `json:"config"`
+	Passphrase      string         `json:"passphrase"`
+	StoreKey        bool           `json:"store_key"`
+	RedirectURI     string         `json:"-"`
+}
+
+type RestoreSyncBrowseRequest struct {
+	PluginID string `json:"plugin_id"`
+	Path     string `json:"path"`
+}
+
+type RestoreSyncResult struct {
+	Status        string         `json:"status"`
+	PluginID      string         `json:"plugin_id,omitempty"`
+	AuthorizeURL  string         `json:"authorize_url,omitempty"`
+	State         string         `json:"state,omitempty"`
+	ProfileID     string         `json:"profile_id,omitempty"`
+	IntegrationID string         `json:"integration_id,omitempty"`
+	ScanJob       *ScanJobStatus `json:"scan_job,omitempty"`
+	Result        PullResult     `json:"result,omitempty"`
+}
+
 // SyncStatus describes the current sync configuration state.
 type SyncStatus struct {
 	Configured   bool   `json:"configured"`

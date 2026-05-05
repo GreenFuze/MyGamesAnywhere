@@ -822,6 +822,10 @@ func NewDiscoveryController(orchestrator scanRunner, gameStore core.GameStore, l
 	}
 }
 
+func (c *DiscoveryController) StartScan(ctx context.Context, req ScanRequest) (*core.ScanJobStatus, bool, error) {
+	return c.scanJobs.Start(ctx, req)
+}
+
 type ScanRequest struct {
 	GameSources  []string `json:"game_sources"`
 	MetadataOnly bool     `json:"metadata_only"`

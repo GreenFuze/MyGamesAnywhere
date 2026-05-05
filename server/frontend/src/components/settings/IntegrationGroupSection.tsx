@@ -52,7 +52,7 @@ interface IntegrationGroupSectionProps {
   };
   onPush?: () => void;
   onPull?: () => void;
-  onStoreKey?: (passphrase: string) => void;
+  onStoreKey?: (passphrase: string, currentPassphrase?: string) => void;
   onClearKey?: () => void;
 
   // Save sync.

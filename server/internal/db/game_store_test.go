@@ -1799,6 +1799,64 @@ func TestManualReviewCandidatesSupportArchiveScopeAndUnarchive(t *testing.T) {
 	}
 }
 
+func TestManualReviewCandidateAccessIsProfileScoped(t *testing.T) {
+	ctx := context.Background()
+	profileOneCtx := core.WithProfile(ctx, &core.Profile{ID: "profile-1", Role: core.ProfileRoleAdminPlayer})
+	profileTwoCtx := core.WithProfile(ctx, &core.Profile{ID: "profile-2", Role: core.ProfileRolePlayer})
+	_, store := newTestGameStore(t)
+
+	persistBatch(t, profileOneCtx, store, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:profile-1-review",
+			IntegrationID: "integration-1",
+			PluginID:      "game-source-smb",
+			ExternalID:    "profile-1-review",
+			RawTitle:      "Profile One Review",
+			Platform:      core.PlatformUnknown,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindUnknown,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{},
+		MediaItems:      map[string][]core.MediaRef{},
+	})
+	persistBatch(t, profileTwoCtx, store, &core.ScanBatch{
+		IntegrationID: "integration-2",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:profile-2-review",
+			IntegrationID: "integration-2",
+			PluginID:      "game-source-smb",
+			ExternalID:    "profile-2-review",
+			RawTitle:      "Profile Two Review",
+			Platform:      core.PlatformUnknown,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindUnknown,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{},
+		MediaItems:      map[string][]core.MediaRef{},
+	})
+
+	candidates, err := store.ListManualReviewCandidates(profileOneCtx, core.ManualReviewScopeActive, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].ID != "scan:profile-1-review" {
+		t.Fatalf("profile one candidates = %+v, want only profile one candidate", candidates)
+	}
+	otherCandidate, err := store.GetManualReviewCandidate(profileOneCtx, "scan:profile-2-review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherCandidate != nil {
+		t.Fatalf("profile one loaded profile two candidate: %+v", otherCandidate)
+	}
+	if err := store.SetManualReviewState(profileOneCtx, "scan:profile-2-review", core.ManualReviewStateNotAGame); !errors.Is(err, core.ErrManualReviewCandidateNotFound) {
+		t.Fatalf("SetManualReviewState cross-profile error = %v, want ErrManualReviewCandidateNotFound", err)
+	}
+}
+
 func TestSaveManualReviewResultPersistsStickyDecisionAndCanonicalView(t *testing.T) {
 	ctx := context.Background()
 	db, store := newTestGameStore(t)
@@ -2561,6 +2619,42 @@ func TestCanonicalFavoritesPersistAndCascade(t *testing.T) {
 	}
 }
 
+func TestCanonicalFavoriteAccessIsProfileScoped(t *testing.T) {
+	ctx := context.Background()
+	profileOneCtx := core.WithProfile(ctx, &core.Profile{ID: "profile-1", Role: core.ProfileRoleAdminPlayer})
+	profileTwoCtx := core.WithProfile(ctx, &core.Profile{ID: "profile-2", Role: core.ProfileRolePlayer})
+	db, store := newTestGameStore(t)
+
+	persistBatch(t, profileOneCtx, store, makeTestBatch("integration-1", "scan:profile-1-game", "external-1", "Profile One Game", "match-1"))
+	persistBatch(t, profileTwoCtx, store, makeTestBatch("integration-2", "scan:profile-2-game", "external-2", "Profile Two Game", "match-2"))
+
+	profileTwoIDs, err := store.GetVisibleCanonicalIDs(profileTwoCtx, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profileTwoIDs) != 1 {
+		t.Fatalf("profile two canonical IDs = %+v, want 1", profileTwoIDs)
+	}
+	profileTwoCanonicalID := profileTwoIDs[0]
+
+	if err := store.SetCanonicalFavorite(profileOneCtx, profileTwoCanonicalID); !errors.Is(err, core.ErrCanonicalGameNotFound) {
+		t.Fatalf("SetCanonicalFavorite cross-profile error = %v, want ErrCanonicalGameNotFound", err)
+	}
+	if err := store.SetCanonicalFavorite(profileTwoCtx, profileTwoCanonicalID); err != nil {
+		t.Fatalf("SetCanonicalFavorite profile two: %v", err)
+	}
+	if err := store.ClearCanonicalFavorite(profileOneCtx, profileTwoCanonicalID); !errors.Is(err, core.ErrCanonicalGameNotFound) {
+		t.Fatalf("ClearCanonicalFavorite cross-profile error = %v, want ErrCanonicalGameNotFound", err)
+	}
+	var favorites int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM canonical_game_favorites WHERE canonical_id = ?`, profileTwoCanonicalID).Scan(&favorites); err != nil {
+		t.Fatal(err)
+	}
+	if favorites != 1 {
+		t.Fatalf("profile two favorite count after cross-profile clear = %d, want 1", favorites)
+	}
+}
+
 func TestDeleteSourceGameByIDKeepsSiblingSourceRecordsAndRecomputesCanonical(t *testing.T) {
 	ctx := context.Background()
 	db, store := newTestGameStore(t)
@@ -2613,6 +2707,27 @@ func TestDeleteSourceGameByIDKeepsSiblingSourceRecordsAndRecomputesCanonical(t *
 	}
 	if deletedCount != 0 {
 		t.Fatalf("deleted source row count = %d, want 0", deletedCount)
+	}
+}
+
+func TestDeleteSourceGameByIDIsProfileScoped(t *testing.T) {
+	ctx := context.Background()
+	profileOneCtx := core.WithProfile(ctx, &core.Profile{ID: "profile-1", Role: core.ProfileRoleAdminPlayer})
+	profileTwoCtx := core.WithProfile(ctx, &core.Profile{ID: "profile-2", Role: core.ProfileRolePlayer})
+	_, store := newTestGameStore(t)
+
+	persistBatch(t, profileOneCtx, store, makeTestBatch("integration-1", "scan:profile-1-delete", "external-1", "Profile One Delete", "match-1"))
+	persistBatch(t, profileTwoCtx, store, makeTestBatch("integration-2", "scan:profile-2-delete", "external-2", "Profile Two Delete", "match-2"))
+
+	if err := store.DeleteSourceGameByID(profileOneCtx, "scan:profile-2-delete"); !errors.Is(err, core.ErrSourceGameDeleteNotFound) {
+		t.Fatalf("DeleteSourceGameByID cross-profile error = %v, want ErrSourceGameDeleteNotFound", err)
+	}
+	source, err := store.GetManualReviewCandidate(profileTwoCtx, "scan:profile-2-delete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source == nil {
+		t.Fatal("profile two source was deleted by profile one")
 	}
 }
 

@@ -7,6 +7,9 @@
   "MEDIA_ROOT": "./media",
   "SOURCE_CACHE_ROOT": "./source_cache",
   "UPDATES_DIR": "./updates",
+  "LOG_FILE": "./logs/mga_server.log",
+  "LOG_MAX_SIZE_MB": "50",
+  "LOG_MAX_BACKUPS": "5",
   "APP_INSTALL_TYPE": "portable",
   "UPDATE_MANIFEST_URL": "https://github.com/GreenFuze/MyGamesAnywhere/releases/latest/download/mga-update.json"
 }

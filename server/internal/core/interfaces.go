@@ -21,6 +21,8 @@ var (
 	ErrBackgroundOverrideMediaNotFound  = errors.New("background override media asset is not linked to this game")
 	ErrProfileRequired                  = errors.New("profile is required")
 	ErrProfileForbidden                 = errors.New("profile role is not allowed")
+	ErrSyncKeyCurrentRequired           = errors.New("current sync passphrase is required to replace stored sync key")
+	ErrSyncKeyCurrentIncorrect          = errors.New("current sync passphrase is incorrect")
 )
 
 // Logger defines the interface for structured logging.
@@ -221,8 +223,11 @@ type GameStore interface {
 type SyncService interface {
 	Push(ctx context.Context, passphrase string) (*PushResult, error)
 	Pull(ctx context.Context, passphrase string) (*PullResult, error)
+	CheckBootstrap(ctx context.Context, req RestoreSyncRequest) (*RestoreSyncResult, error)
+	BrowseBootstrap(ctx context.Context, req RestoreSyncBrowseRequest) (any, error)
+	RestoreBootstrap(ctx context.Context, req RestoreSyncRequest) (*RestoreSyncResult, error)
 	Status(ctx context.Context) (*SyncStatus, error)
-	StoreKey(passphrase string) error
+	StoreKey(ctx context.Context, passphrase string, currentPassphrase string) error
 	ClearKey() error
 }
 

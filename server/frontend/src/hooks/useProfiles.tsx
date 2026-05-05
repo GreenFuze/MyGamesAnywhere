@@ -1,16 +1,22 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, CloudDownload, Gamepad2, Gem, Joystick, Rocket, Swords, Trophy } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, CloudDownload, Gamepad2, Gem, Joystick, Rocket, Swords, Trophy } from 'lucide-react'
 import {
+  browseRestoreSyncSetup,
+  checkRestoreSyncSetup,
   getSetupStatus,
+  isRestoreSyncOAuthRequired,
   listProfiles,
+  restoreSyncSetup,
   SELECTED_PROFILE_STORAGE_KEY,
   startFreshSetup,
   type Profile,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
+import { FolderBrowser } from '@/components/settings/FolderBrowser'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { useSSE } from '@/hooks/useSSE'
 
 type ProfileContextValue = {
   profiles: Profile[]
@@ -22,6 +28,8 @@ type ProfileContextValue = {
 }
 
 const ProfileContext = createContext<ProfileContextValue | null>(null)
+const GOOGLE_DRIVE_SYNC_PLUGIN_ID = 'sync-settings-google-drive'
+const DEFAULT_GOOGLE_DRIVE_SYNC_PATH = 'Games/mga_sync'
 
 export const PROFILE_AVATARS = [
   { key: 'player-1', label: 'Arcade', Icon: Gamepad2, tone: 'from-sky-400 to-cyan-300', ring: 'ring-sky-300/35' },
@@ -118,8 +126,16 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
 function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
   const queryClient = useQueryClient()
+  const { subscribe } = useSSE()
+  const [mode, setMode] = useState<'choose' | 'fresh' | 'restore'>('choose')
   const [displayName, setDisplayName] = useState('Admin Player')
   const [avatarKey, setAvatarKey] = useState<ProfileAvatarKey>('player-1')
+  const [syncPath, setSyncPath] = useState(DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
+  const [passphrase, setPassphrase] = useState('')
+  const [oauthState, setOauthState] = useState('')
+  const [driveConnected, setDriveConnected] = useState(false)
+  const [showFolderBrowser, setShowFolderBrowser] = useState(false)
+  const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -138,6 +154,207 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
     }
   }
 
+  const submitRestore = useCallback(async () => {
+    setSaving(true)
+    setError('')
+    setMessage('')
+    try {
+      const result = await restoreSyncSetup({
+        plugin_id: GOOGLE_DRIVE_SYNC_PLUGIN_ID,
+        label: 'Google Drive Sync',
+        integration_type: 'sync',
+        config: {
+          sync_path: syncPath.trim() || DEFAULT_GOOGLE_DRIVE_SYNC_PATH,
+          max_versions: 10,
+        },
+        passphrase,
+        store_key: true,
+      })
+      if (isRestoreSyncOAuthRequired(result)) {
+        setOauthState(result.state)
+        setDriveConnected(false)
+        setMessage('Finish Google Drive sign-in in the browser, then choose the sync folder.')
+        window.open(result.authorize_url, '_blank')
+        return
+      }
+      await queryClient.invalidateQueries({ queryKey: ['setup-status'] })
+      await queryClient.invalidateQueries({ queryKey: ['profiles'] })
+      onCreated(result.profile_id)
+    } catch (err) {
+      setError(apiErrorText(err, 'Restore failed'))
+    } finally {
+      setSaving(false)
+    }
+  }, [onCreated, passphrase, queryClient, syncPath])
+
+  const connectGoogleDrive = useCallback(async () => {
+    setSaving(true)
+    setError('')
+    setMessage('')
+    try {
+      const result = await checkRestoreSyncSetup({
+        plugin_id: GOOGLE_DRIVE_SYNC_PLUGIN_ID,
+        label: 'Google Drive Sync',
+        integration_type: 'sync',
+        config: {
+          sync_path: syncPath.trim() || DEFAULT_GOOGLE_DRIVE_SYNC_PATH,
+          max_versions: 10,
+        },
+        passphrase: '',
+      })
+      if (isRestoreSyncOAuthRequired(result)) {
+        setOauthState(result.state)
+        setMessage('Finish Google Drive sign-in in the browser, then choose the sync folder.')
+        window.open(result.authorize_url, '_blank')
+        return
+      }
+      setDriveConnected(true)
+      if (!syncPath.trim()) setSyncPath(DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
+      setMessage('Google Drive connected. Choose the sync folder that contains latest.json, then restore.')
+    } catch (err) {
+      setError(apiErrorText(err, 'Google Drive sign-in failed'))
+    } finally {
+      setSaving(false)
+    }
+  }, [syncPath])
+
+  useEffect(() => {
+    if (!oauthState) return
+    const unsubComplete = subscribe('oauth_complete', (data: unknown) => {
+      const d = data as { state?: string }
+      if (d.state === oauthState) {
+        setOauthState('')
+        setDriveConnected(true)
+        if (!syncPath.trim()) setSyncPath(DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
+        setMessage('Google Drive connected. Choose the sync folder that contains latest.json, then restore.')
+      }
+    })
+    const unsubError = subscribe('oauth_error', (data: unknown) => {
+      const d = data as { state?: string; error?: string }
+      if (d.state === oauthState) {
+        setError(d.error ?? 'Authentication failed')
+        setOauthState('')
+      }
+    })
+    return () => { unsubComplete(); unsubError() }
+  }, [oauthState, subscribe, syncPath])
+
+  if (mode === 'choose') {
+    return (
+      <ProfileGateShell eyebrow="First Run" title="Set Up MGA">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setMode('fresh')}
+            className="group min-h-44 rounded-mga border border-mga-border bg-mga-bg p-4 text-left transition hover:-translate-y-0.5 hover:border-mga-accent/70 hover:bg-mga-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-mga-accent"
+          >
+            <span className="grid h-11 w-11 place-items-center rounded-full bg-mga-accent text-mga-bg">
+              <ArrowRight className="h-5 w-5" />
+            </span>
+            <div className="mt-5 text-xl font-black text-mga-text">Start Fresh</div>
+            <p className="mt-2 text-sm leading-6 text-mga-muted">Create the first Admin Player profile and configure integrations later.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('restore')}
+            className="group min-h-44 rounded-mga border border-mga-border bg-mga-bg p-4 text-left transition hover:-translate-y-0.5 hover:border-mga-accent/70 hover:bg-mga-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-mga-accent"
+          >
+            <span className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-cyan-300 to-emerald-200 text-mga-bg">
+              <CloudDownload className="h-5 w-5" />
+            </span>
+            <div className="mt-5 text-xl font-black text-mga-text">Restore From Sync</div>
+            <p className="mt-2 text-sm leading-6 text-mga-muted">Connect a settings sync integration and restore profiles, integrations, and settings from it.</p>
+          </button>
+        </div>
+      </ProfileGateShell>
+    )
+  }
+
+  if (mode === 'restore') {
+    return (
+      <ProfileGateShell eyebrow="First Run" title="Restore From Sync">
+        <div className="space-y-5">
+          <div className="rounded-mga border border-amber-300/40 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+              <p>This restore initializes this new MGA instance from the remote settings sync payload. Existing remote integrations and settings will be imported; old sync payloads create one Admin Player profile. Games are rebuilt later by scanning the restored integrations.</p>
+            </div>
+          </div>
+          <div className="rounded-mga border border-mga-border/80 bg-mga-bg/65 p-4 shadow-inner">
+            <div className="mb-4 rounded-mga border border-mga-border/70 bg-mga-surface/70 p-3">
+              <div className="flex items-center gap-3">
+                <span className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-sky-300 to-emerald-200 text-mga-bg">
+                  <CloudDownload className="h-5 w-5" />
+                </span>
+                <div>
+                  <div className="text-sm font-bold text-mga-text">Google Drive Settings Sync</div>
+                  <div className="text-xs leading-5 text-mga-muted">First sign in to Google Drive, then choose the folder that contains <span className="font-mono text-mga-text">latest.json</span>. MGA will save this as your Settings Sync integration after restore.</div>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-4">
+              {!driveConnected ? (
+                <Button type="button" onClick={connectGoogleDrive} disabled={saving || Boolean(oauthState)} className="h-12 w-full justify-between px-4">
+                  <span>{oauthState ? 'Waiting For Google Sign-In' : 'Sign In To Google Drive'}</span>
+                  <CloudDownload className="h-4 w-4" />
+                </Button>
+              ) : (
+                <div className="space-y-3">
+                  <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                    <Input
+                      label="Google Drive folder path"
+                      value={syncPath}
+                      onChange={(event) => setSyncPath(event.target.value)}
+                      className="h-11"
+                      placeholder={DEFAULT_GOOGLE_DRIVE_SYNC_PATH}
+                    />
+                    <Button type="button" variant="outline" onClick={() => setShowFolderBrowser((value) => !value)} className="h-11">
+                      {showFolderBrowser ? 'Hide Browse' : 'Browse'}
+                    </Button>
+                  </div>
+                  {showFolderBrowser ? (
+                    <div className="rounded-mga border border-mga-border bg-mga-surface/70 p-3">
+                      <FolderBrowser
+                        pluginId={GOOGLE_DRIVE_SYNC_PLUGIN_ID}
+                        initialPath={syncPath.trim()}
+                        onSelect={(path) => {
+                          setSyncPath(path || DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
+                          setShowFolderBrowser(false)
+                        }}
+                        browse={(path) => browseRestoreSyncSetup(GOOGLE_DRIVE_SYNC_PLUGIN_ID, path)}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              )}
+              <Input
+                label="Sync encryption passphrase"
+                type="password"
+                value={passphrase}
+                onChange={(event) => setPassphrase(event.target.value)}
+                className="h-11"
+                placeholder="Leave blank to use a stored key on this PC"
+              />
+              <p className="text-xs leading-5 text-mga-muted">Integration configs inside the sync file are encrypted. Enter the passphrase used when this sync was pushed, or leave it blank if this Windows user already has the stored MGA sync key. The default folder path comes from the Google Drive settings-sync plugin and can be changed before restore.</p>
+            </div>
+          </div>
+          {message ? <p className="text-sm text-mga-muted">{message}</p> : null}
+          {error ? <p className="text-sm text-red-400">{error}</p> : null}
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button type="button" variant="outline" onClick={() => setMode('choose')} className="h-12 px-4">
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back</span>
+            </Button>
+            <Button onClick={submitRestore} disabled={saving || Boolean(oauthState) || !driveConnected} className="h-12 flex-1 justify-between px-4">
+              <span>{driveConnected ? 'Restore From Selected Folder' : 'Sign In First'}</span>
+              <CloudDownload className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </ProfileGateShell>
+    )
+  }
+
   return (
     <ProfileGateShell eyebrow="First Run" title="Build Your First Profile">
       <div className="space-y-5">
@@ -152,19 +369,27 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
           <AvatarChooser value={avatarKey} onChange={setAvatarKey} className="mt-4" />
         </div>
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Button onClick={submit} disabled={saving || displayName.trim() === ''} className="h-12 justify-between px-4">
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Button type="button" variant="outline" onClick={() => setMode('choose')} className="h-12 px-4">
+            <ArrowLeft className="h-4 w-4" />
+            <span>Back</span>
+          </Button>
+          <Button onClick={submit} disabled={saving || displayName.trim() === ''} className="h-12 flex-1 justify-between px-4">
             <span>Start Fresh</span>
             <ArrowRight className="h-4 w-4" />
-          </Button>
-          <Button disabled variant="outline" title="Sync restore will land with sync payload v2 import" className="h-12 justify-between px-4">
-            <span>Restore From Sync</span>
-            <CloudDownload className="h-4 w-4" />
           </Button>
         </div>
       </div>
     </ProfileGateShell>
   )
+}
+
+function apiErrorText(err: unknown, fallback: string) {
+  if (err && typeof err === 'object' && 'responseText' in err) {
+    const text = String((err as { responseText?: string }).responseText ?? '').trim()
+    if (text) return text
+  }
+  return err instanceof Error ? err.message : fallback
 }
 
 function ProfilePicker({ profiles, onSelect }: { profiles: Profile[]; onSelect: (id: string) => void }) {

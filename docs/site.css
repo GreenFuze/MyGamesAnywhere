@@ -217,7 +217,7 @@ td,
 .hero__frame,
 .shot,
 .aside-card,
-.todo-card,
+.note-card,
 .feature-grid article,
 .status-grid article,
 .integration-grid article,
@@ -275,14 +275,14 @@ table {
 .status-grid article,
 .integration-grid article,
 .aside-card,
-.todo-card {
+.note-card {
   padding: 1.15rem;
 }
 
 .feature-grid h3,
 .status-grid h3,
 .integration-grid h3,
-.todo-card h3,
+.note-card h3,
 .aside-card h3 {
   margin-top: 0;
   margin-bottom: 0.55rem;
@@ -393,7 +393,7 @@ table {
   color: var(--muted);
 }
 
-.todo-card {
+.note-card {
   border-style: dashed;
   background: rgba(255, 255, 255, 0.02);
 }

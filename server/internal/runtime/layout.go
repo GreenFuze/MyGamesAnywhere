@@ -36,6 +36,7 @@ type Layout struct {
 	Frontend   string
 	CacheRoot  string
 	UpdatesDir string
+	LogFile    string
 }
 
 func Resolve(opts Options) (*Layout, error) {
@@ -102,11 +103,13 @@ func Resolve(opts Options) (*Layout, error) {
 		layout.MediaRoot = filepath.Join(appDir, "media")
 		layout.CacheRoot = filepath.Join(appDir, "source_cache")
 		layout.UpdatesDir = filepath.Join(appDir, "updates")
+		layout.LogFile = filepath.Join(appDir, "logs", "mga_server.log")
 	} else {
 		layout.DBPath = filepath.Join(dataDir, "data", "db.sqlite")
 		layout.MediaRoot = filepath.Join(dataDir, "media")
 		layout.CacheRoot = filepath.Join(dataDir, "source_cache")
 		layout.UpdatesDir = filepath.Join(dataDir, "updates")
+		layout.LogFile = filepath.Join(dataDir, "logs", "mga_server.log")
 	}
 	return layout, nil
 }
@@ -123,6 +126,7 @@ func (l *Layout) EnsureConfig() error {
 		l.MediaRoot,
 		l.CacheRoot,
 		l.UpdatesDir,
+		filepath.Dir(l.LogFile),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create data directory %s: %w", dir, err)
@@ -142,6 +146,9 @@ func (l *Layout) EnsureConfig() error {
 		"MEDIA_ROOT":          l.MediaRoot,
 		"SOURCE_CACHE_ROOT":   l.CacheRoot,
 		"UPDATES_DIR":         l.UpdatesDir,
+		"LOG_FILE":            l.LogFile,
+		"LOG_MAX_SIZE_MB":     "50",
+		"LOG_MAX_BACKUPS":     "5",
 		"APP_INSTALL_TYPE":    string(l.Mode),
 		"UPDATE_MANIFEST_URL": "https://github.com/GreenFuze/MyGamesAnywhere/releases/latest/download/mga-update.json",
 	}

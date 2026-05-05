@@ -309,31 +309,120 @@ func compareVersions(latest, current string) (int, bool) {
 		return 0, false
 	}
 	for i := 0; i < 3; i++ {
-		if l[i] > c[i] {
+		if l.core[i] > c.core[i] {
 			return 1, true
 		}
-		if l[i] < c[i] {
+		if l.core[i] < c.core[i] {
 			return -1, true
 		}
 	}
-	return 0, true
+	if l.prerelease == c.prerelease {
+		return 0, true
+	}
+	if l.prerelease == "" {
+		return 1, true
+	}
+	if c.prerelease == "" {
+		return -1, true
+	}
+	return comparePrerelease(l.prerelease, c.prerelease), true
 }
 
-func parseVersion(value string) ([3]int, bool) {
-	var out [3]int
+type semverVersion struct {
+	core       [3]int
+	prerelease string
+}
+
+func parseVersion(value string) (semverVersion, bool) {
+	var out semverVersion
 	value = strings.TrimPrefix(strings.TrimSpace(strings.ToLower(value)), "v")
-	parts := strings.Split(value, ".")
+	if value == "" {
+		return out, false
+	}
+	if beforeBuild, _, ok := strings.Cut(value, "+"); ok {
+		value = beforeBuild
+	}
+	corePart, prerelease, hasPrerelease := strings.Cut(value, "-")
+	if hasPrerelease && prerelease == "" {
+		return out, false
+	}
+	parts := strings.Split(corePart, ".")
 	if len(parts) != 3 {
 		return out, false
 	}
 	for i, part := range parts {
+		if part == "" {
+			return out, false
+		}
 		n, err := strconv.Atoi(part)
 		if err != nil || n < 0 {
 			return out, false
 		}
-		out[i] = n
+		out.core[i] = n
+	}
+	if hasPrerelease {
+		identifiers := strings.Split(prerelease, ".")
+		for _, identifier := range identifiers {
+			if identifier == "" {
+				return out, false
+			}
+		}
+		out.prerelease = prerelease
 	}
 	return out, true
+}
+
+func comparePrerelease(latest, current string) int {
+	lParts := strings.Split(latest, ".")
+	cParts := strings.Split(current, ".")
+	for i := 0; i < len(lParts) && i < len(cParts); i++ {
+		cmp := comparePrereleaseIdentifier(lParts[i], cParts[i])
+		if cmp != 0 {
+			return cmp
+		}
+	}
+	if len(lParts) > len(cParts) {
+		return 1
+	}
+	if len(lParts) < len(cParts) {
+		return -1
+	}
+	return 0
+}
+
+func comparePrereleaseIdentifier(latest, current string) int {
+	lNumber, lNumeric := parsePrereleaseNumber(latest)
+	cNumber, cNumeric := parsePrereleaseNumber(current)
+	switch {
+	case lNumeric && cNumeric:
+		if lNumber > cNumber {
+			return 1
+		}
+		if lNumber < cNumber {
+			return -1
+		}
+		return 0
+	case lNumeric:
+		return -1
+	case cNumeric:
+		return 1
+	default:
+		if latest > current {
+			return 1
+		}
+		if latest < current {
+			return -1
+		}
+		return 0
+	}
+}
+
+func parsePrereleaseNumber(value string) (int, bool) {
+	if value == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(value)
+	return n, err == nil
 }
 
 func cloneAsset(asset *core.UpdateAsset) *core.UpdateAsset {

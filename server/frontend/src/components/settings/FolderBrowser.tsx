@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { browsePlugin, type BrowseFolder } from '@/api/client'
+import { browsePlugin, type BrowseFolder, type BrowseResponse } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Folder, ChevronRight, Home } from 'lucide-react'
 
@@ -8,9 +8,10 @@ interface FolderBrowserProps {
   initialPath?: string
   onSelect: (path: string) => void
   onSkip?: () => void
+  browse?: (path: string) => Promise<BrowseResponse>
 }
 
-export function FolderBrowser({ pluginId, initialPath = '', onSelect, onSkip }: FolderBrowserProps) {
+export function FolderBrowser({ pluginId, initialPath = '', onSelect, onSkip, browse }: FolderBrowserProps) {
   const [currentPath, setCurrentPath] = useState(initialPath)
   const [folders, setFolders] = useState<BrowseFolder[]>([])
   const [loading, setLoading] = useState(false)
@@ -20,7 +21,7 @@ export function FolderBrowser({ pluginId, initialPath = '', onSelect, onSkip }: 
     setLoading(true)
     setError(null)
     try {
-      const result = await browsePlugin(pluginId, path)
+      const result = browse ? await browse(path) : await browsePlugin(pluginId, path)
       setFolders(result.folders ?? [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to browse folders')
@@ -28,7 +29,7 @@ export function FolderBrowser({ pluginId, initialPath = '', onSelect, onSkip }: 
     } finally {
       setLoading(false)
     }
-  }, [pluginId])
+  }, [browse, pluginId])
 
   // Fetch folders when path changes.
   useEffect(() => {
