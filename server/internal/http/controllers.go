@@ -1136,6 +1136,9 @@ func (c *PluginController) validateIntegrationConfig(ctx context.Context, plugin
 	if configMap == nil {
 		configMap = map[string]any{}
 	}
+	if err := sourcescope.ValidateConfig(pluginID, configMap); err != nil {
+		return nil, integrationCheckResult{}, nil, err
+	}
 	normalizedConfig := sourcescope.NormalizeConfig(pluginID, configMap)
 
 	plugin, ok := c.pluginHost.GetPlugin(pluginID)
@@ -1237,6 +1240,15 @@ func (c *PluginController) checkOneIntegration(ctx context.Context, integration 
 	}
 	if configMap == nil {
 		configMap = map[string]any{}
+	}
+	if err := sourcescope.ValidateConfig(integration.PluginID, configMap); err != nil {
+		return IntegrationStatusEntry{
+			IntegrationID: integration.ID,
+			PluginID:      integration.PluginID,
+			Label:         integration.Label,
+			Status:        "error",
+			Message:       err.Error(),
+		}
 	}
 	configMap = sourcescope.NormalizeConfig(integration.PluginID, configMap)
 

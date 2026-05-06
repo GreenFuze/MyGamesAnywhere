@@ -2760,8 +2760,9 @@ func scopeContainsRootPath(rootPath string, scope *core.FilesystemScanScope) boo
 	includes := make([]sourcescope.IncludePath, 0, len(scope.IncludePaths))
 	for _, include := range scope.IncludePaths {
 		includes = append(includes, sourcescope.IncludePath{
-			Path:      include.Path,
-			Recursive: include.Recursive,
+			Path:         include.Path,
+			Recursive:    include.Recursive,
+			ExcludePaths: include.ExcludePaths,
 		})
 	}
 	return sourcescope.ScopeContainsRootPath(rootPath, includes)

@@ -41,10 +41,20 @@ func TestFilesystemIncludePathsFromConfigReadsNormalizedIncludePaths(t *testing.
 	}
 }
 
-func TestFilesystemExcludePathsFromConfigReadsNormalizedPaths(t *testing.T) {
-	excludes := filesystemExcludePathsFromConfig(map[string]any{
-		"exclude_paths": []any{`Games\Arcade\Bad`, "", "Games/Arcade/Skip"},
+func TestFilesystemIncludePathsFromConfigReadsNestedExcludePaths(t *testing.T) {
+	includes := filesystemIncludePathsFromConfig(map[string]any{
+		"include_paths": []any{
+			map[string]any{
+				"path":          "Games/Arcade",
+				"recursive":     true,
+				"exclude_paths": []any{`Games\Arcade\Bad`, "", "Games/Arcade/Skip"},
+			},
+		},
 	})
+	if len(includes) != 1 {
+		t.Fatalf("include count = %d, want 1", len(includes))
+	}
+	excludes := includes[0].ExcludePaths
 	if len(excludes) != 2 {
 		t.Fatalf("exclude count = %d, want 2", len(excludes))
 	}

@@ -252,6 +252,40 @@ func TestManualSearchReturnsSubtitlePrefixMatch(t *testing.T) {
 	}
 }
 
+func TestManualSearchUsesNumeralVariantsForSubtitlePrefixMatch(t *testing.T) {
+	inca := &gameEntry{
+		DatabaseID: 142128,
+		Name:       "Inca II: Nations of Immortality",
+		Platform:   "ScummVM",
+	}
+	idx := &launchBoxIndex{
+		files:      map[string]*fileEntry{},
+		games:      map[string]*gameEntry{},
+		normalized: map[string]*gameEntry{},
+		byPlatform: map[string][]tokenedGame{
+			"scummvm": {
+				{tokens: tokenize(inca.Name), normalizedTitle: normalizeTitle(inca.Name), game: inca},
+			},
+		},
+		images: map[int][]gameImage{},
+	}
+
+	tests := []string{
+		"Inca 2 (CD DOS)",
+		"Inca 2",
+		"Inca II",
+	}
+	for _, title := range tests {
+		results := matchGamesForManualSearch(idx, gameQuery{Index: 0, Title: title, Platform: "scummvm", LookupIntent: "manual_search"})
+		if len(results) == 0 {
+			t.Fatalf("expected manual search results for %q", title)
+		}
+		if results[0].Title != "Inca II: Nations of Immortality" || results[0].ExternalID != "142128" {
+			t.Fatalf("first result for %q = %+v, want Inca II: Nations of Immortality", title, results[0])
+		}
+	}
+}
+
 func TestMatchGame_UnknownInstallerFallsBackToWindows(t *testing.T) {
 	idx := &launchBoxIndex{
 		files: map[string]*fileEntry{},

@@ -405,8 +405,9 @@ type ScanBatch struct {
 }
 
 type FilesystemIncludePath struct {
-	Path      string
-	Recursive bool
+	Path         string
+	Recursive    bool
+	ExcludePaths []string
 }
 
 type FilesystemScanScope struct {

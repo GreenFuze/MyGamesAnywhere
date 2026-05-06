@@ -356,14 +356,15 @@ function StringPathsField({
           </div>
           {browsePluginId && (
             <div className="space-y-2">
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 disabled={browseDisabled}
                 onClick={() => setBrowserIndex(browserIndex === index ? null : index)}
-                className="text-xs text-mga-accent hover:underline disabled:text-mga-muted disabled:no-underline disabled:cursor-not-allowed"
               >
                 {browserIndex === index ? 'Hide browser' : 'Browse...'}
-              </button>
+              </Button>
               {browseDisabled && browseDisabledReason && (
                 <p className="text-xs text-amber-200">{browseDisabledReason}</p>
               )}
@@ -404,6 +405,8 @@ function IncludePathsField({
   browseDisabledReason?: string
 }) {
   const [browserIndex, setBrowserIndex] = useState<number | null>(null)
+  const [excludeBrowser, setExcludeBrowser] = useState<{ includeIndex: number; excludeIndex: number } | null>(null)
+  const [excludeError, setExcludeError] = useState<Record<string, string>>({})
   const includePaths = normalizeIncludePathsValue(value)
 
   const update = (next: FilesystemIncludePath[]) => {
@@ -420,6 +423,30 @@ function IncludePathsField({
     update(includePaths.map((entry, current) => (
       current === index ? { ...entry, recursive } : entry
     )))
+  }
+
+  const setExcludePath = (includeIndex: number, excludeIndex: number, path: string) => {
+    update(includePaths.map((entry, current) => {
+      if (current !== includeIndex) return entry
+      const excludes = [...(entry.exclude_paths ?? [])]
+      excludes[excludeIndex] = path
+      return { ...entry, exclude_paths: excludes }
+    }))
+  }
+
+  const addExclude = (includeIndex: number) => {
+    update(includePaths.map((entry, current) => (
+      current === includeIndex
+        ? { ...entry, exclude_paths: [...(entry.exclude_paths ?? []), ''] }
+        : entry
+    )))
+  }
+
+  const removeExclude = (includeIndex: number, excludeIndex: number) => {
+    update(includePaths.map((entry, current) => {
+      if (current !== includeIndex) return entry
+      return { ...entry, exclude_paths: (entry.exclude_paths ?? []).filter((_, index) => index !== excludeIndex) }
+    }))
   }
 
   const remove = (index: number) => {
@@ -475,14 +502,15 @@ function IncludePathsField({
 
           {browsePluginId && (
             <div className="space-y-2">
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 disabled={browseDisabled}
                 onClick={() => setBrowserIndex(browserIndex === index ? null : index)}
-                className="text-xs text-mga-accent hover:underline disabled:text-mga-muted disabled:no-underline disabled:cursor-not-allowed"
               >
                 {browserIndex === index ? 'Hide browser' : 'Browse...'}
-              </button>
+              </Button>
               {browseDisabled && browseDisabledReason && (
                 <p className="text-xs text-amber-200">{browseDisabledReason}</p>
               )}
@@ -498,6 +526,78 @@ function IncludePathsField({
               )}
             </div>
           )}
+
+          <div className="rounded-mga border border-mga-border/70 bg-black/10 p-3 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-mga-text">Excluded folders</p>
+                <p className="text-xs text-mga-muted">Folders skipped inside this include path.</p>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => addExclude(index)}>
+                Add excluded folder
+              </Button>
+            </div>
+
+            {(entry.exclude_paths ?? []).length === 0 ? (
+              <p className="text-xs text-mga-muted">No folders excluded for this include path.</p>
+            ) : (
+              <div className="space-y-3">
+                {(entry.exclude_paths ?? []).map((excludePath, excludeIndex) => {
+                  const errorKey = `${index}:${excludeIndex}`
+                  const browserOpen = excludeBrowser?.includeIndex === index && excludeBrowser.excludeIndex === excludeIndex
+                  return (
+                    <div key={errorKey} className="space-y-2">
+                      <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+                        <Input
+                          label={`Exclude ${excludeIndex + 1}`}
+                          value={excludePath}
+                          onChange={(e) => setExcludePath(index, excludeIndex, e.target.value)}
+                          placeholder={entry.path ? `${entry.path}/folder-to-skip` : 'Folder to skip recursively'}
+                        />
+                        {browsePluginId && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={browseDisabled}
+                            onClick={() => setExcludeBrowser(browserOpen ? null : { includeIndex: index, excludeIndex })}
+                          >
+                            {browserOpen ? 'Hide Browse' : 'Browse'}
+                          </Button>
+                        )}
+                        <Button type="button" variant="ghost" size="sm" onClick={() => removeExclude(index, excludeIndex)}>
+                          Remove
+                        </Button>
+                      </div>
+                      {excludeError[errorKey] && <p className="text-xs text-red-300">{excludeError[errorKey]}</p>}
+                      {browserOpen && browsePluginId && (
+                        <FolderBrowser
+                          pluginId={browsePluginId}
+                          initialPath={excludePath || entry.path}
+                          onSelect={(path) => {
+                            if (!pathInsideInclude(path, entry.path)) {
+                              setExcludeError((prev) => ({
+                                ...prev,
+                                [errorKey]: `Excluded folder must be inside ${entry.path || '(root)'}.`,
+                              }))
+                              return
+                            }
+                            setExcludeError((prev) => {
+                              const next = { ...prev }
+                              delete next[errorKey]
+                              return next
+                            })
+                            setExcludePath(index, excludeIndex, path)
+                            setExcludeBrowser(null)
+                          }}
+                        />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       ))}
 
@@ -509,12 +609,13 @@ function IncludePathsField({
 function normalizeIncludePathsValue(value: unknown): FilesystemIncludePath[] {
   if (Array.isArray(value)) {
     const includePaths = value
-      .map((entry) => {
+      .map((entry): FilesystemIncludePath | null => {
         if (!entry || typeof entry !== 'object') return null
         const item = entry as Record<string, unknown>
         return {
           path: typeof item.path === 'string' ? item.path : '',
           recursive: typeof item.recursive === 'boolean' ? item.recursive : true,
+          exclude_paths: normalizeStringPathsValue(item.exclude_paths),
         }
       })
       .filter((entry): entry is FilesystemIncludePath => entry !== null)
@@ -523,6 +624,16 @@ function normalizeIncludePathsValue(value: unknown): FilesystemIncludePath[] {
     }
   }
   return [{ path: '', recursive: true }]
+}
+
+function pathInsideInclude(path: string, includePath: string): boolean {
+  const normalizedPath = normalizeLogicalPath(path)
+  const normalizedInclude = normalizeLogicalPath(includePath)
+  return normalizedInclude === '' || normalizedPath === normalizedInclude || normalizedPath.startsWith(`${normalizedInclude}/`)
+}
+
+function normalizeLogicalPath(path: string): string {
+  return path.trim().replaceAll('\\', '/').replace(/^\/+|\/+$/g, '')
 }
 
 function normalizeStringPathsValue(value: unknown): string[] {

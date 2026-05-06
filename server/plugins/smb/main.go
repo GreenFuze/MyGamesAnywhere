@@ -45,6 +45,29 @@ type SMBConfig struct {
 	IncludePaths []sourcescope.IncludePath `json:"include_paths"`
 }
 
+func decodeSMBConfig(payload json.RawMessage) (SMBConfig, error) {
+	var configMap map[string]any
+	if err := json.Unmarshal(payload, &configMap); err != nil {
+		return SMBConfig{}, err
+	}
+	if nestedConfig, ok := configMap["config"].(map[string]any); ok {
+		configMap = nestedConfig
+	}
+	if err := sourcescope.ValidateConfig("game-source-smb", configMap); err != nil {
+		return SMBConfig{}, err
+	}
+	normalized := sourcescope.NormalizeConfig("game-source-smb", configMap)
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return SMBConfig{}, err
+	}
+	var config SMBConfig
+	if err := json.Unmarshal(encoded, &config); err != nil {
+		return SMBConfig{}, err
+	}
+	return config, nil
+}
+
 func main() {
 	log.SetOutput(os.Stderr)
 	log.Println("SMB source plugin started")
@@ -111,16 +134,17 @@ func main() {
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
-								"path":      map[string]any{"type": "string", "required": true},
-								"recursive": map[string]any{"type": "boolean"},
+								"path":          map[string]any{"type": "string", "required": true},
+								"recursive":     map[string]any{"type": "boolean"},
+								"exclude_paths": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Folders inside this include path to skip recursively."},
 							},
 						},
 					},
 				},
 			}
 		case "source.filesystem.list":
-			var config SMBConfig
-			if err := json.Unmarshal(req.Params, &config); err != nil {
+			config, err := decodeSMBConfig(req.Params)
+			if err != nil {
 				resp.Error = &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 				break
 			}
@@ -138,19 +162,26 @@ func main() {
 				resp.Result = result
 			}
 		case "plugin.check_config":
-			var params struct {
-				Config SMBConfig `json:"config"`
-			}
+			var params map[string]json.RawMessage
 			if err := json.Unmarshal(req.Params, &params); err != nil {
 				resp.Error = &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 				break
 			}
-			if err := checkConfig(params.Config); err != nil {
+			configPayload := req.Params
+			if rawConfig, ok := params["config"]; ok {
+				configPayload = rawConfig
+			}
+			config, err := decodeSMBConfig(configPayload)
+			if err != nil {
+				resp.Result = map[string]any{"status": "error", "message": err.Error()}
+				break
+			}
+			if err := checkConfig(config); err != nil {
 				resp.Result = map[string]any{"status": "error", "message": err.Error()}
 			} else {
 				resp.Result = map[string]any{
 					"status":          "ok",
-					"source_identity": sourceIdentity(params.Config),
+					"source_identity": sourceIdentity(config),
 				}
 			}
 		default:
@@ -258,6 +289,12 @@ func listFiles(config SMBConfig) ([]map[string]any, error) {
 					return nil
 				}
 				logicalPath := joinLogicalPath(include.Path, walkPath)
+				if smbPathExcluded(logicalPath, include.ExcludePaths) {
+					if d.IsDir() {
+						return fs.SkipDir
+					}
+					return nil
+				}
 				recordSMBEntry(seen, logicalPath, d)
 				return nil
 			})
@@ -269,6 +306,9 @@ func listFiles(config SMBConfig) ([]map[string]any, error) {
 
 		for _, entry := range entries {
 			logicalPath := joinLogicalPath(include.Path, entry.Name())
+			if smbPathExcluded(logicalPath, include.ExcludePaths) {
+				continue
+			}
 			recordSMBDirEntry(seen, logicalPath, entry)
 		}
 	}
@@ -459,8 +499,9 @@ func normalizedIncludePaths(config SMBConfig) []sourcescope.IncludePath {
 		includes := make([]sourcescope.IncludePath, 0, len(config.IncludePaths))
 		for _, include := range config.IncludePaths {
 			includes = append(includes, sourcescope.IncludePath{
-				Path:      sourcescope.NormalizeLogicalPath(include.Path),
-				Recursive: include.Recursive,
+				Path:         sourcescope.NormalizeLogicalPath(include.Path),
+				Recursive:    include.Recursive,
+				ExcludePaths: normalizeStringPaths(include.ExcludePaths),
 			})
 		}
 		return includes
@@ -469,6 +510,34 @@ func normalizedIncludePaths(config SMBConfig) []sourcescope.IncludePath {
 		Path:      sourcescope.NormalizeLogicalPath(config.Path),
 		Recursive: true,
 	}}
+}
+
+func smbPathExcluded(logicalPath string, excludes []string) bool {
+	logicalPath = sourcescope.NormalizeLogicalPath(logicalPath)
+	for _, exclude := range excludes {
+		exclude = sourcescope.NormalizeLogicalPath(exclude)
+		if exclude == "" {
+			continue
+		}
+		if logicalPath == exclude || strings.HasPrefix(logicalPath, exclude+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeStringPaths(paths []string) []string {
+	seen := make(map[string]bool, len(paths))
+	normalized := make([]string, 0, len(paths))
+	for _, path := range paths {
+		item := sourcescope.NormalizeLogicalPath(path)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		normalized = append(normalized, item)
+	}
+	return normalized
 }
 
 func sourceIdentity(config SMBConfig) string {

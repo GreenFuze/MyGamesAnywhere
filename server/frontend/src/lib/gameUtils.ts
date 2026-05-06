@@ -139,6 +139,7 @@ export type PluginConfigField = {
 export type FilesystemIncludePath = {
   path: string
   recursive: boolean
+  exclude_paths?: string[]
 }
 
 /**
@@ -168,27 +169,28 @@ export function normalizeFilesystemIncludePaths(
   const includePaths = config?.include_paths
   if (Array.isArray(includePaths)) {
     const normalized = includePaths
-      .map((entry) => {
+      .map((entry): FilesystemIncludePath | null => {
         if (!entry || typeof entry !== 'object') return null
         const value = entry as Record<string, unknown>
         return {
           path: typeof value.path === 'string' ? normalizeLogicalPath(value.path) : '',
           recursive: typeof value.recursive === 'boolean' ? value.recursive : true,
+          exclude_paths: normalizeStringPaths(value.exclude_paths),
         }
       })
       .filter((entry): entry is FilesystemIncludePath => entry !== null)
     if (normalized.length > 0) {
-      return normalized
+      return assignLegacyExcludesToIncludes(normalized, config?.exclude_paths)
     }
   }
 
   const legacyKey = pluginId === 'game-source-smb' ? 'path' : 'root_path'
   const legacyValue = config?.[legacyKey]
   if (typeof legacyValue === 'string') {
-    return [{ path: normalizeLogicalPath(legacyValue), recursive: true }]
+    return assignLegacyExcludesToIncludes([{ path: normalizeLogicalPath(legacyValue), recursive: true }], config?.exclude_paths)
   }
 
-  return [{ path: '', recursive: true }]
+  return assignLegacyExcludesToIncludes([{ path: '', recursive: true }], config?.exclude_paths)
 }
 
 function normalizeLogicalPath(value: string): string {
@@ -196,6 +198,63 @@ function normalizeLogicalPath(value: string): string {
     .trim()
     .replaceAll('\\', '/')
     .replace(/^\/+|\/+$/g, '')
+}
+
+function normalizeStringPaths(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const paths: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue
+    const normalized = normalizeLogicalPath(entry)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    paths.push(normalized)
+  }
+  return paths
+}
+
+function assignLegacyExcludesToIncludes(
+  includes: FilesystemIncludePath[],
+  legacyExcludes: unknown,
+): FilesystemIncludePath[] {
+  const excludes = normalizeStringPaths(legacyExcludes)
+  if (excludes.length === 0) return includes
+
+  const next = includes.map((include) => ({
+    ...include,
+    exclude_paths: [...(include.exclude_paths ?? [])],
+  }))
+  for (const exclude of excludes) {
+    const index = findOwningIncludeIndex(next, exclude)
+    if (index < 0) continue
+    const current = next[index].exclude_paths ?? []
+    if (!current.includes(exclude)) {
+      next[index].exclude_paths = [...current, exclude]
+    }
+  }
+  return next
+}
+
+function findOwningIncludeIndex(includes: FilesystemIncludePath[], path: string): number {
+  let bestIndex = -1
+  let bestDepth = -1
+  for (let index = 0; index < includes.length; index += 1) {
+    const includePath = normalizeLogicalPath(includes[index].path)
+    if (!pathInsideInclude(path, includePath)) continue
+    const depth = includePath ? includePath.split('/').length : 0
+    if (depth > bestDepth) {
+      bestIndex = index
+      bestDepth = depth
+    }
+  }
+  return bestIndex
+}
+
+function pathInsideInclude(path: string, includePath: string): boolean {
+  const normalizedPath = normalizeLogicalPath(path)
+  const normalizedInclude = normalizeLogicalPath(includePath)
+  return normalizedInclude === '' || normalizedPath === normalizedInclude || normalizedPath.startsWith(`${normalizedInclude}/`)
 }
 
 // ---------------------------------------------------------------------------
@@ -268,20 +327,30 @@ export class ConfigSummaryBuilder {
 
 function summarizeIncludePaths(paths: FilesystemIncludePath[], separator = '/'): string {
   if (paths.length === 0) return ''
+  const excludeSummary = summarizeExcludePaths(paths, separator)
   if (paths.length === 1) {
-    return paths[0].path ? `${separator}${paths[0].path.replaceAll('/', separator)}` : ''
+    const includeSummary = paths[0].path ? `${separator}${paths[0].path.replaceAll('/', separator)}` : ''
+    return `${includeSummary}${excludeSummary}`
   }
   const first = paths[0].path ? paths[0].path.replaceAll('/', separator) : '(root)'
-  return ` [${first} +${paths.length - 1} more]`
+  return ` [${first} +${paths.length - 1} more]${excludeSummary}`
 }
 
 function summarizeDriveIncludePaths(config: Record<string, unknown>): string {
   const paths = normalizeFilesystemIncludePaths('game-source-google-drive', config)
+  const excludeSummary = summarizeExcludePaths(paths)
   if (paths.length === 1) {
-    return paths[0].path ? `Path: ${paths[0].path}` : 'Root'
+    return `${paths[0].path ? `Path: ${paths[0].path}` : 'Root'}${excludeSummary}`
   }
   const first = paths[0]?.path || '(root)'
-  return `Paths: ${first} +${paths.length - 1} more`
+  return `Paths: ${first} +${paths.length - 1} more${excludeSummary}`
+}
+
+function summarizeExcludePaths(paths: FilesystemIncludePath[], separator = '/'): string {
+  const excludes = paths.flatMap((path) => path.exclude_paths ?? [])
+  if (excludes.length === 0) return ''
+  const first = excludes[0].replaceAll('/', separator)
+  return excludes.length === 1 ? ` · Excludes: ${first}` : ` · Excludes: ${first} +${excludes.length - 1} more`
 }
 
 /** Unique source plugin IDs for a game. */

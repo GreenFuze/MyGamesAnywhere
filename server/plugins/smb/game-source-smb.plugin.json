@@ -19,7 +19,12 @@
         "type": "object",
         "properties": {
           "path": { "type": "string", "required": true },
-          "recursive": { "type": "boolean" }
+          "recursive": { "type": "boolean" },
+          "exclude_paths": {
+            "type": "array",
+            "description": "Folders inside this include path to skip recursively.",
+            "items": { "type": "string" }
+          }
         }
       }
     }

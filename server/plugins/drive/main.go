@@ -306,7 +306,7 @@ func resolvePathToObjectID(srv *drive.Service, rootPath string) (string, error) 
 
 // --------------- File listing (source.filesystem.list) ---------------
 
-func listFiles(ctx context.Context, includes []sourcescope.IncludePath, excludes []string) ([]map[string]any, error) {
+func listFiles(ctx context.Context, includes []sourcescope.IncludePath) ([]map[string]any, error) {
 	srv, err := getDriveService(ctx)
 	if err != nil {
 		return nil, err
@@ -353,7 +353,7 @@ func listFiles(ctx context.Context, includes []sourcescope.IncludePath, excludes
 						entryPath = current.path + "/" + f.Name
 					}
 					entryPath = sourcescope.NormalizeLogicalPath(entryPath)
-					if drivePathExcluded(entryPath, excludes) {
+					if drivePathExcluded(entryPath, include.ExcludePaths) {
 						continue
 					}
 
@@ -927,6 +927,9 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 	}
+	if err := sourcescope.ValidateConfig("game-source-google-drive", p.Config); err != nil {
+		return map[string]any{"status": "error", "message": err.Error()}, nil
+	}
 
 	configToken := tokenFromConfig(p.Config)
 	if configToken != nil {
@@ -1105,13 +1108,15 @@ func handleFileList(params json.RawMessage) (any, *Error) {
 	if nestedConfig, ok := config["config"].(map[string]any); ok {
 		config = nestedConfig
 	}
+	if err := sourcescope.ValidateConfig("game-source-google-drive", config); err != nil {
+		return nil, &Error{Code: "INVALID_CONFIG", Message: err.Error()}
+	}
 	includes := filesystemIncludePathsFromConfig(config)
-	excludes := filesystemExcludePathsFromConfig(config)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 540*time.Second)
 	defer cancel()
 
-	files, err := listFiles(ctx, includes, excludes)
+	files, err := listFiles(ctx, includes)
 	if err != nil {
 		return nil, &Error{Code: "SCAN_FAILED", Message: err.Error()}
 	}
@@ -1122,31 +1127,6 @@ func handleFileList(params json.RawMessage) (any, *Error) {
 func filesystemIncludePathsFromConfig(config map[string]any) []sourcescope.IncludePath {
 	normalized := sourcescope.NormalizeConfig("game-source-google-drive", config)
 	return sourcescope.ReadIncludePaths("game-source-google-drive", normalized)
-}
-
-func filesystemExcludePathsFromConfig(config map[string]any) []string {
-	raw, ok := config["exclude_paths"]
-	if !ok {
-		return nil
-	}
-	var values []string
-	switch typed := raw.(type) {
-	case []any:
-		for _, item := range typed {
-			if s, ok := item.(string); ok {
-				if normalized := sourcescope.NormalizeLogicalPath(s); normalized != "" {
-					values = append(values, normalized)
-				}
-			}
-		}
-	case []string:
-		for _, item := range typed {
-			if normalized := sourcescope.NormalizeLogicalPath(item); normalized != "" {
-				values = append(values, normalized)
-			}
-		}
-	}
-	return values
 }
 
 func drivePathExcluded(logicalPath string, excludes []string) bool {

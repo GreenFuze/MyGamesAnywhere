@@ -270,6 +270,29 @@ func isSubtitlePrefixMatch(queryNormalized, candidateNormalized string) bool {
 	return strings.HasPrefix(candidateNormalized, queryNormalized+" ")
 }
 
+func manualSearchTitleVariants(title string) []string {
+	var variants []string
+	seen := map[string]bool{}
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			return
+		}
+		seen[value] = true
+		variants = append(variants, value)
+	}
+
+	for _, lookupVariant := range titlematch.LookupTitleVariants(title) {
+		add(lookupVariant)
+		normTitle := normalizeTitle(lookupVariant)
+		add(normTitle)
+		for _, titleVariant := range titleVariations(normTitle) {
+			add(titleVariant)
+		}
+	}
+	return variants
+}
+
 // Plugin request/response types.
 
 type lookupParams struct {
@@ -903,7 +926,7 @@ func matchGamesForManualSearch(idx *launchBoxIndex, q gameQuery) []lookupResult 
 		}
 	}
 
-	for _, variant := range titlematch.LookupTitleVariants(q.Title) {
+	for _, variant := range manualSearchTitleVariants(q.Title) {
 		for _, lbp := range lbPlatforms {
 			add(idx.lookupGame(lbp, variant), 0.99)
 			add(idx.lookupNormalized(lbp, variant), 0.98)

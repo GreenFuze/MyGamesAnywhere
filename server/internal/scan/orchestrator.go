@@ -1043,8 +1043,9 @@ func filesystemScanScope(pluginID string, config map[string]any) *core.Filesyste
 	}
 	for _, include := range includes {
 		scope.IncludePaths = append(scope.IncludePaths, core.FilesystemIncludePath{
-			Path:      include.Path,
-			Recursive: include.Recursive,
+			Path:         include.Path,
+			Recursive:    include.Recursive,
+			ExcludePaths: include.ExcludePaths,
 		})
 	}
 	return scope

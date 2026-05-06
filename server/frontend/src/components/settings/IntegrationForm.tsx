@@ -153,8 +153,13 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
         config[key] = typeof raw === 'string' ? raw : (raw ?? '')
       }
     }
+    if (selectedPlugin && isFilesystemSourcePlugin(selectedPlugin.plugin_id)) {
+      delete config.path
+      delete config.root_path
+      delete config.exclude_paths
+    }
     return config
-  }, [schema, configFields])
+  }, [schema, configFields, selectedPlugin])
 
   // Check if the selected plugin supports folder browsing.
   const supportsBrowse = selectedPlugin?.provides?.includes('source.browse') ?? false
@@ -605,6 +610,7 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
         parsed.include_paths = normalizeFilesystemIncludePaths(integration.plugin_id, parsed)
         delete parsed.path
         delete parsed.root_path
+        delete parsed.exclude_paths
       }
       return parsed
     } catch {
@@ -666,6 +672,7 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
     if (isFilesystemSourcePlugin(integration.plugin_id)) {
       delete config.path
       delete config.root_path
+      delete config.exclude_paths
     }
     return config
   }, [configFields, schema, secretMask])

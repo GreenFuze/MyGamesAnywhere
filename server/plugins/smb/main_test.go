@@ -34,6 +34,56 @@ func TestSourceIdentityIgnoresIncludePaths(t *testing.T) {
 	}
 }
 
+func TestDecodeSMBConfigReadsNestedExcludePaths(t *testing.T) {
+	config, err := decodeSMBConfig(mustJSON(t, map[string]any{
+		"host":  "TV2",
+		"share": "Games",
+		"include_paths": []map[string]any{{
+			"path":          `Games\Arcade`,
+			"recursive":     true,
+			"exclude_paths": []string{`Games\Arcade\mga_sync`},
+		}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	includes := normalizedIncludePaths(config)
+	if len(includes) != 1 {
+		t.Fatalf("include count = %d, want 1", len(includes))
+	}
+	if got := includes[0].ExcludePaths; len(got) != 1 || got[0] != "Games/Arcade/mga_sync" {
+		t.Fatalf("exclude paths = %#v", got)
+	}
+}
+
+func TestDecodeSMBConfigRejectsExcludeOutsideInclude(t *testing.T) {
+	_, err := decodeSMBConfig(mustJSON(t, map[string]any{
+		"host":  "TV2",
+		"share": "Games",
+		"include_paths": []map[string]any{{
+			"path":          "Games",
+			"recursive":     true,
+			"exclude_paths": []string{"Other/mga_sync"},
+		}},
+	}))
+	if err == nil {
+		t.Fatal("expected invalid exclude to fail")
+	}
+}
+
+func TestSMBPathExcludedMatchesDescendantsOnly(t *testing.T) {
+	excludes := []string{"Games/Arcade/Skip"}
+	if !smbPathExcluded("Games/Arcade/Skip", excludes) {
+		t.Fatal("expected exact excluded path to match")
+	}
+	if !smbPathExcluded("Games/Arcade/Skip/Nested/Game.zip", excludes) {
+		t.Fatal("expected descendant path to match")
+	}
+	if smbPathExcluded("Games/Arcade/SkipButDifferent/Game.zip", excludes) {
+		t.Fatal("did not expect sibling prefix to match")
+	}
+}
+
 func TestSourceDeletePathWithinRoot(t *testing.T) {
 	tests := []struct {
 		name     string
