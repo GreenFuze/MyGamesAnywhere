@@ -27,6 +27,7 @@ import { CoverImage } from '@/components/ui/cover-image'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { PlatformIcon } from '@/components/ui/platform-icon'
+import { SourceFileInventory } from '@/components/ui/source-file-inventory'
 import { brandLabel } from '@/lib/brands'
 import { pluginLabel } from '@/lib/gameUtils'
 
@@ -915,24 +916,7 @@ export function UndetectedGamesTab() {
                     <h4 className="text-sm font-semibold uppercase tracking-wide text-mga-text">Source Files</h4>
                   </div>
                   <div className="mt-4 space-y-3">
-                    {candidateFiles.length === 0 ? (
-                      <p className="text-sm text-mga-muted">No source files were recorded for this candidate.</p>
-                    ) : (
-                      candidateFiles.map((file) => (
-                        <div key={file.id} className="rounded-mga border border-mga-border bg-mga-bg p-3">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <p className="break-all text-sm font-medium text-mga-text">{file.path}</p>
-                              <p className="mt-1 text-xs text-mga-muted">
-                                {humanizeValue(file.role)}
-                                {file.file_kind ? ` · ${humanizeValue(file.file_kind)}` : ''}
-                              </p>
-                            </div>
-                            <Badge variant="muted">{formatBytes(file.size)}</Badge>
-                          </div>
-                        </div>
-                      ))
-                    )}
+                    <SourceFileInventory files={candidateFiles} emptyMessage="No source files were recorded for this candidate." />
                   </div>
                 </div>
 

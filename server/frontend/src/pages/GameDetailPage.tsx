@@ -27,7 +27,6 @@ import {
   type AchievementSetDTO,
   type DeleteSourceGamePreview,
   type ExternalIDDTO,
-  type GameFileDTO,
   type GameLaunchOptionDTO,
   type GameMediaDetailDTO,
   type ResolverMatchDTO,
@@ -41,6 +40,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { PlatformIcon } from '@/components/ui/platform-icon'
+import { SourceFileInventory } from '@/components/ui/source-file-inventory'
 import {
   brandLabel,
   resolveBrandDefinition,
@@ -87,15 +87,6 @@ type ExternalLinkItem = {
   host: string
   actionLabel: string
   brandId?: string
-}
-
-type GameFileDisplayRecord = {
-  sourceGameId: string
-  sourcePluginId: string
-  sourceIntegrationLabel: string
-  sourceTitle: string
-  isLaunchFile: boolean
-  file: GameFileDTO
 }
 
 function hasTextValue(value: string | undefined): boolean {
@@ -361,10 +352,6 @@ function SourceBadge({ source, className }: { source: string; className?: string
 
 function SourceGameBadge({ source, className }: { source: Pick<SourceGameDetailDTO, 'plugin_id' | 'integration_label'>; className?: string }) {
   return <BrandBadge brand={source.plugin_id} label={sourceGameIntegrationLabel(source)} className={className} />
-}
-
-function SourceGameFileBadge({ entry }: { entry: GameFileDisplayRecord }) {
-  return <BrandBadge brand={entry.sourcePluginId} label={entry.sourceIntegrationLabel} />
 }
 
 function AttributionNote({ sources, prefix = 'Source' }: { sources?: string[] | null; prefix?: string }) {
@@ -695,124 +682,10 @@ function AchievementPreviewCard({ achievement }: { achievement: AchievementDTO }
   )
 }
 
-function fileRoleLabel(role: string): string {
-  if (role === 'root') return 'Launch / Root'
-  return humanizeValue(role)
-}
-
-function fileKindLabel(kind: string | undefined): string | null {
-  if (!kind) return null
-  return humanizeValue(kind)
-}
-
-function fileGroupKey(entry: GameFileDisplayRecord): 'primary' | 'package' | 'other' {
-  if (entry.isLaunchFile || entry.file.role === 'root') return 'primary'
-  const fileKind = entry.file.file_kind?.toLowerCase() ?? ''
-  if (
-    fileKind === 'archive' ||
-    fileKind === 'executable' ||
-    fileKind === 'dos_executable' ||
-    fileKind === 'disc_image' ||
-    fileKind === 'disc_meta'
-  ) {
-    return 'package'
-  }
-  return 'other'
-}
-
-function compareFileEntries(a: GameFileDisplayRecord, b: GameFileDisplayRecord): number {
-  if (a.isLaunchFile !== b.isLaunchFile) return a.isLaunchFile ? -1 : 1
-  if (a.file.role !== b.file.role) {
-    if (a.file.role === 'root') return -1
-    if (b.file.role === 'root') return 1
-  }
-  if (a.file.path !== b.file.path) return a.file.path.localeCompare(b.file.path)
-  return a.sourcePluginId.localeCompare(b.sourcePluginId)
-}
-
-function buildGameFileGroups(sourceGames: SourceGameDetailDTO[]) {
-  const entries = sourceGames
-    .flatMap((source) =>
-      source.files.map((file) => ({
-        sourceGameId: source.id,
-        sourcePluginId: source.plugin_id,
-        sourceIntegrationLabel: sourceGameIntegrationLabel(source),
-        sourceTitle: source.raw_title || source.external_id,
-        isLaunchFile: sourcePrimaryRootFileID(source) === file.id || file.role === 'root',
-        file,
-      })),
-    )
-    .sort(compareFileEntries)
-
-  return {
-    all: entries,
-    primary: entries.filter((entry) => fileGroupKey(entry) === 'primary'),
-    package: entries.filter((entry) => fileGroupKey(entry) === 'package'),
-    other: entries.filter((entry) => fileGroupKey(entry) === 'other'),
-  }
-}
-
-function sourcePrimaryRootFileID(source: SourceGameDetailDTO): string | null {
-  return source.delivery?.profiles?.[0]?.root_file_id ?? source.play?.root_file_id ?? null
-}
-
 function sourceHasBrowserPlayDelivery(source: SourceGameDetailDTO): boolean {
   return (
     source.delivery?.profiles?.some((profile) => profile.mode === 'direct' || profile.mode === 'materialized') ??
     false
-  )
-}
-
-function GameFileRow({ entry }: { entry: GameFileDisplayRecord }) {
-  return (
-    <div className="rounded-mga border border-mga-border bg-mga-bg/60 p-3 text-sm shadow-sm shadow-black/5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <SourceGameFileBadge entry={entry} />
-            <Badge variant="muted">{fileRoleLabel(entry.file.role)}</Badge>
-            {entry.isLaunchFile ? <Badge variant="accent">Launchable</Badge> : null}
-            {fileKindLabel(entry.file.file_kind) ? <Badge>{fileKindLabel(entry.file.file_kind)}</Badge> : null}
-          </div>
-          <p className="text-xs font-medium uppercase tracking-wide text-mga-muted">{entry.sourceTitle}</p>
-        </div>
-        <div className="rounded-mga border border-mga-border bg-mga-surface px-2.5 py-1 text-xs font-medium text-mga-text">
-          {formatBytes(entry.file.size)}
-        </div>
-      </div>
-      <div className="mt-3 rounded-mga border border-mga-border/70 bg-mga-surface/70 px-3 py-2">
-        <p className="break-all font-mono text-xs leading-6 text-mga-text">{entry.file.path}</p>
-      </div>
-    </div>
-  )
-}
-
-function GameFileGroup({
-  title,
-  description,
-  entries,
-}: {
-  title: string
-  description: string
-  entries: GameFileDisplayRecord[]
-}) {
-  if (entries.length === 0) return null
-
-  return (
-    <div className="space-y-3 rounded-mga border border-mga-border bg-mga-bg/40 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-mga-text">{title}</h3>
-          <p className="mt-1 text-xs text-mga-muted">{description}</p>
-        </div>
-        <Badge variant="muted">{entries.length}</Badge>
-      </div>
-      <div className="space-y-2">
-        {entries.map((entry) => (
-          <GameFileRow key={`${entry.sourceGameId}:${entry.file.path}:${entry.file.role}`} entry={entry} />
-        ))}
-      </div>
-    </div>
   )
 }
 
@@ -976,24 +849,8 @@ function SourceRecordCard({
         <summary className="cursor-pointer list-none text-sm font-medium text-mga-text">
           Source File Inventory ({source.files.length})
         </summary>
-        <div className="mt-3 space-y-2">
-          {source.files.length === 0 ? (
-            <p className="text-sm text-mga-muted">No files associated with this source game.</p>
-          ) : (
-            source.files.map((file) => (
-              <GameFileRow
-                key={`${source.id}:${file.path}:${file.role}`}
-                entry={{
-                  sourceGameId: source.id,
-                  sourcePluginId: source.plugin_id,
-                  sourceIntegrationLabel: sourceGameIntegrationLabel(source),
-                  sourceTitle: source.raw_title || source.external_id,
-                  isLaunchFile: sourcePrimaryRootFileID(source) === file.id || file.role === 'root',
-                  file,
-                }}
-              />
-            ))
-          )}
+        <div className="mt-3">
+          <SourceFileInventory files={source.files} emptyMessage="No files associated with this source game." />
         </div>
       </details>
     </article>
@@ -1210,7 +1067,7 @@ export function GameDetailPage() {
       )
     : 0
   const externalLinks = useMemo(() => buildExternalLinks(gameData?.external_ids), [gameData?.external_ids])
-  const fileGroups = useMemo(() => buildGameFileGroups(gameData?.source_games ?? []), [gameData?.source_games])
+  const sourceFiles = useMemo(() => (gameData?.source_games ?? []).flatMap((source) => source.files), [gameData?.source_games])
   const metadataSources = useMemo(
     () => collectUnifiedMetadataSources(gameData?.source_games ?? [], gameData?.media),
     [gameData?.media, gameData?.source_games],
@@ -1759,7 +1616,7 @@ export function GameDetailPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <MetaItem label="Launchable Sources" value={launchableSourceCount} />
                   <MetaItem label="Resolver Matches" value={resolverCount} />
-                  <MetaItem label="Files" value={fileGroups.all.length} />
+                  <MetaItem label="Files" value={sourceFiles.length} />
                   <MetaItem label="Canonical ID" value={data.id} />
                 </div>
               </div>
@@ -1869,40 +1726,14 @@ export function GameDetailPage() {
             id="game-files"
             title="Game Files"
             icon={<HardDrive size={18} className="text-mga-accent" />}
-            description="Files are grouped by launch importance so the primary runtime path is visible at a glance."
+            description="Stored source file paths for this game."
             actions={
               <div className="flex flex-wrap gap-2">
-                <Badge variant="muted">{fileGroups.all.length} total</Badge>
-                {fileGroups.primary.length > 0 ? <Badge variant="accent">{fileGroups.primary.length} launch/root</Badge> : null}
+                <Badge variant="muted">{sourceFiles.length} total</Badge>
               </div>
             }
           >
-            {fileGroups.all.length > 0 ? (
-              <div className="space-y-5">
-                <div className="grid gap-3 md:grid-cols-3">
-                  <HeroStatCard label="Launchable" value={fileGroups.primary.length} detail="Primary launch or root files" />
-                  <HeroStatCard label="Packages" value={fileGroups.package.length} detail="Installers, archives, and disc images" />
-                  <HeroStatCard label="Supporting" value={fileGroups.other.length} detail="Required or optional supporting files" />
-                </div>
-                <GameFileGroup
-                  title="Primary Files"
-                  description="Launchable or root files for the stored source records."
-                  entries={fileGroups.primary}
-                />
-                <GameFileGroup
-                  title="Installer / Package Files"
-                  description="Archives, disc images, or executable package files that are likely part of installation or packaging."
-                  entries={fileGroups.package}
-                />
-                <GameFileGroup
-                  title="Supporting Files"
-                  description="Required or optional supporting files that belong to the stored source records."
-                  entries={fileGroups.other}
-                />
-              </div>
-            ) : (
-              <p className="text-sm text-white/58">No source files are available for this game yet.</p>
-            )}
+            <SourceFileInventory files={sourceFiles} emptyMessage="No source files are available for this game yet." />
           </SectionCard>
 
         <SectionCard

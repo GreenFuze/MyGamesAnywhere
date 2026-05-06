@@ -243,6 +243,14 @@
               <h3>Installer and updates</h3>
               <p>Windows users can choose a portable ZIP or installer. For-me-only installs run after sign-in and stay local-only by default; all-users installs run as a service with LAN access enabled by default. Settings can apply SHA256-verified updates and restart MGA automatically.</p>
             </article>
+            <article class="note-card">
+              <h3>Source scope controls</h3>
+              <p>Drive and SMB sources can scan include folders while excluding nested folders such as settings-sync or save-sync directories.</p>
+            </article>
+            <article class="note-card">
+              <h3>Compact file views</h3>
+              <p>Game and manual-review pages summarize backing files as a copyable path inventory with total size, keeping large file-backed games readable.</p>
+            </article>
           </div>
         </div>
       </section>
@@ -326,7 +334,7 @@
               <ul>
                 <li>Canonical game merge across multiple source types</li>
                 <li>Source-backed game pages with files, media, favorites, provider evidence, and per-version context</li>
-                <li>Manual review, fuzzy provider search, and re-detect for unresolved records</li>
+                <li>Manual review, fuzzy provider search, numeral-aware manual search, and re-detect for unresolved records</li>
                 <li>Source-backed achievements, browser-play surfaces, and REST API</li>
                 <li>Materialized Drive/SMB browser play and EmulatorJS save-sync</li>
                 <li>Plugin-backed delete previews with checkbox confirmation for file-backed deletes</li>
@@ -335,6 +343,8 @@
                 <li>Windows portable ZIP and installer with for-me-only process mode and all-users service mode</li>
                 <li>Auto-update v1 with manifest checks, SHA256 verification, and Windows restart/apply flows</li>
                 <li>Media cache status with retry and clear-cache controls</li>
+                <li>Nested exclude folders for Google Drive and SMB source scans</li>
+                <li>Compact source-file inventory views for game and manual-review pages</li>
               </ul>
             </article>
             <article>
@@ -368,7 +378,7 @@
             <ol class="steps">
               <li>Download the latest Windows portable ZIP or installer EXE from GitHub Releases.</li>
               <li>For portable, extract it to a writable folder and run <code>Start MGA.cmd</code>.</li>
-              <li>For installer, choose for-me-only mode for a login process or all-users mode for a Windows service.</li>
+              <li>For installer, choose for-me-only mode for a login process under your Windows profile or all-users mode for an administrator-approved Windows service.</li>
               <li>Open <code>http://127.0.0.1:8900</code>.</li>
             </ol>
             <p class="note">Portable and for-me installs run on <code>127.0.0.1:8900</code> by default. All-users installs run as a service on <code>0.0.0.0:8900</code> by default, with an explicit firewall-rule choice. Installed data and logs move to per-user or machine data directories.</p>

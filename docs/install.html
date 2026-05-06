@@ -35,7 +35,7 @@
             <ol class="steps">
               <li>Download <code>mga-v0.0.8-windows-amd64-portable.zip</code> or <code>mga-v0.0.8-windows-amd64-installer.exe</code> from <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">GitHub Releases</a>.</li>
               <li>For portable, extract it into a writable folder such as <code>C:\Games\MGA</code> and run <code>Start MGA.cmd</code>.</li>
-              <li>For installer, choose for-me-only mode for a login process or all-users mode for a Windows service.</li>
+              <li>For installer, choose <strong>For me only</strong> for a login process under your Windows profile, or <strong>All users</strong> for an administrator-approved Windows service.</li>
               <li>Open <code>http://127.0.0.1:8900</code>.</li>
               <li>Create or select a local profile in the first-run/profile picker flow.</li>
             </ol>
@@ -62,7 +62,7 @@
           </div>
           <div>
             <h2>Installer notes</h2>
-            <p class="note">For-me-only installs place app files under <code>%LOCALAPPDATA%\Programs\MyGamesAnywhere</code> and data/logs under <code>%LOCALAPPDATA%\MyGamesAnywhere</code>; MGA starts after that Windows user signs in and listens only on this PC by default. All-users installs place app files under <code>%ProgramFiles%\MyGamesAnywhere</code> and data/logs under <code>%ProgramData%\MyGamesAnywhere</code>; MGA runs as a Windows service, requires administrator approval, starts even when nobody is signed in, and enables LAN access by default.</p>
+            <p class="note"><strong>For me only</strong> installs place app files under <code>%LOCALAPPDATA%\Programs\MyGamesAnywhere</code> and data/logs under <code>%LOCALAPPDATA%\MyGamesAnywhere</code>; MGA starts after that Windows user signs in, uses the built-in tray menu, and listens only on this PC by default. <strong>All users</strong> installs place app files under <code>%ProgramFiles%\MyGamesAnywhere</code> and data/logs under <code>%ProgramData%\MyGamesAnywhere</code>; MGA runs as a Windows service, requires administrator approval, starts even when nobody is signed in, uses a tray companion for status/control, and enables LAN access by default with an explicit firewall-rule choice.</p>
           </div>
         </div>
       </section>

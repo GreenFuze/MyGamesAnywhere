@@ -149,7 +149,7 @@ Additional screenshot coverage is tracked in the public docs, but the committed 
 
 - Unified cross-source library with canonical game merge
 - Source-backed game pages with metadata, media, files, external links, provider evidence, favorites, and per-version context
-- Manual review, fuzzy provider search, platform-aware matching, and re-detect for unresolved records
+- Manual review, fuzzy provider search, platform-aware matching, numeral-aware manual provider search, and re-detect for unresolved records
 - Poster-first library browsing and game pages
 - Favorite games persisted by the local server, including automatic Favorites shelves in Library and Play
 - Source-backed Steam, Xbox, and RetroAchievements progress surfaces, including multiple achievement sets when one canonical game has multiple detected versions
@@ -160,6 +160,7 @@ Additional screenshot coverage is tracked in the public docs, but the committed 
 - Save-sync and settings-sync surfaces
 - Configurable server `LISTEN_IP` for loopback or opt-in LAN binding, while released packages stay local-only by default
 - Plugin-backed dry-delete previews for file-backed source deletes, with checkbox confirmation before the real delete action
+- Compact source-file inventory views that show all backing paths in one copyable textbox with total size instead of one card per file
 - First-run profile flow, browser-local profile picker, profile menu, and admin-managed profile settings
 - Profile-owned integrations and library data, so storefront credentials, source scans, favorites, achievements, and settings can be separated per profile
 - Windows installer with clear per-user or all-users modes: per-user runs after sign-in as a local-only process, while all-users installs an admin-approved service with LAN access enabled by default, optional firewall setup, and rotating file logs
@@ -193,8 +194,8 @@ Additional screenshot coverage is tracked in the public docs, but the committed 
 | Steam | `game-source-steam` | Game source discovery, Steam-backed achievements | Steam Web API key |
 | Xbox / PC Game Pass | `game-source-xbox` | Xbox library source, Game Pass / xCloud availability, Xbox achievements | OAuth-backed |
 | Epic Games | `game-source-epic` | Epic library source | Source listing |
-| Google Drive | `game-source-google-drive` | Drive-backed game source, file browse/materialize/delete, browser-play materialization | OAuth-backed; include paths supported; source deletes move explicit files to Drive trash |
-| SMB / network shares | `game-source-smb` | Network-share game source, filesystem operations, browser-play materialization | Host/share credentials and include paths; source deletes remove only explicit files |
+| Google Drive | `game-source-google-drive` | Drive-backed game source, file browse/materialize/delete, browser-play materialization | OAuth-backed; include paths with nested recursive excludes; source deletes move explicit files to Drive trash |
+| SMB / network shares | `game-source-smb` | Network-share game source, filesystem operations, browser-play materialization | Host/share credentials and include paths with nested recursive excludes; source deletes remove only explicit files |
 
 ### Metadata providers
 
@@ -237,11 +238,11 @@ MGA ships Windows portable and installer builds. It runs as a local server plus 
 
 1. Download the portable ZIP or installer EXE from [Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest)
 2. For portable, extract it to a writable folder such as `C:\Games\MGA` and run `Start MGA.cmd`
-3. For the installer, choose per-user mode for a login process or all-users mode for a Windows service
+3. For the installer, choose **For me only** for a login process under your Windows profile, or **All users** for an administrator-approved Windows service
 4. Open [http://127.0.0.1:8900](http://127.0.0.1:8900)
 5. On first run, create the first Admin Player profile or use the profile picker if profiles already exist
 
-The current portable runtime stores config, database, plugins, media, logs, and local state beside the runtime folder. Avoid extracting it under `Program Files`. The shipped `config.json` includes `LISTEN_IP: "127.0.0.1"` and `PORT: "8900"`; LAN exposure is opt-in by editing the server config. Installed all-users mode intentionally writes `LISTEN_IP: "0.0.0.0"` because it is the service/LAN mode.
+The current portable runtime stores config, database, plugins, media, logs, update cache, and local state beside the runtime folder. Avoid extracting it under `Program Files`. The shipped `config.json` includes `LISTEN_IP: "127.0.0.1"` and `PORT: "8900"`; LAN exposure is opt-in by editing the server config. Installed **For me only** mode stores app files under `%LOCALAPPDATA%\Programs\MyGamesAnywhere` and mutable data/logs under `%LOCALAPPDATA%\MyGamesAnywhere`. Installed **All users** mode stores app files under `%ProgramFiles%\MyGamesAnywhere`, mutable data/logs under `%ProgramData%\MyGamesAnywhere`, runs as a Windows service, and intentionally writes `LISTEN_IP: "0.0.0.0"` because it is the service/LAN mode.
 
 ### Local-first ownership
 
@@ -300,7 +301,7 @@ The short public roadmap lives in [docs/public-roadmap.md](docs/public-roadmap.m
 
 The important split is:
 
-- **Available now**: canonical game merge, local-first runtime, source-backed pages, favorites, local profiles, profile-owned integrations/library data, platform-aware manual review, source-backed achievements, browser-play surfaces, EmulatorJS save-sync, safer file-backed delete previews, configurable listen IP, Windows portable/installer packaging, and auto-update v1
+- **Available now**: canonical game merge, local-first runtime, source-backed pages, favorites, local profiles, profile-owned integrations/library data, platform-aware manual review with numeral-aware manual search, source-backed achievements, browser-play surfaces, EmulatorJS save-sync, nested source-scan excludes, compact source-file inventories, safer file-backed delete previews, configurable listen IP, Windows portable/installer packaging, and auto-update v1
 - **In active development**: packaging hardening, UX refinement, broader metadata/runtime coverage, and better public proof/docs
 - **Planned later**: Linux packaging, desktop shell, mobile client, and deeper multi-user flows
 

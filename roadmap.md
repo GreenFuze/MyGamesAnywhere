@@ -662,7 +662,6 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [ ] Add signed release verification after code signing is introduced.
 - [x] Add "favorites"
   - 2026-04-27 follow-up: canonical games now support server-persisted favorites, game detail/card heart toggles, and computed `Favorites` shelves as the first Library/Play shelf when favorite games exist in that scope.
-- [ ] Make MGA available in 0.0.0.0 or localhost. it needs to be configurable. I think using as 0.0.0.0 will require admin rights on start-up.
   - [x] Server `LISTEN_IP` config supports `127.0.0.1`, `localhost`, `0.0.0.0`, concrete LAN IPs, and IPv6 literals.
   - [x] Portable release config ships local-only with `LISTEN_IP: "127.0.0.1"` and `PORT: "8900"`.
   - [ ] This should be configurable from the frontend as well (under "settings/general" page?)
@@ -691,7 +690,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] Home screen should have "library statistics" and "gamer statistics". Still not sure how to display these as different pages and conviniently, but it should support extensive statistics in a cool, colorful, way. Maybe, it should be in different pages, like "achivements" shows also statistics for achivements, so maybe a "library statistics", "gamer statistics" pages (where the latter includes achivements)?
 - [ ] Make sure MGA server (and frontend client) both supporting Linux + Windows
 - [ ] When playing a game, not all emulators support "retroachivements" achivements recording. check if our EmulatorJS does support it. If it does, check what it means to allow the user to run in that mode (which is restricting on "cheats" and stuff like that).
-- [ ] When showing source files of a game (in undetected games page and game page), show all the files in a single multi-line textbox. otherwise it takes too much space. Also no need to show size per file, show total size.
+- [x] When showing source files of a game (in undetected games page and game page), show all the files in a single multi-line textbox. otherwise it takes too much space. Also no need to show size per file, show total size.
 - [x] Support "exclude directories" for files-backed sources. Update Web frontend to support this.
 - [x] I am searching for "desert strike". in launchbox db website I find "Desert Strike: Return to the Gulf", which is the right game, but in MGA it finds only "MiniTank: Desert Strike" from IGDB.
 - [x] In undetected games, "Inca 2 (MS DOS)" was not found. if I manually search for "Inca 2", also not found. If I search for "Inca II", it is found. Now if I remember correctly the normalization and cadidates to search, if there's no match, we remove the parenthesis (i.e. "Inca 2"), and if that is not found, we replace the numbers to roman numbers (i.e. Inca II) -> meaning, the undetected games search of "Inca 2 (MS DOS)" should have displayed "Inca II". Am I wrong?
@@ -699,3 +698,4 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] The auto update (in the settings->update) should ignore versions that are not in the format of "vX.X.X". Meaning, it shouldn't detect latest versions of the format "v0.0.8-beta" and such. Or, at the least, let the user decide their track (cutting edge vs stable)
 - [x] The auto update, how does that work? MGA server should update the code and restart, how do you think to do that exactly? Remember MGA is still running, so it needs to be restarted. What is the plan. I think maybe the update setup executable can shutdown MGA -> update -> restart MGA. What do you think? it just needs to mind the type of installation.
 - [ ] What do we do with the integrations redirect URL when the server is listening to 0.0.0.0 and we are NOT accessing from localhost/127.0.0.1 ?
+- [ ] Update/migration plan: everytime a server will update, its not just the binaries, its also updating the DB. What is the plan to support schema or data changes?
