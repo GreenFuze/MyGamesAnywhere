@@ -33,13 +33,13 @@ export function OAuthCallbackPanel({
   const [callbackUrl, setCallbackUrl] = useState('')
   const [pasteOpen, setPasteOpen] = useState(Boolean(remoteBrowserHint))
   const [submitting, setSubmitting] = useState(false)
-  const canPaste = pasteCallbackSupported
+  const canPaste = pasteCallbackSupported && Boolean(remoteBrowserHint)
   const trimmedCallbackUrl = callbackUrl.trim()
   const helperText = useMemo(() => {
     if (remoteBrowserHint) {
       return 'You are using MGA from another device. If sign-in cannot return to MGA, paste the final callback URL here.'
     }
-    return 'Most local sign-ins complete automatically. Use paste only if the browser ends on a page that cannot connect.'
+    return 'MGA will complete this automatically after the provider returns to the local callback page.'
   }, [remoteBrowserHint])
 
   async function submitPastedCallback() {
