@@ -138,6 +138,7 @@ func (c *ProfileController) RestoreSync(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	c.decorateRestoreOAuthResult(r, result, body.PluginID, redirectURI)
 	c.startFirstRunScan(r.Context(), result)
 	w.Header().Set("Content-Type", "application/json")
 	if result.Status == "oauth_required" {
@@ -198,6 +199,7 @@ func (c *ProfileController) CheckRestoreSync(w http.ResponseWriter, r *http.Requ
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	c.decorateRestoreOAuthResult(r, result, body.PluginID, redirectURI)
 	w.Header().Set("Content-Type", "application/json")
 	if result.Status == "oauth_required" {
 		w.WriteHeader(http.StatusAccepted)
@@ -240,6 +242,7 @@ func (c *ProfileController) RestoreSyncPoints(w http.ResponseWriter, r *http.Req
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	c.decorateRestorePointsOAuthResult(r, result, body.PluginID, redirectURI)
 	w.Header().Set("Content-Type", "application/json")
 	if result.Status == "oauth_required" {
 		w.WriteHeader(http.StatusAccepted)
@@ -247,6 +250,32 @@ func (c *ProfileController) RestoreSyncPoints(w http.ResponseWriter, r *http.Req
 		w.WriteHeader(http.StatusOK)
 	}
 	_ = json.NewEncoder(w).Encode(result)
+}
+
+func (c *ProfileController) decorateRestoreOAuthResult(r *http.Request, result *core.RestoreSyncResult, pluginID, callbackURL string) {
+	if result == nil || result.Status != "oauth_required" {
+		return
+	}
+	if strings.TrimSpace(result.PluginID) == "" {
+		result.PluginID = pluginID
+	}
+	result.CallbackURL = callbackURL
+	result.PasteCallbackSupported = true
+	result.RemoteBrowserHint = !isLocalRequestHost(r)
+	defaultOAuthStateStore.Register(result.State, OAuthState{PluginID: result.PluginID})
+}
+
+func (c *ProfileController) decorateRestorePointsOAuthResult(r *http.Request, result *core.RestoreSyncPointsResult, pluginID, callbackURL string) {
+	if result == nil || result.Status != "oauth_required" {
+		return
+	}
+	if strings.TrimSpace(result.PluginID) == "" {
+		result.PluginID = pluginID
+	}
+	result.CallbackURL = callbackURL
+	result.PasteCallbackSupported = true
+	result.RemoteBrowserHint = !isLocalRequestHost(r)
+	defaultOAuthStateStore.Register(result.State, OAuthState{PluginID: result.PluginID})
 }
 
 func (c *ProfileController) BrowseRestoreSync(w http.ResponseWriter, r *http.Request) {

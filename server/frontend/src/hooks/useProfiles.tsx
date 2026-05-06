@@ -5,6 +5,7 @@ import {
   browseRestoreSyncSetup,
   checkRestoreSyncSetup,
   getSetupStatus,
+  importOAuthCallback,
   isRestoreSyncOAuthRequired,
   listRestoreSyncPoints,
   listProfiles,
@@ -12,10 +13,12 @@ import {
   SELECTED_PROFILE_STORAGE_KEY,
   startFreshSetup,
   type Profile,
+  type RestoreSyncSetupOAuthRequired,
   type RestoreSyncPoint,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { FolderBrowser } from '@/components/settings/FolderBrowser'
+import { OAuthCallbackPanel } from '@/components/settings/OAuthCallbackPanel'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { useSSE } from '@/hooks/useSSE'
@@ -136,6 +139,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
   const [syncPath, setSyncPath] = useState(DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
   const [passphrase, setPassphrase] = useState('')
   const [oauthState, setOauthState] = useState('')
+  const [oauthResponse, setOauthResponse] = useState<RestoreSyncSetupOAuthRequired | null>(null)
   const [driveConnected, setDriveConnected] = useState(false)
   const [showFolderBrowser, setShowFolderBrowser] = useState(false)
   const [restorePoints, setRestorePoints] = useState<RestoreSyncPoint[]>([])
@@ -164,11 +168,8 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
       })
       if (result.status === 'oauth_required') {
         setOauthState(result.state)
+        setOauthResponse(result)
         setDriveConnected(false)
-        const authWindow = window.open('', '_blank')
-        if (authWindow) {
-          authWindow.location.href = result.authorize_url
-        }
         setMessage('Finish Google Drive sign-in in the browser, then choose the sync folder.')
         return
       }
@@ -218,9 +219,9 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
       })
       if (isRestoreSyncOAuthRequired(result)) {
         setOauthState(result.state)
+        setOauthResponse(result)
         setDriveConnected(false)
         setMessage('Finish Google Drive sign-in in the browser, then choose the sync folder.')
-        window.open(result.authorize_url, '_blank')
         return
       }
       await queryClient.invalidateQueries({ queryKey: ['setup-status'] })
@@ -248,6 +249,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
       })
       if (isRestoreSyncOAuthRequired(result)) {
         setOauthState(result.state)
+        setOauthResponse(result)
         setMessage('Finish Google Drive sign-in in the browser, then choose the sync folder.')
         if (authWindow) {
           authWindow.location.href = result.authorize_url
@@ -275,6 +277,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
       const d = data as { state?: string }
       if (d.state === oauthState) {
         setOauthState('')
+        setOauthResponse(null)
         setDriveConnected(true)
         if (!syncPath.trim()) setSyncPath(DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
         setMessage('Google Drive connected. Choose the sync folder that contains latest.json, then restore.')
@@ -286,10 +289,41 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
       if (d.state === oauthState) {
         setError(d.error ?? 'Authentication failed')
         setOauthState('')
+        setOauthResponse(null)
       }
     })
     return () => { unsubComplete(); unsubError() }
   }, [loadRestorePoints, oauthState, subscribe, syncPath])
+
+  const reopenRestoreOAuthWindow = useCallback(() => {
+    if (!oauthResponse) return
+    const authWindow = window.open('', '_blank')
+    if (authWindow) {
+      authWindow.location.href = oauthResponse.authorize_url
+      setError('')
+    } else {
+      setError('Browser blocked the Google sign-in popup. Allow popups for MGA and try again.')
+    }
+  }, [oauthResponse])
+
+  const submitRestoreOAuthCallback = useCallback(async (callbackUrl: string) => {
+    if (!oauthResponse) return
+    setSaving(true)
+    setError('')
+    try {
+      await importOAuthCallback(GOOGLE_DRIVE_SYNC_PLUGIN_ID, callbackUrl)
+      setOauthState('')
+      setOauthResponse(null)
+      setDriveConnected(true)
+      if (!syncPath.trim()) setSyncPath(DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
+      setMessage('Google Drive connected. Choose the sync folder that contains latest.json, then restore.')
+      await loadRestorePoints()
+    } catch (err) {
+      setError(apiErrorText(err, 'Failed to import callback URL'))
+    } finally {
+      setSaving(false)
+    }
+  }, [loadRestorePoints, oauthResponse, syncPath])
 
   if (mode === 'choose') {
     return (
@@ -381,6 +415,23 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
                   ) : null}
                 </div>
               )}
+              {oauthResponse ? (
+                <OAuthCallbackPanel
+                  providerLabel="Google Drive"
+                  authorizeUrl={oauthResponse.authorize_url}
+                  remoteBrowserHint={oauthResponse.remote_browser_hint}
+                  pasteCallbackSupported={oauthResponse.paste_callback_supported}
+                  busy={saving}
+                  error={error || null}
+                  onOpenSignIn={reopenRestoreOAuthWindow}
+                  onSubmitCallback={submitRestoreOAuthCallback}
+                  onCancel={() => {
+                    setOauthState('')
+                    setOauthResponse(null)
+                    setError('')
+                  }}
+                />
+              ) : null}
               <Input
                 label="Sync encryption passphrase"
                 type="password"

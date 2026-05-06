@@ -241,6 +241,9 @@ export type RestoreSyncSetupOAuthRequired = {
   plugin_id: string;
   authorize_url: string;
   state: string;
+  callback_url?: string;
+  paste_callback_supported?: boolean;
+  remote_browser_hint?: boolean;
 };
 
 export type RestoreSyncSetupResponse = RestoreSyncSetupResult | RestoreSyncSetupOAuthRequired;
@@ -852,6 +855,9 @@ export type OAuthRequiredResponse = {
   plugin_id: string;
   authorize_url: string;
   state: string;
+  callback_url?: string;
+  paste_callback_supported?: boolean;
+  remote_browser_hint?: boolean;
 };
 
 export type PluginConfigCheckResult = {
@@ -998,6 +1004,13 @@ export async function startIntegrationAuth(
   }
 
   return res.json() as Promise<IntegrationStatusEntry>;
+}
+
+export async function importOAuthCallback(pluginId: string, callbackUrl: string): Promise<{ status: "ok" }> {
+  return postJson<{ status: "ok" }>("/api/auth/callback/import", {
+    plugin_id: pluginId,
+    callback_url: callbackUrl,
+  }) as Promise<{ status: "ok" }>;
 }
 
 export async function deleteIntegration(id: string): Promise<void> {

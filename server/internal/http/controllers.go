@@ -1003,6 +1003,7 @@ func (c *PluginController) registerOAuthState(state string, integration *core.In
 	c.oauthStates.Register(state, OAuthState{
 		IntegrationID: integration.ID,
 		ProfileID:     integration.ProfileID,
+		PluginID:      integration.PluginID,
 	})
 }
 
@@ -1177,15 +1178,16 @@ func mergeConfigUpdates(config map[string]any, updates map[string]any) {
 	}
 }
 
-func (c *PluginController) writeOAuthRequired(w http.ResponseWriter, pluginID string, checkResult integrationCheckResult) {
+func (c *PluginController) writeOAuthRequired(w http.ResponseWriter, r *http.Request, pluginID string, checkResult integrationCheckResult) {
+	callbackURL := c.oauthRedirectURI(pluginID)
+	if c.oauthStates != nil && strings.TrimSpace(checkResult.State) != "" {
+		if _, ok := c.oauthStates.Peek(checkResult.State); !ok {
+			c.oauthStates.Register(checkResult.State, OAuthState{PluginID: pluginID})
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status":        "oauth_required",
-		"plugin_id":     pluginID,
-		"authorize_url": checkResult.AuthorizeURL,
-		"state":         checkResult.State,
-	})
+	_ = json.NewEncoder(w).Encode(buildOAuthRequiredPayload(r, pluginID, checkResult.AuthorizeURL, checkResult.State, callbackURL))
 }
 
 func (c *PluginController) Status(w http.ResponseWriter, r *http.Request) {
@@ -1392,7 +1394,7 @@ func (c *PluginController) StartIntegrationAuth(w http.ResponseWriter, r *http.R
 	}
 	if checkResult.Status == "oauth_required" {
 		c.registerOAuthState(checkResult.State, integration)
-		c.writeOAuthRequired(w, integration.PluginID, checkResult)
+		c.writeOAuthRequired(w, r, integration.PluginID, checkResult)
 		return
 	}
 
@@ -1452,7 +1454,7 @@ func (c *PluginController) CheckPluginConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if checkResult.Status == "oauth_required" {
-		c.writeOAuthRequired(w, pluginID, checkResult)
+		c.writeOAuthRequired(w, r, pluginID, checkResult)
 		return
 	}
 	if checkResult.Status == "" {
@@ -1634,7 +1636,7 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 
 	// OAuth consent required — return 202 with authorize URL for frontend to open.
 	if checkResult.Status == "oauth_required" {
-		c.writeOAuthRequired(w, body.PluginID, checkResult)
+		c.writeOAuthRequired(w, r, body.PluginID, checkResult)
 		return
 	}
 
@@ -1741,7 +1743,7 @@ func (c *PluginController) UpdateIntegration(w http.ResponseWriter, r *http.Requ
 		}
 		if checkResult.Status == "oauth_required" {
 			c.registerOAuthState(checkResult.State, existing)
-			c.writeOAuthRequired(w, existing.PluginID, checkResult)
+			c.writeOAuthRequired(w, r, existing.PluginID, checkResult)
 			return
 		}
 		if checkResult.Status != "" && checkResult.Status != "ok" {

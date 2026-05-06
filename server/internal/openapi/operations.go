@@ -562,6 +562,14 @@ func Operations() []OperationDoc {
 			ResponseDocs: map[string]string{"200": "Status ok JSON", "500": "Failed to clear sync key"},
 		},
 		{
+			Method:         "POST",
+			Path:           "/api/auth/callback/import",
+			Summary:        "Import pasted OAuth callback URL",
+			Description:    "Completes an OAuth2 or OpenID-style plugin consent flow when the provider callback cannot reach MGA automatically. The client posts the final callback URL copied from the browser address bar; MGA validates the callback path, plugin id, and pending state, then invokes the same auth.oauth.callback plugin method used by direct redirects.",
+			RequestBodyDoc: "JSON: { plugin_id: string, callback_url: string }",
+			ResponseDocs:   map[string]string{"200": "Status ok JSON", "400": "Malformed URL, wrong callback path/plugin, missing or stale state, provider denial, or plugin callback failure", "500": "Internal server error"},
+		},
+		{
 			Method:       "GET",
 			Path:         "/api/auth/callback/{plugin_id}",
 			Summary:      "Handle OAuth callback for a plugin",

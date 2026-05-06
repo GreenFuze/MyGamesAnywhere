@@ -6,6 +6,7 @@ import {
   listPlugins,
   getIntegrationStatus,
   checkIntegrationStatus,
+  importOAuthCallback,
   startIntegrationAuth,
   deleteIntegration,
   triggerScan,
@@ -25,6 +26,7 @@ import {
   isOAuthRequired,
   type Integration,
   type IntegrationStatusEntry,
+  type OAuthRequiredResponse,
   type PluginInfo,
   type ScanJobIntegrationStatus,
   type ScanJobMetadataProviderStatus,
@@ -40,6 +42,7 @@ import { IntegrationGroupSection } from "./IntegrationGroupSection";
 import { LibraryStatsSummary } from "./LibraryStatsSummary";
 import { ScanSummary } from "./ScanSummary";
 import { AddIntegrationWizard, EditIntegrationDialog } from "./IntegrationForm";
+import { OAuthCallbackPanel } from "./OAuthCallbackPanel";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -81,6 +84,12 @@ type MetadataParticipationState = {
   error?: string;
   progress?: ScanJobProgress;
   sourceLabel?: string;
+};
+
+type ActiveOAuthPrompt = {
+  integration: Integration;
+  oauth: OAuthRequiredResponse;
+  error?: string;
 };
 
 function readTimestamp(data: unknown): string {
@@ -657,6 +666,7 @@ export function IntegrationsTab() {
   const [checkProgress, setCheckProgress] = useState({ current: 0, total: 0 });
   const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
   const [authPendingIds, setAuthPendingIds] = useState<Set<string>>(new Set());
+  const [activeOAuthPrompt, setActiveOAuthPrompt] = useState<ActiveOAuthPrompt | null>(null);
   const oauthStateToIntegrationIdRef = useRef<Map<string, string>>(new Map());
   const oauthPopupCloseTimersRef = useRef<Map<string, number>>(new Map());
 
@@ -2021,6 +2031,7 @@ export function IntegrationsTab() {
       if (isOAuthRequired(result)) {
         waitingForBrowser = true;
         oauthStateToIntegrationIdRef.current.set(result.state, integration.id);
+        setActiveOAuthPrompt({ integration, oauth: result });
         setStatusMap((prev) => {
           const next = new Map(prev);
           next.set(integration.id, {
@@ -2044,6 +2055,7 @@ export function IntegrationsTab() {
         } else {
           waitingForBrowser = false;
           oauthStateToIntegrationIdRef.current.delete(result.state);
+          setActiveOAuthPrompt({ integration, oauth: result, error: "Browser blocked the sign-in popup. Allow popups for MGA and try again." });
           setStatusMap((prev) => {
             const next = new Map(prev);
             next.set(integration.id, {
@@ -2090,6 +2102,49 @@ export function IntegrationsTab() {
     }
   }, []);
 
+  const reopenActiveOAuthWindow = useCallback(() => {
+    if (!activeOAuthPrompt) return;
+    const authWindow = window.open("", "_blank");
+    if (!authWindow) {
+      setActiveOAuthPrompt((prev) => prev ? { ...prev, error: "Browser blocked the sign-in popup. Allow popups for MGA and try again." } : prev);
+      return;
+    }
+    authWindow.location.href = activeOAuthPrompt.oauth.authorize_url;
+    setActiveOAuthPrompt((prev) => prev ? { ...prev, error: undefined } : prev);
+  }, [activeOAuthPrompt]);
+
+  const submitActiveOAuthCallback = useCallback(async (callbackUrl: string) => {
+    if (!activeOAuthPrompt) return;
+    try {
+      await importOAuthCallback(activeOAuthPrompt.integration.plugin_id, callbackUrl);
+      setActiveOAuthPrompt(null);
+      setAuthPendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(activeOAuthPrompt.integration.id);
+        return next;
+      });
+      oauthStateToIntegrationIdRef.current.delete(activeOAuthPrompt.oauth.state);
+      await handleCheckOne(activeOAuthPrompt.integration.id);
+    } catch (err) {
+      setActiveOAuthPrompt((prev) => prev ? {
+        ...prev,
+        error: err instanceof Error ? err.message : "Failed to import callback URL.",
+      } : prev);
+    }
+  }, [activeOAuthPrompt, handleCheckOne]);
+
+  const cancelActiveOAuthPrompt = useCallback(() => {
+    if (activeOAuthPrompt) {
+      oauthStateToIntegrationIdRef.current.delete(activeOAuthPrompt.oauth.state);
+      setAuthPendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(activeOAuthPrompt.integration.id);
+        return next;
+      });
+    }
+    setActiveOAuthPrompt(null);
+  }, [activeOAuthPrompt]);
+
   useEffect(() => {
     const unsubs = [
       subscribe("oauth_complete", (data: unknown) => {
@@ -2103,6 +2158,10 @@ export function IntegrationsTab() {
           oauthPopupCloseTimersRef.current.delete(integrationId);
         }
         oauthStateToIntegrationIdRef.current.delete(d.state);
+        setActiveOAuthPrompt((prev) => {
+          if (!prev || prev.oauth.state !== d.state) return prev;
+          return null;
+        });
         for (const [state, mappedIntegrationId] of oauthStateToIntegrationIdRef.current.entries()) {
           if (mappedIntegrationId === integrationId) {
             oauthStateToIntegrationIdRef.current.delete(state);
@@ -2126,6 +2185,10 @@ export function IntegrationsTab() {
           oauthPopupCloseTimersRef.current.delete(integrationId);
         }
         oauthStateToIntegrationIdRef.current.delete(d.state);
+        setActiveOAuthPrompt((prev) => {
+          if (!prev || prev.oauth.state !== d.state) return prev;
+          return { ...prev, error: d.error ?? "Authentication failed." };
+        });
         for (const [state, mappedIntegrationId] of oauthStateToIntegrationIdRef.current.entries()) {
           if (mappedIntegrationId === integrationId) {
             oauthStateToIntegrationIdRef.current.delete(state);
@@ -2841,6 +2904,26 @@ export function IntegrationsTab() {
             queryClient.invalidateQueries({ queryKey: ["integrations"] });
           }}
         />
+      )}
+
+      {activeOAuthPrompt && (
+        <Dialog
+          open
+          onClose={cancelActiveOAuthPrompt}
+          title={`Sign in - ${activeOAuthPrompt.integration.label}`}
+          className="max-w-3xl"
+        >
+          <OAuthCallbackPanel
+            providerLabel={activeOAuthPrompt.integration.label}
+            authorizeUrl={activeOAuthPrompt.oauth.authorize_url}
+            remoteBrowserHint={activeOAuthPrompt.oauth.remote_browser_hint}
+            pasteCallbackSupported={activeOAuthPrompt.oauth.paste_callback_supported}
+            error={activeOAuthPrompt.error}
+            onOpenSignIn={reopenActiveOAuthWindow}
+            onSubmitCallback={submitActiveOAuthCallback}
+            onCancel={cancelActiveOAuthPrompt}
+          />
+        </Dialog>
       )}
 
       {/* Delete Confirmation */}

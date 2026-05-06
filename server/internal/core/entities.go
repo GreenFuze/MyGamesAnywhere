@@ -513,22 +513,28 @@ type RestoreSyncBrowseRequest struct {
 }
 
 type RestoreSyncResult struct {
-	Status        string         `json:"status"`
-	PluginID      string         `json:"plugin_id,omitempty"`
-	AuthorizeURL  string         `json:"authorize_url,omitempty"`
-	State         string         `json:"state,omitempty"`
-	ProfileID     string         `json:"profile_id,omitempty"`
-	IntegrationID string         `json:"integration_id,omitempty"`
-	ScanJob       *ScanJobStatus `json:"scan_job,omitempty"`
-	Result        PullResult     `json:"result,omitempty"`
+	Status                 string         `json:"status"`
+	PluginID               string         `json:"plugin_id,omitempty"`
+	AuthorizeURL           string         `json:"authorize_url,omitempty"`
+	State                  string         `json:"state,omitempty"`
+	CallbackURL            string         `json:"callback_url,omitempty"`
+	PasteCallbackSupported bool           `json:"paste_callback_supported,omitempty"`
+	RemoteBrowserHint      bool           `json:"remote_browser_hint,omitempty"`
+	ProfileID              string         `json:"profile_id,omitempty"`
+	IntegrationID          string         `json:"integration_id,omitempty"`
+	ScanJob                *ScanJobStatus `json:"scan_job,omitempty"`
+	Result                 PullResult     `json:"result,omitempty"`
 }
 
 type RestoreSyncPointsResult struct {
-	Status       string             `json:"status"`
-	PluginID     string             `json:"plugin_id,omitempty"`
-	AuthorizeURL string             `json:"authorize_url,omitempty"`
-	State        string             `json:"state,omitempty"`
-	Payloads     []SyncRestorePoint `json:"payloads,omitempty"`
+	Status                 string             `json:"status"`
+	PluginID               string             `json:"plugin_id,omitempty"`
+	AuthorizeURL           string             `json:"authorize_url,omitempty"`
+	State                  string             `json:"state,omitempty"`
+	CallbackURL            string             `json:"callback_url,omitempty"`
+	PasteCallbackSupported bool               `json:"paste_callback_supported,omitempty"`
+	RemoteBrowserHint      bool               `json:"remote_browser_hint,omitempty"`
+	Payloads               []SyncRestorePoint `json:"payloads,omitempty"`
 }
 
 // SyncStatus describes the current sync configuration state.

@@ -1227,7 +1227,7 @@ func TestPluginControllerStartIntegrationAuthReturnsOAuthRequired(t *testing.T) 
 	router := chi.NewRouter()
 	router.Post("/api/integrations/{id}/authorize", controller.StartIntegrationAuth)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/integrations/int-1/authorize", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8900/api/integrations/int-1/authorize", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -1247,6 +1247,15 @@ func TestPluginControllerStartIntegrationAuthReturnsOAuthRequired(t *testing.T) 
 	}
 	if got := body["authorize_url"]; got != "https://example.com/auth" {
 		t.Fatalf("authorize_url = %v, want https://example.com/auth", got)
+	}
+	if got := body["callback_url"]; got != "http://127.0.0.1:8900/api/auth/callback/plugin.oauth" {
+		t.Fatalf("callback_url = %v", got)
+	}
+	if got := body["paste_callback_supported"]; got != true {
+		t.Fatalf("paste_callback_supported = %v, want true", got)
+	}
+	if got := body["remote_browser_hint"]; got != false {
+		t.Fatalf("remote_browser_hint = %v, want false for localhost", got)
 	}
 }
 
@@ -1293,6 +1302,9 @@ func TestPluginControllerCheckPluginConfigReturnsOAuthRequiredWithoutPersisting(
 	}
 	if got := body["state"]; got != "state-draft" {
 		t.Fatalf("state = %v, want state-draft", got)
+	}
+	if got := body["paste_callback_supported"]; got != true {
+		t.Fatalf("paste_callback_supported = %v, want true", got)
 	}
 	if repo.updated != nil {
 		t.Fatal("draft config check must not update integrations")

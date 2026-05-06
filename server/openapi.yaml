@@ -109,6 +109,24 @@ paths:
         500:
           description: Internal server error
 
+  /api/auth/callback/import:
+    post:
+      summary: Import pasted OAuth callback URL
+      description: Completes an OAuth2 or OpenID-style plugin consent flow when the provider callback cannot reach MGA automatically. The client posts the final callback URL copied from the browser address bar; MGA validates the callback path, plugin id, and pending state, then invokes the same auth.oauth.callback plugin method used by direct redirects.
+      requestBody:
+        description: 'JSON: { plugin_id: string, callback_url: string }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Status ok JSON
+        400:
+          description: Malformed URL, wrong callback path/plugin, missing or stale state, provider denial, or plugin callback failure
+        500:
+          description: Internal server error
+
   /api/auth/callback/{plugin_id}:
     get:
       summary: Handle OAuth callback for a plugin

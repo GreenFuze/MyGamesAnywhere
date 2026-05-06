@@ -4,10 +4,12 @@ import {
   listPlugins,
   createIntegration,
   checkPluginConfig,
+  importOAuthCallback,
   isOAuthRequired,
   updateIntegration,
   DuplicateIntegrationError,
   type Integration,
+  type OAuthRequiredResponse,
   type PluginInfo,
 } from '@/api/client'
 import { FolderBrowser } from './FolderBrowser'
@@ -28,6 +30,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { PluginIcon } from './PluginIcon'
 import { ConfigFieldsRenderer } from './ConfigFieldsRenderer'
+import { OAuthCallbackPanel } from './OAuthCallbackPanel'
 import { ArrowLeft, Check } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -57,6 +60,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
 
   // OAuth flow state.
   const [oauthState, setOauthState] = useState<string | null>(null)
+  const [oauthResponse, setOauthResponse] = useState<OAuthRequiredResponse | null>(null)
   const [oauthError, setOauthError] = useState<string | null>(null)
   const [oauthPurpose, setOauthPurpose] = useState<OAuthPurpose>('create')
   const [configVerified, setConfigVerified] = useState(false)
@@ -201,6 +205,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
       if (isOAuthRequired(result)) {
         setOauthPurpose('create')
         setOauthState(result.state)
+        setOauthResponse(result)
         setOauthError(null)
         setStep('oauth')
         if (authWindow) {
@@ -238,6 +243,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
       if (isOAuthRequired(result)) {
         setOauthPurpose('verify_config')
         setOauthState(result.state)
+        setOauthResponse(result)
         setOauthError(null)
         setStep('oauth')
         if (authWindow) {
@@ -284,6 +290,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
       oauthWindowRef.current?.close()
       oauthWindowRef.current = null
       setOauthState(null)
+      setOauthResponse(null)
       setOauthError(null)
       setStep('config')
     } catch (err) {
@@ -314,6 +321,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
 
       oauthWindowRef.current?.close()
       oauthWindowRef.current = null
+      setOauthResponse(null)
       finishCreate(result.id)
     } catch (err) {
       setOauthError(err instanceof Error ? err.message : 'Failed to create integration')
@@ -346,6 +354,31 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
 
     return () => { unsubComplete(); unsubError() }
   }, [step, oauthState, oauthPurpose, subscribe, retryCreateAfterOAuth, retryVerifyConfigAfterOAuth])
+
+  const reopenOAuthWindow = useCallback(() => {
+    if (!oauthResponse) return
+    const authWindow = window.open('', '_blank')
+    oauthWindowRef.current = authWindow
+    if (authWindow) {
+      authWindow.location.href = oauthResponse.authorize_url
+      setOauthError(null)
+    } else {
+      setOauthError('Browser blocked the sign-in popup. Allow popups for MGA and try again.')
+    }
+  }, [oauthResponse])
+
+  const submitPastedOAuthCallback = useCallback(async (callbackUrl: string) => {
+    if (!selectedPlugin || !oauthResponse) return
+    setSaving(true)
+    setOauthError(null)
+    try {
+      await importOAuthCallback(selectedPlugin.plugin_id, callbackUrl)
+    } catch (err) {
+      setOauthError(err instanceof Error ? err.message : 'Failed to import callback URL')
+    } finally {
+      setSaving(false)
+    }
+  }, [oauthResponse, selectedPlugin])
 
   // Step titles for the dialog.
   const stepTitles: Record<WizardStep, string> = {
@@ -513,7 +546,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
 
       {/* Step 5: OAuth consent in progress */}
       {step === 'oauth' && selectedPlugin && (
-        <div className="space-y-4 text-center py-6">
+        <div className="space-y-4 py-6">
           <div className="flex items-center justify-center gap-2 mb-2">
             <PluginIcon pluginId={selectedPlugin.plugin_id} size={24} className="text-mga-accent" />
             <span className="text-sm font-medium text-mga-text">
@@ -521,33 +554,24 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
             </span>
           </div>
 
-          {saving ? (
-            <p className="text-mga-muted">
-              {oauthPurpose === 'verify_config' ? 'Verifying connection...' : 'Creating integration...'}
-            </p>
-          ) : oauthError ? (
-            <div className="space-y-3">
-              <p className="text-sm text-red-400">{oauthError}</p>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setStep(oauthPurpose === 'verify_config' ? 'config' : 'label')
-                  setOauthError(null)
-                  setOauthState(null)
-                }}
-              >
-                Try Again
-              </Button>
-            </div>
-          ) : (
-            <div className="animate-pulse">
-              <p className="text-mga-text font-medium">Waiting for sign-in...</p>
-              <p className="text-xs text-mga-muted mt-2">
-                A new browser tab has been opened for authentication.
-                <br />Complete the sign-in and this will update automatically.
-              </p>
-            </div>
-          )}
+          {oauthResponse ? (
+            <OAuthCallbackPanel
+              providerLabel={pluginLabel(selectedPlugin.plugin_id)}
+              authorizeUrl={oauthResponse.authorize_url}
+              remoteBrowserHint={oauthResponse.remote_browser_hint}
+              pasteCallbackSupported={oauthResponse.paste_callback_supported}
+              busy={saving}
+              error={oauthError}
+              onOpenSignIn={reopenOAuthWindow}
+              onSubmitCallback={submitPastedOAuthCallback}
+              onCancel={() => {
+                setStep(oauthPurpose === 'verify_config' ? 'config' : 'label')
+                setOauthError(null)
+                setOauthState(null)
+                setOauthResponse(null)
+              }}
+            />
+          ) : null}
         </div>
       )}
 
@@ -625,6 +649,7 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [oauthState, setOauthState] = useState<string | null>(null)
+  const [oauthResponse, setOauthResponse] = useState<OAuthRequiredResponse | null>(null)
   const [oauthError, setOauthError] = useState<string | null>(null)
   const editOAuthWindowRef = useRef<Window | null>(null)
 
@@ -688,6 +713,7 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
       })
       if (isOAuthRequired(result)) {
         setOauthState(result.state)
+        setOauthResponse(result)
         setOauthError(null)
         if (authWindow) {
           authWindow.location.href = result.authorize_url
@@ -724,6 +750,7 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
       }
       editOAuthWindowRef.current?.close()
       editOAuthWindowRef.current = null
+      setOauthResponse(null)
       onSaved()
     } catch (err) {
       setOauthError(err instanceof Error ? err.message : 'Failed to save')
@@ -755,6 +782,31 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
       unsubError()
     }
   }, [oauthState, retrySaveAfterOAuth, subscribe])
+
+  const reopenEditOAuthWindow = useCallback(() => {
+    if (!oauthResponse) return
+    const authWindow = window.open('', '_blank')
+    editOAuthWindowRef.current = authWindow
+    if (authWindow) {
+      authWindow.location.href = oauthResponse.authorize_url
+      setOauthError(null)
+    } else {
+      setOauthError('Browser blocked the sign-in popup. Allow popups for MGA and try again.')
+    }
+  }, [oauthResponse])
+
+  const submitEditPastedOAuthCallback = useCallback(async (callbackUrl: string) => {
+    if (!oauthResponse) return
+    setSaving(true)
+    setOauthError(null)
+    try {
+      await importOAuthCallback(integration.plugin_id, callbackUrl)
+    } catch (err) {
+      setOauthError(err instanceof Error ? err.message : 'Failed to import callback URL')
+    } finally {
+      setSaving(false)
+    }
+  }, [integration.plugin_id, oauthResponse])
 
   const handleSave = async () => {
     setError('')
@@ -822,16 +874,23 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
           </div>
         )}
 
-        {oauthState && !oauthError && (
-          <div className="rounded-mga border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
-            Waiting for sign-in in the browser. This dialog will retry the save automatically when authentication completes.
-          </div>
-        )}
-        {oauthError && (
-          <div className="rounded-mga border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
-            {oauthError}
-          </div>
-        )}
+        {oauthResponse ? (
+          <OAuthCallbackPanel
+            providerLabel={pluginLabel(integration.plugin_id)}
+            authorizeUrl={oauthResponse.authorize_url}
+            remoteBrowserHint={oauthResponse.remote_browser_hint}
+            pasteCallbackSupported={oauthResponse.paste_callback_supported}
+            busy={saving}
+            error={oauthError}
+            onOpenSignIn={reopenEditOAuthWindow}
+            onSubmitCallback={submitEditPastedOAuthCallback}
+            onCancel={() => {
+              setOauthState(null)
+              setOauthResponse(null)
+              setOauthError(null)
+            }}
+          />
+        ) : null}
 
         {/* Error */}
         {error && <p className="text-sm text-red-400">{error}</p>}
