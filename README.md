@@ -312,10 +312,11 @@ MGA carries a repository version source at [`VERSION`](VERSION). The current sta
 Upgrade policy:
 
 - upgrades must not silently discard user data
-- schema changes should be additive and idempotent where possible
+- schema changes use explicit versioned SQLite migrations
 - releases that change runtime layout, schema behavior, or sync payload expectations must ship with migration notes
 - file-backed destructive actions should preview source-plugin targets before deletion and require explicit confirmation
 - installed updates download and verify the installer before launching it; Windows portable updates download and verify the ZIP before an external helper restarts MGA and replaces app files while preserving local data
+- packaged updates back up previous app files plus the SQLite DB triplet before running `mga_server --migrate-only`; if migration fails, the updater restores the old binaries and DB before restarting MGA
 
 Windows installer packaging uses Inno Setup, which is distributed under its own license terms. MGA preserves Inno Setup attribution in NOTICE and package documentation.
 

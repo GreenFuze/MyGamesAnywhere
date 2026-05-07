@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -27,19 +28,70 @@ func (l *warningCaptureLogger) Warn(msg string, args ...any) {
 	l.warnings = append(l.warnings, fmt.Sprintf("%s %v", msg, args))
 }
 
+func newLegacyMigrationDB(t *testing.T) core.Database {
+	t.Helper()
+	dbSvc := NewSQLiteDatabase(testLogger{}, testDBConfig{dbPath: filepath.Join(t.TempDir(), "legacy.sqlite")})
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	return dbSvc
+}
+
+func createLegacyCanonicalTables(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	for _, statement := range []string{
+		`CREATE TABLE source_games (
+			id TEXT PRIMARY KEY,
+			integration_id TEXT NOT NULL,
+			plugin_id TEXT NOT NULL,
+			external_id TEXT NOT NULL,
+			raw_title TEXT NOT NULL,
+			platform TEXT NOT NULL,
+			kind TEXT NOT NULL DEFAULT 'base_game',
+			group_kind TEXT NOT NULL DEFAULT 'unknown',
+			root_path TEXT,
+			url TEXT,
+			status TEXT NOT NULL DEFAULT 'found',
+			last_seen_at INTEGER,
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE canonical_source_games_link (
+			canonical_id TEXT NOT NULL,
+			source_game_id TEXT NOT NULL,
+			PRIMARY KEY(canonical_id, source_game_id)
+		)`,
+		`CREATE TABLE canonical_games (
+			id TEXT PRIMARY KEY,
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE metadata_resolver_matches (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			source_game_id TEXT NOT NULL,
+			plugin_id TEXT NOT NULL,
+			external_id TEXT NOT NULL,
+			title TEXT,
+			platform TEXT,
+			url TEXT,
+			outvoted INTEGER NOT NULL DEFAULT 0,
+			developer TEXT,
+			publisher TEXT,
+			release_date TEXT,
+			rating REAL,
+			metadata_json TEXT,
+			created_at INTEGER NOT NULL
+		)`,
+	} {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("create legacy canonical table: %v", err)
+		}
+	}
+}
+
 func TestEnsureSchemaBackfillsCanonicalGames(t *testing.T) {
 	ctx := context.Background()
-	db, _ := newTestGameStore(t)
-
-	if _, err := db.GetDB().ExecContext(ctx, `DELETE FROM canonical_games`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.GetDB().ExecContext(ctx, `DELETE FROM canonical_source_games_link`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.GetDB().ExecContext(ctx, `DELETE FROM source_games`); err != nil {
-		t.Fatal(err)
-	}
+	db := newLegacyMigrationDB(t)
+	defer db.Close()
+	createLegacyCanonicalTables(t, ctx, db.GetDB())
 
 	if _, err := db.GetDB().ExecContext(ctx, `INSERT INTO source_games
 		(id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, status, created_at)
@@ -78,17 +130,9 @@ func TestEnsureSchemaBackfillsCanonicalGames(t *testing.T) {
 
 func TestEnsureSchemaMigratesLegacyScanCanonicalIDsToUUIDs(t *testing.T) {
 	ctx := context.Background()
-	db, store := newTestGameStore(t)
-
-	if _, err := db.GetDB().ExecContext(ctx, `DELETE FROM canonical_games`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.GetDB().ExecContext(ctx, `DELETE FROM canonical_source_games_link`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.GetDB().ExecContext(ctx, `DELETE FROM source_games`); err != nil {
-		t.Fatal(err)
-	}
+	db := newLegacyMigrationDB(t)
+	defer db.Close()
+	createLegacyCanonicalTables(t, ctx, db.GetDB())
 
 	if _, err := db.GetDB().ExecContext(ctx, `INSERT INTO source_games
 		(id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, status, created_at)
@@ -104,8 +148,8 @@ func TestEnsureSchemaMigratesLegacyScanCanonicalIDsToUUIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := db.GetDB().ExecContext(ctx, `INSERT INTO metadata_resolver_matches
-		(source_game_id, plugin_id, external_id, title, platform, outvoted, manual_selection, rating, created_at)
-		VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?)`,
+		(source_game_id, plugin_id, external_id, title, platform, outvoted, rating, created_at)
+		VALUES (?, ?, ?, ?, ?, 0, 0, ?)`,
 		"scan:legacy-source", "metadata-igdb", "legacy-match", "Legacy Game", "windows_pc", 1700000000,
 	); err != nil {
 		t.Fatal(err)
@@ -134,6 +178,7 @@ func TestEnsureSchemaMigratesLegacyScanCanonicalIDsToUUIDs(t *testing.T) {
 		t.Fatalf("legacy canonical id row still present, count = %d", legacyCount)
 	}
 
+	store := NewGameStore(db, testLogger{})
 	game, err := store.GetCanonicalGameByID(ctx, migratedID)
 	if err != nil {
 		t.Fatal(err)

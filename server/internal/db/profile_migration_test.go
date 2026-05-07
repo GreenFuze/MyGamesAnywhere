@@ -13,14 +13,14 @@ func TestEnsureSchemaDoesNotCreateProfileForGlobalSettingsOnly(t *testing.T) {
 		t.Fatalf("Connect() error = %v", err)
 	}
 	defer dbSvc.Close()
-	if err := dbSvc.EnsureSchema(); err != nil {
-		t.Fatalf("EnsureSchema() initial error = %v", err)
+	if _, err := dbSvc.GetDB().Exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER)`); err != nil {
+		t.Fatalf("create legacy settings: %v", err)
 	}
 	if _, err := dbSvc.GetDB().Exec(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`, "frontend", "{}", time.Now().Unix()); err != nil {
 		t.Fatalf("insert setting: %v", err)
 	}
 	if err := dbSvc.EnsureSchema(); err != nil {
-		t.Fatalf("EnsureSchema() second error = %v", err)
+		t.Fatalf("EnsureSchema() error = %v", err)
 	}
 
 	var profiles int
@@ -39,8 +39,16 @@ func TestEnsureSchemaCreatesDefaultProfileForExistingIntegrationData(t *testing.
 		t.Fatalf("Connect() error = %v", err)
 	}
 	defer dbSvc.Close()
-	if err := dbSvc.EnsureSchema(); err != nil {
-		t.Fatalf("EnsureSchema() initial error = %v", err)
+	if _, err := dbSvc.GetDB().Exec(`CREATE TABLE integrations (
+		id TEXT PRIMARY KEY,
+		plugin_id TEXT NOT NULL,
+		label TEXT NOT NULL,
+		config_json TEXT,
+		integration_type TEXT NOT NULL,
+		created_at INTEGER,
+		updated_at INTEGER
+	)`); err != nil {
+		t.Fatalf("create legacy integrations: %v", err)
 	}
 	now := time.Now().Unix()
 	if _, err := dbSvc.GetDB().Exec(`INSERT INTO integrations (id, plugin_id, label, config_json, integration_type, created_at, updated_at)
@@ -48,7 +56,7 @@ func TestEnsureSchemaCreatesDefaultProfileForExistingIntegrationData(t *testing.
 		t.Fatalf("insert integration: %v", err)
 	}
 	if err := dbSvc.EnsureSchema(); err != nil {
-		t.Fatalf("EnsureSchema() second error = %v", err)
+		t.Fatalf("EnsureSchema() error = %v", err)
 	}
 
 	var profileID string
@@ -74,8 +82,16 @@ func TestEnsureSchemaNormalizesLegacySettingsSyncIntegrationType(t *testing.T) {
 		t.Fatalf("Connect() error = %v", err)
 	}
 	defer dbSvc.Close()
-	if err := dbSvc.EnsureSchema(); err != nil {
-		t.Fatalf("EnsureSchema() initial error = %v", err)
+	if _, err := dbSvc.GetDB().Exec(`CREATE TABLE integrations (
+		id TEXT PRIMARY KEY,
+		plugin_id TEXT NOT NULL,
+		label TEXT NOT NULL,
+		config_json TEXT,
+		integration_type TEXT NOT NULL,
+		created_at INTEGER,
+		updated_at INTEGER
+	)`); err != nil {
+		t.Fatalf("create legacy integrations: %v", err)
 	}
 	now := time.Now().Unix()
 	if _, err := dbSvc.GetDB().Exec(`INSERT INTO integrations (id, plugin_id, label, config_json, integration_type, created_at, updated_at)
@@ -83,7 +99,7 @@ func TestEnsureSchemaNormalizesLegacySettingsSyncIntegrationType(t *testing.T) {
 		t.Fatalf("insert integration: %v", err)
 	}
 	if err := dbSvc.EnsureSchema(); err != nil {
-		t.Fatalf("EnsureSchema() second error = %v", err)
+		t.Fatalf("EnsureSchema() error = %v", err)
 	}
 
 	var integrationType string

@@ -13,15 +13,21 @@ import (
 )
 
 type sqliteDatabase struct {
-	db     *sql.DB
-	logger core.Logger
-	config core.Configuration
+	db               *sql.DB
+	logger           core.Logger
+	config           core.Configuration
+	migrationOptions core.MigrationOptions
 }
 
 func NewSQLiteDatabase(logger core.Logger, config core.Configuration) core.Database {
+	return NewSQLiteDatabaseWithMigrationOptions(logger, config, core.MigrationOptions{BackupBeforeMigrate: true})
+}
+
+func NewSQLiteDatabaseWithMigrationOptions(logger core.Logger, config core.Configuration, migrationOptions core.MigrationOptions) core.Database {
 	return &sqliteDatabase{
-		logger: logger,
-		config: config,
+		logger:           logger,
+		config:           config,
+		migrationOptions: migrationOptions,
 	}
 }
 
@@ -85,9 +91,11 @@ func (s *sqliteDatabase) Close() error {
 }
 
 func (s *sqliteDatabase) EnsureSchema() error {
-	s.logger.Info("Ensuring database schema...")
+	return s.Migrate(s.migrationOptions)
+}
 
-	statements := []string{
+func initialSchemaStatements() []string {
+	return []string{
 		`CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INTEGER PRIMARY KEY,
 			applied_at INTEGER NOT NULL
@@ -312,37 +320,6 @@ func (s *sqliteDatabase) EnsureSchema() error {
 		`CREATE INDEX IF NOT EXISTS idx_source_cache_jobs_cache_key ON source_cache_jobs(cache_key);`,
 		`CREATE INDEX IF NOT EXISTS idx_source_cache_jobs_updated_at ON source_cache_jobs(updated_at DESC);`,
 	}
-
-	for _, q := range statements {
-		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("schema creation failed: %w", err)
-		}
-	}
-	if _, err := s.db.Exec(`INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)`, 1, time.Now().Unix()); err != nil {
-		return fmt.Errorf("schema migration marker failed: %w", err)
-	}
-	if err := s.ensureManualReviewSchema(); err != nil {
-		return err
-	}
-	if err := s.ensureGameFileIdentitySchema(); err != nil {
-		return err
-	}
-	if err := s.ensureMediaAssetDownloadStateSchema(); err != nil {
-		return err
-	}
-	if err := s.ensureProfileSchema(); err != nil {
-		return err
-	}
-	if err := s.ensureDefaultProfileForExistingData(); err != nil {
-		return err
-	}
-	if err := s.backfillCanonicalGames(); err != nil {
-		return err
-	}
-	if err := s.migrateLegacyCanonicalIDs(); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (s *sqliteDatabase) ensureProfileSchema() error {

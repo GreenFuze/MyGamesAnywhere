@@ -697,5 +697,5 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Its time to release v0.0.8.
 - [x] The auto update (in the settings->update) should ignore versions that are not in the format of "vX.X.X". Meaning, it shouldn't detect latest versions of the format "v0.0.8-beta" and such. Or, at the least, let the user decide their track (cutting edge vs stable)
 - [x] The auto update, how does that work? MGA server should update the code and restart, how do you think to do that exactly? Remember MGA is still running, so it needs to be restarted. What is the plan. I think maybe the update setup executable can shutdown MGA -> update -> restart MGA. What do you think? it just needs to mind the type of installation.
-- [ ] What do we do with the integrations redirect URL when the server is listening to 0.0.0.0 and we are NOT accessing from localhost/127.0.0.1 ?
-- [ ] Update/migration plan: everytime a server will update, its not just the binaries, its also updating the DB. What is the plan to support schema or data changes?
+- [x] What do we do with the integrations redirect URL when the server is listening to 0.0.0.0 and we are NOT accessing from localhost/127.0.0.1 ?
+- [x] Update/migration plan: everytime a server will update, its not just the binaries, its also updating the DB. What is the plan to support schema or data changes?

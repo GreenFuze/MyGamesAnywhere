@@ -46,7 +46,13 @@ type Database interface {
 	Connect() error
 	Close() error
 	EnsureSchema() error
+	Migrate(options MigrationOptions) error
 	GetDB() *sql.DB
+}
+
+type MigrationOptions struct {
+	BackupBeforeMigrate bool
+	BackupDir           string
 }
 
 type SettingRepository interface {

@@ -56,9 +56,39 @@ MGA should treat local user data conservatively.
 Principles:
 
 - never silently delete user data during upgrade
-- prefer additive, idempotent schema changes
+- prefer explicit, versioned SQLite migrations
 - make one-way migrations explicit in release notes
 - document any runtime directory change before shipping it
+- persisted schema/data/config changes must include a migration or a `NO_MIGRATION_NEEDED` note
+
+## SQLite migration policy
+
+The server owns database migrations. Migrations are ordered, versioned, and
+recorded in `schema_migrations` with name, checksum, applied time, duration,
+and success state.
+
+Startup still runs pending migrations for dev and manual portable runs, but it
+creates a SQLite backup first. Packaged update flows run:
+
+```text
+mga_server --migrate-only --config <config> --data-dir <data> --app-dir <app>
+```
+
+before declaring the update successful. `--migrate-only` validates config,
+connects the database, applies migrations, and exits without starting HTTP,
+plugins, tray UI, scans, or background workers.
+
+Fail-fast cases:
+
+- the DB contains a migration version newer than this binary supports
+- an applied migration has a checksum mismatch
+- a previous migration is marked failed
+- a migration cannot be applied cleanly
+
+Future DB schema changes, persisted SQLite data transforms, and persisted JSON
+config changes require either a migration or an explicit `NO_MIGRATION_NEEDED`
+note explaining why existing installs remain safe. CI runs a migration guard to
+catch persistence-adjacent changes without either signal.
 
 ## Portable upgrade flow
 
@@ -76,6 +106,11 @@ Recommended user flow:
 
 The portable updater preserves `config.json`, `data/`, `media/`,
 `source_cache/`, `updates/`, and `logs/`.
+
+During update, the portable updater backs up immutable app files and the SQLite
+DB triplet (`db.sqlite`, `db.sqlite-wal`, `db.sqlite-shm`) before copying the
+new package. If `--migrate-only` fails, it restores the previous app files and
+DB triplet and restarts the old MGA.
 
 ## Packaging policy
 
@@ -106,6 +141,12 @@ Installed Windows updates launch the verified installer in silent update mode.
 Per-user installs stop and restart the user-mode server process. All-users
 installs stop and restart the Windows service. Portable Windows updates use the
 packaged updater script instead of the installer.
+
+Installed update mode backs up the previous app directory and SQLite DB triplet
+before replacing files. After file copy it runs `mga_server --migrate-only`. On
+migration failure, the helper restores the previous binaries and DB files, then
+restarts the old process/service and logs the detailed failure under the update
+log directory.
 
 ## Migration notes expectation
 

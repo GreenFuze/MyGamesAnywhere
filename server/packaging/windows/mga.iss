@@ -315,6 +315,17 @@ begin
       '-Pid ' + ParamValue('MGAPID', '0');
     RunPowerShellScript(ScriptPath, StopParameters, 'MGA user process stop', LogPath);
   end;
+
+  ExtractTemporaryFile('update-installed.ps1');
+  ScriptPath := ExpandConstant('{tmp}\update-installed.ps1');
+  StopParameters :=
+    '-Action backup ' +
+    PSArg('AppDir', ExpandConstant('{app}')) + ' ' +
+    PSArg('DataDir', GetDataDir('')) + ' ' +
+    PSArg('ConfigPath', GetConfigPath('')) + ' ' +
+    PSArg('LogPath', LogPath) + ' ' +
+    PSArg('InstallType', GetInstallType(''));
+  RunPowerShellScript(ScriptPath, StopParameters, 'MGA update backup', LogPath);
 end;
 
 function RelaunchAllUsers: Boolean;
@@ -372,6 +383,18 @@ begin
     if IsUpdateMode then
       ConfigParameters := ConfigParameters + ' -PreserveExistingNetwork';
     RunPowerShellStep('install-config.ps1', ConfigParameters, 'MGA config generation', '');
+
+    if IsUpdateMode then
+      RunPowerShellStep(
+        'update-installed.ps1',
+        '-Action migrate-or-rollback ' +
+        PSArg('AppDir', ExpandConstant('{app}')) + ' ' +
+        PSArg('DataDir', GetDataDir('')) + ' ' +
+        PSArg('ConfigPath', GetConfigPath('')) + ' ' +
+        PSArg('LogPath', GetInstallLogPath('')) + ' ' +
+        PSArg('InstallType', GetInstallType('')),
+        'MGA database migration',
+        GetInstallLogPath(''));
 
     if IsServiceInstall then
     begin

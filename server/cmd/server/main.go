@@ -17,6 +17,7 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/app"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/gamesvc"
@@ -76,12 +77,15 @@ func writeBootstrapError(opts serverOptions, err error) {
 }
 
 type serverOptions struct {
-	configPath string
-	dataDir    string
-	appDir     string
-	mode       mgaruntime.Mode
-	service    bool
-	noTray     bool
+	configPath                 string
+	dataDir                    string
+	appDir                     string
+	mode                       mgaruntime.Mode
+	service                    bool
+	noTray                     bool
+	migrateOnly                bool
+	migrationBackupDir         string
+	skipStartupMigrationBackup bool
 }
 
 func parseOptions() (serverOptions, error) {
@@ -93,6 +97,9 @@ func parseOptions() (serverOptions, error) {
 	flag.StringVar(&mode, "runtime-mode", envString("MGA_RUNTIME_MODE", ""), "Runtime mode: portable, user, or machine.")
 	flag.BoolVar(&opts.service, "service", envBool("MGA_SERVICE", false), "Run as a Windows service.")
 	flag.BoolVar(&opts.noTray, "no-tray", envBool("MGA_NO_TRAY", false), "Disable the tray companion from this server process.")
+	flag.BoolVar(&opts.migrateOnly, "migrate-only", envBool("MGA_MIGRATE_ONLY", false), "Run database migrations and exit without starting MGA.")
+	flag.StringVar(&opts.migrationBackupDir, "migration-backup-dir", envString("MGA_MIGRATION_BACKUP_DIR", ""), "Directory for database migration backups.")
+	flag.BoolVar(&opts.skipStartupMigrationBackup, "skip-startup-migration-backup", envBool("MGA_SKIP_STARTUP_MIGRATION_BACKUP", false), "Skip the pre-migration database backup.")
 	flag.Parse()
 	if strings.TrimSpace(mode) != "" {
 		opts.mode = mgaruntime.Mode(strings.ToLower(strings.TrimSpace(mode)))
@@ -140,7 +147,22 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	if closer, ok := logSvc.(interface{ Close() error }); ok {
 		defer func() { _ = closer.Close() }()
 	}
-	dbSvc := db.NewSQLiteDatabase(logSvc, configSvc)
+	migrationOptions := core.MigrationOptions{
+		BackupBeforeMigrate: !opts.skipStartupMigrationBackup,
+		BackupDir:           opts.migrationBackupDir,
+	}
+	dbSvc := db.NewSQLiteDatabaseWithMigrationOptions(logSvc, configSvc, migrationOptions)
+	if opts.migrateOnly {
+		if err := dbSvc.Connect(); err != nil {
+			return fmt.Errorf("database connection failed: %w", err)
+		}
+		defer dbSvc.Close()
+		if err := dbSvc.Migrate(migrationOptions); err != nil {
+			return fmt.Errorf("database migration failed: %w", err)
+		}
+		logSvc.Info("database migration completed")
+		return nil
+	}
 
 	settingRepo := db.NewSettingRepository(dbSvc)
 	profileRepo := db.NewProfileRepository(dbSvc)
