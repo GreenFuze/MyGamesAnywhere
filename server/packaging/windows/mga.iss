@@ -71,10 +71,14 @@ Source: "{#SourceDir}\packaging\windows\update-installed.ps1"; Flags: dontcopy
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MyGamesAnywhere"; ValueData: """{app}\{#AppExeName}"" --app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: startup_server; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MyGamesAnywhere Tray"; ValueData: """{app}\{#TrayExeName}"" --base-url ""http://127.0.0.1:8900"" --mode ""service"" --server-exe ""{app}\{#AppExeName}"" --app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: startup_tray; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "MyGamesAnywhere Tray"; Flags: deletevalue; Check: IsAllUsersMode
+
+[Icons]
+Name: "{commonstartup}\MyGamesAnywhere Tray"; Filename: "{app}\{#TrayExeName}"; Parameters: "--base-url ""http://127.0.0.1:8900"" --mode ""service"" --server-exe ""{app}\{#AppExeName}"" --app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: startup_tray; Check: IsAllUsersMode
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Parameters: "--app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: start_server_after; Flags: nowait postinstall skipifsilent; Check: IsForMeMode
+Filename: "{app}\{#TrayExeName}"; Parameters: "--base-url ""http://127.0.0.1:8900"" --mode ""service"" --server-exe ""{app}\{#AppExeName}"" --app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: startup_tray; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: IsAllUsersMode
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service.ps1"" -Action uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveMGAService"
