@@ -19,7 +19,6 @@ type OAuthCallbackPanelProps = {
 
 export function OAuthCallbackPanel({
   providerLabel,
-  authorizeUrl,
   remoteBrowserHint,
   pasteCallbackSupported = true,
   busy,
@@ -67,14 +66,16 @@ export function OAuthCallbackPanel({
 
       <div className="grid min-w-0 gap-3 lg:grid-cols-3">
         {[
-          ['1', 'Sign in', 'Use the provider page opened by MGA.'],
-          ['2', 'Return or paste callback', 'Automatic return is preferred; paste is the fallback.'],
+          ['1', 'Sign in', ''],
+          remoteBrowserHint
+            ? ['2', 'Paste callback URL', 'Only if you are not connecting to MGA from the server computer with localhost or 127.0.0.1.']
+            : ['2', 'Return to MGA', 'MGA should complete sign-in automatically on this computer.'],
           ['3', 'MGA verifies and continues', 'Tokens stay server-side and are never shown here.'],
         ].map(([step, title, copy]) => (
           <div key={step} className="min-w-0 rounded-mga border border-mga-border/70 bg-mga-bg p-3">
             <div className="text-xs font-black uppercase tracking-wide text-mga-accent">Step {step}</div>
             <div className="mt-1 text-sm font-bold text-mga-text">{title}</div>
-            <div className="mt-1 text-xs leading-5 text-mga-muted">{copy}</div>
+            {copy ? <div className="mt-1 text-xs leading-5 text-mga-muted">{copy}</div> : null}
           </div>
         ))}
       </div>
@@ -115,11 +116,6 @@ export function OAuthCallbackPanel({
         </div>
       ) : null}
 
-      {authorizeUrl ? (
-        <p className="truncate text-xs text-mga-muted">
-          Sign-in URL: <span className="font-mono">{authorizeUrl}</span>
-        </p>
-      ) : null}
       {complete ? <p className="text-sm font-semibold text-emerald-300">Authentication complete. MGA is continuing...</p> : null}
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
       {!error && !complete ? <p className="text-sm text-mga-muted">{busy ? 'MGA is verifying the sign-in...' : 'Waiting for the provider callback.'}</p> : null}

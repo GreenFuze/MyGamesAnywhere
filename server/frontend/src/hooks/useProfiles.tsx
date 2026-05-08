@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, ArrowRight, CloudDownload, Gamepad2, Gem, Joystick, Rocket, Swords, Trophy } from 'lucide-react'
 import {
   browseRestoreSyncSetup,
@@ -23,6 +24,7 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { useSSE } from '@/hooks/useSSE'
 import { pluginLabel } from '@/lib/gameUtils'
+import { writeStoredScanJobId } from '@/lib/scanJobStorage'
 
 type ProfileContextValue = {
   profiles: Profile[]
@@ -35,7 +37,7 @@ type ProfileContextValue = {
 
 const ProfileContext = createContext<ProfileContextValue | null>(null)
 const GOOGLE_DRIVE_SYNC_PLUGIN_ID = 'sync-settings-google-drive'
-const DEFAULT_GOOGLE_DRIVE_SYNC_PATH = 'Games/mga_sync'
+const GOOGLE_DRIVE_SYNC_PATH_PLACEHOLDER = 'Enter path to MGA settings in Google Drive'
 
 export const PROFILE_AVATARS = [
   { key: 'player-1', label: 'Arcade', Icon: Gamepad2, tone: 'from-sky-400 to-cyan-300', ring: 'ring-sky-300/35' },
@@ -132,11 +134,12 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
 function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const { subscribe } = useSSE()
   const [mode, setMode] = useState<'choose' | 'fresh' | 'restore'>('choose')
   const [displayName, setDisplayName] = useState('Admin Player')
   const [avatarKey, setAvatarKey] = useState<ProfileAvatarKey>('player-1')
-  const [syncPath, setSyncPath] = useState(DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
+  const [syncPath, setSyncPath] = useState('')
   const [passphrase, setPassphrase] = useState('')
   const [oauthState, setOauthState] = useState('')
   const [oauthResponse, setOauthResponse] = useState<RestoreSyncSetupOAuthRequired | null>(null)
@@ -151,11 +154,25 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
 
   const selectedRestorePoint = restorePoints.find((point) => point.id === selectedPayloadId) ?? restorePoints[0] ?? null
   const restoreConfig = useCallback((pathOverride?: string) => ({
-    sync_path: (pathOverride ?? syncPath).trim() || DEFAULT_GOOGLE_DRIVE_SYNC_PATH,
+    sync_path: (pathOverride ?? syncPath).trim(),
     max_versions: 10,
   }), [syncPath])
 
+  const finishRestoreSetup = useCallback(async (profileId: string, scanJobId?: string) => {
+    if (scanJobId) writeStoredScanJobId(scanJobId)
+    await queryClient.invalidateQueries({ queryKey: ['setup-status'] })
+    await queryClient.invalidateQueries({ queryKey: ['profiles'] })
+    onCreated(profileId)
+    navigate('/settings?tab=integrations&first_run=restore', { replace: true })
+  }, [navigate, onCreated, queryClient])
+
   const loadRestorePoints = useCallback(async (pathOverride?: string) => {
+    const targetPath = (pathOverride ?? syncPath).trim()
+    if (!targetPath) {
+      setError('Enter the Google Drive folder path that contains the MGA settings sync files.')
+      setMessage('')
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -163,7 +180,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
         plugin_id: GOOGLE_DRIVE_SYNC_PLUGIN_ID,
         label: 'Google Drive Sync',
         integration_type: 'sync',
-        config: restoreConfig(pathOverride),
+        config: restoreConfig(targetPath),
         passphrase: '',
       })
       if (result.status === 'oauth_required') {
@@ -184,7 +201,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
     } finally {
       setSaving(false)
     }
-  }, [restoreConfig])
+  }, [restoreConfig, syncPath])
 
   async function submit() {
     setSaving(true)
@@ -202,6 +219,10 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
   }
 
   const submitRestore = useCallback(async () => {
+    if (!syncPath.trim()) {
+      setError('Enter the Google Drive folder path that contains the MGA settings sync files.')
+      return
+    }
     setSaving(true)
     setError('')
     setMessage('')
@@ -224,15 +245,13 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
         setMessage('Finish Google Drive sign-in in the browser, then choose the sync folder.')
         return
       }
-      await queryClient.invalidateQueries({ queryKey: ['setup-status'] })
-      await queryClient.invalidateQueries({ queryKey: ['profiles'] })
-      onCreated(result.profile_id)
+      await finishRestoreSetup(result.profile_id, result.scan_job?.job_id)
     } catch (err) {
       setError(apiErrorText(err, 'Restore failed'))
     } finally {
       setSaving(false)
     }
-  }, [onCreated, passphrase, queryClient, restoreConfig, selectedIntegrationKeys, selectedRestorePoint])
+  }, [finishRestoreSetup, passphrase, restoreConfig, selectedIntegrationKeys, selectedRestorePoint, syncPath])
 
   const connectGoogleDrive = useCallback(async () => {
     setSaving(true)
@@ -260,9 +279,8 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
       }
       authWindow?.close()
       setDriveConnected(true)
-      if (!syncPath.trim()) setSyncPath(DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
       setMessage('Google Drive connected. Choose the sync folder that contains latest.json, then restore.')
-      await loadRestorePoints()
+      if (syncPath.trim()) await loadRestorePoints()
     } catch (err) {
       authWindow?.close()
       setError(apiErrorText(err, 'Google Drive sign-in failed'))
@@ -279,9 +297,8 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
         setOauthState('')
         setOauthResponse(null)
         setDriveConnected(true)
-        if (!syncPath.trim()) setSyncPath(DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
         setMessage('Google Drive connected. Choose the sync folder that contains latest.json, then restore.')
-        void loadRestorePoints()
+        if (syncPath.trim()) void loadRestorePoints()
       }
     })
     const unsubError = subscribe('oauth_error', (data: unknown) => {
@@ -315,9 +332,8 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
       setOauthState('')
       setOauthResponse(null)
       setDriveConnected(true)
-      if (!syncPath.trim()) setSyncPath(DEFAULT_GOOGLE_DRIVE_SYNC_PATH)
       setMessage('Google Drive connected. Choose the sync folder that contains latest.json, then restore.')
-      await loadRestorePoints()
+      if (syncPath.trim()) await loadRestorePoints()
     } catch (err) {
       setError(apiErrorText(err, 'Failed to import callback URL'))
     } finally {
@@ -392,7 +408,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
                       value={syncPath}
                       onChange={(event) => setSyncPath(event.target.value)}
                       className="h-11"
-                      placeholder={DEFAULT_GOOGLE_DRIVE_SYNC_PATH}
+                      placeholder={GOOGLE_DRIVE_SYNC_PATH_PLACEHOLDER}
                     />
                     <Button type="button" variant="outline" onClick={() => setShowFolderBrowser((value) => !value)} className="h-11">
                       {showFolderBrowser ? 'Hide Browse' : 'Browse'}
@@ -404,7 +420,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
                         pluginId={GOOGLE_DRIVE_SYNC_PLUGIN_ID}
                         initialPath={syncPath.trim()}
                         onSelect={(path) => {
-                          const nextPath = path || DEFAULT_GOOGLE_DRIVE_SYNC_PATH
+                          const nextPath = path || ''
                           setSyncPath(nextPath)
                           setShowFolderBrowser(false)
                           void loadRestorePoints(nextPath)
@@ -433,7 +449,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
                 />
               ) : null}
               <Input
-                label="Sync encryption passphrase"
+                label="Step 3: Encryption key"
                 type="password"
                 value={passphrase}
                 onChange={(event) => setPassphrase(event.target.value)}
@@ -500,7 +516,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
                   ) : null}
                 </div>
               ) : null}
-              <p className="text-xs leading-5 text-mga-muted">Integration configs inside the sync file are encrypted. Enter the passphrase used when this sync was pushed, or leave it blank if this Windows user already has the stored MGA sync key. The default folder path comes from the Google Drive settings-sync plugin and can be changed before restore.</p>
+              <p className="text-xs leading-5 text-mga-muted">Integration configs inside the sync file are encrypted. Enter the passphrase used when this sync was pushed, or leave it blank if this Windows user already has the stored MGA sync key.</p>
             </div>
           </div>
           {message ? <p className="text-sm text-mga-muted">{message}</p> : null}
@@ -510,7 +526,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
               <ArrowLeft className="h-4 w-4" />
               <span>Back</span>
             </Button>
-            <Button onClick={submitRestore} disabled={saving || Boolean(oauthState) || !driveConnected || !selectedRestorePoint} className="h-12 flex-1 justify-between px-4">
+            <Button onClick={submitRestore} disabled={saving || Boolean(oauthState) || !driveConnected || !syncPath.trim() || !selectedRestorePoint} className="h-12 flex-1 justify-between px-4">
               <span>{driveConnected ? 'Restore From Selected Folder' : 'Sign In First'}</span>
               <CloudDownload className="h-4 w-4" />
             </Button>

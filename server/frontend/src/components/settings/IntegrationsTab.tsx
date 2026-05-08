@@ -37,6 +37,7 @@ import {
   type SaveSyncMigrationStatus,
 } from "@/api/client";
 import { CAPABILITY_META } from "@/lib/gameUtils";
+import { readStoredScanJobId, writeStoredScanJobId } from "@/lib/scanJobStorage";
 import { useSSE } from "@/hooks/useSSE";
 import { IntegrationGroupSection } from "./IntegrationGroupSection";
 import { LibraryStatsSummary } from "./LibraryStatsSummary";
@@ -111,22 +112,6 @@ function formatLogTime(ts: string): string {
     minute: "2-digit",
     second: "2-digit",
   });
-}
-
-const activeScanJobStorageKey = "mga.activeScanJobId";
-
-function readStoredScanJobId(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.sessionStorage.getItem(activeScanJobStorageKey);
-}
-
-function writeStoredScanJobId(jobId: string | null) {
-  if (typeof window === "undefined") return;
-  if (jobId) {
-    window.sessionStorage.setItem(activeScanJobStorageKey, jobId);
-  } else {
-    window.sessionStorage.removeItem(activeScanJobStorageKey);
-  }
 }
 
 function scanJobIsTerminal(job: Pick<ScanJobStatus, "status">) {
@@ -623,7 +608,11 @@ function formatMetadataPanelLabel(integration: ScanJobIntegrationStatus) {
 // Component
 // ---------------------------------------------------------------------------
 
-export function IntegrationsTab() {
+type IntegrationsTabProps = {
+  firstRunRestore?: boolean;
+};
+
+export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProps = {}) {
   const queryClient = useQueryClient();
   const { subscribe, connected } = useSSE();
   const scanEventLogRef = useRef<HTMLDivElement | null>(null);
@@ -2551,6 +2540,20 @@ export function IntegrationsTab() {
 
   return (
     <div className="space-y-4">
+      {firstRunRestore && (
+        <div className="rounded-mga border border-mga-accent/35 bg-mga-accent/10 p-4">
+          <div className="text-xs font-black uppercase tracking-[0.22em] text-mga-accent">
+            First Run
+          </div>
+          <h3 className="mt-2 text-base font-bold text-mga-text">
+            Check restored integrations
+          </h3>
+          <p className="mt-1 text-sm leading-6 text-mga-muted">
+            Review the restored integrations here. If a card asks for sign-in, use Connect or Re-auth on that card. The first source scan starts here too, so you can watch progress without leaving Settings.
+          </p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

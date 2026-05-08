@@ -19,7 +19,6 @@ const TABS: Tab[] = [
 ]
 
 const TAB_COMPONENTS: Record<string, React.FC> = {
-  integrations: IntegrationsTab,
   update: UpdateTab,
   profiles: ProfilesTab,
   plugins: PluginsTab,
@@ -32,7 +31,7 @@ export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
   const normalizedTabParam = tabParam === 'settings' ? 'update' : tabParam
-  const activeTab = normalizedTabParam && TAB_COMPONENTS[normalizedTabParam] ? normalizedTabParam : 'integrations'
+  const activeTab = normalizedTabParam && (normalizedTabParam === 'integrations' || TAB_COMPONENTS[normalizedTabParam]) ? normalizedTabParam : 'integrations'
 
   const handleTabChange = (id: string) => {
     const next = new URLSearchParams(searchParams)
@@ -40,7 +39,7 @@ export function SettingsPage() {
     setSearchParams(next, { replace: true })
   }
 
-  const ActiveComponent = TAB_COMPONENTS[activeTab] ?? IntegrationsTab
+  const ActiveComponent = TAB_COMPONENTS[activeTab]
 
   return (
     <div className="space-y-6">
@@ -54,7 +53,11 @@ export function SettingsPage() {
       <Tabs tabs={TABS} active={activeTab} onChange={handleTabChange} />
 
       <div className="pb-8">
-        <ActiveComponent />
+        {activeTab === 'integrations' ? (
+          <IntegrationsTab firstRunRestore={searchParams.get('first_run') === 'restore'} />
+        ) : ActiveComponent ? (
+          <ActiveComponent />
+        ) : null}
       </div>
     </div>
   )
