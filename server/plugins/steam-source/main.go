@@ -238,6 +238,31 @@ func loadConfig() (*steamConfig, error) {
 	return &c, nil
 }
 
+func configFromMap(config map[string]any) steamConfig {
+	result := cfg
+	if apiKey := configString(config, "api_key"); apiKey != "" {
+		result.APIKey = apiKey
+	}
+	if steamID := configString(config, "steam_id"); steamID != "" {
+		result.SteamID = steamID
+	}
+	if result.SteamID == "" {
+		result.SteamID = loadIdentity()
+	}
+	return result
+}
+
+func configFromDirectParams(params json.RawMessage) (steamConfig, *Error) {
+	if len(strings.TrimSpace(string(params))) == 0 {
+		return configFromMap(nil), nil
+	}
+	var config map[string]any
+	if err := json.Unmarshal(params, &config); err != nil {
+		return steamConfig{}, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	return configFromMap(config), nil
+}
+
 // --- Steam API calls ---
 
 func fetchOwnedGames(apiKey, steamID string) ([]ownedGame, error) {
@@ -334,14 +359,18 @@ func handleInit() (any, *Error) {
 // --- Games list ---
 
 func handleGamesList(params json.RawMessage) (any, *Error) {
-	if cfg.APIKey == "" {
+	effectiveCfg, errObj := configFromDirectParams(params)
+	if errObj != nil {
+		return nil, errObj
+	}
+	if effectiveCfg.APIKey == "" {
 		return nil, &Error{Code: "NOT_CONFIGURED", Message: "steam source requires api_key before it can scan games"}
 	}
-	if cfg.SteamID == "" {
+	if effectiveCfg.SteamID == "" {
 		return nil, &Error{Code: "AUTH_REQUIRED", Message: "steam source requires Steam login before it can scan games"}
 	}
 
-	owned, err := fetchOwnedGames(cfg.APIKey, cfg.SteamID)
+	owned, err := fetchOwnedGames(effectiveCfg.APIKey, effectiveCfg.SteamID)
 	if err != nil {
 		return nil, &Error{Code: "API_ERROR", Message: err.Error()}
 	}
@@ -527,6 +556,7 @@ func buildSteamAchievementEntries(
 func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 	var p struct {
 		ExternalGameID string `json:"external_game_id"`
+		Config         map[string]any `json:"config"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
@@ -534,7 +564,8 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 	if p.ExternalGameID == "" {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id required"}
 	}
-	if cfg.APIKey == "" || cfg.SteamID == "" {
+	effectiveCfg := configFromMap(p.Config)
+	if effectiveCfg.APIKey == "" || effectiveCfg.SteamID == "" {
 		return nil, &Error{Code: "NOT_CONFIGURED", Message: "steam source not configured"}
 	}
 
@@ -543,7 +574,7 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id must be a numeric Steam app ID"}
 	}
 
-	schema, err := fetchAchievementSchema(cfg.APIKey, appID)
+	schema, err := fetchAchievementSchema(effectiveCfg.APIKey, appID)
 	if err != nil {
 		return nil, &Error{Code: "API_ERROR", Message: fmt.Sprintf("schema: %v", err)}
 	}
@@ -562,7 +593,7 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 		schemaMap[sa.Name] = sa
 	}
 
-	playerResp, err := fetchPlayerAchievements(cfg.APIKey, cfg.SteamID, appID)
+	playerResp, err := fetchPlayerAchievements(effectiveCfg.APIKey, effectiveCfg.SteamID, appID)
 	if err != nil {
 		log.Printf("player achievements unavailable for %d: %v", appID, err)
 	}

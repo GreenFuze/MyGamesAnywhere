@@ -28,6 +28,36 @@ func TestHandleGamesListRequiresConfiguration(t *testing.T) {
 	}
 }
 
+func TestHandleGamesListUsesProfileOwnedConfig(t *testing.T) {
+	withTempWorkingDir(t)
+
+	originalCfg := cfg
+	t.Cleanup(func() {
+		cfg = originalCfg
+	})
+
+	cfg = steamConfig{}
+	params := json.RawMessage(`{"api_key":"profile-key"}`)
+	if _, errObj := handleGamesList(params); errObj == nil || errObj.Code != "AUTH_REQUIRED" {
+		t.Fatalf("profile config api_key was not used: got %+v, want AUTH_REQUIRED", errObj)
+	}
+}
+
+func TestHandleAchievementsGetUsesNestedProfileOwnedConfig(t *testing.T) {
+	withTempWorkingDir(t)
+
+	originalCfg := cfg
+	t.Cleanup(func() {
+		cfg = originalCfg
+	})
+
+	cfg = steamConfig{}
+	params := json.RawMessage(`{"external_game_id":"not-numeric","config":{"api_key":"profile-key","steam_id":"76561198012345678"}}`)
+	if _, errObj := handleAchievementsGet(params); errObj == nil || errObj.Code != "INVALID_PARAMS" {
+		t.Fatalf("nested profile config was not used before validation: got %+v, want INVALID_PARAMS", errObj)
+	}
+}
+
 func TestLoadConfigPrefersProfileOwnedSteamID(t *testing.T) {
 	withTempWorkingDir(t)
 
