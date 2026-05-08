@@ -358,7 +358,7 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
 
   if (mode === 'restore') {
     return (
-      <ProfileGateShell eyebrow="First Run" title="Restore From Sync">
+      <ProfileGateShell eyebrow="First Run" title="Restore From Sync" wide>
         <div className="space-y-5">
           <div className="rounded-mga border border-amber-300/40 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">
             <div className="flex items-start gap-3">
@@ -589,14 +589,14 @@ function ProfilePicker({ profiles, onSelect }: { profiles: Profile[]; onSelect: 
   )
 }
 
-function ProfileGateShell({ eyebrow, title, children }: { eyebrow?: string; title: string; children?: ReactNode }) {
+function ProfileGateShell({ eyebrow, title, children, wide = false }: { eyebrow?: string; title: string; children?: ReactNode; wide?: boolean }) {
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-mga-bg p-4 font-mga text-mga-text">
+    <div className="relative flex min-h-screen items-start justify-center overflow-x-hidden overflow-y-auto bg-mga-bg p-4 font-mga text-mga-text">
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(0deg,rgba(255,255,255,0.028)_1px,transparent_1px)] bg-[size:44px_44px]" />
       <div className="absolute inset-0 bg-[linear-gradient(135deg,transparent_0%,transparent_46%,rgba(61,184,255,0.13)_46%,rgba(61,184,255,0.13)_50%,transparent_50%,transparent_100%)]" />
-      <div className="relative w-full max-w-3xl overflow-hidden rounded-mga border border-mga-border bg-mga-surface/92 shadow-2xl">
+      <div className={cn('relative w-full overflow-hidden rounded-mga border border-mga-border bg-mga-surface/92 shadow-2xl', wide ? 'max-w-6xl' : 'max-w-3xl')}>
         <div className="absolute left-0 top-0 h-full w-1 bg-mga-accent" />
-        <div className="grid gap-0 md:grid-cols-[16rem_1fr]">
+        <div className="grid min-w-0 gap-0 md:grid-cols-[16rem_minmax(0,1fr)]">
           <div className="relative border-b border-mga-border bg-mga-bg/70 p-6 md:border-b-0 md:border-r">
             <div className="absolute inset-0 bg-[linear-gradient(160deg,rgba(255,255,255,0.07),transparent_42%)]" />
             <div className="relative space-y-5">
@@ -614,7 +614,7 @@ function ProfileGateShell({ eyebrow, title, children }: { eyebrow?: string; titl
               </div>
             </div>
           </div>
-          <div className="p-5 sm:p-7">
+          <div className="min-w-0 p-5 sm:p-7">
             {children}
           </div>
         </div>

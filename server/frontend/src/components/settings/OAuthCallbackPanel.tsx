@@ -54,7 +54,7 @@ export function OAuthCallbackPanel({
   }
 
   return (
-    <div className={cn('space-y-4 rounded-mga border border-mga-border bg-mga-surface/80 p-4 text-left', className)}>
+    <div className={cn('min-w-0 space-y-4 rounded-mga border border-mga-border bg-mga-surface/80 p-4 text-left', className)}>
       <div className="flex items-start gap-3">
         <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-mga-accent/15 text-mga-accent">
           {complete ? <CheckCircle2 className="h-5 w-5" /> : <ExternalLink className="h-5 w-5" />}
@@ -65,13 +65,13 @@ export function OAuthCallbackPanel({
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-3">
         {[
           ['1', 'Sign in', 'Use the provider page opened by MGA.'],
           ['2', 'Return or paste callback', 'Automatic return is preferred; paste is the fallback.'],
           ['3', 'MGA verifies and continues', 'Tokens stay server-side and are never shown here.'],
         ].map(([step, title, copy]) => (
-          <div key={step} className="rounded-mga border border-mga-border/70 bg-mga-bg p-3">
+          <div key={step} className="min-w-0 rounded-mga border border-mga-border/70 bg-mga-bg p-3">
             <div className="text-xs font-black uppercase tracking-wide text-mga-accent">Step {step}</div>
             <div className="mt-1 text-sm font-bold text-mga-text">{title}</div>
             <div className="mt-1 text-xs leading-5 text-mga-muted">{copy}</div>
@@ -98,7 +98,7 @@ export function OAuthCallbackPanel({
       </div>
 
       {pasteOpen && canPaste ? (
-        <div className="space-y-3 rounded-mga border border-mga-border/70 bg-mga-bg p-3">
+        <div className="min-w-0 space-y-3 rounded-mga border border-mga-border/70 bg-mga-bg p-3">
           <p className="text-sm leading-6 text-mga-muted">
             If the browser ends on a page that cannot connect, copy the full URL from the address bar and paste it here.
           </p>
@@ -106,7 +106,7 @@ export function OAuthCallbackPanel({
             value={callbackUrl}
             onChange={(event) => setCallbackUrl(event.target.value)}
             placeholder="http://127.0.0.1:8900/api/auth/callback/..."
-            className="min-h-24 w-full resize-y rounded-mga border border-mga-border bg-mga-surface px-3 py-2 font-mono text-xs text-mga-text outline-none transition focus:border-mga-accent focus:ring-2 focus:ring-mga-accent/25"
+            className="min-h-24 w-full min-w-0 resize-y rounded-mga border border-mga-border bg-mga-surface px-3 py-2 font-mono text-xs text-mga-text outline-none transition focus:border-mga-accent focus:ring-2 focus:ring-mga-accent/25"
           />
           <Button type="button" onClick={submitPastedCallback} disabled={!trimmedCallbackUrl || submitting || busy}>
             {(submitting || busy) ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardPaste className="h-4 w-4" />}
