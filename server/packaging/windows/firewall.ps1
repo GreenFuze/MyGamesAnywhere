@@ -3,7 +3,8 @@ param(
     [ValidateSet("add","remove")]
     [string]$Action,
     [string]$RuleName = "MyGamesAnywhere",
-    [string]$Program
+    [string]$Program,
+    [string]$Port = "8900"
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,9 +27,9 @@ if ($Action -eq "remove") {
     exit 0
 }
 
-if (-not $Program) {
-    throw "Program is required when adding the firewall rule."
+if (-not $Port) {
+    throw "Port is required when adding the firewall rule."
 }
 
 & netsh advfirewall firewall delete rule name="$RuleName" | Out-Null
-Invoke-Native netsh advfirewall firewall add rule name="$RuleName" dir=in action=allow program="$Program" enable=yes profile=private | Out-Null
+Invoke-Native netsh advfirewall firewall add rule name="$RuleName" dir=in action=allow protocol=TCP localport="$Port" remoteip=localsubnet enable=yes profile=any | Out-Null

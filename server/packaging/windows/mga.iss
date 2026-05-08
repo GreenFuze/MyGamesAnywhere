@@ -1,5 +1,6 @@
 #define AppName "MyGamesAnywhere"
 #define AppPublisher "GreenFuze"
+#define AppGuid "9B4F5E66-70B4-4F9-B9C0-D01A00000001"
 #define AppExeName "mga_server.exe"
 #define TrayExeName "mga_tray.exe"
 #ifndef MyAppVersion
@@ -18,7 +19,7 @@
 #endif
 
 [Setup]
-AppId={{9B4F5E66-70B4-4F9-B9C0-D01A00000001}
+AppId={{{#AppGuid}}
 AppName={#AppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#AppPublisher}
@@ -112,6 +113,37 @@ end;
 function IsUpdateMode: Boolean;
 begin
   Result := ParamValue('MGAUPDATE', '0') = '1';
+end;
+
+function ExistingInstallFound: Boolean;
+var
+  UninstallString: String;
+  Key: String;
+begin
+  Key := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{' + '{#AppGuid}' + '}_is1';
+  Result :=
+    RegQueryStringValue(HKCU, Key, 'UninstallString', UninstallString) or
+    RegQueryStringValue(HKLM, Key, 'UninstallString', UninstallString) or
+    RegQueryStringValue(HKLM64, Key, 'UninstallString', UninstallString) or
+    RegQueryStringValue(HKLM32, Key, 'UninstallString', UninstallString);
+end;
+
+function InitializeSetup: Boolean;
+begin
+  Result := True;
+  if IsUpdateMode then
+    Exit;
+
+  if ExistingInstallFound then
+  begin
+    MsgBox(
+      'MyGamesAnywhere is already installed on this computer.' + #13#10#13#10 +
+      'To reinstall or change install mode, uninstall MGA first from Windows Settings, then run this installer again.' + #13#10#13#10 +
+      'Auto-update uses a separate update mode and is not affected by this check.',
+      mbInformation,
+      MB_OK);
+    Result := False;
+  end;
 end;
 
 function ReadFailureDetails(LogPath: String): String;
@@ -414,7 +446,8 @@ begin
       begin
         FirewallParameters :=
           '-Action add ' +
-          PSArg('Program', ExpandConstant('{app}\{#AppExeName}'));
+          PSArg('Program', ExpandConstant('{app}\{#AppExeName}')) + ' ' +
+          PSArg('Port', '8900');
         RunPowerShellStep('firewall.ps1', FirewallParameters, 'MGA firewall rule installation', '');
       end;
 
