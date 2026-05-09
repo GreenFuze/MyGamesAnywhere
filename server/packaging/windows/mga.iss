@@ -82,6 +82,7 @@ Filename: "{app}\{#AppExeName}"; Parameters: "--app-dir ""{app}"" --data-dir ""{
 Filename: "{app}\{#TrayExeName}"; Parameters: "--base-url ""http://127.0.0.1:8900"" --mode ""service"" --server-exe ""{app}\{#AppExeName}"" --app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: startup_tray; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: IsAllUsersMode
 
 [UninstallRun]
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service.ps1"" -Action stop-tray -AppDir ""{app}"""; Flags: runhidden waituntilterminated; RunOnceId: "StopMGATray"
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service.ps1"" -Action uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveMGAService"
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\firewall.ps1"" -Action remove"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveMGAFirewall"
 
@@ -331,10 +332,16 @@ begin
     Exit;
 
   LogPath := GetInstallLogPath('');
+  ExtractTemporaryFile('service.ps1');
+  ScriptPath := ExpandConstant('{tmp}\service.ps1');
+  StopParameters :=
+    '-Action stop-tray ' +
+    PSArg('AppDir', ExpandConstant('{app}')) + ' ' +
+    PSArg('LogPath', LogPath);
+  RunPowerShellScript(ScriptPath, StopParameters, 'MGA tray companion stop', LogPath);
+
   if IsServiceInstall then
   begin
-    ExtractTemporaryFile('service.ps1');
-    ScriptPath := ExpandConstant('{tmp}\service.ps1');
     StopParameters :=
       '-Action stop ' +
       PSArg('AppDir', ExpandConstant('{app}')) + ' ' +

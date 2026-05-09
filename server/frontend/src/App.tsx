@@ -35,11 +35,11 @@ export function App() {
         <ToastProvider>
           <ThemeProvider>
             <SearchProvider>
-              <ProfileProvider>
-                <BrowserRouter>
-                  <AppNotifications />
-                  <AppQueryInvalidation />
-                  <ErrorBoundary>
+              <BrowserRouter>
+                <ErrorBoundary>
+                  <ProfileProvider>
+                    <AppNotifications />
+                    <AppQueryInvalidation />
                     <Routes>
                       <Route path="/" element={<AppLayout />}>
                         <Route index element={<HomePage />} />
@@ -58,9 +58,9 @@ export function App() {
                       <Route path="/game/:id" element={<GameDetailPage />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
-                  </ErrorBoundary>
-                </BrowserRouter>
-              </ProfileProvider>
+                  </ProfileProvider>
+                </ErrorBoundary>
+              </BrowserRouter>
             </SearchProvider>
           </ThemeProvider>
         </ToastProvider>

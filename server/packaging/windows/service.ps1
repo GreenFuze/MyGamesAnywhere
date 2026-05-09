@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true)]
-    [ValidateSet("install","uninstall","start","stop","restart")]
+    [ValidateSet("install","uninstall","start","stop","restart","stop-tray")]
     [string]$Action,
     [string]$ServiceName = "MyGamesAnywhere",
     [string]$DisplayName = "MyGamesAnywhere",
@@ -174,8 +174,49 @@ function Get-ServiceOrNull {
     return Get-Service -Name $Name -ErrorAction SilentlyContinue
 }
 
+function Get-TargetTrayProcesses {
+    if (-not $AppDir) {
+        throw "AppDir is required to stop the tray companion."
+    }
+
+    $trayExe = (Join-Path $AppDir "mga_tray.exe").ToLowerInvariant()
+    $targets = @()
+    foreach ($process in Get-Process -Name "mga_tray" -ErrorAction SilentlyContinue) {
+        try {
+            $path = $process.MainModule.FileName
+            if ($path -and $path.ToLowerInvariant() -eq $trayExe) {
+                $targets += $process
+            }
+        } catch {
+            Write-InstallLog "Skipping tray process PID $($process.Id); could not verify executable path: $($_.Exception.Message)"
+        }
+    }
+    return $targets
+}
+
+function Stop-TrayProcesses {
+    $targets = Get-TargetTrayProcesses
+    foreach ($process in $targets) {
+        Write-InstallLog "Stopping MGA tray companion PID $($process.Id)."
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    }
+
+    for ($i = 0; $i -lt 20; $i++) {
+        if ((Get-TargetTrayProcesses).Count -eq 0) {
+            Write-InstallLog "MGA tray companion is stopped."
+            return
+        }
+        Start-Sleep -Milliseconds 500
+    }
+
+    throw "Timed out waiting for MGA tray companion to stop."
+}
+
 try {
     switch ($Action) {
+        "stop-tray" {
+            Stop-TrayProcesses
+        }
         "install" {
             if (-not $AppDir -or -not $DataDir -or -not $ConfigPath) {
                 throw "AppDir, DataDir, and ConfigPath are required for service install."
