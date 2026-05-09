@@ -70,6 +70,55 @@ function Wait-ServiceOrNull {
     return $null
 }
 
+function Get-ServiceCimOrNull {
+    param([string]$Name)
+
+    try {
+        return Get-CimInstance Win32_Service -Filter "Name='$Name'" -ErrorAction Stop
+    } catch {
+        return $null
+    }
+}
+
+function Wait-ServiceStopped {
+    param(
+        [string]$Name,
+        [int]$TimeoutSeconds = 60
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $service = Get-ServiceOrNull -Name $Name
+        if (-not $service) {
+            Write-InstallLog "Service $Name no longer exists."
+            return $true
+        }
+
+        $cim = Get-ServiceCimOrNull -Name $Name
+        $processId = 0
+        if ($cim -and $cim.ProcessId) {
+            $processId = [int]$cim.ProcessId
+        }
+
+        if ($service.Status -eq 'Stopped') {
+            if ($processId -le 0) {
+                Write-InstallLog "Service $Name is stopped."
+                return $true
+            }
+            $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+            if (-not $process) {
+                Write-InstallLog "Service $Name is stopped and process $processId has exited."
+                return $true
+            }
+        }
+
+        Start-Sleep -Milliseconds 500
+    }
+
+    Write-ServiceDiagnostics -Name $Name
+    return $false
+}
+
 function Write-FileTailToInstallLog {
     param(
         [string]$Path,
@@ -139,6 +188,9 @@ try {
             if ($existing) {
                 Write-InstallLog "Existing service found. Removing it before reinstall."
                 try { Invoke-Native sc.exe stop $ServiceName | Out-Null } catch {}
+                if (-not (Wait-ServiceStopped -Name $ServiceName -TimeoutSeconds 60)) {
+                    throw "Timed out waiting for existing service $ServiceName to stop before reinstall."
+                }
                 Invoke-Native sc.exe delete $ServiceName | Out-Null
                 Start-Sleep -Seconds 2
             }
@@ -156,7 +208,9 @@ try {
             if ($existing) {
                 Write-InstallLog "Removing service $ServiceName."
                 try { Invoke-Native sc.exe stop $ServiceName | Out-Null } catch {}
-                Start-Sleep -Seconds 2
+                if (-not (Wait-ServiceStopped -Name $ServiceName -TimeoutSeconds 60)) {
+                    throw "Timed out waiting for service $ServiceName to stop before uninstall."
+                }
                 Invoke-Native sc.exe delete $ServiceName | Out-Null
             }
         }
@@ -172,6 +226,9 @@ try {
         "stop" {
             Write-InstallLog "Stopping service $ServiceName."
             Stop-Service -Name $ServiceName -ErrorAction SilentlyContinue
+            if (-not (Wait-ServiceStopped -Name $ServiceName -TimeoutSeconds 60)) {
+                throw "Timed out waiting for service $ServiceName to stop."
+            }
         }
         "restart" {
             Write-InstallLog "Restarting service $ServiceName."
