@@ -250,20 +250,12 @@ export function UpdateTab() {
     !!updateQuery.data &&
     !!applyTargetVersion &&
     normalizeVersion(updateQuery.data.current_version) !== normalizeVersion(applyTargetVersion)
-  const updateDescription =
-    update?.install_type === 'portable'
-      ? 'MGA checks the release manifest, downloads the matching portable ZIP, verifies SHA256, then restarts through the portable updater while app files are replaced.'
-      : 'MGA checks the release manifest, downloads the matching Windows installer, verifies SHA256, then restarts automatically while the installer replaces app files.'
-
   return (
     <div className="space-y-6">
       <section className="rounded-mga border border-mga-border bg-mga-surface p-5 shadow-sm shadow-black/10 md:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-mga-text">Updates</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-mga-muted">
-              {updateDescription}
-            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
