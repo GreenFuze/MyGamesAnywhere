@@ -115,6 +115,11 @@ begin
   Result := ParamValue('MGAUPDATE', '0') = '1';
 end;
 
+function IsDeleteDataUninstall: Boolean;
+begin
+  Result := ParamValue('MGADELETEDATA', '0') = '1';
+end;
+
 function ExistingInstallFound: Boolean;
 var
   UninstallString: String;
@@ -483,15 +488,15 @@ var
 begin
   if CurUninstallStep = usPostUninstall then
   begin
+    if not IsDeleteDataUninstall then
+      Exit;
+
     if IsAdminInstallMode then
       DataDir := ExpandConstant('{commonappdata}\MyGamesAnywhere')
     else
       DataDir := ExpandConstant('{localappdata}\MyGamesAnywhere');
 
     if DirExists(DataDir) then
-    begin
-      if MsgBox('Delete MGA user data at ' + DataDir + '? Choose No to keep your library, settings, media, and update cache.', mbConfirmation, MB_YESNO) = IDYES then
-        DelTree(DataDir, True, True, True);
-    end;
+      DelTree(DataDir, True, True, True);
   end;
 end;
