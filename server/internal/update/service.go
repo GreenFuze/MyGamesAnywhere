@@ -22,6 +22,7 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/buildinfo"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 )
 
 const (
@@ -35,12 +36,14 @@ var githubReleasesAPIBase = "https://api.github.com/repos"
 var startDetachedCommand = func(cmd *exec.Cmd) error { return cmd.Start() }
 
 type Service struct {
-	cfg         core.Configuration
-	logger      core.Logger
-	client      *http.Client
-	mu          sync.Mutex
-	lastStatus  core.UpdateStatus
-	exitProcess func(int)
+	cfg            core.Configuration
+	logger         core.Logger
+	client         *http.Client
+	downloadClient *http.Client
+	eventBus       *events.EventBus
+	mu             sync.Mutex
+	lastStatus     core.UpdateStatus
+	exitProcess    func(int)
 }
 
 type githubRelease struct {
@@ -53,12 +56,18 @@ type githubRelease struct {
 	} `json:"assets"`
 }
 
-func NewService(cfg core.Configuration, logger core.Logger) *Service {
+func NewService(cfg core.Configuration, logger core.Logger, eventBus ...*events.EventBus) *Service {
+	var bus *events.EventBus
+	if len(eventBus) > 0 {
+		bus = eventBus[0]
+	}
 	return &Service{
-		cfg:         cfg,
-		logger:      logger,
-		client:      &http.Client{Timeout: 60 * time.Second},
-		exitProcess: os.Exit,
+		cfg:            cfg,
+		logger:         logger,
+		client:         &http.Client{Timeout: 60 * time.Second},
+		downloadClient: &http.Client{},
+		eventBus:       bus,
+		exitProcess:    os.Exit,
 	}
 }
 
@@ -67,13 +76,12 @@ func (s *Service) Status(ctx context.Context) (*core.UpdateStatus, error) {
 	defer s.mu.Unlock()
 	status := s.baseStatusLocked()
 	if s.lastStatus.LatestVersion != "" {
-		status.LatestVersion = s.lastStatus.LatestVersion
-		status.UpdateAvailable = s.lastStatus.UpdateAvailable
-		status.ReleaseNotesURL = s.lastStatus.ReleaseNotesURL
-		status.DownloadedPath = s.lastStatus.DownloadedPath
-		status.DownloadedSHA256 = s.lastStatus.DownloadedSHA256
-		status.SelectedAsset = cloneAsset(s.lastStatus.SelectedAsset)
-		status.Message = s.lastStatus.Message
+		last := s.lastStatus
+		last.CurrentVersion = status.CurrentVersion
+		last.ManifestURL = status.ManifestURL
+		last.InstallType = status.InstallType
+		last.SelectedAsset = cloneAsset(s.lastStatus.SelectedAsset)
+		status = last
 	}
 	_ = ctx
 	return &status, nil
@@ -90,6 +98,13 @@ func (s *Service) Check(ctx context.Context) (*core.UpdateStatus, error) {
 	}
 	status := s.statusFromManifest(manifest, asset)
 	s.mu.Lock()
+	if s.lastStatus.DownloadInProgress {
+		status.DownloadInProgress = true
+		status.DownloadBytes = s.lastStatus.DownloadBytes
+		status.DownloadTotalBytes = s.lastStatus.DownloadTotalBytes
+		status.DownloadPercent = s.lastStatus.DownloadPercent
+		status.Message = s.lastStatus.Message
+	}
 	s.lastStatus = status
 	s.mu.Unlock()
 	return &status, nil
@@ -106,8 +121,23 @@ func (s *Service) Download(ctx context.Context) (*core.UpdateDownloadResult, err
 	if status.SelectedAsset.URL == "" {
 		return nil, errors.New("selected update asset has no URL")
 	}
+	s.mu.Lock()
+	if s.lastStatus.DownloadInProgress {
+		s.mu.Unlock()
+		return nil, errors.New("update download is already in progress")
+	}
+	status.DownloadInProgress = true
+	status.DownloadBytes = 0
+	status.DownloadTotalBytes = status.SelectedAsset.Size
+	status.DownloadPercent = 0
+	status.Message = "Downloading update asset."
+	s.lastStatus = *status
+	s.mu.Unlock()
+	s.publish("update_download_started", s.progressPayload(status))
+
 	updatesDir := s.updatesDir()
 	if err := os.MkdirAll(updatesDir, 0o755); err != nil {
+		s.finishDownloadWithError(status, err)
 		return nil, fmt.Errorf("create updates directory: %w", err)
 	}
 	name := status.SelectedAsset.Name
@@ -118,16 +148,27 @@ func (s *Service) Download(ctx context.Context) (*core.UpdateDownloadResult, err
 		name = fmt.Sprintf("mga-update-%s", status.LatestVersion)
 	}
 	path := filepath.Join(updatesDir, filepath.Base(name))
-	hash, size, err := s.downloadAndVerify(ctx, status.SelectedAsset.URL, path, status.SelectedAsset.SHA256)
+	hash, size, err := s.downloadAndVerify(ctx, status.SelectedAsset.URL, path, status.SelectedAsset.SHA256, status.SelectedAsset.Size, func(bytes, total int64) {
+		s.recordDownloadProgress(status, bytes, total)
+	})
 	if err != nil {
+		s.finishDownloadWithError(status, err)
 		return nil, err
 	}
 	status.DownloadedPath = path
 	status.DownloadedSHA256 = hash
+	status.DownloadedSize = size
+	status.DownloadInProgress = false
+	status.DownloadBytes = size
+	if status.DownloadTotalBytes <= 0 {
+		status.DownloadTotalBytes = size
+	}
+	status.DownloadPercent = 100
 	status.Message = "Update asset downloaded and verified."
 	s.mu.Lock()
 	s.lastStatus = *status
 	s.mu.Unlock()
+	s.publish("update_download_complete", s.progressPayload(status))
 	return &core.UpdateDownloadResult{
 		Status: *status,
 		Path:   path,
@@ -148,13 +189,21 @@ func (s *Service) Apply(ctx context.Context) (*core.UpdateApplyResult, error) {
 		}
 		status = &download.Status
 	}
+	if err := s.verifyDownloadedAsset(status); err != nil {
+		s.recordApplyError(status, err)
+		return nil, err
+	}
 	if goruntime.GOOS != "windows" {
-		return nil, errors.New("auto-update apply is currently supported only on Windows")
+		err := errors.New("auto-update apply is currently supported only on Windows")
+		s.recordApplyError(status, err)
+		return nil, err
 	}
 	if s.installType() == assetTypePortable {
 		if err := s.applyPortable(status); err != nil {
+			s.recordApplyError(status, err)
 			return nil, err
 		}
+		s.recordApplyStarted(status, "Portable update started. MGA will restart shortly while the updater replaces app files.")
 		return &core.UpdateApplyResult{
 			Applied: true,
 			Message: "Portable update started. MGA will restart shortly while the updater replaces app files.",
@@ -162,8 +211,10 @@ func (s *Service) Apply(ctx context.Context) (*core.UpdateApplyResult, error) {
 		}, nil
 	}
 	if err := s.applyInstaller(status); err != nil {
+		s.recordApplyError(status, err)
 		return nil, err
 	}
+	s.recordApplyStarted(status, "Installer update started. MGA will restart shortly while the installer replaces app files.")
 	return &core.UpdateApplyResult{
 		Applied: true,
 		Message: "Installer update started. MGA will restart shortly while the installer replaces app files.",
@@ -401,6 +452,7 @@ func (s *Service) statusFromManifest(manifest *core.UpdateManifest, asset *core.
 	} else {
 		status.Message = "MGA is up to date."
 	}
+	s.detectExistingDownload(&status)
 	return status
 }
 
@@ -569,12 +621,12 @@ func validatePortableZip(path string) error {
 	return errors.New("portable update ZIP is missing mga_server.exe, plugins, or frontend/dist/index.html")
 }
 
-func (s *Service) downloadAndVerify(ctx context.Context, url, path, expectedSHA string) (string, int64, error) {
+func (s *Service) downloadAndVerify(ctx context.Context, url, path, expectedSHA string, expectedSize int64, progress func(bytes, total int64)) (string, int64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", 0, fmt.Errorf("create download request: %w", err)
 	}
-	res, err := s.client.Do(req)
+	res, err := s.downloadClient.Do(req)
 	if err != nil {
 		return "", 0, fmt.Errorf("download update asset: %w", err)
 	}
@@ -588,7 +640,16 @@ func (s *Service) downloadAndVerify(ctx context.Context, url, path, expectedSHA 
 		return "", 0, fmt.Errorf("create update download file: %w", err)
 	}
 	hasher := sha256.New()
-	size, copyErr := io.Copy(io.MultiWriter(file, hasher), res.Body)
+	total := res.ContentLength
+	if total <= 0 {
+		total = expectedSize
+	}
+	reader := &progressReader{
+		reader:   res.Body,
+		total:    total,
+		progress: progress,
+	}
+	size, copyErr := io.Copy(io.MultiWriter(file, hasher), reader)
 	closeErr := file.Close()
 	if copyErr != nil {
 		_ = os.Remove(tmp)
@@ -608,6 +669,196 @@ func (s *Service) downloadAndVerify(ctx context.Context, url, path, expectedSHA 
 		return "", 0, fmt.Errorf("move update download into place: %w", err)
 	}
 	return actual, size, nil
+}
+
+type progressReader struct {
+	reader       io.Reader
+	total        int64
+	read         int64
+	progress     func(bytes, total int64)
+	lastProgress time.Time
+}
+
+func (r *progressReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		r.read += int64(n)
+		now := time.Now()
+		if r.progress != nil && (r.lastProgress.IsZero() || now.Sub(r.lastProgress) >= 250*time.Millisecond) {
+			r.lastProgress = now
+			r.progress(r.read, r.total)
+		}
+	}
+	if err == io.EOF && r.progress != nil {
+		r.progress(r.read, r.total)
+	}
+	return n, err
+}
+
+func (s *Service) detectExistingDownload(status *core.UpdateStatus) {
+	if status.SelectedAsset == nil {
+		return
+	}
+	name := strings.TrimSpace(status.SelectedAsset.Name)
+	if name == "" {
+		name = filepath.Base(status.SelectedAsset.URL)
+	}
+	if strings.TrimSpace(name) == "" || name == "." || name == string(filepath.Separator) {
+		return
+	}
+	path := filepath.Join(s.updatesDir(), filepath.Base(name))
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return
+	}
+	hash, err := fileSHA256(path)
+	if err != nil {
+		status.Message = "Existing update download could not be verified; re-download it."
+		return
+	}
+	if !strings.EqualFold(hash, strings.TrimSpace(status.SelectedAsset.SHA256)) {
+		status.Message = "Existing update download failed SHA256 verification; re-download it."
+		return
+	}
+	status.DownloadedPath = path
+	status.DownloadedSHA256 = hash
+	status.DownloadedSize = info.Size()
+	status.DownloadBytes = info.Size()
+	status.DownloadTotalBytes = status.SelectedAsset.Size
+	if status.DownloadTotalBytes <= 0 {
+		status.DownloadTotalBytes = info.Size()
+	}
+	status.DownloadPercent = 100
+}
+
+func (s *Service) verifyDownloadedAsset(status *core.UpdateStatus) error {
+	if status.DownloadedPath == "" {
+		return errors.New("no verified update download is available")
+	}
+	if status.SelectedAsset == nil {
+		return errors.New("update asset metadata is unavailable; check for updates again")
+	}
+	info, err := os.Stat(status.DownloadedPath)
+	if err != nil {
+		return fmt.Errorf("verified update download is unavailable: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("verified update download is a directory: %s", status.DownloadedPath)
+	}
+	hash, err := fileSHA256(status.DownloadedPath)
+	if err != nil {
+		return fmt.Errorf("verify update download: %w", err)
+	}
+	if !strings.EqualFold(hash, strings.TrimSpace(status.SelectedAsset.SHA256)) {
+		return fmt.Errorf("update SHA256 mismatch before apply: expected %s got %s", status.SelectedAsset.SHA256, hash)
+	}
+	return nil
+}
+
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func (s *Service) recordDownloadProgress(status *core.UpdateStatus, bytes, total int64) {
+	if total <= 0 {
+		total = status.DownloadTotalBytes
+	}
+	percent := float64(0)
+	if total > 0 {
+		percent = (float64(bytes) / float64(total)) * 100
+		if percent > 100 {
+			percent = 100
+		}
+	}
+	s.mu.Lock()
+	current := s.lastStatus
+	current.DownloadInProgress = true
+	current.DownloadBytes = bytes
+	current.DownloadTotalBytes = total
+	current.DownloadPercent = percent
+	current.Message = "Downloading update asset."
+	s.lastStatus = current
+	s.mu.Unlock()
+	payloadStatus := current
+	s.publish("update_download_progress", s.progressPayload(&payloadStatus))
+}
+
+func (s *Service) finishDownloadWithError(status *core.UpdateStatus, err error) {
+	s.mu.Lock()
+	current := s.lastStatus
+	current.DownloadInProgress = false
+	current.Message = fmt.Sprintf("Update download failed: %v", err)
+	s.lastStatus = current
+	s.mu.Unlock()
+	payloadStatus := current
+	payload := s.progressPayload(&payloadStatus)
+	payload["error"] = err.Error()
+	s.publish("update_download_error", payload)
+}
+
+func (s *Service) recordApplyStarted(status *core.UpdateStatus, message string) {
+	s.mu.Lock()
+	current := s.lastStatus
+	if current.LatestVersion == "" {
+		current = *status
+	}
+	current.ApplyStarted = true
+	current.Message = message
+	s.lastStatus = current
+	s.mu.Unlock()
+	payloadStatus := current
+	s.publish("update_apply_started", s.progressPayload(&payloadStatus))
+}
+
+func (s *Service) recordApplyError(status *core.UpdateStatus, err error) {
+	s.mu.Lock()
+	current := s.lastStatus
+	if current.LatestVersion == "" {
+		current = *status
+	}
+	current.ApplyStarted = false
+	current.Message = fmt.Sprintf("Update apply failed: %v", err)
+	s.lastStatus = current
+	s.mu.Unlock()
+	payloadStatus := current
+	payload := s.progressPayload(&payloadStatus)
+	payload["error"] = err.Error()
+	s.publish("update_apply_error", payload)
+}
+
+func (s *Service) progressPayload(status *core.UpdateStatus) map[string]any {
+	payload := map[string]any{
+		"current_version":      status.CurrentVersion,
+		"latest_version":       status.LatestVersion,
+		"install_type":         status.InstallType,
+		"download_in_progress": status.DownloadInProgress,
+		"download_bytes":       status.DownloadBytes,
+		"download_total_bytes": status.DownloadTotalBytes,
+		"download_percent":     status.DownloadPercent,
+		"downloaded_path":      status.DownloadedPath,
+		"downloaded_sha256":    status.DownloadedSHA256,
+		"downloaded_size":      status.DownloadedSize,
+		"apply_started":        status.ApplyStarted,
+		"message":              status.Message,
+	}
+	if status.SelectedAsset != nil {
+		payload["asset_name"] = status.SelectedAsset.Name
+		payload["asset_size"] = status.SelectedAsset.Size
+	}
+	return payload
+}
+
+func (s *Service) publish(eventType string, payload map[string]any) {
+	events.PublishJSON(s.eventBus, eventType, payload)
 }
 
 func compareVersions(latest, current string) (int, bool) {

@@ -571,16 +571,22 @@ type UpdateManifest struct {
 }
 
 type UpdateStatus struct {
-	CurrentVersion   string       `json:"current_version"`
-	LatestVersion    string       `json:"latest_version,omitempty"`
-	UpdateAvailable  bool         `json:"update_available"`
-	ManifestURL      string       `json:"manifest_url,omitempty"`
-	ReleaseNotesURL  string       `json:"release_notes_url,omitempty"`
-	InstallType      string       `json:"install_type"`
-	DownloadedPath   string       `json:"downloaded_path,omitempty"`
-	DownloadedSHA256 string       `json:"downloaded_sha256,omitempty"`
-	SelectedAsset    *UpdateAsset `json:"selected_asset,omitempty"`
-	Message          string       `json:"message,omitempty"`
+	CurrentVersion     string       `json:"current_version"`
+	LatestVersion      string       `json:"latest_version,omitempty"`
+	UpdateAvailable    bool         `json:"update_available"`
+	ManifestURL        string       `json:"manifest_url,omitempty"`
+	ReleaseNotesURL    string       `json:"release_notes_url,omitempty"`
+	InstallType        string       `json:"install_type"`
+	DownloadedPath     string       `json:"downloaded_path,omitempty"`
+	DownloadedSHA256   string       `json:"downloaded_sha256,omitempty"`
+	DownloadedSize     int64        `json:"downloaded_size,omitempty"`
+	DownloadInProgress bool         `json:"download_in_progress,omitempty"`
+	DownloadBytes      int64        `json:"download_bytes,omitempty"`
+	DownloadTotalBytes int64        `json:"download_total_bytes,omitempty"`
+	DownloadPercent    float64      `json:"download_percent,omitempty"`
+	ApplyStarted       bool         `json:"apply_started,omitempty"`
+	SelectedAsset      *UpdateAsset `json:"selected_asset,omitempty"`
+	Message            string       `json:"message,omitempty"`
 }
 
 type UpdateDownloadResult struct {

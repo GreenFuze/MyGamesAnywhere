@@ -79,6 +79,14 @@ const knownTypes = [
   // OAuth flow events.
   'oauth_complete',
   'oauth_error',
+
+  // Update flow events.
+  'update_download_started',
+  'update_download_progress',
+  'update_download_complete',
+  'update_download_error',
+  'update_apply_started',
+  'update_apply_error',
 ] as const
 
 const SSEContext = createContext<SSEContextValue | null>(null)

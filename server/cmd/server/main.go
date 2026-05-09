@@ -176,7 +176,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 
 	ks := keystore.New()
 	syncSvc := mgasync.NewSyncService(integrationRepo, settingRepo, profileRepo, pluginHost, ks, logSvc)
-	updateSvc := mgaupdate.NewService(configSvc, logSvc)
+	updateSvc := mgaupdate.NewService(configSvc, logSvc, eventBus)
 	saveSyncSvc := saveSync.NewService(integrationRepo, gameStore, pluginHost, logSvc, eventBus)
 	cacheSvc := sourcecache.NewService(cacheStore, integrationRepo, pluginHost, configSvc, logSvc)
 	mediaSvc := media.NewService(gameStore, configSvc, logSvc)

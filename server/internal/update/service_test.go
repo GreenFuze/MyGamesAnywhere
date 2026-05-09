@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/buildinfo"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 )
 
 type testConfig map[string]string
@@ -271,6 +273,108 @@ func TestDownloadAcceptsVerifiedAsset(t *testing.T) {
 	}
 }
 
+func TestCheckDetectsExistingVerifiedDownload(t *testing.T) {
+	oldVersion := buildinfo.Version
+	buildinfo.Version = "1.0.0"
+	defer func() { buildinfo.Version = oldVersion }()
+
+	assetBytes := []byte("installer")
+	sum := sha256.Sum256(assetBytes)
+	want := hex.EncodeToString(sum[:])
+	updatesDir := t.TempDir()
+	assetPath := filepath.Join(updatesDir, "mga.zip")
+	if err := os.WriteFile(assetPath, assetBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{
+			"version":"1.1.0",
+			"assets":[
+				{"os":"%s","arch":"%s","type":"portable","name":"mga.zip","url":"%s/mga.zip","sha256":"%s","size":%d}
+			]
+		}`, runtimeGOOS(), runtimeGOARCH(), r.Host, want, len(assetBytes))
+	}))
+	defer server.Close()
+
+	svc := NewService(testConfig{
+		"UPDATE_MANIFEST_URL": server.URL,
+		"APP_INSTALL_TYPE":    "portable",
+		"UPDATES_DIR":         updatesDir,
+	}, testLogger{})
+
+	status, err := svc.Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	if status.DownloadedPath != assetPath {
+		t.Fatalf("DownloadedPath = %q, want %q", status.DownloadedPath, assetPath)
+	}
+	if status.DownloadPercent != 100 {
+		t.Fatalf("DownloadPercent = %v, want 100", status.DownloadPercent)
+	}
+}
+
+func TestDownloadPublishesProgressEvents(t *testing.T) {
+	oldVersion := buildinfo.Version
+	buildinfo.Version = "1.0.0"
+	defer func() { buildinfo.Version = oldVersion }()
+
+	assetBytes := []byte(strings.Repeat("x", 128*1024))
+	sum := sha256.Sum256(assetBytes)
+	want := hex.EncodeToString(sum[:])
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/manifest.json" {
+			_, _ = fmt.Fprintf(w, `{
+				"version":"1.1.0",
+				"assets":[
+					{"os":"%s","arch":"%s","type":"portable","name":"mga.zip","url":"%s/mga.zip","sha256":"%s","size":%d}
+				]
+			}`, runtimeGOOS(), runtimeGOARCH(), server.URL, want, len(assetBytes))
+			return
+		}
+		_, _ = w.Write(assetBytes)
+	}))
+	defer server.Close()
+
+	bus := events.New()
+	ch := bus.Subscribe()
+	defer bus.Unsubscribe(ch)
+	svc := NewService(testConfig{
+		"UPDATE_MANIFEST_URL": server.URL + "/manifest.json",
+		"APP_INSTALL_TYPE":    "portable",
+		"UPDATES_DIR":         t.TempDir(),
+	}, testLogger{}, bus)
+
+	if _, err := svc.Download(context.Background()); err != nil {
+		t.Fatalf("Download() error = %v", err)
+	}
+
+	seenComplete := false
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Type != "update_download_complete" {
+				continue
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(ev.Data, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload["download_percent"] != float64(100) {
+				t.Fatalf("download_percent = %#v", payload["download_percent"])
+			}
+			seenComplete = true
+		default:
+			if !seenComplete {
+				t.Fatal("missing update_download_complete event")
+			}
+			return
+		}
+	}
+}
+
 func TestApplyInstallerLaunchesSilentUpdateWithInstallMode(t *testing.T) {
 	oldStarter := startDetachedCommand
 	t.Cleanup(func() { startDetachedCommand = oldStarter })
@@ -287,20 +391,49 @@ func TestApplyInstallerLaunchesSilentUpdateWithInstallMode(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(appDir, "plugins"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	installerPath := filepath.Join(root, "installer.exe")
+	if err := os.WriteFile(installerPath, []byte("installer"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("installer"))
 	svc := NewService(testConfig{
 		"APP_INSTALL_TYPE": "service",
 		"PLUGINS_DIR":      filepath.Join(appDir, "plugins"),
 		"UPDATES_DIR":      filepath.Join(dataDir, "updates"),
 	}, testLogger{})
+	svc.lastStatus = core.UpdateStatus{
+		LatestVersion:    "1.1.0",
+		DownloadedPath:   installerPath,
+		DownloadedSHA256: hex.EncodeToString(sum[:]),
+		SelectedAsset: &core.UpdateAsset{
+			SHA256: hex.EncodeToString(sum[:]),
+		},
+	}
 
-	if err := svc.applyInstaller(coreUpdateStatus("1.1.0", filepath.Join(root, "installer.exe"))); err != nil {
-		t.Fatalf("applyInstaller() error = %v", err)
+	if _, err := svc.Apply(context.Background()); err != nil {
+		t.Fatalf("Apply() error = %v", err)
 	}
 	joined := strings.Join(captured, " ")
 	for _, want := range []string{"/VERYSILENT", "/MGAUPDATE=1", "/MGAINSTALLTYPE=service", "/ALLUSERS", "/MGAAPPDIR=" + appDir, "/MGADATADIR=" + dataDir} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("installer args %q do not contain %q", joined, want)
 		}
+	}
+}
+
+func TestApplyRejectsTamperedDownloadedAsset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "installer.exe")
+	if err := os.WriteFile(path, []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(testConfig{"APP_INSTALL_TYPE": "service"}, testLogger{})
+	svc.lastStatus = core.UpdateStatus{
+		LatestVersion:  "1.1.0",
+		DownloadedPath: path,
+		SelectedAsset:  &core.UpdateAsset{SHA256: strings.Repeat("0", 64)},
+	}
+	if _, err := svc.Apply(context.Background()); err == nil {
+		t.Fatal("Apply() expected SHA mismatch")
 	}
 }
 

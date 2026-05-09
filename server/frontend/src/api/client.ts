@@ -813,6 +813,12 @@ export type UpdateStatus = {
   install_type: string;
   downloaded_path?: string;
   downloaded_sha256?: string;
+  downloaded_size?: number;
+  download_in_progress?: boolean;
+  download_bytes?: number;
+  download_total_bytes?: number;
+  download_percent?: number;
+  apply_started?: boolean;
   selected_asset?: UpdateAsset;
   message?: string;
 };
