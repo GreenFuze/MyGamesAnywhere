@@ -1497,6 +1497,30 @@ paths:
         500:
           description: Internal server error
 
+  /api/stats/gamer:
+    get:
+      summary: Gamer statistics
+      description: 'Read-only player-facing aggregates from existing data: favorites, cached achievement totals, achievement systems, and completion buckets. Does not persist play-history events.'
+      responses:
+        200:
+          description: GamerStatistics JSON
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
+  /api/stats/library:
+    get:
+      summary: Richer library statistics
+      description: 'Read-only library dashboard aggregates: compatible LibraryStats summary plus ranked platform, source, integration, metadata provider, decade, genre, coverage, and recent scan activity sections.'
+      responses:
+        200:
+          description: LibraryStatistics JSON
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+
   /api/sync/key:
     delete:
       summary: Clear stored sync passphrase

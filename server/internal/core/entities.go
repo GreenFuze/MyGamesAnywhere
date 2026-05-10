@@ -830,6 +830,54 @@ type LibraryStats struct {
 	PercentWithAchievements    float64        `json:"percent_with_achievements"`
 }
 
+type CountStat struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Count int    `json:"count"`
+}
+
+type CoverageStat struct {
+	Key     string  `json:"key"`
+	Label   string  `json:"label"`
+	Count   int     `json:"count"`
+	Percent float64 `json:"percent"`
+}
+
+type LibraryStatistics struct {
+	Summary            LibraryStats   `json:"summary"`
+	Platforms          []CountStat    `json:"platforms"`
+	Kinds              []CountStat    `json:"kinds"`
+	SourcePlugins      []CountStat    `json:"source_plugins"`
+	SourceIntegrations []CountStat    `json:"source_integrations"`
+	MetadataProviders  []CountStat    `json:"metadata_providers"`
+	Decades            []CountStat    `json:"decades"`
+	Genres             []CountStat    `json:"genres"`
+	Coverage           []CoverageStat `json:"coverage"`
+	RecentScans        []ScanReport   `json:"recent_scans"`
+}
+
+type AchievementCompletionBucket struct {
+	Key       string `json:"key"`
+	Label     string `json:"label"`
+	GameCount int    `json:"game_count"`
+}
+
+type GamerStatistics struct {
+	TotalGames                   int                              `json:"total_games"`
+	FavoriteGames                int                              `json:"favorite_games"`
+	GamesWithAchievements        int                              `json:"games_with_achievements"`
+	PercentWithAchievements      float64                          `json:"percent_with_achievements"`
+	TotalAchievementSources      int                              `json:"total_achievement_sources"`
+	TotalAchievements            int                              `json:"total_achievements"`
+	UnlockedAchievements         int                              `json:"unlocked_achievements"`
+	AchievementUnlockPercent     float64                          `json:"achievement_unlock_percent"`
+	TotalAchievementPoints       int                              `json:"total_achievement_points,omitempty"`
+	EarnedAchievementPoints      int                              `json:"earned_achievement_points,omitempty"`
+	AchievementPointPercent      float64                          `json:"achievement_point_percent,omitempty"`
+	AchievementSystems           []CachedAchievementSystemSummary `json:"achievement_systems"`
+	AchievementCompletionBuckets []AchievementCompletionBucket    `json:"achievement_completion_buckets"`
+}
+
 // GameListItem is a lightweight game reference returned by integration-scoped queries.
 type GameListItem struct {
 	ID       string   `json:"id"`

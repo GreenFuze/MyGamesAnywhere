@@ -12,6 +12,7 @@ const nav = [
   { to: '/play', label: 'Play' },
   { to: '/library', label: 'Library' },
   { to: '/achievements', label: 'Achievements' },
+  { to: '/stats/library', label: 'Stats' },
   { to: '/settings', label: 'Settings' },
   { to: '/about', label: 'About' },
 ]
@@ -47,7 +48,7 @@ export function AppLayout() {
     }
   }, [profileMenuOpen])
 
-  const isWideRoute = ['/library', '/play', '/achievements'].some((p) =>
+  const isWideRoute = ['/library', '/play', '/achievements', '/stats'].some((p) =>
     loc.pathname.startsWith(p),
   )
 
@@ -171,12 +172,15 @@ export function AppLayout() {
                 to={to}
                 end={to === '/'}
                 className={({ isActive }) =>
-                  cn(
-                    'rounded-mga px-3 py-2 text-sm font-medium transition-colors',
-                    isActive
+                  {
+                    const active = isActive || (to.startsWith('/stats') && loc.pathname.startsWith('/stats'))
+                    return cn(
+                      'rounded-mga px-3 py-2 text-sm font-medium transition-colors',
+                      active
                       ? 'bg-mga-elevated text-mga-accent'
                       : 'text-mga-muted hover:bg-mga-elevated hover:text-mga-text',
-                  )
+                    )
+                  }
                 }
               >
                 {label}

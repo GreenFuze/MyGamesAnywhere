@@ -688,6 +688,145 @@ func TestGetLibraryStatsIncludesDashboardFields(t *testing.T) {
 	}
 }
 
+func TestGetLibraryStatisticsIncludesRankedSectionsAndRecentScans(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+	now := time.Now().Unix()
+	if _, err := db.GetDB().ExecContext(ctx, `INSERT INTO integrations
+		(id, plugin_id, label, config_json, integration_type, created_at, updated_at)
+		VALUES (?, ?, ?, '{}', 'source', ?, ?)`,
+		"integration-stats", "game-source-steam", "Steam Library", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-stats",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:stats-source",
+			IntegrationID: "integration-stats",
+			PluginID:      "game-source-steam",
+			ExternalID:    "stats-source",
+			RawTitle:      "Stats Game",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:stats-source": {{
+				PluginID:    "metadata-igdb",
+				Title:       "Stats Game",
+				Platform:    string(core.PlatformWindowsPC),
+				ExternalID:  "stats-match",
+				Description: "Stats description",
+				ReleaseDate: "1994-01-01",
+				Genres:      []string{"Action"},
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			"scan:stats-source": {{Type: core.MediaTypeCover, URL: "https://example.com/stats.png"}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveScanReport(ctx, &core.ScanReport{
+		ID:         "report-stats",
+		StartedAt:  time.Unix(1710000000, 0).UTC(),
+		FinishedAt: time.Unix(1710000030, 0).UTC(),
+		DurationMs: 30000,
+		TotalGames: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := store.GetLibraryStatistics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Summary.CanonicalGameCount != 1 {
+		t.Fatalf("canonical_game_count = %d, want 1", stats.Summary.CanonicalGameCount)
+	}
+	if len(stats.SourceIntegrations) != 1 || stats.SourceIntegrations[0].Label != "Steam Library" {
+		t.Fatalf("source_integrations = %+v, want Steam Library label", stats.SourceIntegrations)
+	}
+	if len(stats.Coverage) != 4 {
+		t.Fatalf("coverage = %+v, want four coverage rows", stats.Coverage)
+	}
+	if len(stats.RecentScans) != 1 || stats.RecentScans[0].ID != "report-stats" {
+		t.Fatalf("recent_scans = %+v, want report-stats", stats.RecentScans)
+	}
+}
+
+func TestGetGamerStatisticsIncludesFavoritesAndAchievementBuckets(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-gamer",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "scan:gamer-complete",
+				IntegrationID: "integration-gamer",
+				PluginID:      "game-source-steam",
+				ExternalID:    "gamer-complete",
+				RawTitle:      "Complete Game",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			},
+			{
+				ID:            "scan:gamer-empty",
+				IntegrationID: "integration-gamer",
+				PluginID:      "game-source-steam",
+				ExternalID:    "gamer-empty",
+				RawTitle:      "No Achievements Game",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				Status:        "found",
+			},
+		},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:gamer-complete": {{PluginID: "metadata-igdb", Title: "Complete Game", ExternalID: "complete-match"}},
+			"scan:gamer-empty":    {{PluginID: "metadata-igdb", Title: "No Achievements Game", ExternalID: "empty-match"}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	canonicalID := canonicalIDForSource(t, ctx, db, "scan:gamer-complete")
+	if err := store.SetCanonicalFavorite(ctx, canonicalID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CacheAchievements(ctx, "scan:gamer-complete", &core.AchievementSet{
+		Source:         "game-source-steam",
+		ExternalGameID: "gamer-complete",
+		TotalCount:     4,
+		UnlockedCount:  4,
+		TotalPoints:    40,
+		EarnedPoints:   40,
+		FetchedAt:      time.Unix(1710000000, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := store.GetGamerStatistics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.TotalGames != 2 || stats.FavoriteGames != 1 || stats.GamesWithAchievements != 1 {
+		t.Fatalf("gamer stats counts = %+v, want total=2 favorite=1 achievements=1", stats)
+	}
+	if stats.AchievementUnlockPercent != 100 || stats.AchievementPointPercent != 100 {
+		t.Fatalf("achievement percents = unlock %v points %v, want 100/100", stats.AchievementUnlockPercent, stats.AchievementPointPercent)
+	}
+	buckets := make(map[string]int)
+	for _, bucket := range stats.AchievementCompletionBuckets {
+		buckets[bucket.Key] = bucket.GameCount
+	}
+	if buckets["complete"] != 1 || buckets["no_achievements"] != 1 {
+		t.Fatalf("buckets = %+v, want complete=1 no_achievements=1", buckets)
+	}
+}
+
 func TestCanonicalCoverOverrideUsesLinkedMediaAndCanBeCleared(t *testing.T) {
 	ctx := context.Background()
 	db, store := newTestGameStore(t)

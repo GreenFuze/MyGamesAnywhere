@@ -76,6 +76,7 @@ type GameFileDTO struct {
 // GameController serves GET /api/games (list) and GET /api/games/{id} (single game).
 type GameController struct {
 	gameStore       core.GameStore
+	statsSvc        core.StatsService
 	refreshSvc      core.GameMetadataRefreshService
 	deleteSvc       core.GameDeletionService
 	integrationRepo core.IntegrationRepository
@@ -132,8 +133,14 @@ type AchievementGameExplorerDTO struct {
 	Systems []AchievementSetDTO `json:"systems"`
 }
 
-func NewGameController(gameStore core.GameStore, refreshSvc core.GameMetadataRefreshService, deleteSvc core.GameDeletionService, integrationRepo core.IntegrationRepository, cacheSvc core.SourceCacheService, logger core.Logger) *GameController {
-	return &GameController{gameStore: gameStore, refreshSvc: refreshSvc, deleteSvc: deleteSvc, integrationRepo: integrationRepo, cacheSvc: cacheSvc, logger: logger}
+func NewGameController(gameStore core.GameStore, refreshSvc core.GameMetadataRefreshService, deleteSvc core.GameDeletionService, integrationRepo core.IntegrationRepository, cacheSvc core.SourceCacheService, logger core.Logger, statsSvc ...core.StatsService) *GameController {
+	var svc core.StatsService
+	if len(statsSvc) > 0 {
+		svc = statsSvc[0]
+	} else if inferred, ok := any(gameStore).(core.StatsService); ok {
+		svc = inferred
+	}
+	return &GameController{gameStore: gameStore, statsSvc: svc, refreshSvc: refreshSvc, deleteSvc: deleteSvc, integrationRepo: integrationRepo, cacheSvc: cacheSvc, logger: logger}
 }
 
 func decodedPathParam(r *http.Request, key string) (string, error) {
@@ -748,6 +755,36 @@ func (c *GameController) Stats(w http.ResponseWriter, r *http.Request) {
 	stats, err := c.gameStore.GetLibraryStats(r.Context())
 	if err != nil {
 		c.logger.Error("library stats", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+func (c *GameController) LibraryStatistics(w http.ResponseWriter, r *http.Request) {
+	if c.statsSvc == nil {
+		http.Error(w, "stats service unavailable", http.StatusInternalServerError)
+		return
+	}
+	stats, err := c.statsSvc.GetLibraryStatistics(r.Context())
+	if err != nil {
+		c.logger.Error("library statistics", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+func (c *GameController) GamerStatistics(w http.ResponseWriter, r *http.Request) {
+	if c.statsSvc == nil {
+		http.Error(w, "stats service unavailable", http.StatusInternalServerError)
+		return
+	}
+	stats, err := c.statsSvc.GetGamerStatistics(r.Context())
+	if err != nil {
+		c.logger.Error("gamer statistics", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

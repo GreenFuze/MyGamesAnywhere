@@ -57,10 +57,11 @@ These are the next committed tasks after the completed Phase 7 / issue-cleanup w
    - [ ] Verification: duplicate-query tests with same-title/different-platform cases, frontend build, manual UI proof on seeded data.
 
 5. **Richer Library / Gamer statistics**
-   - [ ] Split Home stats conceptually into Library Statistics and Gamer Statistics while keeping the Home page as a concise summary.
-   - [ ] Library statistics should extend the current `/api/stats` surface: platform, source, decade, genre, metadata/media coverage, duplicates, and scan activity.
-   - [ ] Gamer statistics should build on the achievements dashboard and play history: achievement progress, points, recently played, favorites, completion-style summaries where data exists.
-   - [ ] Verification: stats aggregation tests, chart-empty-state proof, frontend build.
+   - [x] Split Home stats conceptually into Library Statistics and Gamer Statistics while keeping the Home page as a concise summary.
+   - [x] Library statistics now extend the current `/api/stats` surface through `/api/stats/library`: platform, source, decade, genre, metadata/media/achievement coverage, and scan activity.
+   - [x] Gamer statistics now build on cached achievements, favorites, and client-side recent-play context through `/api/stats/gamer` plus the existing frontend config recent-play list.
+   - [x] Verification: stats aggregation tests, controller tests, frontend build, and Go internal tests.
+   - NO_MIGRATION_NEEDED: v0.0.10 statistics are read-only over existing SQLite tables and the existing frontend config shape; no schema, persisted SQLite data, or persisted JSON/config format changes are required.
 
 Deferred until after the above: multi-user/profile support. It is a larger architecture change because profiles need ownership boundaries for integrations, games, saves, settings, achievement cache, scan jobs, and admin-only Settings access.
 
@@ -687,7 +688,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [ ] In settings, add a tab to find duplicated games acorss sources.
   - [ ] duplications for games (ignoring versioning/platform)
   - [ ] duplications for games including version/platform etc.
-- [ ] Home screen should have "library statistics" and "gamer statistics". Still not sure how to display these as different pages and conviniently, but it should support extensive statistics in a cool, colorful, way. Maybe, it should be in different pages, like "achivements" shows also statistics for achivements, so maybe a "library statistics", "gamer statistics" pages (where the latter includes achivements)?
+- [x] Home screen should have "library statistics" and "gamer statistics". Implemented as a top-level Stats area with Library Statistics and Gamer Statistics pages, while Home stays concise. NO_MIGRATION_NEEDED: read-only over existing stats, scan reports, favorites, cached achievements, and frontend recent-play config.
 - [ ] Make sure MGA server (and frontend client) both supporting Linux + Windows
 - [ ] When playing a game, not all emulators support "retroachivements" achivements recording. check if our EmulatorJS does support it. If it does, check what it means to allow the user to run in that mode (which is restricting on "cheats" and stuff like that).
 - [x] When showing source files of a game (in undetected games page and game page), show all the files in a single multi-line textbox. otherwise it takes too much space. Also no need to show size per file, show total size.

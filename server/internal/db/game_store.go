@@ -1230,6 +1230,254 @@ func (s *gameStore) GetLibraryStats(ctx context.Context) (*core.LibraryStats, er
 	return out, nil
 }
 
+func (s *gameStore) GetLibraryStatistics(ctx context.Context) (*core.LibraryStatistics, error) {
+	summary, err := s.GetLibraryStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	recentScans, err := s.GetScanReports(ctx, 5)
+	if err != nil {
+		return nil, err
+	}
+	integrationLabels, err := s.loadStatsIntegrationLabels(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &core.LibraryStatistics{
+		Summary:            *summary,
+		Platforms:          sortedCountStats(summary.ByPlatform, nil),
+		Kinds:              sortedCountStats(summary.ByKind, nil),
+		SourcePlugins:      sortedCountStats(summary.ByPluginID, nil),
+		SourceIntegrations: sortedCountStats(summary.ByIntegrationID, integrationLabels),
+		MetadataProviders:  sortedCountStats(summary.ByMetadataPluginID, nil),
+		Decades:            sortedCountStats(summary.ByDecade, nil),
+		Genres:             sortedCountStats(summary.TopGenres, nil),
+		Coverage: []core.CoverageStat{
+			{Key: "resolver_title", Label: "Matched titles", Count: summary.CanonicalWithResolverTitle, Percent: summary.PercentWithResolverTitle},
+			{Key: "description", Label: "Descriptions", Count: summary.GamesWithDescription, Percent: summary.PercentWithDescription},
+			{Key: "media", Label: "Artwork or media", Count: summary.GamesWithMedia, Percent: summary.PercentWithMedia},
+			{Key: "achievements", Label: "Cached achievements", Count: summary.GamesWithAchievements, Percent: summary.PercentWithAchievements},
+		},
+		RecentScans: make([]core.ScanReport, 0, len(recentScans)),
+	}
+	for _, report := range recentScans {
+		if report != nil {
+			out.RecentScans = append(out.RecentScans, *report)
+		}
+	}
+	return out, nil
+}
+
+func (s *gameStore) GetGamerStatistics(ctx context.Context) (*core.GamerStatistics, error) {
+	summary, err := s.GetLibraryStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	achievementSystems, achievementTotals, err := s.loadGamerAchievementStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	favoriteGames, err := s.countVisibleFavoriteGames(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &core.GamerStatistics{
+		TotalGames:              summary.CanonicalGameCount,
+		FavoriteGames:           favoriteGames,
+		GamesWithAchievements:   summary.GamesWithAchievements,
+		PercentWithAchievements: summary.PercentWithAchievements,
+		TotalAchievementSources: achievementTotals.SourceCount,
+		TotalAchievements:       achievementTotals.TotalCount,
+		UnlockedAchievements:    achievementTotals.UnlockedCount,
+		TotalAchievementPoints:  achievementTotals.TotalPoints,
+		EarnedAchievementPoints: achievementTotals.EarnedPoints,
+		AchievementSystems:      achievementSystems,
+	}
+	out.AchievementUnlockPercent = percentOf(out.UnlockedAchievements, out.TotalAchievements)
+	out.AchievementPointPercent = percentOf(out.EarnedAchievementPoints, out.TotalAchievementPoints)
+	buckets, err := s.loadAchievementCompletionBuckets(ctx, summary.CanonicalGameCount)
+	if err != nil {
+		return nil, err
+	}
+	out.AchievementCompletionBuckets = buckets
+	return out, nil
+}
+
+func (s *gameStore) loadGamerAchievementStats(ctx context.Context) ([]core.CachedAchievementSystemSummary, core.AchievementSummary, error) {
+	rows, err := s.db.GetDB().QueryContext(ctx, `
+		SELECT source,
+		       COUNT(DISTINCT canonical_id),
+		       SUM(total_count),
+		       SUM(unlocked_count),
+		       SUM(total_points),
+		       SUM(earned_points)
+		FROM (
+			SELECT l.canonical_id,
+			       a.source,
+			       a.external_game_id,
+			       MAX(a.total_count) AS total_count,
+			       MAX(a.unlocked_count) AS unlocked_count,
+			       MAX(COALESCE(a.total_points, 0)) AS total_points,
+			       MAX(COALESCE(a.earned_points, 0)) AS earned_points
+			FROM achievement_sets a
+			JOIN canonical_source_games_link l ON l.source_game_id = a.source_game_id
+			JOIN source_games sg ON sg.id = l.source_game_id
+			WHERE `+visibleSourceGameWhere(ctx, "sg")+`
+			GROUP BY l.canonical_id, a.source, a.external_game_id
+		)
+		GROUP BY source
+		ORDER BY COUNT(DISTINCT canonical_id) DESC, source`)
+	if err != nil {
+		return nil, core.AchievementSummary{}, err
+	}
+	defer rows.Close()
+
+	systems := make([]core.CachedAchievementSystemSummary, 0)
+	totals := core.AchievementSummary{}
+	for rows.Next() {
+		var system core.CachedAchievementSystemSummary
+		if err := rows.Scan(
+			&system.Source,
+			&system.GameCount,
+			&system.TotalCount,
+			&system.UnlockedCount,
+			&system.TotalPoints,
+			&system.EarnedPoints,
+		); err != nil {
+			return nil, core.AchievementSummary{}, err
+		}
+		systems = append(systems, system)
+		totals.TotalCount += system.TotalCount
+		totals.UnlockedCount += system.UnlockedCount
+		totals.TotalPoints += system.TotalPoints
+		totals.EarnedPoints += system.EarnedPoints
+	}
+	if err := rows.Err(); err != nil {
+		return nil, core.AchievementSummary{}, err
+	}
+	totals.SourceCount = len(systems)
+	return systems, totals, nil
+}
+
+func (s *gameStore) loadStatsIntegrationLabels(ctx context.Context) (map[string]string, error) {
+	query := `SELECT id, label FROM integrations WHERE 1=1` + profileFilterSQL(ctx, "integrations")
+	rows, err := s.db.GetDB().QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	labels := make(map[string]string)
+	for rows.Next() {
+		var id, label string
+		if err := rows.Scan(&id, &label); err != nil {
+			return nil, err
+		}
+		labels[id] = label
+	}
+	return labels, rows.Err()
+}
+
+func (s *gameStore) countVisibleFavoriteGames(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.GetDB().QueryRowContext(ctx, `
+		SELECT COUNT(DISTINCT f.canonical_id)
+		FROM canonical_game_favorites f
+		JOIN canonical_source_games_link l ON l.canonical_id = f.canonical_id
+		JOIN source_games sg ON sg.id = l.source_game_id AND `+visibleSourceGameWhere(ctx, "sg")).Scan(&count)
+	return count, err
+}
+
+func sortedCountStats(values map[string]int, labels map[string]string) []core.CountStat {
+	out := make([]core.CountStat, 0, len(values))
+	for key, count := range values {
+		label := key
+		if labels != nil && strings.TrimSpace(labels[key]) != "" {
+			label = labels[key]
+		}
+		out = append(out, core.CountStat{Key: key, Label: label, Count: count})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return strings.ToLower(out[i].Label) < strings.ToLower(out[j].Label)
+	})
+	return out
+}
+
+func percentOf(part, total int) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return float64(part) / float64(total) * 100
+}
+
+func (s *gameStore) loadAchievementCompletionBuckets(ctx context.Context, totalGames int) ([]core.AchievementCompletionBucket, error) {
+	counts := map[string]int{
+		"complete":        0,
+		"high_progress":   0,
+		"started":         0,
+		"locked":          0,
+		"no_achievements": totalGames,
+	}
+	rows, err := s.db.GetDB().QueryContext(ctx, `
+		SELECT SUM(total_count), SUM(unlocked_count)
+		FROM (
+			SELECT l.canonical_id,
+			       a.source,
+			       a.external_game_id,
+			       MAX(a.total_count) AS total_count,
+			       MAX(a.unlocked_count) AS unlocked_count
+			FROM achievement_sets a
+			JOIN canonical_source_games_link l ON l.source_game_id = a.source_game_id
+			JOIN source_games sg ON sg.id = l.source_game_id
+			WHERE `+visibleSourceGameWhere(ctx, "sg")+`
+			GROUP BY l.canonical_id, a.source, a.external_game_id
+		)
+		GROUP BY canonical_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var totalCount, unlockedCount int
+		if err := rows.Scan(&totalCount, &unlockedCount); err != nil {
+			return nil, err
+		}
+		if totalCount <= 0 {
+			continue
+		}
+		counts["no_achievements"]--
+		switch pct := percentOf(unlockedCount, totalCount); {
+		case unlockedCount >= totalCount:
+			counts["complete"]++
+		case pct >= 75:
+			counts["high_progress"]++
+		case unlockedCount > 0:
+			counts["started"]++
+		default:
+			counts["locked"]++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if counts["no_achievements"] < 0 {
+		counts["no_achievements"] = 0
+	}
+	return []core.AchievementCompletionBucket{
+		{Key: "complete", Label: "Complete", GameCount: counts["complete"]},
+		{Key: "high_progress", Label: "75%+", GameCount: counts["high_progress"]},
+		{Key: "started", Label: "Started", GameCount: counts["started"]},
+		{Key: "locked", Label: "Not started", GameCount: counts["locked"]},
+		{Key: "no_achievements", Label: "No cached achievements", GameCount: counts["no_achievements"]},
+	}, nil
+}
+
 type cachedAchievementDashboardRow struct {
 	canonicalID   string
 	source        string

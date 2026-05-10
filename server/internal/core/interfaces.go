@@ -50,6 +50,12 @@ type Database interface {
 	GetDB() *sql.DB
 }
 
+// StatsService exposes read-only aggregate dashboard data.
+type StatsService interface {
+	GetLibraryStatistics(ctx context.Context) (*LibraryStatistics, error)
+	GetGamerStatistics(ctx context.Context) (*GamerStatistics, error)
+}
+
 type MigrationOptions struct {
 	BackupBeforeMigrate bool
 	BackupDir           string

@@ -217,6 +217,20 @@ func Operations() []OperationDoc {
 		},
 		{
 			Method:       "GET",
+			Path:         "/api/stats/library",
+			Summary:      "Richer library statistics",
+			Description:  "Read-only library dashboard aggregates: compatible LibraryStats summary plus ranked platform, source, integration, metadata provider, decade, genre, coverage, and recent scan activity sections.",
+			ResponseDocs: map[string]string{"200": "LibraryStatistics JSON", "500": "Internal server error"},
+		},
+		{
+			Method:       "GET",
+			Path:         "/api/stats/gamer",
+			Summary:      "Gamer statistics",
+			Description:  "Read-only player-facing aggregates from existing data: favorites, cached achievement totals, achievement systems, and completion buckets. Does not persist play-history events.",
+			ResponseDocs: map[string]string{"200": "GamerStatistics JSON", "500": "Internal server error"},
+		},
+		{
+			Method:       "GET",
 			Path:         "/api/about",
 			Summary:      "Application build metadata",
 			Description:  "Returns the server's authoritative app version information, including version, commit, build date, and author credits.",

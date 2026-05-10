@@ -14,6 +14,7 @@ import { AboutPage } from '@/pages/AboutPage'
 import { AchievementsPage } from '@/pages/AchievementsPage'
 import { LibraryPage } from '@/pages/LibraryPage'
 import { PlayPage } from '@/pages/PlayPage'
+import { StatsPage } from '@/pages/StatsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { GameDetailPage } from '@/pages/GameDetailPage'
 import { GameMediaPage } from '@/pages/GameMediaPage'
@@ -48,6 +49,9 @@ export function App() {
                         <Route path="library" element={<LibraryPage />} />
                         <Route path="library/section/:sectionId" element={<LibraryPage />} />
                         <Route path="achievements" element={<AchievementsPage />} />
+                        <Route path="stats" element={<Navigate to="/stats/library" replace />} />
+                        <Route path="stats/library" element={<StatsPage />} />
+                        <Route path="stats/gamer" element={<StatsPage />} />
                         <Route path="playable" element={<Navigate to="/play" replace />} />
                         <Route path="xcloud" element={<Navigate to="/play" replace />} />
                         <Route path="settings" element={<SettingsPage />} />

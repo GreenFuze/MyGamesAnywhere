@@ -7,7 +7,7 @@ $ext     = if ($IsLinux -or $IsMacOS) { "" } else { ".exe" }
 $server  = Join-Path $BinDir "mga_server$ext"
 
 if (-not (Test-Path $server)) {
-    Write-Error "Missing $server — run build.ps1 first."
+    Write-Error "Missing $server - run build.ps1 first."
     exit 1
 }
 

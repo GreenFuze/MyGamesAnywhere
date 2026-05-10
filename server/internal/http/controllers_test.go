@@ -513,6 +513,62 @@ func TestGameControllerAchievementsExplorerReturnsCachedSetsOnly(t *testing.T) {
 	}
 }
 
+func TestGameControllerLibraryStatisticsReturnsStatsServicePayload(t *testing.T) {
+	statsSvc := &fakeStatsService{library: &core.LibraryStatistics{
+		Summary: core.LibraryStats{CanonicalGameCount: 2},
+		Coverage: []core.CoverageStat{{
+			Key:     "media",
+			Label:   "Artwork or media",
+			Count:   1,
+			Percent: 50,
+		}},
+	}}
+	controller := NewGameController(&fakeGameStore{}, nil, nil, nil, nil, noopLogger{}, statsSvc)
+	router := chi.NewRouter()
+	router.Get("/api/stats/library", controller.LibraryStatistics)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stats/library", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp core.LibraryStatistics
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Summary.CanonicalGameCount != 2 || len(resp.Coverage) != 1 {
+		t.Fatalf("library statistics = %+v, want service payload", resp)
+	}
+}
+
+func TestGameControllerGamerStatisticsReturnsStatsServicePayload(t *testing.T) {
+	statsSvc := &fakeStatsService{gamer: &core.GamerStatistics{
+		TotalGames:               3,
+		FavoriteGames:            1,
+		TotalAchievements:        10,
+		UnlockedAchievements:     4,
+		AchievementUnlockPercent: 40,
+	}}
+	controller := NewGameController(&fakeGameStore{}, nil, nil, nil, nil, noopLogger{}, statsSvc)
+	router := chi.NewRouter()
+	router.Get("/api/stats/gamer", controller.GamerStatistics)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stats/gamer", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp core.GamerStatistics
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.TotalGames != 3 || resp.FavoriteGames != 1 || resp.AchievementUnlockPercent != 40 {
+		t.Fatalf("gamer statistics = %+v, want service payload", resp)
+	}
+}
+
 func TestAchievementControllerGetAchievementsNormalizesMixedStatesAndCaches(t *testing.T) {
 	game := &core.CanonicalGame{
 		ID: "game-1",
@@ -887,6 +943,32 @@ func (noopLogger) Warn(string, ...any)         {}
 type cachedAchievementCall struct {
 	sourceGameID string
 	set          *core.AchievementSet
+}
+
+type fakeStatsService struct {
+	library *core.LibraryStatistics
+	gamer   *core.GamerStatistics
+	err     error
+}
+
+func (f *fakeStatsService) GetLibraryStatistics(context.Context) (*core.LibraryStatistics, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.library != nil {
+		return f.library, nil
+	}
+	return &core.LibraryStatistics{}, nil
+}
+
+func (f *fakeStatsService) GetGamerStatistics(context.Context) (*core.GamerStatistics, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.gamer != nil {
+		return f.gamer, nil
+	}
+	return &core.GamerStatistics{}, nil
 }
 
 type fakePluginCall struct {

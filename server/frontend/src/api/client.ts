@@ -1,9 +1,11 @@
 import type {
   FrontendConfig,
+  GamerStatistics,
   GamePlayDTO,
   GameFileDTO,
   IntegrationGameItem,
   IntegrationStatusEntry,
+  LibraryStatistics,
   ManualReviewCandidateDetail,
   ManualReviewCandidateSummary,
   ManualReviewRedetectBatchResult,
@@ -38,8 +40,10 @@ export type {
   GameLaunchSourceDTO,
   GamePlayDTO,
   GameFileDTO,
+  GamerStatistics,
   IntegrationGameItem,
   IntegrationStatusEntry,
+  LibraryStatistics,
   LibraryPrefs,
   ManualReviewCandidateDetail,
   ManualReviewCandidateSummary,
@@ -74,6 +78,12 @@ export type {
   ScanReport,
   SourceGamePlayDTO,
   TimeFormat,
+} from "@/api/generated/contracts";
+
+export type {
+  AchievementCompletionBucket,
+  CountStat,
+  CoverageStat,
 } from "@/api/generated/contracts";
 
 /** Same-origin in prod (SPA behind Go); Vite proxy in dev. */
@@ -1255,6 +1265,14 @@ export async function clearKey(): Promise<void> {
 
 export async function getStats(): Promise<LibraryStats> {
   return getJson<LibraryStats>("/api/stats");
+}
+
+export async function getLibraryStatistics(): Promise<LibraryStatistics> {
+  return getJson<LibraryStatistics>("/api/stats/library");
+}
+
+export async function getGamerStatistics(): Promise<GamerStatistics> {
+  return getJson<GamerStatistics>("/api/stats/gamer");
 }
 
 export async function getAboutInfo(): Promise<AboutInfo> {

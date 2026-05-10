@@ -205,6 +205,75 @@ export type ScanReport = {
   integration_results: ScanIntegrationResult[];
 };
 
+export type LibraryStats = {
+  canonical_game_count: number;
+  source_game_found_count: number;
+  source_game_total_count: number;
+  by_platform: Record<string, number>;
+  by_decade: Record<string, number>;
+  by_kind: Record<string, number>;
+  top_genres: Record<string, number>;
+  by_integration_id: Record<string, number>;
+  by_plugin_id: Record<string, number>;
+  by_metadata_plugin_id: Record<string, number>;
+  canonical_with_resolver_title: number;
+  percent_with_resolver_title: number;
+  games_with_description: number;
+  percent_with_description: number;
+  games_with_media: number;
+  games_with_achievements: number;
+  percent_with_media: number;
+  percent_with_achievements: number;
+};
+
+export type CountStat = {
+  key: string;
+  label: string;
+  count: number;
+};
+
+export type CoverageStat = {
+  key: string;
+  label: string;
+  count: number;
+  percent: number;
+};
+
+export type LibraryStatistics = {
+  summary: LibraryStats;
+  platforms: CountStat[];
+  kinds: CountStat[];
+  source_plugins: CountStat[];
+  source_integrations: CountStat[];
+  metadata_providers: CountStat[];
+  decades: CountStat[];
+  genres: CountStat[];
+  coverage: CoverageStat[];
+  recent_scans: ScanReport[];
+};
+
+export type AchievementCompletionBucket = {
+  key: string;
+  label: string;
+  game_count: number;
+};
+
+export type GamerStatistics = {
+  total_games: number;
+  favorite_games: number;
+  games_with_achievements: number;
+  percent_with_achievements: number;
+  total_achievement_sources: number;
+  total_achievements: number;
+  unlocked_achievements: number;
+  achievement_unlock_percent: number;
+  total_achievement_points?: number;
+  earned_achievement_points?: number;
+  achievement_point_percent?: number;
+  achievement_systems: AchievementSystemSummaryDTO[];
+  achievement_completion_buckets: AchievementCompletionBucket[];
+};
+
 export type IntegrationGameItem = {
   id: string;
   title: string;
@@ -500,11 +569,6 @@ export type ManualReviewRedetectBatchResult = {
   failed_candidate_id?: string;
   error?: string;
   results: ManualReviewRedetectResult[];
-};
-
-export type ManualReviewDeleteCandidateFilesResponse = {
-  deleted_candidate_id: string;
-  canonical_exists: boolean;
 };
 
 export type ManualReviewScope = "active" | "archive";
