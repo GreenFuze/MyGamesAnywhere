@@ -607,7 +607,12 @@ function ProfilePicker({ profiles, onSelect }: { profiles: Profile[]; onSelect: 
 
 function ProfileGateShell({ eyebrow, title, children, wide = false }: { eyebrow?: string; title: string; children?: ReactNode; wide?: boolean }) {
   return (
-    <div className="relative flex min-h-screen items-start justify-center overflow-x-hidden overflow-y-auto bg-mga-bg p-4 font-mga text-mga-text">
+    <div
+      className={cn(
+        'relative flex min-h-screen justify-center overflow-x-hidden overflow-y-auto bg-mga-bg p-4 font-mga text-mga-text',
+        wide ? 'items-start' : 'items-center',
+      )}
+    >
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(0deg,rgba(255,255,255,0.028)_1px,transparent_1px)] bg-[size:44px_44px]" />
       <div className="absolute inset-0 bg-[linear-gradient(135deg,transparent_0%,transparent_46%,rgba(61,184,255,0.13)_46%,rgba(61,184,255,0.13)_50%,transparent_50%,transparent_100%)]" />
       <div className={cn('relative w-full overflow-hidden rounded-mga border border-mga-border bg-mga-surface/92 shadow-2xl', wide ? 'max-w-6xl' : 'max-w-3xl')}>
