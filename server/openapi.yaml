@@ -1152,7 +1152,7 @@ paths:
   /api/review-candidates/{id}/apply:
     post:
       summary: Apply a manual-review search result
-      description: Persists a chosen manual-review metadata match for the candidate, marks review_state as matched, and updates the candidate detail that the UI should continue showing.
+      description: Persists a chosen manual-review metadata match for the candidate, marks review_state as matched, and updates the candidate detail that the UI should continue showing. Direct game reclassify may send authoritative_reclassify=true to replace stale resolver/media state with only the selected result and clear media overrides.
       parameters:
         - name: id
           in: path
@@ -1160,7 +1160,7 @@ paths:
           schema:
             type: string
       requestBody:
-        description: JSON manual-review search result object (provider ids, external_id, title, optional metadata fields).
+        description: JSON manual-review search result object (provider ids, external_id, title, optional metadata fields, optional authoritative_reclassify).
         content:
           application/json:
             schema:

@@ -38,6 +38,7 @@ interface OverlayLayout {
 }
 
 const HOVER_CLOSE_DELAY_MS = 120
+const HOVER_OPEN_DELAY_MS = 500
 const HOVER_VIEWPORT_MARGIN_PX = 16
 const OVERLAY_EXIT_DURATION_MS = 210
 
@@ -119,6 +120,7 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
   const location = useLocation()
   const { reducedMotion } = useTheme()
   const cardRef = useRef<HTMLElement | null>(null)
+  const openTimerRef = useRef<number | null>(null)
   const closeTimerRef = useRef<number | null>(null)
   const unmountTimerRef = useRef<number | null>(null)
   const enterRafRef = useRef<number | null>(null)
@@ -163,6 +165,9 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
 
   useEffect(() => {
     return () => {
+      if (openTimerRef.current !== null) {
+        window.clearTimeout(openTimerRef.current)
+      }
       if (closeTimerRef.current !== null) {
         window.clearTimeout(closeTimerRef.current)
       }
@@ -177,6 +182,13 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
       }
     }
   }, [])
+
+  const clearOpenTimer = () => {
+    if (openTimerRef.current !== null) {
+      window.clearTimeout(openTimerRef.current)
+      openTimerRef.current = null
+    }
+  }
 
   const clearCloseTimer = () => {
     if (closeTimerRef.current !== null) {
@@ -236,13 +248,26 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
 
   const openHover = () => {
     if (!desktopHoverEnabled) return
+    clearOpenTimer()
     clearCloseTimer()
     clearUnmountTimer()
     updateOverlayLayout()
     setHoverActive(true)
   }
 
+  const scheduleHoverOpen = () => {
+    if (!desktopHoverEnabled || hoverActive) return
+    clearOpenTimer()
+    clearCloseTimer()
+    clearUnmountTimer()
+    openTimerRef.current = window.setTimeout(() => {
+      openTimerRef.current = null
+      openHover()
+    }, HOVER_OPEN_DELAY_MS)
+  }
+
   const scheduleHoverClose = () => {
+    clearOpenTimer()
     clearCloseTimer()
     closeTimerRef.current = window.setTimeout(() => {
       if (reducedMotion) {
@@ -314,6 +339,7 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
   const renderContextMenu = (event: MouseEvent<HTMLElement>) => {
     event.preventDefault()
     event.stopPropagation()
+    clearOpenTimer()
     setContextMenuPoint({
       x: event.clientX,
       y: event.clientY,
@@ -496,7 +522,7 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
         role="button"
         tabIndex={0}
         onClick={openGame}
-        onMouseEnter={openHover}
+        onMouseEnter={scheduleHoverOpen}
         onMouseLeave={scheduleHoverClose}
         onFocusCapture={openHover}
         onBlurCapture={(event) => {

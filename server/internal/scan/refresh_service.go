@@ -70,6 +70,7 @@ func (c *metadataRefreshCoordinator) applyManualReviewSelection(
 	sourceGame *core.SourceGame,
 	game *core.Game,
 	metadataSources []MetadataSource,
+	options core.ManualReviewApplyOptions,
 ) error {
 	if sourceGame == nil || game == nil {
 		return fmt.Errorf("source game and game are required")
@@ -77,7 +78,7 @@ func (c *metadataRefreshCoordinator) applyManualReviewSelection(
 
 	applyUnifiedFields(game, metadataSources)
 	game.Status = "identified"
-	if len(metadataSources) > 0 {
+	if !options.AuthoritativeReclassify && len(metadataSources) > 0 {
 		if _, err := c.metadataResolver.FillWithPolicy(ctx, integrationID, []*core.Game{game}, metadataSources, manualReviewMetadataFailurePolicy); err != nil {
 			return err
 		}

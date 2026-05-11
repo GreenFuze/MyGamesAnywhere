@@ -579,6 +579,10 @@ export type ManualReviewSearchResult = {
   image_url?: string;
 };
 
+export type ManualReviewApplyRequest = ManualReviewSearchResult & {
+  authoritative_reclassify?: boolean;
+};
+
 export type ManualReviewSearchResponse = {
   candidate_id: string;
   query: string;

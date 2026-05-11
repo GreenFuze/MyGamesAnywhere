@@ -41,7 +41,7 @@ func NewManualReviewService(
 	}
 }
 
-func (s *manualReviewService) Apply(ctx context.Context, candidateID string, selection core.ManualReviewSelection) error {
+func (s *manualReviewService) Apply(ctx context.Context, candidateID string, selection core.ManualReviewSelection, options core.ManualReviewApplyOptions) error {
 	if strings.TrimSpace(candidateID) == "" {
 		return fmt.Errorf("%w: candidate id is required", core.ErrManualReviewSelectionInvalid)
 	}
@@ -59,6 +59,7 @@ func (s *manualReviewService) Apply(ctx context.Context, candidateID string, sel
 	if candidate == nil || candidate.Status != "found" {
 		return core.ErrManualReviewCandidateNotFound
 	}
+	oldCanonicalID := strings.TrimSpace(candidate.CanonicalGameID)
 
 	integrations, err := s.integrationRepo.List(ctx)
 	if err != nil {
@@ -90,8 +91,39 @@ func (s *manualReviewService) Apply(ctx context.Context, candidateID string, sel
 		Files: append([]core.GameFile(nil), candidate.Files...),
 	}
 
-	if err := s.refreshCoordinator.applyManualReviewSelection(ctx, candidate.IntegrationID, sourceGame, game, metaSources); err != nil {
+	if err := s.refreshCoordinator.applyManualReviewSelection(ctx, candidate.IntegrationID, sourceGame, game, metaSources, options); err != nil {
 		return fmt.Errorf("save manual review result: %w", err)
+	}
+	if options.AuthoritativeReclassify {
+		if err := s.clearReclassifiedCanonicalOverrides(ctx, oldCanonicalID, candidate.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *manualReviewService) clearReclassifiedCanonicalOverrides(ctx context.Context, oldCanonicalID string, candidateID string) error {
+	canonicalIDs := make([]string, 0, 2)
+	if strings.TrimSpace(oldCanonicalID) != "" {
+		canonicalIDs = append(canonicalIDs, strings.TrimSpace(oldCanonicalID))
+	}
+	updated, err := s.gameStore.GetManualReviewCandidate(ctx, candidateID)
+	if err != nil {
+		return fmt.Errorf("get reclassified candidate: %w", err)
+	}
+	if updated != nil && strings.TrimSpace(updated.CanonicalGameID) != "" {
+		canonicalIDs = append(canonicalIDs, strings.TrimSpace(updated.CanonicalGameID))
+	}
+
+	seen := map[string]bool{}
+	for _, canonicalID := range canonicalIDs {
+		if canonicalID == "" || seen[canonicalID] {
+			continue
+		}
+		seen[canonicalID] = true
+		if err := s.gameStore.ClearCanonicalMediaOverrides(ctx, canonicalID); err != nil {
+			return fmt.Errorf("clear reclassified media overrides for %s: %w", canonicalID, err)
+		}
 	}
 	return nil
 }

@@ -1212,6 +1212,10 @@ func (f *fakeGameStore) ClearCanonicalCoverOverride(_ context.Context, canonical
 	f.clearCoverOverrideID = canonicalID
 	return nil
 }
+func (f *fakeGameStore) ClearCanonicalMediaOverrides(_ context.Context, canonicalID string) error {
+	f.clearCoverOverrideID = canonicalID
+	return nil
+}
 
 type fakePluginHost struct {
 	provides               map[string][]string

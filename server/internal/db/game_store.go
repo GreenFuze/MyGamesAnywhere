@@ -390,6 +390,44 @@ func (s *gameStore) ClearCanonicalCoverOverride(ctx context.Context, canonicalID
 	return err
 }
 
+func (s *gameStore) ClearCanonicalMediaOverrides(ctx context.Context, canonicalID string) error {
+	if strings.TrimSpace(canonicalID) == "" {
+		return core.ErrCanonicalGameNotFound
+	}
+	exists, err := s.canonicalGameExists(ctx, canonicalID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return core.ErrCanonicalGameNotFound
+	}
+
+	db := s.db.GetDB()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM canonical_game_cover_overrides WHERE canonical_id=?`, canonicalID); err != nil {
+		return fmt.Errorf("clear cover override: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM canonical_game_hover_overrides WHERE canonical_id=?`, canonicalID); err != nil {
+		return fmt.Errorf("clear hover override: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM canonical_game_background_overrides WHERE canonical_id=?`, canonicalID); err != nil {
+		return fmt.Errorf("clear background override: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO canonical_game_cover_override_clears (canonical_id, cleared_at)
+		VALUES (?, ?)
+		ON CONFLICT(canonical_id) DO UPDATE SET cleared_at=excluded.cleared_at`,
+		canonicalID, time.Now().Unix()); err != nil {
+		return fmt.Errorf("record cover override clear: %w", err)
+	}
+	return tx.Commit()
+}
+
 func (s *gameStore) SetCanonicalHoverOverride(ctx context.Context, canonicalID string, mediaAssetID int) error {
 	if strings.TrimSpace(canonicalID) == "" {
 		return core.ErrCanonicalGameNotFound

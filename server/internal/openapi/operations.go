@@ -482,8 +482,8 @@ func Operations() []OperationDoc {
 			Method:         "POST",
 			Path:           "/api/review-candidates/{id}/apply",
 			Summary:        "Apply a manual-review search result",
-			Description:    "Persists a chosen manual-review metadata match for the candidate, marks review_state as matched, and updates the candidate detail that the UI should continue showing.",
-			RequestBodyDoc: "JSON manual-review search result object (provider ids, external_id, title, optional metadata fields).",
+			Description:    "Persists a chosen manual-review metadata match for the candidate, marks review_state as matched, and updates the candidate detail that the UI should continue showing. Direct game reclassify may send authoritative_reclassify=true to replace stale resolver/media state with only the selected result and clear media overrides.",
+			RequestBodyDoc: "JSON manual-review search result object (provider ids, external_id, title, optional metadata fields, optional authoritative_reclassify).",
 			ResponseDocs:   map[string]string{"200": "Updated ManualReviewCandidateDetail JSON", "400": "Invalid body or missing id", "404": "Candidate not found", "500": "Internal server error"},
 		},
 		{

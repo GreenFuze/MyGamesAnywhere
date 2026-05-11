@@ -235,6 +235,9 @@ type GameStore interface {
 	// ClearCanonicalCoverOverride removes a pinned canonical cover, restoring normal selection.
 	ClearCanonicalCoverOverride(ctx context.Context, canonicalID string) error
 
+	// ClearCanonicalMediaOverrides removes pinned cover, hover, and background overrides.
+	ClearCanonicalMediaOverrides(ctx context.Context, canonicalID string) error
+
 	// SetCanonicalHoverOverride pins one existing media asset as the canonical hover image.
 	SetCanonicalHoverOverride(ctx context.Context, canonicalID string, mediaAssetID int) error
 
@@ -342,7 +345,7 @@ type Server interface {
 
 // ManualReviewService handles inline manual metadata selection workflows.
 type ManualReviewService interface {
-	Apply(ctx context.Context, candidateID string, selection ManualReviewSelection) error
+	Apply(ctx context.Context, candidateID string, selection ManualReviewSelection, options ManualReviewApplyOptions) error
 	Redetect(ctx context.Context, candidateID string) (*ManualReviewRedetectResult, error)
 	RedetectActive(ctx context.Context) (*ManualReviewRedetectBatchResult, error)
 }

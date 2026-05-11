@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -80,7 +81,12 @@ func (q *countingMediaDownloadQueue) EnqueuePending(context.Context) error {
 
 func newManualReviewTestStore(t *testing.T) core.GameStore {
 	t.Helper()
+	store, _ := newManualReviewTestStoreWithDB(t)
+	return store
+}
 
+func newManualReviewTestStoreWithDB(t *testing.T) (core.GameStore, *sql.DB) {
+	t.Helper()
 	cfg := manualReviewTestConfig{dbPath: filepath.Join(t.TempDir(), "manual-review.sqlite")}
 	database := dbstore.NewSQLiteDatabase(testLogger{}, cfg)
 	if err := database.Connect(); err != nil {
@@ -92,7 +98,7 @@ func newManualReviewTestStore(t *testing.T) core.GameStore {
 	if err := database.EnsureSchema(); err != nil {
 		t.Fatal(err)
 	}
-	return dbstore.NewGameStore(database, testLogger{})
+	return dbstore.NewGameStore(database, testLogger{}), database.GetDB()
 }
 
 func TestManualReviewServiceApplyPersistsSelectedMatchAndFillResult(t *testing.T) {
@@ -163,7 +169,7 @@ func TestManualReviewServiceApplyPersistsSelectedMatchAndFillResult(t *testing.T
 		ExternalID:            "manual-1",
 		URL:                   "https://example.com/manual-1",
 		ImageURL:              "https://example.com/manual-1-cover.png",
-	})
+	}, core.ManualReviewApplyOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,6 +228,164 @@ func TestManualReviewServiceApplyPersistsSelectedMatchAndFillResult(t *testing.T
 	}
 }
 
+func TestManualReviewServiceAuthoritativeReclassifyReplacesMatchesMovesCanonicalAndClearsOverrides(t *testing.T) {
+	ctx := context.Background()
+	store, sqlDB := newManualReviewTestStoreWithDB(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "source-1",
+		SourceGames: []*core.SourceGame{
+			{
+				ID:            "scan:target",
+				IntegrationID: "source-1",
+				PluginID:      "game-source-local",
+				ExternalID:    "target",
+				RawTitle:      "wrong game",
+				Platform:      core.PlatformGenesis,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				RootPath:      "Games/Wrong",
+				Status:        "found",
+			},
+			{
+				ID:            "scan:old-mate",
+				IntegrationID: "source-1",
+				PluginID:      "game-source-local",
+				ExternalID:    "old-mate",
+				RawTitle:      "old mate",
+				Platform:      core.PlatformGenesis,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				RootPath:      "Games/Old Mate",
+				Status:        "found",
+			},
+			{
+				ID:            "scan:new-mate",
+				IntegrationID: "source-1",
+				PluginID:      "game-source-local",
+				ExternalID:    "new-mate",
+				RawTitle:      "selected mate",
+				Platform:      core.PlatformGenesis,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				RootPath:      "Games/New Mate",
+				Status:        "found",
+			},
+		},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:target": {{
+				PluginID:   "metadata-igdb",
+				ExternalID: "old-game",
+				Title:      "Wrong Game",
+			}},
+			"scan:old-mate": {{
+				PluginID:   "metadata-igdb",
+				ExternalID: "old-game",
+				Title:      "Wrong Game",
+			}},
+			"scan:new-mate": {{
+				PluginID:   "metadata-igdb",
+				ExternalID: "selected-game",
+				Title:      "Selected Game",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			"scan:target": {
+				{Type: core.MediaTypeCover, URL: "https://example.com/stale-cover.jpg", Source: "metadata-igdb"},
+				{Type: core.MediaTypeArtwork, URL: "https://example.com/stale-art.jpg", Source: "metadata-igdb"},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	oldCanonicalID := canonicalIDForSource(t, sqlDB, "scan:target")
+	if got := canonicalIDForSource(t, sqlDB, "scan:old-mate"); got != oldCanonicalID {
+		t.Fatalf("old mate canonical = %q, want initial target canonical %q", got, oldCanonicalID)
+	}
+	newMateCanonicalID := canonicalIDForSource(t, sqlDB, "scan:new-mate")
+	if newMateCanonicalID == oldCanonicalID {
+		t.Fatal("new mate unexpectedly started in target canonical")
+	}
+
+	coverAssetID := mediaAssetIDForSource(t, sqlDB, "scan:target", string(core.MediaTypeCover))
+	artAssetID := mediaAssetIDForSource(t, sqlDB, "scan:target", string(core.MediaTypeArtwork))
+	if err := store.SetCanonicalCoverOverride(ctx, oldCanonicalID, coverAssetID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetCanonicalHoverOverride(ctx, oldCanonicalID, artAssetID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetCanonicalBackgroundOverride(ctx, oldCanonicalID, artAssetID); err != nil {
+		t.Fatal(err)
+	}
+
+	fillCalls := 0
+	service := NewManualReviewService(
+		&mockCaller{callFn: func(pluginID, method string, params any) (any, error) {
+			if method == metadataGameLookupMethod && pluginID == "metadata-other" {
+				fillCalls++
+				return metadataLookupResponse{Results: []metadataMatch{{
+					Index:      0,
+					Title:      "Selected Game",
+					ExternalID: "other-fill",
+					Platform:   string(core.PlatformGenesis),
+				}}}, nil
+			}
+			return metadataLookupResponse{}, nil
+		}},
+		manualReviewTestDiscovery{pluginIDs: []string{"metadata-igdb", "metadata-other"}},
+		manualReviewTestIntegrationRepo{items: []*core.Integration{
+			{ID: "meta-igdb", PluginID: "metadata-igdb", Label: "IGDB", ConfigJSON: `{}`},
+			{ID: "meta-other", PluginID: "metadata-other", Label: "Other", ConfigJSON: `{}`},
+		}},
+		store,
+		&countingMediaDownloadQueue{},
+		testLogger{},
+	)
+
+	if err := service.Apply(ctx, "scan:target", core.ManualReviewSelection{
+		ProviderIntegrationID: "meta-igdb",
+		ProviderPluginID:      "metadata-igdb",
+		Title:                 "Selected Game",
+		Platform:              string(core.PlatformGenesis),
+		Kind:                  string(core.GameKindBaseGame),
+		ExternalID:            "selected-game",
+		URL:                   "https://example.com/selected",
+		ImageURL:              "https://example.com/selected-cover.jpg",
+	}, core.ManualReviewApplyOptions{AuthoritativeReclassify: true}); err != nil {
+		t.Fatal(err)
+	}
+	if fillCalls != 0 {
+		t.Fatalf("fill calls = %d, want 0 for authoritative reclassify", fillCalls)
+	}
+
+	targetCanonicalID := canonicalIDForSource(t, sqlDB, "scan:target")
+	newMateCanonicalIDAfter := canonicalIDForSource(t, sqlDB, "scan:new-mate")
+	if targetCanonicalID != newMateCanonicalIDAfter {
+		t.Fatalf("target canonical = %q, want same canonical as selected match source %q", targetCanonicalID, newMateCanonicalIDAfter)
+	}
+	if got := canonicalIDForSource(t, sqlDB, "scan:old-mate"); got == targetCanonicalID {
+		t.Fatal("target stayed grouped with old stale match")
+	}
+
+	matches := resolverMatchesForSource(t, sqlDB, "scan:target")
+	if len(matches) != 1 {
+		t.Fatalf("target matches = %+v, want only selected match", matches)
+	}
+	if matches[0].pluginID != "metadata-igdb" || matches[0].externalID != "selected-game" || !matches[0].manualSelection || matches[0].outvoted {
+		t.Fatalf("target selected match = %+v, want authoritative selected IGDB match", matches[0])
+	}
+
+	mediaURLs := mediaURLsForSource(t, sqlDB, "scan:target")
+	if len(mediaURLs) != 1 || mediaURLs[0] != "https://example.com/selected-cover.jpg" {
+		t.Fatalf("target media urls = %+v, want only selected cover", mediaURLs)
+	}
+
+	assertNoCanonicalMediaOverrideRows(t, sqlDB, oldCanonicalID)
+	assertNoCanonicalMediaOverrideRows(t, sqlDB, targetCanonicalID)
+}
+
 func TestManualReviewServiceApplyRejectsInvalidSelection(t *testing.T) {
 	service := NewManualReviewService(
 		&mockCaller{},
@@ -232,7 +396,7 @@ func TestManualReviewServiceApplyRejectsInvalidSelection(t *testing.T) {
 		testLogger{},
 	)
 
-	err := service.Apply(context.Background(), "scan:any", core.ManualReviewSelection{})
+	err := service.Apply(context.Background(), "scan:any", core.ManualReviewSelection{}, core.ManualReviewApplyOptions{})
 	if !errors.Is(err, core.ErrManualReviewSelectionInvalid) {
 		t.Fatalf("error = %v, want %v", err, core.ErrManualReviewSelectionInvalid)
 	}
@@ -704,5 +868,99 @@ func seedManualReviewCandidate(t *testing.T, ctx context.Context, store core.Gam
 		MediaItems:      map[string][]core.MediaRef{},
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func canonicalIDForSource(t *testing.T, db *sql.DB, sourceGameID string) string {
+	t.Helper()
+	var canonicalID string
+	if err := db.QueryRow(`SELECT canonical_id FROM canonical_source_games_link WHERE source_game_id=?`, sourceGameID).Scan(&canonicalID); err != nil {
+		t.Fatalf("canonical id for %s: %v", sourceGameID, err)
+	}
+	return canonicalID
+}
+
+func mediaAssetIDForSource(t *testing.T, db *sql.DB, sourceGameID string, mediaType string) int {
+	t.Helper()
+	var assetID int
+	if err := db.QueryRow(`SELECT media_asset_id FROM source_game_media WHERE source_game_id=? AND type=?`, sourceGameID, mediaType).Scan(&assetID); err != nil {
+		t.Fatalf("media asset id for %s/%s: %v", sourceGameID, mediaType, err)
+	}
+	return assetID
+}
+
+type storedResolverMatch struct {
+	pluginID        string
+	externalID      string
+	outvoted        bool
+	manualSelection bool
+}
+
+func resolverMatchesForSource(t *testing.T, db *sql.DB, sourceGameID string) []storedResolverMatch {
+	t.Helper()
+	rows, err := db.Query(`SELECT plugin_id, external_id, outvoted, manual_selection FROM metadata_resolver_matches WHERE source_game_id=? ORDER BY plugin_id, external_id`, sourceGameID)
+	if err != nil {
+		t.Fatalf("resolver matches for %s: %v", sourceGameID, err)
+	}
+	defer rows.Close()
+
+	var out []storedResolverMatch
+	for rows.Next() {
+		var item storedResolverMatch
+		var outvoted, manualSelection int
+		if err := rows.Scan(&item.pluginID, &item.externalID, &outvoted, &manualSelection); err != nil {
+			t.Fatalf("scan resolver match: %v", err)
+		}
+		item.outvoted = outvoted != 0
+		item.manualSelection = manualSelection != 0
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("resolver match rows: %v", err)
+	}
+	return out
+}
+
+func mediaURLsForSource(t *testing.T, db *sql.DB, sourceGameID string) []string {
+	t.Helper()
+	rows, err := db.Query(`
+		SELECT ma.url
+		FROM source_game_media sgm
+		JOIN media_assets ma ON ma.id=sgm.media_asset_id
+		WHERE sgm.source_game_id=?
+		ORDER BY ma.url`, sourceGameID)
+	if err != nil {
+		t.Fatalf("media urls for %s: %v", sourceGameID, err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var url string
+		if err := rows.Scan(&url); err != nil {
+			t.Fatalf("scan media url: %v", err)
+		}
+		out = append(out, url)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("media url rows: %v", err)
+	}
+	return out
+}
+
+func assertNoCanonicalMediaOverrideRows(t *testing.T, db *sql.DB, canonicalID string) {
+	t.Helper()
+	for _, table := range []string{
+		"canonical_game_cover_overrides",
+		"canonical_game_hover_overrides",
+		"canonical_game_background_overrides",
+	} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE canonical_id=?`, canonicalID).Scan(&count); err != nil {
+			t.Fatalf("count %s for %s: %v", table, canonicalID, err)
+		}
+		if count != 0 {
+			t.Fatalf("%s rows for %s = %d, want 0", table, canonicalID, count)
+		}
 	}
 }

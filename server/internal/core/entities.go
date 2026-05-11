@@ -986,6 +986,10 @@ type ManualReviewSelection struct {
 	ImageURL              string   `json:"image_url,omitempty"`
 }
 
+type ManualReviewApplyOptions struct {
+	AuthoritativeReclassify bool
+}
+
 type ManualReviewDecision struct {
 	State    ManualReviewState      `json:"state"`
 	Selected *ManualReviewSelection `json:"selected,omitempty"`

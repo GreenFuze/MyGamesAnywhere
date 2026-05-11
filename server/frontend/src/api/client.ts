@@ -6,13 +6,13 @@ import type {
   IntegrationGameItem,
   IntegrationStatusEntry,
   LibraryStatistics,
+  ManualReviewApplyRequest,
   ManualReviewCandidateDetail,
   ManualReviewCandidateSummary,
   ManualReviewRedetectBatchResult,
   ManualReviewRedetectResponse,
   ManualReviewScope,
   ManualReviewSearchResponse,
-  ManualReviewSearchResult,
   ResolverMatchDTO,
   SourceCacheEntry,
   SourceCacheJobStatus,
@@ -45,6 +45,7 @@ export type {
   IntegrationStatusEntry,
   LibraryStatistics,
   LibraryPrefs,
+  ManualReviewApplyRequest,
   ManualReviewCandidateDetail,
   ManualReviewCandidateSummary,
   ManualReviewRedetectBatchResult,
@@ -1170,7 +1171,7 @@ export async function searchManualReviewCandidate(
 
 export async function applyManualReviewCandidate(
   id: string,
-  body: ManualReviewSearchResult,
+  body: ManualReviewApplyRequest,
 ): Promise<ManualReviewCandidateDetail> {
   return postJson<ManualReviewCandidateDetail>(
     `/api/review-candidates/${encodeURIComponent(id)}/apply`,

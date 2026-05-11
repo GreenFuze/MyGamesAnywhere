@@ -243,6 +243,8 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   const toolbarTotalCount = canUseRemoteTotal ? Math.max(totalCount, filteredScopeGames.length) : filteredScopeGames.length
   const searchRequiresAllPages = searchQuery.trim().length > 0
   const isCompletingSearch = searchRequiresAllPages && hasNextPage
+  const isClosedShelfOverview = prefs.viewMode === 'shelf' && !focusedSection
+  const showLoadMoreSentinel = hasNextPage && (!isClosedShelfOverview || searchRequiresAllPages)
 
   const recentPlayedGames = useMemo(() => {
     if (scope !== 'play') return []
@@ -308,7 +310,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   }, [hasNextPage, loadedCount, requestNextPage, searchRequiresAllPages])
 
   useEffect(() => {
-    if (!hasNextPage || isPending) return
+    if (!showLoadMoreSentinel || isPending) return
     const sentinel = loadMoreRef.current
     if (!sentinel) return
 
@@ -327,7 +329,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
 
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [displayedGames.length, hasNextPage, isPending, requestNextPage])
+  }, [displayedGames.length, isPending, requestNextPage, showLoadMoreSentinel])
 
   useEffect(() => {
     if (isPending || !shouldRestoreRouteScroll(location.state)) return
@@ -481,14 +483,14 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         </div>
       )}
 
-      {!isPending && !isError && hasNextPage ? (
+      {!isPending && !isError && showLoadMoreSentinel ? (
         <div ref={loadMoreRef} className="flex flex-col items-center gap-2 py-6" aria-live="polite">
           <div className="h-1 w-1" aria-hidden="true" />
           <p className="text-xs text-mga-muted">
-            {isFetchingNextPage
-              ? 'Loading more games...'
-              : searchRequiresAllPages
+            {searchRequiresAllPages
               ? `Searching all games: ${loadedCount} of ${totalCount} loaded.`
+              : isFetchingNextPage
+              ? 'Loading more games...'
               : `Scroll to load more games. ${loadedCount} of ${totalCount} loaded.`}
           </p>
         </div>

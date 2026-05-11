@@ -354,7 +354,7 @@ func TestManualReviewApplyFailsFastWhenFillProviderFails(t *testing.T) {
 		ExternalID:       "chosen-1",
 		Title:            "Chosen Game",
 		Platform:         string(core.PlatformWindowsPC),
-	})
+	}, core.ManualReviewApplyOptions{})
 	if !errors.Is(err, core.ErrMetadataProvidersUnavailable) {
 		t.Fatalf("error = %v, want %v", err, core.ErrMetadataProvidersUnavailable)
 	}

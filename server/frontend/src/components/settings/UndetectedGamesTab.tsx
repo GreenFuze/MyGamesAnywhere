@@ -286,7 +286,7 @@ export function UndetectedGamesTab() {
 
   const applyMutation = useMutation({
     mutationFn: ({ candidateId, result }: { candidateId: string; result: ManualReviewSearchResult }) =>
-      applyManualReviewCandidate(candidateId, result),
+      applyManualReviewCandidate(candidateId, legacyGameId ? { ...result, authoritative_reclassify: true } : result),
     onMutate: () => setRedetectNotice(null),
     onSuccess: handleMutationSuccess,
   })

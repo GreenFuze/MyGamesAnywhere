@@ -433,6 +433,9 @@ func TestReviewControllerApplyCandidateReturnsUpdatedDetail(t *testing.T) {
 	if manualReviewSvc.appliedSelection.ProviderPluginID != "metadata-igdb" {
 		t.Fatalf("provider plugin id = %q, want %q", manualReviewSvc.appliedSelection.ProviderPluginID, "metadata-igdb")
 	}
+	if manualReviewSvc.appliedOptions.AuthoritativeReclassify {
+		t.Fatal("authoritative reclassify option = true, want false for normal apply")
+	}
 
 	var item ManualReviewCandidateDetailDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &item); err != nil {
@@ -440,6 +443,57 @@ func TestReviewControllerApplyCandidateReturnsUpdatedDetail(t *testing.T) {
 	}
 	if item.ReviewState != string(core.ManualReviewStateMatched) {
 		t.Fatalf("review_state = %q, want %q", item.ReviewState, core.ManualReviewStateMatched)
+	}
+}
+
+func TestReviewControllerApplyCandidatePassesAuthoritativeReclassify(t *testing.T) {
+	store := &fakeGameStore{
+		manualReviewByID: map[string]*core.ManualReviewCandidate{
+			"scan:review-1": {
+				ID:            "scan:review-1",
+				CurrentTitle:  "Mystery Game",
+				RawTitle:      "Mystery Game",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindSelfContained,
+				IntegrationID: "source-1",
+				PluginID:      "game-source-steam",
+				ExternalID:    "source-1-game",
+				Status:        "found",
+				ReviewState:   core.ManualReviewStateMatched,
+				CreatedAt:     time.Unix(1710000000, 0).UTC(),
+			},
+		},
+	}
+	manualReviewSvc := &fakeManualReviewService{}
+	controller := NewReviewController(
+		&fakeIntegrationRepo{},
+		&fakePluginHost{},
+		store,
+		manualReviewSvc,
+		nil,
+		noopLogger{},
+	)
+
+	router := chi.NewRouter()
+	router.Post("/api/review-candidates/{id}/apply", controller.ApplyCandidate)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/review-candidates/scan%3Areview-1/apply", strings.NewReader(`{
+		"provider_integration_id":"metadata-1",
+		"provider_plugin_id":"metadata-igdb",
+		"title":"Mystery Game",
+		"external_id":"igdb-1",
+		"authoritative_reclassify":true
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !manualReviewSvc.appliedOptions.AuthoritativeReclassify {
+		t.Fatal("authoritative reclassify option = false, want true")
 	}
 }
 
@@ -839,6 +893,7 @@ func TestReviewControllerDeleteCandidateFilesRejectsIneligibleCandidate(t *testi
 type fakeManualReviewService struct {
 	appliedCandidateID    string
 	appliedSelection      core.ManualReviewSelection
+	appliedOptions        core.ManualReviewApplyOptions
 	applyErr              error
 	redetectedCandidateID string
 	redetectResult        *core.ManualReviewRedetectResult
@@ -847,9 +902,10 @@ type fakeManualReviewService struct {
 	redetectBatchErr      error
 }
 
-func (f *fakeManualReviewService) Apply(_ context.Context, candidateID string, selection core.ManualReviewSelection) error {
+func (f *fakeManualReviewService) Apply(_ context.Context, candidateID string, selection core.ManualReviewSelection, options core.ManualReviewApplyOptions) error {
 	f.appliedCandidateID = candidateID
 	f.appliedSelection = selection
+	f.appliedOptions = options
 	return f.applyErr
 }
 

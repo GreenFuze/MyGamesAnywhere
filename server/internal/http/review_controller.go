@@ -78,7 +78,10 @@ type manualReviewSearchRequest struct {
 	Query string `json:"query"`
 }
 
-type manualReviewApplyRequest = core.ManualReviewSelection
+type manualReviewApplyRequest struct {
+	core.ManualReviewSelection
+	AuthoritativeReclassify bool `json:"authoritative_reclassify,omitempty"`
+}
 
 type ManualReviewSearchProviderStatusDTO struct {
 	IntegrationID    string `json:"integration_id"`
@@ -519,7 +522,9 @@ func (c *ReviewController) ApplyCandidate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := c.manualReviewSvc.Apply(r.Context(), candidateID, core.ManualReviewSelection(body)); err != nil {
+	if err := c.manualReviewSvc.Apply(r.Context(), candidateID, body.ManualReviewSelection, core.ManualReviewApplyOptions{
+		AuthoritativeReclassify: body.AuthoritativeReclassify,
+	}); err != nil {
 		status := manualReviewMutationErrorStatus(err)
 		c.logger.Error("apply manual review candidate", err)
 		http.Error(w, err.Error(), status)
