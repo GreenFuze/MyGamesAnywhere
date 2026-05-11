@@ -87,8 +87,8 @@ paths:
 
   /api/achievements:
     get:
-      summary: Get cached achievements dashboard
-      description: Returns cached achievement totals by system and by canonical game. This endpoint only reads stored achievement cache rows and does not fetch achievements from external integrations.
+      summary: Get stored achievements dashboard
+      description: Returns stored achievement totals by system and by canonical game plus the latest achievement refresh state. This endpoint only reads server-owned SQLite rows and does not fetch achievements from external integrations.
       responses:
         200:
           description: AchievementsDashboardResponse
@@ -99,8 +99,8 @@ paths:
 
   /api/achievements/explorer:
     get:
-      summary: Get cached achievements explorer
-      description: Returns cached achievement sets and achievement rows grouped by canonical game. This endpoint is read-only over stored cache rows and does not trigger provider fetches.
+      summary: Get stored achievements explorer
+      description: Returns stored achievement sets and achievement rows grouped by canonical game. This endpoint is read-only over server-owned SQLite rows and does not trigger provider fetches.
       responses:
         200:
           description: AchievementsExplorerResponse
@@ -108,6 +108,40 @@ paths:
           description: Error response
         500:
           description: Internal server error
+
+  /api/achievements/refresh:
+    post:
+      summary: Start achievements refresh
+      description: Starts a background job that refreshes achievements for all profile-visible games with configured achievement-capable integrations. Provider failures are persisted as degraded per-game state and do not stop unrelated games.
+      responses:
+        202:
+          description: AchievementRefreshJobStatus
+        400:
+          description: Error response
+        409:
+          description: An achievement refresh job is already active
+        500:
+          description: Internal server error
+
+  /api/achievements/refresh/jobs/{job_id}:
+    get:
+      summary: Get achievements refresh job
+      description: Returns the latest in-memory status for an achievement refresh job.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: AchievementRefreshJobStatus
+        400:
+          description: Error response
+        404:
+          description: Job not found
+        500:
+          description: Error response
 
   /api/auth/callback/import:
     post:
@@ -1500,7 +1534,7 @@ paths:
   /api/stats/gamer:
     get:
       summary: Gamer statistics
-      description: 'Read-only player-facing aggregates from existing data: favorites, cached achievement totals, achievement systems, and completion buckets. Does not persist play-history events.'
+      description: 'Read-only player-facing aggregates from existing data: favorites, stored achievement totals, achievement systems, and completion buckets. Does not persist play-history events.'
       responses:
         200:
           description: GamerStatistics JSON

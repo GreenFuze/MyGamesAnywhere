@@ -184,11 +184,13 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	orchestrator.SetEventBus(eventBus)
 	manualReviewSvc := scan.NewManualReviewService(pluginHost, pluginHost, integrationRepo, gameStore, mediaSvc, logSvc)
 	integrationRefreshSvc := scan.NewIntegrationRefreshService(integrationRepo, gameStore, pluginHost, mediaSvc, configSvc, logSvc)
+	achievementRefreshSvc := scan.NewAchievementRefreshService(integrationRepo, gameStore, pluginHost, logSvc)
 	deletionSvc := gamesvc.NewDeletionService(gameStore, integrationRepo, pluginHost, logSvc)
 
+	achievementRefreshCtrl := http.NewAchievementRefreshController(achievementRefreshSvc, eventBus, logSvc)
 	gameCtrl := http.NewGameController(gameStore, orchestrator, deletionSvc, integrationRepo, cacheSvc, logSvc)
 	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc, mediaSvc)
-	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc, eventBus)
+	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc, eventBus, achievementRefreshCtrl)
 	aboutCtrl := http.NewAboutController(logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, gameStore, configSvc, logSvc, eventBus, syncSvc)
@@ -203,7 +205,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	oauthCtrl := http.NewOAuthController(pluginHost, configSvc, logSvc, eventBus, integrationRepo)
 	profileCtrl := http.NewProfileController(profileRepo, syncSvc, discoCtrl, configSvc, logSvc)
 
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo)
 
 	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost, eventBus, mediaSvc)
 

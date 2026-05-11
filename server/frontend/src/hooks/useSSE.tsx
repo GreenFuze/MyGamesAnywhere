@@ -48,6 +48,15 @@ const knownTypes = [
   'scan_complete',
   'scan_error',
 
+  // Achievement refresh lifecycle.
+  'achievement_refresh_queued',
+  'achievement_refresh_already_running',
+  'achievement_refresh_started',
+  'achievement_refresh_progress',
+  'achievement_refresh_warning',
+  'achievement_refresh_completed',
+  'achievement_refresh_failed',
+
   // Integration CRUD notifications.
   'integration_created',
   'integration_updated',

@@ -1,12 +1,16 @@
-import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation } from 'react-router-dom'
-import { ChevronDown, ChevronRight, Trophy } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, Loader2, RefreshCw, Trophy } from 'lucide-react'
 import {
+  getAchievementRefreshJob,
   getAchievementsDashboard,
   getAchievementsExplorer,
+  startAchievementRefresh,
   type AchievementDTO,
+  type AchievementsDashboardResponse,
   type AchievementExplorerGameDTO,
+  type AchievementRefreshJobStatus,
   type AchievementGameSummaryDTO,
   type AchievementSetDTO,
   type AchievementSystemSummaryDTO,
@@ -17,6 +21,8 @@ import { Badge } from '@/components/ui/badge'
 import { CoverImage } from '@/components/ui/cover-image'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { platformLabel, selectCoverUrl, sourceLabel } from '@/lib/gameUtils'
+import { useProfiles } from '@/hooks/useProfiles'
+import { useSSE } from '@/hooks/useSSE'
 
 function percent(unlocked: number, total: number): number {
   if (total <= 0) return 0
@@ -163,6 +169,25 @@ function formatUnlockedAt(value?: string): string | null {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
   return date.toLocaleString()
+}
+
+function formatDateTime(value?: string): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString()
+}
+
+function isRefreshTerminal(job?: Pick<AchievementRefreshJobStatus, 'status'> | null) {
+  return job?.status === 'completed' || job?.status === 'failed'
+}
+
+const emptyDashboard: AchievementsDashboardResponse = {
+  totals: { source_count: 0, total_count: 0, unlocked_count: 0 },
+  systems: [],
+  games: [],
+  refresh: { total: 0, success_count: 0, failed_count: 0, skipped_count: 0 },
+  refresh_states: [],
 }
 
 function AchievementExplorerRow({ achievement }: { achievement: AchievementDTO }) {
@@ -327,6 +352,11 @@ function AchievementExplorerGameGroup({
 
 export function AchievementsPage() {
   const location = useLocation()
+  const queryClient = useQueryClient()
+  const { currentProfile } = useProfiles()
+  const { subscribe } = useSSE()
+  const [activeRefreshJob, setActiveRefreshJob] = useState<AchievementRefreshJobStatus | null>(null)
+  const [refreshError, setRefreshError] = useState('')
   const dashboard = useQuery({
     queryKey: ['achievements-dashboard'],
     queryFn: getAchievementsDashboard,
@@ -335,14 +365,38 @@ export function AchievementsPage() {
     queryKey: ['achievements-explorer'],
     queryFn: getAchievementsExplorer,
   })
+  const activeRefreshJobQuery = useQuery({
+    queryKey: ['achievement-refresh-job', activeRefreshJob?.job_id],
+    queryFn: () => getAchievementRefreshJob(activeRefreshJob?.job_id ?? ''),
+    enabled: Boolean(activeRefreshJob?.job_id) && !isRefreshTerminal(activeRefreshJob),
+    refetchInterval: 2000,
+  })
+  const refreshMutation = useMutation({
+    mutationFn: startAchievementRefresh,
+    onSuccess: (result) => {
+      setRefreshError('')
+      setActiveRefreshJob(result.job)
+    },
+    onError: (error) => {
+      setRefreshError(error instanceof Error ? error.message : 'Achievement refresh failed.')
+    },
+  })
   const [gameQuery, setGameQuery] = useState('')
   const [achievementQuery, setAchievementQuery] = useState('')
   const [sourceFilter, setSourceFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'unlocked' | 'locked'>('all')
   const detailLinkState = buildAchievementDetailLinkState(location.pathname, location.search)
-  const data = dashboard.data ?? { totals: { source_count: 0, total_count: 0, unlocked_count: 0 }, systems: [], games: [] }
+  const data = dashboard.data ?? emptyDashboard
   const explorerData = explorer.data ?? { games: [] }
-  const hasCachedAchievements = data.games.length > 0
+  const hasStoredAchievements = data.games.length > 0
+  const refresh = data.refresh ?? { total: 0, success_count: 0, failed_count: 0, skipped_count: 0 }
+  const failedStates = (data.refresh_states ?? []).filter((state) => state.status === 'failed')
+  const refreshRunning = Boolean(activeRefreshJob && !isRefreshTerminal(activeRefreshJob))
+  const refreshProgress =
+    activeRefreshJob?.items_total && activeRefreshJob.items_total > 0
+      ? (activeRefreshJob.items_completed / activeRefreshJob.items_total) * 100
+      : 0
+  const canRefresh = currentProfile?.role === 'admin_player'
   const normalizedGameQuery = gameQuery.trim().toLowerCase()
   const normalizedAchievementQuery = achievementQuery.trim().toLowerCase()
   const filteredExplorerGames = useMemo(() => {
@@ -380,8 +434,59 @@ export function AchievementsPage() {
     sourceFilter !== 'all' ||
     statusFilter !== 'all'
 
+  useEffect(() => {
+    if (activeRefreshJobQuery.data) {
+      setActiveRefreshJob(activeRefreshJobQuery.data)
+      if (isRefreshTerminal(activeRefreshJobQuery.data)) {
+        queryClient.invalidateQueries({ queryKey: ['achievements-dashboard'] })
+        queryClient.invalidateQueries({ queryKey: ['achievements-explorer'] })
+      }
+    }
+  }, [activeRefreshJobQuery.data, queryClient])
+
+  useEffect(() => {
+    const updateJob = (raw: unknown) => {
+      const job = raw as AchievementRefreshJobStatus
+      if (job?.job_id) {
+        setActiveRefreshJob(job)
+      }
+    }
+    const invalidateStoredAchievements = () => {
+      queryClient.invalidateQueries({ queryKey: ['achievements-dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['achievements-explorer'] })
+    }
+    const unsubs = [
+      subscribe('achievement_refresh_started', updateJob),
+      subscribe('achievement_refresh_progress', (raw: unknown) => {
+        const data = raw as Partial<AchievementRefreshJobStatus>
+        setActiveRefreshJob((current) =>
+          current && data.job_id === current.job_id
+            ? {
+                ...current,
+                items_completed: data.items_completed ?? current.items_completed,
+                items_total: data.items_total ?? current.items_total,
+                current_item: data.current_item ?? current.current_item,
+              }
+            : current,
+        )
+      }),
+      subscribe('achievement_refresh_completed', (raw: unknown) => {
+        updateJob(raw)
+        invalidateStoredAchievements()
+      }),
+      subscribe('achievement_refresh_failed', (raw: unknown) => {
+        updateJob(raw)
+        invalidateStoredAchievements()
+      }),
+      subscribe('achievement_refresh_warning', invalidateStoredAchievements),
+    ]
+    return () => {
+      for (const unsub of unsubs) unsub()
+    }
+  }, [queryClient, subscribe])
+
   if (dashboard.isPending || explorer.isPending) {
-    return <p className="text-sm text-mga-muted">Loading cached achievements...</p>
+    return <p className="text-sm text-mga-muted">Loading stored achievements...</p>
   }
 
   if (dashboard.isError || explorer.isError) {
@@ -397,21 +502,127 @@ export function AchievementsPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-mga-text">Achievements</h1>
-          <p className="text-sm text-mga-muted">Cached progress across achievement systems</p>
+          <p className="text-sm text-mga-muted">Stored progress across achievement systems</p>
         </div>
-        <div className="flex items-center gap-2 rounded-mga border border-mga-border bg-mga-surface px-3 py-2 text-sm text-mga-muted">
-          <Trophy size={16} className="text-mga-accent" />
-          <span>{data.games.length} games</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {canRefresh ? (
+            <button
+              type="button"
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshRunning || refreshMutation.isPending}
+              className="inline-flex items-center gap-2 rounded-mga bg-mga-accent px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {refreshRunning || refreshMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+              Refresh achievements
+            </button>
+          ) : null}
+          <div className="flex items-center gap-2 rounded-mga border border-mga-border bg-mga-surface px-3 py-2 text-sm text-mga-muted">
+            <Trophy size={16} className="text-mga-accent" />
+            <span>{data.games.length} games</span>
+          </div>
         </div>
       </div>
 
-      {!hasCachedAchievements ? (
+      {(refreshRunning || refresh.last_attempted_at || refreshError || failedStates.length > 0) && (
+        <section className="space-y-3">
+          {refreshRunning ? (
+            <div className="rounded-mga border border-mga-accent/30 bg-mga-accent/10 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-mga-text">
+                    <Loader2 size={16} className="animate-spin text-mga-accent" />
+                    <span>Refreshing stored achievements</span>
+                  </div>
+                  <p className="text-sm text-mga-muted">
+                    {activeRefreshJob?.items_total
+                      ? `${activeRefreshJob.items_completed}/${activeRefreshJob.items_total} games processed`
+                      : 'Preparing eligible games'}
+                  </p>
+                  {activeRefreshJob?.current_item ? (
+                    <p className="text-xs text-mga-muted">Current: {activeRefreshJob.current_item}</p>
+                  ) : null}
+                </div>
+                <Badge variant="accent">{activeRefreshJob?.status ?? 'running'}</Badge>
+              </div>
+              {activeRefreshJob?.items_total ? <div className="mt-3"><ProgressBar value={refreshProgress} /></div> : null}
+            </div>
+          ) : null}
+
+          {refreshError ? (
+            <div className="rounded-mga border border-red-500/30 bg-red-500/10 p-4">
+              <div className="flex items-start gap-2 text-sm text-red-200">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                <p>{refreshError}</p>
+              </div>
+            </div>
+          ) : null}
+
+          {refresh.last_attempted_at ? (
+            <div className="rounded-mga border border-mga-border bg-mga-surface p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-mga-text">Last refresh</h2>
+                  <p className="text-sm text-mga-muted">
+                    {formatDateTime(refresh.last_attempted_at)}
+                    {refresh.last_successful_at ? ` · last success ${formatDateTime(refresh.last_successful_at)}` : ''}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="accent">{refresh.success_count} refreshed</Badge>
+                  {refresh.failed_count > 0 ? <Badge variant="muted">{refresh.failed_count} failed</Badge> : null}
+                  {refresh.skipped_count > 0 ? <Badge variant="muted">{refresh.skipped_count} skipped</Badge> : null}
+                </div>
+              </div>
+              {refresh.latest_failure_text ? (
+                <p className="mt-2 text-sm text-mga-muted">Latest failure: {refresh.latest_failure_text}</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {failedStates.length > 0 ? (
+            <div className="rounded-mga border border-amber-500/30 bg-amber-500/10 p-4">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-300" />
+                <div className="min-w-0 space-y-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-amber-100">Some achievement providers need attention</h2>
+                    <p className="text-sm text-amber-100/80">
+                      {failedStates.length} game/provider refresh {failedStates.length === 1 ? 'attempt has' : 'attempts have'} failed.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    {failedStates.slice(0, 5).map((state) => (
+                      <div key={`${state.source_game_id}:${state.plugin_id}`} className="rounded-mga border border-amber-500/20 bg-mga-bg/50 p-3 text-sm">
+                        <p className="font-medium text-amber-100">{sourceLabel(state.plugin_id)} · {state.external_game_id}</p>
+                        <p className="mt-1 break-words text-amber-100/75">{state.last_error || 'Refresh failed without a provider message.'}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      )}
+
+      {!hasStoredAchievements ? (
         <div className="rounded-mga border border-dashed border-mga-border bg-mga-surface p-8 text-center">
           <Trophy size={28} className="mx-auto text-mga-muted" />
-          <h2 className="mt-3 text-lg font-semibold text-mga-text">No cached achievements yet</h2>
+          <h2 className="mt-3 text-lg font-semibold text-mga-text">No stored achievements yet</h2>
           <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-mga-muted">
-            Open a game detail page and load its achievements to cache progress here. This page only reads stored achievement data.
+            Run a refresh to fetch achievement data for eligible games. This page reads server-owned stored achievement data.
           </p>
+          {canRefresh ? (
+            <button
+              type="button"
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshRunning || refreshMutation.isPending}
+              className="mt-4 inline-flex items-center gap-2 rounded-mga bg-mga-accent px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {refreshRunning || refreshMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+              Refresh achievements
+            </button>
+          ) : null}
         </div>
       ) : (
         <>
@@ -446,7 +657,7 @@ export function AchievementsPage() {
           <section className="space-y-3">
             <div>
               <h2 className="text-lg font-semibold text-mga-text">Games</h2>
-              <p className="text-sm text-mga-muted">Cached achievement summaries by game</p>
+              <p className="text-sm text-mga-muted">Stored achievement summaries by game</p>
             </div>
             <div className="space-y-3">
               {data.games.map((item) => (
@@ -459,7 +670,7 @@ export function AchievementsPage() {
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
                 <h2 className="text-lg font-semibold text-mga-text">Achievement Explorer</h2>
-                <p className="text-sm text-mga-muted">Browse cached achievements by game and source without live provider fetches.</p>
+                <p className="text-sm text-mga-muted">Browse stored achievements by game and source without live provider fetches.</p>
               </div>
               <Badge variant="accent">{filteredExplorerGames.length} games shown</Badge>
             </div>
@@ -518,8 +729,8 @@ export function AchievementsPage() {
               <div className="rounded-mga border border-dashed border-mga-border bg-mga-surface p-8 text-center">
                 <p className="text-sm text-mga-muted">
                   {hasActiveFilters
-                    ? 'No cached achievements match the current explorer filters.'
-                    : 'No cached achievement explorer entries are available yet.'}
+                    ? 'No stored achievements match the current explorer filters.'
+                    : 'No stored achievement explorer entries are available yet.'}
                 </p>
               </div>
             ) : (

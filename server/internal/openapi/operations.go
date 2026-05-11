@@ -226,7 +226,7 @@ func Operations() []OperationDoc {
 			Method:       "GET",
 			Path:         "/api/stats/gamer",
 			Summary:      "Gamer statistics",
-			Description:  "Read-only player-facing aggregates from existing data: favorites, cached achievement totals, achievement systems, and completion buckets. Does not persist play-history events.",
+			Description:  "Read-only player-facing aggregates from existing data: favorites, stored achievement totals, achievement systems, and completion buckets. Does not persist play-history events.",
 			ResponseDocs: map[string]string{"200": "GamerStatistics JSON", "500": "Internal server error"},
 		},
 		{
@@ -253,16 +253,30 @@ func Operations() []OperationDoc {
 		{
 			Method:       "GET",
 			Path:         "/api/achievements",
-			Summary:      "Get cached achievements dashboard",
-			Description:  "Returns cached achievement totals by system and by canonical game. This endpoint only reads stored achievement cache rows and does not fetch achievements from external integrations.",
+			Summary:      "Get stored achievements dashboard",
+			Description:  "Returns stored achievement totals by system and by canonical game plus the latest achievement refresh state. This endpoint only reads server-owned SQLite rows and does not fetch achievements from external integrations.",
 			ResponseDocs: map[string]string{"200": "AchievementsDashboardResponse", "500": "Internal server error"},
 		},
 		{
 			Method:       "GET",
 			Path:         "/api/achievements/explorer",
-			Summary:      "Get cached achievements explorer",
-			Description:  "Returns cached achievement sets and achievement rows grouped by canonical game. This endpoint is read-only over stored cache rows and does not trigger provider fetches.",
+			Summary:      "Get stored achievements explorer",
+			Description:  "Returns stored achievement sets and achievement rows grouped by canonical game. This endpoint is read-only over server-owned SQLite rows and does not trigger provider fetches.",
 			ResponseDocs: map[string]string{"200": "AchievementsExplorerResponse", "500": "Internal server error"},
+		},
+		{
+			Method:       "POST",
+			Path:         "/api/achievements/refresh",
+			Summary:      "Start achievements refresh",
+			Description:  "Starts a background job that refreshes achievements for all profile-visible games with configured achievement-capable integrations. Provider failures are persisted as degraded per-game state and do not stop unrelated games.",
+			ResponseDocs: map[string]string{"202": "AchievementRefreshJobStatus", "409": "An achievement refresh job is already active", "500": "Internal server error"},
+		},
+		{
+			Method:       "GET",
+			Path:         "/api/achievements/refresh/jobs/{job_id}",
+			Summary:      "Get achievements refresh job",
+			Description:  "Returns the latest in-memory status for an achievement refresh job.",
+			ResponseDocs: map[string]string{"200": "AchievementRefreshJobStatus", "404": "Job not found"},
 		},
 		{
 			Method:         "POST",

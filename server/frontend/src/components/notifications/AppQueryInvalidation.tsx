@@ -12,6 +12,12 @@ export function AppQueryInvalidation() {
       queryClient.invalidateQueries({ queryKey: ['stats'] })
       queryClient.invalidateQueries({ queryKey: ['integration-games'] })
     }
+    const refreshAchievements = () => {
+      queryClient.invalidateQueries({ queryKey: ['achievements-dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['achievements-explorer'] })
+      queryClient.invalidateQueries({ queryKey: ['stats'] })
+      queryClient.invalidateQueries({ queryKey: ['games'] })
+    }
 
     const unsubs = [
       subscribe('scan_integration_complete', refreshLibrarySlices),
@@ -25,6 +31,9 @@ export function AppQueryInvalidation() {
       subscribe('save_sync_migration_completed', () => {
         queryClient.invalidateQueries({ queryKey: ['frontend-config'] })
       }),
+      subscribe('achievement_refresh_completed', refreshAchievements),
+      subscribe('achievement_refresh_failed', refreshAchievements),
+      subscribe('achievement_refresh_warning', refreshAchievements),
     ]
 
     return () => {

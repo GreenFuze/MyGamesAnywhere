@@ -256,6 +256,20 @@ func initialSchemaStatements() []string {
 			unlocked_at INTEGER
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_ach_set ON achievements(set_id);`,
+		`CREATE TABLE IF NOT EXISTS achievement_refresh_states (
+			profile_id TEXT,
+			source_game_id TEXT NOT NULL REFERENCES source_games(id) ON DELETE CASCADE,
+			integration_id TEXT,
+			plugin_id TEXT NOT NULL,
+			external_game_id TEXT NOT NULL,
+			status TEXT NOT NULL,
+			last_attempted_at INTEGER,
+			last_success_at INTEGER,
+			last_error TEXT,
+			PRIMARY KEY(source_game_id, plugin_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_achievement_refresh_profile ON achievement_refresh_states(profile_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_achievement_refresh_status ON achievement_refresh_states(status);`,
 		`CREATE TABLE IF NOT EXISTS scan_reports (
 			id TEXT PRIMARY KEY,
 			profile_id TEXT,

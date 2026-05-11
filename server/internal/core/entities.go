@@ -257,6 +257,36 @@ type Achievement struct {
 	UnlockedAt   time.Time `json:"unlocked_at,omitempty"`
 }
 
+type AchievementRefreshStatus string
+
+const (
+	AchievementRefreshStatusSuccess AchievementRefreshStatus = "success"
+	AchievementRefreshStatusFailed  AchievementRefreshStatus = "failed"
+	AchievementRefreshStatusSkipped AchievementRefreshStatus = "skipped"
+)
+
+type AchievementRefreshState struct {
+	ProfileID       string                   `json:"profile_id,omitempty"`
+	SourceGameID    string                   `json:"source_game_id"`
+	IntegrationID   string                   `json:"integration_id,omitempty"`
+	PluginID        string                   `json:"plugin_id"`
+	ExternalGameID  string                   `json:"external_game_id"`
+	Status          AchievementRefreshStatus `json:"status"`
+	LastAttemptedAt time.Time                `json:"last_attempted_at,omitempty"`
+	LastSuccessAt   time.Time                `json:"last_success_at,omitempty"`
+	LastError       string                   `json:"last_error,omitempty"`
+}
+
+type AchievementRefreshSummary struct {
+	Total             int       `json:"total"`
+	SuccessCount      int       `json:"success_count"`
+	FailedCount       int       `json:"failed_count"`
+	SkippedCount      int       `json:"skipped_count"`
+	LastAttemptedAt   time.Time `json:"last_attempted_at,omitempty"`
+	LastSuccessfulAt  time.Time `json:"last_successful_at,omitempty"`
+	LatestFailureText string    `json:"latest_failure_text,omitempty"`
+}
+
 // AchievementSummary is a lightweight cached aggregate for a canonical game.
 type AchievementSummary struct {
 	SourceCount   int `json:"source_count"`
@@ -281,9 +311,11 @@ type CachedAchievementGameSummary struct {
 }
 
 type CachedAchievementsDashboard struct {
-	Totals  AchievementSummary               `json:"totals"`
-	Systems []CachedAchievementSystemSummary `json:"systems"`
-	Games   []CachedAchievementGameSummary   `json:"games"`
+	Totals        AchievementSummary               `json:"totals"`
+	Systems       []CachedAchievementSystemSummary `json:"systems"`
+	Games         []CachedAchievementGameSummary   `json:"games"`
+	Refresh       AchievementRefreshSummary        `json:"refresh"`
+	RefreshStates []AchievementRefreshState        `json:"refresh_states,omitempty"`
 }
 
 type CachedAchievementGameExplorer struct {
@@ -292,7 +324,8 @@ type CachedAchievementGameExplorer struct {
 }
 
 type CachedAchievementsExplorer struct {
-	Games []CachedAchievementGameExplorer `json:"games"`
+	Games   []CachedAchievementGameExplorer `json:"games"`
+	Refresh AchievementRefreshSummary       `json:"refresh"`
 }
 
 // SourceGame is a game record from a single source integration.
@@ -692,6 +725,23 @@ type IntegrationRefreshJobStatus struct {
 	FinishedAt     string   `json:"finished_at,omitempty"`
 	ItemsTotal     int      `json:"items_total"`
 	ItemsCompleted int      `json:"items_completed"`
+	WarningCount   int      `json:"warning_count"`
+	ErrorCount     int      `json:"error_count"`
+	CurrentItem    string   `json:"current_item,omitempty"`
+	Error          string   `json:"error,omitempty"`
+	Warnings       []string `json:"warnings,omitempty"`
+}
+
+type AchievementRefreshJobStatus struct {
+	JobID          string   `json:"job_id"`
+	Status         string   `json:"status"`
+	StartedAt      string   `json:"started_at,omitempty"`
+	FinishedAt     string   `json:"finished_at,omitempty"`
+	Trigger        string   `json:"trigger,omitempty"`
+	ItemsTotal     int      `json:"items_total"`
+	ItemsCompleted int      `json:"items_completed"`
+	SuccessCount   int      `json:"success_count"`
+	SkippedCount   int      `json:"skipped_count"`
 	WarningCount   int      `json:"warning_count"`
 	ErrorCount     int      `json:"error_count"`
 	CurrentItem    string   `json:"current_item,omitempty"`

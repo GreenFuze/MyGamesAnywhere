@@ -478,10 +478,33 @@ export type AchievementGameSummaryDTO = {
   systems: AchievementSystemSummaryDTO[];
 };
 
+export type AchievementRefreshSummaryDTO = {
+  total: number;
+  success_count: number;
+  failed_count: number;
+  skipped_count: number;
+  last_attempted_at?: string;
+  last_successful_at?: string;
+  latest_failure_text?: string;
+};
+
+export type AchievementRefreshStateDTO = {
+  source_game_id: string;
+  integration_id?: string;
+  plugin_id: string;
+  external_game_id: string;
+  status: string;
+  last_attempted_at?: string;
+  last_success_at?: string;
+  last_error?: string;
+};
+
 export type AchievementsDashboardResponse = {
   totals: AchievementSummaryDTO;
   systems: AchievementSystemSummaryDTO[];
   games: AchievementGameSummaryDTO[];
+  refresh: AchievementRefreshSummaryDTO;
+  refresh_states?: AchievementRefreshStateDTO[];
 };
 
 export type AchievementExplorerGameDTO = {
@@ -491,6 +514,7 @@ export type AchievementExplorerGameDTO = {
 
 export type AchievementsExplorerResponse = {
   games: AchievementExplorerGameDTO[];
+  refresh: AchievementRefreshSummaryDTO;
 };
 
 export type DeleteSourceGameResponse = {
@@ -560,6 +584,27 @@ export async function getAchievementsDashboard(): Promise<AchievementsDashboardR
 
 export async function getAchievementsExplorer(): Promise<AchievementsExplorerResponse> {
   return getJson<AchievementsExplorerResponse>("/api/achievements/explorer");
+}
+
+export async function startAchievementRefresh(): Promise<TriggerAchievementRefreshResult> {
+  const path = "/api/achievements/refresh";
+  const res = await apiFetch(`${base}${path}`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  if (res.status !== 202 && res.status !== 409) {
+    throw await buildApiError(path, res);
+  }
+  return {
+    accepted: res.status === 202,
+    job: (await res.json()) as AchievementRefreshJobStatus,
+  };
+}
+
+export async function getAchievementRefreshJob(jobId: string): Promise<AchievementRefreshJobStatus> {
+  return getJson<AchievementRefreshJobStatus>(
+    `/api/achievements/refresh/jobs/${encodeURIComponent(jobId)}`,
+  );
 }
 
 export async function setGameCoverOverride(
@@ -745,6 +790,28 @@ export type IntegrationRefreshJobStatus = {
 export type TriggerIntegrationRefreshResult = {
   accepted: boolean;
   job: IntegrationRefreshJobStatus;
+};
+
+export type AchievementRefreshJobStatus = {
+  job_id: string;
+  status: string;
+  started_at?: string;
+  finished_at?: string;
+  trigger?: string;
+  items_total: number;
+  items_completed: number;
+  success_count: number;
+  skipped_count: number;
+  warning_count: number;
+  error_count: number;
+  current_item?: string;
+  error?: string;
+  warnings?: string[];
+};
+
+export type TriggerAchievementRefreshResult = {
+  accepted: boolean;
+  job: AchievementRefreshJobStatus;
 };
 
 export type SyncStatus = {

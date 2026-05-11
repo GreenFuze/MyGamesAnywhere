@@ -295,7 +295,7 @@ function AchievementBucketPanel({ data }: { data: GamerStatistics }) {
     <section className="rounded-mga border border-mga-border bg-mga-surface p-4 shadow-sm shadow-black/10">
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-mga-text">Achievement Completion</h2>
-        <p className="mt-1 text-sm text-mga-muted">Completion buckets from cached achievement sets.</p>
+        <p className="mt-1 text-sm text-mga-muted">Completion buckets from stored achievement sets.</p>
       </div>
       <div className="grid gap-3 md:grid-cols-5">
         {(data.achievement_completion_buckets ?? []).map((bucket, index) => (
@@ -330,7 +330,7 @@ function GamerStatsView({ data, recentPlayedCount }: { data: GamerStatistics; re
     return (
       <EmptyState
         title="No gamer statistics yet"
-        detail="Once your library has games, this page will summarize favorites, recent launches, and cached achievement progress."
+        detail="Once your library has games, this page will summarize favorites, recent launches, and stored achievement progress."
       />
     )
   }
@@ -369,7 +369,7 @@ function GamerStatsView({ data, recentPlayedCount }: { data: GamerStatistics; re
         <StatTile
           label="Points"
           value={data.total_achievement_points ? percentText(data.achievement_point_percent) : 'Unknown'}
-          detail={data.total_achievement_points ? `${formatNumber(data.earned_achievement_points)} of ${formatNumber(data.total_achievement_points)} points` : 'No point totals cached yet'}
+          detail={data.total_achievement_points ? `${formatNumber(data.earned_achievement_points)} of ${formatNumber(data.total_achievement_points)} points` : 'No stored point totals yet'}
           icon={BarChart3}
           tone="violet"
         />
@@ -377,14 +377,14 @@ function GamerStatsView({ data, recentPlayedCount }: { data: GamerStatistics; re
 
       {data.total_achievements === 0 ? (
         <EmptyState
-          title="No cached achievements yet"
-          detail="Open game details or refresh achievements when that workflow is available to cache progress for Gamer Statistics."
+          title="No stored achievements yet"
+          detail="Run an achievement refresh to fetch stored progress for Gamer Statistics."
         />
       ) : (
         <>
           <AchievementBucketPanel data={data} />
           <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-            <RankedBars title="Unlocked By System" subtitle="Cached achievement unlocks grouped by provider." items={systemStats} />
+            <RankedBars title="Unlocked By System" subtitle="Stored achievement unlocks grouped by provider." items={systemStats} />
             <section className="rounded-mga border border-mga-border bg-mga-surface p-4 shadow-sm shadow-black/10">
               <h2 className="text-lg font-semibold text-mga-text">Achievement Explorer</h2>
               <p className="mt-1 text-sm leading-6 text-mga-muted">

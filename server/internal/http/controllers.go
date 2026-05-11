@@ -105,13 +105,37 @@ type SetBackgroundOverrideRequest struct {
 }
 
 type AchievementsDashboardResponse struct {
-	Totals  AchievementSummaryDTO       `json:"totals"`
-	Systems []AchievementSystemSummary  `json:"systems"`
-	Games   []AchievementGameSummaryDTO `json:"games"`
+	Totals        AchievementSummaryDTO       `json:"totals"`
+	Systems       []AchievementSystemSummary  `json:"systems"`
+	Games         []AchievementGameSummaryDTO `json:"games"`
+	Refresh       AchievementRefreshSummary   `json:"refresh"`
+	RefreshStates []AchievementRefreshState   `json:"refresh_states,omitempty"`
 }
 
 type AchievementsExplorerResponse struct {
-	Games []AchievementGameExplorerDTO `json:"games"`
+	Games   []AchievementGameExplorerDTO `json:"games"`
+	Refresh AchievementRefreshSummary    `json:"refresh"`
+}
+
+type AchievementRefreshSummary struct {
+	Total             int    `json:"total"`
+	SuccessCount      int    `json:"success_count"`
+	FailedCount       int    `json:"failed_count"`
+	SkippedCount      int    `json:"skipped_count"`
+	LastAttemptedAt   string `json:"last_attempted_at,omitempty"`
+	LastSuccessfulAt  string `json:"last_successful_at,omitempty"`
+	LatestFailureText string `json:"latest_failure_text,omitempty"`
+}
+
+type AchievementRefreshState struct {
+	SourceGameID    string `json:"source_game_id"`
+	IntegrationID   string `json:"integration_id,omitempty"`
+	PluginID        string `json:"plugin_id"`
+	ExternalGameID  string `json:"external_game_id"`
+	Status          string `json:"status"`
+	LastAttemptedAt string `json:"last_attempted_at,omitempty"`
+	LastSuccessAt   string `json:"last_success_at,omitempty"`
+	LastError       string `json:"last_error,omitempty"`
 }
 
 type AchievementSystemSummary struct {
@@ -551,13 +575,15 @@ func (c *GameController) AchievementsDashboard(w http.ResponseWriter, r *http.Re
 	ctx := r.Context()
 	dashboard, err := c.gameStore.GetCachedAchievementsDashboard(ctx)
 	if err != nil {
-		c.logger.Error("cached achievements dashboard", err)
+		c.logger.Error("stored achievements dashboard", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	resp := AchievementsDashboardResponse{
-		Systems: make([]AchievementSystemSummary, 0, len(dashboard.Systems)),
-		Games:   make([]AchievementGameSummaryDTO, 0, len(dashboard.Games)),
+		Systems:       make([]AchievementSystemSummary, 0, len(dashboard.Systems)),
+		Games:         make([]AchievementGameSummaryDTO, 0, len(dashboard.Games)),
+		Refresh:       achievementRefreshSummaryDTO(dashboard.Refresh),
+		RefreshStates: make([]AchievementRefreshState, 0, len(dashboard.RefreshStates)),
 	}
 	resp.Totals = AchievementSummaryDTO{
 		SourceCount:   dashboard.Totals.SourceCount,
@@ -568,6 +594,9 @@ func (c *GameController) AchievementsDashboard(w http.ResponseWriter, r *http.Re
 	}
 	for _, system := range dashboard.Systems {
 		resp.Systems = append(resp.Systems, achievementSystemSummaryDTO(system))
+	}
+	for _, state := range dashboard.RefreshStates {
+		resp.RefreshStates = append(resp.RefreshStates, achievementRefreshStateDTO(state))
 	}
 	labels := c.loadIntegrationLabels(ctx)
 	for _, game := range dashboard.Games {
@@ -591,13 +620,14 @@ func (c *GameController) AchievementsExplorer(w http.ResponseWriter, r *http.Req
 	ctx := r.Context()
 	explorer, err := c.gameStore.GetCachedAchievementsExplorer(ctx)
 	if err != nil {
-		c.logger.Error("cached achievements explorer", err)
+		c.logger.Error("stored achievements explorer", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	resp := AchievementsExplorerResponse{
-		Games: make([]AchievementGameExplorerDTO, 0, len(explorer.Games)),
+		Games:   make([]AchievementGameExplorerDTO, 0, len(explorer.Games)),
+		Refresh: achievementRefreshSummaryDTO(explorer.Refresh),
 	}
 	labels := c.loadIntegrationLabels(ctx)
 	for _, game := range explorer.Games {
@@ -627,6 +657,38 @@ func achievementSystemSummaryDTO(system core.CachedAchievementSystemSummary) Ach
 		TotalPoints:   system.TotalPoints,
 		EarnedPoints:  system.EarnedPoints,
 	}
+}
+
+func achievementRefreshSummaryDTO(summary core.AchievementRefreshSummary) AchievementRefreshSummary {
+	return AchievementRefreshSummary{
+		Total:             summary.Total,
+		SuccessCount:      summary.SuccessCount,
+		FailedCount:       summary.FailedCount,
+		SkippedCount:      summary.SkippedCount,
+		LastAttemptedAt:   optionalRFC3339(summary.LastAttemptedAt),
+		LastSuccessfulAt:  optionalRFC3339(summary.LastSuccessfulAt),
+		LatestFailureText: summary.LatestFailureText,
+	}
+}
+
+func achievementRefreshStateDTO(state core.AchievementRefreshState) AchievementRefreshState {
+	return AchievementRefreshState{
+		SourceGameID:    state.SourceGameID,
+		IntegrationID:   state.IntegrationID,
+		PluginID:        state.PluginID,
+		ExternalGameID:  state.ExternalGameID,
+		Status:          string(state.Status),
+		LastAttemptedAt: optionalRFC3339(state.LastAttemptedAt),
+		LastSuccessAt:   optionalRFC3339(state.LastSuccessAt),
+		LastError:       state.LastError,
+	}
+}
+
+func optionalRFC3339(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }
 
 func (c *GameController) RefreshMetadata(w http.ResponseWriter, r *http.Request) {
@@ -853,10 +915,14 @@ type DiscoveryController struct {
 	logger       core.Logger
 }
 
-func NewDiscoveryController(orchestrator scanRunner, gameStore core.GameStore, logger core.Logger, eventBus *events.EventBus) *DiscoveryController {
+func NewDiscoveryController(orchestrator scanRunner, gameStore core.GameStore, logger core.Logger, eventBus *events.EventBus, achievementRefresh ...postScanAchievementRefreshStarter) *DiscoveryController {
+	var refreshStarter postScanAchievementRefreshStarter
+	if len(achievementRefresh) > 0 {
+		refreshStarter = achievementRefresh[0]
+	}
 	return &DiscoveryController{
 		orchestrator: orchestrator,
-		scanJobs:     newScanJobManager(orchestrator, eventBus, logger),
+		scanJobs:     newScanJobManager(orchestrator, eventBus, logger, refreshStarter),
 		gameStore:    gameStore,
 		logger:       logger,
 	}

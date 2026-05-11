@@ -273,6 +273,56 @@ func (s *gameStore) CacheAchievements(ctx context.Context, sourceGameID string, 
 	return tx.Commit()
 }
 
+func (s *gameStore) SaveAchievementRefreshState(ctx context.Context, state *core.AchievementRefreshState) error {
+	if state == nil || strings.TrimSpace(state.SourceGameID) == "" || strings.TrimSpace(state.PluginID) == "" {
+		return fmt.Errorf("source_game_id and plugin_id are required")
+	}
+	if state.Status == "" {
+		return fmt.Errorf("achievement refresh status is required")
+	}
+
+	profileID := state.ProfileID
+	if profileID == "" {
+		profileID = core.ProfileIDFromContext(ctx)
+	}
+	now := time.Now().UTC()
+	lastAttempted := state.LastAttemptedAt
+	if lastAttempted.IsZero() {
+		lastAttempted = now
+	}
+	var lastSuccess any
+	if !state.LastSuccessAt.IsZero() {
+		lastSuccess = state.LastSuccessAt.Unix()
+	}
+
+	_, err := s.db.GetDB().ExecContext(ctx, `
+		INSERT INTO achievement_refresh_states
+			(profile_id, source_game_id, integration_id, plugin_id, external_game_id, status, last_attempted_at, last_success_at, last_error)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(source_game_id, plugin_id) DO UPDATE SET
+			profile_id = excluded.profile_id,
+			integration_id = excluded.integration_id,
+			external_game_id = excluded.external_game_id,
+			status = excluded.status,
+			last_attempted_at = excluded.last_attempted_at,
+			last_success_at = excluded.last_success_at,
+			last_error = excluded.last_error`,
+		nullEmpty(profileID),
+		state.SourceGameID,
+		nullEmpty(state.IntegrationID),
+		state.PluginID,
+		state.ExternalGameID,
+		string(state.Status),
+		lastAttempted.Unix(),
+		lastSuccess,
+		nullEmpty(state.LastError),
+	)
+	if err != nil {
+		return fmt.Errorf("save achievement refresh state: %w", err)
+	}
+	return nil
+}
+
 func (s *gameStore) SetCanonicalCoverOverride(ctx context.Context, canonicalID string, mediaAssetID int) error {
 	if strings.TrimSpace(canonicalID) == "" {
 		return core.ErrCanonicalGameNotFound
@@ -556,7 +606,7 @@ func (s *gameStore) DeleteAllGames(ctx context.Context) error {
 	}
 
 	tables := []string{
-		"achievements", "achievement_sets",
+		"achievements", "achievement_sets", "achievement_refresh_states",
 		"canonical_game_cover_overrides",
 		"canonical_game_hover_overrides",
 		"canonical_game_background_overrides",
@@ -1283,7 +1333,7 @@ func (s *gameStore) GetLibraryStatistics(ctx context.Context) (*core.LibraryStat
 			{Key: "resolver_title", Label: "Matched titles", Count: summary.CanonicalWithResolverTitle, Percent: summary.PercentWithResolverTitle},
 			{Key: "description", Label: "Descriptions", Count: summary.GamesWithDescription, Percent: summary.PercentWithDescription},
 			{Key: "media", Label: "Artwork or media", Count: summary.GamesWithMedia, Percent: summary.PercentWithMedia},
-			{Key: "achievements", Label: "Cached achievements", Count: summary.GamesWithAchievements, Percent: summary.PercentWithAchievements},
+			{Key: "achievements", Label: "Stored achievements", Count: summary.GamesWithAchievements, Percent: summary.PercentWithAchievements},
 		},
 		RecentScans: make([]core.ScanReport, 0, len(recentScans)),
 	}
@@ -1500,7 +1550,7 @@ func (s *gameStore) loadAchievementCompletionBuckets(ctx context.Context, totalG
 		{Key: "high_progress", Label: "75%+", GameCount: counts["high_progress"]},
 		{Key: "started", Label: "Started", GameCount: counts["started"]},
 		{Key: "locked", Label: "Not started", GameCount: counts["locked"]},
-		{Key: "no_achievements", Label: "No cached achievements", GameCount: counts["no_achievements"]},
+		{Key: "no_achievements", Label: "No stored achievements", GameCount: counts["no_achievements"]},
 	}, nil
 }
 
@@ -1528,11 +1578,6 @@ type cachedAchievementExplorerSet struct {
 }
 
 func (s *gameStore) GetCachedAchievementsDashboard(ctx context.Context) (*core.CachedAchievementsDashboard, error) {
-	games, err := s.GetCanonicalGames(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	rows, err := s.db.GetDB().QueryContext(ctx, `
 		SELECT l.canonical_id, a.source, a.external_game_id, a.total_count, a.unlocked_count,
 		       COALESCE(a.total_points, 0), COALESCE(a.earned_points, 0)
@@ -1548,6 +1593,8 @@ func (s *gameStore) GetCachedAchievementsDashboard(ctx context.Context) (*core.C
 
 	byGame := make(map[string][]cachedAchievementDashboardRow)
 	seenGameSet := make(map[string]bool)
+	seenCanonicalID := make(map[string]bool)
+	canonicalIDs := make([]string, 0)
 	for rows.Next() {
 		var item cachedAchievementDashboardRow
 		if err := rows.Scan(&item.canonicalID, &item.source, &item.externalID, &item.totalCount, &item.unlockedCount, &item.totalPoints, &item.earnedPoints); err != nil {
@@ -1559,12 +1606,32 @@ func (s *gameStore) GetCachedAchievementsDashboard(ctx context.Context) (*core.C
 		}
 		seenGameSet[key] = true
 		byGame[item.canonicalID] = append(byGame[item.canonicalID], item)
+		if !seenCanonicalID[item.canonicalID] {
+			seenCanonicalID[item.canonicalID] = true
+			canonicalIDs = append(canonicalIDs, item.canonicalID)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	games, err := s.GetCanonicalGamesByIDs(ctx, canonicalIDs)
+	if err != nil {
+		return nil, err
+	}
 
-	out := &core.CachedAchievementsDashboard{}
+	refreshSummary, err := s.GetAchievementRefreshSummary(ctx)
+	if err != nil {
+		return nil, err
+	}
+	refreshStates, err := s.GetAchievementRefreshStates(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &core.CachedAchievementsDashboard{
+		Refresh:       *refreshSummary,
+		RefreshStates: refreshStates,
+	}
 	systemTotals := make(map[string]*core.CachedAchievementSystemSummary)
 	systemGames := make(map[string]map[string]bool)
 	for _, game := range games {
@@ -1620,11 +1687,6 @@ func (s *gameStore) GetCachedAchievementsDashboard(ctx context.Context) (*core.C
 }
 
 func (s *gameStore) GetCachedAchievementsExplorer(ctx context.Context) (*core.CachedAchievementsExplorer, error) {
-	games, err := s.GetCanonicalGames(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	rows, err := s.db.GetDB().QueryContext(ctx, `
 		SELECT a.id, l.canonical_id, a.source_game_id, a.source, a.external_game_id,
 		       a.total_count, a.unlocked_count, COALESCE(a.total_points, 0), COALESCE(a.earned_points, 0), a.fetched_at
@@ -1641,6 +1703,8 @@ func (s *gameStore) GetCachedAchievementsExplorer(ctx context.Context) (*core.Ca
 	setsByGame := make(map[string][]cachedAchievementExplorerSet)
 	setIDs := make([]int64, 0)
 	seenGameSet := make(map[string]bool)
+	seenCanonicalID := make(map[string]bool)
+	canonicalIDs := make([]string, 0)
 	for rows.Next() {
 		var item cachedAchievementExplorerSet
 		if err := rows.Scan(
@@ -1664,8 +1728,16 @@ func (s *gameStore) GetCachedAchievementsExplorer(ctx context.Context) (*core.Ca
 		seenGameSet[key] = true
 		setsByGame[item.canonicalID] = append(setsByGame[item.canonicalID], item)
 		setIDs = append(setIDs, item.setID)
+		if !seenCanonicalID[item.canonicalID] {
+			seenCanonicalID[item.canonicalID] = true
+			canonicalIDs = append(canonicalIDs, item.canonicalID)
+		}
 	}
 	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	games, err := s.GetCanonicalGamesByIDs(ctx, canonicalIDs)
+	if err != nil {
 		return nil, err
 	}
 
@@ -1725,7 +1797,12 @@ func (s *gameStore) GetCachedAchievementsExplorer(ctx context.Context) (*core.Ca
 		}
 	}
 
-	out := &core.CachedAchievementsExplorer{}
+	refreshSummary, err := s.GetAchievementRefreshSummary(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &core.CachedAchievementsExplorer{Refresh: *refreshSummary}
 	for _, game := range games {
 		if game == nil {
 			continue
@@ -1762,6 +1839,83 @@ func (s *gameStore) GetCachedAchievementsExplorer(ctx context.Context) (*core.Ca
 	sort.Slice(out.Games, func(i, j int) bool {
 		return strings.ToLower(out.Games[i].Game.Title) < strings.ToLower(out.Games[j].Game.Title)
 	})
+	return out, nil
+}
+
+func (s *gameStore) GetAchievementRefreshSummary(ctx context.Context) (*core.AchievementRefreshSummary, error) {
+	states, err := s.GetAchievementRefreshStates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := &core.AchievementRefreshSummary{Total: len(states)}
+	for _, state := range states {
+		switch state.Status {
+		case core.AchievementRefreshStatusSuccess:
+			out.SuccessCount++
+		case core.AchievementRefreshStatusFailed:
+			out.FailedCount++
+			if out.LatestFailureText == "" {
+				out.LatestFailureText = state.LastError
+			}
+		case core.AchievementRefreshStatusSkipped:
+			out.SkippedCount++
+		}
+		if state.LastAttemptedAt.After(out.LastAttemptedAt) {
+			out.LastAttemptedAt = state.LastAttemptedAt
+		}
+		if state.LastSuccessAt.After(out.LastSuccessfulAt) {
+			out.LastSuccessfulAt = state.LastSuccessAt
+		}
+	}
+	return out, nil
+}
+
+func (s *gameStore) GetAchievementRefreshStates(ctx context.Context) ([]core.AchievementRefreshState, error) {
+	rows, err := s.db.GetDB().QueryContext(ctx, `
+		SELECT COALESCE(a.profile_id, ''), a.source_game_id, COALESCE(a.integration_id, ''), a.plugin_id,
+		       a.external_game_id, a.status, a.last_attempted_at, a.last_success_at, COALESCE(a.last_error, '')
+		FROM achievement_refresh_states a
+		JOIN source_games sg ON sg.id = a.source_game_id
+		WHERE `+visibleSourceGameWhere(ctx, "sg")+`
+		ORDER BY COALESCE(a.last_attempted_at, 0) DESC, a.plugin_id, a.external_game_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]core.AchievementRefreshState, 0)
+	for rows.Next() {
+		var (
+			item          core.AchievementRefreshState
+			status        string
+			lastAttempted sql.NullInt64
+			lastSuccess   sql.NullInt64
+		)
+		if err := rows.Scan(
+			&item.ProfileID,
+			&item.SourceGameID,
+			&item.IntegrationID,
+			&item.PluginID,
+			&item.ExternalGameID,
+			&status,
+			&lastAttempted,
+			&lastSuccess,
+			&item.LastError,
+		); err != nil {
+			return nil, err
+		}
+		item.Status = core.AchievementRefreshStatus(status)
+		if lastAttempted.Valid {
+			item.LastAttemptedAt = time.Unix(lastAttempted.Int64, 0).UTC()
+		}
+		if lastSuccess.Valid {
+			item.LastSuccessAt = time.Unix(lastSuccess.Int64, 0).UTC()
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -2470,6 +2624,7 @@ func (s *gameStore) deleteSourceGamesByID(ctx context.Context, tx *sql.Tx, sourc
 		fmt.Sprintf(`DELETE FROM source_cache_entries WHERE source_game_id IN (%s)`, inClause),
 		fmt.Sprintf(`DELETE FROM achievements WHERE set_id IN (SELECT id FROM achievement_sets WHERE source_game_id IN (%s))`, inClause),
 		fmt.Sprintf(`DELETE FROM achievement_sets WHERE source_game_id IN (%s)`, inClause),
+		fmt.Sprintf(`DELETE FROM achievement_refresh_states WHERE source_game_id IN (%s)`, inClause),
 		fmt.Sprintf(`DELETE FROM source_game_media WHERE source_game_id IN (%s)`, inClause),
 		fmt.Sprintf(`DELETE FROM metadata_resolver_matches WHERE source_game_id IN (%s)`, inClause),
 		fmt.Sprintf(`DELETE FROM game_files WHERE source_game_id IN (%s)`, inClause),

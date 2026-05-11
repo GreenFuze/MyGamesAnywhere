@@ -103,6 +103,9 @@ type GameStore interface {
 	// Replaces any existing cached set for the same (source_game, source).
 	CacheAchievements(ctx context.Context, sourceGameID string, set *AchievementSet) error
 
+	// SaveAchievementRefreshState stores the last provider refresh result for a source game.
+	SaveAchievementRefreshState(ctx context.Context, state *AchievementRefreshState) error
+
 	// UpdateMediaAsset marks a media asset as downloaded (sets local_path, hash).
 	UpdateMediaAsset(ctx context.Context, assetID int, localPath, hash string) error
 	// MarkMediaAssetDownloadFailed records a failed media download attempt and unlinks permanent failures.
@@ -148,7 +151,7 @@ type GameStore interface {
 	// ResetMediaAssetDownloadState clears one stale local media path after its file disappears.
 	ResetMediaAssetDownloadState(ctx context.Context, assetID int) error
 
-	// GetCachedAchievements returns cached achievement data if it exists.
+	// GetCachedAchievements returns stored achievement data if it exists.
 	GetCachedAchievements(ctx context.Context, sourceGameID, source string) (*AchievementSet, error)
 
 	// GetExternalIDsForCanonical returns all external IDs across source games and resolver matches.
@@ -157,11 +160,17 @@ type GameStore interface {
 	// GetLibraryStats returns aggregate counts for the library (GET /api/stats).
 	GetLibraryStats(ctx context.Context) (*LibraryStats, error)
 
-	// GetCachedAchievementsDashboard returns cached achievement aggregates only.
+	// GetCachedAchievementsDashboard returns stored achievement aggregates only.
 	GetCachedAchievementsDashboard(ctx context.Context) (*CachedAchievementsDashboard, error)
 
-	// GetCachedAchievementsExplorer returns cached achievement sets grouped by canonical game.
+	// GetCachedAchievementsExplorer returns stored achievement sets grouped by canonical game.
 	GetCachedAchievementsExplorer(ctx context.Context) (*CachedAchievementsExplorer, error)
+
+	// GetAchievementRefreshSummary returns aggregate state for stored achievement refresh attempts.
+	GetAchievementRefreshSummary(ctx context.Context) (*AchievementRefreshSummary, error)
+
+	// GetAchievementRefreshStates returns stored achievement refresh attempts for visible games.
+	GetAchievementRefreshStates(ctx context.Context) ([]AchievementRefreshState, error)
 
 	// GetGamesByIntegrationID returns canonical games discovered by a source integration.
 	GetGamesByIntegrationID(ctx context.Context, integrationID string, limit int) ([]GameListItem, error)

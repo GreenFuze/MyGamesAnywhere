@@ -26,6 +26,7 @@ type httpServer struct {
 	integrationRefreshCtrl *IntegrationRefreshController
 	reviewCtrl             *ReviewController
 	achievementCtrl        *AchievementController
+	achievementRefreshCtrl *AchievementRefreshController
 	syncCtrl               *SyncController
 	updateCtrl             *UpdateController
 	saveSyncCtrl           *SaveSyncController
@@ -48,6 +49,7 @@ func NewHttpServer(
 	integrationRefreshCtrl *IntegrationRefreshController,
 	reviewCtrl *ReviewController,
 	achievementCtrl *AchievementController,
+	achievementRefreshCtrl *AchievementRefreshController,
 	syncCtrl *SyncController,
 	updateCtrl *UpdateController,
 	saveSyncCtrl *SaveSyncController,
@@ -69,6 +71,7 @@ func NewHttpServer(
 		integrationRefreshCtrl: integrationRefreshCtrl,
 		reviewCtrl:             reviewCtrl,
 		achievementCtrl:        achievementCtrl,
+		achievementRefreshCtrl: achievementRefreshCtrl,
 		syncCtrl:               syncCtrl,
 		updateCtrl:             updateCtrl,
 		saveSyncCtrl:           saveSyncCtrl,
@@ -106,6 +109,7 @@ func (h *httpServer) Start(ctx context.Context) error {
 		IntegrationRefreshCtrl: h.integrationRefreshCtrl,
 		ReviewCtrl:             h.reviewCtrl,
 		AchievementCtrl:        h.achievementCtrl,
+		AchievementRefreshCtrl: h.achievementRefreshCtrl,
 		SyncCtrl:               h.syncCtrl,
 		UpdateCtrl:             h.updateCtrl,
 		SaveSyncCtrl:           h.saveSyncCtrl,

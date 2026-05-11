@@ -21,6 +21,7 @@ type RouteBuilder struct {
 	IntegrationRefreshCtrl *IntegrationRefreshController
 	ReviewCtrl             *ReviewController
 	AchievementCtrl        *AchievementController
+	AchievementRefreshCtrl *AchievementRefreshController
 	SyncCtrl               *SyncController
 	UpdateCtrl             *UpdateController
 	SaveSyncCtrl           *SaveSyncController
@@ -103,6 +104,10 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Get("/games/{id}/achievements", b.AchievementCtrl.GetAchievements)
 				r.Get("/achievements", b.GameCtrl.AchievementsDashboard)
 				r.Get("/achievements/explorer", b.GameCtrl.AchievementsExplorer)
+				if b.AchievementRefreshCtrl != nil {
+					r.Post("/achievements/refresh", adminOnly(b.AchievementRefreshCtrl.Start))
+					r.Get("/achievements/refresh/jobs/{job_id}", adminOnly(b.AchievementRefreshCtrl.GetJob))
+				}
 				r.Get("/stats", b.GameCtrl.Stats)
 				r.Get("/stats/library", b.GameCtrl.LibraryStatistics)
 				r.Get("/stats/gamer", b.GameCtrl.GamerStatistics)
@@ -213,6 +218,8 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/games/{id}/achievements", noopHandler())
 			api.Get("/achievements", noopHandler())
 			api.Get("/achievements/explorer", noopHandler())
+			api.Post("/achievements/refresh", noopHandler())
+			api.Get("/achievements/refresh/jobs/{job_id}", noopHandler())
 			api.Get("/media/{assetID}", noopHandler())
 			api.Put("/media/{assetID}/metadata", noopHandler())
 			api.Get("/stats", noopHandler())

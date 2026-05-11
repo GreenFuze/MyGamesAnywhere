@@ -22,6 +22,10 @@ type scanRunner interface {
 	RunMetadataRefresh(ctx context.Context, integrationIDs []string) ([]*core.CanonicalGame, error)
 }
 
+type postScanAchievementRefreshStarter interface {
+	StartAutomatic(ctx context.Context, trigger string) (*core.AchievementRefreshJobStatus, bool, error)
+}
+
 type scanCancelResult int
 
 const (
@@ -39,21 +43,23 @@ type scanJobRecord struct {
 }
 
 type scanJobManager struct {
-	runner scanRunner
-	bus    *events.EventBus
-	logger core.Logger
+	runner             scanRunner
+	bus                *events.EventBus
+	logger             core.Logger
+	achievementRefresh postScanAchievementRefreshStarter
 
 	mu          sync.RWMutex
 	activeJobID string
 	jobs        map[string]*scanJobRecord
 }
 
-func newScanJobManager(runner scanRunner, bus *events.EventBus, logger core.Logger) *scanJobManager {
+func newScanJobManager(runner scanRunner, bus *events.EventBus, logger core.Logger, achievementRefresh postScanAchievementRefreshStarter) *scanJobManager {
 	return &scanJobManager{
-		runner: runner,
-		bus:    bus,
-		logger: logger,
-		jobs:   make(map[string]*scanJobRecord),
+		runner:             runner,
+		bus:                bus,
+		logger:             logger,
+		achievementRefresh: achievementRefresh,
+		jobs:               make(map[string]*scanJobRecord),
 	}
 }
 
@@ -218,6 +224,7 @@ func (m *scanJobManager) run(jobID string, req ScanRequest, ctx context.Context)
 			record.status.FinishedAt = finishedAt
 			record.cancel = nil
 		})
+		m.startAchievementRefreshAfterScan(jobID, ctx)
 	}
 
 	if cancelled {
@@ -244,6 +251,33 @@ func (m *scanJobManager) run(jobID string, req ScanRequest, ctx context.Context)
 		m.activeJobID = ""
 	}
 	m.mu.Unlock()
+}
+
+func (m *scanJobManager) startAchievementRefreshAfterScan(scanJobID string, ctx context.Context) {
+	if m.achievementRefresh == nil {
+		return
+	}
+	status, alreadyRunning, err := m.achievementRefresh.StartAutomatic(ctx, "scan:"+scanJobID)
+	if err != nil {
+		m.logger.Error("start post-scan achievement refresh", err, "scan_job_id", scanJobID)
+		events.PublishJSON(m.bus, "achievement_refresh_failed", map[string]any{
+			"scan_job_id": scanJobID,
+			"error":       err.Error(),
+		})
+		return
+	}
+	if status == nil {
+		return
+	}
+	eventType := "achievement_refresh_queued"
+	if alreadyRunning {
+		eventType = "achievement_refresh_already_running"
+	}
+	events.PublishJSON(m.bus, eventType, map[string]any{
+		"scan_job_id": scanJobID,
+		"job_id":      status.JobID,
+		"status":      status.Status,
+	})
 }
 
 func (m *scanJobManager) watch(jobID string, sub <-chan events.Event, done <-chan struct{}) {

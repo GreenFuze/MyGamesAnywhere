@@ -1643,7 +1643,7 @@ export function GameDetailPage() {
           id="achievements"
           title="Achievements"
           icon={<Trophy size={18} className="text-mga-accent" />}
-          description="Cached achievement progress grouped by connected achievement system."
+          description="Stored achievement progress grouped by connected achievement system."
         >
           {achievements.isPending ? (
             <p className="text-sm text-white/58">Loading achievements...</p>

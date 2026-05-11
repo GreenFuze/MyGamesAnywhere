@@ -1005,6 +1005,9 @@ func (f *fakeGameStore) CacheAchievements(_ context.Context, sourceGameID string
 	f.cached = append(f.cached, cachedAchievementCall{sourceGameID: sourceGameID, set: set})
 	return nil
 }
+func (f *fakeGameStore) SaveAchievementRefreshState(context.Context, *core.AchievementRefreshState) error {
+	return nil
+}
 func (f *fakeGameStore) UpdateMediaAsset(context.Context, int, string, string) error {
 	panic("unexpected call")
 }
@@ -1068,6 +1071,12 @@ func (f *fakeGameStore) GetCachedAchievementsExplorer(context.Context) (*core.Ca
 		return f.achievementExplorer, nil
 	}
 	return &core.CachedAchievementsExplorer{}, nil
+}
+func (f *fakeGameStore) GetAchievementRefreshSummary(context.Context) (*core.AchievementRefreshSummary, error) {
+	return &core.AchievementRefreshSummary{}, nil
+}
+func (f *fakeGameStore) GetAchievementRefreshStates(context.Context) ([]core.AchievementRefreshState, error) {
+	return nil, nil
 }
 func (f *fakeGameStore) GetGamesByIntegrationID(context.Context, string, int) ([]core.GameListItem, error) {
 	panic("unexpected call")

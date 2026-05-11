@@ -42,6 +42,24 @@ type AchievementFetchService struct {
 	logger     core.Logger
 }
 
+type AchievementCacheError struct {
+	Err error
+}
+
+func (e *AchievementCacheError) Error() string {
+	if e == nil || e.Err == nil {
+		return "cache achievements failed"
+	}
+	return "cache achievements: " + e.Err.Error()
+}
+
+func (e *AchievementCacheError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 func NewAchievementFetchService(gameStore core.GameStore, pluginHost achievementPluginHost, logger core.Logger) *AchievementFetchService {
 	return &AchievementFetchService{
 		gameStore:  gameStore,
@@ -115,6 +133,17 @@ func (s *AchievementFetchService) FetchAndCacheWithCandidates(ctx context.Contex
 						errs = make(map[string]error)
 					}
 					errs[fetchKey] = err
+					if stateErr := s.gameStore.SaveAchievementRefreshState(ctx, &core.AchievementRefreshState{
+						SourceGameID:    candidate.SourceGameID,
+						IntegrationID:   candidate.IntegrationID,
+						PluginID:        pluginID,
+						ExternalGameID:  candidate.ExternalGameID,
+						Status:          core.AchievementRefreshStatusFailed,
+						LastAttemptedAt: time.Now().UTC(),
+						LastError:       err.Error(),
+					}); stateErr != nil {
+						errs[fetchKey+"|state"] = &AchievementCacheError{Err: stateErr}
+					}
 					continue
 				}
 				baseSet = normalizeAchievementResult(pluginID, candidate.ExternalGameID, result, time.Now())
@@ -130,6 +159,25 @@ func (s *AchievementFetchService) FetchAndCacheWithCandidates(ctx context.Contex
 			if cacheSourceGameID != "" {
 				if err := s.gameStore.CacheAchievements(ctx, cacheSourceGameID, set); err != nil {
 					s.logger.Error("cache achievements", err, "plugin_id", pluginID, "game_id", game.ID, "source_game_id", cacheSourceGameID)
+					if errs == nil {
+						errs = make(map[string]error)
+					}
+					errs[fetchKey+"|cache|"+cacheSourceGameID] = &AchievementCacheError{Err: err}
+					continue
+				}
+				if err := s.gameStore.SaveAchievementRefreshState(ctx, &core.AchievementRefreshState{
+					SourceGameID:    cacheSourceGameID,
+					IntegrationID:   set.IntegrationID,
+					PluginID:        pluginID,
+					ExternalGameID:  set.ExternalGameID,
+					Status:          core.AchievementRefreshStatusSuccess,
+					LastAttemptedAt: time.Now().UTC(),
+					LastSuccessAt:   time.Now().UTC(),
+				}); err != nil {
+					if errs == nil {
+						errs = make(map[string]error)
+					}
+					errs[fetchKey+"|state|"+cacheSourceGameID] = &AchievementCacheError{Err: err}
 				}
 			}
 			sets = append(sets, set)

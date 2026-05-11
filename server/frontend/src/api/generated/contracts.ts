@@ -157,6 +157,27 @@ export type AchievementSystemSummaryDTO = {
   earned_points?: number;
 };
 
+export type AchievementRefreshSummaryDTO = {
+  total: number;
+  success_count: number;
+  failed_count: number;
+  skipped_count: number;
+  last_attempted_at?: string;
+  last_successful_at?: string;
+  latest_failure_text?: string;
+};
+
+export type AchievementRefreshStateDTO = {
+  source_game_id: string;
+  integration_id?: string;
+  plugin_id: string;
+  external_game_id: string;
+  status: string;
+  last_attempted_at?: string;
+  last_success_at?: string;
+  last_error?: string;
+};
+
 export type ResolverMatchDTO = {
   plugin_id: string;
   title?: string;
@@ -349,6 +370,23 @@ export type ScanJobStatus = {
   recent_events?: ScanJobRecentEvent[];
   report_id?: string;
   error?: string;
+};
+
+export type AchievementRefreshJobStatus = {
+  job_id: string;
+  status: string;
+  started_at?: string;
+  finished_at?: string;
+  trigger?: string;
+  items_total: number;
+  items_completed: number;
+  success_count: number;
+  skipped_count: number;
+  warning_count: number;
+  error_count: number;
+  current_item?: string;
+  error?: string;
+  warnings?: string[];
 };
 
 export type SaveSyncSnapshotFile = {
