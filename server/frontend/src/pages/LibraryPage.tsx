@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useSearch } from '@/hooks/useSearchContext'
@@ -148,6 +148,8 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const { searchQuery } = useSearch()
+  const loadMoreRef = useRef<HTMLDivElement | null>(null)
+  const loadMoreRequestedRef = useRef(false)
   const {
     data: allGames = [],
     totalCount,
@@ -239,6 +241,8 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     : scopeMeta.emptyMessage
   const canUseRemoteTotal = !focusedSection && scope === 'library' && activeFilterCount === 0 && searchQuery.trim() === ''
   const toolbarTotalCount = canUseRemoteTotal ? Math.max(totalCount, filteredScopeGames.length) : filteredScopeGames.length
+  const searchRequiresAllPages = searchQuery.trim().length > 0
+  const isCompletingSearch = searchRequiresAllPages && hasNextPage
 
   const recentPlayedGames = useMemo(() => {
     if (scope !== 'play') return []
@@ -284,6 +288,47 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     navigate(scopeSectionPath(scope, sectionID), { state: { from } })
   }
 
+  const requestNextPage = useCallback(() => {
+    if (!hasNextPage || isFetchingNextPage || loadMoreRequestedRef.current) return
+    loadMoreRequestedRef.current = true
+    void fetchNextPage().finally(() => {
+      loadMoreRequestedRef.current = false
+    })
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage])
+
+  useEffect(() => {
+    if (!isFetchingNextPage) {
+      loadMoreRequestedRef.current = false
+    }
+  }, [isFetchingNextPage])
+
+  useEffect(() => {
+    if (!searchRequiresAllPages || !hasNextPage) return
+    requestNextPage()
+  }, [hasNextPage, loadedCount, requestNextPage, searchRequiresAllPages])
+
+  useEffect(() => {
+    if (!hasNextPage || isPending) return
+    const sentinel = loadMoreRef.current
+    if (!sentinel) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          requestNextPage()
+        }
+      },
+      {
+        root: null,
+        rootMargin: '720px 0px',
+        threshold: 0,
+      },
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [displayedGames.length, hasNextPage, isPending, requestNextPage])
+
   useEffect(() => {
     if (isPending || !shouldRestoreRouteScroll(location.state)) return
 
@@ -324,7 +369,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         }
         totalCount={toolbarTotalCount}
         filteredCount={displayedGames.length}
-        isLoading={isPending}
+        isLoading={isPending || isCompletingSearch}
         viewMode={focusedSection ? 'grid' : prefs.viewMode}
         onViewModeChange={setViewMode}
         sortBy={prefs.sortBy}
@@ -427,7 +472,9 @@ export function CollectionPage({ scope }: CollectionPageProps) {
       {!isPending && !isError && displayedGames.length === 0 && (
         <div className="py-12 text-center">
           <p className="text-mga-muted">
-            {searchQuery || activeFilterCount > 0
+            {isCompletingSearch
+              ? 'Searching all loaded and unloaded games...'
+              : searchQuery || activeFilterCount > 0
               ? 'No games match your filters.'
               : emptyMessage}
           </p>
@@ -435,17 +482,14 @@ export function CollectionPage({ scope }: CollectionPageProps) {
       )}
 
       {!isPending && !isError && hasNextPage ? (
-        <div className="flex flex-col items-center gap-2 py-4">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => fetchNextPage()}
-            disabled={isFetchingNextPage}
-          >
-            {isFetchingNextPage ? 'Loading more games...' : 'Load more games'}
-          </Button>
+        <div ref={loadMoreRef} className="flex flex-col items-center gap-2 py-6" aria-live="polite">
+          <div className="h-1 w-1" aria-hidden="true" />
           <p className="text-xs text-mga-muted">
-            {loadedCount} of {totalCount} loaded. Filters and shelves use loaded games.
+            {isFetchingNextPage
+              ? 'Loading more games...'
+              : searchRequiresAllPages
+              ? `Searching all games: ${loadedCount} of ${totalCount} loaded.`
+              : `Scroll to load more games. ${loadedCount} of ${totalCount} loaded.`}
           </p>
         </div>
       ) : null}

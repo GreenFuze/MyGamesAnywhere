@@ -119,7 +119,7 @@ export function AboutPage() {
           <img
             src="/title.png"
             alt="MyGamesAnywhere title"
-            className="block w-full max-w-2xl"
+            className="block w-full object-cover"
           />
         </div>
       </section>

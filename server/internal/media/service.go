@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -60,6 +61,7 @@ type Service struct {
 	started  bool
 	queue    chan *core.MediaAsset
 	inFlight map[int]struct{}
+	active   map[int]*core.MediaAsset
 }
 
 func NewService(store core.GameStore, config core.Configuration, logger core.Logger) core.MediaDownloadService {
@@ -75,6 +77,7 @@ func NewService(store core.GameStore, config core.Configuration, logger core.Log
 		policy:      mediaRequestPolicyRegistry{policies: []mediaRequestPolicyMatcher{hltbImageRequestPolicy{}, retroAchievementsImageRequestPolicy{}}},
 		workerCount: workerCount,
 		inFlight:    make(map[int]struct{}),
+		active:      make(map[int]*core.MediaAsset),
 	}
 }
 
@@ -125,9 +128,10 @@ func (s *Service) Status(ctx context.Context) (*core.MediaDownloadStatus, error)
 	if err != nil {
 		return nil, err
 	}
-	queued, downloading := s.queueStats()
+	queued, downloading, current := s.queueStats()
 	status.Queued = queued
 	status.Downloading = downloading
+	status.Current = current
 	return status, nil
 }
 
@@ -166,18 +170,27 @@ func (s *Service) MarkLocalFileMissing(ctx context.Context, assetID int) error {
 	return nil
 }
 
-func (s *Service) queueStats() (queued int, downloading int) {
+func (s *Service) queueStats() (queued int, downloading int, current []core.MediaDownloadActiveItem) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.queue != nil {
 		queued = len(s.queue)
 	}
-	inFlight := len(s.inFlight)
-	downloading = inFlight - queued
-	if downloading < 0 {
-		downloading = 0
+	current = make([]core.MediaDownloadActiveItem, 0, len(s.active))
+	for _, asset := range s.active {
+		if asset == nil {
+			continue
+		}
+		current = append(current, core.MediaDownloadActiveItem{
+			AssetID: asset.ID,
+			URL:     asset.URL,
+		})
 	}
-	return queued, downloading
+	sort.Slice(current, func(i, j int) bool {
+		return current[i].AssetID < current[j].AssetID
+	})
+	downloading = len(current)
+	return queued, downloading, current
 }
 
 func (s *Service) enqueuePendingAsync(reason string) {
@@ -226,6 +239,7 @@ func (s *Service) worker(ctx context.Context, rootAbs string) {
 			if asset == nil {
 				continue
 			}
+			s.markActive(asset)
 			if err := s.downloadAsset(ctx, rootAbs, asset); err != nil && ctx.Err() == nil {
 				if markErr := retrySQLiteBusy(ctx, func() error {
 					return s.store.MarkMediaAssetDownloadFailed(ctx, asset.ID, err.Error(), permanentMediaDownloadFailure(err))
@@ -239,9 +253,19 @@ func (s *Service) worker(ctx context.Context, rootAbs string) {
 	}
 }
 
+func (s *Service) markActive(asset *core.MediaAsset) {
+	if asset == nil || asset.ID <= 0 {
+		return
+	}
+	s.mu.Lock()
+	s.active[asset.ID] = asset
+	s.mu.Unlock()
+}
+
 func (s *Service) forgetInFlight(assetID int) {
 	s.mu.Lock()
 	delete(s.inFlight, assetID)
+	delete(s.active, assetID)
 	s.mu.Unlock()
 }
 
@@ -294,7 +318,7 @@ func (s *Service) downloadAsset(ctx context.Context, rootAbs string, asset *core
 	hasher := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(tempFile, hasher), resp.Body); err != nil {
 		tempFile.Close()
-		return fmt.Errorf("write asset: %w", err)
+		return fmt.Errorf("read asset body: %w", err)
 	}
 	if err := tempFile.Close(); err != nil {
 		return fmt.Errorf("close temp file: %w", err)
@@ -322,7 +346,10 @@ func (s *Service) downloadAsset(ctx context.Context, rootAbs string, asset *core
 
 func permanentMediaDownloadFailure(err error) bool {
 	var downloadErr mediaDownloadError
-	return errors.As(err, &downloadErr) && downloadErr.Permanent()
+	if !errors.As(err, &downloadErr) {
+		return false
+	}
+	return downloadErr.Permanent() || downloadErr.statusCode == http.StatusBadGateway
 }
 
 type mediaRequestPolicy interface {

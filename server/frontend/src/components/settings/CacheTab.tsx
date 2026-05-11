@@ -140,6 +140,8 @@ export function CacheTab() {
 
   const media = mediaStatus.data
   const failedMediaCount = (media?.retry_waiting ?? 0) + (media?.failed_permanent ?? 0)
+  const currentMediaDownloads = media?.current ?? []
+  const recentMediaErrors = media?.recent_errors ?? []
   const mediaLine = media
     ? media.items_left > 0
       ? `Downloading media: ${media.items_left} items left`
@@ -176,9 +178,48 @@ export function CacheTab() {
 
         <div className="mt-4 rounded-mga border border-mga-border bg-mga-bg px-4 py-3">
           <p className="text-sm font-medium text-mga-text">{mediaLine}</p>
-          {media?.last_error && <p className="mt-2 text-xs text-red-400">Last error: {media.last_error}</p>}
+          {media?.last_error && recentMediaErrors.length === 0 && (
+            <p className="mt-2 text-xs text-red-400">Last error: {media.last_error}</p>
+          )}
           {media?.last_activity_at && <p className="mt-1 text-xs text-mga-muted">Last activity: {formatTime(media.last_activity_at)}</p>}
         </div>
+
+        {currentMediaDownloads.length > 0 && (
+          <div className="mt-4 rounded-mga border border-blue-500/30 bg-blue-500/10 px-4 py-3">
+            <p className="text-sm font-semibold text-blue-200">Downloading now</p>
+            <div className="mt-3 space-y-2">
+              {currentMediaDownloads.map((item) => (
+                <div key={item.asset_id} className="rounded-mga border border-blue-500/20 bg-mga-bg/70 px-3 py-2">
+                  <p className="text-xs text-mga-muted">Asset {item.asset_id}</p>
+                  <p className="mt-1 break-all font-mono text-xs text-blue-100">{item.url}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {recentMediaErrors.length > 0 && (
+          <div className="mt-4 rounded-mga border border-red-500/30 bg-red-500/10 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-red-200">Recent media download errors</p>
+              <p className="text-xs text-mga-muted">Showing {recentMediaErrors.length} of last 10</p>
+            </div>
+            <div className="mt-3 space-y-2">
+              {recentMediaErrors.map((item) => (
+                <div key={`${item.asset_id}-${item.failed_at ?? item.error}`} className="rounded-mga border border-red-500/20 bg-mga-bg/70 px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-mga-muted">
+                    <span>Asset {item.asset_id}</span>
+                    <span>{item.attempts} attempt{item.attempts === 1 ? '' : 's'}</span>
+                    <span>{item.permanent ? 'Permanent' : 'Retryable'}</span>
+                    {item.failed_at && <span>{formatTime(item.failed_at)}</span>}
+                  </div>
+                  <p className="mt-1 break-all font-mono text-xs text-mga-muted">{item.url}</p>
+                  <p className="mt-1 text-xs text-red-200">{item.error}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mt-4 grid gap-3 md:grid-cols-4">
           <div className="rounded-mga border border-mga-border bg-mga-bg px-4 py-3">

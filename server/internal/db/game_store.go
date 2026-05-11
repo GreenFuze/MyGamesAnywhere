@@ -200,31 +200,7 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 			return fmt.Errorf("delete media links for %s: %w", persistedID, err)
 		}
 		for _, ref := range refs {
-			if ref.URL == "" {
-				continue
-			}
-			// Upsert into global media_assets by URL.
-			_, err := tx.ExecContext(ctx, `INSERT INTO media_assets (url, width, height, mime_type)
-				VALUES (?, ?, ?, ?)
-				ON CONFLICT(url) DO UPDATE SET
-					width = COALESCE(NULLIF(excluded.width,0), media_assets.width),
-					height = COALESCE(NULLIF(excluded.height,0), media_assets.height)`,
-				ref.URL, ref.Width, ref.Height, nullEmpty(""))
-			if err != nil {
-				return fmt.Errorf("upsert media asset %s: %w", ref.URL, err)
-			}
-
-			// Get the asset ID.
-			var assetID int
-			err = tx.QueryRowContext(ctx, `SELECT id FROM media_assets WHERE url=?`, ref.URL).Scan(&assetID)
-			if err != nil {
-				return fmt.Errorf("get media asset id: %w", err)
-			}
-
-			_, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO source_game_media
-				(source_game_id, media_asset_id, type, source) VALUES (?, ?, ?, ?)`,
-				persistedID, assetID, string(ref.Type), nullEmpty(ref.Source))
-			if err != nil {
+			if err := s.linkMediaRefIfAllowed(ctx, tx, persistedID, ref); err != nil {
 				return fmt.Errorf("link media for %s: %w", persistedID, err)
 			}
 		}
@@ -499,11 +475,17 @@ func (s *gameStore) MarkMediaAssetDownloadFailed(ctx context.Context, assetID in
 	if assetID <= 0 {
 		return fmt.Errorf("assetID must be positive")
 	}
+	tx, err := s.db.GetDB().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin media failure tx: %w", err)
+	}
+	defer tx.Rollback()
+
 	permanentValue := 0
 	if permanent {
 		permanentValue = 1
 	}
-	_, err := s.db.GetDB().ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE media_assets
 		SET download_attempts = download_attempts + 1,
 		    download_failed_at = ?,
@@ -511,8 +493,15 @@ func (s *gameStore) MarkMediaAssetDownloadFailed(ctx context.Context, assetID in
 		    download_permanent_failure = ?
 		WHERE id = ?`,
 		time.Now().Unix(), strings.TrimSpace(errMessage), permanentValue, assetID,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	if permanent {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM source_game_media WHERE media_asset_id = ?`, assetID); err != nil {
+			return fmt.Errorf("remove permanently failed media links: %w", err)
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *gameStore) UpdateMediaAssetMetadata(ctx context.Context, assetID, width, height int, mimeType string) error {
@@ -882,7 +871,44 @@ func (s *gameStore) GetMediaDownloadStatus(ctx context.Context) (*core.MediaDown
 		return nil, err
 	}
 	status.LastError = lastErr.String
+	recentErrors, err := s.getRecentMediaDownloadErrors(ctx, 10)
+	if err != nil {
+		return nil, err
+	}
+	status.RecentErrors = recentErrors
 	return status, nil
+}
+
+func (s *gameStore) getRecentMediaDownloadErrors(ctx context.Context, limit int) ([]core.MediaDownloadErrorItem, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := s.db.GetDB().QueryContext(ctx, `
+		SELECT id, url, download_last_error, download_attempts, download_permanent_failure, COALESCE(download_failed_at, 0)
+		FROM media_assets
+		WHERE download_last_error IS NOT NULL AND download_last_error <> ''
+		ORDER BY COALESCE(download_failed_at, 0) DESC, id DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]core.MediaDownloadErrorItem, 0, limit)
+	for rows.Next() {
+		var item core.MediaDownloadErrorItem
+		var permanent int
+		var failedAt int64
+		if err := rows.Scan(&item.AssetID, &item.URL, &item.Error, &item.Attempts, &permanent, &failedAt); err != nil {
+			return nil, err
+		}
+		item.Permanent = permanent != 0
+		if failedAt > 0 {
+			item.FailedAt = time.Unix(failedAt, 0).UTC().Format(time.RFC3339)
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
 }
 
 func (s *gameStore) ResetRetryableMediaDownloadFailures(ctx context.Context) error {
@@ -2112,24 +2138,7 @@ func (s *gameStore) SaveManualReviewResult(
 		return fmt.Errorf("delete media links for %s: %w", sourceGame.ID, err)
 	}
 	for _, ref := range media {
-		if ref.URL == "" {
-			continue
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO media_assets (url, width, height, mime_type)
-			VALUES (?, ?, ?, ?)
-			ON CONFLICT(url) DO UPDATE SET
-				width = COALESCE(NULLIF(excluded.width,0), media_assets.width),
-				height = COALESCE(NULLIF(excluded.height,0), media_assets.height)`,
-			ref.URL, ref.Width, ref.Height, nullEmpty("")); err != nil {
-			return fmt.Errorf("upsert media asset %s: %w", ref.URL, err)
-		}
-		var assetID int
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM media_assets WHERE url = ?`, ref.URL).Scan(&assetID); err != nil {
-			return fmt.Errorf("get media asset id for %s: %w", ref.URL, err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO source_game_media
-			(source_game_id, media_asset_id, type, source) VALUES (?, ?, ?, ?)`,
-			sourceGame.ID, assetID, string(ref.Type), nullEmpty(ref.Source)); err != nil {
+		if err := s.linkMediaRefIfAllowed(ctx, tx, sourceGame.ID, ref); err != nil {
 			return fmt.Errorf("link manual review media for %s: %w", sourceGame.ID, err)
 		}
 	}
@@ -2138,6 +2147,36 @@ func (s *gameStore) SaveManualReviewResult(
 		return fmt.Errorf("recompute canonical after manual review save: %w", err)
 	}
 	return tx.Commit()
+}
+
+func (s *gameStore) linkMediaRefIfAllowed(ctx context.Context, tx *sql.Tx, sourceGameID string, ref core.MediaRef) error {
+	assetURL := strings.TrimSpace(ref.URL)
+	if assetURL == "" {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO media_assets (url, width, height, mime_type)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(url) DO UPDATE SET
+			width = COALESCE(NULLIF(excluded.width,0), media_assets.width),
+			height = COALESCE(NULLIF(excluded.height,0), media_assets.height)`,
+		assetURL, ref.Width, ref.Height, nullEmpty("")); err != nil {
+		return fmt.Errorf("upsert media asset %s: %w", assetURL, err)
+	}
+
+	var assetID int
+	var permanent int
+	if err := tx.QueryRowContext(ctx, `SELECT id, COALESCE(download_permanent_failure, 0) FROM media_assets WHERE url = ?`, assetURL).Scan(&assetID, &permanent); err != nil {
+		return fmt.Errorf("get media asset id for %s: %w", assetURL, err)
+	}
+	if permanent != 0 {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO source_game_media
+		(source_game_id, media_asset_id, type, source) VALUES (?, ?, ?, ?)`,
+		sourceGameID, assetID, string(ref.Type), nullEmpty(ref.Source)); err != nil {
+		return fmt.Errorf("insert media link for %s: %w", assetURL, err)
+	}
+	return nil
 }
 
 func (s *gameStore) SaveRefreshedMetadataProviderResults(ctx context.Context, sourceGames []*core.SourceGame) error {
@@ -2198,24 +2237,7 @@ func (s *gameStore) SaveRefreshedMetadataProviderResults(ctx context.Context, so
 			return fmt.Errorf("delete refreshed media links for %s: %w", sourceGame.ID, err)
 		}
 		for _, ref := range sourceGame.Media {
-			if strings.TrimSpace(ref.URL) == "" {
-				continue
-			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO media_assets (url, width, height, mime_type)
-				VALUES (?, ?, ?, ?)
-				ON CONFLICT(url) DO UPDATE SET
-					width = COALESCE(NULLIF(excluded.width,0), media_assets.width),
-					height = COALESCE(NULLIF(excluded.height,0), media_assets.height)`,
-				ref.URL, ref.Width, ref.Height, nullEmpty("")); err != nil {
-				return fmt.Errorf("upsert refreshed media asset %s: %w", ref.URL, err)
-			}
-			var assetID int
-			if err := tx.QueryRowContext(ctx, `SELECT id FROM media_assets WHERE url = ?`, ref.URL).Scan(&assetID); err != nil {
-				return fmt.Errorf("get refreshed media asset id for %s: %w", ref.URL, err)
-			}
-			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO source_game_media
-				(source_game_id, media_asset_id, type, source) VALUES (?, ?, ?, ?)`,
-				sourceGame.ID, assetID, string(ref.Type), nullEmpty(ref.Source)); err != nil {
+			if err := s.linkMediaRefIfAllowed(ctx, tx, sourceGame.ID, ref); err != nil {
 				return fmt.Errorf("link refreshed media for %s: %w", sourceGame.ID, err)
 			}
 		}
@@ -3457,6 +3479,7 @@ func (s *gameStore) loadSourceGameMedia(ctx context.Context, db *sql.DB, sgID st
 		FROM source_game_media sgm
 		JOIN media_assets ma ON ma.id = sgm.media_asset_id
 		WHERE sgm.source_game_id=?
+		  AND COALESCE(ma.download_permanent_failure, 0) = 0
 		ORDER BY ma.id`, sgID)
 	if err != nil {
 		return nil, err
@@ -3599,6 +3622,7 @@ func (s *gameStore) loadCanonicalCoverOverride(ctx context.Context, db *sql.DB, 
 		JOIN canonical_source_games_link l ON l.source_game_id = sgm.source_game_id AND l.canonical_id = o.canonical_id
 		JOIN source_games sg ON sg.id = l.source_game_id
 		WHERE o.canonical_id = ? AND `+visibleSourceGameWhere(ctx, "sg")+`
+		  AND COALESCE(ma.download_permanent_failure, 0) = 0
 		LIMIT 1`, canonicalID)
 	var ref core.MediaRef
 	var src, lp, h, mt sql.NullString
@@ -3624,6 +3648,7 @@ func (s *gameStore) loadCanonicalHoverOverride(ctx context.Context, db *sql.DB, 
 		JOIN canonical_source_games_link l ON l.source_game_id = sgm.source_game_id AND l.canonical_id = o.canonical_id
 		JOIN source_games sg ON sg.id = l.source_game_id
 		WHERE o.canonical_id = ? AND `+visibleSourceGameWhere(ctx, "sg")+`
+		  AND COALESCE(ma.download_permanent_failure, 0) = 0
 		LIMIT 1`, canonicalID)
 	var ref core.MediaRef
 	var src, lp, h, mt sql.NullString
@@ -3649,6 +3674,7 @@ func (s *gameStore) loadCanonicalBackgroundOverride(ctx context.Context, db *sql
 		JOIN canonical_source_games_link l ON l.source_game_id = sgm.source_game_id AND l.canonical_id = o.canonical_id
 		JOIN source_games sg ON sg.id = l.source_game_id
 		WHERE o.canonical_id = ? AND `+visibleSourceGameWhere(ctx, "sg")+`
+		  AND COALESCE(ma.download_permanent_failure, 0) = 0
 		LIMIT 1`, canonicalID)
 	var ref core.MediaRef
 	var src, lp, h, mt sql.NullString

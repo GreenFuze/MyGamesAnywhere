@@ -95,7 +95,7 @@ func TestServiceDoesNotMarkLocalPathOnFailedDownload(t *testing.T) {
 		mu.Lock()
 		requests++
 		mu.Unlock()
-		http.Error(w, "nope", http.StatusBadGateway)
+		http.Error(w, "nope", http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
 
@@ -126,7 +126,7 @@ func TestServiceDoesNotMarkLocalPathOnFailedDownload(t *testing.T) {
 		t.Fatalf("hash = %q, want empty after failed download", asset.Hash)
 	}
 	if asset.DownloadPermanentFailure {
-		t.Fatal("transient 502 should not mark permanent failure")
+		t.Fatal("transient 503 should not mark permanent failure")
 	}
 
 	pending, err := store.GetPendingMediaDownloads(ctx, 10)
@@ -140,6 +140,47 @@ func TestServiceDoesNotMarkLocalPathOnFailedDownload(t *testing.T) {
 	defer mu.Unlock()
 	if requests != 1 {
 		t.Fatalf("requests = %d, want one attempt before cooldown", requests)
+	}
+}
+
+func TestServiceMarksBadGatewayDownloadFailurePermanent(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "bad gateway", http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	store, cfg := newTestStore(t)
+	assetID := seedPendingAsset(t, ctx, store, server.URL+"/bad-gateway.png")
+
+	svc, ok := NewService(store, cfg, testLogger{}).(*Service)
+	if !ok {
+		t.Fatal("expected concrete media service")
+	}
+	if err := svc.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var asset *core.MediaAsset
+	waitForCondition(t, time.Second, func() bool {
+		var err error
+		asset, err = store.GetMediaAssetByID(ctx, assetID)
+		if err != nil {
+			t.Fatalf("GetMediaAssetByID: %v", err)
+		}
+		return asset != nil && asset.DownloadAttempts > 0
+	})
+	if !asset.DownloadPermanentFailure {
+		t.Fatal("502 should mark permanent failure")
+	}
+	pending, err := store.GetPendingMediaDownloads(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending assets = %d, want 502 failure excluded", len(pending))
 	}
 }
 
@@ -237,6 +278,58 @@ func TestServiceDeduplicatesInFlightDownloads(t *testing.T) {
 	if requests != 1 {
 		t.Fatalf("request count = %d, want 1", requests)
 	}
+}
+
+func TestServiceStatusIncludesActiveDownloadURL(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	assetPath := "/active.png"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != assetPath {
+			t.Errorf("request path = %q, want %q", r.URL.Path, assetPath)
+		}
+		close(started)
+		<-release
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("png-payload"))
+	}))
+	defer server.Close()
+
+	store, cfg := newTestStore(t)
+	assetID := seedPendingAsset(t, ctx, store, server.URL+assetPath)
+
+	svc, ok := NewService(store, cfg, testLogger{}).(*Service)
+	if !ok {
+		t.Fatal("expected concrete media service")
+	}
+	if err := svc.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for media request")
+	}
+
+	status, err := svc.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Downloading != 1 {
+		t.Fatalf("downloading = %d, want 1", status.Downloading)
+	}
+	if len(status.Current) != 1 {
+		t.Fatalf("len(current) = %d, want 1: %+v", len(status.Current), status.Current)
+	}
+	if status.Current[0].AssetID != assetID || status.Current[0].URL != server.URL+assetPath {
+		t.Fatalf("current download = %+v, want asset %d URL %s", status.Current[0], assetID, server.URL+assetPath)
+	}
+	close(release)
+	waitForAssetDownload(t, ctx, store, assetID)
 }
 
 func TestRetrySQLiteBusyRetriesUntilSuccess(t *testing.T) {

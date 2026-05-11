@@ -1467,6 +1467,20 @@ export async function clearCacheEntries(): Promise<void> {
   await postJson(`/api/cache/clear`, {});
 }
 
+export type MediaDownloadActiveItem = {
+  asset_id: number;
+  url: string;
+};
+
+export type MediaDownloadErrorItem = {
+  asset_id: number;
+  url: string;
+  error: string;
+  attempts: number;
+  permanent: boolean;
+  failed_at?: string;
+};
+
 export type MediaDownloadStatus = {
   items_left: number;
   downloading: number;
@@ -1477,6 +1491,8 @@ export type MediaDownloadStatus = {
   total: number;
   last_error?: string;
   last_activity_at?: string;
+  current?: MediaDownloadActiveItem[];
+  recent_errors?: MediaDownloadErrorItem[];
 };
 
 export async function getMediaQueueStatus(): Promise<MediaDownloadStatus> {

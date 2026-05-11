@@ -9,7 +9,6 @@ import { AppNotifications } from '@/components/notifications/AppNotifications'
 import { AppQueryInvalidation } from '@/components/notifications/AppQueryInvalidation'
 import { ToastProvider } from '@/components/ui/toast'
 import { AppLayout } from '@/layouts/AppLayout'
-import { HomePage } from '@/pages/HomePage'
 import { AboutPage } from '@/pages/AboutPage'
 import { AchievementsPage } from '@/pages/AchievementsPage'
 import { LibraryPage } from '@/pages/LibraryPage'
@@ -43,7 +42,7 @@ export function App() {
                     <AppQueryInvalidation />
                     <Routes>
                       <Route path="/" element={<AppLayout />}>
-                        <Route index element={<HomePage />} />
+                        <Route index element={<Navigate to="/play" replace />} />
                         <Route path="play" element={<PlayPage />} />
                         <Route path="play/section/:sectionId" element={<PlayPage />} />
                         <Route path="library" element={<LibraryPage />} />
@@ -60,7 +59,7 @@ export function App() {
                       <Route path="/game/:id/play" element={<GamePlayerPage />} />
                       <Route path="/game/:id/media" element={<GameMediaPage />} />
                       <Route path="/game/:id" element={<GameDetailPage />} />
-                      <Route path="*" element={<Navigate to="/" replace />} />
+                      <Route path="*" element={<Navigate to="/play" replace />} />
                     </Routes>
                   </ProfileProvider>
                 </ErrorBoundary>

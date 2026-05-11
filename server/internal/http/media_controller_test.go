@@ -42,6 +42,15 @@ func TestMediaControllerQueueStatusReturnsServiceStatus(t *testing.T) {
 		Downloading: 1,
 		Queued:      2,
 		Total:       10,
+		Current: []core.MediaDownloadActiveItem{{
+			AssetID: 99,
+			URL:     "https://example.test/current.png",
+		}},
+		RecentErrors: []core.MediaDownloadErrorItem{{
+			AssetID: 7,
+			URL:     "https://example.test/broken.png",
+			Error:   "timeout",
+		}},
 	}}
 	ctrl := NewMediaController(&fakeGameStore{}, staticConfig{}, noopLogger{}, svc)
 
@@ -58,6 +67,12 @@ func TestMediaControllerQueueStatusReturnsServiceStatus(t *testing.T) {
 	}
 	if body.ItemsLeft != 3 || body.Downloading != 1 || body.Queued != 2 {
 		t.Fatalf("unexpected body: %+v", body)
+	}
+	if len(body.Current) != 1 || body.Current[0].URL != "https://example.test/current.png" {
+		t.Fatalf("unexpected current downloads: %+v", body.Current)
+	}
+	if len(body.RecentErrors) != 1 || body.RecentErrors[0].URL != "https://example.test/broken.png" {
+		t.Fatalf("unexpected recent errors: %+v", body.RecentErrors)
 	}
 }
 

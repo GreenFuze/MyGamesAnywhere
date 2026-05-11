@@ -335,15 +335,31 @@ type MediaAsset struct {
 }
 
 type MediaDownloadStatus struct {
-	ItemsLeft       int    `json:"items_left"`
-	Downloading     int    `json:"downloading"`
-	Queued          int    `json:"queued"`
-	RetryWaiting    int    `json:"retry_waiting"`
-	FailedPermanent int    `json:"failed_permanent"`
-	Downloaded      int    `json:"downloaded"`
-	Total           int    `json:"total"`
-	LastError       string `json:"last_error,omitempty"`
-	LastActivityAt  string `json:"last_activity_at,omitempty"`
+	ItemsLeft       int                       `json:"items_left"`
+	Downloading     int                       `json:"downloading"`
+	Queued          int                       `json:"queued"`
+	RetryWaiting    int                       `json:"retry_waiting"`
+	FailedPermanent int                       `json:"failed_permanent"`
+	Downloaded      int                       `json:"downloaded"`
+	Total           int                       `json:"total"`
+	LastError       string                    `json:"last_error,omitempty"`
+	LastActivityAt  string                    `json:"last_activity_at,omitempty"`
+	Current         []MediaDownloadActiveItem `json:"current,omitempty"`
+	RecentErrors    []MediaDownloadErrorItem  `json:"recent_errors,omitempty"`
+}
+
+type MediaDownloadActiveItem struct {
+	AssetID int    `json:"asset_id"`
+	URL     string `json:"url"`
+}
+
+type MediaDownloadErrorItem struct {
+	AssetID   int    `json:"asset_id"`
+	URL       string `json:"url"`
+	Error     string `json:"error"`
+	Attempts  int    `json:"attempts"`
+	Permanent bool   `json:"permanent"`
+	FailedAt  string `json:"failed_at,omitempty"`
 }
 
 // MediaRef links a source game to a media asset.

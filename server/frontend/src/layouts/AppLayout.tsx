@@ -8,7 +8,6 @@ import { ProfileAvatar, useProfiles } from '@/hooks/useProfiles'
 import { cn } from '@/lib/utils'
 
 const nav = [
-  { to: '/', label: 'Home' },
   { to: '/play', label: 'Play' },
   { to: '/library', label: 'Library' },
   { to: '/achievements', label: 'Achievements' },
@@ -57,11 +56,10 @@ export function AppLayout() {
       <header className="sticky top-0 z-20 border-b border-mga-border bg-mga-surface/95 backdrop-blur">
         <div className="flex flex-wrap items-center gap-3 px-3 py-3 md:px-4">
           <NavLink
-            to="/"
-            end
+            to="/play"
             className="flex shrink-0 items-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-2 py-1.5 transition-colors hover:bg-mga-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-mga-accent"
-            aria-label="Home"
-            title="Home"
+            aria-label="Play"
+            title="Play"
           >
             <img src="/logo.png" alt="" width={32} height={32} className="h-8 w-8 object-contain" />
             <span className="hidden text-sm font-semibold tracking-tight sm:inline">MGA</span>

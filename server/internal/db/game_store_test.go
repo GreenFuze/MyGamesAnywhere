@@ -1402,6 +1402,54 @@ func TestUpdateMediaAssetMetadataBackfillsDimensions(t *testing.T) {
 	}
 }
 
+func TestGetMediaDownloadStatusReturnsRecentErrorsWithURLs(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+	baseFailedAt := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC).Unix()
+
+	for i := 0; i < 12; i++ {
+		permanent := 0
+		if i%2 == 1 {
+			permanent = 1
+		}
+		if _, err := db.GetDB().ExecContext(ctx, `
+			INSERT INTO media_assets (url, download_attempts, download_failed_at, download_last_error, download_permanent_failure)
+			VALUES (?, ?, ?, ?, ?)`,
+			fmt.Sprintf("https://cdn.example.test/art-%02d.png", i),
+			i+1,
+			baseFailedAt+int64(i),
+			fmt.Sprintf("download failed %02d", i),
+			permanent,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	status, err := store.GetMediaDownloadStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.RecentErrors) != 10 {
+		t.Fatalf("len(recent_errors) = %d, want 10", len(status.RecentErrors))
+	}
+	first := status.RecentErrors[0]
+	if first.URL != "https://cdn.example.test/art-11.png" || first.Error != "download failed 11" {
+		t.Fatalf("first recent error = %+v", first)
+	}
+	if first.Attempts != 12 || !first.Permanent {
+		t.Fatalf("first recent error metadata = %+v", first)
+	}
+	if first.FailedAt != time.Unix(baseFailedAt+11, 0).UTC().Format(time.RFC3339) {
+		t.Fatalf("failed_at = %q", first.FailedAt)
+	}
+	if status.LastError != "download failed 11" {
+		t.Fatalf("last_error = %q, want latest error", status.LastError)
+	}
+	if status.RecentErrors[9].URL != "https://cdn.example.test/art-02.png" {
+		t.Fatalf("oldest retained recent error = %+v", status.RecentErrors[9])
+	}
+}
+
 func seedSourceGameForDBTest(t *testing.T, ctx context.Context, store core.GameStore, sourceID, title string) {
 	t.Helper()
 	if err := store.PersistScanResults(ctx, &core.ScanBatch{
@@ -2627,6 +2675,82 @@ func TestGetSourceGamesForCanonicalLoadsMedia(t *testing.T) {
 	ref := sourceGames[0].Media[0]
 	if ref.URL != "https://example.com/xbox-cover.jpg" || ref.Source != "game-source-xbox" || ref.Width != 600 || ref.Height != 800 {
 		t.Fatalf("loaded media = %+v, want xbox cover with dimensions", ref)
+	}
+}
+
+func TestPermanentlyFailedMediaIsRemovedAndNotRelinkedOnRescan(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	sourceGame := &core.SourceGame{
+		ID:            "scan:bad-gateway-media",
+		IntegrationID: "integration-1",
+		PluginID:      "game-source-xbox",
+		ExternalID:    "xbox-bad-gateway",
+		RawTitle:      "Bad Gateway Media",
+		Platform:      core.PlatformWindowsPC,
+		Kind:          core.GameKindBaseGame,
+		GroupKind:     core.GroupKindSelfContained,
+		Status:        "found",
+	}
+	badMedia := core.MediaRef{
+		Type:   core.MediaTypeScreenshot,
+		URL:    "https://example.com/bad-gateway.png",
+		Source: "metadata-igdb",
+	}
+	batch := &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames:   []*core.SourceGame{sourceGame},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			sourceGame.ID: {{
+				PluginID:   "metadata-igdb",
+				Title:      "Bad Gateway Media",
+				ExternalID: "igdb-bad-gateway",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{sourceGame.ID: {badMedia}},
+	}
+	persistBatch(t, ctx, store, batch)
+
+	var assetID int
+	if err := db.GetDB().QueryRowContext(ctx, `
+		SELECT ma.id
+		FROM media_assets ma
+		JOIN source_game_media sgm ON sgm.media_asset_id = ma.id
+		WHERE sgm.source_game_id = ? AND ma.url = ?`, sourceGame.ID, badMedia.URL).Scan(&assetID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkMediaAssetDownloadFailed(ctx, assetID, "unexpected status 502", true); err != nil {
+		t.Fatal(err)
+	}
+
+	var mediaCount int
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM source_game_media WHERE source_game_id = ?`, sourceGame.ID).Scan(&mediaCount); err != nil {
+		t.Fatal(err)
+	}
+	if mediaCount != 0 {
+		t.Fatalf("source_game_media count after permanent failure = %d, want 0", mediaCount)
+	}
+
+	batch.SkipMissingReconcile = true
+	persistBatch(t, ctx, store, batch)
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM source_game_media WHERE source_game_id = ?`, sourceGame.ID).Scan(&mediaCount); err != nil {
+		t.Fatal(err)
+	}
+	if mediaCount != 0 {
+		t.Fatalf("source_game_media count after rescan = %d, want 0", mediaCount)
+	}
+
+	canonicalID := canonicalIDForSource(t, ctx, db, sourceGame.ID)
+	game, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil {
+		t.Fatal("expected canonical game")
+	}
+	if len(game.Media) != 0 {
+		t.Fatalf("loaded media count = %d, want 0: %+v", len(game.Media), game.Media)
 	}
 }
 

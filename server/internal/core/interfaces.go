@@ -105,7 +105,7 @@ type GameStore interface {
 
 	// UpdateMediaAsset marks a media asset as downloaded (sets local_path, hash).
 	UpdateMediaAsset(ctx context.Context, assetID int, localPath, hash string) error
-	// MarkMediaAssetDownloadFailed records a failed media download attempt.
+	// MarkMediaAssetDownloadFailed records a failed media download attempt and unlinks permanent failures.
 	MarkMediaAssetDownloadFailed(ctx context.Context, assetID int, errMessage string, permanent bool) error
 	// UpdateMediaAssetMetadata backfills width/height/mime_type for an existing media asset.
 	UpdateMediaAssetMetadata(ctx context.Context, assetID, width, height int, mimeType string) error
