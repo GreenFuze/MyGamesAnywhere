@@ -651,7 +651,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [x] Web-client frontend should support profiles + profile management in settings
   - [x] Set roles: Admin Player and Player. Admin Player can access settings; other than that, they are the same.
   - [x] Each profile has its own integrations, library data, scans, favorites, achievements, and profile settings. Migration 8 makes favorites profile-owned; media overrides intentionally remain shared/reusable across canonical games.
-  - [ ] Plugin binaries/capabilities and media assets remain global.
+  - [x] Plugin binaries/capabilities and media assets remain global.
   - [x] Web-client: surfing to the web client, the user can choose a profile and set it as the browser default.
   - [x] User image/icon should be shown on the top left, where profile switch/log-out lives.
 - [x] Auto-update mechanism
