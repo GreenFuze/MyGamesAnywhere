@@ -18,14 +18,12 @@ import {
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
-  deleteSourceGame,
   getGame,
   getGameAchievements,
-  previewDeleteSourceGame,
   refreshGameMetadata,
   type AchievementDTO,
   type AchievementSetDTO,
-  type DeleteSourceGamePreview,
+  type DeleteSourceGameResponse,
   type ExternalIDDTO,
   type GameLaunchOptionDTO,
   type GameMediaDetailDTO,
@@ -35,6 +33,7 @@ import {
 import { useGameFavoriteAction } from '@/hooks/useGameFavorite'
 import { useRecentPlayed } from '@/hooks/useRecentPlayed'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
+import { SourceGameHardDeleteDialog } from '@/components/library/SourceGameHardDeleteDialog'
 import { BrandBadge, BrandIcon } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -114,15 +113,6 @@ function formatDateTimeValue(value: string | undefined): string {
 function formatHours(value: number | undefined): string {
   if (value === undefined || value <= 0) return 'Unknown'
   return `${Math.round(value)}h`
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  const amount = bytes / 1024 ** exponent
-  const digits = amount >= 10 || exponent === 0 ? 0 : 1
-  return `${amount.toFixed(digits)} ${units[exponent]}`
 }
 
 function humanizeValue(value: string): string {
@@ -978,13 +968,8 @@ export function GameDetailPage() {
   const [refreshNotice, setRefreshNotice] = useState('')
   const [refreshError, setRefreshError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<SourceGameDetailDTO | null>(null)
-  const [deletePreview, setDeletePreview] = useState<DeleteSourceGamePreview | null>(null)
-  const [deleteConfirmed, setDeleteConfirmed] = useState(false)
-  const [deletePreviewBusy, setDeletePreviewBusy] = useState(false)
-  const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteNotice, setDeleteNotice] = useState('')
   const [showFloatingActions, setShowFloatingActions] = useState(false)
-  const [deleteError, setDeleteError] = useState('')
   const hasRetried404Ref = useRef(false)
 
   const routeState = readGameRouteState(location.state)
@@ -1220,67 +1205,35 @@ export function GameDetailPage() {
   }
 
   const handleRequestHardDelete = async (source: SourceGameDetailDTO) => {
-    if (!game.data || deletePreviewBusy || deleteBusy) return
-    setDeleteError('')
+    if (!game.data) return
     setDeleteNotice('')
-    setDeletePreview(null)
-    setDeleteConfirmed(false)
     setDeleteTarget(source)
-    setDeletePreviewBusy(true)
-    try {
-      const preview = await previewDeleteSourceGame(game.data.id, source.id)
-      setDeletePreview(preview)
-      setDeleteConfirmed(false)
-    } catch (error) {
-      const message =
-        error instanceof ApiError
-          ? error.responseText?.trim() || error.message
-          : (error instanceof Error ? error.message : 'Delete preview failed.')
-      setDeleteError(message)
-    } finally {
-      setDeletePreviewBusy(false)
-    }
   }
 
-  const handleConfirmHardDelete = async () => {
-    if (!game.data || !deleteTarget || !deletePreview || deletePreview.items.length === 0 || !deleteConfirmed || deleteBusy) return
-    setDeleteBusy(true)
-    setDeleteError('')
+  const handleHardDeleteCompleted = async (result: DeleteSourceGameResponse, source: SourceGameDetailDTO) => {
+    if (!game.data) return
     setDeleteNotice('')
-    try {
-      const result = await deleteSourceGame(game.data.id, deleteTarget.id)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['games'] }),
-        queryClient.invalidateQueries({ queryKey: ['game', game.data.id, 'achievements'] }),
-      ])
-      if (result.game) {
-        queryClient.setQueryData(['game', result.game.id], result.game)
-      }
-      if (result.canonical_exists && result.game) {
-        setDeleteNotice(`Deleted ${sourceRecordLabel(deleteTarget)}.`)
-        if (result.game.id !== game.data.id) {
-          navigate(`/game/${encodeURIComponent(result.game.id)}`, {
-            replace: true,
-            state: location.state,
-          })
-        } else {
-          queryClient.setQueryData(['game', game.data.id], result.game)
-        }
-      } else {
-        navigate('/library', { replace: true })
-      }
-      setDeleteTarget(null)
-      setDeletePreview(null)
-      setDeleteConfirmed(false)
-    } catch (error) {
-      const message =
-        error instanceof ApiError
-          ? error.responseText?.trim() || error.message
-          : (error instanceof Error ? error.message : 'Hard delete failed.')
-      setDeleteError(message)
-    } finally {
-      setDeleteBusy(false)
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['games'] }),
+      queryClient.invalidateQueries({ queryKey: ['game', game.data.id, 'achievements'] }),
+    ])
+    if (result.game) {
+      queryClient.setQueryData(['game', result.game.id], result.game)
     }
+    if (result.canonical_exists && result.game) {
+      setDeleteNotice(`Deleted ${sourceRecordLabel(source)}.`)
+      if (result.game.id !== game.data.id) {
+        navigate(`/game/${encodeURIComponent(result.game.id)}`, {
+          replace: true,
+          state: location.state,
+        })
+      } else {
+        queryClient.setQueryData(['game', game.data.id], result.game)
+      }
+    } else {
+      navigate('/library', { replace: true })
+    }
+    setDeleteTarget(null)
   }
 
   if (game.isPending) {
@@ -1491,7 +1444,6 @@ export function GameDetailPage() {
               {refreshNotice ? <p className="text-xs text-green-400">{refreshNotice}</p> : null}
               {deleteNotice ? <p className="text-xs text-green-400">{deleteNotice}</p> : null}
               {refreshError ? <p className="text-xs text-red-400">{refreshError}</p> : null}
-              {deleteError ? <p className="text-xs text-red-400">{deleteError}</p> : null}
             </div>
           </div>
         </div>
@@ -1831,103 +1783,13 @@ export function GameDetailPage() {
       </div>
 
       <MediaViewerDialog media={selectedMedia} onClose={() => setSelectedMedia(null)} />
-      <Dialog
-        open={deleteTarget !== null}
-        onClose={() => {
-          if (deleteBusy || deletePreviewBusy) return
-          setDeleteTarget(null)
-          setDeletePreview(null)
-          setDeleteConfirmed(false)
-        }}
-        title="Hard Delete Source Record"
-      >
-        {deleteTarget && (
-          <div className="space-y-4">
-            <p className="text-sm text-mga-muted">
-              This {deletePreview?.plugin_id === 'game-source-google-drive'
-                ? 'moves the backing files shown below to Google Drive trash'
-                : deletePreview?.action === 'trash'
-                  ? 'moves the backing files shown below to trash'
-                  : 'permanently deletes the backing files shown below'} and removes the stored source record for
-              {' '}
-              <span className="font-medium text-mga-text">{sourceRecordLabel(deleteTarget)}</span>.
-            </p>
-            {deletePreviewBusy ? (
-              <div className="flex items-center gap-2 rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-muted">
-                <Loader2 size={16} className="animate-spin" />
-                Building delete preview from source plugin...
-              </div>
-            ) : null}
-            {deletePreview ? (
-              <div className="space-y-3 rounded-mga border border-red-500/30 bg-red-500/10 p-4 text-sm leading-6 text-red-100">
-                <p className="font-medium text-red-50">{deletePreview.summary}</p>
-                <div className="max-h-56 space-y-2 overflow-auto">
-                  {deletePreview.items.map((item) => (
-                    <div key={`${item.path}:${item.object_id ?? item.action}`} className="flex items-start justify-between gap-3">
-                      <span className="break-all text-red-50">{item.path}</span>
-                      <span className="shrink-0 text-red-100/80">{formatBytes(item.size ?? 0)}</span>
-                    </div>
-                  ))}
-                </div>
-                {deletePreview.warnings?.length ? (
-                  <div className="border-t border-red-500/30 pt-3">
-                    {deletePreview.warnings.map((warning) => (
-                      <p key={warning} className="text-red-100/80">{warning}</p>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {!deletePreview && deleteTarget.root_path && (
-              <p className="rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-xs text-mga-muted">
-                Root path: {deleteTarget.root_path}
-              </p>
-            )}
-            {deleteError ? <p className="text-xs text-red-400">{deleteError}</p> : null}
-            {deleteTarget.hard_delete?.reason && !deleteTarget.hard_delete.eligible && (
-              <p className="text-xs text-amber-300">{deleteTarget.hard_delete.reason}</p>
-            )}
-            {deletePreview ? (
-              <label className="flex items-start gap-3 rounded-mga border border-red-500/30 bg-red-500/5 p-3 text-sm leading-6 text-red-100">
-                <input
-                  type="checkbox"
-                  checked={deleteConfirmed}
-                  onChange={(event) => setDeleteConfirmed(event.target.checked)}
-                  disabled={deleteBusy || deletePreview.items.length === 0}
-                  className="mt-1 h-4 w-4 rounded border-red-400 bg-mga-bg accent-red-600"
-                />
-                <span>I understand this is the real delete action and want to continue.</span>
-              </label>
-            ) : null}
-            <div className="flex justify-end gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setDeleteTarget(null)
-                  setDeletePreview(null)
-                  setDeleteConfirmed(false)
-                }}
-                disabled={deleteBusy || deletePreviewBusy}
-              >
-                Cancel
-              </Button>
-              {deletePreview ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void handleConfirmHardDelete()}
-                  disabled={deleteBusy || deletePreview.items.length === 0 || !deleteConfirmed}
-                  className="border-red-500/30 text-red-200 hover:bg-red-500/10"
-                >
-                  <FileText size={16} />
-                  {deleteBusy ? 'Deleting...' : 'Delete Source Record'}
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        )}
-      </Dialog>
+      <SourceGameHardDeleteDialog
+        canonicalGameId={game.data?.id ?? null}
+        source={deleteTarget}
+        sourceLabel={sourceRecordLabel}
+        onClose={() => setDeleteTarget(null)}
+        onDeleted={handleHardDeleteCompleted}
+      />
     </div>
   )
 }

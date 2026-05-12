@@ -157,27 +157,6 @@ export type AchievementSystemSummaryDTO = {
   earned_points?: number;
 };
 
-export type AchievementRefreshSummaryDTO = {
-  total: number;
-  success_count: number;
-  failed_count: number;
-  skipped_count: number;
-  last_attempted_at?: string;
-  last_successful_at?: string;
-  latest_failure_text?: string;
-};
-
-export type AchievementRefreshStateDTO = {
-  source_game_id: string;
-  integration_id?: string;
-  plugin_id: string;
-  external_game_id: string;
-  status: string;
-  last_attempted_at?: string;
-  last_success_at?: string;
-  last_error?: string;
-};
-
 export type ResolverMatchDTO = {
   plugin_id: string;
   title?: string;
@@ -200,6 +179,60 @@ export type ResolverMatchDTO = {
   store_product_id?: string;
   xcloud_url?: string;
   metadata_json?: string;
+};
+
+export type SourceGameHardDeleteDTO = {
+  eligible: boolean;
+  reason?: string;
+};
+
+export type SourceGameDetailDTO = {
+  id: string;
+  integration_id: string;
+  integration_label?: string;
+  plugin_id: string;
+  external_id: string;
+  raw_title: string;
+  platform: string;
+  kind: string;
+  group_kind?: string;
+  root_path?: string;
+  url?: string;
+  status: string;
+  last_seen_at?: string;
+  created_at: string;
+  files: GameFileDTO[];
+  delivery?: SourceDeliveryDTO;
+  play?: SourceGamePlayDTO;
+  hard_delete?: SourceGameHardDeleteDTO;
+  resolver_matches: ResolverMatchDTO[];
+};
+
+export type DuplicateGameMode = "loose" | "strict";
+
+export type DuplicateGameSource = {
+  canonical_game_id: string;
+  canonical_title: string;
+  source: SourceGameDetailDTO;
+  file_count: number;
+  total_size: number;
+  cached: boolean;
+  cache_statuses?: string[];
+  has_cached_achievements?: boolean;
+};
+
+export type DuplicateGameGroup = {
+  id: string;
+  mode: DuplicateGameMode;
+  representative_title: string;
+  normalized_title: string;
+  canonical_ids: string[];
+  sources: DuplicateGameSource[];
+};
+
+export type DuplicateGamesResponse = {
+  mode: DuplicateGameMode;
+  groups: DuplicateGameGroup[];
 };
 
 export type ScanIntegrationResult = {
@@ -370,23 +403,6 @@ export type ScanJobStatus = {
   recent_events?: ScanJobRecentEvent[];
   report_id?: string;
   error?: string;
-};
-
-export type AchievementRefreshJobStatus = {
-  job_id: string;
-  status: string;
-  started_at?: string;
-  finished_at?: string;
-  trigger?: string;
-  items_total: number;
-  items_completed: number;
-  success_count: number;
-  skipped_count: number;
-  warning_count: number;
-  error_count: number;
-  current_item?: string;
-  error?: string;
-  warnings?: string[];
 };
 
 export type SaveSyncSnapshotFile = {

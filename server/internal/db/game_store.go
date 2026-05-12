@@ -877,6 +877,77 @@ func (s *gameStore) GetSourceGamesForCanonical(ctx context.Context, canonicalID 
 	return out, nil
 }
 
+func (s *gameStore) GetDuplicateGameSourceRecords(ctx context.Context) ([]core.DuplicateGameSourceRecord, error) {
+	db := s.db.GetDB()
+	rows, err := db.QueryContext(ctx, `
+		SELECT l.canonical_id,
+		       sg.id, sg.integration_id, sg.plugin_id, sg.external_id, sg.raw_title,
+		       sg.platform, sg.kind, sg.group_kind, COALESCE(sg.root_path, ''), COALESCE(sg.url, ''),
+		       sg.status, COALESCE(sg.review_state, 'pending'), sg.last_seen_at, sg.created_at,
+		       COUNT(gf.path) AS file_count,
+		       COALESCE(SUM(gf.size), 0) AS total_size,
+		       COALESCE((
+		         SELECT path FROM game_files root_files
+		          WHERE root_files.source_game_id = sg.id
+		          ORDER BY CASE WHEN root_files.role = 'root' THEN 0 ELSE 1 END, root_files.path
+		          LIMIT 1
+		       ), '') AS root_file_path,
+		       EXISTS(SELECT 1 FROM achievement_sets aset WHERE aset.source_game_id = sg.id) AS has_achievements
+		  FROM source_games sg
+		  JOIN canonical_source_games_link l ON l.source_game_id = sg.id
+		  LEFT JOIN game_files gf ON gf.source_game_id = sg.id
+		 WHERE `+visibleSourceGameWhere(ctx, "sg")+`
+		 GROUP BY l.canonical_id, sg.id
+		 ORDER BY sg.raw_title, sg.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []core.DuplicateGameSourceRecord
+	for rows.Next() {
+		var record core.DuplicateGameSourceRecord
+		var source core.SourceGame
+		var platform, kind, groupKind string
+		var lastSeen sql.NullInt64
+		var createdAt int64
+		var rootFilePath string
+		var hasAchievements bool
+		if err := rows.Scan(
+			&record.CanonicalGameID,
+			&source.ID, &source.IntegrationID, &source.PluginID, &source.ExternalID, &source.RawTitle,
+			&platform, &kind, &groupKind, &source.RootPath, &source.URL,
+			&source.Status, (*string)(&source.ReviewState), &lastSeen, &createdAt,
+			&record.FileCount, &record.TotalSize, &rootFilePath, &hasAchievements,
+		); err != nil {
+			return nil, err
+		}
+		source.Platform = core.Platform(platform)
+		source.Kind = core.GameKind(kind)
+		source.GroupKind = core.GroupKind(groupKind)
+		source.CreatedAt = time.Unix(createdAt, 0)
+		if lastSeen.Valid {
+			t := time.Unix(lastSeen.Int64, 0)
+			source.LastSeenAt = &t
+		}
+		if rootFilePath != "" {
+			source.Files = []core.GameFile{{
+				Path: rootFilePath,
+				Role: core.GameFileRoleRoot,
+				Size: record.TotalSize,
+			}}
+		}
+		record.CanonicalTitle = titlematch.CleanDisplayTitle(source.RawTitle)
+		record.HasCachedAchievements = hasAchievements
+		record.SourceGame = &source
+		out = append(out, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *gameStore) GetPendingMediaDownloads(ctx context.Context, limit int) ([]*core.MediaAsset, error) {
 	now := time.Now().Unix()
 	rows, err := s.db.GetDB().QueryContext(ctx,

@@ -2678,6 +2678,73 @@ func TestGetSourceGamesForCanonicalLoadsMedia(t *testing.T) {
 	}
 }
 
+func TestGetDuplicateGameSourceRecordsReturnsLightweightFoundRows(t *testing.T) {
+	ctx := context.Background()
+	_, store := newTestGameStore(t)
+	source := &core.SourceGame{
+		ID:            "scan:dupe-source",
+		IntegrationID: "drive-1",
+		PluginID:      "game-source-google-drive",
+		ExternalID:    "external-1",
+		RawTitle:      "Doom (USA)",
+		Platform:      core.PlatformGenesis,
+		Kind:          core.GameKindBaseGame,
+		GroupKind:     core.GroupKindSelfContained,
+		RootPath:      "Games/Genesis",
+		Status:        "found",
+		Files: []core.GameFile{{
+			Path:     "Games/Genesis/Doom (USA).zip",
+			Role:     core.GameFileRoleRoot,
+			FileKind: "archive",
+			Size:     2048,
+		}},
+	}
+	persistBatch(t, ctx, store, &core.ScanBatch{
+		IntegrationID: "drive-1",
+		SourceGames:   []*core.SourceGame{source},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			source.ID: {{
+				PluginID:   "metadata-igdb",
+				Title:      "Doom",
+				ExternalID: "doom",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	})
+	if err := store.CacheAchievements(ctx, source.ID, &core.AchievementSet{
+		Source:         "retroachievements",
+		ExternalGameID: "doom",
+		TotalCount:     1,
+		Achievements: []core.Achievement{{
+			ExternalID: "ach-1",
+			Title:      "First",
+		}},
+	}); err != nil {
+		t.Fatalf("CacheAchievements: %v", err)
+	}
+
+	records, err := store.GetDuplicateGameSourceRecords(ctx)
+	if err != nil {
+		t.Fatalf("GetDuplicateGameSourceRecords: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	record := records[0]
+	if record.CanonicalGameID == "" {
+		t.Fatal("canonical game id is empty")
+	}
+	if record.FileCount != 1 || record.TotalSize != 2048 {
+		t.Fatalf("file totals = %d/%d, want 1/2048", record.FileCount, record.TotalSize)
+	}
+	if !record.HasCachedAchievements {
+		t.Fatal("has cached achievements = false, want true")
+	}
+	if record.SourceGame == nil || record.SourceGame.ID != source.ID || len(record.SourceGame.Files) != 1 {
+		t.Fatalf("source game = %+v, want lightweight source with root file", record.SourceGame)
+	}
+}
+
 func TestPermanentlyFailedMediaIsRemovedAndNotRelinkedOnRescan(t *testing.T) {
 	ctx := context.Background()
 	db, store := newTestGameStore(t)

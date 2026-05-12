@@ -980,6 +980,8 @@ type fakePluginCall struct {
 
 type fakeGameStore struct {
 	game                       *core.CanonicalGame
+	games                      []*core.CanonicalGame
+	duplicateRecords           []core.DuplicateGameSourceRecord
 	cached                     []cachedAchievementCall
 	achievementDashboard       *core.CachedAchievementsDashboard
 	achievementExplorer        *core.CachedAchievementsExplorer
@@ -1019,7 +1021,7 @@ func (f *fakeGameStore) UpdateMediaAssetMetadata(context.Context, int, int, int,
 }
 func (f *fakeGameStore) DeleteAllGames(context.Context) error { panic("unexpected call") }
 func (f *fakeGameStore) GetCanonicalGames(context.Context) ([]*core.CanonicalGame, error) {
-	panic("unexpected call")
+	return f.games, nil
 }
 func (f *fakeGameStore) GetCanonicalGamesByIDs(context.Context, []string) ([]*core.CanonicalGame, error) {
 	panic("unexpected call")
@@ -1038,6 +1040,9 @@ func (f *fakeGameStore) GetMediaAssetByID(context.Context, int) (*core.MediaAsse
 }
 func (f *fakeGameStore) GetSourceGamesForCanonical(context.Context, string) ([]*core.SourceGame, error) {
 	panic("unexpected call")
+}
+func (f *fakeGameStore) GetDuplicateGameSourceRecords(context.Context) ([]core.DuplicateGameSourceRecord, error) {
+	return f.duplicateRecords, nil
 }
 func (f *fakeGameStore) GetPendingMediaDownloads(context.Context, int) ([]*core.MediaAsset, error) {
 	panic("unexpected call")

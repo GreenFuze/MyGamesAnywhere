@@ -541,6 +541,33 @@ export type DeleteSourceGamePreview = {
   warnings?: string[];
 };
 
+export type DuplicateGameMode = "loose" | "strict";
+
+export type DuplicateGameSource = {
+  canonical_game_id: string;
+  canonical_title: string;
+  source: SourceGameDetailDTO;
+  file_count: number;
+  total_size: number;
+  cached: boolean;
+  cache_statuses?: string[];
+  has_cached_achievements?: boolean;
+};
+
+export type DuplicateGameGroup = {
+  id: string;
+  mode: DuplicateGameMode;
+  representative_title: string;
+  normalized_title: string;
+  canonical_ids: string[];
+  sources: DuplicateGameSource[];
+};
+
+export type DuplicateGamesResponse = {
+  mode: DuplicateGameMode;
+  groups: DuplicateGameGroup[];
+};
+
 export type ListGamesResponse = {
   total: number;
   page: number;
@@ -725,6 +752,10 @@ export async function previewDeleteSourceGame(
     `/api/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/delete-preview`,
     {},
   ) as Promise<DeleteSourceGamePreview>;
+}
+
+export async function getDuplicateGames(mode: DuplicateGameMode): Promise<DuplicateGamesResponse> {
+  return getJson<DuplicateGamesResponse>(`/api/duplicates/games?mode=${encodeURIComponent(mode)}`);
 }
 
 export async function getFrontendConfig(): Promise<FrontendConfig> {

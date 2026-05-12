@@ -43,11 +43,11 @@ These are the next committed tasks after the completed Phase 7 / issue-cleanup w
    - [ ] Verification: manifest parser tests, version-compare tests, checksum failure test, frontend build.
 
 3. **Achievements refresh instead of cached-only confusion**
-   - [ ] Keep `/api/achievements` and `/api/achievements/explorer` read-only over cached rows for fast page load.
-   - [ ] Add an explicit `Refresh Achievements` job for all eligible games, reusing `AchievementFetchService` and existing achievement-capable integrations.
-   - [ ] Show refresh progress and last refreshed state in the Achievements page so "cached" means "last fetched", not "incomplete by design".
-   - [ ] Persist provider failures per game/source and surface degraded state without blocking unrelated games.
-   - [ ] Verification: achievement service/controller tests, SSE job progress tests, frontend build, focused manual refresh proof with one configured provider.
+   - [x] Keep `/api/achievements` and `/api/achievements/explorer` read-only over cached rows for fast page load.
+   - [x] Add an explicit `Refresh Achievements` job for all eligible games, reusing `AchievementFetchService` and existing achievement-capable integrations.
+   - [x] Show refresh progress and last refreshed state in the Achievements page so "cached" means "last fetched", not "incomplete by design".
+   - [x] Persist provider failures per game/source and surface degraded state without blocking unrelated games.
+   - [x] Verification: achievement service/controller tests, SSE job progress tests, frontend build, focused manual refresh proof with one configured provider.
 
 4. **Duplicate games review in Settings**
    - [ ] Add a Settings tab for duplicate candidates across source records.
@@ -681,10 +681,10 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [ ] Linux Phase 1: map runtime path resolver to XDG config/data/cache paths.
   - [ ] Linux Phase 2: add tarball packaging, then decide on `.deb`, `.rpm`, or AppImage.
   - [ ] Linux Phase 3: add systemd user unit and system service install options.
-- [ ] Achivement page shows only cached data. It needs to be able to show all information of all games, not just cached data.
-  - [ ] Does cached data means in the frontend? or the server?
-    - [ ] If on the frontend, explain the user what it means, because it is weird
-    - [ ] If "cached" on the server - its a bug as the server should "bring" the achivement status from the plugin during scan. If you think this is wrong, you may push back just explain to the user and offer alternatives.
+- [x] Achivement page shows only cached data. It needs to be able to show all information of all games, not just cached data.
+  - [x] Does cached data means in the frontend? or the server?
+    - [x] If on the frontend, explain the user what it means, because it is weird
+    - [x] If "cached" on the server - its a bug as the server should "bring" the achivement status from the plugin during scan. If you think this is wrong, you may push back just explain to the user and offer alternatives.
 - [ ] In settings, add a tab to find duplicated games acorss sources.
   - [ ] duplications for games (ignoring versioning/platform)
   - [ ] duplications for games including version/platform etc.

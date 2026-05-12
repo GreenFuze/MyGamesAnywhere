@@ -15,6 +15,7 @@ for (const requiredPath of [
   "/api/achievements/explorer",
   "/api/games/{id}/cover-override",
   "/api/games/{id}/favorite",
+  "/api/duplicates/games",
   "/api/stats/library",
   "/api/stats/gamer",
   "/api/review-candidates/redetect",
@@ -206,6 +207,60 @@ export type ResolverMatchDTO = {
   store_product_id?: string;
   xcloud_url?: string;
   metadata_json?: string;
+};
+
+export type SourceGameHardDeleteDTO = {
+  eligible: boolean;
+  reason?: string;
+};
+
+export type SourceGameDetailDTO = {
+  id: string;
+  integration_id: string;
+  integration_label?: string;
+  plugin_id: string;
+  external_id: string;
+  raw_title: string;
+  platform: string;
+  kind: string;
+  group_kind?: string;
+  root_path?: string;
+  url?: string;
+  status: string;
+  last_seen_at?: string;
+  created_at: string;
+  files: GameFileDTO[];
+  delivery?: SourceDeliveryDTO;
+  play?: SourceGamePlayDTO;
+  hard_delete?: SourceGameHardDeleteDTO;
+  resolver_matches: ResolverMatchDTO[];
+};
+
+export type DuplicateGameMode = "loose" | "strict";
+
+export type DuplicateGameSource = {
+  canonical_game_id: string;
+  canonical_title: string;
+  source: SourceGameDetailDTO;
+  file_count: number;
+  total_size: number;
+  cached: boolean;
+  cache_statuses?: string[];
+  has_cached_achievements?: boolean;
+};
+
+export type DuplicateGameGroup = {
+  id: string;
+  mode: DuplicateGameMode;
+  representative_title: string;
+  normalized_title: string;
+  canonical_ids: string[];
+  sources: DuplicateGameSource[];
+};
+
+export type DuplicateGamesResponse = {
+  mode: DuplicateGameMode;
+  groups: DuplicateGameGroup[];
 };
 
 export type ScanIntegrationResult = {
@@ -566,6 +621,10 @@ export type ManualReviewSearchResult = {
   rating?: number;
   max_players?: number;
   image_url?: string;
+};
+
+export type ManualReviewApplyRequest = ManualReviewSearchResult & {
+  authoritative_reclassify?: boolean;
 };
 
 export type ManualReviewSearchResponse = {

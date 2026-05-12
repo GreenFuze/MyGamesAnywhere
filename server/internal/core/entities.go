@@ -352,6 +352,15 @@ type SourceGame struct {
 	Media           []MediaRef
 }
 
+type DuplicateGameSourceRecord struct {
+	CanonicalGameID       string
+	CanonicalTitle        string
+	SourceGame            *SourceGame
+	FileCount             int
+	TotalSize             int64
+	HasCachedAchievements bool
+}
+
 // MediaAsset is a globally deduplicated media file.
 type MediaAsset struct {
 	ID                       int

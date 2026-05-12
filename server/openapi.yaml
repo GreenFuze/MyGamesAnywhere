@@ -305,6 +305,18 @@ paths:
         500:
           description: Internal server error
 
+  /api/duplicates/games:
+    get:
+      summary: List duplicate game source records
+      description: Returns duplicate-looking source record groups for Settings cleanup. Query mode=loose groups normalized titles across sources and platforms; mode=strict groups same-title variants inside an existing canonical game. Source records include hard-delete eligibility so the client can reuse the source delete preview/delete flow.
+      responses:
+        200:
+          description: DuplicateGamesResponse JSON
+        400:
+          description: Invalid mode
+        500:
+          description: Internal server error
+
   /api/events:
     get:
       summary: Server-Sent Events stream

@@ -129,6 +129,13 @@ func Operations() []OperationDoc {
 			ResponseDocs: map[string]string{"200": "JSON object with entries[] of cache entry DTOs", "500": "Internal server error", "503": "Cache service unavailable"},
 		},
 		{
+			Method:       "GET",
+			Path:         "/api/duplicates/games",
+			Summary:      "List duplicate game source records",
+			Description:  "Returns duplicate-looking source record groups for Settings cleanup. Query mode=loose groups normalized titles across sources and platforms; mode=strict groups same-title variants inside an existing canonical game. Source records include hard-delete eligibility so the client can reuse the source delete preview/delete flow.",
+			ResponseDocs: map[string]string{"200": "DuplicateGamesResponse JSON", "400": "Invalid mode", "500": "Internal server error"},
+		},
+		{
 			Method:       "DELETE",
 			Path:         "/api/cache/entries/{entry_id}",
 			Summary:      "Evict one cached source entry",

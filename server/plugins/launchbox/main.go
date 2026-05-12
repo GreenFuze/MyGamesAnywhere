@@ -147,6 +147,11 @@ func init() {
 	}
 }
 
+var launchBoxTitleAliases = map[string][]string{
+	"another world":     {"out of this world"},
+	"out of this world": {"another world"},
+}
+
 var trailingNumberRE = regexp.MustCompile(`^(.+)\s+(\S+)$`)
 
 func titleVariations(normalized string) []string {
@@ -288,6 +293,14 @@ func manualSearchTitleVariants(title string) []string {
 		add(normTitle)
 		for _, titleVariant := range titleVariations(normTitle) {
 			add(titleVariant)
+		}
+		for _, alias := range launchBoxTitleAliases[normTitle] {
+			add(alias)
+			normalizedAlias := normalizeTitle(alias)
+			add(normalizedAlias)
+			for _, titleVariant := range titleVariations(normalizedAlias) {
+				add(titleVariant)
+			}
 		}
 	}
 	return variants

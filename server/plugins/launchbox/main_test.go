@@ -252,6 +252,37 @@ func TestManualSearchReturnsSubtitlePrefixMatch(t *testing.T) {
 	}
 }
 
+func TestManualSearchReturnsLaunchBoxAlternateTitleMatch(t *testing.T) {
+	outOfThisWorld := &gameEntry{
+		DatabaseID: 32809,
+		Name:       "Out of This World",
+		Platform:   "Sega Genesis",
+	}
+	idx := &launchBoxIndex{
+		files: map[string]*fileEntry{},
+		games: map[string]*gameEntry{
+			"sega genesis\tout of this world": outOfThisWorld,
+		},
+		normalized: map[string]*gameEntry{
+			"sega genesis\tout of this world": outOfThisWorld,
+		},
+		byPlatform: map[string][]tokenedGame{
+			"sega genesis": {
+				{tokens: tokenize(outOfThisWorld.Name), normalizedTitle: normalizeTitle(outOfThisWorld.Name), game: outOfThisWorld},
+			},
+		},
+		images: map[int][]gameImage{},
+	}
+
+	results := matchGamesForManualSearch(idx, gameQuery{Index: 0, Title: "Another World", Platform: "genesis", LookupIntent: "manual_search"})
+	if len(results) == 0 {
+		t.Fatal("expected manual search results")
+	}
+	if results[0].Title != "Out of This World" || results[0].ExternalID != "32809" || results[0].Platform != "genesis" {
+		t.Fatalf("first result = %+v, want Out of This World genesis", results[0])
+	}
+}
+
 func TestManualSearchUsesNumeralVariantsForSubtitlePrefixMatch(t *testing.T) {
 	inca := &gameEntry{
 		DatabaseID: 142128,

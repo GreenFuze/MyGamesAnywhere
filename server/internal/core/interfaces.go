@@ -140,6 +140,9 @@ type GameStore interface {
 	// GetSourceGamesForCanonical returns all source game records for a canonical game.
 	GetSourceGamesForCanonical(ctx context.Context, canonicalID string) ([]*SourceGame, error)
 
+	// GetDuplicateGameSourceRecords returns lightweight source records used by duplicate review.
+	GetDuplicateGameSourceRecords(ctx context.Context) ([]DuplicateGameSourceRecord, error)
+
 	// GetPendingMediaDownloads returns media assets with no local_path that are due for download.
 	GetPendingMediaDownloads(ctx context.Context, limit int) ([]*MediaAsset, error)
 	// GetMediaDownloadStatus returns DB-backed media download counters.
