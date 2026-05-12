@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 7
+const latestMigrationVersion = 8
 
 type migration struct {
 	Version int
@@ -130,6 +130,13 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 				);`,
 				`CREATE INDEX IF NOT EXISTS idx_achievement_refresh_profile ON achievement_refresh_states(profile_id);`,
 				`CREATE INDEX IF NOT EXISTS idx_achievement_refresh_status ON achievement_refresh_states(status);`,
+			},
+		},
+		{
+			Version: 8,
+			Name:    "profile_scoped_favorites",
+			Run: func(_ context.Context, db *sqliteDatabase) error {
+				return db.migrateProfileScopedFavorites()
 			},
 		},
 	}

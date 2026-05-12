@@ -1,8 +1,10 @@
 package http
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
@@ -37,6 +39,7 @@ func (c *SSEController) Events(w http.ResponseWriter, r *http.Request) {
 	// Flush headers so the client establishes the stream immediately.
 	flusher.Flush()
 
+	profileID := core.ProfileIDFromContext(r.Context())
 	ch := c.bus.Subscribe()
 	defer c.bus.Unsubscribe(ch)
 
@@ -48,6 +51,9 @@ func (c *SSEController) Events(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
+			if !sseEventVisibleToProfile(ev, profileID) {
+				continue
+			}
 			_, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, string(ev.Data))
 			if err != nil {
 				return
@@ -55,4 +61,27 @@ func (c *SSEController) Events(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+func sseEventVisibleToProfile(ev events.Event, profileID string) bool {
+	eventProfileID := sseEventProfileID(ev)
+	if eventProfileID == "" {
+		return true
+	}
+	return profileID != "" && eventProfileID == profileID
+}
+
+func sseEventProfileID(ev events.Event) string {
+	if len(ev.Data) == 0 {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(ev.Data, &payload); err != nil {
+		return ""
+	}
+	value, ok := payload["profile_id"]
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
 }

@@ -713,6 +713,7 @@ function writeSelectedProfileId(id: string) {
   try {
     if (id) localStorage.setItem(SELECTED_PROFILE_STORAGE_KEY, id)
     else localStorage.removeItem(SELECTED_PROFILE_STORAGE_KEY)
+    window.dispatchEvent(new CustomEvent('mga:selected-profile-changed', { detail: { id } }))
   } catch {
     // Browser storage can be unavailable in private or embedded contexts.
   }

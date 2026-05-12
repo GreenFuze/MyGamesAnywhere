@@ -584,6 +584,58 @@ func (s *sqliteDatabase) ensureMediaAssetDownloadStateSchema() error {
 	return nil
 }
 
+func (s *sqliteDatabase) migrateProfileScopedFavorites() error {
+	if s.db == nil {
+		return fmt.Errorf("database not connected")
+	}
+	hasProfileID, err := s.hasColumn("canonical_game_favorites", "profile_id")
+	if err != nil {
+		return err
+	}
+	if hasProfileID {
+		if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_cgf_canonical ON canonical_game_favorites(canonical_id)`); err != nil {
+			return fmt.Errorf("create profile scoped favorites canonical index: %w", err)
+		}
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin profile scoped favorites migration: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`ALTER TABLE canonical_game_favorites RENAME TO canonical_game_favorites_legacy`); err != nil {
+		return fmt.Errorf("rename legacy favorites table: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE TABLE canonical_game_favorites (
+		profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+		canonical_id TEXT NOT NULL REFERENCES canonical_games(id) ON DELETE CASCADE,
+		updated_at INTEGER NOT NULL,
+		PRIMARY KEY(profile_id, canonical_id)
+	)`); err != nil {
+		return fmt.Errorf("create profile scoped favorites table: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_cgf_canonical ON canonical_game_favorites(canonical_id)`); err != nil {
+		return fmt.Errorf("create profile scoped favorites canonical index: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO canonical_game_favorites (profile_id, canonical_id, updated_at)
+		SELECT DISTINCT sg.profile_id, f.canonical_id, f.updated_at
+		FROM canonical_game_favorites_legacy f
+		JOIN canonical_source_games_link l ON l.canonical_id = f.canonical_id
+		JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE COALESCE(sg.profile_id, '') != ''`); err != nil {
+		return fmt.Errorf("backfill profile scoped favorites: %w", err)
+	}
+	if _, err := tx.Exec(`DROP TABLE canonical_game_favorites_legacy`); err != nil {
+		return fmt.Errorf("drop legacy favorites table: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit profile scoped favorites migration: %w", err)
+	}
+	return nil
+}
+
 func (s *sqliteDatabase) ensureColumn(tableName, columnName, alterSQL string) error {
 	ok, err := s.hasColumn(tableName, columnName)
 	if err != nil {

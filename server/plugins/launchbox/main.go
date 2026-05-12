@@ -909,12 +909,23 @@ func handleLookup(params lookupParams) (any, *Error) {
 }
 
 func matchGamesForManualSearch(idx *launchBoxIndex, q gameQuery) []lookupResult {
-	lbPlatforms := lookupPlatformsForQuery(q.Platform)
-	if len(lbPlatforms) == 0 {
-		lbPlatforms = fallbackPlatforms(q)
+	preferredPlatforms := lookupPlatformsForQuery(q.Platform)
+	if len(preferredPlatforms) == 0 {
+		preferredPlatforms = fallbackPlatforms(q)
 	}
-	if len(lbPlatforms) == 0 {
-		lbPlatforms = []string{q.Platform}
+	if len(preferredPlatforms) == 0 && strings.TrimSpace(q.Platform) != "" {
+		preferredPlatforms = []string{q.Platform}
+	}
+	lbPlatforms := manualSearchPlatforms(idx, preferredPlatforms)
+	preferredPlatformSet := make(map[string]bool, len(preferredPlatforms))
+	for _, platform := range preferredPlatforms {
+		preferredPlatformSet[strings.ToLower(platform)] = true
+	}
+	platformScore := func(platform string, preferredScore, otherScore float64) float64 {
+		if preferredPlatformSet[strings.ToLower(platform)] {
+			return preferredScore
+		}
+		return otherScore
 	}
 
 	type candidate struct {
@@ -933,7 +944,7 @@ func matchGamesForManualSearch(idx *launchBoxIndex, q gameQuery) []lookupResult 
 	}
 
 	filename := strings.TrimSuffix(q.Title, filepath.Ext(q.Title))
-	for _, lbp := range lbPlatforms {
+	for _, lbp := range preferredPlatforms {
 		if fe := idx.lookupFile(lbp, filename); fe != nil {
 			add(idx.lookupGame(fe.Platform, fe.GameName), 1.0)
 		}
@@ -941,13 +952,13 @@ func matchGamesForManualSearch(idx *launchBoxIndex, q gameQuery) []lookupResult 
 
 	for _, variant := range manualSearchTitleVariants(q.Title) {
 		for _, lbp := range lbPlatforms {
-			add(idx.lookupGame(lbp, variant), 0.99)
-			add(idx.lookupNormalized(lbp, variant), 0.98)
+			add(idx.lookupGame(lbp, variant), platformScore(lbp, 0.99, 0.97))
+			add(idx.lookupNormalized(lbp, variant), platformScore(lbp, 0.98, 0.96))
 		}
 		normTitle := normalizeTitle(variant)
 		for _, titleVariant := range titleVariations(normTitle) {
 			for _, lbp := range lbPlatforms {
-				add(idx.normalized[strings.ToLower(lbp)+"\t"+titleVariant], 0.94)
+				add(idx.normalized[strings.ToLower(lbp)+"\t"+titleVariant], platformScore(lbp, 0.94, 0.92))
 			}
 		}
 		queryTokens := tokenize(variant)
@@ -955,7 +966,7 @@ func matchGamesForManualSearch(idx *launchBoxIndex, q gameQuery) []lookupResult 
 			normalizedVariant := normalizeTitle(variant)
 			for _, lbp := range lbPlatforms {
 				for _, match := range tokenMatchesForNormalizedTitle(normalizedVariant, queryTokens, idx.byPlatform[strings.ToLower(lbp)]) {
-					add(match.game, match.score)
+					add(match.game, platformScore(lbp, match.score, match.score*0.95))
 				}
 			}
 		}
@@ -968,6 +979,9 @@ func matchGamesForManualSearch(idx *launchBoxIndex, q gameQuery) []lookupResult 
 	sort.Slice(ranked, func(i, j int) bool {
 		if ranked[i].score != ranked[j].score {
 			return ranked[i].score > ranked[j].score
+		}
+		if leftRank, rightRank := manualSearchPlatformRank(ranked[i].entry.Platform, preferredPlatformSet), manualSearchPlatformRank(ranked[j].entry.Platform, preferredPlatformSet); leftRank != rightRank {
+			return leftRank < rightRank
 		}
 		if ranked[i].entry.Name != ranked[j].entry.Name {
 			return ranked[i].entry.Name < ranked[j].entry.Name
@@ -985,6 +999,63 @@ func matchGamesForManualSearch(idx *launchBoxIndex, q gameQuery) []lookupResult 
 		}
 	}
 	return results
+}
+
+func manualSearchPlatformRank(platform string, preferred map[string]bool) int {
+	if preferred[strings.ToLower(platform)] {
+		return 0
+	}
+	normalized := core.NormalizePlatformAlias(platform)
+	switch normalized {
+	case core.PlatformWindowsPC, core.PlatformMSDOS:
+		return 1
+	case core.PlatformUnknown:
+		return 3
+	default:
+		return 2
+	}
+}
+
+func manualSearchPlatforms(idx *launchBoxIndex, preferred []string) []string {
+	seen := map[string]bool{}
+	var platforms []string
+	add := func(platform string) {
+		platform = strings.TrimSpace(platform)
+		if platform == "" {
+			return
+		}
+		key := strings.ToLower(platform)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		platforms = append(platforms, platform)
+	}
+
+	for _, platform := range preferred {
+		add(platform)
+	}
+
+	var indexed []string
+	for key := range idx.byPlatform {
+		indexed = append(indexed, key)
+	}
+	for key := range idx.games {
+		if platform, _, ok := strings.Cut(key, "\t"); ok {
+			indexed = append(indexed, platform)
+		}
+	}
+	for key := range idx.normalized {
+		if platform, _, ok := strings.Cut(key, "\t"); ok {
+			indexed = append(indexed, platform)
+		}
+	}
+	sort.Strings(indexed)
+	for _, platform := range indexed {
+		add(platform)
+	}
+
+	return platforms
 }
 
 func matchGame(idx *launchBoxIndex, q gameQuery) *lookupResult {

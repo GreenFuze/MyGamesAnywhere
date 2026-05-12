@@ -757,8 +757,9 @@ func TestGetLibraryStatisticsIncludesRankedSectionsAndRecentScans(t *testing.T) 
 }
 
 func TestGetGamerStatisticsIncludesFavoritesAndAchievementBuckets(t *testing.T) {
-	ctx := context.Background()
 	db, store := newTestGameStore(t)
+	insertTestProfile(t, db, "profile-gamer", core.ProfileRoleAdminPlayer)
+	ctx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-gamer", Role: core.ProfileRoleAdminPlayer})
 	if err := store.PersistScanResults(ctx, &core.ScanBatch{
 		IntegrationID: "integration-gamer",
 		SourceGames: []*core.SourceGame{
@@ -2400,6 +2401,15 @@ func persistBatch(t *testing.T, ctx context.Context, store *gameStore, batch *co
 	}
 }
 
+func insertTestProfile(t *testing.T, db *sqliteDatabase, id string, role core.ProfileRole) {
+	t.Helper()
+	now := time.Now().Unix()
+	if _, err := db.GetDB().Exec(`INSERT OR IGNORE INTO profiles (id, display_name, avatar_key, role, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)`, id, id, "player-1", string(role), now, now); err != nil {
+		t.Fatalf("insert profile %s: %v", id, err)
+	}
+}
+
 func TestCanonicalGroupingMergesProviderBackedCleanTitleVersions(t *testing.T) {
 	ctx := context.Background()
 	_, store := newTestGameStore(t)
@@ -2930,8 +2940,9 @@ func containsString(values []string, want string) bool {
 }
 
 func TestCanonicalFavoritesPersistAndCascade(t *testing.T) {
-	ctx := context.Background()
+	ctx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-1", Role: core.ProfileRoleAdminPlayer})
 	db, store := newTestGameStore(t)
+	insertTestProfile(t, db, "profile-1", core.ProfileRoleAdminPlayer)
 
 	persistBatch(t, ctx, store, makeTestBatch("integration-1", "scan:favorite-a", "favorite-a", "Favorite A", "match-favorite-a"))
 	canonicalID := canonicalIDForSource(t, ctx, db, "scan:favorite-a")
@@ -2986,7 +2997,7 @@ func TestCanonicalFavoritesPersistAndCascade(t *testing.T) {
 		t.Fatalf("delete canonical game: %v", err)
 	}
 	var favoriteCount int
-	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM canonical_game_favorites WHERE canonical_id = ?`, canonicalID).Scan(&favoriteCount); err != nil {
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM canonical_game_favorites WHERE profile_id = ? AND canonical_id = ?`, "profile-1", canonicalID).Scan(&favoriteCount); err != nil {
 		t.Fatal(err)
 	}
 	if favoriteCount != 0 {
@@ -2999,6 +3010,8 @@ func TestCanonicalFavoriteAccessIsProfileScoped(t *testing.T) {
 	profileOneCtx := core.WithProfile(ctx, &core.Profile{ID: "profile-1", Role: core.ProfileRoleAdminPlayer})
 	profileTwoCtx := core.WithProfile(ctx, &core.Profile{ID: "profile-2", Role: core.ProfileRolePlayer})
 	db, store := newTestGameStore(t)
+	insertTestProfile(t, db, "profile-1", core.ProfileRoleAdminPlayer)
+	insertTestProfile(t, db, "profile-2", core.ProfileRolePlayer)
 
 	persistBatch(t, profileOneCtx, store, makeTestBatch("integration-1", "scan:profile-1-game", "external-1", "Profile One Game", "match-1"))
 	persistBatch(t, profileTwoCtx, store, makeTestBatch("integration-2", "scan:profile-2-game", "external-2", "Profile Two Game", "match-2"))
@@ -3018,11 +3031,32 @@ func TestCanonicalFavoriteAccessIsProfileScoped(t *testing.T) {
 	if err := store.SetCanonicalFavorite(profileTwoCtx, profileTwoCanonicalID); err != nil {
 		t.Fatalf("SetCanonicalFavorite profile two: %v", err)
 	}
+	profileOneGame, err := store.GetCanonicalGameByID(profileOneCtx, profileTwoCanonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profileOneGame != nil {
+		t.Fatalf("profile one loaded profile two game: %+v", profileOneGame)
+	}
+	profileTwoGame, err := store.GetCanonicalGameByID(profileTwoCtx, profileTwoCanonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profileTwoGame == nil || !profileTwoGame.Favorite {
+		t.Fatalf("profile two favorite = %+v, want favorite game", profileTwoGame)
+	}
+	stats, err := store.GetGamerStatistics(profileTwoCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.FavoriteGames != 1 {
+		t.Fatalf("profile two favorite stats = %d, want 1", stats.FavoriteGames)
+	}
 	if err := store.ClearCanonicalFavorite(profileOneCtx, profileTwoCanonicalID); !errors.Is(err, core.ErrCanonicalGameNotFound) {
 		t.Fatalf("ClearCanonicalFavorite cross-profile error = %v, want ErrCanonicalGameNotFound", err)
 	}
 	var favorites int
-	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM canonical_game_favorites WHERE canonical_id = ?`, profileTwoCanonicalID).Scan(&favorites); err != nil {
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM canonical_game_favorites WHERE profile_id = ? AND canonical_id = ?`, "profile-2", profileTwoCanonicalID).Scan(&favorites); err != nil {
 		t.Fatal(err)
 	}
 	if favorites != 1 {

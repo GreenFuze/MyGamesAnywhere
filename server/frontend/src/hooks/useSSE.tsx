@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { SELECTED_PROFILE_STORAGE_KEY } from '@/api/client'
 
 /** Parsed SSE message from GET /api/events. */
 export type SSEMessage = {
@@ -99,6 +100,15 @@ const knownTypes = [
 ] as const
 
 const SSEContext = createContext<SSEContextValue | null>(null)
+const PROFILE_CHANGE_EVENT = 'mga:selected-profile-changed'
+
+function readSelectedSSEProfileId(): string {
+  try {
+    return localStorage.getItem(SELECTED_PROFILE_STORAGE_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
 
 export function SSEProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false)
@@ -129,7 +139,9 @@ export function SSEProvider({ children }: { children: ReactNode }) {
       esRef.current = null
     }
 
-    const es = new EventSource('/api/events')
+    const profileId = readSelectedSSEProfileId()
+    const url = profileId ? `/api/events?profile_id=${encodeURIComponent(profileId)}` : '/api/events'
+    const es = new EventSource(url)
     esRef.current = es
 
     es.onopen = () => {
@@ -178,6 +190,28 @@ export function SSEProvider({ children }: { children: ReactNode }) {
         esRef.current.close()
         esRef.current = null
       }
+    }
+  }, [connect])
+
+  useEffect(() => {
+    function reconnect() {
+      retryRef.current = 0
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      connect()
+    }
+
+    function onStorage(event: StorageEvent) {
+      if (event.key === SELECTED_PROFILE_STORAGE_KEY) reconnect()
+    }
+
+    window.addEventListener(PROFILE_CHANGE_EVENT, reconnect)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener(PROFILE_CHANGE_EVENT, reconnect)
+      window.removeEventListener('storage', onStorage)
     }
   }, [connect])
 

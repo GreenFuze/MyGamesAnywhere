@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	dbpkg "github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -31,6 +32,25 @@ func (f *fakePlayIntegrationRepo) GetByID(_ context.Context, id string) (*core.I
 	return f.byID[id], nil
 }
 func (f *fakePlayIntegrationRepo) ListByPluginID(context.Context, string) ([]*core.Integration, error) {
+	return nil, nil
+}
+
+type fakePlayProfileRepo struct {
+	byID map[string]*core.Profile
+}
+
+func (f fakePlayProfileRepo) Create(context.Context, *core.Profile) error { return nil }
+func (f fakePlayProfileRepo) Update(context.Context, *core.Profile) error { return nil }
+func (f fakePlayProfileRepo) Delete(context.Context, string) error        { return nil }
+func (f fakePlayProfileRepo) List(context.Context) ([]*core.Profile, error) {
+	return nil, nil
+}
+func (f fakePlayProfileRepo) GetByID(_ context.Context, id string) (*core.Profile, error) {
+	return f.byID[id], nil
+}
+func (f fakePlayProfileRepo) Count(context.Context) (int, error)       { return 0, nil }
+func (f fakePlayProfileRepo) CountAdmins(context.Context) (int, error) { return 0, nil }
+func (f fakePlayProfileRepo) EnsureDefaultForExistingData(context.Context) (*core.Profile, error) {
 	return nil, nil
 }
 
@@ -299,12 +319,15 @@ func TestGameControllerServePlayFileSupportsHead(t *testing.T) {
 			SaveSyncCtrl:    &SaveSyncController{},
 			SSECtrl:         &SSEController{},
 			OAuthCtrl:       &OAuthController{},
+			ProfileRepo: fakePlayProfileRepo{byID: map[string]*core.Profile{
+				"profile-1": {ID: "profile-1", Role: core.ProfileRoleAdminPlayer},
+			}},
 		},
 		0,
 		"",
 	)
 
-	req := httptest.NewRequest(http.MethodHead, "/api/games/game-head/play?file_id="+encodeGameFileID("source-head", "roms/game.bin"), nil)
+	req := httptest.NewRequest(http.MethodHead, "/api/games/game-head/play?profile_id=profile-1&file_id="+encodeGameFileID("source-head", "roms/game.bin"), nil)
 	rr := httptest.NewRecorder()
 
 	router.ServeHTTP(rr, req)
@@ -317,6 +340,119 @@ func TestGameControllerServePlayFileSupportsHead(t *testing.T) {
 	}
 	if rr.Body.Len() != 0 {
 		t.Fatalf("expected empty head response body, got %q", rr.Body.String())
+	}
+}
+
+func TestGameControllerServePlayFileRequiresProfileContext(t *testing.T) {
+	ctrl := NewGameController(&fakeGameStore{}, nil, nil, nil, nil, noopLogger{})
+	router := chi.NewRouter()
+	router.With(ProfileContextMiddleware(fakePlayProfileRepo{byID: map[string]*core.Profile{
+		"profile-1": {ID: "profile-1", Role: core.ProfileRolePlayer},
+	}})).Get("/api/games/{id}/play", ctrl.ServePlayFile)
+
+	for _, tc := range []struct {
+		name string
+		url  string
+	}{
+		{name: "missing", url: "/api/games/game-1/play?file_id=" + encodeGameFileID("source-1", "roms/game.bin")},
+		{name: "invalid", url: "/api/games/game-1/play?profile_id=missing&file_id=" + encodeGameFileID("source-1", "roms/game.bin")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400 body=%q", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestGameControllerServePlayFileRejectsCrossProfileGame(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "play.sqlite")
+	database := dbpkg.NewSQLiteDatabase(noopLogger{}, restoreConfig{"DB_PATH": dbPath})
+	if err := database.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := database.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+
+	profileRepo := dbpkg.NewProfileRepository(database)
+	now := time.Now()
+	for _, profile := range []*core.Profile{
+		{ID: "profile-1", DisplayName: "Profile One", AvatarKey: "player-1", Role: core.ProfileRoleAdminPlayer, CreatedAt: now, UpdatedAt: now},
+		{ID: "profile-2", DisplayName: "Profile Two", AvatarKey: "player-2", Role: core.ProfileRolePlayer, CreatedAt: now, UpdatedAt: now},
+	} {
+		if err := profileRepo.Create(context.Background(), profile); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	root := t.TempDir()
+	fullPath := filepath.Join(root, "roms", "game.bin")
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fullPath, []byte("profile-two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := dbpkg.NewGameStore(database, noopLogger{})
+	profileTwoCtx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-2", Role: core.ProfileRolePlayer})
+	if err := store.PersistScanResults(profileTwoCtx, &core.ScanBatch{
+		IntegrationID: "integration-2",
+		SourceGames: []*core.SourceGame{{
+			ID:            "source-2",
+			IntegrationID: "integration-2",
+			PluginID:      "game-source-steam",
+			ExternalID:    "external-2",
+			RawTitle:      "Profile Two Game",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindSelfContained,
+			RootPath:      root,
+			Status:        "found",
+			Files: []core.GameFile{
+				{GameID: "source-2", Path: "roms/game.bin", Role: core.GameFileRoleRoot, FileKind: "rom", Size: 11},
+			},
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"source-2": {{PluginID: "metadata-steam", ExternalID: "match-2", Title: "Profile Two Game"}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := store.GetVisibleCanonicalIDs(profileTwoCtx, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 {
+		t.Fatalf("canonical ids = %+v, want 1", ids)
+	}
+
+	ctrl := NewGameController(store, nil, nil, nil, nil, noopLogger{})
+	router := chi.NewRouter()
+	router.With(ProfileContextMiddleware(profileRepo)).Get("/api/games/{id}/play", ctrl.ServePlayFile)
+	fileID := encodeGameFileID("source-2", "roms/game.bin")
+
+	crossReq := httptest.NewRequest(http.MethodGet, "/api/games/"+ids[0]+"/play?profile_id=profile-1&file_id="+fileID, nil)
+	crossRec := httptest.NewRecorder()
+	router.ServeHTTP(crossRec, crossReq)
+	if crossRec.Code != http.StatusNotFound {
+		t.Fatalf("cross-profile status = %d, want 404 body=%q", crossRec.Code, crossRec.Body.String())
+	}
+
+	ownReq := httptest.NewRequest(http.MethodGet, "/api/games/"+ids[0]+"/play?profile_id=profile-2&file_id="+fileID, nil)
+	ownRec := httptest.NewRecorder()
+	router.ServeHTTP(ownRec, ownReq)
+	if ownRec.Code != http.StatusOK {
+		t.Fatalf("own-profile status = %d, want 200 body=%q", ownRec.Code, ownRec.Body.String())
+	}
+	if ownRec.Body.String() != "profile-two" {
+		t.Fatalf("own-profile body = %q, want profile-two", ownRec.Body.String())
 	}
 }
 

@@ -506,6 +506,10 @@ func (s *gameStore) SetCanonicalFavorite(ctx context.Context, canonicalID string
 	if strings.TrimSpace(canonicalID) == "" {
 		return core.ErrCanonicalGameNotFound
 	}
+	profileID := core.ProfileIDFromContext(ctx)
+	if profileID == "" {
+		return core.ErrProfileRequired
+	}
 	exists, err := s.canonicalGameVisibleInContext(ctx, canonicalID)
 	if err != nil {
 		return err
@@ -514,16 +518,20 @@ func (s *gameStore) SetCanonicalFavorite(ctx context.Context, canonicalID string
 		return core.ErrCanonicalGameNotFound
 	}
 	_, err = s.db.GetDB().ExecContext(ctx, `
-		INSERT INTO canonical_game_favorites (canonical_id, updated_at)
-		VALUES (?, ?)
-		ON CONFLICT(canonical_id) DO UPDATE SET updated_at=excluded.updated_at`,
-		canonicalID, time.Now().Unix())
+		INSERT INTO canonical_game_favorites (profile_id, canonical_id, updated_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(profile_id, canonical_id) DO UPDATE SET updated_at=excluded.updated_at`,
+		profileID, canonicalID, time.Now().Unix())
 	return err
 }
 
 func (s *gameStore) ClearCanonicalFavorite(ctx context.Context, canonicalID string) error {
 	if strings.TrimSpace(canonicalID) == "" {
 		return core.ErrCanonicalGameNotFound
+	}
+	profileID := core.ProfileIDFromContext(ctx)
+	if profileID == "" {
+		return core.ErrProfileRequired
 	}
 	exists, err := s.canonicalGameVisibleInContext(ctx, canonicalID)
 	if err != nil {
@@ -532,7 +540,7 @@ func (s *gameStore) ClearCanonicalFavorite(ctx context.Context, canonicalID stri
 	if !exists {
 		return core.ErrCanonicalGameNotFound
 	}
-	res, err := s.db.GetDB().ExecContext(ctx, `DELETE FROM canonical_game_favorites WHERE canonical_id=?`, canonicalID)
+	res, err := s.db.GetDB().ExecContext(ctx, `DELETE FROM canonical_game_favorites WHERE profile_id=? AND canonical_id=?`, profileID, canonicalID)
 	if err != nil {
 		return err
 	}
@@ -1567,11 +1575,17 @@ func (s *gameStore) loadStatsIntegrationLabels(ctx context.Context) (map[string]
 
 func (s *gameStore) countVisibleFavoriteGames(ctx context.Context) (int, error) {
 	var count int
-	err := s.db.GetDB().QueryRowContext(ctx, `
+	query := `
 		SELECT COUNT(DISTINCT f.canonical_id)
 		FROM canonical_game_favorites f
 		JOIN canonical_source_games_link l ON l.canonical_id = f.canonical_id
-		JOIN source_games sg ON sg.id = l.source_game_id AND `+visibleSourceGameWhere(ctx, "sg")).Scan(&count)
+		JOIN source_games sg ON sg.id = l.source_game_id AND ` + visibleSourceGameWhere(ctx, "sg")
+	args := []any{}
+	if profileID := core.ProfileIDFromContext(ctx); profileID != "" {
+		query += ` WHERE f.profile_id = ?`
+		args = append(args, profileID)
+	}
+	err := s.db.GetDB().QueryRowContext(ctx, query, args...).Scan(&count)
 	return count, err
 }
 
@@ -3957,7 +3971,13 @@ func (s *gameStore) loadCanonicalBackgroundOverride(ctx context.Context, db *sql
 
 func (s *gameStore) loadCanonicalFavorite(ctx context.Context, db *sql.DB, canonicalID string) (bool, error) {
 	var count int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM canonical_game_favorites WHERE canonical_id=?`, canonicalID).Scan(&count); err != nil {
+	query := `SELECT COUNT(*) FROM canonical_game_favorites WHERE canonical_id=?`
+	args := []any{canonicalID}
+	if profileID := core.ProfileIDFromContext(ctx); profileID != "" {
+		query += ` AND profile_id=?`
+		args = append(args, profileID)
+	}
+	if err := db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
 		return false, err
 	}
 	return count > 0, nil

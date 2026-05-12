@@ -3,6 +3,7 @@ import type {
   GameFileDTO,
   SourceGameDetailDTO,
 } from '@/api/client'
+import { SELECTED_PROFILE_STORAGE_KEY } from '@/api/client'
 import { platformLabel, sourceLabel } from '@/lib/displayText'
 
 export type BrowserPlayRuntime = 'emulatorjs' | 'jsdos' | 'scummvm'
@@ -195,10 +196,22 @@ function emulatorJsCoreForSelection(
 
 export function buildPlayFileUrl(gameId: string, fileId: string, profile?: string, filePath?: string): string {
   const query = new URLSearchParams({ file_id: fileId })
+  const mgaProfileId = readSelectedMGAProfileId()
+  if (mgaProfileId) query.set('profile_id', mgaProfileId)
+  // `profile_id` is the selected MGA user profile. `profile` is the browser-runtime
+  // delivery profile, such as browser.emulatorjs, used for materialized source files.
   if (profile) query.set('profile', profile)
   const fileName = filePath ? lastPathSegment(filePath) : ''
   if (fileName) query.set('filename', fileName)
   return `/api/games/${encodeURIComponent(gameId)}/play?${query.toString()}`
+}
+
+function readSelectedMGAProfileId(): string {
+  try {
+    return localStorage.getItem(SELECTED_PROFILE_STORAGE_KEY) ?? ''
+  } catch {
+    return ''
+  }
 }
 
 function sourcePreferenceKey(gameId: string, runtime: BrowserPlayRuntime): string {

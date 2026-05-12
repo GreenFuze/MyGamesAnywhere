@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type LegacyRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Download, ExternalLink, Maximize2, Minimize2, PlayCircle, Upload } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Download, ExternalLink, Maximize2, Minimize2, PlayCircle, Upload } from 'lucide-react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
@@ -96,6 +96,10 @@ function browserPlayRuntimeBrand(runtime: BrowserPlaySession['runtime']): string
     case 'scummvm':
       return 'scummvm'
   }
+}
+
+function shouldShowEmulatorJsAchievementDisclaimer(session: BrowserPlaySession | null): boolean {
+  return session?.runtime === 'emulatorjs' && session.core === 'mame2003_plus'
 }
 
 type PendingBridgeRequest = {
@@ -973,6 +977,7 @@ export function GamePlayerPage() {
 
   const data = game.data
   const showExternalSaveSyncBar = Boolean(session && session.runtime !== 'emulatorjs' && saveSyncRuntimeSupported)
+  const showAchievementDisclaimer = shouldShowEmulatorJsAchievementDisclaimer(session)
   const playerWindowTitle =
     selection && availableSelections.length > 0
       ? `${data.title} · ${browserPlaySourceOptionLabel(selection, availableSelections)}`
@@ -1242,6 +1247,17 @@ export function GamePlayerPage() {
             )}
             {!showExternalSaveSyncBar && runtimeError && (
               <p className="text-xs text-red-400">{runtimeError}</p>
+            )}
+            {showAchievementDisclaimer && (
+              <section className="rounded-mga border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+                <div className="flex gap-3">
+                  <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+                  <p>
+                    RetroAchievements unlocks are not recorded in this browser player for MAME games.
+                    Stored achievement progress is refreshed from RetroAchievements separately.
+                  </p>
+                </div>
+              </section>
             )}
 
             <section

@@ -68,8 +68,6 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/auth/callback/{plugin_id}", b.OAuthCtrl.Callback)
 			api.Post("/auth/callback/import", b.OAuthCtrl.ImportCallback)
 			api.Put("/media/{assetID}/metadata", ProfileContextMiddleware(b.ProfileRepo)(RequireAdminProfile(http.HandlerFunc(b.MediaCtrl.UpdateMediaMetadata))).ServeHTTP)
-			api.Get("/games/{id}/play", b.GameCtrl.ServePlayFile)
-			api.Head("/games/{id}/play", b.GameCtrl.ServePlayFile)
 			api.Get("/about", b.AboutCtrl.GetAbout)
 			api.Get("/about/license", b.AboutCtrl.GetLicense)
 
@@ -172,6 +170,18 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 
 			})
 
+			// Browser play streams can be large; enforce profile context without request timeout.
+			api.Group(func(r chi.Router) {
+				r.Use(ProfileContextMiddleware(b.ProfileRepo))
+				r.Get("/games/{id}/play", b.GameCtrl.ServePlayFile)
+				r.Head("/games/{id}/play", b.GameCtrl.ServePlayFile)
+			})
+
+			api.Group(func(r chi.Router) {
+				r.Use(OptionalProfileContextMiddleware(b.ProfileRepo))
+				r.Get("/events", b.SSECtrl.Events)
+			})
+
 			// Scan can take many minutes; no middleware timeout.
 			api.Group(func(r chi.Router) {
 				r.Use(ProfileContextMiddleware(b.ProfileRepo))
@@ -183,9 +193,6 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Get("/scan/reports", b.DiscoCtrl.GetScanReports)
 				r.Get("/scan/reports/{id}", b.DiscoCtrl.GetScanReport)
 			})
-
-			// Long-lived SSE stream; no middleware timeout.
-			api.Get("/events", b.SSECtrl.Events)
 		} else {
 			api.Get("/setup/status", noopHandler())
 			api.Post("/setup/start-fresh", noopHandler())

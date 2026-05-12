@@ -258,17 +258,41 @@ func TestManualSearchReturnsLaunchBoxAlternateTitleMatch(t *testing.T) {
 		Name:       "Out of This World",
 		Platform:   "Sega Genesis",
 	}
+	outOfThisWorldPC := &gameEntry{
+		DatabaseID: 10703,
+		Name:       "Out of this World",
+		Platform:   "MS-DOS",
+	}
+	outOfThisWorldUnknown := &gameEntry{
+		DatabaseID: 90001,
+		Name:       "Another World",
+		Platform:   "Unmapped Platform",
+	}
 	idx := &launchBoxIndex{
 		files: map[string]*fileEntry{},
 		games: map[string]*gameEntry{
-			"sega genesis\tout of this world": outOfThisWorld,
+			"sega genesis\tout of this world":       outOfThisWorld,
+			"ms-dos\tout of this world":             outOfThisWorldPC,
+			"unmapped platform\tanother world":      outOfThisWorldUnknown,
+			"unmapped platform\tout of this world":  outOfThisWorldUnknown,
+			"unmapped platform\tanother world demo": outOfThisWorldUnknown,
 		},
 		normalized: map[string]*gameEntry{
-			"sega genesis\tout of this world": outOfThisWorld,
+			"sega genesis\tout of this world":       outOfThisWorld,
+			"ms-dos\tout of this world":             outOfThisWorldPC,
+			"unmapped platform\tanother world":      outOfThisWorldUnknown,
+			"unmapped platform\tout of this world":  outOfThisWorldUnknown,
+			"unmapped platform\tanother world demo": outOfThisWorldUnknown,
 		},
 		byPlatform: map[string][]tokenedGame{
+			"ms-dos": {
+				{tokens: tokenize(outOfThisWorldPC.Name), normalizedTitle: normalizeTitle(outOfThisWorldPC.Name), game: outOfThisWorldPC},
+			},
 			"sega genesis": {
 				{tokens: tokenize(outOfThisWorld.Name), normalizedTitle: normalizeTitle(outOfThisWorld.Name), game: outOfThisWorld},
+			},
+			"unmapped platform": {
+				{tokens: tokenize(outOfThisWorldUnknown.Name), normalizedTitle: normalizeTitle(outOfThisWorldUnknown.Name), game: outOfThisWorldUnknown},
 			},
 		},
 		images: map[int][]gameImage{},
@@ -280,6 +304,9 @@ func TestManualSearchReturnsLaunchBoxAlternateTitleMatch(t *testing.T) {
 	}
 	if results[0].Title != "Out of This World" || results[0].ExternalID != "32809" || results[0].Platform != "genesis" {
 		t.Fatalf("first result = %+v, want Out of This World genesis", results[0])
+	}
+	if len(results) < 2 || results[1].ExternalID != "10703" || results[1].Platform != "ms_dos" {
+		t.Fatalf("second result = %+v, want MS-DOS alternate-platform result", results)
 	}
 }
 

@@ -426,6 +426,31 @@ func ProfileContextMiddleware(repo core.ProfileRepository) func(http.Handler) ht
 	}
 }
 
+func OptionalProfileContextMiddleware(repo core.ProfileRepository) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			profileID := strings.TrimSpace(r.Header.Get(profileHeader))
+			if profileID == "" {
+				profileID = strings.TrimSpace(r.URL.Query().Get("profile_id"))
+			}
+			if profileID == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			profile, err := repo.GetByID(r.Context(), profileID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if profile == nil {
+				http.Error(w, "profile not found", http.StatusBadRequest)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(core.WithProfile(r.Context(), profile)))
+		})
+	}
+}
+
 func RequireAdminProfile(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !core.ProfileIsAdmin(r.Context()) {

@@ -565,6 +565,8 @@ func (c *GameController) writeFavoriteError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, core.ErrCanonicalGameNotFound):
 		http.Error(w, err.Error(), http.StatusNotFound)
+	case errors.Is(err, core.ErrProfileRequired):
+		http.Error(w, err.Error(), http.StatusBadRequest)
 	default:
 		c.logger.Error("favorite update failed", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)

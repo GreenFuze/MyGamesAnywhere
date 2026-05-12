@@ -50,11 +50,12 @@ These are the next committed tasks after the completed Phase 7 / issue-cleanup w
    - [x] Verification: achievement service/controller tests, SSE job progress tests, frontend build, focused manual refresh proof with one configured provider.
 
 4. **Duplicate games review in Settings**
-   - [ ] Add a Settings tab for duplicate candidates across source records.
-   - [ ] Support two modes: title-normalized duplicates ignoring platform/version, and stricter duplicates including platform/version/source metadata.
-   - [ ] Reuse existing canonical/source-game link data and shared title normalization instead of adding a separate duplicate model first.
-   - [ ] Provide review-only grouping in v1; defer destructive merge/split actions unless the report proves useful.
-   - [ ] Verification: duplicate-query tests with same-title/different-platform cases, frontend build, manual UI proof on seeded data.
+   - [x] Add a Settings tab for duplicate candidates across source records.
+   - [x] Support two modes: title-normalized duplicates ignoring platform/version, and stricter duplicates including platform/version/source metadata.
+   - [x] Reuse existing canonical/source-game link data and shared title normalization instead of adding a separate duplicate model first.
+   - [x] Reuse the existing two-stage source hard-delete preview/delete flow for one file-backed duplicate at a time; non-file-backed rows remain visible but disabled.
+   - [x] Verification: duplicate-query tests with same-title/different-platform cases, frontend build, manual UI proof on local portable data, and dry-run delete preview proof.
+   - NO_MIGRATION_NEEDED: duplicate detection is read-only over existing canonical/source-game rows, and removal uses the existing source hard-delete service.
 
 5. **Richer Library / Gamer statistics**
    - [x] Split Home stats conceptually into Library Statistics and Gamer Statistics while keeping the Home page as a concise summary.
@@ -641,18 +642,18 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Refresh `README.md` into a user-facing landing document with quick start, screenshots, packaging/install guidance, and feature overview.
 - [ ] Add multi-user / user management for MGA (profile-based, no passwords at this stage).
   - [x] Phase 1: Profile schema, repositories, migration, and stale auth cleanup
-  - [ ] Phase 2: Profile context middleware, admin/player API enforcement, and profile-scoped repositories
-  - [ ] Phase 3: First-run setup APIs and frontend wizard
+  - [x] Phase 2: Profile context middleware, admin/player API enforcement, and profile-scoped repositories. Follow-up hardening added profile-scoped browser-play file streaming, SSE filtering, and migration 8 profile-scoped favorites.
+  - [x] Phase 3: First-run setup APIs and frontend wizard
   - [x] Phase 4: Profile picker/header/default-profile frontend flow
   - [x] Phase 5: Settings -> Profiles management UI
-  - [ ] Phase 6: Settings sync payload v2 with profile restore/bootstrap
+  - [x] Phase 6: Settings sync payload v2 with profile restore/bootstrap
   - [ ] Phase 7: Full profile-scoped library verification and regression tests
-  - [ ] Web-client frontend should support profiles + profile management in settings
-  - [ ] Set roles: Admin Player and Player. Admin Player can access settings; other than that, they are the same.
-  - [ ] Each profile has its own integrations, library data, scans, favorites, achievements, and profile settings.
+  - [x] Web-client frontend should support profiles + profile management in settings
+  - [x] Set roles: Admin Player and Player. Admin Player can access settings; other than that, they are the same.
+  - [x] Each profile has its own integrations, library data, scans, favorites, achievements, and profile settings. Migration 8 makes favorites profile-owned; media overrides intentionally remain shared/reusable across canonical games.
   - [ ] Plugin binaries/capabilities and media assets remain global.
-  - [ ] Web-client: surfing to the web client, the user can choose a profile and set it as the browser default.
-  - [ ] User image/icon should be shown on the top left, where profile switch/log-out lives.
+  - [x] Web-client: surfing to the web client, the user can choose a profile and set it as the browser default.
+  - [x] User image/icon should be shown on the top left, where profile switch/log-out lives.
 - [x] Auto-update mechanism
   - [x] Add `mga-update.json` release manifest support with version, release notes URL, asset URL, SHA256, size, OS/arch/type, and minimum updater version.
   - [x] Add server update APIs: `GET /api/update/status`, `POST /api/update/check`, `POST /api/update/download`, and `POST /api/update/apply`.
@@ -685,15 +686,16 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [x] Does cached data means in the frontend? or the server?
     - [x] If on the frontend, explain the user what it means, because it is weird
     - [x] If "cached" on the server - its a bug as the server should "bring" the achivement status from the plugin during scan. If you think this is wrong, you may push back just explain to the user and offer alternatives.
-- [ ] In settings, add a tab to find duplicated games acorss sources.
-  - [ ] duplications for games (ignoring versioning/platform)
-  - [ ] duplications for games including version/platform etc.
+- [x] In settings, add a tab to find duplicated games acorss sources. Implemented as Settings -> Duplicates with one-by-one hard delete for eligible file-backed source records through the shared two-stage delete preview/confirmation flow. NO_MIGRATION_NEEDED: read-only duplicate detection plus existing source hard-delete service.
+  - [x] duplications for games (ignoring versioning/platform)
+  - [x] duplications for games including version/platform etc.
 - [x] Home screen should have "library statistics" and "gamer statistics". Implemented as a top-level Stats area with Library Statistics and Gamer Statistics pages, while Home stays concise. NO_MIGRATION_NEEDED: read-only over existing stats, scan reports, favorites, cached achievements, and frontend recent-play config.
 - [ ] Make sure MGA server (and frontend client) both supporting Linux + Windows
-- [ ] When playing a game, not all emulators support "retroachivements" achivements recording. check if our EmulatorJS does support it. If it does, check what it means to allow the user to run in that mode (which is restricting on "cheats" and stuff like that).
+- [x] When playing a game, not all emulators support "retroachivements" achivements recording. EmulatorJS/MAME launches now show a small frontend disclaimer that RetroAchievements unlocks are not recorded in the browser player and stored achievement progress is refreshed separately. NO_MIGRATION_NEEDED: frontend-only player messaging; no DB schema, SQLite data, or persisted config changes.
 - [x] When showing source files of a game (in undetected games page and game page), show all the files in a single multi-line textbox. otherwise it takes too much space. Also no need to show size per file, show total size.
 - [x] Support "exclude directories" for files-backed sources. Update Web frontend to support this.
 - [x] I am searching for "desert strike". in launchbox db website I find "Desert Strike: Return to the Gulf", which is the right game, but in MGA it finds only "MiniTank: Desert Strike" from IGDB.
+- [x] Manual metadata search for "Another World" did not show LaunchBox canonical candidates because LaunchBox stores the North American title as "Out of This World" and manual lookup was too platform-specific; LaunchBox lookup now includes that alternate-title alias, ranks the current platform first, and still returns cross-platform candidates such as MS-DOS.
 - [x] In undetected games, "Inca 2 (MS DOS)" was not found. if I manually search for "Inca 2", also not found. If I search for "Inca II", it is found. Now if I remember correctly the normalization and cadidates to search, if there's no match, we remove the parenthesis (i.e. "Inca 2"), and if that is not found, we replace the numbers to roman numbers (i.e. Inca II) -> meaning, the undetected games search of "Inca 2 (MS DOS)" should have displayed "Inca II". Am I wrong?
 - [x] Its time to release v0.0.8.
 - [x] The auto update (in the settings->update) should ignore versions that are not in the format of "vX.X.X". Meaning, it shouldn't detect latest versions of the format "v0.0.8-beta" and such. Or, at the least, let the user decide their track (cutting edge vs stable)
