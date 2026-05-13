@@ -42,6 +42,10 @@ type AchievementFetchService struct {
 	logger     core.Logger
 }
 
+type AchievementFetchOptions struct {
+	PersistProviderFailures bool
+}
+
 type AchievementCacheError struct {
 	Err error
 }
@@ -97,6 +101,10 @@ func (s *AchievementFetchService) FetchAndCacheForSources(ctx context.Context, g
 }
 
 func (s *AchievementFetchService) FetchAndCacheWithCandidates(ctx context.Context, game *core.CanonicalGame, sources []AchievementSource, candidatesByPlugin map[string][]AchievementQueryCandidate) ([]*core.AchievementSet, map[string]error) {
+	return s.FetchAndCacheWithCandidatesOptions(ctx, game, sources, candidatesByPlugin, AchievementFetchOptions{PersistProviderFailures: true})
+}
+
+func (s *AchievementFetchService) FetchAndCacheWithCandidatesOptions(ctx context.Context, game *core.CanonicalGame, sources []AchievementSource, candidatesByPlugin map[string][]AchievementQueryCandidate, options AchievementFetchOptions) ([]*core.AchievementSet, map[string]error) {
 	if game == nil || len(sources) == 0 {
 		return nil, nil
 	}
@@ -133,16 +141,18 @@ func (s *AchievementFetchService) FetchAndCacheWithCandidates(ctx context.Contex
 						errs = make(map[string]error)
 					}
 					errs[fetchKey] = err
-					if stateErr := s.gameStore.SaveAchievementRefreshState(ctx, &core.AchievementRefreshState{
-						SourceGameID:    candidate.SourceGameID,
-						IntegrationID:   candidate.IntegrationID,
-						PluginID:        pluginID,
-						ExternalGameID:  candidate.ExternalGameID,
-						Status:          core.AchievementRefreshStatusFailed,
-						LastAttemptedAt: time.Now().UTC(),
-						LastError:       err.Error(),
-					}); stateErr != nil {
-						errs[fetchKey+"|state"] = &AchievementCacheError{Err: stateErr}
+					if options.PersistProviderFailures {
+						if stateErr := s.gameStore.SaveAchievementRefreshState(ctx, &core.AchievementRefreshState{
+							SourceGameID:    candidate.SourceGameID,
+							IntegrationID:   candidate.IntegrationID,
+							PluginID:        pluginID,
+							ExternalGameID:  candidate.ExternalGameID,
+							Status:          core.AchievementRefreshStatusFailed,
+							LastAttemptedAt: time.Now().UTC(),
+							LastError:       err.Error(),
+						}); stateErr != nil {
+							errs[fetchKey+"|state"] = &AchievementCacheError{Err: stateErr}
+						}
 					}
 					continue
 				}

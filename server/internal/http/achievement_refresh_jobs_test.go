@@ -20,7 +20,9 @@ func TestAchievementRefreshControllerStartsRejectsDuplicateAndPolls(t *testing.T
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	controller := NewAchievementRefreshController(runner, events.New(), noopLogger{})
+	bus := events.New()
+	sub := bus.Subscribe()
+	controller := NewAchievementRefreshController(runner, bus, noopLogger{})
 
 	router := chi.NewRouter()
 	router.Post("/api/achievements/refresh", controller.Start)
@@ -42,6 +44,7 @@ func TestAchievementRefreshControllerStartsRejectsDuplicateAndPolls(t *testing.T
 	case <-time.After(2 * time.Second):
 		t.Fatal("achievement refresh runner did not start")
 	}
+	waitForAchievementRefreshEvent(t, sub, "achievement_refresh_waiting")
 
 	recDuplicate := httptest.NewRecorder()
 	router.ServeHTTP(recDuplicate, httptest.NewRequest(http.MethodPost, "/api/achievements/refresh", nil))
@@ -65,7 +68,9 @@ func TestAchievementRefreshControllerStartsRejectsDuplicateAndPolls(t *testing.T
 			job.ItemsCompleted == 2 &&
 			job.SuccessCount == 1 &&
 			job.WarningCount == 1 &&
-			job.ErrorCount == 1
+			job.ErrorCount == 1 &&
+			job.ProviderID == "ra-integration" &&
+			job.ProviderLabel == "RetroAchievements"
 	}, func() *core.AchievementRefreshJobStatus {
 		return controller.jobs.Get(started.JobID)
 	})
@@ -91,6 +96,18 @@ func (r *blockingAchievementRefreshRunner) RefreshAll(ctx context.Context, callb
 	if callbacks.Progress != nil {
 		callbacks.Progress(0, 2, "Game A")
 	}
+	if callbacks.Waiting != nil {
+		callbacks.Waiting(scan.AchievementRefreshWait{
+			Completed:     0,
+			Total:         2,
+			Item:          "Game A",
+			ProviderID:    "ra-integration",
+			ProviderLabel: "RetroAchievements",
+			Message:       "RetroAchievements is rate-limited. Waiting 1s before retrying achievement refresh.",
+			WaitingUntil:  time.Now().Add(time.Second).UTC().Format(time.RFC3339),
+			Delay:         time.Second,
+		})
+	}
 	select {
 	case <-r.release:
 	case <-ctx.Done():
@@ -103,6 +120,21 @@ func (r *blockingAchievementRefreshRunner) RefreshAll(ctx context.Context, callb
 		callbacks.Progress(2, 2, "Game B")
 	}
 	return &scan.AchievementRefreshResult{Targets: 2, Success: 1, Failed: 1}, nil
+}
+
+func waitForAchievementRefreshEvent(t *testing.T, sub <-chan events.Event, eventType string) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-sub:
+			if ev.Type == eventType {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for %s", eventType)
+		}
+	}
 }
 
 func waitForAchievementRefreshJob(

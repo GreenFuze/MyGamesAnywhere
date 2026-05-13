@@ -112,7 +112,7 @@ paths:
   /api/achievements/refresh:
     post:
       summary: Start achievements refresh
-      description: Starts a background job that refreshes achievements for all profile-visible games with configured achievement-capable integrations. Provider failures are persisted as degraded per-game state and do not stop unrelated games.
+      description: Starts a background job that refreshes achievements for all profile-visible games with configured achievement-capable integrations. Provider calls are throttled and may emit waiting/progress events when a provider rate-limits refresh work. Provider failures are persisted as degraded per-game state and do not stop unrelated games.
       responses:
         202:
           description: AchievementRefreshJobStatus
@@ -126,7 +126,7 @@ paths:
   /api/achievements/refresh/jobs/{job_id}:
     get:
       summary: Get achievements refresh job
-      description: Returns the latest in-memory status for an achievement refresh job.
+      description: Returns the latest in-memory status for an achievement refresh job, including current provider, item, and optional provider backoff wait state.
       parameters:
         - name: job_id
           in: path

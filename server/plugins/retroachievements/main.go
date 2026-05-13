@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -219,9 +221,71 @@ func raGet(endpoint string, params url.Values) ([]byte, error) {
 		return nil, fmt.Errorf("RA API %s read body: %w", endpoint, err)
 	}
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("RA API %s: status %d: %s", endpoint, resp.StatusCode, string(body))
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, newRARateLimitError(endpoint, resp.Header.Get("Retry-After"))
+		}
+		return nil, fmt.Errorf("RA API %s: status %d: %s", endpoint, resp.StatusCode, cleanRAErrorBody(string(body)))
 	}
 	return body, nil
+}
+
+var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)
+var htmlScriptPattern = regexp.MustCompile(`(?is)<script[\s\S]*?</script>`)
+
+func cleanRAErrorBody(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "empty response body"
+	}
+	if !strings.Contains(body, "<") {
+		return body
+	}
+	body = htmlScriptPattern.ReplaceAllString(body, " ")
+	body = htmlTagPattern.ReplaceAllString(body, " ")
+	body = strings.Join(strings.Fields(body), " ")
+	if body == "" {
+		return "upstream returned an HTML error page"
+	}
+	return body
+}
+
+type raRateLimitError struct {
+	endpoint          string
+	retryAfterSeconds int
+}
+
+func newRARateLimitError(endpoint, retryAfter string) error {
+	return &raRateLimitError{
+		endpoint:          endpoint,
+		retryAfterSeconds: parseRetryAfterSeconds(retryAfter),
+	}
+}
+
+func (e *raRateLimitError) Error() string {
+	if e == nil {
+		return "RetroAchievements rate limited the request"
+	}
+	if e.retryAfterSeconds > 0 {
+		return fmt.Sprintf("RetroAchievements rate limited request to %s; retry_after_seconds=%d", e.endpoint, e.retryAfterSeconds)
+	}
+	return fmt.Sprintf("RetroAchievements rate limited request to %s", e.endpoint)
+}
+
+func parseRetryAfterSeconds(value string) int {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+		return seconds
+	}
+	if parsed, err := http.ParseTime(value); err == nil {
+		seconds := int(time.Until(parsed).Seconds())
+		if seconds > 0 {
+			return seconds
+		}
+	}
+	return 0
 }
 
 func fetchGameList(consoleID int) ([]raGameListEntry, error) {
@@ -725,6 +789,10 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 
 	game, err := fetchUserGameProgress(gameID)
 	if err != nil {
+		var rateLimitErr *raRateLimitError
+		if errors.As(err, &rateLimitErr) {
+			return nil, &Error{Code: "RATE_LIMITED", Message: rateLimitErr.Error()}
+		}
 		return nil, &Error{Code: "API_ERROR", Message: err.Error()}
 	}
 

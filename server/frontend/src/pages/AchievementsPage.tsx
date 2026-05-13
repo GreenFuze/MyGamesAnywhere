@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, ChevronDown, ChevronRight, Loader2, RefreshCw, Trophy } from 'lucide-react'
 import {
   getAchievementRefreshJob,
@@ -11,14 +11,14 @@ import {
   type AchievementsDashboardResponse,
   type AchievementExplorerGameDTO,
   type AchievementRefreshJobStatus,
-  type AchievementGameSummaryDTO,
   type AchievementSetDTO,
   type AchievementSystemSummaryDTO,
 } from '@/api/client'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
-import { BrandBadge } from '@/components/ui/brand-icon'
+import { BrandBadge, BrandIcon } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { CoverImage } from '@/components/ui/cover-image'
+import { Tabs, type Tab } from '@/components/ui/tabs'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { platformLabel, selectCoverUrl, sourceLabel } from '@/lib/gameUtils'
 import { useProfiles } from '@/hooks/useProfiles'
@@ -29,16 +29,31 @@ function percent(unlocked: number, total: number): number {
   return (unlocked / total) * 100
 }
 
-function pointsText(item: Pick<AchievementSystemSummaryDTO, 'earned_points' | 'total_points'>): string | null {
+type PointsLike = {
+  earned_points?: number
+  total_points?: number
+}
+
+function pointsText(item: PointsLike): string | null {
   if (!item.total_points || item.total_points <= 0) return null
   return `${item.earned_points ?? 0}/${item.total_points} pts`
 }
 
-function SystemSummaryCard({ system }: { system: AchievementSystemSummaryDTO }) {
-  const progress = percent(system.unlocked_count, system.total_count)
+function formatPercentValue(value: number): string {
+  if (!Number.isFinite(value)) return '0%'
+  return `${Math.round(value)}%`
+}
 
-  return (
-    <div className="rounded-mga border border-mga-border bg-mga-surface p-4 shadow-sm shadow-black/10">
+function SystemSummaryCard({
+  system,
+  onOpen,
+}: {
+  system: AchievementSystemSummaryDTO
+  onOpen?: () => void
+}) {
+  const progress = percent(system.unlocked_count, system.total_count)
+  const content = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-2">
           <BrandBadge brand={system.source} label={sourceLabel(system.source)} />
@@ -59,12 +74,27 @@ function SystemSummaryCard({ system }: { system: AchievementSystemSummaryDTO }) 
       <div className="mt-4 space-y-2">
         <div className="flex flex-wrap items-center gap-2 text-sm text-mga-muted">
           <span>{system.unlocked_count}/{system.total_count} unlocked</span>
+          <Badge variant="muted">{formatPercentValue(progress)}</Badge>
           {pointsText(system) && <Badge variant="muted">{pointsText(system)}</Badge>}
         </div>
         <ProgressBar value={progress} />
       </div>
-    </div>
+    </>
   )
+
+  if (onOpen) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        className="rounded-mga border border-mga-border bg-mga-surface p-4 text-left shadow-sm shadow-black/10 transition-colors hover:border-mga-accent/70 hover:bg-mga-elevated/40"
+      >
+        {content}
+      </button>
+    )
+  }
+
+  return <div className="rounded-mga border border-mga-border bg-mga-surface p-4 shadow-sm shadow-black/10">{content}</div>
 }
 
 type AchievementDetailLinkState = {
@@ -79,69 +109,6 @@ function buildAchievementDetailLinkState(pathname: string, search: string): Achi
     scrollY: Math.max(0, Math.floor(window.scrollY)),
     originLabel: 'Achievements',
   }
-}
-
-function GameAchievementRow({
-  item,
-  detailLinkState,
-}: {
-  item: AchievementGameSummaryDTO
-  detailLinkState: AchievementDetailLinkState
-}) {
-  const summary = item.game.achievement_summary
-  const coverUrl = selectCoverUrl(item.game.media, item.game.cover_override)
-
-  return (
-    <Link
-      to={`/game/${encodeURIComponent(item.game.id)}`}
-      state={detailLinkState}
-      className="grid gap-3 rounded-mga border border-mga-border bg-mga-surface p-3 transition-colors hover:border-mga-accent/70 hover:bg-mga-elevated/40 md:grid-cols-[4rem,minmax(0,1fr),minmax(16rem,0.8fr)]"
-    >
-      <div className="h-20 w-14 overflow-hidden rounded-mga border border-mga-border bg-mga-bg">
-        <CoverImage
-          src={coverUrl}
-          alt={item.game.title}
-          fit="contain"
-          variant="compact"
-          className="h-full w-full"
-        />
-      </div>
-      <div className="min-w-0 space-y-2">
-        <div>
-          <h2 className="line-clamp-2 text-base font-semibold text-mga-text">{item.game.title}</h2>
-          <p className="text-sm text-mga-muted">{platformLabel(item.game.platform)}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {item.systems.map((system) => (
-            <BrandBadge key={system.source} brand={system.source} label={sourceLabel(system.source)} />
-          ))}
-        </div>
-      </div>
-      <div className="space-y-3">
-        {summary && (
-          <div className="flex items-center gap-3">
-            <AchievementProgressRing summary={summary} size={48} strokeWidth={5} />
-            <div className="min-w-0 text-sm text-mga-muted">
-              <p className="font-medium text-mga-text">{summary.unlocked_count}/{summary.total_count} unlocked</p>
-              {pointsText({
-                earned_points: summary.earned_points,
-                total_points: summary.total_points,
-              }) && (
-                <p>{pointsText({ earned_points: summary.earned_points, total_points: summary.total_points })}</p>
-              )}
-            </div>
-          </div>
-        )}
-        {item.systems.map((system) => (
-          <ProgressBar
-            key={system.source}
-            value={percent(system.unlocked_count, system.total_count)}
-            label={`${sourceLabel(system.source)} ${system.unlocked_count}/${system.total_count}`}
-          />
-        ))}
-      </div>
-    </Link>
-  )
 }
 
 function achievementMatches(
@@ -188,6 +155,112 @@ const emptyDashboard: AchievementsDashboardResponse = {
   games: [],
   refresh: { total: 0, success_count: 0, failed_count: 0, skipped_count: 0 },
   refresh_states: [],
+}
+
+type ExplorerGameEntry = {
+  item: AchievementExplorerGameDTO
+  systems: Array<{ system: AchievementSetDTO; achievements: AchievementDTO[] }>
+  totalCount: number
+  unlockedCount: number
+  completion: number
+}
+
+type FailedProviderSummary = {
+  pluginID: string
+  count: number
+  latestError: string
+}
+
+function stripProviderHtml(value: string): string {
+  return value
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function providerErrorMessage(pluginID: string, error?: string): string {
+  const raw = (error ?? '').trim()
+  if (!raw) return 'Refresh failed without a provider message.'
+  const text = stripProviderHtml(raw)
+  if (/\b429\b/i.test(raw) || /too many requests|rate[- ]limited?/i.test(raw)) {
+    return `${sourceLabel(pluginID)} rate-limited the last background achievement refresh. Wait a while, then run Refresh achievements again.`
+  }
+  if (/AUTH_FAILED|not authenticated|re-auth/i.test(raw)) {
+    return `${sourceLabel(pluginID)} needs re-authentication before achievement refresh can succeed.`
+  }
+  return text || 'Refresh failed without a provider message.'
+}
+
+function storedRefreshErrorMessage(error?: string): string {
+  const raw = (error ?? '').trim()
+  if (!raw) return ''
+  const text = stripProviderHtml(raw)
+  if (/\b429\b/i.test(raw) || /too many requests|rate[- ]limited?/i.test(raw)) {
+    return 'An achievement provider rate-limited the last background refresh. Wait a while, then run Refresh achievements again.'
+  }
+  if (/AUTH_FAILED|not authenticated|re-auth/i.test(raw)) {
+    return 'An achievement provider needs re-authentication before achievement refresh can succeed.'
+  }
+  return text
+}
+
+function summarizeFailedProviders(states: NonNullable<AchievementsDashboardResponse['refresh_states']>): FailedProviderSummary[] {
+  const byProvider = new Map<string, FailedProviderSummary>()
+  for (const state of states) {
+    if (state.status !== 'failed') continue
+    const message = providerErrorMessage(state.plugin_id, state.last_error)
+    const existing = byProvider.get(state.plugin_id)
+    if (!existing) {
+      byProvider.set(state.plugin_id, {
+        pluginID: state.plugin_id,
+        count: 1,
+        latestError: message,
+      })
+      continue
+    }
+    existing.count += 1
+    if (!existing.latestError && message) {
+      existing.latestError = message
+    }
+  }
+  return [...byProvider.values()].sort((a, b) => {
+    if (a.count !== b.count) return b.count - a.count
+    return sourceLabel(a.pluginID).localeCompare(sourceLabel(b.pluginID))
+  })
+}
+
+function StatTile({ label, value, detail }: { label: string; value: string | number; detail?: string }) {
+  return (
+    <div className="rounded-mga border border-mga-border bg-mga-surface p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-mga-muted">{label}</p>
+      <p className="mt-1 text-2xl font-semibold text-mga-text">{value}</p>
+      {detail ? <p className="mt-1 text-sm text-mga-muted">{detail}</p> : null}
+    </div>
+  )
+}
+
+function refreshHealthLabel(refresh: AchievementsDashboardResponse['refresh']): { value: string; detail: string } {
+  if (refresh.failed_count > 0) {
+    return {
+      value: `${refresh.failed_count} failed`,
+      detail: `${refresh.success_count} refreshed${refresh.skipped_count > 0 ? `, ${refresh.skipped_count} skipped` : ''}`,
+    }
+  }
+  if (refresh.success_count > 0) {
+    return {
+      value: 'Healthy',
+      detail: `${refresh.success_count} refreshed${refresh.skipped_count > 0 ? `, ${refresh.skipped_count} skipped` : ''}`,
+    }
+  }
+  return { value: 'Not run', detail: 'No refresh results yet' }
+}
+
+function sortExplorerEntries(a: ExplorerGameEntry, b: ExplorerGameEntry) {
+  if (a.completion !== b.completion) return b.completion - a.completion
+  if (a.totalCount !== b.totalCount) return b.totalCount - a.totalCount
+  return a.item.game.title.localeCompare(b.item.game.title)
 }
 
 function AchievementExplorerRow({ achievement }: { achievement: AchievementDTO }) {
@@ -256,9 +329,15 @@ function AchievementSystemGroup({
 
       {expanded && (
         <div className="mt-4 space-y-3">
-          {visibleAchievements.map((achievement) => (
-            <AchievementExplorerRow key={`${gameId}:${system.source}:${achievement.external_id}`} achievement={achievement} />
-          ))}
+          {visibleAchievements.length > 0 ? (
+            visibleAchievements.map((achievement) => (
+              <AchievementExplorerRow key={`${gameId}:${system.source}:${achievement.external_id}`} achievement={achievement} />
+            ))
+          ) : (
+            <p className="rounded-mga border border-dashed border-mga-border bg-mga-bg/50 p-3 text-sm text-mga-muted">
+              This stored set does not include achievement rows.
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -280,6 +359,11 @@ function AchievementExplorerGameGroup({
   const expanded = forcedOpen || open
   const coverUrl = selectCoverUrl(item.game.media, item.game.cover_override)
   const visibleAchievementCount = systems.reduce((sum, entry) => sum + entry.achievements.length, 0)
+  const totalAchievementCount = systems.reduce((sum, entry) => sum + entry.system.total_count, 0)
+  const achievementCountLabel =
+    visibleAchievementCount !== totalAchievementCount
+      ? `${visibleAchievementCount}/${totalAchievementCount} achievements`
+      : `${totalAchievementCount} achievements`
 
   return (
     <section className="rounded-[1.5rem] border border-mga-border bg-mga-surface p-4 shadow-sm shadow-black/10">
@@ -292,7 +376,7 @@ function AchievementExplorerGameGroup({
             <div className="flex flex-wrap items-center gap-2">
               {expanded ? <ChevronDown size={18} className="text-mga-muted" /> : <ChevronRight size={18} className="text-mga-muted" />}
               <h2 className="text-lg font-semibold text-mga-text">{item.game.title}</h2>
-              <Badge variant="accent">{visibleAchievementCount} achievements</Badge>
+              <Badge variant={totalAchievementCount > 0 ? 'accent' : 'muted'}>{achievementCountLabel}</Badge>
             </div>
             <p className="text-sm text-mga-muted">{platformLabel(item.game.platform)}</p>
             <div className="flex flex-wrap gap-2">
@@ -350,8 +434,178 @@ function AchievementExplorerGameGroup({
   )
 }
 
+function AchievementExplorerSection({
+  entries,
+  activeProvider,
+  gameQuery,
+  achievementQuery,
+  statusFilter,
+  showEmptyGames,
+  hasActiveFilters,
+  detailLinkState,
+  onGameQueryChange,
+  onAchievementQueryChange,
+  onStatusFilterChange,
+  onShowEmptyGamesChange,
+}: {
+  entries: ExplorerGameEntry[]
+  activeProvider: string
+  gameQuery: string
+  achievementQuery: string
+  statusFilter: 'all' | 'unlocked' | 'locked'
+  showEmptyGames: boolean
+  hasActiveFilters: boolean
+  detailLinkState: AchievementDetailLinkState
+  onGameQueryChange: (value: string) => void
+  onAchievementQueryChange: (value: string) => void
+  onStatusFilterChange: (value: 'all' | 'unlocked' | 'locked') => void
+  onShowEmptyGamesChange: (value: boolean) => void
+}) {
+  const providerLabel = activeProvider === 'all' ? 'all providers' : sourceLabel(activeProvider)
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-mga-text">Achievement Explorer</h2>
+          <p className="text-sm text-mga-muted">
+            Browse stored achievements for {providerLabel}, sorted by completion percentage.
+          </p>
+        </div>
+        <Badge variant="accent">{entries.length} games shown</Badge>
+      </div>
+
+      <div className="grid gap-3 rounded-[1.5rem] border border-mga-border bg-mga-surface p-4 md:grid-cols-2 xl:grid-cols-4">
+        <label className="space-y-1">
+          <span className="text-xs font-medium uppercase tracking-wide text-mga-muted">Game</span>
+          <input
+            type="search"
+            value={gameQuery}
+            onChange={(event) => onGameQueryChange(event.target.value)}
+            placeholder="Filter by title"
+            className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text placeholder:text-mga-muted focus:outline-none focus:ring-2 focus:ring-mga-accent"
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="text-xs font-medium uppercase tracking-wide text-mga-muted">Achievement</span>
+          <input
+            type="search"
+            value={achievementQuery}
+            onChange={(event) => onAchievementQueryChange(event.target.value)}
+            placeholder="Search title or description"
+            className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text placeholder:text-mga-muted focus:outline-none focus:ring-2 focus:ring-mga-accent"
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="text-xs font-medium uppercase tracking-wide text-mga-muted">Status</span>
+          <select
+            value={statusFilter}
+            onChange={(event) => onStatusFilterChange(event.target.value as 'all' | 'unlocked' | 'locked')}
+            className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text focus:outline-none focus:ring-2 focus:ring-mga-accent"
+          >
+            <option value="all">All</option>
+            <option value="unlocked">Unlocked only</option>
+            <option value="locked">Locked only</option>
+          </select>
+        </label>
+        <label className="flex min-h-[4.25rem] items-center gap-3 rounded-mga border border-mga-border bg-mga-bg px-3 py-2">
+          <input
+            type="checkbox"
+            checked={showEmptyGames}
+            onChange={(event) => onShowEmptyGamesChange(event.target.checked)}
+            className="h-4 w-4 rounded border-mga-border bg-mga-surface text-mga-accent focus:ring-mga-accent"
+          />
+          <span className="text-sm text-mga-text">Show games with no achievements</span>
+        </label>
+      </div>
+
+      {entries.length === 0 ? (
+        <div className="rounded-mga border border-dashed border-mga-border bg-mga-surface p-8 text-center">
+          <p className="text-sm text-mga-muted">
+            {hasActiveFilters
+              ? 'No stored achievements match the current explorer filters.'
+              : 'No stored achievement explorer entries are available for this tab.'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {entries.map(({ item, systems }) => (
+            <AchievementExplorerGameGroup
+              key={`${activeProvider}:${item.game.id}`}
+              item={item}
+              systems={systems}
+              forcedOpen={hasActiveFilters}
+              detailLinkState={detailLinkState}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function AllAchievementsSummary({
+  data,
+  refresh,
+  onOpenProvider,
+}: {
+  data: AchievementsDashboardResponse
+  refresh: AchievementsDashboardResponse['refresh']
+  onOpenProvider: (source: string) => void
+}) {
+  const health = refreshHealthLabel(refresh)
+  const unlockPercent = percent(data.totals.unlocked_count, data.totals.total_count)
+
+  return (
+    <>
+      <section className="grid gap-3 md:grid-cols-4">
+        <StatTile label="Providers" value={data.systems.length} detail="Stored achievement systems" />
+        <StatTile label="Games" value={data.games.length} detail="Games with stored sets" />
+        <StatTile
+          label="Unlocked"
+          value={`${data.totals.unlocked_count}/${data.totals.total_count}`}
+          detail={formatPercentValue(unlockPercent)}
+        />
+        <StatTile label="Refresh Health" value={health.value} detail={health.detail} />
+      </section>
+
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {data.systems.map((system) => (
+          <SystemSummaryCard key={system.source} system={system} onOpen={() => onOpenProvider(system.source)} />
+        ))}
+      </section>
+    </>
+  )
+}
+
+function ProviderAchievementsSummary({
+  system,
+  refresh,
+}: {
+  system: AchievementSystemSummaryDTO
+  refresh: AchievementsDashboardResponse['refresh']
+}) {
+  const health = refreshHealthLabel(refresh)
+  const completion = percent(system.unlocked_count, system.total_count)
+
+  return (
+    <>
+      <section className="grid gap-3 md:grid-cols-4">
+        <StatTile label="Games" value={system.game_count} detail={sourceLabel(system.source)} />
+        <StatTile label="Unlocked" value={`${system.unlocked_count}/${system.total_count}`} detail={formatPercentValue(completion)} />
+        <StatTile label="Points" value={pointsText(system) ?? 'Unknown'} detail="Provider-specific scoring" />
+        <StatTile label="Refresh Health" value={health.value} detail={health.detail} />
+      </section>
+      <section>
+        <SystemSummaryCard system={system} />
+      </section>
+    </>
+  )
+}
+
 export function AchievementsPage() {
   const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const { currentProfile } = useProfiles()
   const { subscribe } = useSSE()
@@ -383,20 +637,39 @@ export function AchievementsPage() {
   })
   const [gameQuery, setGameQuery] = useState('')
   const [achievementQuery, setAchievementQuery] = useState('')
-  const [sourceFilter, setSourceFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'unlocked' | 'locked'>('all')
+  const [showEmptyGames, setShowEmptyGames] = useState(false)
   const detailLinkState = buildAchievementDetailLinkState(location.pathname, location.search)
   const data = dashboard.data ?? emptyDashboard
   const explorerData = explorer.data ?? { games: [] }
   const hasStoredAchievements = data.games.length > 0
   const refresh = data.refresh ?? { total: 0, success_count: 0, failed_count: 0, skipped_count: 0 }
+  const latestFailureText = storedRefreshErrorMessage(refresh.latest_failure_text)
   const failedStates = (data.refresh_states ?? []).filter((state) => state.status === 'failed')
+  const failedProviderSummaries = useMemo(() => summarizeFailedProviders(data.refresh_states ?? []), [data.refresh_states])
   const refreshRunning = Boolean(activeRefreshJob && !isRefreshTerminal(activeRefreshJob))
   const refreshProgress =
     activeRefreshJob?.items_total && activeRefreshJob.items_total > 0
       ? (activeRefreshJob.items_completed / activeRefreshJob.items_total) * 100
       : 0
   const canRefresh = currentProfile?.role === 'admin_player'
+  const providerSources = useMemo(() => data.systems.map((system) => system.source), [data.systems])
+  const requestedTabParam = searchParams.get('tab')
+  const requestedTab = requestedTabParam ?? 'all'
+  const activeTab = requestedTab === 'all' || providerSources.includes(requestedTab) ? requestedTab : 'all'
+  const activeProvider = activeTab === 'all' ? 'all' : activeTab
+  const activeProviderSystem = activeProvider === 'all' ? undefined : data.systems.find((system) => system.source === activeProvider)
+  const tabs = useMemo<Tab[]>(
+    () => [
+      { id: 'all', label: 'All Achievements', icon: <Trophy size={16} /> },
+      ...data.systems.map((system) => ({
+        id: system.source,
+        label: sourceLabel(system.source),
+        icon: <BrandIcon brand={system.source} />,
+      })),
+    ],
+    [data.systems],
+  )
   const normalizedGameQuery = gameQuery.trim().toLowerCase()
   const normalizedAchievementQuery = achievementQuery.trim().toLowerCase()
   const filteredExplorerGames = useMemo(() => {
@@ -407,7 +680,7 @@ export function AchievementsPage() {
         }
 
         const systems = item.systems
-          .filter((system) => sourceFilter === 'all' || system.source === sourceFilter)
+          .filter((system) => activeProvider === 'all' || system.source === activeProvider)
           .map((system) => ({
             system,
             achievements: system.achievements.filter((achievement) =>
@@ -424,15 +697,39 @@ export function AchievementsPage() {
           return null
         }
 
-        return { item, systems }
+        const totalCount = systems.reduce((sum, entry) => sum + entry.system.total_count, 0)
+        if (!showEmptyGames && totalCount <= 0) {
+          return null
+        }
+        const unlockedCount = systems.reduce((sum, entry) => sum + entry.system.unlocked_count, 0)
+        return {
+          item,
+          systems,
+          totalCount,
+          unlockedCount,
+          completion: percent(unlockedCount, totalCount),
+        }
       })
-      .filter((item): item is { item: AchievementExplorerGameDTO; systems: Array<{ system: AchievementSetDTO; achievements: AchievementDTO[] }> } => item !== null)
-  }, [explorerData.games, normalizedAchievementQuery, normalizedGameQuery, sourceFilter, statusFilter])
+      .filter((item): item is ExplorerGameEntry => item !== null)
+      .sort(sortExplorerEntries)
+  }, [activeProvider, explorerData.games, normalizedAchievementQuery, normalizedGameQuery, showEmptyGames, statusFilter])
   const hasActiveFilters =
     normalizedGameQuery.length > 0 ||
     normalizedAchievementQuery.length > 0 ||
-    sourceFilter !== 'all' ||
     statusFilter !== 'all'
+
+  const changeTab = (tabID: string) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', tabID)
+    setSearchParams(next, { replace: true })
+  }
+
+  useEffect(() => {
+    if (requestedTabParam === activeTab) return
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', activeTab)
+    setSearchParams(next, { replace: true })
+  }, [activeTab, requestedTabParam, searchParams, setSearchParams])
 
   useEffect(() => {
     if (activeRefreshJobQuery.data) {
@@ -463,9 +760,30 @@ export function AchievementsPage() {
           current && data.job_id === current.job_id
             ? {
                 ...current,
+                provider_id: data.provider_id ?? current.provider_id,
+                provider_label: data.provider_label ?? current.provider_label,
                 items_completed: data.items_completed ?? current.items_completed,
                 items_total: data.items_total ?? current.items_total,
                 current_item: data.current_item ?? current.current_item,
+                waiting_until: data.waiting_until ?? current.waiting_until,
+                message: data.message ?? current.message,
+              }
+            : current,
+        )
+      }),
+      subscribe('achievement_refresh_waiting', (raw: unknown) => {
+        const data = raw as Partial<AchievementRefreshJobStatus>
+        setActiveRefreshJob((current) =>
+          current && data.job_id === current.job_id
+            ? {
+                ...current,
+                provider_id: data.provider_id ?? current.provider_id,
+                provider_label: data.provider_label ?? current.provider_label,
+                items_completed: data.items_completed ?? current.items_completed,
+                items_total: data.items_total ?? current.items_total,
+                current_item: data.current_item ?? current.current_item,
+                waiting_until: data.waiting_until ?? current.waiting_until,
+                message: data.message ?? current.message,
               }
             : current,
         )
@@ -541,6 +859,17 @@ export function AchievementsPage() {
                   {activeRefreshJob?.current_item ? (
                     <p className="text-xs text-mga-muted">Current: {activeRefreshJob.current_item}</p>
                   ) : null}
+                  {activeRefreshJob?.provider_label || activeRefreshJob?.provider_id ? (
+                    <p className="text-xs text-mga-muted">
+                      Provider: {activeRefreshJob.provider_label ?? activeRefreshJob.provider_id}
+                    </p>
+                  ) : null}
+                  {activeRefreshJob?.message ? (
+                    <p className="text-xs text-mga-accent">{activeRefreshJob.message}</p>
+                  ) : null}
+                  {activeRefreshJob?.waiting_until ? (
+                    <p className="text-xs text-mga-muted">Waiting until {formatDateTime(activeRefreshJob.waiting_until)}</p>
+                  ) : null}
                 </div>
                 <Badge variant="accent">{activeRefreshJob?.status ?? 'running'}</Badge>
               </div>
@@ -552,7 +881,7 @@ export function AchievementsPage() {
             <div className="rounded-mga border border-red-500/30 bg-red-500/10 p-4">
               <div className="flex items-start gap-2 text-sm text-red-200">
                 <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                <p>{refreshError}</p>
+                <p>{storedRefreshErrorMessage(refreshError) || refreshError}</p>
               </div>
             </div>
           ) : null}
@@ -573,13 +902,13 @@ export function AchievementsPage() {
                   {refresh.skipped_count > 0 ? <Badge variant="muted">{refresh.skipped_count} skipped</Badge> : null}
                 </div>
               </div>
-              {refresh.latest_failure_text ? (
-                <p className="mt-2 text-sm text-mga-muted">Latest failure: {refresh.latest_failure_text}</p>
+              {latestFailureText ? (
+                <p className="mt-2 text-sm text-mga-muted">Latest failure: {latestFailureText}</p>
               ) : null}
             </div>
           ) : null}
 
-          {failedStates.length > 0 ? (
+          {failedProviderSummaries.length > 0 ? (
             <div className="rounded-mga border border-amber-500/30 bg-amber-500/10 p-4">
               <div className="flex items-start gap-2">
                 <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-300" />
@@ -591,10 +920,12 @@ export function AchievementsPage() {
                     </p>
                   </div>
                   <div className="space-y-2">
-                    {failedStates.slice(0, 5).map((state) => (
-                      <div key={`${state.source_game_id}:${state.plugin_id}`} className="rounded-mga border border-amber-500/20 bg-mga-bg/50 p-3 text-sm">
-                        <p className="font-medium text-amber-100">{sourceLabel(state.plugin_id)} · {state.external_game_id}</p>
-                        <p className="mt-1 break-words text-amber-100/75">{state.last_error || 'Refresh failed without a provider message.'}</p>
+                    {failedProviderSummaries.slice(0, 5).map((provider) => (
+                      <div key={provider.pluginID} className="rounded-mga border border-amber-500/20 bg-mga-bg/50 p-3 text-sm">
+                        <p className="font-medium text-amber-100">
+                          {sourceLabel(provider.pluginID)} · {provider.count} failed {provider.count === 1 ? 'attempt' : 'attempts'}
+                        </p>
+                        <p className="mt-1 break-words text-amber-100/75">{provider.latestError}</p>
                       </div>
                     ))}
                   </div>
@@ -625,129 +956,30 @@ export function AchievementsPage() {
           ) : null}
         </div>
       ) : (
-        <>
-          <section className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-mga border border-mga-border bg-mga-surface p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-mga-muted">Systems</p>
-              <p className="mt-1 text-2xl font-semibold">{data.systems.length}</p>
-            </div>
-            <div className="rounded-mga border border-mga-border bg-mga-surface p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-mga-muted">Games</p>
-              <p className="mt-1 text-2xl font-semibold">{data.games.length}</p>
-            </div>
-            <div className="rounded-mga border border-mga-border bg-mga-surface p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-mga-muted">Unlocked</p>
-              <p className="mt-1 text-2xl font-semibold">{data.totals.unlocked_count}/{data.totals.total_count}</p>
-            </div>
-            <div className="rounded-mga border border-mga-border bg-mga-surface p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-mga-muted">Points</p>
-              <p className="mt-1 text-2xl font-semibold">{pointsText({
-                earned_points: data.totals.earned_points,
-                total_points: data.totals.total_points,
-              }) ?? 'Unknown'}</p>
-            </div>
-          </section>
+        <div className="space-y-6">
+          <Tabs tabs={tabs} active={activeTab} onChange={changeTab} className="overflow-x-auto" />
 
-          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {data.systems.map((system) => (
-              <SystemSummaryCard key={system.source} system={system} />
-            ))}
-          </section>
+          {activeTab === 'all' ? (
+            <AllAchievementsSummary data={data} refresh={refresh} onOpenProvider={changeTab} />
+          ) : activeProviderSystem ? (
+            <ProviderAchievementsSummary system={activeProviderSystem} refresh={refresh} />
+          ) : null}
 
-          <section className="space-y-3">
-            <div>
-              <h2 className="text-lg font-semibold text-mga-text">Games</h2>
-              <p className="text-sm text-mga-muted">Stored achievement summaries by game</p>
-            </div>
-            <div className="space-y-3">
-              {data.games.map((item) => (
-                <GameAchievementRow key={item.game.id} item={item} detailLinkState={detailLinkState} />
-              ))}
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold text-mga-text">Achievement Explorer</h2>
-                <p className="text-sm text-mga-muted">Browse stored achievements by game and source without live provider fetches.</p>
-              </div>
-              <Badge variant="accent">{filteredExplorerGames.length} games shown</Badge>
-            </div>
-
-            <div className="grid gap-3 rounded-[1.5rem] border border-mga-border bg-mga-surface p-4 md:grid-cols-2 xl:grid-cols-4">
-              <label className="space-y-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-mga-muted">Game</span>
-                <input
-                  type="search"
-                  value={gameQuery}
-                  onChange={(event) => setGameQuery(event.target.value)}
-                  placeholder="Filter by title"
-                  className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text placeholder:text-mga-muted focus:outline-none focus:ring-2 focus:ring-mga-accent"
-                />
-              </label>
-              <label className="space-y-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-mga-muted">Achievement</span>
-                <input
-                  type="search"
-                  value={achievementQuery}
-                  onChange={(event) => setAchievementQuery(event.target.value)}
-                  placeholder="Search title or description"
-                  className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text placeholder:text-mga-muted focus:outline-none focus:ring-2 focus:ring-mga-accent"
-                />
-              </label>
-              <label className="space-y-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-mga-muted">Source</span>
-                <select
-                  value={sourceFilter}
-                  onChange={(event) => setSourceFilter(event.target.value)}
-                  className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text focus:outline-none focus:ring-2 focus:ring-mga-accent"
-                >
-                  <option value="all">All sources</option>
-                  {data.systems.map((system) => (
-                    <option key={system.source} value={system.source}>
-                      {sourceLabel(system.source)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-mga-muted">Status</span>
-                <select
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value as 'all' | 'unlocked' | 'locked')}
-                  className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text focus:outline-none focus:ring-2 focus:ring-mga-accent"
-                >
-                  <option value="all">All</option>
-                  <option value="unlocked">Unlocked only</option>
-                  <option value="locked">Locked only</option>
-                </select>
-              </label>
-            </div>
-
-            {filteredExplorerGames.length === 0 ? (
-              <div className="rounded-mga border border-dashed border-mga-border bg-mga-surface p-8 text-center">
-                <p className="text-sm text-mga-muted">
-                  {hasActiveFilters
-                    ? 'No stored achievements match the current explorer filters.'
-                    : 'No stored achievement explorer entries are available yet.'}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {filteredExplorerGames.map(({ item, systems }) => (
-                  <AchievementExplorerGameGroup
-                    key={item.game.id}
-                    item={item}
-                    systems={systems}
-                    forcedOpen={hasActiveFilters}
-                    detailLinkState={detailLinkState}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        </>
+          <AchievementExplorerSection
+            entries={filteredExplorerGames}
+            activeProvider={activeProvider}
+            gameQuery={gameQuery}
+            achievementQuery={achievementQuery}
+            statusFilter={statusFilter}
+            showEmptyGames={showEmptyGames}
+            hasActiveFilters={hasActiveFilters}
+            detailLinkState={detailLinkState}
+            onGameQueryChange={setGameQuery}
+            onAchievementQueryChange={setAchievementQuery}
+            onStatusFilterChange={setStatusFilter}
+            onShowEmptyGamesChange={setShowEmptyGames}
+          />
+        </div>
       )}
     </div>
   )

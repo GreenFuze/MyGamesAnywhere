@@ -54,6 +54,7 @@ const knownTypes = [
   'achievement_refresh_already_running',
   'achievement_refresh_started',
   'achievement_refresh_progress',
+  'achievement_refresh_waiting',
   'achievement_refresh_warning',
   'achievement_refresh_completed',
   'achievement_refresh_failed',

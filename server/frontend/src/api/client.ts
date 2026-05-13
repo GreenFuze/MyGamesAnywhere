@@ -830,6 +830,8 @@ export type AchievementRefreshJobStatus = {
   started_at?: string;
   finished_at?: string;
   trigger?: string;
+  provider_id?: string;
+  provider_label?: string;
   items_total: number;
   items_completed: number;
   success_count: number;
@@ -837,6 +839,8 @@ export type AchievementRefreshJobStatus = {
   warning_count: number;
   error_count: number;
   current_item?: string;
+  waiting_until?: string;
+  message?: string;
   error?: string;
   warnings?: string[];
 };

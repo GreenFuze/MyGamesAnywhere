@@ -747,6 +747,8 @@ type AchievementRefreshJobStatus struct {
 	StartedAt      string   `json:"started_at,omitempty"`
 	FinishedAt     string   `json:"finished_at,omitempty"`
 	Trigger        string   `json:"trigger,omitempty"`
+	ProviderID     string   `json:"provider_id,omitempty"`
+	ProviderLabel  string   `json:"provider_label,omitempty"`
 	ItemsTotal     int      `json:"items_total"`
 	ItemsCompleted int      `json:"items_completed"`
 	SuccessCount   int      `json:"success_count"`
@@ -754,6 +756,8 @@ type AchievementRefreshJobStatus struct {
 	WarningCount   int      `json:"warning_count"`
 	ErrorCount     int      `json:"error_count"`
 	CurrentItem    string   `json:"current_item,omitempty"`
+	WaitingUntil   string   `json:"waiting_until,omitempty"`
+	Message        string   `json:"message,omitempty"`
 	Error          string   `json:"error,omitempty"`
 	Warnings       []string `json:"warnings,omitempty"`
 }

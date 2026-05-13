@@ -47,7 +47,9 @@ These are the next committed tasks after the completed Phase 7 / issue-cleanup w
    - [x] Add an explicit `Refresh Achievements` job for all eligible games, reusing `AchievementFetchService` and existing achievement-capable integrations.
    - [x] Show refresh progress and last refreshed state in the Achievements page so "cached" means "last fetched", not "incomplete by design".
    - [x] Persist provider failures per game/source and surface degraded state without blocking unrelated games.
+   - [x] RetroAchievements background refresh now uses conservative provider pacing, adaptive rate-limit retry/backoff, clean `RATE_LIMITED` errors, deferred skips for exhausted provider backoff, and visible provider wait/progress state on Achievements plus compact provider activity in Settings → Integrations.
    - [x] Verification: achievement service/controller tests, SSE job progress tests, frontend build, focused manual refresh proof with one configured provider.
+   - NO_MIGRATION_NEEDED: rate-limit/backoff handling changes runtime refresh behavior, SSE/job status fields, and frontend presentation only; existing achievement rows and `achievement_refresh_states` remain compatible.
 
 4. **Duplicate games review in Settings**
    - [x] Add a Settings tab for duplicate candidates across source records.
@@ -636,7 +638,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
 - [x] Media gallery images should expose `Set as cover image` from a right-click/context action in addition to the existing game-level cover chooser.
 - [x] Recheck metadata/platform normalization for known-platform titles that still surface as `unknown`, such as `Plasma Pong`.
 - [x] Investigate MAME launch failures that report `ROMSET not recognized` and lock the runner contract down with focused proof.
-- [x] RetroAchievements remains vulnerable to Cloudflare blocking in some environments; determine whether MGA can use a more compatible upstream access pattern without misclassifying auth/config failures.
+- [x] RetroAchievements remains vulnerable to Cloudflare blocking/rate limits in some environments; MGA now classifies `429` as clean rate-limit state and the background achievement refresh worker slows down, retries, and defers provider work instead of storing raw upstream HTML failures.
 - [x] Package MGA for real distribution (Windows/Linux/macOS and/or Docker) with an installer/start path that does not require source checkout.
   - 2026-04-23 follow-up: Windows-first portable ZIP packaging, bootstrap verification scripts, and a version/tag-based release flow are now in-repo. Cross-platform installers and non-Windows packaging remain future work.
 - [x] Refresh `README.md` into a user-facing landing document with quick start, screenshots, packaging/install guidance, and feature overview.
@@ -686,6 +688,7 @@ Phases **1–7** are **frontend / product** milestones (UI, client logic). **Pha
   - [x] Does cached data means in the frontend? or the server?
     - [x] If on the frontend, explain the user what it means, because it is weird
     - [x] If "cached" on the server - its a bug as the server should "bring" the achivement status from the plugin during scan. If you think this is wrong, you may push back just explain to the user and offer alternatives.
+  - [x] Achievements page now has provider-aware tabs, provider-specific points, hidden zero-achievement games by default, completion-percent explorer sorting, and human-readable provider failure summaries for stored refresh errors. NO_MIGRATION_NEEDED: frontend-only presentation over existing stored achievement API responses; no DB schema, SQLite data, or persisted config changes.
 - [x] In settings, add a tab to find duplicated games acorss sources. Implemented as Settings -> Duplicates with one-by-one hard delete for eligible file-backed source records through the shared two-stage delete preview/confirmation flow. NO_MIGRATION_NEEDED: read-only duplicate detection plus existing source hard-delete service.
   - [x] duplications for games (ignoring versioning/platform)
   - [x] duplications for games including version/platform etc.

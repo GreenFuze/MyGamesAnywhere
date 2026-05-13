@@ -12,6 +12,15 @@ import (
 	"time"
 )
 
+func mustJSON(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
 func TestRAGetUsesBrowserLikeHeaders(t *testing.T) {
 	origBase := raAPIBase
 	origClient := raHTTPClient
@@ -94,6 +103,86 @@ func TestRAGetIncludesResponseBodyOnFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "cloudflare block") {
 		t.Fatalf("error = %v, want response body", err)
+	}
+}
+
+func TestRAGetClassifiesTooManyRequestsWithoutRawHTML(t *testing.T) {
+	origBase := raAPIBase
+	origClient := raHTTPClient
+	origTicker := rateLimiter
+	defer func() {
+		raAPIBase = origBase
+		raHTTPClient = origClient
+		rateLimiter = origTicker
+	}()
+
+	cfg = raConfig{Username: "retro-user", APIKey: "retro-key"}
+	rateLimiter = time.NewTicker(time.Microsecond)
+	t.Cleanup(rateLimiter.Stop)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "123")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `<html><script>tracking()</script><h1>429 Too Many Requests</h1></html>`)
+	}))
+	defer server.Close()
+
+	raAPIBase = server.URL
+	raHTTPClient = server.Client()
+
+	_, err := raGet("API_GetGameInfoAndUserProgress.php", url.Values{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "retry_after_seconds=123") {
+		t.Fatalf("error = %v, want retry_after_seconds", err)
+	}
+	if strings.Contains(err.Error(), "<html>") || strings.Contains(err.Error(), "<script>") {
+		t.Fatalf("error = %v, want no raw HTML", err)
+	}
+}
+
+func TestHandleAchievementsGetReturnsRateLimitedPluginError(t *testing.T) {
+	origBase := raAPIBase
+	origClient := raHTTPClient
+	origTicker := rateLimiter
+	origCfg := cfg
+	defer func() {
+		raAPIBase = origBase
+		raHTTPClient = origClient
+		rateLimiter = origTicker
+		cfg = origCfg
+	}()
+
+	cfg = raConfig{}
+	rateLimiter = time.NewTicker(time.Microsecond)
+	t.Cleanup(rateLimiter.Stop)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `<html>Too Many Requests</html>`)
+	}))
+	defer server.Close()
+
+	raAPIBase = server.URL
+	raHTTPClient = server.Client()
+
+	_, errObj := handleAchievementsGet(mustJSON(t, map[string]any{
+		"external_game_id": "123",
+		"config": map[string]any{
+			"api_key":  "retro-key",
+			"username": "retro-user",
+		},
+	}))
+	if errObj == nil {
+		t.Fatal("expected plugin error")
+	}
+	if errObj.Code != "RATE_LIMITED" {
+		t.Fatalf("code = %q, want RATE_LIMITED", errObj.Code)
+	}
+	if strings.Contains(errObj.Message, "<html>") {
+		t.Fatalf("message = %q, want no raw HTML", errObj.Message)
 	}
 }
 

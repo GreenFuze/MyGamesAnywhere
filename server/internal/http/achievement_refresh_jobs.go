@@ -97,18 +97,32 @@ func (m *achievementRefreshJobManager) run(ctx context.Context, jobID string) {
 			})
 		},
 		Progress: func(completed, total int, item string) {
+			m.applyProgress(jobID, scan.AchievementRefreshProgress{Completed: completed, Total: total, Item: item})
+		},
+		ProgressDetail: func(progress scan.AchievementRefreshProgress) {
+			m.applyProgress(jobID, progress)
+		},
+		Waiting: func(wait scan.AchievementRefreshWait) {
 			m.update(jobID, func(status *core.AchievementRefreshJobStatus) {
-				status.ItemsCompleted = completed
-				if total > 0 {
-					status.ItemsTotal = total
+				status.ProviderID = wait.ProviderID
+				status.ProviderLabel = wait.ProviderLabel
+				status.ItemsCompleted = wait.Completed
+				if wait.Total > 0 {
+					status.ItemsTotal = wait.Total
 				}
-				status.CurrentItem = item
+				status.CurrentItem = wait.Item
+				status.WaitingUntil = wait.WaitingUntil
+				status.Message = wait.Message
 			})
-			m.publish("achievement_refresh_progress", map[string]any{
+			m.publish("achievement_refresh_waiting", map[string]any{
 				"job_id":          jobID,
-				"items_completed": completed,
-				"items_total":     total,
-				"current_item":    item,
+				"provider_id":     wait.ProviderID,
+				"provider_label":  wait.ProviderLabel,
+				"items_completed": wait.Completed,
+				"items_total":     wait.Total,
+				"current_item":    wait.Item,
+				"waiting_until":   wait.WaitingUntil,
+				"message":         wait.Message,
 			})
 		},
 		Warning: func(message string) {
@@ -149,6 +163,8 @@ func (m *achievementRefreshJobManager) run(ctx context.Context, jobID string) {
 			status.Status = "completed"
 			status.FinishedAt = finishedAt
 			status.CurrentItem = ""
+			status.WaitingUntil = ""
+			status.Message = ""
 			if result != nil {
 				status.SuccessCount = result.Success
 				status.SkippedCount = result.Skipped
@@ -174,6 +190,34 @@ func (m *achievementRefreshJobManager) run(ctx context.Context, jobID string) {
 		m.activeJobID = ""
 	}
 	m.mu.Unlock()
+}
+
+func (m *achievementRefreshJobManager) applyProgress(jobID string, progress scan.AchievementRefreshProgress) {
+	m.update(jobID, func(status *core.AchievementRefreshJobStatus) {
+		status.ItemsCompleted = progress.Completed
+		if progress.Total > 0 {
+			status.ItemsTotal = progress.Total
+		}
+		status.CurrentItem = progress.Item
+		if progress.ProviderID != "" {
+			status.ProviderID = progress.ProviderID
+		}
+		if progress.ProviderLabel != "" {
+			status.ProviderLabel = progress.ProviderLabel
+		}
+		status.Message = progress.Message
+		status.WaitingUntil = progress.WaitingUntil
+	})
+	m.publish("achievement_refresh_progress", map[string]any{
+		"job_id":          jobID,
+		"provider_id":     progress.ProviderID,
+		"provider_label":  progress.ProviderLabel,
+		"items_completed": progress.Completed,
+		"items_total":     progress.Total,
+		"current_item":    progress.Item,
+		"message":         progress.Message,
+		"waiting_until":   progress.WaitingUntil,
+	})
 }
 
 func (m *achievementRefreshJobManager) update(jobID string, mutate func(*core.AchievementRefreshJobStatus)) {

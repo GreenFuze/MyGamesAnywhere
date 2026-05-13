@@ -275,14 +275,14 @@ func Operations() []OperationDoc {
 			Method:       "POST",
 			Path:         "/api/achievements/refresh",
 			Summary:      "Start achievements refresh",
-			Description:  "Starts a background job that refreshes achievements for all profile-visible games with configured achievement-capable integrations. Provider failures are persisted as degraded per-game state and do not stop unrelated games.",
+			Description:  "Starts a background job that refreshes achievements for all profile-visible games with configured achievement-capable integrations. Provider calls are throttled and may emit waiting/progress events when a provider rate-limits refresh work. Provider failures are persisted as degraded per-game state and do not stop unrelated games.",
 			ResponseDocs: map[string]string{"202": "AchievementRefreshJobStatus", "409": "An achievement refresh job is already active", "500": "Internal server error"},
 		},
 		{
 			Method:       "GET",
 			Path:         "/api/achievements/refresh/jobs/{job_id}",
 			Summary:      "Get achievements refresh job",
-			Description:  "Returns the latest in-memory status for an achievement refresh job.",
+			Description:  "Returns the latest in-memory status for an achievement refresh job, including current provider, item, and optional provider backoff wait state.",
 			ResponseDocs: map[string]string{"200": "AchievementRefreshJobStatus", "404": "Job not found"},
 		},
 		{

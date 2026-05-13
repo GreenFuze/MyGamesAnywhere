@@ -33,6 +33,7 @@ import {
   type ScanJobProgress,
   type ScanJobRecentEvent,
   type ScanJobStatus,
+  type AchievementRefreshJobStatus,
   type IntegrationRefreshJobStatus,
   type SaveSyncMigrationStatus,
 } from "@/api/client";
@@ -679,6 +680,9 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
   const [integrationRefreshJobs, setIntegrationRefreshJobs] = useState<
     Map<string, IntegrationRefreshJobStatus>
   >(new Map());
+  const [achievementRefreshJobsByProvider, setAchievementRefreshJobsByProvider] = useState<
+    Map<string, AchievementRefreshJobStatus>
+  >(new Map());
 
   // ── Sync state (absorbed from SyncTab) ──
 
@@ -822,6 +826,40 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
     return next;
   }, [integrationRefreshJobs]);
 
+  const achievementRefreshStateByIntegrationId = useMemo(() => {
+    const next = new Map<string, IntegrationScanState>();
+    for (const [providerId, job] of achievementRefreshJobsByProvider.entries()) {
+      if (!job || integrationRefreshJobIsTerminal(job)) continue;
+      const waiting = Boolean(job.waiting_until);
+      const provider = job.provider_label ?? providerId;
+      next.set(providerId, {
+        active: true,
+        badge: waiting ? "Achievements waiting" : "Achievements refreshing",
+        badgeVariant: waiting ? "muted" : "accent",
+        detail: job.message || (job.current_item ? `${provider}: ${job.current_item}` : provider),
+        progress:
+          job.items_total > 0
+            ? {
+                progress: job.items_completed,
+                total: job.items_total,
+                label: `${job.items_completed}/${job.items_total}`,
+              }
+            : undefined,
+      });
+    }
+    return next;
+  }, [achievementRefreshJobsByProvider]);
+
+  const refreshStateByIntegrationId = useMemo(() => {
+    const next = new Map(integrationRefreshStateByIntegrationId);
+    for (const [integrationId, state] of achievementRefreshStateByIntegrationId.entries()) {
+      if (!next.has(integrationId)) {
+        next.set(integrationId, state);
+      }
+    }
+    return next;
+  }, [achievementRefreshStateByIntegrationId, integrationRefreshStateByIntegrationId]);
+
   const appendScanEvent = useCallback((text: string, data?: unknown) => {
     const ts = readTimestamp(data);
     setScanEventLog((prev) => {
@@ -862,6 +900,23 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
           next.set(integrationId, updated);
         } else {
           next.delete(integrationId);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  const setAchievementRefreshProviderJob = useCallback(
+    (providerId: string, mutate: (job: AchievementRefreshJobStatus | null) => AchievementRefreshJobStatus | null) => {
+      setAchievementRefreshJobsByProvider((prev) => {
+        const next = new Map(prev);
+        const current = next.get(providerId) ?? null;
+        const updated = mutate(current);
+        if (updated) {
+          next.set(providerId, updated);
+        } else {
+          next.delete(providerId);
         }
         return next;
       });
@@ -1197,6 +1252,45 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
     ];
     return () => unsubs.forEach((u) => u());
   }, [setIntegrationRefreshJob, subscribe]);
+
+  useEffect(() => {
+    const updateProviderJob = (data: Partial<AchievementRefreshJobStatus>) => {
+      if (!data.provider_id || !data.job_id) return;
+      setAchievementRefreshProviderJob(data.provider_id, (current) => ({
+        ...(current ?? {
+          job_id: data.job_id!,
+          status: "running",
+          items_total: 0,
+          items_completed: 0,
+          success_count: 0,
+          skipped_count: 0,
+          warning_count: 0,
+          error_count: 0,
+        }),
+        ...data,
+        status: data.status ?? "running",
+      }));
+    };
+    const clearJob = (data: Partial<AchievementRefreshJobStatus>) => {
+      if (!data.job_id) return;
+      setAchievementRefreshJobsByProvider((prev) => {
+        const next = new Map(prev);
+        for (const [providerId, job] of next.entries()) {
+          if (job.job_id === data.job_id) {
+            next.delete(providerId);
+          }
+        }
+        return next;
+      });
+    };
+    const unsubs = [
+      subscribe("achievement_refresh_progress", (raw: unknown) => updateProviderJob(raw as Partial<AchievementRefreshJobStatus>)),
+      subscribe("achievement_refresh_waiting", (raw: unknown) => updateProviderJob(raw as Partial<AchievementRefreshJobStatus>)),
+      subscribe("achievement_refresh_completed", (raw: unknown) => clearJob(raw as Partial<AchievementRefreshJobStatus>)),
+      subscribe("achievement_refresh_failed", (raw: unknown) => clearJob(raw as Partial<AchievementRefreshJobStatus>)),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, [setAchievementRefreshProviderJob, subscribe]);
 
   useEffect(() => {
     const activeJobs = [...integrationRefreshJobs.values()].filter(
@@ -2841,7 +2935,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
                     ? metadataScanStateByIntegrationId
                     : undefined
               }
-              refreshStateByIntegrationId={integrationRefreshStateByIntegrationId}
+              refreshStateByIntegrationId={refreshStateByIntegrationId}
               onScan={handleScanOne}
               onRefresh={handleIntegrationRefresh}
               onScanGroup={cap === "source" ? handleScanAll : undefined}
