@@ -16,6 +16,9 @@ func TestDuplicateGamesLooseGroupsAcrossCanonicalGames(t *testing.T) {
 		&fakeGameStore{duplicateRecords: []core.DuplicateGameSourceRecord{
 			duplicateTestRecord("canon-a", "Desert Strike", duplicateTestSource("scan:a", "drive-1", "game-source-google-drive", "Desert Strike (USA)", core.PlatformGenesis, "Games/Genesis")),
 			duplicateTestRecord("canon-b", "Desert Strike", duplicateTestSource("scan:b", "steam-1", "game-source-steam", "Desert Strike [Europe]", core.PlatformSNES, "")),
+		}, gamesByID: map[string]*core.CanonicalGame{
+			"canon-a": duplicateTestCanonicalGame("canon-a", "Desert Strike", core.PlatformGenesis, 101),
+			"canon-b": duplicateTestCanonicalGame("canon-b", "Desert Strike", core.PlatformSNES, 202),
 		}},
 		nil,
 		nil,
@@ -59,6 +62,12 @@ func TestDuplicateGamesLooseGroupsAcrossCanonicalGames(t *testing.T) {
 	if group.Sources[1].Source.HardDelete == nil || group.Sources[1].Source.HardDelete.Eligible {
 		t.Fatalf("steam source hard delete = %+v, want disabled", group.Sources[1].Source.HardDelete)
 	}
+	if group.Sources[0].Game == nil || group.Sources[0].Game.ID != "canon-a" || group.Sources[0].Game.CoverOverride == nil || group.Sources[0].Game.CoverOverride.AssetID != 101 {
+		t.Fatalf("first source game display = %+v, want canon-a with cover override 101", group.Sources[0].Game)
+	}
+	if group.Sources[1].Game == nil || group.Sources[1].Game.ID != "canon-b" || group.Sources[1].Game.CoverOverride == nil || group.Sources[1].Game.CoverOverride.AssetID != 202 {
+		t.Fatalf("second source game display = %+v, want canon-b with cover override 202", group.Sources[1].Game)
+	}
 }
 
 func TestDuplicateGamesStrictSeparatesPlatformVariants(t *testing.T) {
@@ -67,6 +76,8 @@ func TestDuplicateGamesStrictSeparatesPlatformVariants(t *testing.T) {
 			duplicateTestRecord("canon-a", "Doom", duplicateTestSource("scan:a", "drive-1", "game-source-google-drive", "Doom (USA)", core.PlatformGenesis, "Games/Genesis")),
 			duplicateTestRecord("canon-a", "Doom", duplicateTestSource("scan:b", "drive-1", "game-source-google-drive", "Doom (Europe)", core.PlatformGenesis, "Games/Genesis")),
 			duplicateTestRecord("canon-a", "Doom", duplicateTestSource("scan:c", "drive-1", "game-source-google-drive", "Doom (SNES)", core.PlatformSNES, "Games/SNES")),
+		}, gamesByID: map[string]*core.CanonicalGame{
+			"canon-a": duplicateTestCanonicalGame("canon-a", "Doom", core.PlatformGenesis, 0),
 		}},
 		nil,
 		nil,
@@ -97,6 +108,12 @@ func TestDuplicateGamesStrictSeparatesPlatformVariants(t *testing.T) {
 	for _, source := range resp.Groups[0].Sources {
 		if source.Source.Platform != string(core.PlatformGenesis) {
 			t.Fatalf("strict source platform = %q, want genesis", source.Source.Platform)
+		}
+		if source.Game == nil || source.Game.ID != "canon-a" {
+			t.Fatalf("strict source game display = %+v, want canon-a", source.Game)
+		}
+		if source.Game.CoverOverride != nil || len(source.Game.Media) != 0 {
+			t.Fatalf("strict source game display media = %+v/%+v, want no media", source.Game.CoverOverride, source.Game.Media)
 		}
 	}
 }
@@ -171,4 +188,28 @@ func duplicateTestSource(id string, integrationID string, pluginID string, rawTi
 			Size:     1024,
 		}},
 	}
+}
+
+func duplicateTestCanonicalGame(id string, title string, platform core.Platform, coverAssetID int) *core.CanonicalGame {
+	game := &core.CanonicalGame{
+		ID:       id,
+		Title:    title,
+		Platform: platform,
+		Kind:     core.GameKindBaseGame,
+	}
+	if coverAssetID > 0 {
+		game.Media = []core.MediaRef{{
+			AssetID: coverAssetID + 1000,
+			Type:    core.MediaTypeCover,
+			URL:     "https://example.com/" + id + "-cover.jpg",
+			Source:  "metadata-test",
+		}}
+		game.CoverOverride = &core.MediaRef{
+			AssetID: coverAssetID,
+			Type:    core.MediaTypeCover,
+			URL:     "https://example.com/" + id + "-override.jpg",
+			Source:  "metadata-test",
+		}
+	}
+	return game
 }

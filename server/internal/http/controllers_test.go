@@ -981,6 +981,7 @@ type fakePluginCall struct {
 type fakeGameStore struct {
 	game                       *core.CanonicalGame
 	games                      []*core.CanonicalGame
+	gamesByID                  map[string]*core.CanonicalGame
 	duplicateRecords           []core.DuplicateGameSourceRecord
 	cached                     []cachedAchievementCall
 	achievementDashboard       *core.CachedAchievementsDashboard
@@ -1023,8 +1024,15 @@ func (f *fakeGameStore) DeleteAllGames(context.Context) error { panic("unexpecte
 func (f *fakeGameStore) GetCanonicalGames(context.Context) ([]*core.CanonicalGame, error) {
 	return f.games, nil
 }
-func (f *fakeGameStore) GetCanonicalGamesByIDs(context.Context, []string) ([]*core.CanonicalGame, error) {
-	panic("unexpected call")
+func (f *fakeGameStore) GetCanonicalGamesByIDs(_ context.Context, ids []string) ([]*core.CanonicalGame, error) {
+	if f.gamesByID == nil {
+		panic("unexpected call")
+	}
+	out := make([]*core.CanonicalGame, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, f.gamesByID[id])
+	}
+	return out, nil
 }
 func (f *fakeGameStore) CountVisibleCanonicalGames(context.Context) (int, error) {
 	panic("unexpected call")

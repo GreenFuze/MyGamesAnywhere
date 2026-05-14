@@ -35,12 +35,22 @@ type DuplicateGameGroupDTO struct {
 type DuplicateGameSourceDTO struct {
 	CanonicalGameID       string              `json:"canonical_game_id"`
 	CanonicalTitle        string              `json:"canonical_title"`
+	Game                  *DuplicateGameDTO   `json:"game,omitempty"`
 	Source                SourceGameDetailDTO `json:"source"`
 	FileCount             int                 `json:"file_count"`
 	TotalSize             int64               `json:"total_size"`
 	Cached                bool                `json:"cached"`
 	CacheStatuses         []string            `json:"cache_statuses,omitempty"`
 	HasCachedAchievements bool                `json:"has_cached_achievements,omitempty"`
+}
+
+type DuplicateGameDTO struct {
+	ID            string               `json:"id"`
+	Title         string               `json:"title"`
+	Platform      string               `json:"platform"`
+	Kind          string               `json:"kind"`
+	Media         []GameMediaDetailDTO `json:"media,omitempty"`
+	CoverOverride *GameMediaDetailDTO  `json:"cover_override,omitempty"`
 }
 
 type duplicateCandidate struct {
@@ -75,10 +85,57 @@ func (c *GameController) DuplicateGames(w http.ResponseWriter, r *http.Request) 
 	}
 
 	labels := c.loadIntegrationLabels(r.Context())
-	groups := c.buildDuplicateGameGroups(r.Context(), mode, records, labels, cacheBySource)
+	games, err := c.loadDuplicateGameDisplay(r.Context(), records)
+	if err != nil {
+		c.logger.Error("duplicate games display data", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	groups := c.buildDuplicateGameGroups(r.Context(), mode, records, labels, cacheBySource, games)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(DuplicateGamesResponse{Mode: mode, Groups: groups})
+}
+
+func (c *GameController) loadDuplicateGameDisplay(ctx context.Context, records []core.DuplicateGameSourceRecord) (map[string]*DuplicateGameDTO, error) {
+	ids := make([]string, 0)
+	for _, record := range records {
+		ids = appendUniqueString(ids, record.CanonicalGameID)
+	}
+	if len(ids) == 0 {
+		return map[string]*DuplicateGameDTO{}, nil
+	}
+	games, err := c.gameStore.GetCanonicalGamesByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]*DuplicateGameDTO, len(games))
+	for _, game := range games {
+		if game == nil {
+			continue
+		}
+		dto := duplicateGameDTO(game)
+		out[game.ID] = &dto
+	}
+	return out, nil
+}
+
+func duplicateGameDTO(game *core.CanonicalGame) DuplicateGameDTO {
+	out := DuplicateGameDTO{
+		ID:       game.ID,
+		Title:    game.Title,
+		Platform: string(game.Platform),
+		Kind:     string(game.Kind),
+		Media:    make([]GameMediaDetailDTO, 0, len(game.Media)),
+	}
+	if game.CoverOverride != nil {
+		cover := mediaRefToDTO(*game.CoverOverride)
+		out.CoverOverride = &cover
+	}
+	for _, ref := range game.Media {
+		out.Media = append(out.Media, mediaRefToDTO(ref))
+	}
+	return out
 }
 
 func (c *GameController) duplicateCacheStatuses(ctx context.Context) (map[string][]string, error) {
@@ -109,6 +166,7 @@ func (c *GameController) buildDuplicateGameGroups(
 	records []core.DuplicateGameSourceRecord,
 	integrationLabels map[string]string,
 	cacheBySource map[string][]string,
+	games map[string]*DuplicateGameDTO,
 ) []DuplicateGameGroupDTO {
 	buckets := map[string][]duplicateCandidate{}
 	for _, record := range records {
@@ -135,6 +193,7 @@ func (c *GameController) buildDuplicateGameGroups(
 			source: DuplicateGameSourceDTO{
 				CanonicalGameID:       record.CanonicalGameID,
 				CanonicalTitle:        strings.TrimSpace(record.CanonicalTitle),
+				Game:                  games[record.CanonicalGameID],
 				Source:                detail,
 				FileCount:             record.FileCount,
 				TotalSize:             record.TotalSize,

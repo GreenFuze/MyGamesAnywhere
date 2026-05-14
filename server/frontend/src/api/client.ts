@@ -543,9 +543,19 @@ export type DeleteSourceGamePreview = {
 
 export type DuplicateGameMode = "loose" | "strict";
 
+export type DuplicateGameDisplayDTO = {
+  id: string;
+  title: string;
+  platform: string;
+  kind: string;
+  media?: GameMediaDetailDTO[];
+  cover_override?: GameMediaDetailDTO;
+};
+
 export type DuplicateGameSource = {
   canonical_game_id: string;
   canonical_title: string;
+  game?: DuplicateGameDisplayDTO;
   source: SourceGameDetailDTO;
   file_count: number;
   total_size: number;

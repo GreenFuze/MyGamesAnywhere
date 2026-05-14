@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import {
@@ -9,6 +10,8 @@ import {
 } from '@/api/client'
 import { SourceGameHardDeleteDialog } from '@/components/library/SourceGameHardDeleteDialog'
 import { Button } from '@/components/ui/button'
+import { CoverImage } from '@/components/ui/cover-image'
+import { platformLabel, selectCoverUrl } from '@/lib/gameUtils'
 
 const MODES: Array<{ id: DuplicateGameMode; label: string; description: string }> = [
   {
@@ -42,6 +45,16 @@ function sourceLabel(source: DuplicateGameSource): string {
 
 function sourceRecordLabel(source: SourceGameDetailDTO): string {
   return `${source.integration_label || source.integration_id} · ${source.raw_title || source.external_id}`
+}
+
+function duplicateTitle(source: DuplicateGameSource): string {
+  return source.game?.title || source.canonical_title || source.source.raw_title || source.source.external_id
+}
+
+function duplicateSubtitle(source: DuplicateGameSource): string {
+  const platform = platformLabel(source.game?.platform || source.source.platform || 'unknown')
+  const kind = source.game?.kind || source.source.kind || 'unknown'
+  return `${platform} · ${kind}`
 }
 
 export function DuplicatesTab() {
@@ -171,10 +184,29 @@ export function DuplicatesTab() {
                             <p className="mt-1 text-xs text-mga-muted">{source.source.plugin_id}</p>
                           </td>
                           <td className="py-3 pr-4 align-top">
-                            <p className="text-mga-text">{source.source.raw_title || source.canonical_title}</p>
-                            <p className="mt-1 text-xs text-mga-muted">
-                              {source.source.platform || 'unknown'} · {source.source.kind || 'unknown'}
-                            </p>
+                            <Link
+                              to={`/game/${encodeURIComponent(source.canonical_game_id)}`}
+                              className="group flex min-w-[16rem] max-w-md items-start gap-3 rounded-mga p-1 -m-1 transition-colors hover:bg-mga-elevated/70"
+                            >
+                              <div className="h-20 w-14 shrink-0 overflow-hidden rounded-mga border border-mga-border bg-mga-bg">
+                                <CoverImage
+                                  src={selectCoverUrl(source.game?.media, source.game?.cover_override)}
+                                  alt={duplicateTitle(source)}
+                                  fit="contain"
+                                  variant="compact"
+                                  className="h-full w-full"
+                                />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-medium text-mga-text transition-colors group-hover:text-mga-accent">
+                                  {duplicateTitle(source)}
+                                </p>
+                                <p className="mt-1 text-xs text-mga-muted">{duplicateSubtitle(source)}</p>
+                                <p className="mt-1 text-xs text-mga-muted">
+                                  Source title: {source.source.raw_title || source.source.external_id}
+                                </p>
+                              </div>
+                            </Link>
                             {source.source.root_path ? (
                               <p className="mt-1 max-w-md break-all font-mono text-xs text-mga-muted">{source.source.root_path}</p>
                             ) : null}
