@@ -59,7 +59,7 @@ interface IntegrationGroupSectionProps {
   activeSaveSyncIntegrationId?: string | null;
   onSetActiveSaveSync?: (integrationId: string) => void;
   saveSyncHeaderControls?: ReactNode;
-  onStartAuth?: (integration: Integration) => void;
+  onStartAuth?: (integration: Integration, options?: { force?: boolean }) => void;
   authPendingIds?: Set<string>;
 }
 

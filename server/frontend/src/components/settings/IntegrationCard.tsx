@@ -27,6 +27,10 @@ export type IntegrationScanState = {
   badgeVariant?: "default" | "accent" | "muted";
   badgeClassName?: string;
   detail?: string;
+  statusLabel?: string;
+  statusDetail?: string;
+  statusClassName?: string;
+  statusDot?: "ok" | "oauth_required" | "unavailable" | "error" | "pending";
   progress?: {
     progress: number;
     total: number;
@@ -71,7 +75,7 @@ interface IntegrationCardProps {
   // Save-sync-specific props.
   activeSaveSyncIntegrationId?: string | null;
   onSetActiveSaveSync?: (integrationId: string) => void;
-  onStartAuth?: (integration: Integration) => void;
+  onStartAuth?: (integration: Integration, options?: { force?: boolean }) => void;
   authPending?: boolean;
 }
 
@@ -188,12 +192,38 @@ export function IntegrationCard({
     typeof onRefresh === "function" &&
     ((plugin?.provides?.includes("metadata.game.lookup") ?? false) ||
       (plugin?.provides?.includes("achievements.game.get") ?? false));
+  const refreshesMetadata = plugin?.provides?.includes("metadata.game.lookup") ?? false;
+  const refreshesAchievements = plugin?.provides?.includes("achievements.game.get") ?? false;
+  const refreshLabel = refreshesMetadata && refreshesAchievements
+    ? "Refresh Data"
+    : refreshesAchievements
+      ? "Refresh Achievements"
+      : "Refresh Metadata";
+  const refreshBusyLabel = refreshesMetadata && refreshesAchievements
+    ? "Refreshing Data..."
+    : refreshesAchievements
+      ? "Refreshing Achievements..."
+      : "Refreshing Metadata...";
   const showAuthAction =
     oauthCapable &&
     onStartAuth &&
-    (!status || status.status === "oauth_required" || status.status === "error");
+    (!status ||
+      status.status === "oauth_required" ||
+      status.status === "error" ||
+      refreshState?.statusDot === "oauth_required");
   const authLabel =
-    status?.status === "oauth_required" || status?.status === "error" ? "Re-auth" : "Connect";
+    status?.status === "oauth_required" || status?.status === "error" || refreshState?.statusDot === "oauth_required"
+      ? "Re-auth"
+      : "Connect";
+  const effectiveStatusInfo =
+    refreshState?.statusLabel || refreshState?.statusDetail
+      ? {
+          label: refreshState.statusLabel ?? statusInfo.label,
+          detail: refreshState.statusDetail ?? refreshState.detail ?? statusInfo.detail,
+          className: refreshState.statusClassName ?? "text-amber-300",
+        }
+      : statusInfo;
+  const effectiveDotStatus = refreshState?.statusDot ?? status?.status ?? "pending";
 
   return (
     <div className="border border-mga-border rounded-mga bg-mga-surface p-4 flex flex-col gap-2 transition-colors hover:border-mga-muted/50">
@@ -229,7 +259,7 @@ export function IntegrationCard({
           />
         ) : (
           <StatusDot
-            status={status?.status ?? "pending"}
+            status={effectiveDotStatus}
             className="shrink-0"
           />
         )}
@@ -308,11 +338,11 @@ export function IntegrationCard({
       )}
 
       <div className="space-y-1">
-        <p className={`text-xs font-medium uppercase tracking-wide ${statusInfo.className}`}>
-          {statusInfo.label}
+        <p className={`text-xs font-medium uppercase tracking-wide ${effectiveStatusInfo.className}`}>
+          {effectiveStatusInfo.label}
         </p>
-        <p className={`text-xs ${statusInfo.className} truncate`} title={statusInfo.detail}>
-          {statusInfo.detail}
+        <p className={`text-xs ${effectiveStatusInfo.className} truncate`} title={effectiveStatusInfo.detail}>
+          {effectiveStatusInfo.detail}
         </p>
       </div>
 
@@ -344,7 +374,7 @@ export function IntegrationCard({
           disabled={isChecking}
           className="text-xs"
         >
-          {isChecking ? "Checking..." : "Check"}
+          {isChecking ? "Checking..." : "Check Connection"}
         </Button>
 
         {/* Scan button for source integrations */}
@@ -356,7 +386,7 @@ export function IntegrationCard({
             disabled={scanDisabled || scanState?.active}
             className="text-xs"
           >
-            {scanState?.active ? "Scanning..." : "Scan"}
+            {scanState?.active ? "Scanning Library..." : "Scan Library"}
           </Button>
         )}
 
@@ -368,7 +398,7 @@ export function IntegrationCard({
             disabled={refreshDisabled || refreshState?.active}
             className="text-xs"
           >
-            {refreshState?.active ? "Refreshing..." : "Refresh"}
+            {refreshState?.active ? refreshBusyLabel : refreshLabel}
           </Button>
         )}
 
@@ -411,7 +441,11 @@ export function IntegrationCard({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => onStartAuth(integration)}
+            onClick={() =>
+              onStartAuth(integration, {
+                force: authLabel === "Re-auth",
+              })
+            }
             className="text-xs"
             disabled={mutationDisabled || isChecking || authPending}
           >

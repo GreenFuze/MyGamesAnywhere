@@ -82,6 +82,55 @@ func TestConfiguredXboxTokensBecomeConfigUpdates(t *testing.T) {
 	}
 }
 
+func TestHandleCheckConfigForceOAuthSkipsSilentValidation(t *testing.T) {
+	originalClientID := cfg.ClientID
+	originalTokens := tokens
+	originalPending := oauthPending
+	t.Cleanup(func() {
+		tokenMu.Lock()
+		cfg.ClientID = originalClientID
+		tokens = originalTokens
+		oauthPending = originalPending
+		tokenMu.Unlock()
+	})
+
+	tokenMu.Lock()
+	cfg.ClientID = "test-client"
+	tokens = savedTokens{
+		XSTSToken:     "still-valid",
+		XSTSExpiresAt: time.Now().Add(time.Hour),
+	}
+	oauthPending = map[string]string{}
+	tokenMu.Unlock()
+
+	payload, err := json.Marshal(map[string]any{
+		"config":       map[string]any{},
+		"redirect_uri": "http://127.0.0.1:8900/api/auth/callback/game-source-xbox",
+		"force_oauth":  true,
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	result, pluginErr := handleCheckConfig(payload)
+	if pluginErr != nil {
+		t.Fatalf("handleCheckConfig error: %+v", pluginErr)
+	}
+	body, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T, want map[string]any", result)
+	}
+	if got := body["status"]; got != "oauth_required" {
+		t.Fatalf("status = %v, want oauth_required", got)
+	}
+	if got := body["authorize_url"]; got == "" {
+		t.Fatal("authorize_url is empty")
+	}
+	if got := body["state"]; got == "" {
+		t.Fatal("state is empty")
+	}
+}
+
 func TestXboxSourcePlugin(t *testing.T) {
 	if os.Getenv("XBOX_SOURCE_INTEGRATION") != "1" {
 		t.Skip("set XBOX_SOURCE_INTEGRATION=1 to run")

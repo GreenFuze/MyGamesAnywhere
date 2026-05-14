@@ -515,7 +515,7 @@ function AchievementExplorerSection({
             onChange={(event) => onShowEmptyGamesChange(event.target.checked)}
             className="h-4 w-4 rounded border-mga-border bg-mga-surface text-mga-accent focus:ring-mga-accent"
           />
-          <span className="text-sm text-mga-text">Show games with no achievements</span>
+          <span className="text-sm text-mga-text">Show games with no unlocked achievements</span>
         </label>
       </div>
 
@@ -524,7 +524,7 @@ function AchievementExplorerSection({
           <p className="text-sm text-mga-muted">
             {hasActiveFilters
               ? 'No stored achievements match the current explorer filters.'
-              : 'No stored achievement explorer entries are available for this tab.'}
+              : 'No supported achievement games are available for this tab.'}
           </p>
         </div>
       ) : (
@@ -681,6 +681,7 @@ export function AchievementsPage() {
 
         const systems = item.systems
           .filter((system) => activeProvider === 'all' || system.source === activeProvider)
+          .filter((system) => system.total_count > 0)
           .map((system) => ({
             system,
             achievements: system.achievements.filter((achievement) =>
@@ -698,10 +699,10 @@ export function AchievementsPage() {
         }
 
         const totalCount = systems.reduce((sum, entry) => sum + entry.system.total_count, 0)
-        if (!showEmptyGames && totalCount <= 0) {
+        const unlockedCount = systems.reduce((sum, entry) => sum + entry.system.unlocked_count, 0)
+        if (!showEmptyGames && unlockedCount <= 0) {
           return null
         }
-        const unlockedCount = systems.reduce((sum, entry) => sum + entry.system.unlocked_count, 0)
         return {
           item,
           systems,
@@ -957,7 +958,7 @@ export function AchievementsPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          <Tabs tabs={tabs} active={activeTab} onChange={changeTab} className="overflow-x-auto" />
+          <Tabs tabs={tabs} active={activeTab} onChange={changeTab} className="overflow-x-auto overflow-y-hidden" />
 
           {activeTab === 'all' ? (
             <AllAchievementsSummary data={data} refresh={refresh} onOpenProvider={changeTab} />

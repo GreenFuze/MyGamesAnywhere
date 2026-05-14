@@ -977,12 +977,23 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 	var p struct {
 		Config      xboxConfig `json:"config"`
 		RedirectURI string     `json:"redirect_uri"`
+		ForceOAuth  bool       `json:"force_oauth"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 	}
 
 	useConfiguredTokens(p.Config.Tokens)
+
+	if p.ForceOAuth {
+		state := randomState()
+		authorizeURL := buildAuthorizeURL(state, p.RedirectURI)
+		return map[string]any{
+			"status":        "oauth_required",
+			"authorize_url": authorizeURL,
+			"state":         state,
+		}, nil
+	}
 
 	// Check for valid profile-owned or cached XSTS tokens.
 	tokenMu.Lock()

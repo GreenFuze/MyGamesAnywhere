@@ -14,6 +14,7 @@ import {
   getScanJob,
   startIntegrationRefresh,
   getIntegrationRefreshJob,
+  getAchievementsDashboard,
   getStats,
   getSyncStatus,
   syncPush,
@@ -34,10 +35,11 @@ import {
   type ScanJobRecentEvent,
   type ScanJobStatus,
   type AchievementRefreshJobStatus,
+  type AchievementRefreshStateDTO,
   type IntegrationRefreshJobStatus,
   type SaveSyncMigrationStatus,
 } from "@/api/client";
-import { CAPABILITY_META } from "@/lib/gameUtils";
+import { CAPABILITY_META, pluginLabel } from "@/lib/gameUtils";
 import { readStoredScanJobId, writeStoredScanJobId } from "@/lib/scanJobStorage";
 import { useSSE } from "@/hooks/useSSE";
 import { IntegrationGroupSection } from "./IntegrationGroupSection";
@@ -68,6 +70,10 @@ type IntegrationScanState = {
   badgeVariant?: "default" | "accent" | "muted";
   badgeClassName?: string;
   detail?: string;
+  statusLabel?: string;
+  statusDetail?: string;
+  statusClassName?: string;
+  statusDot?: "ok" | "oauth_required" | "unavailable" | "error" | "pending";
   progress?: {
     progress: number;
     total: number;
@@ -127,6 +133,30 @@ function integrationRefreshJobIsTerminal(
   job: Pick<IntegrationRefreshJobStatus, "status">,
 ) {
   return job.status === "completed" || job.status === "failed";
+}
+
+function achievementRefreshJobIsTerminal(
+  job: Pick<AchievementRefreshJobStatus, "status">,
+) {
+  return job.status === "completed" || job.status === "failed";
+}
+
+function cleanAchievementRefreshIssueMessage(pluginId: string, error?: string): string {
+  const raw = (error ?? "").trim();
+  if (!raw) return `${pluginLabel(pluginId)} achievement refresh needs attention.`;
+  const text = raw
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/\b429\b/i.test(raw) || /too many requests|rate[- ]limited?/i.test(raw)) {
+    return `${pluginLabel(pluginId)} achievement refresh is rate-limited. Wait a while, then refresh achievements again.`;
+  }
+  if (/AUTH_FAILED|XBOX_AUTH_FAILED|not authenticated|re-auth/i.test(raw)) {
+    return `${pluginLabel(pluginId)} achievements need re-authentication before refresh can succeed.`;
+  }
+  return text || `${pluginLabel(pluginId)} achievement refresh needs attention.`;
 }
 
 function readJobId(data: unknown): string | null {
@@ -647,6 +677,11 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
     queryFn: getFrontendConfig,
   });
 
+  const { data: achievementsDashboard } = useQuery({
+    queryKey: ["achievements-dashboard"],
+    queryFn: getAchievementsDashboard,
+  });
+
   // ── Status check state ──
 
   const [statusMap, setStatusMap] = useState<
@@ -829,7 +864,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
   const achievementRefreshStateByIntegrationId = useMemo(() => {
     const next = new Map<string, IntegrationScanState>();
     for (const [providerId, job] of achievementRefreshJobsByProvider.entries()) {
-      if (!job || integrationRefreshJobIsTerminal(job)) continue;
+      if (!job || achievementRefreshJobIsTerminal(job)) continue;
       const waiting = Boolean(job.waiting_until);
       const provider = job.provider_label ?? providerId;
       next.set(providerId, {
@@ -850,15 +885,57 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
     return next;
   }, [achievementRefreshJobsByProvider]);
 
-  const refreshStateByIntegrationId = useMemo(() => {
-    const next = new Map(integrationRefreshStateByIntegrationId);
-    for (const [integrationId, state] of achievementRefreshStateByIntegrationId.entries()) {
-      if (!next.has(integrationId)) {
-        next.set(integrationId, state);
-      }
+  const storedAchievementIssueStateByIntegrationId = useMemo(() => {
+    const next = new Map<string, IntegrationScanState>();
+    const failedStates = (achievementsDashboard?.refresh_states ?? []).filter(
+      (state) => state.status === "failed",
+    );
+    const byIntegration = new Map<string, AchievementRefreshStateDTO[]>();
+    for (const state of failedStates) {
+      const integrationId = state.integration_id;
+      if (!integrationId) continue;
+      const current = byIntegration.get(integrationId) ?? [];
+      current.push(state);
+      byIntegration.set(integrationId, current);
+    }
+    for (const [integrationId, states] of byIntegration.entries()) {
+      states.sort((left, right) =>
+        (right.last_attempted_at ?? "").localeCompare(left.last_attempted_at ?? ""),
+      );
+      const latest = states[0];
+      if (!latest) continue;
+      const detail = cleanAchievementRefreshIssueMessage(latest.plugin_id, latest.last_error);
+      next.set(integrationId, {
+        active: false,
+        badge: `Achievements need attention (${states.length})`,
+        badgeVariant: "default",
+        badgeClassName: "bg-amber-500/15 text-amber-300",
+        detail,
+        statusLabel: "Achievement refresh needs attention",
+        statusDetail: detail,
+        statusClassName: "text-amber-300",
+        statusDot: /AUTH_FAILED|XBOX_AUTH_FAILED|not authenticated|re-auth/i.test(latest.last_error ?? "")
+          ? "oauth_required"
+          : "error",
+      });
     }
     return next;
-  }, [achievementRefreshStateByIntegrationId, integrationRefreshStateByIntegrationId]);
+  }, [achievementsDashboard?.refresh_states]);
+
+  const refreshStateByIntegrationId = useMemo(() => {
+    const next = new Map(storedAchievementIssueStateByIntegrationId);
+    for (const [integrationId, state] of integrationRefreshStateByIntegrationId.entries()) {
+      next.set(integrationId, state);
+    }
+    for (const [integrationId, state] of achievementRefreshStateByIntegrationId.entries()) {
+      next.set(integrationId, state);
+    }
+    return next;
+  }, [
+    achievementRefreshStateByIntegrationId,
+    integrationRefreshStateByIntegrationId,
+    storedAchievementIssueStateByIntegrationId,
+  ]);
 
   const appendScanEvent = useCallback((text: string, data?: unknown) => {
     const ts = readTimestamp(data);
@@ -2068,7 +2145,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
     }
   }, []);
 
-  const handleStartAuth = useCallback(async (integration: Integration) => {
+  const handleStartAuth = useCallback(async (integration: Integration, options?: { force?: boolean }) => {
     let waitingForBrowser = false;
     const authWindow = window.open("", "_blank");
     let popupCloseTimer: number | undefined;
@@ -2110,7 +2187,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
     };
     setAuthPendingIds((prev) => new Set([...prev, integration.id]));
     try {
-      const result = await startIntegrationAuth(integration.id);
+      const result = await startIntegrationAuth(integration.id, options);
       if (isOAuthRequired(result)) {
         waitingForBrowser = true;
         oauthStateToIntegrationIdRef.current.set(result.state, integration.id);

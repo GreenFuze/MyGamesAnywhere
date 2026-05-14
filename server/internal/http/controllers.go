@@ -1224,6 +1224,10 @@ type integrationCheckResult struct {
 	ConfigUpdates  map[string]any `json:"config_updates,omitempty"`
 }
 
+type startIntegrationAuthRequest struct {
+	ForceOAuth bool `json:"force_oauth,omitempty"`
+}
+
 func decodeIntegrationConfig(configJSON string) (map[string]any, error) {
 	if strings.TrimSpace(configJSON) == "" {
 		return map[string]any{}, nil
@@ -1239,6 +1243,10 @@ func decodeIntegrationConfig(configJSON string) (map[string]any, error) {
 }
 
 func (c *PluginController) validateIntegrationConfig(ctx context.Context, pluginID string, configMap map[string]any) (*core.Plugin, integrationCheckResult, map[string]any, error) {
+	return c.validateIntegrationConfigWithOptions(ctx, pluginID, configMap, false)
+}
+
+func (c *PluginController) validateIntegrationConfigWithOptions(ctx context.Context, pluginID string, configMap map[string]any, forceOAuth bool) (*core.Plugin, integrationCheckResult, map[string]any, error) {
 	if configMap == nil {
 		configMap = map[string]any{}
 	}
@@ -1263,6 +1271,7 @@ func (c *PluginController) validateIntegrationConfig(ctx context.Context, plugin
 	if err := c.pluginHost.Call(ctx, pluginID, "plugin.check_config", map[string]any{
 		"config":       normalizedConfig,
 		"redirect_uri": c.oauthRedirectURI(pluginID),
+		"force_oauth":  forceOAuth,
 	}, &checkResult); err != nil {
 		return nil, integrationCheckResult{}, nil, fmt.Errorf("plugin validation failed: %w", err)
 	}
@@ -1486,13 +1495,21 @@ func (c *PluginController) StartIntegrationAuth(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	var body startIntegrationAuthRequest
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
 	configMap, err := decodeIntegrationConfig(integration.ConfigJSON)
 	if err != nil {
 		http.Error(w, "invalid saved config JSON", http.StatusBadRequest)
 		return
 	}
 
-	_, checkResult, _, err := c.validateIntegrationConfig(r.Context(), integration.PluginID, configMap)
+	_, checkResult, _, err := c.validateIntegrationConfigWithOptions(r.Context(), integration.PluginID, configMap, body.ForceOAuth)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

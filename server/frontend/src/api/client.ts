@@ -1106,11 +1106,16 @@ export async function updateIntegration(
 
 export async function startIntegrationAuth(
   id: string,
+  options?: { force?: boolean },
 ): Promise<StartIntegrationAuthResult> {
   const path = `/api/integrations/${encodeURIComponent(id)}/authorize`;
   const res = await apiFetch(`${base}${path}`, {
     method: "POST",
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json",
+      ...(options?.force ? { "Content-Type": "application/json" } : {}),
+    },
+    body: options?.force ? JSON.stringify({ force_oauth: true }) : undefined,
   });
 
   if (res.status === 202) {

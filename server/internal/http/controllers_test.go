@@ -1359,6 +1359,51 @@ func TestPluginControllerStartIntegrationAuthReturnsOAuthRequired(t *testing.T) 
 	}
 }
 
+func TestPluginControllerStartIntegrationAuthPassesForceOAuth(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{
+		byID: map[string]*core.Integration{
+			"int-1": {
+				ID:         "int-1",
+				PluginID:   "plugin.oauth",
+				Label:      "OAuth Integration",
+				ConfigJSON: `{}`,
+			},
+		},
+	}
+	host := &fakeControllerIntegrationPluginHost{
+		plugins: map[string]*core.Plugin{
+			"plugin.oauth": {
+				Manifest: core.PluginManifest{
+					ID:           "plugin.oauth",
+					Provides:     []string{"plugin.check_config", "auth.oauth.callback"},
+					ConfigSchema: map[string]any{},
+				},
+			},
+		},
+		checkResults: map[string]integrationCheckResult{
+			"plugin.oauth": {
+				Status:       "oauth_required",
+				AuthorizeURL: "https://example.com/auth",
+				State:        "state-123",
+			},
+		},
+	}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8900/api/integrations/int-1/authorize", strings.NewReader(`{"force_oauth":true}`))
+	rec := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Post("/api/integrations/{id}/authorize", controller.StartIntegrationAuth)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusAccepted)
+	}
+	if got := host.lastCheckPayload["force_oauth"]; got != true {
+		t.Fatalf("force_oauth payload = %v, want true", got)
+	}
+}
+
 func TestPluginControllerCheckPluginConfigReturnsOAuthRequiredWithoutPersisting(t *testing.T) {
 	repo := &fakeControllerIntegrationRepo{}
 	host := &fakeControllerIntegrationPluginHost{
@@ -1750,16 +1795,20 @@ func (r *fakeControllerIntegrationRepo) ListByPluginID(_ context.Context, plugin
 }
 
 type fakeControllerIntegrationPluginHost struct {
-	plugins      map[string]*core.Plugin
-	checkResults map[string]integrationCheckResult
+	plugins          map[string]*core.Plugin
+	checkResults     map[string]integrationCheckResult
+	lastCheckPayload map[string]any
 }
 
 func (f *fakeControllerIntegrationPluginHost) Discover(context.Context) error {
 	panic("unexpected call")
 }
-func (f *fakeControllerIntegrationPluginHost) Call(_ context.Context, pluginID, method string, _ any, result any) error {
+func (f *fakeControllerIntegrationPluginHost) Call(_ context.Context, pluginID, method string, params any, result any) error {
 	if method != "plugin.check_config" {
 		panic("unexpected call")
+	}
+	if payload, ok := params.(map[string]any); ok {
+		f.lastCheckPayload = payload
 	}
 	payload := f.checkResults[pluginID]
 	data, err := json.Marshal(payload)
