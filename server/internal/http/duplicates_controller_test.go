@@ -118,6 +118,67 @@ func TestDuplicateGamesStrictSeparatesPlatformVariants(t *testing.T) {
 	}
 }
 
+func TestDuplicateGamesLoadsDisplayOnlyForDuplicateGroups(t *testing.T) {
+	store := &fakeGameStore{duplicateRecords: []core.DuplicateGameSourceRecord{
+		duplicateTestRecord("canon-a", "Frogger", duplicateTestSource("scan:a", "drive-1", "game-source-google-drive", "Frogger (USA)", core.PlatformSNES, "Games/SNES")),
+		duplicateTestRecord("canon-b", "Frogger", duplicateTestSource("scan:b", "drive-1", "game-source-google-drive", "Frogger [Europe]", core.PlatformSNES, "Games/SNES")),
+		duplicateTestRecord("canon-unique", "Chrono Trigger", duplicateTestSource("scan:c", "drive-1", "game-source-google-drive", "Chrono Trigger", core.PlatformSNES, "Games/SNES")),
+	}, gamesByID: map[string]*core.CanonicalGame{
+		"canon-a":      duplicateTestCanonicalGame("canon-a", "Frogger", core.PlatformSNES, 101),
+		"canon-b":      duplicateTestCanonicalGame("canon-b", "Frogger", core.PlatformSNES, 202),
+		"canon-unique": duplicateTestCanonicalGame("canon-unique", "Chrono Trigger", core.PlatformSNES, 303),
+	}}
+	controller := NewGameController(
+		store,
+		nil,
+		nil,
+		&fakeIntegrationRepo{items: []*core.Integration{{ID: "drive-1", Label: "Drive", PluginID: "game-source-google-drive"}}},
+		nil,
+		noopLogger{},
+	)
+	router := chi.NewRouter()
+	router.Get("/api/duplicates/games", controller.DuplicateGames)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/duplicates/games?mode=loose", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := store.requestedCanonicalIDs; len(got) != 2 || got[0] != "canon-a" || got[1] != "canon-b" {
+		t.Fatalf("display canonical ids = %+v, want only duplicate canonical IDs canon-a/canon-b", got)
+	}
+}
+
+func TestDuplicateGamesSkipsDisplayLoadWhenOnlyUniqueRowsExist(t *testing.T) {
+	store := &fakeGameStore{duplicateRecords: []core.DuplicateGameSourceRecord{
+		duplicateTestRecord("canon-a", "Frogger", duplicateTestSource("scan:a", "drive-1", "game-source-google-drive", "Frogger", core.PlatformSNES, "Games/SNES")),
+		duplicateTestRecord("canon-b", "Chrono Trigger", duplicateTestSource("scan:b", "drive-1", "game-source-google-drive", "Chrono Trigger", core.PlatformSNES, "Games/SNES")),
+	}}
+	controller := NewGameController(
+		store,
+		nil,
+		nil,
+		&fakeIntegrationRepo{items: []*core.Integration{{ID: "drive-1", Label: "Drive", PluginID: "game-source-google-drive"}}},
+		nil,
+		noopLogger{},
+	)
+	router := chi.NewRouter()
+	router.Get("/api/duplicates/games", controller.DuplicateGames)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/duplicates/games?mode=loose", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if len(store.requestedCanonicalIDs) != 0 {
+		t.Fatalf("display canonical ids = %+v, want no display load for unique rows", store.requestedCanonicalIDs)
+	}
+}
+
 func TestDuplicateGamesRejectsInvalidMode(t *testing.T) {
 	controller := NewGameController(&fakeGameStore{}, nil, nil, nil, nil, noopLogger{})
 	router := chi.NewRouter()

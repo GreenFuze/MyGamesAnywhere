@@ -8,8 +8,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
 )
 
@@ -77,6 +79,58 @@ func TestOAuthControllerImportXboxCallbackPathVariants(t *testing.T) {
 				t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestOAuthControllerImportCallbackClearsAuthAchievementFailuresAndPublishesIntegrationID(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{
+		byID: map[string]*core.Integration{
+			"int-xbox": {ID: "int-xbox", PluginID: "game-source-xbox", ConfigJSON: `{}`},
+		},
+	}
+	host := &fakeOAuthCallbackPluginHost{
+		results: map[string]oauthCallbackResult{
+			"game-source-xbox": {Status: "ok", ConfigUpdates: map[string]any{"xuid": "123"}},
+		},
+	}
+	bus := events.New()
+	sub := bus.Subscribe()
+	defer bus.Unsubscribe(sub)
+	store := &oauthAchievementFailureStore{fakeGameStore: &fakeGameStore{}}
+	controller := NewOAuthController(host, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, bus, repo)
+	controller.SetGameStore(store)
+	controller.states = NewOAuthStateStore()
+	controller.states.Register("state-xbox", OAuthState{IntegrationID: "int-xbox", PluginID: "game-source-xbox"})
+
+	rec := httptest.NewRecorder()
+	controller.ImportCallback(rec, importCallbackRequest(t, "game-source-xbox", "http://127.0.0.1:8900/api/auth/callback/game-source-xbox?code=abc&state=state-xbox"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.calls != 1 {
+		t.Fatalf("cleanup calls = %d, want 1", store.calls)
+	}
+	if store.integrationID != "int-xbox" {
+		t.Fatalf("cleanup integration_id = %q, want int-xbox", store.integrationID)
+	}
+	if store.message != "Re-authenticated; run Refresh achievements again." {
+		t.Fatalf("cleanup message = %q", store.message)
+	}
+
+	select {
+	case ev := <-sub:
+		if ev.Type != "oauth_complete" {
+			t.Fatalf("event type = %q, want oauth_complete", ev.Type)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(ev.Data, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if got := payload["integration_id"]; got != "int-xbox" {
+			t.Fatalf("event integration_id = %#v, want int-xbox", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for oauth_complete event")
 	}
 }
 
@@ -196,4 +250,18 @@ func (f *fakeOAuthCallbackPluginHost) GetPlugin(string) (*core.Plugin, bool) { r
 func (f *fakeOAuthCallbackPluginHost) ListPlugins() []plugins.PluginInfo     { return nil }
 func (f *fakeOAuthCallbackPluginHost) GetPluginIDsProviding(string) []string {
 	return nil
+}
+
+type oauthAchievementFailureStore struct {
+	*fakeGameStore
+	calls         int
+	integrationID string
+	message       string
+}
+
+func (s *oauthAchievementFailureStore) ClearAuthRelatedAchievementRefreshFailures(_ context.Context, integrationID, message string) (int, error) {
+	s.calls++
+	s.integrationID = integrationID
+	s.message = message
+	return 2, nil
 }

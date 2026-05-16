@@ -323,6 +323,47 @@ func (s *gameStore) SaveAchievementRefreshState(ctx context.Context, state *core
 	return nil
 }
 
+func (s *gameStore) ClearAuthRelatedAchievementRefreshFailures(ctx context.Context, integrationID, message string) (int, error) {
+	integrationID = strings.TrimSpace(integrationID)
+	if integrationID == "" {
+		return 0, fmt.Errorf("integration_id is required")
+	}
+	if strings.TrimSpace(message) == "" {
+		message = "Re-authenticated; run Refresh achievements again."
+	}
+	profileID := core.ProfileIDFromContext(ctx)
+	args := []any{
+		string(core.AchievementRefreshStatusSkipped),
+		message,
+		time.Now().UTC().Unix(),
+		integrationID,
+	}
+	profileWhere := ""
+	if profileID != "" {
+		profileWhere = " AND COALESCE(profile_id, '') = ?"
+		args = append(args, profileID)
+	}
+	res, err := s.db.GetDB().ExecContext(ctx, `
+		UPDATE achievement_refresh_states
+		   SET status = ?, last_error = ?, last_attempted_at = ?
+		 WHERE integration_id = ?
+		   AND status = 'failed'
+		   AND (
+		       COALESCE(last_error, '') LIKE '%AUTH_FAILED%'
+		    OR COALESCE(last_error, '') LIKE '%XBOX_AUTH_FAILED%'
+		    OR COALESCE(last_error, '') LIKE '%not authenticated%'
+		    OR COALESCE(last_error, '') LIKE '%re-auth%'
+		   )`+profileWhere, args...)
+	if err != nil {
+		return 0, fmt.Errorf("clear auth achievement refresh failures: %w", err)
+	}
+	count, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("clear auth achievement refresh failures rows affected: %w", err)
+	}
+	return int(count), nil
+}
+
 func (s *gameStore) SetCanonicalCoverOverride(ctx context.Context, canonicalID string, mediaAssetID int) error {
 	if strings.TrimSpace(canonicalID) == "" {
 		return core.ErrCanonicalGameNotFound

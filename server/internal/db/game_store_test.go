@@ -2401,6 +2401,90 @@ func persistBatch(t *testing.T, ctx context.Context, store *gameStore, batch *co
 	}
 }
 
+func TestClearAuthRelatedAchievementRefreshFailuresScopesByIntegration(t *testing.T) {
+	ctx := context.Background()
+	_, store := newTestGameStore(t)
+
+	xboxBatch := makeTestBatch("int-xbox", "scan:xbox-auth", "xbox-auth", "Xbox Auth Game", "xbox-auth")
+	xboxBatch.SourceGames = append(xboxBatch.SourceGames, &core.SourceGame{
+		ID:            "scan:xbox-api",
+		IntegrationID: "int-xbox",
+		PluginID:      "game-source-steam",
+		ExternalID:    "xbox-api",
+		RawTitle:      "Xbox API Game",
+		Platform:      core.PlatformWindowsPC,
+		Kind:          core.GameKindBaseGame,
+		GroupKind:     core.GroupKindSelfContained,
+		Status:        "found",
+	})
+	xboxBatch.ResolverMatches["scan:xbox-api"] = []core.ResolverMatch{{
+		PluginID:   "metadata-steam",
+		Title:      "Xbox API Game",
+		Platform:   string(core.PlatformWindowsPC),
+		ExternalID: "xbox-api",
+	}}
+	persistBatch(t, ctx, store, xboxBatch)
+	persistBatch(t, ctx, store, makeTestBatch("int-other", "scan:other-auth", "other-auth", "Other Auth Game", "other-auth"))
+
+	if err := store.SaveAchievementRefreshState(ctx, &core.AchievementRefreshState{
+		SourceGameID:   "scan:xbox-auth",
+		IntegrationID:  "int-xbox",
+		PluginID:       "game-source-xbox",
+		ExternalGameID: "123",
+		Status:         core.AchievementRefreshStatusFailed,
+		LastError:      "plugin error [AUTH_FAILED]: not authenticated - re-auth required via OAuth flow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveAchievementRefreshState(ctx, &core.AchievementRefreshState{
+		SourceGameID:   "scan:xbox-api",
+		IntegrationID:  "int-xbox",
+		PluginID:       "game-source-xbox",
+		ExternalGameID: "456",
+		Status:         core.AchievementRefreshStatusFailed,
+		LastError:      "plugin error [API_ERROR]: provider is unavailable",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveAchievementRefreshState(ctx, &core.AchievementRefreshState{
+		SourceGameID:   "scan:other-auth",
+		IntegrationID:  "int-other",
+		PluginID:       "game-source-xbox",
+		ExternalGameID: "789",
+		Status:         core.AchievementRefreshStatusFailed,
+		LastError:      "plugin error [AUTH_FAILED]: not authenticated",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	const message = "Re-authenticated; run Refresh achievements again."
+	count, err := store.ClearAuthRelatedAchievementRefreshFailures(ctx, "int-xbox", message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("cleared count = %d, want 1", count)
+	}
+
+	states, err := store.GetAchievementRefreshStates(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bySource := make(map[string]core.AchievementRefreshState, len(states))
+	for _, state := range states {
+		bySource[state.SourceGameID] = state
+	}
+	if got := bySource["scan:xbox-auth"]; got.Status != core.AchievementRefreshStatusSkipped || got.LastError != message {
+		t.Fatalf("xbox auth state = %+v, want skipped with cleanup message", got)
+	}
+	if got := bySource["scan:xbox-api"]; got.Status != core.AchievementRefreshStatusFailed || !strings.Contains(got.LastError, "provider is unavailable") {
+		t.Fatalf("xbox api state = %+v, want unchanged failed provider error", got)
+	}
+	if got := bySource["scan:other-auth"]; got.Status != core.AchievementRefreshStatusFailed || !strings.Contains(got.LastError, "not authenticated") {
+		t.Fatalf("other integration state = %+v, want unchanged failed auth error", got)
+	}
+}
+
 func insertTestProfile(t *testing.T, db *sqliteDatabase, id string, role core.ProfileRole) {
 	t.Helper()
 	now := time.Now().Unix()

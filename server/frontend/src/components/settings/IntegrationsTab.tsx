@@ -100,6 +100,14 @@ type ActiveOAuthPrompt = {
   error?: string;
 };
 
+type ActiveWorkItem = {
+  id: string;
+  label: string;
+  detail?: string;
+  progress?: string;
+  waiting?: boolean;
+};
+
 function readTimestamp(data: unknown): string {
   if (
     data &&
@@ -298,6 +306,11 @@ function formatProgressLabel(
     return `${progress.current ?? 0}${unit}`.trim() || fallback;
   }
   return `${progress.current ?? 0}/${progress.total}${unit}`.trim();
+}
+
+function formatCountProgress(current?: number, total?: number): string | undefined {
+  if (!total || total <= 0) return undefined;
+  return `${current ?? 0}/${total}`;
 }
 
 function formatMetadataPhase(phase?: string) {
@@ -691,6 +704,8 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
   const [checkProgress, setCheckProgress] = useState({ current: 0, total: 0 });
   const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
   const [authPendingIds, setAuthPendingIds] = useState<Set<string>>(new Set());
+  const [postAuthAchievementRefreshIds, setPostAuthAchievementRefreshIds] =
+    useState<Set<string>>(new Set());
   const [activeOAuthPrompt, setActiveOAuthPrompt] = useState<ActiveOAuthPrompt | null>(null);
   const oauthStateToIntegrationIdRef = useRef<Map<string, string>>(new Map());
   const oauthPopupCloseTimersRef = useRef<Map<string, number>>(new Map());
@@ -922,8 +937,29 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
     return next;
   }, [achievementsDashboard?.refresh_states]);
 
+  const postAuthAchievementRefreshStateByIntegrationId = useMemo(() => {
+    const next = new Map<string, IntegrationScanState>();
+    for (const integrationId of postAuthAchievementRefreshIds) {
+      next.set(integrationId, {
+        active: false,
+        badge: "Re-auth complete",
+        badgeVariant: "accent",
+        badgeClassName: "bg-emerald-500/15 text-emerald-200",
+        detail: "Refresh achievements to retry failed games.",
+        statusLabel: "Re-auth complete",
+        statusDetail: "Refresh achievements to retry failed games.",
+        statusClassName: "text-emerald-300",
+        statusDot: "ok",
+      });
+    }
+    return next;
+  }, [postAuthAchievementRefreshIds]);
+
   const refreshStateByIntegrationId = useMemo(() => {
     const next = new Map(storedAchievementIssueStateByIntegrationId);
+    for (const [integrationId, state] of postAuthAchievementRefreshStateByIntegrationId.entries()) {
+      next.set(integrationId, state);
+    }
     for (const [integrationId, state] of integrationRefreshStateByIntegrationId.entries()) {
       next.set(integrationId, state);
     }
@@ -934,7 +970,68 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
   }, [
     achievementRefreshStateByIntegrationId,
     integrationRefreshStateByIntegrationId,
+    postAuthAchievementRefreshStateByIntegrationId,
     storedAchievementIssueStateByIntegrationId,
+  ]);
+
+  const integrationLabelById = useMemo(() => {
+    const next = new Map<string, string>();
+    for (const integration of integrations) {
+      next.set(integration.id, integration.label || pluginLabel(integration.plugin_id));
+    }
+    return next;
+  }, [integrations]);
+
+  const activeWorkItems = useMemo<ActiveWorkItem[]>(() => {
+    const items: ActiveWorkItem[] = [];
+    if (scanning) {
+      items.push({
+        id: "scan",
+        label: scanMetadataOnly ? "Metadata refresh" : "Source scan",
+        detail: scanStatusText || currentPhase || undefined,
+        progress: scanTotalCount > 0 ? `${scanCompletedCount}/${scanTotalCount} integrations` : undefined,
+      });
+    }
+    for (const integrationId of authPendingIds) {
+      items.push({
+        id: `oauth:${integrationId}`,
+        label: "OAuth sign-in",
+        detail: integrationLabelById.get(integrationId) ?? integrationId,
+      });
+    }
+    for (const job of integrationRefreshJobs.values()) {
+      if (integrationRefreshJobIsTerminal(job)) continue;
+      items.push({
+        id: `integration-refresh:${job.job_id}`,
+        label: "Integration data refresh",
+        detail: job.current_item ? `${job.label}: ${job.current_item}` : job.label,
+        progress: formatCountProgress(job.items_completed, job.items_total),
+      });
+    }
+    for (const job of achievementRefreshJobsByProvider.values()) {
+      if (achievementRefreshJobIsTerminal(job)) continue;
+      const waiting = Boolean(job.waiting_until);
+      const provider = job.provider_label ?? job.provider_id ?? "Achievement provider";
+      items.push({
+        id: `achievement-refresh:${job.job_id}:${job.provider_id ?? provider}`,
+        label: waiting ? "Achievement refresh waiting" : "Achievement refresh",
+        detail: job.message || (job.current_item ? `${provider}: ${job.current_item}` : provider),
+        progress: formatCountProgress(job.items_completed, job.items_total),
+        waiting,
+      });
+    }
+    return items;
+  }, [
+    achievementRefreshJobsByProvider,
+    authPendingIds,
+    currentPhase,
+    integrationLabelById,
+    integrationRefreshJobs,
+    scanCompletedCount,
+    scanMetadataOnly,
+    scanning,
+    scanStatusText,
+    scanTotalCount,
   ]);
 
   const appendScanEvent = useCallback((text: string, data?: unknown) => {
@@ -2185,6 +2282,11 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
         });
       }
     };
+    setPostAuthAchievementRefreshIds((prev) => {
+      const next = new Set(prev);
+      next.delete(integration.id);
+      return next;
+    });
     setAuthPendingIds((prev) => new Set([...prev, integration.id]));
     try {
       const result = await startIntegrationAuth(integration.id, options);
@@ -2308,9 +2410,9 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
   useEffect(() => {
     const unsubs = [
       subscribe("oauth_complete", (data: unknown) => {
-        const d = data as { state?: string };
+        const d = data as { state?: string; integration_id?: string };
         if (!d.state) return;
-        const integrationId = oauthStateToIntegrationIdRef.current.get(d.state);
+        const integrationId = d.integration_id || oauthStateToIntegrationIdRef.current.get(d.state);
         if (!integrationId) return;
         const popupCloseTimer = oauthPopupCloseTimersRef.current.get(integrationId);
         if (popupCloseTimer !== undefined) {
@@ -2332,6 +2434,14 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
           next.delete(integrationId);
           return next;
         });
+        const integration = integrations.find((item) => item.id === integrationId);
+        const plugin = plugins.find((item) => item.plugin_id === integration?.plugin_id);
+        const hasAchievementIssue = storedAchievementIssueStateByIntegrationId.has(integrationId);
+        if (hasAchievementIssue || plugin?.provides?.includes("achievements.game.get")) {
+          setPostAuthAchievementRefreshIds((prev) => new Set([...prev, integrationId]));
+        }
+        void queryClient.invalidateQueries({ queryKey: ["achievements-dashboard"] });
+        void queryClient.invalidateQueries({ queryKey: ["achievements-explorer"] });
         void handleCheckOne(integrationId);
       }),
       subscribe("oauth_error", (data: unknown) => {
@@ -2374,7 +2484,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
       }),
     ];
     return () => unsubs.forEach((u) => u());
-  }, [handleCheckOne, integrations, subscribe]);
+  }, [handleCheckOne, integrations, plugins, queryClient, storedAchievementIssueStateByIntegrationId, subscribe]);
 
   // ── Auto-check on first load ──
 
@@ -2459,6 +2569,11 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
   }, [adoptScanJob, clearScanState]);
 
   const handleIntegrationRefresh = useCallback(async (id: string) => {
+    setPostAuthAchievementRefreshIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
     try {
       const result = await startIntegrationRefresh(id);
       setIntegrationRefreshJob(id, () => result.job);
@@ -2767,6 +2882,41 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
         <p className="text-xs text-mga-muted">
           Automatic integration checks are deferred while a scan is active.
         </p>
+      )}
+
+      {activeWorkItems.length > 0 && (
+        <div className="rounded-mga border border-mga-border bg-mga-elevated/50 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <RefreshCw size={14} className="text-mga-accent animate-spin" />
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-mga-muted">
+              Active work
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {activeWorkItems.map((item) => (
+              <div
+                key={item.id}
+                className={`min-w-0 rounded-mga border px-3 py-2 text-xs ${
+                  item.waiting
+                    ? "border-amber-500/30 bg-amber-500/10 text-amber-100"
+                    : "border-mga-border/70 bg-mga-surface/70 text-mga-text"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{item.label}</span>
+                  {item.progress ? (
+                    <span className="text-mga-muted">{item.progress}</span>
+                  ) : null}
+                </div>
+                {item.detail ? (
+                  <p className="mt-1 max-w-[22rem] truncate text-mga-muted">
+                    {item.detail}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Library stats summary */}

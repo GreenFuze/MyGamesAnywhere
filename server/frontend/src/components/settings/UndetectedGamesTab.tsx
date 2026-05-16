@@ -7,7 +7,9 @@ import {
   applyManualReviewCandidate,
   deleteManualReviewCandidateFiles,
   getManualReviewCandidate,
+  listIntegrations,
   listManualReviewCandidates,
+  listPlugins,
   markManualReviewCandidateNotAGame,
   previewDeleteManualReviewCandidateFiles,
   redetectActiveManualReviewCandidates,
@@ -15,10 +17,13 @@ import {
   searchManualReviewCandidate,
   unarchiveManualReviewCandidate,
   type DeleteSourceGamePreview,
+  type Integration,
   type ManualReviewCandidateDetail,
   type ManualReviewCandidateSummary,
   type ManualReviewScope,
+  type ManualReviewSearchProviderStatus,
   type ManualReviewSearchResult,
+  type PluginInfo,
 } from '@/api/client'
 import { BrandBadge } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
@@ -107,6 +112,27 @@ function statusTone(status: string): 'accent' | 'muted' | 'default' {
   if (status === 'success') return 'accent'
   if (status === 'error') return 'default'
   return 'muted'
+}
+
+type MetadataProviderChipStatus = Omit<ManualReviewSearchProviderStatus, 'status'> & {
+  status: ManualReviewSearchProviderStatus['status'] | 'pending' | 'no_response'
+  pending?: boolean
+}
+
+function metadataProviderKey(provider: Pick<ManualReviewSearchProviderStatus, 'integration_id' | 'plugin_id'>): string {
+  return provider.integration_id || provider.plugin_id
+}
+
+function metadataProviderStatusLabel(provider: MetadataProviderChipStatus): string {
+  if (provider.pending) return 'Searching'
+  if (provider.status === 'success' && provider.result_count === 0) return 'No Results'
+  return humanizeValue(provider.status)
+}
+
+function metadataProviderStatusTone(provider: MetadataProviderChipStatus): 'accent' | 'muted' | 'default' {
+  if (provider.pending) return 'muted'
+  if (provider.status === 'success' && provider.result_count === 0) return 'muted'
+  return statusTone(provider.status)
 }
 
 function preferredSearchQuery(candidate: ManualReviewCandidateDetail | undefined): string {
@@ -210,6 +236,56 @@ export function UndetectedGamesTab() {
       submittedQuery.trim().length > 0 &&
       candidateQuery.data?.review_state !== 'not_a_game',
   })
+
+  const integrationsQuery = useQuery({
+    queryKey: ['integrations'],
+    queryFn: listIntegrations,
+  })
+
+  const pluginsQuery = useQuery({
+    queryKey: ['plugins'],
+    queryFn: listPlugins,
+  })
+
+  const configuredMetadataProviders = useMemo<MetadataProviderChipStatus[]>(() => {
+    const pluginById = new Map<string, PluginInfo>()
+    for (const plugin of pluginsQuery.data ?? []) {
+      pluginById.set(plugin.plugin_id, plugin)
+    }
+    return (integrationsQuery.data ?? [])
+      .filter((integration: Integration) =>
+        pluginById.get(integration.plugin_id)?.provides?.includes('metadata.game.lookup'),
+      )
+      .map((integration) => ({
+        integration_id: integration.id,
+        integration_label: integration.label,
+        plugin_id: integration.plugin_id,
+        status: 'pending',
+        result_count: 0,
+      }))
+  }, [integrationsQuery.data, pluginsQuery.data])
+
+  const visibleMetadataProviders = useMemo<MetadataProviderChipStatus[]>(() => {
+    const responseProviders: MetadataProviderChipStatus[] = searchResultsQuery.data?.providers ?? []
+    if (responseProviders.length > 0) {
+      const byKey = new Map(responseProviders.map((provider) => [metadataProviderKey(provider), provider]))
+      const usedKeys = new Set<string>()
+      const merged = configuredMetadataProviders.map((provider) => {
+        const key = metadataProviderKey(provider)
+        const finished = byKey.get(key)
+        usedKeys.add(key)
+        return finished ?? { ...provider, status: 'no_response' as const }
+      })
+      for (const provider of responseProviders) {
+        if (!usedKeys.has(metadataProviderKey(provider))) merged.push(provider)
+      }
+      return merged.length > 0 ? merged : responseProviders
+    }
+    if (searchResultsQuery.isFetching && submittedQuery.trim().length > 0) {
+      return configuredMetadataProviders.map((provider) => ({ ...provider, pending: true }))
+    }
+    return []
+  }, [configuredMetadataProviders, searchResultsQuery.data?.providers, searchResultsQuery.isFetching, submittedQuery])
 
   const filteredCandidates = useMemo(() => {
     const items = candidatesQuery.data ?? []
@@ -784,14 +860,23 @@ export function UndetectedGamesTab() {
                       </div>
                     ) : null}
 
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {(searchResultsQuery.data?.providers ?? []).map((provider) => (
-                        <Badge key={`${provider.integration_id}:${provider.plugin_id}`} variant={statusTone(provider.status)}>
-                          {provider.integration_label || provider.integration_id}: {humanizeValue(provider.status)}
-                          {provider.result_count > 0 ? ` (${provider.result_count})` : ''}
-                        </Badge>
-                      ))}
-                    </div>
+                    {visibleMetadataProviders.length > 0 ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {visibleMetadataProviders.map((provider) => (
+                          <Badge
+                            key={`${provider.integration_id}:${provider.plugin_id}`}
+                            variant={metadataProviderStatusTone(provider)}
+                            className="gap-1.5"
+                          >
+                            {provider.pending ? <Loader2 size={12} className="animate-spin" /> : null}
+                            {provider.status === 'error' ? <AlertCircle size={12} /> : null}
+                            {provider.integration_label || provider.integration_id || pluginLabel(provider.plugin_id)}:{' '}
+                            {metadataProviderStatusLabel(provider)}
+                            {provider.result_count > 0 ? ` (${provider.result_count})` : ''}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
 
                     {searchResultsQuery.isError ? (
                       <div className="mt-4 rounded-mga border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">

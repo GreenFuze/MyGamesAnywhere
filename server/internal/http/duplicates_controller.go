@@ -85,7 +85,7 @@ func (c *GameController) DuplicateGames(w http.ResponseWriter, r *http.Request) 
 	}
 
 	labels := c.loadIntegrationLabels(r.Context())
-	games, err := c.loadDuplicateGameDisplay(r.Context(), records)
+	games, err := c.loadDuplicateGameDisplay(r.Context(), duplicateDisplayCanonicalIDs(mode, records))
 	if err != nil {
 		c.logger.Error("duplicate games display data", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -97,15 +97,11 @@ func (c *GameController) DuplicateGames(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(DuplicateGamesResponse{Mode: mode, Groups: groups})
 }
 
-func (c *GameController) loadDuplicateGameDisplay(ctx context.Context, records []core.DuplicateGameSourceRecord) (map[string]*DuplicateGameDTO, error) {
-	ids := make([]string, 0)
-	for _, record := range records {
-		ids = appendUniqueString(ids, record.CanonicalGameID)
-	}
-	if len(ids) == 0 {
+func (c *GameController) loadDuplicateGameDisplay(ctx context.Context, canonicalIDs []string) (map[string]*DuplicateGameDTO, error) {
+	if len(canonicalIDs) == 0 {
 		return map[string]*DuplicateGameDTO{}, nil
 	}
-	games, err := c.gameStore.GetCanonicalGamesByIDs(ctx, ids)
+	games, err := c.gameStore.GetCanonicalGamesByIDs(ctx, canonicalIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +114,44 @@ func (c *GameController) loadDuplicateGameDisplay(ctx context.Context, records [
 		out[game.ID] = &dto
 	}
 	return out, nil
+}
+
+func duplicateDisplayCanonicalIDs(mode string, records []core.DuplicateGameSourceRecord) []string {
+	type displayBucket struct {
+		count        int
+		canonicalIDs []string
+	}
+	buckets := map[string]displayBucket{}
+	for _, record := range records {
+		sourceGame := record.SourceGame
+		if sourceGame == nil || sourceGame.Status != "found" {
+			continue
+		}
+		title := duplicateRecordTitle(record)
+		normalized := titlematch.NormalizeLookupTitle(title)
+		if normalized == "" {
+			continue
+		}
+		key := duplicateGroupKey(mode, record.CanonicalGameID, normalized, sourceGame)
+		if key == "" {
+			continue
+		}
+		bucket := buckets[key]
+		bucket.count++
+		bucket.canonicalIDs = appendUniqueString(bucket.canonicalIDs, record.CanonicalGameID)
+		buckets[key] = bucket
+	}
+	ids := make([]string, 0)
+	for _, bucket := range buckets {
+		if bucket.count < 2 {
+			continue
+		}
+		for _, canonicalID := range bucket.canonicalIDs {
+			ids = appendUniqueString(ids, canonicalID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func duplicateGameDTO(game *core.CanonicalGame) DuplicateGameDTO {

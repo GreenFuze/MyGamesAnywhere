@@ -25,6 +25,7 @@ type OAuthController struct {
 	logger     core.Logger
 	eventBus   *events.EventBus
 	repo       core.IntegrationRepository
+	gameStore  core.GameStore
 	states     *OAuthStateStore
 }
 
@@ -47,6 +48,10 @@ func NewOAuthController(
 		repo:       integrationRepo,
 		states:     defaultOAuthStateStore,
 	}
+}
+
+func (c *OAuthController) SetGameStore(gameStore core.GameStore) {
+	c.gameStore = gameStore
 }
 
 var defaultOAuthStateStore = NewOAuthStateStore()
@@ -356,6 +361,7 @@ func (c *OAuthController) handleOpenIDCallback(w http.ResponseWriter, r *http.Re
 // config updates, and publishes the common completion event used by callback
 // redirects and pasted callback imports.
 func (c *OAuthController) completeCallback(ctx context.Context, pluginID, state string, ipcPayload map[string]any) error {
+	oauthState, hasOAuthState := c.states.Peek(state)
 	var result oauthCallbackResult
 	err := c.pluginHost.Call(ctx, pluginID, "auth.oauth.callback", ipcPayload, &result)
 
@@ -373,13 +379,39 @@ func (c *OAuthController) completeCallback(ctx context.Context, pluginID, state 
 	if err := c.persistOAuthConfigUpdates(ctx, pluginID, state, result.ConfigUpdates); err != nil {
 		return err
 	}
+	if hasOAuthState {
+		if err := c.clearAuthRelatedAchievementRefreshFailures(ctx, oauthState); err != nil {
+			return err
+		}
+		c.states.Consume(state)
+	}
 
 	// Success — publish SSE event so the frontend wizard knows.
-	events.PublishJSON(c.eventBus, "oauth_complete", map[string]any{
+	payload := map[string]any{
 		"plugin_id": pluginID,
 		"state":     state,
-	})
+	}
+	if hasOAuthState && strings.TrimSpace(oauthState.IntegrationID) != "" {
+		payload["integration_id"] = oauthState.IntegrationID
+	}
+	events.PublishJSON(c.eventBus, "oauth_complete", payload)
 	return nil
+}
+
+func (c *OAuthController) clearAuthRelatedAchievementRefreshFailures(ctx context.Context, oauthState OAuthState) error {
+	if c.gameStore == nil || strings.TrimSpace(oauthState.IntegrationID) == "" {
+		return nil
+	}
+	storeCtx := ctx
+	if oauthState.ProfileID != "" {
+		storeCtx = core.WithProfile(ctx, &core.Profile{ID: oauthState.ProfileID})
+	}
+	_, err := c.gameStore.ClearAuthRelatedAchievementRefreshFailures(
+		storeCtx,
+		oauthState.IntegrationID,
+		"Re-authenticated; run Refresh achievements again.",
+	)
+	return err
 }
 
 type oauthCallbackResult struct {

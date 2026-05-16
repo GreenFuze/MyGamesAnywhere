@@ -106,6 +106,9 @@ type GameStore interface {
 	// SaveAchievementRefreshState stores the last provider refresh result for a source game.
 	SaveAchievementRefreshState(ctx context.Context, state *AchievementRefreshState) error
 
+	// ClearAuthRelatedAchievementRefreshFailures marks stale auth failures for an integration as skipped after re-auth.
+	ClearAuthRelatedAchievementRefreshFailures(ctx context.Context, integrationID, message string) (int, error)
+
 	// UpdateMediaAsset marks a media asset as downloaded (sets local_path, hash).
 	UpdateMediaAsset(ctx context.Context, assetID int, localPath, hash string) error
 	// MarkMediaAssetDownloadFailed records a failed media download attempt and unlinks permanent failures.

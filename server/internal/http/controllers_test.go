@@ -982,6 +982,7 @@ type fakeGameStore struct {
 	game                       *core.CanonicalGame
 	games                      []*core.CanonicalGame
 	gamesByID                  map[string]*core.CanonicalGame
+	requestedCanonicalIDs      []string
 	duplicateRecords           []core.DuplicateGameSourceRecord
 	cached                     []cachedAchievementCall
 	achievementDashboard       *core.CachedAchievementsDashboard
@@ -1011,6 +1012,9 @@ func (f *fakeGameStore) CacheAchievements(_ context.Context, sourceGameID string
 func (f *fakeGameStore) SaveAchievementRefreshState(context.Context, *core.AchievementRefreshState) error {
 	return nil
 }
+func (f *fakeGameStore) ClearAuthRelatedAchievementRefreshFailures(context.Context, string, string) (int, error) {
+	return 0, nil
+}
 func (f *fakeGameStore) UpdateMediaAsset(context.Context, int, string, string) error {
 	panic("unexpected call")
 }
@@ -1028,6 +1032,7 @@ func (f *fakeGameStore) GetCanonicalGamesByIDs(_ context.Context, ids []string) 
 	if f.gamesByID == nil {
 		panic("unexpected call")
 	}
+	f.requestedCanonicalIDs = append([]string(nil), ids...)
 	out := make([]*core.CanonicalGame, 0, len(ids))
 	for _, id := range ids {
 		out = append(out, f.gamesByID[id])
