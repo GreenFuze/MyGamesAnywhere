@@ -71,6 +71,21 @@ func (f *fakeGameDeletionService) DeleteSourceGame(_ context.Context, canonicalI
 	return f.result, f.err
 }
 
+func (f *fakeGameDeletionService) DeleteSourceGames(_ context.Context, selections []core.SourceGameDeleteSelection) (*core.DeleteSourceGamesResult, error) {
+	if len(selections) > 0 {
+		f.canonicalID = selections[0].CanonicalID
+		f.sourceGameID = selections[0].SourceGameID
+	}
+	if f.err != nil {
+		return nil, f.err
+	}
+	ids := make([]string, 0, len(selections))
+	for _, selection := range selections {
+		ids = append(ids, selection.SourceGameID)
+	}
+	return &core.DeleteSourceGamesResult{DeletedSourceGameIDs: ids}, nil
+}
+
 func (f *fakeGameDeletionService) PreviewDeleteReviewCandidateFiles(_ context.Context, candidateID string) (*core.DeleteSourceGamePreview, error) {
 	f.reviewCandidateID = candidateID
 	return f.preview, f.previewErr
@@ -1174,6 +1189,9 @@ func (f *fakeGameStore) DeleteGamesByIntegrationID(context.Context, string) erro
 	panic("unexpected call")
 }
 func (f *fakeGameStore) DeleteSourceGameByID(context.Context, string) error {
+	panic("unexpected call")
+}
+func (f *fakeGameStore) DeleteSourceGamesByID(context.Context, []string) error {
 	panic("unexpected call")
 }
 func (f *fakeGameStore) SaveScanReport(context.Context, *core.ScanReport) error {

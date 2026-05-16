@@ -3,11 +3,11 @@ import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileText, Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import {
-  deleteSourceGame,
+  ApiError,
+  deleteSourceGames,
   getDuplicateGames,
   previewDeleteSourceGame,
   type DeleteSourceGamePreview,
-  type DeleteSourceGameResponse,
   type DuplicateGameMode,
   type DuplicateGameSource,
 } from '@/api/client'
@@ -61,6 +61,7 @@ function sourceKey(source: DuplicateGameSource): string {
 }
 
 function errorText(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) return error.responseText?.trim() || error.message
   if (error instanceof Error) return error.message
   return fallback
 }
@@ -214,18 +215,19 @@ export function DuplicatesTab() {
     setBatchError('')
     const entries = previewEntriesWithFiles
     setDeleteProgress({ completed: 0, total: entries.length })
-    const deletedSources: DuplicateGameSource[] = []
+    setDeleteProgress({ completed: 0, total: entries.length, current: 'Deleting selected source records...' })
 
     try {
-      for (const [index, entry] of entries.entries()) {
-        setDeleteProgress({ completed: index, total: entries.length, current: sourceLabel(entry.source) })
-        const result: DeleteSourceGameResponse = await deleteSourceGame(entry.source.canonical_game_id, entry.source.source.id)
-        if (!result.deleted_source_game_id) {
-          throw new Error(`Delete did not return a deleted source id for ${sourceLabel(entry.source)}.`)
-        }
-        deletedSources.push(entry.source)
-        setDeleteProgress({ completed: index + 1, total: entries.length, current: sourceLabel(entry.source) })
+      const result = await deleteSourceGames(entries.map((entry) => ({
+        canonical_game_id: entry.source.canonical_game_id,
+        source_game_id: entry.source.source.id,
+      })))
+      const deletedIDSet = new Set(result.deleted_source_game_ids)
+      if (deletedIDSet.size === 0) {
+        throw new Error('Delete did not return any deleted source ids.')
       }
+      const deletedSources = entries.map((entry) => entry.source).filter((source) => deletedIDSet.has(source.source.id))
+      setDeleteProgress({ completed: deletedSources.length, total: entries.length, current: 'Deleted selected source records.' })
       setSelectedIds((prev) => {
         const next = new Set(prev)
         for (const source of deletedSources) {
@@ -240,7 +242,6 @@ export function DuplicatesTab() {
       void refreshAfterDelete(deletedSources)
     } catch (err) {
       setBatchError(errorText(err, 'Hard delete failed.'))
-      void refreshAfterDelete(deletedSources)
     } finally {
       setDeleteBusy(false)
     }

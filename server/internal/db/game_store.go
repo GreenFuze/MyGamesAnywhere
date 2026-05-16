@@ -2741,7 +2741,21 @@ func (s *gameStore) DeleteGamesByIntegrationID(ctx context.Context, integrationI
 }
 
 func (s *gameStore) DeleteSourceGameByID(ctx context.Context, sourceGameID string) error {
-	if strings.TrimSpace(sourceGameID) == "" {
+	return s.DeleteSourceGamesByID(ctx, []string{sourceGameID})
+}
+
+func (s *gameStore) DeleteSourceGamesByID(ctx context.Context, sourceGameIDs []string) error {
+	ids := make([]string, 0, len(sourceGameIDs))
+	seen := make(map[string]bool, len(sourceGameIDs))
+	for _, id := range sourceGameIDs {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
 		return fmt.Errorf("source game id is required")
 	}
 
@@ -2752,15 +2766,24 @@ func (s *gameStore) DeleteSourceGameByID(ctx context.Context, sourceGameID strin
 	}
 	defer tx.Rollback()
 
-	var existingID string
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM source_games WHERE id = ?`+profileFilterSQL(ctx, "source_games"), sourceGameID).Scan(&existingID); err != nil {
+	placeholders := buildPlaceholderList(len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	query := `SELECT COUNT(*) FROM source_games WHERE id IN (` + placeholders + `)` + profileFilterSQL(ctx, "source_games")
+	var count int
+	if err := tx.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
 		if err == sql.ErrNoRows {
 			return core.ErrSourceGameDeleteNotFound
 		}
-		return fmt.Errorf("load source game %s: %w", sourceGameID, err)
+		return fmt.Errorf("load source games: %w", err)
+	}
+	if count != len(ids) {
+		return core.ErrSourceGameDeleteNotFound
 	}
 
-	if err := s.deleteSourceGamesByID(ctx, tx, []string{sourceGameID}); err != nil {
+	if err := s.deleteSourceGamesByID(ctx, tx, ids); err != nil {
 		return err
 	}
 	if err := s.recomputeCanonicalGroups(ctx, tx); err != nil {

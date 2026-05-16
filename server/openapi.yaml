@@ -351,6 +351,22 @@ paths:
         500:
           description: Internal server error
 
+  /api/games/sources/delete-batch:
+    post:
+      summary: Hard delete multiple source records
+      description: Deletes explicitly selected eligible file-backed source records as one operation. Provider file delete plans are built before execution, duplicate backing file operations are skipped, and canonical grouping is recomputed once after database rows are removed.
+      responses:
+        200:
+          description: DeleteSourceGamesResponse
+        400:
+          description: Invalid request
+        404:
+          description: Game or source record not found
+        409:
+          description: Source record is not eligible for hard delete
+        500:
+          description: Internal server error
+
   /api/games/{id}:
     get:
       summary: Get game by ID

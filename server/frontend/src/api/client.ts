@@ -524,6 +524,15 @@ export type DeleteSourceGameResponse = {
   game?: GameDetailResponse;
 };
 
+export type DeleteSourceGameSelection = {
+  canonical_game_id: string;
+  source_game_id: string;
+};
+
+export type DeleteSourceGamesResponse = {
+  deleted_source_game_ids: string[];
+};
+
 export type DeleteSourceGamePreviewItem = {
   path: string;
   object_id?: string;
@@ -752,6 +761,14 @@ export async function deleteSourceGame(
     );
   }
   return res.json() as Promise<DeleteSourceGameResponse>;
+}
+
+export async function deleteSourceGames(
+  items: DeleteSourceGameSelection[],
+): Promise<DeleteSourceGamesResponse> {
+  return postJson<DeleteSourceGamesResponse>("/api/games/sources/delete-batch", {
+    items,
+  }) as Promise<DeleteSourceGamesResponse>;
 }
 
 export async function previewDeleteSourceGame(

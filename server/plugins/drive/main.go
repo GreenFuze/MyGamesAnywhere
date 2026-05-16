@@ -228,6 +228,13 @@ func getDriveService(ctx context.Context) (*drive.Service, error) {
 	return drive.NewService(ctx, option.WithTokenSource(src))
 }
 
+func getDriveServiceForConfig(ctx context.Context, config map[string]any) (*drive.Service, error) {
+	if tok := tokenFromConfig(config); tok != nil {
+		setCachedToken(tok)
+	}
+	return getDriveService(ctx)
+}
+
 // --------------- Resolve path to folder ID ---------------
 
 func resolvePathToFolderID(srv *drive.Service, rootPath string) (string, error) {
@@ -1247,7 +1254,7 @@ func handleSourceDelete(params json.RawMessage) (any, *Error) {
 		defer cancel()
 
 		var err error
-		srv, err = getDriveService(ctx)
+		srv, err = getDriveServiceForConfig(ctx, body.Config)
 		if err != nil {
 			return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
 		}

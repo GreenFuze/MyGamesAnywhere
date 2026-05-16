@@ -90,6 +90,12 @@ type DeleteSourceGameResponse struct {
 	Game                *GameDetailResponse `json:"game,omitempty"`
 }
 
+type DeleteSourceGamesRequest struct {
+	Items []core.SourceGameDeleteSelection `json:"items"`
+}
+
+type DeleteSourceGamesResponse = core.DeleteSourceGamesResult
+
 type DeleteSourceGamePreviewResponse = core.DeleteSourceGamePreview
 
 type SetCoverOverrideRequest struct {
@@ -774,6 +780,39 @@ func (c *GameController) DeleteSourceGame(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (c *GameController) DeleteSourceGames(w http.ResponseWriter, r *http.Request) {
+	if c.deleteSvc == nil {
+		writeActionError(w, http.StatusNotImplemented, "source record hard delete is not available")
+		return
+	}
+	var body DeleteSourceGamesRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeActionError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if len(body.Items) == 0 {
+		writeActionError(w, http.StatusBadRequest, "items are required")
+		return
+	}
+	deleteCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Minute)
+	defer cancel()
+	result, err := c.deleteSvc.DeleteSourceGames(deleteCtx, body.Items)
+	if err != nil {
+		switch {
+		case errors.Is(err, core.ErrSourceGameDeleteNotFound):
+			http.NotFound(w, r)
+		case errors.Is(err, core.ErrSourceGameDeleteNotEligible):
+			writeActionError(w, http.StatusConflict, err.Error())
+		default:
+			c.logger.Error("delete source games", err, "count", len(body.Items))
+			writeActionError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(DeleteSourceGamesResponse(*result))
 }
 
 func (c *GameController) PreviewDeleteSourceGame(w http.ResponseWriter, r *http.Request) {

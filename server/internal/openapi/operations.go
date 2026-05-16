@@ -93,6 +93,13 @@ func Operations() []OperationDoc {
 			ResponseDocs: map[string]string{"200": "DeleteSourceGameResponse", "404": "Game or source record not found", "409": "Source record is not eligible for hard delete", "500": "Internal server error"},
 		},
 		{
+			Method:       "POST",
+			Path:         "/api/games/sources/delete-batch",
+			Summary:      "Hard delete multiple source records",
+			Description:  "Deletes explicitly selected eligible file-backed source records as one operation. Provider file delete plans are built before execution, duplicate backing file operations are skipped, and canonical grouping is recomputed once after database rows are removed.",
+			ResponseDocs: map[string]string{"200": "DeleteSourceGamesResponse", "400": "Invalid request", "404": "Game or source record not found", "409": "Source record is not eligible for hard delete", "500": "Internal server error"},
+		},
+		{
 			Method:       "GET",
 			Path:         "/api/games/{id}/play",
 			Summary:      "Stream one game file by file_id",

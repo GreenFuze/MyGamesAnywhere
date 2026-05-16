@@ -75,6 +75,8 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				return RequireAdminProfile(http.HandlerFunc(h)).ServeHTTP
 			}
 
+			api.With(ProfileContextMiddleware(b.ProfileRepo)).Post("/games/sources/delete-batch", adminOnly(b.GameCtrl.DeleteSourceGames))
+
 			// Routes with standard middleware timeout.
 			api.Group(func(r chi.Router) {
 				if middlewareTimeout > 0 {
@@ -213,6 +215,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Put("/games/{id}/background-override", noopHandler())
 			api.Put("/games/{id}/favorite", noopHandler())
 			api.Delete("/games/{id}/favorite", noopHandler())
+			api.Post("/games/sources/delete-batch", noopHandler())
 			api.Post("/games/{id}/sources/{source_game_id}/delete-preview", noopHandler())
 			api.Delete("/games/{id}/sources/{source_game_id}", noopHandler())
 			api.Get("/games/{id}/play", noopHandler())

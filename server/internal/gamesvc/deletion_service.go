@@ -127,6 +127,73 @@ func (s *DeletionService) DeleteSourceGame(ctx context.Context, canonicalID, sou
 	}, nil
 }
 
+func (s *DeletionService) DeleteSourceGames(ctx context.Context, selections []core.SourceGameDeleteSelection) (*core.DeleteSourceGamesResult, error) {
+	if len(selections) == 0 {
+		return nil, core.ErrSourceGameDeleteNotFound
+	}
+
+	plans := make([]*sourceDeletionPlan, 0, len(selections))
+	seenSources := make(map[string]bool, len(selections))
+	for _, selection := range selections {
+		canonicalID := strings.TrimSpace(selection.CanonicalID)
+		sourceGameID := strings.TrimSpace(selection.SourceGameID)
+		if canonicalID == "" || sourceGameID == "" {
+			return nil, core.ErrSourceGameDeleteNotFound
+		}
+		if seenSources[sourceGameID] {
+			continue
+		}
+		sourceGames, err := s.gameStore.GetSourceGamesForCanonical(ctx, canonicalID)
+		if err != nil {
+			return nil, fmt.Errorf("get source games for canonical %s: %w", canonicalID, err)
+		}
+		target := findSourceGame(sourceGames, sourceGameID)
+		if target == nil {
+			return nil, core.ErrSourceGameDeleteNotFound
+		}
+		plan, err := s.buildDeletionPlan(ctx, canonicalID, target)
+		if err != nil {
+			return nil, err
+		}
+		plans = append(plans, plan)
+		seenSources[sourceGameID] = true
+	}
+	if len(plans) == 0 {
+		return nil, core.ErrSourceGameDeleteNotFound
+	}
+
+	seenFiles := make(map[string]bool)
+	for _, plan := range plans {
+		filtered := make([]sourceDeleteFile, 0, len(plan.Files))
+		for _, file := range plan.Files {
+			key := sourceDeleteFileIdentity(plan, file)
+			if seenFiles[key] {
+				continue
+			}
+			seenFiles[key] = true
+			filtered = append(filtered, file)
+		}
+		if len(filtered) == 0 {
+			continue
+		}
+		nextPlan := *plan
+		nextPlan.Files = filtered
+		if err := s.executeDeletionPlan(ctx, &nextPlan); err != nil {
+			return nil, err
+		}
+	}
+
+	deletedIDs := make([]string, 0, len(plans))
+	for _, plan := range plans {
+		deletedIDs = append(deletedIDs, plan.SourceGameID)
+	}
+	if err := s.gameStore.DeleteSourceGamesByID(ctx, deletedIDs); err != nil {
+		return nil, err
+	}
+	s.logger.Info("deleted duplicate source records", "count", len(deletedIDs))
+	return &core.DeleteSourceGamesResult{DeletedSourceGameIDs: deletedIDs}, nil
+}
+
 func (s *DeletionService) PreviewDeleteReviewCandidateFiles(ctx context.Context, candidateID string) (*core.DeleteSourceGamePreview, error) {
 	if strings.TrimSpace(candidateID) == "" {
 		return nil, core.ErrManualReviewCandidateNotFound
@@ -250,6 +317,14 @@ func (s *DeletionService) executeDeletionPlan(ctx context.Context, plan *sourceD
 	}
 	s.logger.Info("deleted source record backing files", "canonical_id", plan.CanonicalID, "source_game_id", plan.SourceGameID, "plugin_id", plan.PluginID, "deleted_count", result.DeletedCount)
 	return nil
+}
+
+func sourceDeleteFileIdentity(plan *sourceDeletionPlan, file sourceDeleteFile) string {
+	objectID := strings.TrimSpace(file.ObjectID)
+	if objectID != "" {
+		return strings.Join([]string{plan.PluginID, plan.IntegrationID, "object", objectID}, "|")
+	}
+	return strings.Join([]string{plan.PluginID, plan.IntegrationID, plan.RootPath, file.Path}, "|")
 }
 
 func (s *DeletionService) previewDeletionPlan(ctx context.Context, plan *sourceDeletionPlan) (*core.DeleteSourceGamePreview, error) {

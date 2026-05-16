@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -207,6 +208,34 @@ func TestHandleSourceDeleteDryRunReturnsTrashPlan(t *testing.T) {
 	}
 	if resp.DeletedCount != 0 {
 		t.Fatalf("deleted_count = %d, want 0 for dry run", resp.DeletedCount)
+	}
+}
+
+func TestSourceDeleteServiceUsesTokenFromConfig(t *testing.T) {
+	tokenMu.Lock()
+	cachedToken = nil
+	tokenMu.Unlock()
+	t.Cleanup(func() {
+		tokenMu.Lock()
+		cachedToken = nil
+		tokenMu.Unlock()
+	})
+
+	_, err := getDriveServiceForConfig(context.Background(), map[string]any{
+		"tokens": map[string]any{
+			"access_token": "access-from-config",
+			"token_type":   "Bearer",
+			"expiry":       time.Now().Add(time.Hour).Format(time.RFC3339Nano),
+		},
+	})
+	if err != nil {
+		t.Fatalf("getDriveServiceForConfig returned error: %v", err)
+	}
+	tokenMu.Lock()
+	tok := cachedToken
+	tokenMu.Unlock()
+	if tok == nil || tok.AccessToken != "access-from-config" {
+		t.Fatalf("token from config = %+v, want access-from-config", tok)
 	}
 }
 

@@ -223,6 +223,9 @@ type GameStore interface {
 	// DeleteSourceGameByID removes one source game and dependent rows, then recomputes canonical groups.
 	DeleteSourceGameByID(ctx context.Context, sourceGameID string) error
 
+	// DeleteSourceGamesByID removes source games and dependent rows, then recomputes canonical groups once.
+	DeleteSourceGamesByID(ctx context.Context, sourceGameIDs []string) error
+
 	// SaveScanReport persists a completed scan report.
 	SaveScanReport(ctx context.Context, report *ScanReport) error
 
@@ -367,6 +370,15 @@ type DeleteSourceGameResult struct {
 	CanonicalGame       *CanonicalGame
 }
 
+type SourceGameDeleteSelection struct {
+	CanonicalID  string `json:"canonical_game_id"`
+	SourceGameID string `json:"source_game_id"`
+}
+
+type DeleteSourceGamesResult struct {
+	DeletedSourceGameIDs []string `json:"deleted_source_game_ids"`
+}
+
 type DeleteSourceGamePreviewItem struct {
 	Path     string `json:"path"`
 	ObjectID string `json:"object_id,omitempty"`
@@ -388,6 +400,7 @@ type DeleteSourceGamePreview struct {
 type GameDeletionService interface {
 	PreviewDeleteSourceGame(ctx context.Context, canonicalID, sourceGameID string) (*DeleteSourceGamePreview, error)
 	DeleteSourceGame(ctx context.Context, canonicalID, sourceGameID string) (*DeleteSourceGameResult, error)
+	DeleteSourceGames(ctx context.Context, selections []SourceGameDeleteSelection) (*DeleteSourceGamesResult, error)
 	PreviewDeleteReviewCandidateFiles(ctx context.Context, candidateID string) (*DeleteSourceGamePreview, error)
 	DeleteReviewCandidateFiles(ctx context.Context, candidateID string) (*DeleteSourceGameResult, error)
 }
