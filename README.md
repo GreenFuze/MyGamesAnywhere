@@ -10,7 +10,7 @@ Most launchers start from a storefront or a folder. MGA starts from the game ide
 
 [Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest) · [View screenshots](#screenshots) · [GitHub Pages](https://greenfuze.github.io/MyGamesAnywhere/) · [GitHub](https://github.com/GreenFuze/MyGamesAnywhere) · [Public roadmap](docs/public-roadmap.md)
 
-**Current release line:** `v0.0.9`
+**Current release line:** `v0.0.10`
 **Status:** pre-1.0, actively moving, local-first by design
 
 ![A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation](docs/screenshots/canonical-game-page.png)
@@ -100,6 +100,30 @@ That is the core differentiator. MGA is not just a prettier launcher row. It is 
 
 *A source-backed canonical game page: one page combines metadata, launch availability, media, files, source-backed navigation, and provider evidence around a single canonical game.*
 
+### Play-first library
+
+![The Play page showing the poster-first browser-ready library with filters and shelf/grid controls](docs/screenshots/play-v0.0.10.png)
+
+*Play is now the default landing surface, focused on browser-ready and cloud-ready games instead of a duplicate dashboard.*
+
+### Canonical split and merge controls
+
+![A game detail source-record section showing split, merge, clear grouping, and hard delete controls for individual source records](docs/screenshots/canonical-split-merge-v0.0.10.png)
+
+*When automatic canonical grouping is wrong, a single source record can be split into its own game or merged into another known canonical game.*
+
+### Duplicate cleanup
+
+![Settings duplicates page showing duplicate source rows with cover art, canonical links, and hard-delete marking controls](docs/screenshots/duplicates-v0.0.10.png)
+
+*Settings -> Duplicates helps review duplicate-looking source records and batch hard-delete selected file-backed entries through preview and confirmation.*
+
+### Provider-aware achievements
+
+![The Achievements page with provider tabs, stored achievement progress, and refresh status](docs/screenshots/achievements-v0.0.10.png)
+
+*Achievements are shown from server-stored data with provider-aware tabs, provider-specific points, and visible background refresh progress.*
+
 ### Provenance and source records
 
 ![A provenance-focused game section showing source records, integration labels, root paths, file counts, and resolver match counts](docs/screenshots/source-provenance.png)
@@ -148,11 +172,15 @@ Additional screenshot coverage is tracked in the public docs, but the committed 
 ## Available Now
 
 - Unified cross-source library with canonical game merge
+- Play-first app landing experience for browser-ready and cloud-ready games
 - Source-backed game pages with metadata, media, files, external links, provider evidence, favorites, and per-version context
-- Manual review, fuzzy provider search, platform-aware matching, numeral-aware manual provider search, and re-detect for unresolved records
+- Manual review, fuzzy provider search, platform-aware matching, numeral-aware manual provider search, authoritative reclassify, and re-detect for unresolved records
+- Manual canonical split/merge controls for source records that automatic grouping gets wrong
 - Poster-first library browsing and game pages
-- Favorite games persisted by the local server, including automatic Favorites shelves in Library and Play
-- Source-backed Steam, Xbox, and RetroAchievements progress surfaces, including multiple achievement sets when one canonical game has multiple detected versions
+- Profile-owned favorite games persisted by the local server, including automatic Favorites shelves in Library and Play
+- Library Statistics and Gamer Statistics pages for profile-scoped library and achievement overview
+- Source-backed Steam, Xbox, and RetroAchievements progress surfaces, including provider-aware tabs, stored achievement refresh state, and multiple achievement sets when one canonical game has multiple detected versions
+- Background achievement refresh after scans, manual full refresh, provider progress, and conservative RetroAchievements rate-limit backoff
 - Browser-play support for configured runtimes such as EmulatorJS, js-dos, and ScummVM, with source-backed launch options
 - Materialized browser play for Drive and SMB-backed game files so network/cloud sources can be cached locally before launch
 - Game Pass / xCloud availability surfaced through Xbox-backed data where available
@@ -160,12 +188,14 @@ Additional screenshot coverage is tracked in the public docs, but the committed 
 - Save-sync and settings-sync surfaces
 - Configurable server `LISTEN_IP` for loopback or opt-in LAN binding, while released packages stay local-only by default
 - Plugin-backed dry-delete previews for file-backed source deletes, with checkbox confirmation before the real delete action
+- Settings -> Duplicates review with canonical cover links, duplicate modes, batch hard-delete review, and progress
 - Compact source-file inventory views that show all backing paths in one copyable textbox with total size instead of one card per file
 - First-run profile flow, browser-local profile picker, profile menu, and admin-managed profile settings
 - Profile-owned integrations and library data, so storefront credentials, source scans, favorites, achievements, and settings can be separated per profile
 - Windows installer with clear per-user or all-users modes: per-user runs after sign-in as a local-only process, while all-users installs an admin-approved service with LAN access enabled by default, optional firewall setup, and rotating file logs
 - Auto-update v1: release manifest checks, SHA256-verified downloads, silent installer apply for installed Windows layouts, and Windows portable self-update/restart through an external helper
 - Media cache status in Settings, including queue counts, retry failed downloads, and local media cache clearing without deleting library metadata
+- Media cache error diagnostics with recent failures and failing media URLs
 - REST API and React web UI running on the same local server
 - Windows portable and installer release packaging
 
@@ -301,13 +331,13 @@ The short public roadmap lives in [docs/public-roadmap.md](docs/public-roadmap.m
 
 The important split is:
 
-- **Available now**: canonical game merge, local-first runtime, source-backed pages, favorites, local profiles, profile-owned integrations/library data, platform-aware manual review with numeral-aware manual search, source-backed achievements, browser-play surfaces, EmulatorJS save-sync, nested source-scan excludes, compact source-file inventories, safer file-backed delete previews, configurable listen IP, Windows portable/installer packaging, and auto-update v1
+- **Available now**: canonical game merge, local-first runtime, source-backed pages, profile-owned favorites, local profiles, profile-owned integrations/library data, statistics pages, platform-aware manual review with numeral-aware manual search, canonical split/merge controls, source-backed achievements with background refresh, browser-play surfaces, EmulatorJS save-sync, nested source-scan excludes, compact source-file inventories, safer duplicate hard-delete review, configurable listen IP, Windows portable/installer packaging, and auto-update v1
 - **In active development**: packaging hardening, UX refinement, broader metadata/runtime coverage, and better public proof/docs
 - **Planned later**: Linux packaging, desktop shell, mobile client, and deeper multi-user flows
 
 ## Release And Upgrade Safety
 
-MGA carries a repository version source at [`VERSION`](VERSION). The current stable line is **`0.0.9`**.
+MGA carries a repository version source at [`VERSION`](VERSION). The current stable line is **`0.0.10`**.
 
 Upgrade policy:
 

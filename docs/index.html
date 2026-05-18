@@ -49,7 +49,7 @@
             trusting a hidden match.
           </p>
           <div class="hero__actions">
-            <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download v0.0.8</a>
+            <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download v0.0.10</a>
             <a class="button" href="./screenshots.html">View screenshots</a>
             <a class="button" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
             <a class="button" href="./install.html">Install guide</a>
@@ -79,6 +79,10 @@
               <p>One canonical game can absorb multiple source records, provider matches, files, and media instead of leaving you with duplicate launcher rows.</p>
             </article>
             <article>
+              <h3>Manual split and merge</h3>
+              <p>When automatic grouping is wrong, a single source row can be split into its own game or pinned into another known canonical game.</p>
+            </article>
+            <article>
               <h3>Source-backed versions</h3>
               <p>Multiple concrete versions can live under one canonical game, with per-source launch options and achievement sets kept visible.</p>
             </article>
@@ -97,6 +101,14 @@
             <article>
               <h3>Manual review and repair</h3>
               <p>Detection failures stay visible and repairable through an explicit review queue with fuzzy, platform-aware provider search instead of being silently hidden behind a bad automatic match.</p>
+            </article>
+            <article>
+              <h3>Duplicate cleanup</h3>
+              <p>Settings can compare duplicate-looking source records, show canonical cover links, and batch hard-delete selected file-backed entries after preview and confirmation.</p>
+            </article>
+            <article>
+              <h3>Provider-aware achievements</h3>
+              <p>Achievements are stored server-side and shown through provider tabs, refresh status, and provider-specific point totals instead of mixed global point counts.</p>
             </article>
           </div>
         </div>
@@ -216,6 +228,14 @@
               <figcaption>One canonical page combines title, launch controls, provider evidence, files, media, and runtime facts.</figcaption>
             </figure>
             <figure class="shot">
+              <img src="./screenshots/canonical-split-merge-v0.0.10.png" alt="A game detail source-record section showing split, merge, clear grouping, and hard delete controls for individual source records" />
+              <figcaption>Source-record grouping controls let a user split a wrongly merged version or merge it into an existing canonical game.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/duplicates-v0.0.10.png" alt="Settings duplicates page showing duplicate source rows with cover art, canonical links, and hard-delete marking controls" />
+              <figcaption>Duplicate review shows cover art, source evidence, and explicit hard-delete marking before applying file-backed cleanup.</figcaption>
+            </figure>
+            <figure class="shot">
               <img src="./screenshots/source-provenance.png" alt="A provenance-focused game section showing source records, integration labels, root paths, file counts, and resolver match counts" />
               <figcaption>One canonical game instead of duplicate rows: MGA keeps source records and resolver evidence visible.</figcaption>
             </figure>
@@ -333,11 +353,13 @@
               <h3>Available now</h3>
               <ul>
                 <li>Canonical game merge across multiple source types</li>
+                <li>Manual source-record split/merge controls when automatic canonical grouping is wrong</li>
                 <li>Source-backed game pages with files, media, favorites, provider evidence, and per-version context</li>
                 <li>Manual review, fuzzy provider search, numeral-aware manual search, and re-detect for unresolved records</li>
-                <li>Source-backed achievements, browser-play surfaces, and REST API</li>
+                <li>Library Statistics and Gamer Statistics pages</li>
+                <li>Source-backed achievements with provider-aware tabs, background refresh, browser-play surfaces, and REST API</li>
                 <li>Materialized Drive/SMB browser play and EmulatorJS save-sync</li>
-                <li>Plugin-backed delete previews with checkbox confirmation for file-backed deletes</li>
+                <li>Duplicate review with batch hard-delete preview and checkbox confirmation for file-backed deletes</li>
                 <li>Configurable server listen IP with local-only package defaults</li>
                 <li>Local profiles with profile-owned integrations and library data</li>
                 <li>Windows portable ZIP and installer with for-me-only process mode and all-users service mode</li>

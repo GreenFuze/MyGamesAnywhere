@@ -4,10 +4,10 @@ This is the product-facing roadmap. The detailed engineering history remains in 
 
 ## Now
 
-- Monitor the v0.0.8 Windows portable, installer, and auto-update release flow on clean machines.
-- Keep improving the poster-first library and game detail experience.
+- Monitor the v0.0.10 Windows portable, installer, migration, and auto-update release flow on clean machines.
+- Keep improving the Play-first library, statistics, achievements, and game detail experience.
 - Expand integration reliability for Steam, Xbox, RetroAchievements, LaunchBox, Google Drive, SMB, browser-play materialization, and local save sync.
-- Continue cleanup around metadata detection, source provenance, manual review, local profiles, and profile-owned integration behavior.
+- Continue cleanup around metadata detection, source provenance, duplicate review, canonical split/merge, local profiles, and profile-owned integration behavior.
 
 ## Next
 

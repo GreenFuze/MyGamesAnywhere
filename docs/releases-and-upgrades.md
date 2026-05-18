@@ -7,7 +7,7 @@ MGA uses a repository-level version file at [`../VERSION`](../VERSION).
 - stable release tags are formatted as `vX.Y.Z`
 - beta/release-candidate tags use SemVer prerelease suffixes such as `vX.Y.Z-beta` or `vX.Y.Z-rc.1`
 - the `VERSION` file is the default source of truth for release packaging and build metadata
-- `MGA_VERSION` can still override builds in CI or ad hoc packaging flows
+- `MGA_VERSION` can still override builds in ad hoc packaging flows
 
 ### Pre-1.0 interpretation
 
@@ -41,13 +41,13 @@ Every tagged release should include:
 
 The current public release flow is:
 
-1. choose the release version, for example `0.0.8`
+1. choose the release version, for example `0.0.10`
 2. build the portable package locally with `./server/package-portable.ps1 -Version <version>`
 3. build the Windows installer and update manifest with `./server/package-installer.ps1 -Version <version> -SkipBuild -ReleaseBaseUrl https://github.com/GreenFuze/MyGamesAnywhere/releases/download/v<version>`
 4. publish the GitHub Release manually with `gh release create v<version>` and upload the generated artifacts
 5. mark beta builds as prereleases and stable builds as latest
 
-GitHub Actions remains available as an opt-in packaging helper via manual workflow dispatch, but it no longer publishes releases automatically from pushed tags.
+GitHub Actions packaging workflows have been removed. Releases are built locally and published manually with `gh`.
 
 ## Upgrade policy
 
@@ -87,8 +87,9 @@ Fail-fast cases:
 
 Future DB schema changes, persisted SQLite data transforms, and persisted JSON
 config changes require either a migration or an explicit `NO_MIGRATION_NEEDED`
-note explaining why existing installs remain safe. CI runs a migration guard to
-catch persistence-adjacent changes without either signal.
+note explaining why existing installs remain safe. Run
+`./server/scripts/check-migration-guard.ps1` locally before release to catch
+persistence-adjacent changes without either signal.
 
 ## Portable upgrade flow
 
