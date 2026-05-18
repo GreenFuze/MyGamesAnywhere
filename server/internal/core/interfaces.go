@@ -137,6 +137,9 @@ type GameStore interface {
 	// GetCanonicalGameByID returns one merged game view by stable canonical ID.
 	GetCanonicalGameByID(ctx context.Context, canonicalID string) (*CanonicalGame, error)
 
+	// SearchCanonicalGames returns visible canonical game rows for merge target pickers.
+	SearchCanonicalGames(ctx context.Context, query string, limit int) ([]CanonicalGameSearchResult, error)
+
 	// GetMediaAssetByID returns a media_assets row by primary key, or nil if missing.
 	GetMediaAssetByID(ctx context.Context, id int) (*MediaAsset, error)
 
@@ -225,6 +228,15 @@ type GameStore interface {
 
 	// DeleteSourceGamesByID removes source games and dependent rows, then recomputes canonical groups once.
 	DeleteSourceGamesByID(ctx context.Context, sourceGameIDs []string) error
+
+	// SplitSourceGameCanonical pins one source row into a standalone canonical game.
+	SplitSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID string) (*CanonicalGroupingResult, error)
+
+	// MergeSourceGameCanonical pins one source row into an existing canonical game.
+	MergeSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID, targetCanonicalID string) (*CanonicalGroupingResult, error)
+
+	// ClearSourceGameCanonicalPin removes one source-row grouping pin and recomputes automatic grouping.
+	ClearSourceGameCanonicalPin(ctx context.Context, canonicalID, sourceGameID string) (*CanonicalGroupingResult, error)
 
 	// SaveScanReport persists a completed scan report.
 	SaveScanReport(ctx context.Context, report *ScanReport) error
@@ -368,6 +380,7 @@ type DeleteSourceGameResult struct {
 	DeletedSourceGameID string
 	CanonicalExists     bool
 	CanonicalGame       *CanonicalGame
+	Warnings            []string `json:"warnings,omitempty"`
 }
 
 type SourceGameDeleteSelection struct {
@@ -377,6 +390,7 @@ type SourceGameDeleteSelection struct {
 
 type DeleteSourceGamesResult struct {
 	DeletedSourceGameIDs []string `json:"deleted_source_game_ids"`
+	Warnings             []string `json:"warnings,omitempty"`
 }
 
 type DeleteSourceGamePreviewItem struct {
@@ -403,4 +417,11 @@ type GameDeletionService interface {
 	DeleteSourceGames(ctx context.Context, selections []SourceGameDeleteSelection) (*DeleteSourceGamesResult, error)
 	PreviewDeleteReviewCandidateFiles(ctx context.Context, candidateID string) (*DeleteSourceGamePreview, error)
 	DeleteReviewCandidateFiles(ctx context.Context, candidateID string) (*DeleteSourceGameResult, error)
+}
+
+// CanonicalGroupingService handles source-row split/merge grouping decisions.
+type CanonicalGroupingService interface {
+	SplitSourceGame(ctx context.Context, canonicalID, sourceGameID string) (*CanonicalGroupingResult, error)
+	MergeSourceGame(ctx context.Context, canonicalID, sourceGameID, targetCanonicalID string) (*CanonicalGroupingResult, error)
+	ClearSourceGamePin(ctx context.Context, canonicalID, sourceGameID string) (*CanonicalGroupingResult, error)
 }

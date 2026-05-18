@@ -977,11 +977,11 @@ func matchGamesForManualSearch(idx *launchBoxIndex, q gameQuery) []lookupResult 
 		ranked = append(ranked, candidate)
 	}
 	sort.Slice(ranked, func(i, j int) bool {
-		if ranked[i].score != ranked[j].score {
-			return ranked[i].score > ranked[j].score
-		}
 		if leftRank, rightRank := manualSearchPlatformRank(ranked[i].entry.Platform, preferredPlatformSet), manualSearchPlatformRank(ranked[j].entry.Platform, preferredPlatformSet); leftRank != rightRank {
 			return leftRank < rightRank
+		}
+		if ranked[i].score != ranked[j].score {
+			return ranked[i].score > ranked[j].score
 		}
 		if ranked[i].entry.Name != ranked[j].entry.Name {
 			return ranked[i].entry.Name < ranked[j].entry.Name

@@ -66,6 +66,14 @@ These are the next committed tasks after the completed Phase 7 / issue-cleanup w
    - [x] Verification: stats aggregation tests, controller tests, frontend build, and Go internal tests.
    - NO_MIGRATION_NEEDED: v0.0.10 statistics are read-only over existing SQLite tables and the existing frontend config shape; no schema, persisted SQLite data, or persisted JSON/config format changes are required.
 
+6. **Canonical split / merge controls**
+   - [x] Add durable profile-scoped source-row canonical grouping pins so one source record can be split into its own canonical game or merged into an existing canonical game.
+   - [x] Exclude pinned source records from automatic title/external-ID grouping so rescans and metadata refreshes do not undo the user's grouping decision.
+   - [x] Add game-detail source-row controls for Split into Separate Game, Merge into Existing Game, and Clear Manual Grouping.
+   - [x] Add lightweight canonical-game search for merge target selection.
+   - [x] Verification: migration/schema tests, split/merge/clear GameStore tests, `go test -buildvcs=false ./internal/...`, frontend build, and local API smoke checks.
+   - Migration 9: `canonical_source_pins` stores profile-owned source-row grouping decisions; media assets remain global and canonical media overrides are cleared for affected games.
+
 Deferred until after the above: multi-user/profile support. It is a larger architecture change because profiles need ownership boundaries for integrations, games, saves, settings, achievement cache, scan jobs, and admin-only Settings access.
 
 ## Completed

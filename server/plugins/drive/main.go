@@ -1283,9 +1283,6 @@ func buildSourceDeletePlan(srv *drive.Service, rootPath string, config map[strin
 		if filePath == "" {
 			return nil, &Error{Code: "INVALID_PARAMS", Message: "file path is required"}
 		}
-		if file.IsDir {
-			return nil, &Error{Code: "INVALID_PARAMS", Message: fmt.Sprintf("refusing to delete directory entry %q", filePath)}
-		}
 		if !sourceDeletePathWithinRoot(rootPath, filePath) {
 			return nil, &Error{Code: "NOT_ALLOWED", Message: fmt.Sprintf("file %q is outside root_path %q", filePath, rootPath)}
 		}
@@ -1307,6 +1304,7 @@ func buildSourceDeletePlan(srv *drive.Service, rootPath string, config map[strin
 		items = append(items, sourceDeletePlanItem{
 			Path:     filePath,
 			ObjectID: objectID,
+			IsDir:    file.IsDir,
 			Size:     file.Size,
 			Action:   "trash",
 		})
@@ -1328,7 +1326,7 @@ func sourceDeleteResponse(sourceGameID, pluginID, action string, items []sourceD
 		"source_game_id": sourceGameID,
 		"plugin_id":      pluginID,
 		"action":         action,
-		"summary":        fmt.Sprintf("%d file(s) will be moved to Google Drive trash.", len(items)),
+		"summary":        fmt.Sprintf("%d item(s) will be moved to Google Drive trash.", len(items)),
 		"items":          items,
 		"warnings":       []string{},
 		"deleted_count":  deletedCount,

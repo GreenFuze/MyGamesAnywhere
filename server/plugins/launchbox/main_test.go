@@ -216,6 +216,71 @@ func TestManualSearchReturnsNormalizedN64Matches(t *testing.T) {
 	}
 }
 
+func TestPackedWindowsAutoLookupDoesNotReturnAlternatePlatformMatch(t *testing.T) {
+	genesisBatman := &gameEntry{DatabaseID: 206993, Name: "LEGO Batman", Platform: "Sega Genesis"}
+	windowsBatman := &gameEntry{DatabaseID: 8972, Name: "LEGO Batman: The Videogame", Platform: "Windows"}
+	idx := &launchBoxIndex{
+		files: map[string]*fileEntry{},
+		games: map[string]*gameEntry{
+			"sega genesis\tlego batman": genesisBatman,
+		},
+		normalized: map[string]*gameEntry{
+			"sega genesis\tlego batman": genesisBatman,
+		},
+		byPlatform: map[string][]tokenedGame{
+			"windows": {
+				{tokens: tokenize(windowsBatman.Name), normalizedTitle: normalizeTitle(windowsBatman.Name), game: windowsBatman},
+			},
+			"sega genesis": {
+				{tokens: tokenize(genesisBatman.Name), normalizedTitle: normalizeTitle(genesisBatman.Name), game: genesisBatman},
+			},
+		},
+		images: map[int][]gameImage{},
+	}
+
+	result := matchGame(idx, gameQuery{Index: 0, Title: "setup_lego_batman_1.0_(18156)", Platform: "windows_pc", GroupKind: "packed"})
+	if result == nil {
+		t.Fatal("expected compatible Windows token match")
+	}
+	if result.ExternalID != "8972" || result.Platform != "windows_pc" {
+		t.Fatalf("result = %+v, want Windows LEGO Batman: The Videogame", result)
+	}
+}
+
+func TestManualSearchRanksPackedWindowsBeforeAlternatePlatformExactMatch(t *testing.T) {
+	genesisBatman := &gameEntry{DatabaseID: 206993, Name: "LEGO Batman", Platform: "Sega Genesis"}
+	windowsBatman := &gameEntry{DatabaseID: 8972, Name: "LEGO Batman: The Videogame", Platform: "Windows"}
+	idx := &launchBoxIndex{
+		files: map[string]*fileEntry{},
+		games: map[string]*gameEntry{
+			"sega genesis\tlego batman": genesisBatman,
+		},
+		normalized: map[string]*gameEntry{
+			"sega genesis\tlego batman": genesisBatman,
+		},
+		byPlatform: map[string][]tokenedGame{
+			"windows": {
+				{tokens: tokenize(windowsBatman.Name), normalizedTitle: normalizeTitle(windowsBatman.Name), game: windowsBatman},
+			},
+			"sega genesis": {
+				{tokens: tokenize(genesisBatman.Name), normalizedTitle: normalizeTitle(genesisBatman.Name), game: genesisBatman},
+			},
+		},
+		images: map[int][]gameImage{},
+	}
+
+	results := matchGamesForManualSearch(idx, gameQuery{Index: 0, Title: "setup_lego_batman_1.0_(18156)", Platform: "windows_pc", GroupKind: "packed", LookupIntent: "manual_search"})
+	if len(results) < 2 {
+		t.Fatalf("results = %+v, want Windows and alternate-platform candidates", results)
+	}
+	if results[0].ExternalID != "8972" || results[0].Platform != "windows_pc" {
+		t.Fatalf("first result = %+v, want compatible Windows candidate first", results[0])
+	}
+	if results[1].ExternalID != "206993" || results[1].Platform != "genesis" {
+		t.Fatalf("second result = %+v, want alternate Genesis candidate second", results[1])
+	}
+}
+
 func TestManualSearchReturnsSubtitlePrefixMatch(t *testing.T) {
 	desertStrike := &gameEntry{
 		DatabaseID: 3456,

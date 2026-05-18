@@ -1063,6 +1063,9 @@ func (f *fakeGameStore) GetVisibleCanonicalIDs(context.Context, int, int) ([]str
 func (f *fakeGameStore) GetCanonicalGameByID(context.Context, string) (*core.CanonicalGame, error) {
 	return f.game, nil
 }
+func (f *fakeGameStore) SearchCanonicalGames(context.Context, string, int) ([]core.CanonicalGameSearchResult, error) {
+	panic("unexpected call")
+}
 func (f *fakeGameStore) GetMediaAssetByID(context.Context, int) (*core.MediaAsset, error) {
 	return f.mediaAsset, nil
 }
@@ -1192,6 +1195,15 @@ func (f *fakeGameStore) DeleteSourceGameByID(context.Context, string) error {
 	panic("unexpected call")
 }
 func (f *fakeGameStore) DeleteSourceGamesByID(context.Context, []string) error {
+	panic("unexpected call")
+}
+func (f *fakeGameStore) SplitSourceGameCanonical(context.Context, string, string) (*core.CanonicalGroupingResult, error) {
+	panic("unexpected call")
+}
+func (f *fakeGameStore) MergeSourceGameCanonical(context.Context, string, string, string) (*core.CanonicalGroupingResult, error) {
+	panic("unexpected call")
+}
+func (f *fakeGameStore) ClearSourceGameCanonicalPin(context.Context, string, string) (*core.CanonicalGroupingResult, error) {
 	panic("unexpected call")
 }
 func (f *fakeGameStore) SaveScanReport(context.Context, *core.ScanReport) error {

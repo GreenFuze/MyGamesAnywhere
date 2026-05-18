@@ -79,6 +79,7 @@ type GameController struct {
 	statsSvc        core.StatsService
 	refreshSvc      core.GameMetadataRefreshService
 	deleteSvc       core.GameDeletionService
+	groupingSvc     core.CanonicalGroupingService
 	integrationRepo core.IntegrationRepository
 	cacheSvc        core.SourceCacheService
 	logger          core.Logger
@@ -88,6 +89,7 @@ type DeleteSourceGameResponse struct {
 	DeletedSourceGameID string              `json:"deleted_source_game_id"`
 	CanonicalExists     bool                `json:"canonical_exists"`
 	Game                *GameDetailResponse `json:"game,omitempty"`
+	Warnings            []string            `json:"warnings,omitempty"`
 }
 
 type DeleteSourceGamesRequest struct {
@@ -97,6 +99,40 @@ type DeleteSourceGamesRequest struct {
 type DeleteSourceGamesResponse = core.DeleteSourceGamesResult
 
 type DeleteSourceGamePreviewResponse = core.DeleteSourceGamePreview
+
+type CanonicalGroupingResponse struct {
+	SourceGameID         string              `json:"source_game_id"`
+	OldCanonicalGameID   string              `json:"old_canonical_game_id,omitempty"`
+	CanonicalGameID      string              `json:"canonical_game_id"`
+	AffectedCanonicalIDs []string            `json:"affected_canonical_ids,omitempty"`
+	Pin                  *CanonicalSourcePin `json:"pin,omitempty"`
+	Game                 *GameDetailResponse `json:"game,omitempty"`
+}
+
+type CanonicalSourcePin struct {
+	SourceGameID string `json:"source_game_id"`
+	CanonicalID  string `json:"canonical_id"`
+	Mode         string `json:"mode"`
+	Note         string `json:"note,omitempty"`
+	CreatedAt    string `json:"created_at,omitempty"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
+}
+
+type MergeSourceGameRequest struct {
+	TargetCanonicalGameID string `json:"target_canonical_game_id"`
+}
+
+type CanonicalGameSearchResponse struct {
+	Games []CanonicalGameSearchResult `json:"games"`
+}
+
+type CanonicalGameSearchResult struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Platform    string `json:"platform"`
+	Kind        string `json:"kind"`
+	SourceCount int    `json:"source_count"`
+}
 
 type SetCoverOverrideRequest struct {
 	MediaAssetID int `json:"media_asset_id"`
@@ -171,6 +207,10 @@ func NewGameController(gameStore core.GameStore, refreshSvc core.GameMetadataRef
 		svc = inferred
 	}
 	return &GameController{gameStore: gameStore, statsSvc: svc, refreshSvc: refreshSvc, deleteSvc: deleteSvc, integrationRepo: integrationRepo, cacheSvc: cacheSvc, logger: logger}
+}
+
+func (c *GameController) SetCanonicalGroupingService(groupingSvc core.CanonicalGroupingService) {
+	c.groupingSvc = groupingSvc
 }
 
 func decodedPathParam(r *http.Request, key string) (string, error) {
@@ -773,6 +813,7 @@ func (c *GameController) DeleteSourceGame(w http.ResponseWriter, r *http.Request
 	resp := DeleteSourceGameResponse{
 		DeletedSourceGameID: result.DeletedSourceGameID,
 		CanonicalExists:     result.CanonicalExists,
+		Warnings:            result.Warnings,
 	}
 	if result.CanonicalGame != nil {
 		detail := c.canonicalToGameDetailWithIntegrationLabels(r.Context(), result.CanonicalGame, c.loadIntegrationLabels(r.Context()))
@@ -851,6 +892,131 @@ func (c *GameController) PreviewDeleteSourceGame(w http.ResponseWriter, r *http.
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(DeleteSourceGamePreviewResponse(*preview))
+}
+
+func (c *GameController) SearchCanonicalGames(w http.ResponseWriter, r *http.Request) {
+	limit := 20
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			writeActionError(w, http.StatusBadRequest, "invalid limit")
+			return
+		}
+		limit = parsed
+	}
+	results, err := c.gameStore.SearchCanonicalGames(r.Context(), r.URL.Query().Get("q"), limit)
+	if err != nil {
+		c.logger.Error("search canonical games", err)
+		writeActionError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := make([]CanonicalGameSearchResult, 0, len(results))
+	for _, result := range results {
+		out = append(out, CanonicalGameSearchResult{
+			ID:          result.ID,
+			Title:       result.Title,
+			Platform:    string(result.Platform),
+			Kind:        string(result.Kind),
+			SourceCount: result.SourceCount,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(CanonicalGameSearchResponse{Games: out})
+}
+
+func (c *GameController) SplitSourceGameCanonical(w http.ResponseWriter, r *http.Request) {
+	c.applySourceGameCanonicalAction(w, r, "split")
+}
+
+func (c *GameController) MergeSourceGameCanonical(w http.ResponseWriter, r *http.Request) {
+	c.applySourceGameCanonicalAction(w, r, "merge")
+}
+
+func (c *GameController) ClearSourceGameCanonicalPin(w http.ResponseWriter, r *http.Request) {
+	c.applySourceGameCanonicalAction(w, r, "clear")
+}
+
+func (c *GameController) applySourceGameCanonicalAction(w http.ResponseWriter, r *http.Request, action string) {
+	canonicalID, err := decodedPathParam(r, "id")
+	if err != nil {
+		writeActionError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	sourceGameID, err := decodedPathParam(r, "source_game_id")
+	if err != nil {
+		writeActionError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if canonicalID == "" || sourceGameID == "" {
+		writeActionError(w, http.StatusBadRequest, "id and source_game_id are required")
+		return
+	}
+	if c.groupingSvc == nil {
+		writeActionError(w, http.StatusNotImplemented, "canonical grouping is not available")
+		return
+	}
+	var result *core.CanonicalGroupingResult
+	switch action {
+	case "split":
+		result, err = c.groupingSvc.SplitSourceGame(r.Context(), canonicalID, sourceGameID)
+	case "merge":
+		var body MergeSourceGameRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeActionError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
+		result, err = c.groupingSvc.MergeSourceGame(r.Context(), canonicalID, sourceGameID, body.TargetCanonicalGameID)
+	case "clear":
+		result, err = c.groupingSvc.ClearSourceGamePin(r.Context(), canonicalID, sourceGameID)
+	default:
+		writeActionError(w, http.StatusBadRequest, "unsupported canonical action")
+		return
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, core.ErrCanonicalGameNotFound), errors.Is(err, core.ErrSourceGameDeleteNotFound):
+			http.NotFound(w, r)
+		default:
+			c.logger.Error("canonical source grouping", err, "action", action, "game_id", canonicalID, "source_game_id", sourceGameID)
+			writeActionError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	resp := c.canonicalGroupingResponse(r.Context(), result)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (c *GameController) canonicalGroupingResponse(ctx context.Context, result *core.CanonicalGroupingResult) CanonicalGroupingResponse {
+	if result == nil {
+		return CanonicalGroupingResponse{}
+	}
+	resp := CanonicalGroupingResponse{
+		SourceGameID:         result.SourceGameID,
+		OldCanonicalGameID:   result.OldCanonicalGameID,
+		CanonicalGameID:      result.CanonicalGameID,
+		AffectedCanonicalIDs: result.AffectedCanonicalIDs,
+		Pin:                  canonicalSourcePinDTO(result.Pin),
+	}
+	if result.CanonicalGame != nil {
+		detail := c.canonicalToGameDetailWithIntegrationLabels(ctx, result.CanonicalGame, c.loadIntegrationLabels(ctx))
+		resp.Game = &detail
+	}
+	return resp
+}
+
+func canonicalSourcePinDTO(pin *core.CanonicalSourcePin) *CanonicalSourcePin {
+	if pin == nil {
+		return nil
+	}
+	return &CanonicalSourcePin{
+		SourceGameID: pin.SourceGameID,
+		CanonicalID:  pin.CanonicalID,
+		Mode:         string(pin.Mode),
+		Note:         pin.Note,
+		CreatedAt:    pin.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt:    pin.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}
 }
 
 // Stats returns aggregate library statistics (GET /api/stats).

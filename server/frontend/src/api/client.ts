@@ -387,7 +387,38 @@ export type SourceGameDetailDTO = {
     eligible: boolean;
     reason?: string;
   };
+  canonical_pin?: CanonicalSourcePinDTO;
   resolver_matches: ResolverMatchDTO[];
+};
+
+export type CanonicalSourcePinDTO = {
+  source_game_id: string;
+  canonical_id: string;
+  mode: "split" | "merge";
+  note?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type CanonicalGroupingResponse = {
+  source_game_id: string;
+  old_canonical_game_id?: string;
+  canonical_game_id: string;
+  affected_canonical_ids?: string[];
+  pin?: CanonicalSourcePinDTO;
+  game?: GameDetailResponse;
+};
+
+export type CanonicalGameSearchResult = {
+  id: string;
+  title: string;
+  platform: string;
+  kind: string;
+  source_count: number;
+};
+
+export type CanonicalGameSearchResponse = {
+  games: CanonicalGameSearchResult[];
 };
 
 export type CompletionTime = {
@@ -522,6 +553,7 @@ export type DeleteSourceGameResponse = {
   deleted_source_game_id: string;
   canonical_exists: boolean;
   game?: GameDetailResponse;
+  warnings?: string[];
 };
 
 export type DeleteSourceGameSelection = {
@@ -531,6 +563,7 @@ export type DeleteSourceGameSelection = {
 
 export type DeleteSourceGamesResponse = {
   deleted_source_game_ids: string[];
+  warnings?: string[];
 };
 
 export type DeleteSourceGamePreviewItem = {
@@ -615,6 +648,55 @@ export async function getGameDetail(id: string): Promise<GameDetailResponse> {
 
 export async function getGame(id: string): Promise<GameDetailResponse> {
   return getJson<GameDetailResponse>(`/api/games/${encodeURIComponent(id)}`);
+}
+
+export async function searchCanonicalGames(params?: {
+  q?: string;
+  limit?: number;
+}): Promise<CanonicalGameSearchResponse> {
+  const q = new URLSearchParams();
+  if (params?.q) q.set("q", params.q);
+  if (params?.limit !== undefined) q.set("limit", String(params.limit));
+  const qs = q.toString();
+  return getJson<CanonicalGameSearchResponse>(
+    qs ? `/api/canonical-games/search?${qs}` : "/api/canonical-games/search",
+  );
+}
+
+export async function splitSourceGameCanonical(
+  canonicalGameId: string,
+  sourceGameId: string,
+): Promise<CanonicalGroupingResponse> {
+  return (await postJson<CanonicalGroupingResponse>(
+    `/api/games/${encodeURIComponent(canonicalGameId)}/sources/${encodeURIComponent(sourceGameId)}/canonical/split`,
+    {},
+  )) as CanonicalGroupingResponse;
+}
+
+export async function mergeSourceGameCanonical(
+  canonicalGameId: string,
+  sourceGameId: string,
+  targetCanonicalGameId: string,
+): Promise<CanonicalGroupingResponse> {
+  return (await postJson<CanonicalGroupingResponse>(
+    `/api/games/${encodeURIComponent(canonicalGameId)}/sources/${encodeURIComponent(sourceGameId)}/canonical/merge`,
+    { target_canonical_game_id: targetCanonicalGameId },
+  )) as CanonicalGroupingResponse;
+}
+
+export async function clearSourceGameCanonicalPin(
+  canonicalGameId: string,
+  sourceGameId: string,
+): Promise<CanonicalGroupingResponse> {
+  const path = `/api/games/${encodeURIComponent(canonicalGameId)}/sources/${encodeURIComponent(sourceGameId)}/canonical-pin`;
+  const res = await apiFetch(`${base}${path}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw await buildApiError(path, res);
+  }
+  return res.json() as Promise<CanonicalGroupingResponse>;
 }
 
 export async function getGameAchievements(

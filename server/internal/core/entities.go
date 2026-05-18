@@ -346,10 +346,45 @@ type SourceGame struct {
 	LastSeenAt    *time.Time
 	CreatedAt     time.Time
 	ManualReview  *ManualReviewDecision
+	CanonicalPin  *CanonicalSourcePin
 
 	Files           []GameFile
 	ResolverMatches []ResolverMatch
 	Media           []MediaRef
+}
+
+type CanonicalSourcePinMode string
+
+const (
+	CanonicalSourcePinModeSplit CanonicalSourcePinMode = "split"
+	CanonicalSourcePinModeMerge CanonicalSourcePinMode = "merge"
+)
+
+type CanonicalSourcePin struct {
+	ProfileID    string                 `json:"profile_id,omitempty"`
+	SourceGameID string                 `json:"source_game_id"`
+	CanonicalID  string                 `json:"canonical_id"`
+	Mode         CanonicalSourcePinMode `json:"mode"`
+	Note         string                 `json:"note,omitempty"`
+	CreatedAt    time.Time              `json:"created_at"`
+	UpdatedAt    time.Time              `json:"updated_at"`
+}
+
+type CanonicalGroupingResult struct {
+	SourceGameID         string              `json:"source_game_id"`
+	OldCanonicalGameID   string              `json:"old_canonical_game_id,omitempty"`
+	CanonicalGameID      string              `json:"canonical_game_id"`
+	AffectedCanonicalIDs []string            `json:"affected_canonical_ids,omitempty"`
+	Pin                  *CanonicalSourcePin `json:"pin,omitempty"`
+	CanonicalGame        *CanonicalGame      `json:"game,omitempty"`
+}
+
+type CanonicalGameSearchResult struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Platform    Platform `json:"platform"`
+	Kind        GameKind `json:"kind"`
+	SourceCount int      `json:"source_count"`
 }
 
 type DuplicateGameSourceRecord struct {

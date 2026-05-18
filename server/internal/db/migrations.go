@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 8
+const latestMigrationVersion = 9
 
 type migration struct {
 	Version int
@@ -137,6 +137,24 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 			Name:    "profile_scoped_favorites",
 			Run: func(_ context.Context, db *sqliteDatabase) error {
 				return db.migrateProfileScopedFavorites()
+			},
+		},
+		{
+			Version: 9,
+			Name:    "canonical_source_pins",
+			SQL: []string{
+				`CREATE TABLE IF NOT EXISTS canonical_source_pins (
+					profile_id TEXT NOT NULL,
+					source_game_id TEXT NOT NULL REFERENCES source_games(id) ON DELETE CASCADE,
+					canonical_id TEXT NOT NULL REFERENCES canonical_games(id) ON DELETE CASCADE,
+					mode TEXT NOT NULL CHECK(mode IN ('split','merge')),
+					note TEXT,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					PRIMARY KEY(profile_id, source_game_id)
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_canonical_source_pins_canonical ON canonical_source_pins(canonical_id);`,
+				`CREATE INDEX IF NOT EXISTS idx_canonical_source_pins_mode ON canonical_source_pins(mode);`,
 			},
 		},
 	}

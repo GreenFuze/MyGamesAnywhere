@@ -11,17 +11,22 @@ import (
 
 var (
 	// Strip trailing ROM/dump/set suffixes while preserving meaningful middle-title qualifiers.
-	trailingBracketNoiseRE = regexp.MustCompile(`[\s._-]*[\(\[][^\)\]]*[\)\]]\s*$`)
-	setupPrefixRE          = regexp.MustCompile(`(?i)^setup[\s._-]+`)
-	versionSuffixRE        = regexp.MustCompile(`(?i)[\s._-]+(?:(?:v|version[\s._-]*)\d+(?:\.\d+)+(?:[\s._-]+[a-z]{2,8}\d*)*|\d+(?:\.\d+)+[\s._-]+[a-z]{2,8}\d*(?:[\s._-]+[a-z]{2,8}\d*)*)\s*$`)
-	nonAlphaNumRE          = regexp.MustCompile(`[^a-z0-9\s]+`)
-	multiSpaceRE           = regexp.MustCompile(`\s+`)
+	trailingBracketNoiseRE        = regexp.MustCompile(`[\s._-]*[\(\[][^\)\]]*[\)\]]\s*$`)
+	setupPrefixRE                 = regexp.MustCompile(`(?i)^setup[\s._-]+`)
+	setupInstallerVersionSuffixRE = regexp.MustCompile(`(?i)[\s._-]+\d+(?:\.\d+)+(?:[\s._-]+[a-z]{2,8}\d*)*\s*$`)
+	versionSuffixRE               = regexp.MustCompile(`(?i)[\s._-]+(?:(?:v|version[\s._-]*)\d+(?:\.\d+)+(?:[\s._-]+[a-z]{2,8}\d*)*|\d+(?:\.\d+)+[\s._-]+[a-z]{2,8}\d*(?:[\s._-]+[a-z]{2,8}\d*)*)\s*$`)
+	nonAlphaNumRE                 = regexp.MustCompile(`[^a-z0-9\s]+`)
+	multiSpaceRE                  = regexp.MustCompile(`\s+`)
 )
 
 func NormalizeLookupTitle(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	value = foldLatinDiacritics(value)
+	setupInstaller := setupPrefixRE.MatchString(value)
 	value = stripTrailingLookupNoise(value)
+	if setupInstaller {
+		value = setupInstallerVersionSuffixRE.ReplaceAllString(value, "")
+	}
 	value = setupPrefixRE.ReplaceAllString(value, "")
 	value = nonAlphaNumRE.ReplaceAllString(value, " ")
 	value = multiSpaceRE.ReplaceAllString(value, " ")
@@ -60,7 +65,11 @@ func LookupTitleVariants(value string) []string {
 // user-facing casing and punctuation of the meaningful title.
 func CleanDisplayTitle(value string) string {
 	value = strings.TrimSpace(value)
+	setupInstaller := setupPrefixRE.MatchString(value)
 	value = stripTrailingLookupNoise(value)
+	if setupInstaller {
+		value = setupInstallerVersionSuffixRE.ReplaceAllString(value, "")
+	}
 	value = setupPrefixRE.ReplaceAllString(value, "")
 	value = multiSpaceRE.ReplaceAllString(value, " ")
 	return strings.TrimSpace(value)

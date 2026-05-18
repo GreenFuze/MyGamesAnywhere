@@ -234,6 +234,28 @@ func TestMatchGame(t *testing.T) {
 	}
 }
 
+func TestAutoLookupTitleVariantsCleanPackedInstallerName(t *testing.T) {
+	variants := autoLookupTitleVariants("setup_lego_batman_1.0_(18156)")
+	if len(variants) != 1 || variants[0] != "lego batman" {
+		t.Fatalf("autoLookupTitleVariants = %#v, want [lego batman]", variants)
+	}
+}
+
+func TestAutoCandidatePlatformCompatibleRejectsNonPCForPackedWindows(t *testing.T) {
+	query := gameQuery{Title: "setup_lego_batman_1.0_(18156)", Platform: "windows_pc", GroupKind: "packed"}
+	if !autoCandidatePlatformCompatible(query, []int{platformMap["windows_pc"][0]}) {
+		t.Fatal("expected Windows PC IGDB platform to be compatible")
+	}
+	if autoCandidatePlatformCompatible(query, []int{platformMap["gba"][0]}) {
+		t.Fatal("expected non-PC IGDB platform to be rejected for packed Windows auto lookup")
+	}
+	manualQuery := query
+	manualQuery.LookupIntent = "manual_search"
+	if !autoCandidatePlatformCompatible(manualQuery, []int{platformMap["gba"][0]}) {
+		t.Fatal("manual search should not use strict packed Windows auto filtering")
+	}
+}
+
 // --- TV2 Games coverage test ---
 
 type tv2Entry struct {

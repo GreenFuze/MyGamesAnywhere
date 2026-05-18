@@ -158,6 +158,18 @@ func initialSchemaStatements() []string {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_csgl_source ON canonical_source_games_link(source_game_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_csgl_canonical ON canonical_source_games_link(canonical_id);`,
+		`CREATE TABLE IF NOT EXISTS canonical_source_pins (
+			profile_id TEXT NOT NULL,
+			source_game_id TEXT NOT NULL REFERENCES source_games(id) ON DELETE CASCADE,
+			canonical_id TEXT NOT NULL REFERENCES canonical_games(id) ON DELETE CASCADE,
+			mode TEXT NOT NULL CHECK(mode IN ('split','merge')),
+			note TEXT,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			PRIMARY KEY(profile_id, source_game_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_canonical_source_pins_canonical ON canonical_source_pins(canonical_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_canonical_source_pins_mode ON canonical_source_pins(mode);`,
 		`CREATE TABLE IF NOT EXISTS game_files (
 			source_game_id TEXT NOT NULL REFERENCES source_games(id),
 			path TEXT NOT NULL,

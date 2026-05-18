@@ -365,7 +365,7 @@ func handleSourceDelete(params json.RawMessage) (any, *Error) {
 		return nil, errObj
 	}
 	if body.DryRun {
-		return sourceDeleteResponse(body.SourceGameID, "game-source-smb", "delete", items, 0), nil
+		return sourceDeleteResponse(body.SourceGameID, "game-source-smb", "delete", items, 0, []string{}), nil
 	}
 
 	conn, session, share, err := mountShare(body.Config)
@@ -376,12 +376,11 @@ func handleSourceDelete(params json.RawMessage) (any, *Error) {
 	defer session.Logoff()
 	defer share.Umount()
 
-	for _, item := range items {
-		if err := share.Remove(item.Path); err != nil {
-			return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
-		}
+	deletedCount, warnings, errObj := executeSourceDeletePlan(share, items)
+	if errObj != nil {
+		return nil, errObj
 	}
-	return sourceDeleteResponse(body.SourceGameID, "game-source-smb", "delete", items, len(items)), nil
+	return sourceDeleteResponse(body.SourceGameID, "game-source-smb", "delete", items, deletedCount, warnings), nil
 }
 
 func buildSourceDeletePlan(rootPath string, config SMBConfig, files []sourceDeleteFile) ([]sourceDeletePlanItem, *Error) {
@@ -391,9 +390,6 @@ func buildSourceDeletePlan(rootPath string, config SMBConfig, files []sourceDele
 		if filePath == "" {
 			return nil, &Error{Code: "INVALID_PARAMS", Message: "file path is required"}
 		}
-		if file.IsDir {
-			return nil, &Error{Code: "INVALID_PARAMS", Message: fmt.Sprintf("refusing to delete directory entry %q", filePath)}
-		}
 		if !sourceDeletePathWithinRoot(rootPath, filePath) {
 			return nil, &Error{Code: "NOT_ALLOWED", Message: fmt.Sprintf("file %q is outside root_path %q", filePath, rootPath)}
 		}
@@ -402,6 +398,7 @@ func buildSourceDeletePlan(rootPath string, config SMBConfig, files []sourceDele
 		}
 		items = append(items, sourceDeletePlanItem{
 			Path:   filePath,
+			IsDir:  file.IsDir,
 			Size:   file.Size,
 			Action: "delete",
 		})
@@ -409,14 +406,79 @@ func buildSourceDeletePlan(rootPath string, config SMBConfig, files []sourceDele
 	return items, nil
 }
 
-func sourceDeleteResponse(sourceGameID, pluginID, action string, items []sourceDeletePlanItem, deletedCount int) map[string]any {
+type smbDeleteShare interface {
+	Remove(name string) error
+}
+
+func executeSourceDeletePlan(share smbDeleteShare, items []sourceDeletePlanItem) (int, []string, *Error) {
+	sortedItems := append([]sourceDeletePlanItem(nil), items...)
+	sort.SliceStable(sortedItems, func(i, j int) bool {
+		if sortedItems[i].IsDir != sortedItems[j].IsDir {
+			return !sortedItems[i].IsDir
+		}
+		if sortedItems[i].IsDir {
+			return len(sortedItems[i].Path) > len(sortedItems[j].Path)
+		}
+		return false
+	})
+
+	totalFiles := 0
+	for _, item := range sortedItems {
+		if !item.IsDir {
+			totalFiles++
+		}
+	}
+
+	deletedCount := 0
+	deletedFiles := 0
+	warnings := []string{}
+	for _, item := range sortedItems {
+		if err := share.Remove(item.Path); err != nil {
+			if sourceDeleteAlreadyGone(err) {
+				warnings = append(warnings, fmt.Sprintf("%q was already deleted before this operation.", item.Path))
+				deletedCount++
+				if !item.IsDir {
+					deletedFiles++
+				}
+				continue
+			}
+			if item.IsDir && deletedFiles == totalFiles {
+				warnings = append(warnings, fmt.Sprintf("Directory %q could not be removed after its files were deleted: %v", item.Path, err))
+				continue
+			}
+			return deletedCount, warnings, &Error{Code: "DELETE_FAILED", Message: err.Error()}
+		}
+		deletedCount++
+		if !item.IsDir {
+			deletedFiles++
+		}
+	}
+	return deletedCount, warnings, nil
+}
+
+func sourceDeleteAlreadyGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	if os.IsNotExist(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "file does not exist") ||
+		strings.Contains(msg, "cannot find the file") ||
+		strings.Contains(msg, "object name not found") ||
+		strings.Contains(msg, "status_object_name_not_found") ||
+		strings.Contains(msg, "status_no_such_file")
+}
+
+func sourceDeleteResponse(sourceGameID, pluginID, action string, items []sourceDeletePlanItem, deletedCount int, warnings []string) map[string]any {
 	return map[string]any{
 		"source_game_id": sourceGameID,
 		"plugin_id":      pluginID,
 		"action":         action,
-		"summary":        fmt.Sprintf("%d file(s) will be permanently deleted.", len(items)),
+		"summary":        fmt.Sprintf("%d item(s) will be permanently deleted.", len(items)),
 		"items":          items,
-		"warnings":       []string{},
+		"warnings":       warnings,
 		"deleted_count":  deletedCount,
 	}
 }

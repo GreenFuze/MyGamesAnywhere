@@ -186,9 +186,11 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	integrationRefreshSvc := scan.NewIntegrationRefreshService(integrationRepo, gameStore, pluginHost, mediaSvc, configSvc, logSvc)
 	achievementRefreshSvc := scan.NewAchievementRefreshService(integrationRepo, gameStore, pluginHost, logSvc)
 	deletionSvc := gamesvc.NewDeletionService(gameStore, integrationRepo, pluginHost, logSvc)
+	groupingSvc := gamesvc.NewCanonicalGroupingService(gameStore)
 
 	achievementRefreshCtrl := http.NewAchievementRefreshController(achievementRefreshSvc, eventBus, logSvc)
 	gameCtrl := http.NewGameController(gameStore, orchestrator, deletionSvc, integrationRepo, cacheSvc, logSvc)
+	gameCtrl.SetCanonicalGroupingService(groupingSvc)
 	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc, mediaSvc)
 	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc, eventBus, achievementRefreshCtrl)
 	aboutCtrl := http.NewAboutController(logSvc)

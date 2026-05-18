@@ -130,8 +130,13 @@ export function SourceGameHardDeleteDialog({
               <div className="max-h-56 space-y-2 overflow-auto">
                 {preview.items.map((item) => (
                   <div key={`${item.path}:${item.object_id ?? item.action}`} className="flex items-start justify-between gap-3">
-                    <span className="break-all text-red-50">{item.path}</span>
-                    <span className="shrink-0 text-red-100/80">{formatBytes(item.size ?? 0)}</span>
+                    <span className="break-all text-red-50">
+                      {item.path}
+                      {item.is_dir ? <span className="ml-2 text-red-100/70">(directory)</span> : null}
+                    </span>
+                    <span className="shrink-0 text-red-100/80">
+                      {item.is_dir ? 'directory' : formatBytes(item.size ?? 0)}
+                    </span>
                   </div>
                 ))}
               </div>

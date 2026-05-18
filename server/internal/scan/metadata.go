@@ -489,10 +489,19 @@ func runConsensus(g *core.Game, sources []MetadataSource) {
 		return
 	}
 
+	rejectIncompatibleAutoMatches(g)
+
 	groups := map[string][]int{}
 	for i, m := range g.ResolverMatches {
+		if m.Outvoted {
+			continue
+		}
 		key := normalizeForConsensus(m.Title)
 		groups[key] = append(groups[key], i)
+	}
+	if len(groups) == 0 {
+		g.Status = "unidentified"
+		return
 	}
 
 	winnerKey := pickWinner(groups, g.ResolverMatches, sources)
@@ -506,6 +515,22 @@ func runConsensus(g *core.Game, sources []MetadataSource) {
 
 	applyUnifiedFields(g, sources)
 	g.Status = "identified"
+}
+
+func rejectIncompatibleAutoMatches(g *core.Game) {
+	if g == nil || g.Platform != core.PlatformWindowsPC || g.GroupKind != core.GroupKindPacked {
+		return
+	}
+	for i, match := range g.ResolverMatches {
+		if match.Outvoted || match.ManualSelection || match.Platform == "" {
+			continue
+		}
+		platform := core.NormalizePlatformAlias(match.Platform)
+		if platform == core.PlatformUnknown || platform == core.PlatformWindowsPC || platform == core.PlatformMSDOS {
+			continue
+		}
+		g.ResolverMatches[i].Outvoted = true
+	}
 }
 
 // pickWinner returns the normalized-title key with the most votes.

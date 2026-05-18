@@ -95,6 +95,60 @@ func TestConsensus_NormalizesDumpSuffixes(t *testing.T) {
 	}
 }
 
+func TestConsensus_PackedWindowsPrefersCompatiblePlatformMatch(t *testing.T) {
+	g := &core.Game{
+		Title:     "setup_lego_batman_1.0_(18156)",
+		RawTitle:  "setup_lego_batman_1.0_(18156)",
+		Platform:  core.PlatformWindowsPC,
+		Kind:      core.GameKindBaseGame,
+		GroupKind: core.GroupKindPacked,
+		ResolverMatches: []core.ResolverMatch{
+			{PluginID: "metadata-launchbox", Title: "LEGO Batman", Platform: "genesis", ExternalID: "206993"},
+			{PluginID: "metadata-rawg", Title: "LEGO Batman", Platform: "windows_pc", ExternalID: "16543"},
+		},
+	}
+
+	runConsensus(g, []MetadataSource{{PluginID: "metadata-launchbox"}, {PluginID: "metadata-rawg"}})
+
+	if g.Status != "identified" {
+		t.Fatalf("status = %q, want identified", g.Status)
+	}
+	if len(g.ExternalIDs) != 1 || g.ExternalIDs[0].Source != "metadata-rawg" || g.ExternalIDs[0].ExternalID != "16543" {
+		t.Fatalf("external IDs = %+v, want only compatible Windows match", g.ExternalIDs)
+	}
+	if !g.ResolverMatches[0].Outvoted {
+		t.Fatalf("genesis match should be outvoted: %+v", g.ResolverMatches)
+	}
+	if g.ResolverMatches[1].Outvoted {
+		t.Fatalf("windows match should remain active: %+v", g.ResolverMatches)
+	}
+}
+
+func TestConsensus_PackedWindowsWithOnlyIncompatibleMatchStaysUnidentified(t *testing.T) {
+	g := &core.Game{
+		Title:     "setup_lego_batman_1.0_(18156)",
+		RawTitle:  "setup_lego_batman_1.0_(18156)",
+		Platform:  core.PlatformWindowsPC,
+		Kind:      core.GameKindBaseGame,
+		GroupKind: core.GroupKindPacked,
+		ResolverMatches: []core.ResolverMatch{
+			{PluginID: "metadata-launchbox", Title: "LEGO Batman", Platform: "genesis", ExternalID: "206993"},
+		},
+	}
+
+	runConsensus(g, []MetadataSource{{PluginID: "metadata-launchbox"}})
+
+	if g.Status != "unidentified" {
+		t.Fatalf("status = %q, want unidentified", g.Status)
+	}
+	if len(g.ExternalIDs) != 0 {
+		t.Fatalf("external IDs = %+v, want none", g.ExternalIDs)
+	}
+	if !g.ResolverMatches[0].Outvoted {
+		t.Fatalf("incompatible match should be outvoted: %+v", g.ResolverMatches)
+	}
+}
+
 // ── Phase 2: consensus unit tests ───────────────────────────────────
 
 func TestConsensus_Unanimous(t *testing.T) {

@@ -51,8 +51,8 @@ function duplicateTitle(source: DuplicateGameSource): string {
 }
 
 function duplicateSubtitle(source: DuplicateGameSource): string {
-  const platform = platformLabel(source.game?.platform || source.source.platform || 'unknown')
-  const kind = source.game?.kind || source.source.kind || 'unknown'
+  const platform = platformLabel(source.source.platform || source.game?.platform || 'unknown')
+  const kind = source.source.kind || source.game?.kind || 'unknown'
   return `${platform} · ${kind}`
 }
 
@@ -78,10 +78,24 @@ type BatchProgress = {
   current?: string
 }
 
+const DUPLICATE_DELETE_SELECTION_STORAGE_KEY = 'mga.settings.duplicates.markedForDeletion'
+
+function loadStoredSelectedIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set()
+  try {
+    const raw = window.sessionStorage.getItem(DUPLICATE_DELETE_SELECTION_STORAGE_KEY)
+    if (!raw) return new Set()
+    const ids = JSON.parse(raw)
+    return Array.isArray(ids) ? new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0)) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
 export function DuplicatesTab() {
   const queryClient = useQueryClient()
   const [mode, setMode] = useState<DuplicateGameMode>('loose')
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => loadStoredSelectedIds())
   const [batchDialogOpen, setBatchDialogOpen] = useState(false)
   const [batchPreviews, setBatchPreviews] = useState<BatchPreviewEntry[]>([])
   const [previewBusy, setPreviewBusy] = useState(false)
@@ -90,6 +104,7 @@ export function DuplicatesTab() {
   const [deleteProgress, setDeleteProgress] = useState<BatchProgress>({ completed: 0, total: 0 })
   const [confirmed, setConfirmed] = useState(false)
   const [batchError, setBatchError] = useState('')
+  const [deleteWarnings, setDeleteWarnings] = useState<string[]>([])
   const [notice, setNotice] = useState('')
 
   const duplicates = useQuery({
@@ -132,10 +147,7 @@ export function DuplicatesTab() {
     previewEntriesWithFiles.length > 0
 
   useEffect(() => {
-    setSelectedIds(new Set())
-  }, [mode])
-
-  useEffect(() => {
+    if (!duplicates.isSuccess) return
     setSelectedIds((prev) => {
       const next = new Set<string>()
       for (const id of prev) {
@@ -143,7 +155,15 @@ export function DuplicatesTab() {
       }
       return next.size === prev.size ? prev : next
     })
-  }, [sourceById])
+  }, [duplicates.isSuccess, sourceById])
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(DUPLICATE_DELETE_SELECTION_STORAGE_KEY, JSON.stringify(Array.from(selectedIds)))
+    } catch {
+      // Best-effort navigation persistence only.
+    }
+  }, [selectedIds])
 
   const refreshAfterDelete = async (sources: DuplicateGameSource[]) => {
     const canonicalIds = Array.from(new Set(sources.map((source) => source.canonical_game_id).filter(Boolean)))
@@ -165,6 +185,7 @@ export function DuplicatesTab() {
   const toggleSelected = (source: DuplicateGameSource) => {
     const id = sourceKey(source)
     setNotice('')
+    setDeleteWarnings([])
     setSelectedIds((prev) => {
       const next = new Set(prev)
       if (next.has(id)) {
@@ -182,6 +203,7 @@ export function DuplicatesTab() {
     setBatchPreviews([])
     setConfirmed(false)
     setBatchError('')
+    setDeleteWarnings([])
     setDeleteProgress({ completed: 0, total: 0 })
     setPreviewBusy(true)
     setPreviewProgress({ completed: 0, total: selectedDeleteableSources.length })
@@ -213,34 +235,53 @@ export function DuplicatesTab() {
     if (!canApplyBatch) return
     setDeleteBusy(true)
     setBatchError('')
+    setDeleteWarnings([])
     const entries = previewEntriesWithFiles
     setDeleteProgress({ completed: 0, total: entries.length })
-    setDeleteProgress({ completed: 0, total: entries.length, current: 'Deleting selected source records...' })
+    const deletedSources: DuplicateGameSource[] = []
+    const warnings: string[] = []
 
     try {
-      const result = await deleteSourceGames(entries.map((entry) => ({
-        canonical_game_id: entry.source.canonical_game_id,
-        source_game_id: entry.source.source.id,
-      })))
-      const deletedIDSet = new Set(result.deleted_source_game_ids)
-      if (deletedIDSet.size === 0) {
+      for (const [index, entry] of entries.entries()) {
+        setDeleteProgress({ completed: index, total: entries.length, current: `Deleting ${sourceLabel(entry.source)}...` })
+        const result = await deleteSourceGames([{
+          canonical_game_id: entry.source.canonical_game_id,
+          source_game_id: entry.source.source.id,
+        }])
+        const deletedIDSet = new Set(result.deleted_source_game_ids)
+        if (!deletedIDSet.has(entry.source.source.id)) {
+          throw new Error(`Delete did not return source id ${entry.source.source.id}.`)
+        }
+        deletedSources.push(entry.source)
+        warnings.push(...(result.warnings ?? []))
+        setSelectedIds((prev) => {
+          const next = new Set(prev)
+          next.delete(sourceKey(entry.source))
+          return next
+        })
+        setDeleteProgress({ completed: index + 1, total: entries.length, current: `Deleted ${sourceLabel(entry.source)}.` })
+      }
+      if (deletedSources.length === 0) {
         throw new Error('Delete did not return any deleted source ids.')
       }
-      const deletedSources = entries.map((entry) => entry.source).filter((source) => deletedIDSet.has(source.source.id))
-      setDeleteProgress({ completed: deletedSources.length, total: entries.length, current: 'Deleted selected source records.' })
-      setSelectedIds((prev) => {
-        const next = new Set(prev)
-        for (const source of deletedSources) {
-          next.delete(sourceKey(source))
-        }
-        return next
-      })
-      setNotice(`Deleted ${deletedSources.length} duplicate source record${deletedSources.length === 1 ? '' : 's'}.`)
+      const warningSuffix = warnings.length
+        ? ` ${warnings.length} directory cleanup warning${warnings.length === 1 ? '' : 's'}.`
+        : ''
+      setNotice(`Deleted ${deletedSources.length} duplicate source record${deletedSources.length === 1 ? '' : 's'}.${warningSuffix}`)
+      setDeleteWarnings(warnings)
       setBatchDialogOpen(false)
       setBatchPreviews([])
       setConfirmed(false)
       void refreshAfterDelete(deletedSources)
     } catch (err) {
+      if (deletedSources.length > 0) {
+        const warningSuffix = warnings.length
+          ? ` ${warnings.length} directory cleanup warning${warnings.length === 1 ? '' : 's'}.`
+          : ''
+        setNotice(`Deleted ${deletedSources.length} duplicate source record${deletedSources.length === 1 ? '' : 's'} before the failure.${warningSuffix}`)
+        setDeleteWarnings(warnings)
+        void refreshAfterDelete(deletedSources)
+      }
       setBatchError(errorText(err, 'Hard delete failed.'))
     } finally {
       setDeleteBusy(false)
@@ -285,6 +326,14 @@ export function DuplicatesTab() {
       {notice ? (
         <div className="rounded-mga border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
           {notice}
+        </div>
+      ) : null}
+
+      {deleteWarnings.length ? (
+        <div className="space-y-1 rounded-mga border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          {deleteWarnings.map((warning) => (
+            <p key={warning}>{warning}</p>
+          ))}
         </div>
       ) : null}
 
@@ -488,8 +537,13 @@ export function DuplicatesTab() {
                       <div className="mt-3 space-y-2">
                         {entry.preview.items.map((item) => (
                           <div key={`${entry.source.source.id}:${item.path}:${item.object_id ?? item.action}`} className="flex items-start justify-between gap-3 text-xs">
-                            <span className="break-all text-red-50">{item.path}</span>
-                            <span className="shrink-0 text-red-100/80">{formatBytes(item.size ?? 0)}</span>
+                            <span className="break-all text-red-50">
+                              {item.path}
+                              {item.is_dir ? <span className="ml-2 text-red-100/70">(directory)</span> : null}
+                            </span>
+                            <span className="shrink-0 text-red-100/80">
+                              {item.is_dir ? 'directory' : formatBytes(item.size ?? 0)}
+                            </span>
                           </div>
                         ))}
                       </div>

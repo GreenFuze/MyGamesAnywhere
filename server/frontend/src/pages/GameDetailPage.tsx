@@ -18,11 +18,17 @@ import {
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
+  clearSourceGameCanonicalPin,
   getGame,
   getGameAchievements,
+  mergeSourceGameCanonical,
   refreshGameMetadata,
+  searchCanonicalGames,
+  splitSourceGameCanonical,
   type AchievementDTO,
   type AchievementSetDTO,
+  type CanonicalGameSearchResult,
+  type CanonicalGroupingResponse,
   type DeleteSourceGameResponse,
   type ExternalIDDTO,
   type GameLaunchOptionDTO,
@@ -763,13 +769,22 @@ function sourceRecordLabel(source: SourceGameDetailDTO): string {
 
 function SourceRecordCard({
   source,
+  canonicalGameId,
   onHardDelete,
+  onSplit,
+  onMerge,
+  onClearPin,
 }: {
   source: SourceGameDetailDTO
+  canonicalGameId: string
   onHardDelete: (source: SourceGameDetailDTO) => void
+  onSplit: (source: SourceGameDetailDTO) => void
+  onMerge: (source: SourceGameDetailDTO) => void
+  onClearPin: (source: SourceGameDetailDTO) => void
 }) {
   const browserPlayable = sourceHasBrowserPlayDelivery(source)
   const hardDeleteEligible = source.hard_delete?.eligible ?? false
+  const pin = source.canonical_pin
 
   return (
     <article className="space-y-4 rounded-mga border border-mga-border bg-mga-bg/60 p-4 shadow-sm shadow-black/5">
@@ -780,6 +795,7 @@ function SourceRecordCard({
             <Badge variant="source">{source.status}</Badge>
             <Badge variant="platform"><PlatformIcon platform={source.platform} showLabel /></Badge>
             {browserPlayable ? <Badge variant="accent">Browser Play</Badge> : null}
+            {pin ? <Badge className="bg-amber-500/20 text-amber-100">{pin.mode === 'split' ? 'Manual split' : 'Manual merge'}</Badge> : null}
           </div>
           <div>
             <p className="text-sm font-semibold text-mga-text">{source.raw_title || source.external_id}</p>
@@ -807,7 +823,29 @@ function SourceRecordCard({
       </div>
 
       {hardDeleteEligible ? (
-        <div className="flex justify-end">
+        <div className="flex flex-wrap justify-end gap-2">
+          {pin ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onClearPin(source)}
+              className="border-amber-500/30 text-amber-100 hover:bg-amber-500/10"
+            >
+              Clear Manual Grouping
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onSplit(source)}
+            disabled={pin?.mode === 'split' && pin.canonical_id === canonicalGameId}
+          >
+            Split into Separate Game
+          </Button>
+          <Button type="button" variant="outline" onClick={() => onMerge(source)}>
+            <ArrowRightLeft size={16} />
+            Merge into Existing Game
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -818,7 +856,32 @@ function SourceRecordCard({
             Hard Delete Source Record
           </Button>
         </div>
-      ) : null}
+      ) : (
+        <div className="flex flex-wrap justify-end gap-2">
+          {pin ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onClearPin(source)}
+              className="border-amber-500/30 text-amber-100 hover:bg-amber-500/10"
+            >
+              Clear Manual Grouping
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onSplit(source)}
+            disabled={pin?.mode === 'split' && pin.canonical_id === canonicalGameId}
+          >
+            Split into Separate Game
+          </Button>
+          <Button type="button" variant="outline" onClick={() => onMerge(source)}>
+            <ArrowRightLeft size={16} />
+            Merge into Existing Game
+          </Button>
+        </div>
+      )}
 
       <details className="rounded-mga border border-mga-border bg-mga-surface px-3 py-2">
         <summary className="cursor-pointer list-none text-sm font-medium text-mga-text">
@@ -844,6 +907,93 @@ function SourceRecordCard({
         </div>
       </details>
     </article>
+  )
+}
+
+function MergeCanonicalDialog({
+  source,
+  currentCanonicalId,
+  busy,
+  error,
+  onClose,
+  onConfirm,
+}: {
+  source: SourceGameDetailDTO | null
+  currentCanonicalId: string
+  busy: boolean
+  error: string
+  onClose: () => void
+  onConfirm: (target: CanonicalGameSearchResult) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState<CanonicalGameSearchResult | null>(null)
+  useEffect(() => {
+    setQuery(source?.raw_title ?? '')
+    setSelected(null)
+  }, [source?.id, source?.raw_title])
+
+  const search = useQuery({
+    queryKey: ['canonical-games-search', query],
+    queryFn: () => searchCanonicalGames({ q: query, limit: 20 }),
+    enabled: source !== null,
+  })
+  const games = (search.data?.games ?? []).filter((game) => game.id !== currentCanonicalId)
+
+  return (
+    <Dialog open={source !== null} onClose={busy ? () => undefined : onClose} title="Merge Source into Existing Game" className="max-w-2xl">
+      <div className="space-y-4">
+        <p className="text-sm text-mga-muted">
+          Pick the canonical game that should own this source record. Future scans will keep this source pinned there.
+        </p>
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          className="w-full rounded-mga border border-mga-border bg-mga-bg px-3 py-2 text-sm text-mga-text outline-none focus:border-mga-accent"
+          placeholder="Search canonical games"
+          disabled={busy}
+        />
+        <div className="max-h-80 space-y-2 overflow-y-auto">
+          {search.isPending ? (
+            <div className="flex items-center gap-2 text-sm text-mga-muted">
+              <Loader2 size={16} className="animate-spin" />
+              Searching games...
+            </div>
+          ) : games.length === 0 ? (
+            <p className="text-sm text-mga-muted">No merge targets found.</p>
+          ) : (
+            games.map((game) => (
+              <button
+                key={game.id}
+                type="button"
+                onClick={() => setSelected(game)}
+                className={cn(
+                  'w-full rounded-mga border px-3 py-2 text-left transition-colors',
+                  selected?.id === game.id
+                    ? 'border-mga-accent bg-mga-accent/10'
+                    : 'border-mga-border bg-mga-bg hover:bg-mga-elevated',
+                )}
+                disabled={busy}
+              >
+                <span className="block text-sm font-semibold text-mga-text">{game.title}</span>
+                <span className="mt-1 block text-xs text-mga-muted">
+                  {platformLabel(game.platform)} · {game.kind} · {game.source_count} source record{game.source_count === 1 ? '' : 's'}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+        {error ? <p className="rounded-mga border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={() => selected && onConfirm(selected)} disabled={!selected || busy}>
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRightLeft size={16} />}
+            Merge Source
+          </Button>
+        </div>
+      </div>
+    </Dialog>
   )
 }
 
@@ -969,6 +1119,10 @@ export function GameDetailPage() {
   const [refreshError, setRefreshError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<SourceGameDetailDTO | null>(null)
   const [deleteNotice, setDeleteNotice] = useState('')
+  const [mergeTarget, setMergeTarget] = useState<SourceGameDetailDTO | null>(null)
+  const [groupingBusy, setGroupingBusy] = useState(false)
+  const [groupingError, setGroupingError] = useState('')
+  const [groupingNotice, setGroupingNotice] = useState('')
   const [showFloatingActions, setShowFloatingActions] = useState(false)
   const hasRetried404Ref = useRef(false)
 
@@ -1221,7 +1375,8 @@ export function GameDetailPage() {
       queryClient.setQueryData(['game', result.game.id], result.game)
     }
     if (result.canonical_exists && result.game) {
-      setDeleteNotice(`Deleted ${sourceRecordLabel(source)}.`)
+      const warningSuffix = result.warnings?.length ? ` ${result.warnings.length} directory cleanup warning${result.warnings.length === 1 ? '' : 's'}.` : ''
+      setDeleteNotice(`Deleted ${sourceRecordLabel(source)}.${warningSuffix}`)
       if (result.game.id !== game.data.id) {
         navigate(`/game/${encodeURIComponent(result.game.id)}`, {
           replace: true,
@@ -1234,6 +1389,89 @@ export function GameDetailPage() {
       navigate('/library', { replace: true })
     }
     setDeleteTarget(null)
+  }
+
+  const applyGroupingResult = async (result: CanonicalGroupingResponse, message: string) => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['games'] }),
+      queryClient.invalidateQueries({ queryKey: ['duplicates'] }),
+      queryClient.invalidateQueries({ queryKey: ['stats'] }),
+      queryClient.invalidateQueries({ queryKey: ['achievements'] }),
+      ...((result.affected_canonical_ids ?? []).flatMap((canonicalId) => [
+        queryClient.invalidateQueries({ queryKey: ['game', canonicalId] }),
+        queryClient.invalidateQueries({ queryKey: ['game', canonicalId, 'achievements'] }),
+      ])),
+    ])
+    if (result.game) {
+      queryClient.setQueryData(['game', result.game.id], result.game)
+    }
+    setGroupingNotice(message)
+    setGroupingError('')
+    if (result.canonical_game_id && result.canonical_game_id !== game.data?.id) {
+      navigate(`/game/${encodeURIComponent(result.canonical_game_id)}`, {
+        replace: true,
+        state: location.state,
+      })
+    } else if (result.game && game.data) {
+      queryClient.setQueryData(['game', game.data.id], result.game)
+    }
+  }
+
+  const groupingErrorMessage = (error: unknown) =>
+    error instanceof ApiError
+      ? error.responseText?.trim() || error.message
+      : (error instanceof Error ? error.message : 'Canonical grouping failed.')
+
+  const handleSplitSource = async (source: SourceGameDetailDTO) => {
+    if (!game.data || groupingBusy) return
+    setGroupingBusy(true)
+    setGroupingError('')
+    setGroupingNotice('')
+    try {
+      const result = await splitSourceGameCanonical(game.data.id, source.id)
+      await applyGroupingResult(result, `Split ${sourceRecordLabel(source)} into a separate game.`)
+    } catch (error) {
+      setGroupingError(groupingErrorMessage(error))
+    } finally {
+      setGroupingBusy(false)
+    }
+  }
+
+  const handleMergeSource = (source: SourceGameDetailDTO) => {
+    setGroupingError('')
+    setGroupingNotice('')
+    setMergeTarget(source)
+  }
+
+  const handleConfirmMergeSource = async (target: CanonicalGameSearchResult) => {
+    if (!game.data || !mergeTarget || groupingBusy) return
+    setGroupingBusy(true)
+    setGroupingError('')
+    try {
+      const result = await mergeSourceGameCanonical(game.data.id, mergeTarget.id, target.id)
+      const label = sourceRecordLabel(mergeTarget)
+      setMergeTarget(null)
+      await applyGroupingResult(result, `Merged ${label} into ${target.title}.`)
+    } catch (error) {
+      setGroupingError(groupingErrorMessage(error))
+    } finally {
+      setGroupingBusy(false)
+    }
+  }
+
+  const handleClearSourcePin = async (source: SourceGameDetailDTO) => {
+    if (!game.data || groupingBusy) return
+    setGroupingBusy(true)
+    setGroupingError('')
+    setGroupingNotice('')
+    try {
+      const result = await clearSourceGameCanonicalPin(game.data.id, source.id)
+      await applyGroupingResult(result, `Cleared manual grouping for ${sourceRecordLabel(source)}.`)
+    } catch (error) {
+      setGroupingError(groupingErrorMessage(error))
+    } finally {
+      setGroupingBusy(false)
+    }
   }
 
   if (game.isPending) {
@@ -1443,7 +1681,9 @@ export function GameDetailPage() {
               ) : null}
               {refreshNotice ? <p className="text-xs text-green-400">{refreshNotice}</p> : null}
               {deleteNotice ? <p className="text-xs text-green-400">{deleteNotice}</p> : null}
+              {groupingNotice ? <p className="text-xs text-green-400">{groupingNotice}</p> : null}
               {refreshError ? <p className="text-xs text-red-400">{refreshError}</p> : null}
+              {groupingError ? <p className="text-xs text-red-400">{groupingError}</p> : null}
             </div>
           </div>
         </div>
@@ -1702,7 +1942,11 @@ export function GameDetailPage() {
                 <SourceRecordCard
                   key={source.id}
                   source={source}
+                  canonicalGameId={data.id}
                   onHardDelete={handleRequestHardDelete}
+                  onSplit={handleSplitSource}
+                  onMerge={handleMergeSource}
+                  onClearPin={handleClearSourcePin}
                 />
               ))
             )}
@@ -1783,6 +2027,14 @@ export function GameDetailPage() {
       </div>
 
       <MediaViewerDialog media={selectedMedia} onClose={() => setSelectedMedia(null)} />
+      <MergeCanonicalDialog
+        source={mergeTarget}
+        currentCanonicalId={game.data?.id ?? ''}
+        busy={groupingBusy}
+        error={groupingError}
+        onClose={() => setMergeTarget(null)}
+        onConfirm={handleConfirmMergeSource}
+      />
       <SourceGameHardDeleteDialog
         canonicalGameId={game.data?.id ?? null}
         source={deleteTarget}

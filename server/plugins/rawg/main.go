@@ -392,30 +392,41 @@ const manualMinMatchScore = 0.45
 const maxManualResults = 10
 
 func matchGame(q gameQuery) (*lookupResult, error) {
-	cleanedTitle := normalizeTitle(q.Title)
 	passes := buildSearchQueries(q.Platform)
-	queryTokens := tokenize(q.Title)
 
 	var overallBest *rawgGame
 	overallBestScore := -1.0
 
-	for _, pass := range passes {
-		games, err := rawgSearch(cleanedTitle, pass.platformID, pass.exact)
-		if err != nil {
-			return nil, err
-		}
-		if len(games) == 0 {
+	for _, variant := range autoLookupTitleVariants(q.Title) {
+		cleanedTitle := normalizeTitle(variant)
+		if cleanedTitle == "" {
 			continue
 		}
+		queryTokens := tokenize(cleanedTitle)
+		for _, pass := range passes {
+			games, err := rawgSearch(cleanedTitle, pass.platformID, pass.exact)
+			if err != nil {
+				return nil, err
+			}
+			if len(games) == 0 {
+				continue
+			}
 
-		for i := range games {
-			score := scoreCandidate(cleanedTitle, queryTokens, &games[i])
-			if score > overallBestScore {
-				overallBestScore = score
-				overallBest = &games[i]
+			for i := range games {
+				if !autoCandidatePlatformCompatible(q, games[i]) {
+					continue
+				}
+				score := scoreCandidate(cleanedTitle, queryTokens, &games[i])
+				if score > overallBestScore {
+					overallBestScore = score
+					overallBest = &games[i]
+				}
+			}
+
+			if overallBestScore >= goodMatchScore {
+				break
 			}
 		}
-
 		if overallBestScore >= goodMatchScore {
 			break
 		}
@@ -429,7 +440,6 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 }
 
 func matchGamesForManualSearch(q gameQuery) ([]lookupResult, error) {
-	queryTokens := tokenize(q.Title)
 	type candidate struct {
 		game  rawgGame
 		score float64
@@ -440,6 +450,7 @@ func matchGamesForManualSearch(q gameQuery) ([]lookupResult, error) {
 		if cleanedTitle == "" {
 			continue
 		}
+		queryTokens := tokenize(cleanedTitle)
 		for _, pass := range buildSearchQueries(q.Platform) {
 			games, err := rawgSearch(cleanedTitle, pass.platformID, pass.exact)
 			if err != nil {
@@ -482,6 +493,32 @@ func matchGamesForManualSearch(q gameQuery) ([]lookupResult, error) {
 		results = append(results, *buildResult(q, &item.game))
 	}
 	return results, nil
+}
+
+func autoLookupTitleVariants(title string) []string {
+	var variants []string
+	seen := map[string]bool{}
+	for _, variant := range titlematch.LookupTitleVariants(title) {
+		cleaned := normalizeTitle(variant)
+		if cleaned == "" || seen[cleaned] {
+			continue
+		}
+		seen[cleaned] = true
+		variants = append(variants, cleaned)
+	}
+	return variants
+}
+
+func strictPackedWindowsAutoMatch(q gameQuery) bool {
+	return q.LookupIntent == "" && q.Platform == "windows_pc" && q.GroupKind == "packed"
+}
+
+func autoCandidatePlatformCompatible(q gameQuery, game rawgGame) bool {
+	if !strictPackedWindowsAutoMatch(q) {
+		return true
+	}
+	rawgID := platformMap[q.Platform]
+	return rawgID > 0 && rawgGamePlatformMatches(game, rawgID)
 }
 
 func buildResult(q gameQuery, overallBest *rawgGame) *lookupResult {

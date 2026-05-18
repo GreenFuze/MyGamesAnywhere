@@ -450,6 +450,16 @@ func (s *gameStore) ClearCanonicalMediaOverrides(ctx context.Context, canonicalI
 	}
 	defer tx.Rollback()
 
+	if err := s.clearCanonicalMediaOverridesTx(ctx, tx, canonicalID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *gameStore) clearCanonicalMediaOverridesTx(ctx context.Context, tx *sql.Tx, canonicalID string) error {
+	if strings.TrimSpace(canonicalID) == "" {
+		return nil
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM canonical_game_cover_overrides WHERE canonical_id=?`, canonicalID); err != nil {
 		return fmt.Errorf("clear cover override: %w", err)
 	}
@@ -466,7 +476,7 @@ func (s *gameStore) ClearCanonicalMediaOverrides(ctx context.Context, canonicalI
 		canonicalID, time.Now().Unix()); err != nil {
 		return fmt.Errorf("record cover override clear: %w", err)
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (s *gameStore) SetCanonicalHoverOverride(ctx context.Context, canonicalID string, mediaAssetID int) error {
@@ -700,6 +710,7 @@ func (s *gameStore) DeleteAllGames(ctx context.Context) error {
 		"source_game_media", "media_assets",
 		"metadata_resolver_matches",
 		"game_files",
+		"canonical_source_pins",
 		"canonical_source_games_link",
 		"source_games",
 	}
@@ -887,6 +898,87 @@ func (s *gameStore) GetCanonicalGameByID(ctx context.Context, canonicalID string
 		return nil, nil
 	}
 	return s.buildCanonicalGame(ctx, db, canonicalID, sgIDs)
+}
+
+func (s *gameStore) SearchCanonicalGames(ctx context.Context, query string, limit int) ([]core.CanonicalGameSearchResult, error) {
+	query = strings.TrimSpace(query)
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	rows, err := s.db.GetDB().QueryContext(ctx, `
+		SELECT l.canonical_id, sg.id, sg.raw_title, sg.platform, sg.kind, COALESCE(m.title, '')
+		FROM canonical_source_games_link l
+		JOIN source_games sg ON sg.id = l.source_game_id
+		LEFT JOIN metadata_resolver_matches m ON m.source_game_id = sg.id AND m.outvoted = 0
+		WHERE `+visibleSourceGameWhere(ctx, "sg")+`
+		ORDER BY l.canonical_id, sg.raw_title`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	needle := titlematch.NormalizeLookupTitle(query)
+	type bucket struct {
+		result     core.CanonicalGameSearchResult
+		titles     []string
+		sourceSeen map[string]bool
+	}
+	buckets := map[string]*bucket{}
+	order := []string{}
+	for rows.Next() {
+		var canonicalID, sourceGameID, rawTitle, platform, kind, resolverTitle string
+		if err := rows.Scan(&canonicalID, &sourceGameID, &rawTitle, &platform, &kind, &resolverTitle); err != nil {
+			return nil, err
+		}
+		b := buckets[canonicalID]
+		if b == nil {
+			b = &bucket{result: core.CanonicalGameSearchResult{
+				ID:       canonicalID,
+				Title:    rawTitle,
+				Platform: core.Platform(platform),
+				Kind:     core.GameKind(kind),
+			}, sourceSeen: map[string]bool{}}
+			buckets[canonicalID] = b
+			order = append(order, canonicalID)
+		}
+		if !b.sourceSeen[sourceGameID] {
+			b.sourceSeen[sourceGameID] = true
+			b.result.SourceCount++
+		}
+		b.titles = append(b.titles, rawTitle, resolverTitle)
+		if b.result.Title == "" && resolverTitle != "" {
+			b.result.Title = resolverTitle
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	results := make([]core.CanonicalGameSearchResult, 0, limit)
+	for _, canonicalID := range order {
+		b := buckets[canonicalID]
+		if b == nil {
+			continue
+		}
+		if needle != "" && !canonicalSearchBucketMatches(b.titles, needle) {
+			continue
+		}
+		results = append(results, b.result)
+		if len(results) >= limit {
+			break
+		}
+	}
+	return results, nil
+}
+
+func canonicalSearchBucketMatches(titles []string, needle string) bool {
+	for _, title := range titles {
+		haystack := titlematch.NormalizeLookupTitle(title)
+		if haystack != "" && (strings.Contains(haystack, needle) || strings.Contains(needle, haystack)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *gameStore) GetSourceGamesForCanonical(ctx context.Context, canonicalID string) ([]*core.SourceGame, error) {
@@ -2792,6 +2884,206 @@ func (s *gameStore) DeleteSourceGamesByID(ctx context.Context, sourceGameIDs []s
 	return tx.Commit()
 }
 
+func (s *gameStore) SplitSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID string) (*core.CanonicalGroupingResult, error) {
+	return s.pinSourceGameCanonical(ctx, canonicalID, sourceGameID, uuid.NewString(), core.CanonicalSourcePinModeSplit)
+}
+
+func (s *gameStore) MergeSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID, targetCanonicalID string) (*core.CanonicalGroupingResult, error) {
+	targetCanonicalID = strings.TrimSpace(targetCanonicalID)
+	if targetCanonicalID == "" {
+		return nil, core.ErrCanonicalGameNotFound
+	}
+	return s.pinSourceGameCanonical(ctx, canonicalID, sourceGameID, targetCanonicalID, core.CanonicalSourcePinModeMerge)
+}
+
+func (s *gameStore) ClearSourceGameCanonicalPin(ctx context.Context, canonicalID, sourceGameID string) (*core.CanonicalGroupingResult, error) {
+	profileID := strings.TrimSpace(core.ProfileIDFromContext(ctx))
+	if profileID == "" {
+		return nil, fmt.Errorf("profile id is required")
+	}
+	canonicalID = strings.TrimSpace(canonicalID)
+	sourceGameID = strings.TrimSpace(sourceGameID)
+	if canonicalID == "" || sourceGameID == "" {
+		return nil, core.ErrCanonicalGameNotFound
+	}
+
+	db := s.db.GetDB()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	oldCanonicalID, err := s.sourceCanonicalIDInTx(ctx, tx, sourceGameID)
+	if err != nil {
+		return nil, err
+	}
+	if oldCanonicalID != canonicalID {
+		return nil, core.ErrCanonicalGameNotFound
+	}
+	var pinnedCanonicalID string
+	_ = tx.QueryRowContext(ctx, `SELECT canonical_id FROM canonical_source_pins WHERE profile_id=? AND source_game_id=?`, profileID, sourceGameID).Scan(&pinnedCanonicalID)
+	res, err := tx.ExecContext(ctx, `DELETE FROM canonical_source_pins WHERE profile_id=? AND source_game_id=?`, profileID, sourceGameID)
+	if err != nil {
+		return nil, fmt.Errorf("clear canonical source pin: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, core.ErrCanonicalGameNotFound
+	}
+	if err := s.recomputeCanonicalGroups(ctx, tx); err != nil {
+		return nil, fmt.Errorf("recompute canonical after clearing pin: %w", err)
+	}
+	newCanonicalID, err := s.sourceCanonicalIDInTx(ctx, tx, sourceGameID)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range uniqueNonEmptyStrings(oldCanonicalID, pinnedCanonicalID, newCanonicalID) {
+		if err := s.clearCanonicalMediaOverridesTx(ctx, tx, id); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	game, err := s.GetCanonicalGameByID(ctx, newCanonicalID)
+	if err != nil {
+		return nil, err
+	}
+	return &core.CanonicalGroupingResult{
+		SourceGameID:         sourceGameID,
+		OldCanonicalGameID:   oldCanonicalID,
+		CanonicalGameID:      newCanonicalID,
+		AffectedCanonicalIDs: uniqueNonEmptyStrings(oldCanonicalID, pinnedCanonicalID, newCanonicalID),
+		CanonicalGame:        game,
+	}, nil
+}
+
+func (s *gameStore) pinSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID, targetCanonicalID string, mode core.CanonicalSourcePinMode) (*core.CanonicalGroupingResult, error) {
+	profileID := strings.TrimSpace(core.ProfileIDFromContext(ctx))
+	if profileID == "" {
+		return nil, fmt.Errorf("profile id is required")
+	}
+	canonicalID = strings.TrimSpace(canonicalID)
+	sourceGameID = strings.TrimSpace(sourceGameID)
+	targetCanonicalID = strings.TrimSpace(targetCanonicalID)
+	if canonicalID == "" || sourceGameID == "" || targetCanonicalID == "" {
+		return nil, core.ErrCanonicalGameNotFound
+	}
+
+	db := s.db.GetDB()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	oldCanonicalID, err := s.sourceCanonicalIDInTx(ctx, tx, sourceGameID)
+	if err != nil {
+		return nil, err
+	}
+	if oldCanonicalID != canonicalID {
+		return nil, core.ErrCanonicalGameNotFound
+	}
+	if mode == core.CanonicalSourcePinModeMerge {
+		visible, err := s.canonicalGameVisibleInTx(ctx, tx, targetCanonicalID)
+		if err != nil {
+			return nil, err
+		}
+		if !visible {
+			return nil, core.ErrCanonicalGameNotFound
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO canonical_games (id, created_at) VALUES (?, ?)`, targetCanonicalID, time.Now().Unix()); err != nil {
+			return nil, fmt.Errorf("create split canonical game: %w", err)
+		}
+	}
+
+	now := time.Now().Unix()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO canonical_source_pins (profile_id, source_game_id, canonical_id, mode, note, created_at, updated_at)
+		VALUES (?, ?, ?, ?, '', ?, ?)
+		ON CONFLICT(profile_id, source_game_id) DO UPDATE SET
+			canonical_id=excluded.canonical_id,
+			mode=excluded.mode,
+			updated_at=excluded.updated_at`,
+		profileID, sourceGameID, targetCanonicalID, string(mode), now, now); err != nil {
+		return nil, fmt.Errorf("save canonical source pin: %w", err)
+	}
+	if err := s.recomputeCanonicalGroups(ctx, tx); err != nil {
+		return nil, fmt.Errorf("recompute canonical after pin: %w", err)
+	}
+	newCanonicalID, err := s.sourceCanonicalIDInTx(ctx, tx, sourceGameID)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range uniqueNonEmptyStrings(oldCanonicalID, targetCanonicalID, newCanonicalID) {
+		if err := s.clearCanonicalMediaOverridesTx(ctx, tx, id); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	game, err := s.GetCanonicalGameByID(ctx, newCanonicalID)
+	if err != nil {
+		return nil, err
+	}
+	pin := &core.CanonicalSourcePin{
+		ProfileID:    profileID,
+		SourceGameID: sourceGameID,
+		CanonicalID:  targetCanonicalID,
+		Mode:         mode,
+		CreatedAt:    time.Unix(now, 0).UTC(),
+		UpdatedAt:    time.Unix(now, 0).UTC(),
+	}
+	return &core.CanonicalGroupingResult{
+		SourceGameID:         sourceGameID,
+		OldCanonicalGameID:   oldCanonicalID,
+		CanonicalGameID:      newCanonicalID,
+		AffectedCanonicalIDs: uniqueNonEmptyStrings(oldCanonicalID, targetCanonicalID, newCanonicalID),
+		Pin:                  pin,
+		CanonicalGame:        game,
+	}, nil
+}
+
+func (s *gameStore) sourceCanonicalIDInTx(ctx context.Context, tx *sql.Tx, sourceGameID string) (string, error) {
+	var canonicalID string
+	err := tx.QueryRowContext(ctx, `SELECT l.canonical_id
+		FROM canonical_source_games_link l
+		JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE l.source_game_id=?`+profileFilterSQL(ctx, "sg")+` LIMIT 1`, sourceGameID).Scan(&canonicalID)
+	if err == sql.ErrNoRows {
+		return "", core.ErrCanonicalGameNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return canonicalID, nil
+}
+
+func (s *gameStore) canonicalGameVisibleInTx(ctx context.Context, tx *sql.Tx, canonicalID string) (bool, error) {
+	var n int
+	err := tx.QueryRowContext(ctx, `SELECT COUNT(1)
+		FROM canonical_source_games_link l
+		JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE l.canonical_id=?`+profileFilterSQL(ctx, "sg"), canonicalID).Scan(&n)
+	return n > 0, err
+}
+
+func uniqueNonEmptyStrings(values ...string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
 func (s *gameStore) deleteSourceGamesByID(ctx context.Context, tx *sql.Tx, sourceGameIDs []string) error {
 	if len(sourceGameIDs) == 0 {
 		return nil
@@ -2815,6 +3107,7 @@ func (s *gameStore) deleteSourceGamesByID(ctx context.Context, tx *sql.Tx, sourc
 		fmt.Sprintf(`DELETE FROM source_game_media WHERE source_game_id IN (%s)`, inClause),
 		fmt.Sprintf(`DELETE FROM metadata_resolver_matches WHERE source_game_id IN (%s)`, inClause),
 		fmt.Sprintf(`DELETE FROM game_files WHERE source_game_id IN (%s)`, inClause),
+		fmt.Sprintf(`DELETE FROM canonical_source_pins WHERE source_game_id IN (%s)`, inClause),
 		fmt.Sprintf(`DELETE FROM canonical_source_games_link WHERE source_game_id IN (%s)`, inClause),
 	}
 
@@ -3411,6 +3704,10 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	pinsBySource, err := s.loadCanonicalSourcePinsForRecompute(ctx, tx)
+	if err != nil {
+		return err
+	}
 
 	// Build a union-find by shared resolver external IDs.
 	// Two source games that share the same (plugin_id, external_id) from
@@ -3452,6 +3749,9 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 		if _, ok := parent[sgID]; !ok {
 			continue // skip non-active
 		}
+		if _, pinned := pinsBySource[sgID]; pinned {
+			continue
+		}
 		if strings.TrimSpace(pluginID) == "" || strings.TrimSpace(extID) == "" {
 			continue
 		}
@@ -3490,6 +3790,9 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 		if !ok {
 			continue
 		}
+		if _, pinned := pinsBySource[sgID]; pinned {
+			continue
+		}
 		match := core.ResolverMatch{}
 		if strings.TrimSpace(metadataJSON) != "" {
 			parseMetadataJSON(metadataJSON, &match)
@@ -3516,6 +3819,29 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 		}
 	}
 
+	mergeAnchors := map[string]string{}
+	for _, id := range allIDs {
+		pin, ok := pinsBySource[id]
+		if !ok || pin.Mode != core.CanonicalSourcePinModeMerge {
+			continue
+		}
+		if anchor := mergeAnchors[pin.CanonicalID]; anchor != "" {
+			union(anchor, id)
+		} else {
+			mergeAnchors[pin.CanonicalID] = id
+		}
+	}
+	for _, id := range allIDs {
+		if _, pinned := pinsBySource[id]; pinned {
+			continue
+		}
+		canonicalID := existingMembership[id]
+		anchor := mergeAnchors[canonicalID]
+		if canonicalID != "" && anchor != "" {
+			union(anchor, id)
+		}
+	}
+
 	// Build canonical groups.
 	groups := map[string][]string{} // root -> members
 	for _, id := range allIDs {
@@ -3537,7 +3863,7 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 		}
 	}
 
-	assignments, err := assignStableCanonicalIDs(groups, existingMembership, existingCanonicalGames)
+	assignments, err := assignStableCanonicalIDs(groups, existingMembership, existingCanonicalGames, pinsBySource)
 	if err != nil {
 		return err
 	}
@@ -3625,10 +3951,12 @@ func assignStableCanonicalIDs(
 	groups map[string][]string,
 	existingMembership map[string]string,
 	existingCanonicalGames map[string]canonicalGameMeta,
+	pinsBySource map[string]core.CanonicalSourcePin,
 ) ([]canonicalAssignment, error) {
 	groupKeys := make([]string, 0, len(groups))
 	groupByKey := make(map[string][]string, len(groups))
 	candidates := make([]canonicalCandidate, 0)
+	forcedByGroup := make(map[string]string, len(groups))
 
 	for _, members := range groups {
 		sortedMembers := append([]string(nil), members...)
@@ -3639,6 +3967,20 @@ func assignStableCanonicalIDs(
 		groupKey := sortedMembers[0]
 		groupKeys = append(groupKeys, groupKey)
 		groupByKey[groupKey] = sortedMembers
+
+		for _, member := range sortedMembers {
+			pin, ok := pinsBySource[member]
+			if !ok {
+				continue
+			}
+			if forcedByGroup[groupKey] != "" && forcedByGroup[groupKey] != pin.CanonicalID {
+				return nil, fmt.Errorf("conflicting canonical pins in group %s", groupKey)
+			}
+			forcedByGroup[groupKey] = pin.CanonicalID
+		}
+		if forcedByGroup[groupKey] != "" {
+			continue
+		}
 
 		overlapByCanonical := make(map[string]int)
 		for _, member := range sortedMembers {
@@ -3680,6 +4022,12 @@ func assignStableCanonicalIDs(
 
 	assignedByGroup := make(map[string]string, len(groupKeys))
 	usedCanonicalIDs := make(map[string]bool)
+	for _, groupKey := range groupKeys {
+		if canonicalID := forcedByGroup[groupKey]; canonicalID != "" {
+			assignedByGroup[groupKey] = canonicalID
+			usedCanonicalIDs[canonicalID] = true
+		}
+	}
 	for _, candidate := range candidates {
 		if assignedByGroup[candidate.groupKey] != "" || usedCanonicalIDs[candidate.canonicalID] {
 			continue
@@ -3702,6 +4050,30 @@ func assignStableCanonicalIDs(
 	}
 
 	return assignments, nil
+}
+
+func (s *gameStore) loadCanonicalSourcePinsForRecompute(ctx context.Context, tx *sql.Tx) (map[string]core.CanonicalSourcePin, error) {
+	query := `SELECT p.profile_id, p.source_game_id, p.canonical_id, p.mode, COALESCE(p.note, ''), p.created_at, p.updated_at
+		FROM canonical_source_pins p
+		JOIN source_games sg ON sg.id = p.source_game_id
+		WHERE ` + visibleSourceGameWhere(ctx, "sg")
+	rows, err := tx.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]core.CanonicalSourcePin{}
+	for rows.Next() {
+		var pin core.CanonicalSourcePin
+		var createdAt, updatedAt int64
+		if err := rows.Scan(&pin.ProfileID, &pin.SourceGameID, &pin.CanonicalID, (*string)(&pin.Mode), &pin.Note, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		pin.CreatedAt = time.Unix(createdAt, 0).UTC()
+		pin.UpdatedAt = time.Unix(updatedAt, 0).UTC()
+		out[pin.SourceGameID] = pin
+	}
+	return out, rows.Err()
 }
 
 func collectNewCanonicalIDs(
@@ -3749,6 +4121,11 @@ func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string)
 		t := time.Unix(lastSeen.Int64, 0)
 		sg.LastSeenAt = &t
 	}
+	pin, err := s.loadCanonicalSourcePin(ctx, db, sg.ID)
+	if err != nil {
+		return nil, err
+	}
+	sg.CanonicalPin = pin
 
 	// Load files.
 	fileRows, err := db.QueryContext(ctx, `SELECT path, file_name, role, file_kind, size, is_dir, object_id, revision, modified_at
@@ -3814,6 +4191,29 @@ func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string)
 	sg.Media = media
 
 	return &sg, nil
+}
+
+func (s *gameStore) loadCanonicalSourcePin(ctx context.Context, db *sql.DB, sourceGameID string) (*core.CanonicalSourcePin, error) {
+	profileID := strings.TrimSpace(core.ProfileIDFromContext(ctx))
+	query := `SELECT profile_id, source_game_id, canonical_id, mode, COALESCE(note, ''), created_at, updated_at
+		FROM canonical_source_pins WHERE source_game_id=?`
+	args := []any{sourceGameID}
+	if profileID != "" {
+		query += ` AND profile_id=?`
+		args = append(args, profileID)
+	}
+	query += ` LIMIT 1`
+	var pin core.CanonicalSourcePin
+	var createdAt, updatedAt int64
+	if err := db.QueryRowContext(ctx, query, args...).Scan(&pin.ProfileID, &pin.SourceGameID, &pin.CanonicalID, (*string)(&pin.Mode), &pin.Note, &createdAt, &updatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	pin.CreatedAt = time.Unix(createdAt, 0).UTC()
+	pin.UpdatedAt = time.Unix(updatedAt, 0).UTC()
+	return &pin, nil
 }
 
 func (s *gameStore) loadSourceGameMedia(ctx context.Context, db *sql.DB, sgID string) ([]core.MediaRef, error) {

@@ -82,6 +82,7 @@ type SourceGameDetailDTO struct {
 	Delivery         *SourceDeliveryDTO       `json:"delivery,omitempty"`
 	Play             *SourceGamePlayDTO       `json:"play,omitempty"`
 	HardDelete       *SourceGameHardDeleteDTO `json:"hard_delete,omitempty"`
+	CanonicalPin     *CanonicalSourcePin      `json:"canonical_pin,omitempty"`
 	ResolverMatches  []core.ResolverMatch     `json:"resolver_matches"`
 }
 
@@ -325,6 +326,7 @@ func (c *GameController) sourceGameToDetailDTO(
 		Status:           sg.Status,
 		CreatedAt:        sg.CreatedAt.UTC().Format(time.RFC3339Nano),
 		Files:            make([]GameFileDTO, 0, len(sg.Files)),
+		CanonicalPin:     canonicalSourcePinDTO(sg.CanonicalPin),
 		ResolverMatches:  sg.ResolverMatches,
 	}
 	eligible, reason := sourcegames.HardDeleteEligibility(sg)

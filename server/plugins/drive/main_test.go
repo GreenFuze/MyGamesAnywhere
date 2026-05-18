@@ -239,8 +239,8 @@ func TestSourceDeleteServiceUsesTokenFromConfig(t *testing.T) {
 	}
 }
 
-func TestHandleSourceDeleteRejectsDirectoryEntry(t *testing.T) {
-	_, errObj := handleSourceDelete(mustJSON(t, map[string]any{
+func TestHandleSourceDeleteDryRunAcceptsDirectoryEntry(t *testing.T) {
+	result, errObj := handleSourceDelete(mustJSON(t, map[string]any{
 		"dry_run":        true,
 		"source_game_id": "scan:drive-game",
 		"root_path":      "Games/Platforms/SNES",
@@ -253,11 +253,22 @@ func TestHandleSourceDeleteRejectsDirectoryEntry(t *testing.T) {
 			"is_dir":    true,
 		}},
 	}))
-	if errObj == nil {
-		t.Fatal("expected directory delete to be rejected")
+	if errObj != nil {
+		t.Fatalf("handleSourceDelete dry run error = %s: %s", errObj.Code, errObj.Message)
 	}
-	if errObj.Code != "INVALID_PARAMS" {
-		t.Fatalf("error code = %q, want INVALID_PARAMS", errObj.Code)
+	encoded, _ := json.Marshal(result)
+	var resp struct {
+		Items []struct {
+			Path   string `json:"path"`
+			IsDir  bool   `json:"is_dir"`
+			Action string `json:"action"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(encoded, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].Path != "Games/Platforms/SNES" || !resp.Items[0].IsDir || resp.Items[0].Action != "trash" {
+		t.Fatalf("items = %+v, want directory trash item", resp.Items)
 	}
 }
 

@@ -457,31 +457,40 @@ const maxManualResults = 10
 
 func matchGame(q gameQuery) (*lookupResult, error) {
 	igdbPlatforms := platformMap[q.Platform]
-	cleanedTitle := normalizeTitle(q.Title)
-	queries := buildSearchQueries(cleanedTitle, igdbPlatforms)
-	queryTokens := tokenize(q.Title)
-	normalizedQuery := cleanedTitle
 
 	var overallBest *igdbGame
 	overallBestScore := -1.0
 
-	for _, query := range queries {
-		games, err := runQuery(query)
-		if err != nil {
-			return nil, err
-		}
-		if len(games) == 0 {
+	for _, variant := range autoLookupTitleVariants(q.Title) {
+		cleanedTitle := normalizeTitle(variant)
+		if cleanedTitle == "" {
 			continue
 		}
+		queryTokens := tokenize(cleanedTitle)
+		for _, query := range buildSearchQueries(cleanedTitle, igdbPlatforms) {
+			games, err := runQuery(query)
+			if err != nil {
+				return nil, err
+			}
+			if len(games) == 0 {
+				continue
+			}
 
-		for i := range games {
-			score := scoreCandidate(normalizedQuery, queryTokens, &games[i])
-			if score > overallBestScore {
-				overallBestScore = score
-				overallBest = &games[i]
+			for i := range games {
+				if !autoCandidatePlatformCompatible(q, games[i].Platforms) {
+					continue
+				}
+				score := scoreCandidate(cleanedTitle, queryTokens, &games[i])
+				if score > overallBestScore {
+					overallBestScore = score
+					overallBest = &games[i]
+				}
+			}
+
+			if overallBestScore >= goodMatchScore {
+				break
 			}
 		}
-
 		if overallBestScore >= goodMatchScore {
 			break
 		}
@@ -496,7 +505,6 @@ func matchGame(q gameQuery) (*lookupResult, error) {
 
 func matchGamesForManualSearch(q gameQuery) ([]lookupResult, error) {
 	igdbPlatforms := platformMap[q.Platform]
-	queryTokens := tokenize(q.Title)
 	type candidate struct {
 		game  igdbGame
 		score float64
@@ -507,6 +515,7 @@ func matchGamesForManualSearch(q gameQuery) ([]lookupResult, error) {
 		if cleanedTitle == "" {
 			continue
 		}
+		queryTokens := tokenize(cleanedTitle)
 		for _, query := range buildSearchQueries(cleanedTitle, igdbPlatforms) {
 			games, err := runQuery(query)
 			if err != nil {
@@ -547,6 +556,32 @@ func matchGamesForManualSearch(q gameQuery) ([]lookupResult, error) {
 		results = append(results, *buildResult(q, &item.game))
 	}
 	return results, nil
+}
+
+func autoLookupTitleVariants(title string) []string {
+	var variants []string
+	seen := map[string]bool{}
+	for _, variant := range titlematch.LookupTitleVariants(title) {
+		cleaned := normalizeTitle(variant)
+		if cleaned == "" || seen[cleaned] {
+			continue
+		}
+		seen[cleaned] = true
+		variants = append(variants, cleaned)
+	}
+	return variants
+}
+
+func strictPackedWindowsAutoMatch(q gameQuery) bool {
+	return q.LookupIntent == "" && q.Platform == "windows_pc" && q.GroupKind == "packed"
+}
+
+func autoCandidatePlatformCompatible(q gameQuery, gamePlatforms []int) bool {
+	if !strictPackedWindowsAutoMatch(q) {
+		return true
+	}
+	wanted := platformMap[q.Platform]
+	return len(wanted) > 0 && gamePlatformMatches(gamePlatforms, wanted)
 }
 
 func buildResult(q gameQuery, game *igdbGame) *lookupResult {

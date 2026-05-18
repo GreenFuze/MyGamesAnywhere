@@ -14,6 +14,7 @@ func TestNormalizeLookupTitleStripsCommonDumpNoise(t *testing.T) {
 		{name: "mame set suffixes", in: "Altered Beast (set 8) (8751 317-0078)", want: "altered beast"},
 		{name: "multiple bracket suffixes", in: "Sonic The Hedgehog [!] (USA) [Rev A]", want: "sonic the hedgehog"},
 		{name: "setup prefix and version", in: "setup_aladdin_v1.2", want: "aladdin"},
+		{name: "setup prefix bare installer version and gog id", in: "setup_lego_batman_1.0_(18156)", want: "lego batman"},
 		{name: "repeated whitespace and punctuation", in: "  Aladdin!!!   ", want: "aladdin"},
 		{name: "mixed suffix noise", in: "doom [beta] (usa) v1.1", want: "doom"},
 		{name: "keeps legitimate title text", in: "prince of persia", want: "prince of persia"},
@@ -52,6 +53,7 @@ func TestCleanDisplayTitleStripsSuffixNoiseAndPreservesCasing(t *testing.T) {
 		{name: "mame set suffixes", in: "Altered Beast (set 8) (8751 317-0078)", want: "Altered Beast"},
 		{name: "multiple bracket suffixes", in: "Sonic The Hedgehog [!] (USA) [Rev A]", want: "Sonic The Hedgehog"},
 		{name: "setup prefix and version", in: "setup_Aladdin_v1.2", want: "Aladdin"},
+		{name: "setup prefix bare installer version and gog id", in: "setup_LEGO_Batman_1.0_(18156)", want: "LEGO_Batman"},
 		{name: "keeps decimal sequel title text", in: "Final Fantasy 2.0", want: "Final Fantasy 2.0"},
 		{name: "keeps middle qualifier text", in: "The Legend of Zelda (Classic) Adventures", want: "The Legend of Zelda (Classic) Adventures"},
 	}

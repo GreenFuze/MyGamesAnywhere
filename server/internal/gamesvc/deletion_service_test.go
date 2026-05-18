@@ -90,6 +90,7 @@ func (c *deletionTestPluginCaller) Call(_ context.Context, pluginID string, meth
 				entry, _ := file.(map[string]any)
 				items = append(items, map[string]any{
 					"path":   entry["path"],
+					"is_dir": entry["is_dir"],
 					"size":   entry["size"],
 					"action": "delete",
 				})
@@ -188,6 +189,89 @@ func TestDeletionServicePreviewsSourceRecordDeleteWithoutMutation(t *testing.T) 
 	}
 	if remaining == nil {
 		t.Fatal("source record was removed during preview")
+	}
+}
+
+func TestDeletionServicePreviewIncludesRootDirectoryForCompleteMultifileSource(t *testing.T) {
+	ctx := context.Background()
+	store := newDeletionTestStore(t)
+	source := &core.SourceGame{
+		ID:            "scan:scummvm-game",
+		IntegrationID: "source-a",
+		PluginID:      "game-source-smb",
+		ExternalID:    "scummvm-game",
+		RawTitle:      "Castle of Dr. Brain",
+		Platform:      core.PlatformWindowsPC,
+		Kind:          core.GameKindBaseGame,
+		GroupKind:     core.GroupKindSelfContained,
+		RootPath:      "Games/ScummVM/Castle of Dr. Brain",
+		Status:        "found",
+		Files: []core.GameFile{
+			{
+				GameID:   "scan:scummvm-game",
+				Path:     "Games/ScummVM/Castle of Dr. Brain/RESOURCE.001",
+				FileName: "RESOURCE.001",
+				Role:     core.GameFileRoleRoot,
+				FileKind: "data",
+				Size:     1024,
+			},
+			{
+				GameID:   "scan:scummvm-game",
+				Path:     "Games/ScummVM/Castle of Dr. Brain/RESOURCE.CFG",
+				FileName: "RESOURCE.CFG",
+				Role:     core.GameFileRoleRequired,
+				FileKind: "config",
+				Size:     128,
+			},
+		},
+	}
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "source-a",
+		SourceGames:   []*core.SourceGame{source},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			source.ID: {{
+				PluginID:   "metadata-launchbox",
+				Title:      "Castle of Dr. Brain",
+				Platform:   string(core.PlatformWindowsPC),
+				ExternalID: "lb-castle",
+			}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	games, err := store.GetCanonicalGames(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(games) != 1 {
+		t.Fatalf("canonical games = %d, want 1", len(games))
+	}
+
+	repo := deletionTestIntegrationRepo{items: map[string]*core.Integration{
+		"source-a": {
+			ID:         "source-a",
+			PluginID:   "game-source-smb",
+			ConfigJSON: `{"host":"test","share":"games","username":"u","password":"p","include_paths":[{"path":"Games","recursive":true}]}`,
+		},
+	}}
+	caller := &deletionTestPluginCaller{}
+	service := NewDeletionService(store, repo, caller, deletionTestLogger{})
+
+	preview, err := service.PreviewDeleteSourceGame(ctx, games[0].ID, source.ID)
+	if err != nil {
+		t.Fatalf("PreviewDeleteSourceGame: %v", err)
+	}
+	if len(preview.Items) != 3 {
+		t.Fatalf("preview items = %+v, want two files plus root directory", preview.Items)
+	}
+	rootItem := preview.Items[2]
+	if rootItem.Path != "Games/ScummVM/Castle of Dr. Brain" || !rootItem.IsDir {
+		t.Fatalf("root preview item = %+v, want root directory item", rootItem)
+	}
+	files, ok := caller.calls[0].params["files"].([]any)
+	if !ok || len(files) != 3 {
+		t.Fatalf("plugin files payload = %#v, want two files plus root directory", caller.calls[0].params["files"])
 	}
 }
 

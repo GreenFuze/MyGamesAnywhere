@@ -2,10 +2,26 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 )
+
+type fakeSMBDeleteShare struct {
+	failures map[string]error
+	removed  []string
+}
+
+func (s *fakeSMBDeleteShare) Remove(name string) error {
+	s.removed = append(s.removed, name)
+	if err := s.failures[name]; err != nil {
+		return err
+	}
+	return nil
+}
 
 func TestNormalizedIncludePathsFallsBackToLegacyPath(t *testing.T) {
 	includes := normalizedIncludePaths(SMBConfig{Path: `Games\Arcade`})
@@ -152,8 +168,8 @@ func TestHandleSourceDeleteDryRunReturnsDeletePlan(t *testing.T) {
 	}
 }
 
-func TestHandleSourceDeleteRejectsDirectoryEntry(t *testing.T) {
-	_, errObj := handleSourceDelete(mustJSON(t, map[string]any{
+func TestHandleSourceDeleteDryRunAcceptsDirectoryEntry(t *testing.T) {
+	result, errObj := handleSourceDelete(mustJSON(t, map[string]any{
 		"dry_run":        true,
 		"source_game_id": "scan:smb-game",
 		"root_path":      "Games/Platforms/SNES",
@@ -170,11 +186,91 @@ func TestHandleSourceDeleteRejectsDirectoryEntry(t *testing.T) {
 			"is_dir": true,
 		}},
 	}))
-	if errObj == nil {
-		t.Fatal("expected directory delete to be rejected")
+	if errObj != nil {
+		t.Fatalf("handleSourceDelete dry run error = %s: %s", errObj.Code, errObj.Message)
 	}
-	if errObj.Code != "INVALID_PARAMS" {
-		t.Fatalf("error code = %q, want INVALID_PARAMS", errObj.Code)
+	encoded, _ := json.Marshal(result)
+	var resp struct {
+		Items []struct {
+			Path   string `json:"path"`
+			IsDir  bool   `json:"is_dir"`
+			Action string `json:"action"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(encoded, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].Path != "Games/Platforms/SNES" || !resp.Items[0].IsDir || resp.Items[0].Action != "delete" {
+		t.Fatalf("items = %+v, want directory delete item", resp.Items)
+	}
+}
+
+func TestExecuteSourceDeletePlanWarnsWhenRootDirectoryCannotBeRemovedAfterFiles(t *testing.T) {
+	share := &fakeSMBDeleteShare{failures: map[string]error{
+		"Games/ScummVM/Gobliins 2": errors.New("response error: A file cannot be opened because the share access flags are incompatible"),
+	}}
+	items := []sourceDeletePlanItem{
+		{Path: "Games/ScummVM/Gobliins 2", IsDir: true, Action: "delete"},
+		{Path: "Games/ScummVM/Gobliins 2/INTRO.STK", Size: 1024, Action: "delete"},
+		{Path: "Games/ScummVM/Gobliins 2/GOB2.EXE", Size: 2048, Action: "delete"},
+	}
+
+	deletedCount, warnings, errObj := executeSourceDeletePlan(share, items)
+	if errObj != nil {
+		t.Fatalf("executeSourceDeletePlan error = %s: %s", errObj.Code, errObj.Message)
+	}
+	if deletedCount != 2 {
+		t.Fatalf("deletedCount = %d, want 2 files deleted", deletedCount)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "could not be removed") {
+		t.Fatalf("warnings = %#v, want directory cleanup warning", warnings)
+	}
+	wantOrder := []string{
+		"Games/ScummVM/Gobliins 2/INTRO.STK",
+		"Games/ScummVM/Gobliins 2/GOB2.EXE",
+		"Games/ScummVM/Gobliins 2",
+	}
+	if !reflect.DeepEqual(share.removed, wantOrder) {
+		t.Fatalf("remove order = %#v, want %#v", share.removed, wantOrder)
+	}
+}
+
+func TestExecuteSourceDeletePlanFailsWhenFileCannotBeRemoved(t *testing.T) {
+	share := &fakeSMBDeleteShare{failures: map[string]error{
+		"Games/ScummVM/Gobliins 2/GOB2.EXE": errors.New("locked"),
+	}}
+	items := []sourceDeletePlanItem{
+		{Path: "Games/ScummVM/Gobliins 2/GOB2.EXE", Size: 2048, Action: "delete"},
+		{Path: "Games/ScummVM/Gobliins 2", IsDir: true, Action: "delete"},
+	}
+
+	_, warnings, errObj := executeSourceDeletePlan(share, items)
+	if errObj == nil || errObj.Code != "DELETE_FAILED" {
+		t.Fatalf("error = %+v, want DELETE_FAILED", errObj)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %#v, want none for file delete failure", warnings)
+	}
+}
+
+func TestExecuteSourceDeletePlanTreatsMissingFileAsAlreadyDeleted(t *testing.T) {
+	share := &fakeSMBDeleteShare{failures: map[string]error{
+		"Games/ScummVM/Gobliins 2/GOBNEW.LIC": errors.New("remove ScummVM\\Gobliins 2\\GOBNEW.LIC: file does not exist"),
+	}}
+	items := []sourceDeletePlanItem{
+		{Path: "Games/ScummVM/Gobliins 2/GOBNEW.LIC", Size: 1024, Action: "delete"},
+		{Path: "Games/ScummVM/Gobliins 2/GOB2.EXE", Size: 2048, Action: "delete"},
+	}
+
+	deletedCount, warnings, errObj := executeSourceDeletePlan(share, items)
+	if errObj != nil {
+		t.Fatalf("executeSourceDeletePlan error = %s: %s", errObj.Code, errObj.Message)
+	}
+	if deletedCount != 2 {
+		t.Fatalf("deletedCount = %d, want 2 including already-missing file", deletedCount)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "already deleted") {
+		t.Fatalf("warnings = %#v, want already-deleted warning", warnings)
 	}
 }
 

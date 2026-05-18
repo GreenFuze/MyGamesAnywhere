@@ -246,6 +246,89 @@ func TestStableCanonicalIDSurvivesSplit(t *testing.T) {
 	}
 }
 
+func TestCanonicalSourcePinSplitOverridesAutomaticTitleGrouping(t *testing.T) {
+	baseCtx := context.Background()
+	ctx := core.WithProfile(baseCtx, &core.Profile{ID: "profile-1"})
+	db, store := newTestGameStore(t)
+
+	persistBatch(t, ctx, store, makeTestBatch("integration-1", "scan:source-a", "source-a", "Killer Instinct", "match-snes"))
+	persistBatch(t, ctx, store, makeTestBatch("integration-2", "scan:source-b", "source-b", "Killer Instinct", "match-xbox"))
+	oldCanonical := canonicalIDForSource(t, ctx, db, "scan:source-a")
+	if got := canonicalIDForSource(t, ctx, db, "scan:source-b"); got != oldCanonical {
+		t.Fatalf("expected title grouping before split, got %q and %q", oldCanonical, got)
+	}
+
+	result, err := store.SplitSourceGameCanonical(ctx, oldCanonical, "scan:source-b")
+	if err != nil {
+		t.Fatalf("SplitSourceGameCanonical: %v", err)
+	}
+	if result.CanonicalGameID == oldCanonical {
+		t.Fatalf("split canonical id = %q, want different from old %q", result.CanonicalGameID, oldCanonical)
+	}
+
+	persistBatch(t, ctx, store, makeTestBatch("integration-2", "scan:source-b", "source-b", "Killer Instinct", "match-xbox"))
+	if got := canonicalIDForSource(t, ctx, db, "scan:source-b"); got != result.CanonicalGameID {
+		t.Fatalf("split pin did not survive refresh, canonical = %q, want %q", got, result.CanonicalGameID)
+	}
+}
+
+func TestCanonicalSourcePinSplitOverridesSharedExternalID(t *testing.T) {
+	ctx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-1"})
+	db, store := newTestGameStore(t)
+
+	persistBatch(t, ctx, store, makeTestBatch("integration-1", "scan:source-a", "source-a", "Killer Instinct", "same-external"))
+	persistBatch(t, ctx, store, makeTestBatch("integration-2", "scan:source-b", "source-b", "Killer Instinct", "same-external"))
+	oldCanonical := canonicalIDForSource(t, ctx, db, "scan:source-a")
+	if got := canonicalIDForSource(t, ctx, db, "scan:source-b"); got != oldCanonical {
+		t.Fatalf("expected external id grouping before split, got %q and %q", oldCanonical, got)
+	}
+
+	result, err := store.SplitSourceGameCanonical(ctx, oldCanonical, "scan:source-b")
+	if err != nil {
+		t.Fatalf("SplitSourceGameCanonical: %v", err)
+	}
+	if got := canonicalIDForSource(t, ctx, db, "scan:source-b"); got != result.CanonicalGameID {
+		t.Fatalf("split canonical = %q, want %q", got, result.CanonicalGameID)
+	}
+	if got := canonicalIDForSource(t, ctx, db, "scan:source-a"); got != oldCanonical {
+		t.Fatalf("unselected source canonical = %q, want %q", got, oldCanonical)
+	}
+}
+
+func TestCanonicalSourcePinMergeOverridesAutomaticGrouping(t *testing.T) {
+	ctx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-1"})
+	db, store := newTestGameStore(t)
+
+	persistBatch(t, ctx, store, makeTestBatch("integration-1", "scan:source-a", "source-a", "Alpha", "alpha"))
+	persistBatch(t, ctx, store, makeTestBatch("integration-2", "scan:source-b", "source-b", "Bravo", "bravo"))
+	canonicalA := canonicalIDForSource(t, ctx, db, "scan:source-a")
+	canonicalB := canonicalIDForSource(t, ctx, db, "scan:source-b")
+	if canonicalA == canonicalB {
+		t.Fatal("expected separate canonical games before merge pin")
+	}
+
+	result, err := store.MergeSourceGameCanonical(ctx, canonicalB, "scan:source-b", canonicalA)
+	if err != nil {
+		t.Fatalf("MergeSourceGameCanonical: %v", err)
+	}
+	if result.CanonicalGameID != canonicalA {
+		t.Fatalf("merge result canonical = %q, want %q", result.CanonicalGameID, canonicalA)
+	}
+
+	persistBatch(t, ctx, store, makeTestBatch("integration-2", "scan:source-b", "source-b", "Bravo", "bravo"))
+	if got := canonicalIDForSource(t, ctx, db, "scan:source-b"); got != canonicalA {
+		t.Fatalf("merge pin did not survive refresh, canonical = %q, want %q", got, canonicalA)
+	}
+
+	clearResult, err := store.ClearSourceGameCanonicalPin(ctx, canonicalA, "scan:source-b")
+	if err != nil {
+		t.Fatalf("ClearSourceGameCanonicalPin: %v", err)
+	}
+	if clearResult.CanonicalGameID == canonicalA {
+		t.Fatalf("clear pin canonical = %q, want automatic split away from %q", clearResult.CanonicalGameID, canonicalA)
+	}
+}
+
 func TestPersistScanResultsReusesExistingRowForSameNaturalKey(t *testing.T) {
 	ctx := context.Background()
 	db, store := newTestGameStore(t)
