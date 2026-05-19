@@ -132,6 +132,7 @@ var apiKey string
 var platformMap = map[string]int{
 	"windows_pc": 4,
 	"ms_dos":     4,
+	"snes":       79,
 	"gba":        24,
 	"n64":        83,
 	"ps1":        27,
@@ -510,15 +511,18 @@ func autoLookupTitleVariants(title string) []string {
 }
 
 func strictPackedWindowsAutoMatch(q gameQuery) bool {
-	return q.LookupIntent == "" && q.Platform == "windows_pc" && q.GroupKind == "packed"
+	return q.LookupIntent != "manual_search" && q.Platform == "windows_pc" && q.GroupKind == "packed"
 }
 
 func autoCandidatePlatformCompatible(q gameQuery, game rawgGame) bool {
-	if !strictPackedWindowsAutoMatch(q) {
+	if q.LookupIntent == "manual_search" {
 		return true
 	}
 	rawgID := platformMap[q.Platform]
-	return rawgID > 0 && rawgGamePlatformMatches(game, rawgID)
+	if rawgID == 0 {
+		return true
+	}
+	return rawgGamePlatformMatches(game, rawgID)
 }
 
 func buildResult(q gameQuery, overallBest *rawgGame) *lookupResult {

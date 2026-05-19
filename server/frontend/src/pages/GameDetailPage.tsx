@@ -1990,9 +1990,16 @@ export function GameDetailPage() {
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-3">
             {browserPlayable ? (
-              <HeroActionButton type="button" primary onClick={handleLaunchBrowser} disabled={!browserPlayResolution?.canLaunch}>
-                <PlayCircle size={16} />
-                Play
+              <HeroActionButton
+                type="button"
+                primary
+                onClick={handleLaunchBrowser}
+                disabled={!browserPlayResolution?.canLaunch}
+                aria-label="Play"
+                title="Play"
+                className="h-12 w-12 rounded-full px-0"
+              >
+                <PlayCircle size={20} />
               </HeroActionButton>
             ) : null}
             {(primaryXcloudOption?.url ?? data.xcloud_url) ? (

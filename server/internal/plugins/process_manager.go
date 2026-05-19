@@ -57,6 +57,7 @@ func NewProcessManager() ProcessManager {
 func (m *osProcessManager) Spawn(ctx context.Context, command string, args []string, dir string) (Process, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = dir
+	configurePluginCommand(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

@@ -256,6 +256,21 @@ func TestAutoCandidatePlatformCompatibleRejectsNonPCForPackedWindows(t *testing.
 	}
 }
 
+func TestAutoCandidatePlatformCompatibleRejectsWrongKnownPlatform(t *testing.T) {
+	query := gameQuery{Title: "Killer Instinct", Platform: "snes", LookupIntent: "identify"}
+	if !autoCandidatePlatformCompatible(query, []int{platformMap["snes"][0]}) {
+		t.Fatal("expected SNES IGDB platform to be compatible")
+	}
+	if autoCandidatePlatformCompatible(query, []int{platformMap["windows_pc"][0]}) {
+		t.Fatal("expected Windows PC IGDB platform to be rejected for SNES auto lookup")
+	}
+	manualQuery := query
+	manualQuery.LookupIntent = "manual_search"
+	if !autoCandidatePlatformCompatible(manualQuery, []int{platformMap["windows_pc"][0]}) {
+		t.Fatal("manual search should still allow alternate-platform candidates")
+	}
+}
+
 // --- TV2 Games coverage test ---
 
 type tv2Entry struct {

@@ -149,6 +149,56 @@ func TestConsensus_PackedWindowsWithOnlyIncompatibleMatchStaysUnidentified(t *te
 	}
 }
 
+func TestConsensus_SourcePlatformOutvotesSameTitleBlankPlatformMatches(t *testing.T) {
+	g := &core.Game{
+		Title:    "killer instinct (u) (v1.1) [!]",
+		RawTitle: "killer instinct (u) (v1.1) [!]",
+		Platform: core.PlatformSNES,
+		Kind:     core.GameKindBaseGame,
+		ResolverMatches: []core.ResolverMatch{
+			{
+				PluginID:   "metadata-igdb",
+				Title:      "Killer Instinct",
+				ExternalID: "2907",
+				Media: []core.MediaItem{{
+					Type:   "cover",
+					URL:    "https://example.test/newer-killer-instinct.jpg",
+					Source: "metadata-igdb",
+				}},
+			},
+			{
+				PluginID:   "metadata-launchbox",
+				Title:      "Killer Instinct",
+				Platform:   "snes",
+				ExternalID: "1254",
+				Media: []core.MediaItem{{
+					Type:   "cover",
+					URL:    "https://example.test/snes-killer-instinct.jpg",
+					Source: "metadata-launchbox",
+				}},
+			},
+		},
+	}
+
+	runConsensus(g, []MetadataSource{{PluginID: "metadata-igdb"}, {PluginID: "metadata-launchbox"}})
+
+	if g.Status != "identified" {
+		t.Fatalf("status = %q, want identified", g.Status)
+	}
+	if !g.ResolverMatches[0].Outvoted {
+		t.Fatalf("blank-platform IGDB match should be outvoted when SNES match exists: %+v", g.ResolverMatches)
+	}
+	if g.ResolverMatches[1].Outvoted {
+		t.Fatalf("SNES LaunchBox match should remain active: %+v", g.ResolverMatches)
+	}
+	if len(g.ExternalIDs) != 1 || g.ExternalIDs[0].Source != "metadata-launchbox" || g.ExternalIDs[0].ExternalID != "1254" {
+		t.Fatalf("external IDs = %+v, want only SNES LaunchBox match", g.ExternalIDs)
+	}
+	if len(g.Media) != 1 || g.Media[0].URL != "https://example.test/snes-killer-instinct.jpg" {
+		t.Fatalf("media = %+v, want only SNES media", g.Media)
+	}
+}
+
 // ── Phase 2: consensus unit tests ───────────────────────────────────
 
 func TestConsensus_Unanimous(t *testing.T) {

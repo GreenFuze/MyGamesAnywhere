@@ -152,6 +152,7 @@ var platformMap = map[string][]int{
 	"windows_pc": {6},
 	"ms_dos":     {13},
 	"arcade":     {52},
+	"snes":       {19},
 	"gba":        {24},
 	"n64":        {4},
 	"ps1":        {7},
@@ -573,15 +574,18 @@ func autoLookupTitleVariants(title string) []string {
 }
 
 func strictPackedWindowsAutoMatch(q gameQuery) bool {
-	return q.LookupIntent == "" && q.Platform == "windows_pc" && q.GroupKind == "packed"
+	return q.LookupIntent != "manual_search" && q.Platform == "windows_pc" && q.GroupKind == "packed"
 }
 
 func autoCandidatePlatformCompatible(q gameQuery, gamePlatforms []int) bool {
-	if !strictPackedWindowsAutoMatch(q) {
+	if q.LookupIntent == "manual_search" {
 		return true
 	}
 	wanted := platformMap[q.Platform]
-	return len(wanted) > 0 && gamePlatformMatches(gamePlatforms, wanted)
+	if len(wanted) == 0 {
+		return true
+	}
+	return gamePlatformMatches(gamePlatforms, wanted)
 }
 
 func buildResult(q gameQuery, game *igdbGame) *lookupResult {

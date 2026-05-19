@@ -206,6 +206,23 @@ func TestAutoCandidatePlatformCompatibleRejectsNonPCForPackedWindows(t *testing.
 	}
 }
 
+func TestAutoCandidatePlatformCompatibleRejectsWrongKnownPlatform(t *testing.T) {
+	query := gameQuery{Title: "Killer Instinct", Platform: "snes", LookupIntent: "identify"}
+	snesGame := rawgGame{Platforms: []rawgPlatform{{Platform: rawgPlatformInfo{ID: platformMap["snes"]}}}}
+	windowsGame := rawgGame{Platforms: []rawgPlatform{{Platform: rawgPlatformInfo{ID: platformMap["windows_pc"]}}}}
+	if !autoCandidatePlatformCompatible(query, snesGame) {
+		t.Fatal("expected SNES RAWG platform to be compatible")
+	}
+	if autoCandidatePlatformCompatible(query, windowsGame) {
+		t.Fatal("expected Windows PC RAWG platform to be rejected for SNES auto lookup")
+	}
+	manualQuery := query
+	manualQuery.LookupIntent = "manual_search"
+	if !autoCandidatePlatformCompatible(manualQuery, windowsGame) {
+		t.Fatal("manual search should still allow alternate-platform candidates")
+	}
+}
+
 // --- TV2 Games coverage test ---
 
 type tv2Entry struct {

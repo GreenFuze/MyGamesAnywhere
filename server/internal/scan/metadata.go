@@ -490,6 +490,7 @@ func runConsensus(g *core.Game, sources []MetadataSource) {
 	}
 
 	rejectIncompatibleAutoMatches(g)
+	rejectAmbiguousPlatformAutoMatches(g)
 
 	groups := map[string][]int{}
 	for i, m := range g.ResolverMatches {
@@ -531,6 +532,53 @@ func rejectIncompatibleAutoMatches(g *core.Game) {
 		}
 		g.ResolverMatches[i].Outvoted = true
 	}
+}
+
+func rejectAmbiguousPlatformAutoMatches(g *core.Game) {
+	if g == nil || g.Platform == core.PlatformUnknown {
+		return
+	}
+	hasCompatible := false
+	for _, match := range g.ResolverMatches {
+		if match.Outvoted || match.ManualSelection {
+			continue
+		}
+		if platformCompatibleForConsensus(g.Platform, match.Platform) {
+			hasCompatible = true
+			break
+		}
+	}
+	if !hasCompatible {
+		return
+	}
+	for i, match := range g.ResolverMatches {
+		if match.Outvoted || match.ManualSelection {
+			continue
+		}
+		if !platformCompatibleForConsensus(g.Platform, match.Platform) {
+			g.ResolverMatches[i].Outvoted = true
+		}
+	}
+}
+
+func platformCompatibleForConsensus(sourcePlatform core.Platform, matchPlatform string) bool {
+	if sourcePlatform == core.PlatformUnknown || strings.TrimSpace(matchPlatform) == "" {
+		return false
+	}
+	normalized := core.NormalizePlatformAlias(matchPlatform)
+	if normalized == core.PlatformUnknown {
+		return false
+	}
+	if normalized == sourcePlatform {
+		return true
+	}
+	switch sourcePlatform {
+	case core.PlatformScummVM:
+		return normalized == core.PlatformMSDOS || normalized == core.PlatformWindowsPC
+	case core.PlatformWindowsPC:
+		return normalized == core.PlatformMSDOS
+	}
+	return false
 }
 
 // pickWinner returns the normalized-title key with the most votes.
