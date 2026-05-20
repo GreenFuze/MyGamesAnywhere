@@ -414,7 +414,7 @@ func TestApplyInstallerLaunchesSilentUpdateWithInstallMode(t *testing.T) {
 		t.Fatalf("Apply() error = %v", err)
 	}
 	joined := strings.Join(captured, " ")
-	for _, want := range []string{"/VERYSILENT", "/MGAUPDATE=1", "/MGAINSTALLTYPE=service", "/ALLUSERS", "/MGAAPPDIR=" + appDir, "/MGADATADIR=" + dataDir} {
+	for _, want := range []string{"/VERYSILENT", "/LOG=" + filepath.Join(dataDir, "updates", "mga_installer_update.log"), "/MGAUPDATE=1", "/MGAINSTALLTYPE=service", "/ALLUSERS", "/MGAAPPDIR=" + appDir, "/MGADATADIR=" + dataDir} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("installer args %q do not contain %q", joined, want)
 		}

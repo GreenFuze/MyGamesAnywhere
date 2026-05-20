@@ -233,6 +233,7 @@ func (s *Service) applyInstaller(status *core.UpdateStatus) error {
 		"/SUPPRESSMSGBOXES",
 		"/NORESTART",
 		"/CLOSEAPPLICATIONS",
+		"/LOG=" + filepath.Join(s.updatesDir(), "mga_installer_update.log"),
 		"/MGAUPDATE=1",
 		"/MGAINSTALLTYPE=" + flavor,
 		"/MGAAPPDIR=" + paths.AppDir,
@@ -246,6 +247,7 @@ func (s *Service) applyInstaller(status *core.UpdateStatus) error {
 		args = append(args, "/CURRENTUSER")
 	}
 	cmd := exec.Command(status.DownloadedPath, args...)
+	configureDetachedUpdateCommand(cmd)
 	if err := startDetachedCommand(cmd); err != nil {
 		return fmt.Errorf("launch installer update: %w", err)
 	}
@@ -269,6 +271,7 @@ func (s *Service) applyPortable(status *core.UpdateStatus) error {
 		return err
 	}
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", helper, "-PlanPath", planPath)
+	configureDetachedUpdateCommand(cmd)
 	if err := startDetachedCommand(cmd); err != nil {
 		return fmt.Errorf("launch portable updater: %w", err)
 	}
