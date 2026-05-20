@@ -17,6 +17,14 @@ import (
 
 const latestMigrationVersion = 9
 
+var legacyMigrationChecksums = map[int]map[string]bool{
+	// v0.0.9 installs recorded this initial migration checksum before the
+	// fresh-schema definition was brought back in line with later migrations.
+	1: {
+		"3a75c8a20ded02e0892d85f70e29da25b2d65e3bcd2201f4d92cf5b430fe8a7d": true,
+	},
+}
+
 type migration struct {
 	Version int
 	Name    string
@@ -226,11 +234,21 @@ func validateKnownMigrations(applied map[int]appliedMigration, migrations []migr
 			return fmt.Errorf("database contains failed migration version %d", version)
 		}
 		expectedChecksum := migrationChecksum(expected)
-		if strings.TrimSpace(appliedMigration.Checksum) != "" && appliedMigration.Checksum != expectedChecksum {
+		if strings.TrimSpace(appliedMigration.Checksum) != "" &&
+			appliedMigration.Checksum != expectedChecksum &&
+			!isAcceptedLegacyMigrationChecksum(version, appliedMigration.Checksum) {
 			return fmt.Errorf("migration checksum mismatch for version %d (%s)", version, expected.Name)
 		}
 	}
 	return nil
+}
+
+func isAcceptedLegacyMigrationChecksum(version int, checksum string) bool {
+	allowed, ok := legacyMigrationChecksums[version]
+	if !ok {
+		return false
+	}
+	return allowed[checksum]
 }
 
 func pendingMigrations(applied map[int]appliedMigration, migrations []migration) []migration {

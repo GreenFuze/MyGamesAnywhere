@@ -53,6 +53,24 @@ func TestMigrationsRejectChecksumMismatch(t *testing.T) {
 	}
 }
 
+func TestMigrationsAcceptKnownLegacyInitialChecksum(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabase(testLogger{}, testDBConfig{dbPath: dbPath})
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatalf("EnsureSchema() error = %v", err)
+	}
+	if _, err := dbSvc.GetDB().Exec(`UPDATE schema_migrations SET checksum='3a75c8a20ded02e0892d85f70e29da25b2d65e3bcd2201f4d92cf5b430fe8a7d' WHERE version=1`); err != nil {
+		t.Fatalf("set legacy checksum: %v", err)
+	}
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatalf("EnsureSchema() with known legacy checksum error = %v", err)
+	}
+}
+
 func TestMigrationsRejectNewerDatabaseVersion(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
 	dbSvc := NewSQLiteDatabase(testLogger{}, testDBConfig{dbPath: dbPath})
