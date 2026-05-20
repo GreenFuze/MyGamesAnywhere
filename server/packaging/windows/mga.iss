@@ -45,11 +45,11 @@ SetupLogging=yes
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "startup_server"; Description: "Start MGA automatically when I sign in"; Flags: checkedonce; Check: IsForMeMode
-Name: "start_server_after"; Description: "Start MGA after install"; Flags: checkedonce; Check: IsForMeMode
-Name: "startup_tray"; Description: "Show MGA tray icon when I sign in"; Flags: dontinheritcheck; Check: IsAllUsersMode
-Name: "start_service_after"; Description: "Start MGA service after install"; Flags: dontinheritcheck; Check: IsAllUsersMode
-Name: "firewall"; Description: "Add Windows Firewall rule for LAN access"; Flags: checkedonce; Check: IsAllUsersMode
+Name: "startup_server"; Description: "Start MGA automatically when I sign in"; Flags: checkedonce; Check: IsInteractiveForMeMode
+Name: "start_server_after"; Description: "Start MGA after install"; Flags: checkedonce; Check: IsInteractiveForMeMode
+Name: "startup_tray"; Description: "Show MGA tray icon when I sign in"; Flags: dontinheritcheck; Check: IsInteractiveAllUsersMode
+Name: "start_service_after"; Description: "Start MGA service after install"; Flags: dontinheritcheck; Check: IsInteractiveAllUsersMode
+Name: "firewall"; Description: "Add Windows Firewall rule for LAN access"; Flags: checkedonce; Check: IsInteractiveAllUsersMode
 
 [Files]
 Source: "{#SourceDir}\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
@@ -72,14 +72,14 @@ Source: "{#SourceDir}\packaging\windows\update-installed.ps1"; Flags: dontcopy
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MyGamesAnywhere"; ValueData: """{app}\{#AppExeName}"" --app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: startup_server; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "MyGamesAnywhere Tray"; Flags: deletevalue; Check: IsAllUsersMode
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "MyGamesAnywhere Tray"; Flags: deletevalue; Check: IsInteractiveAllUsersMode
 
 [Icons]
-Name: "{commonstartup}\MyGamesAnywhere Tray"; Filename: "{app}\{#TrayExeName}"; Parameters: "--base-url ""http://127.0.0.1:8900"" --mode ""service"" --server-exe ""{app}\{#AppExeName}"" --app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: startup_tray; Check: IsAllUsersMode
+Name: "{commonstartup}\MyGamesAnywhere Tray"; Filename: "{app}\{#TrayExeName}"; Parameters: "--base-url ""http://127.0.0.1:8900"" --mode ""service"" --server-exe ""{app}\{#AppExeName}"" --app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: startup_tray; Check: IsInteractiveAllUsersMode
 
 [Run]
-Filename: "{app}\{#AppExeName}"; Parameters: "--app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: start_server_after; Flags: nowait postinstall skipifsilent; Check: IsForMeMode
-Filename: "{app}\{#TrayExeName}"; Parameters: "--base-url ""http://127.0.0.1:8900"" --mode ""service"" --server-exe ""{app}\{#AppExeName}"" --app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: startup_tray; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: IsAllUsersMode
+Filename: "{app}\{#AppExeName}"; Parameters: "--app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: start_server_after; Flags: nowait postinstall skipifsilent; Check: IsInteractiveForMeMode
+Filename: "{app}\{#TrayExeName}"; Parameters: "--base-url ""http://127.0.0.1:8900"" --mode ""service"" --server-exe ""{app}\{#AppExeName}"" --app-dir ""{app}"" --data-dir ""{code:GetDataDir}"" --config ""{code:GetConfigPath}"" --runtime-mode ""{code:GetRuntimeMode}"""; Tasks: startup_tray; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: IsInteractiveAllUsersMode
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service.ps1"" -Action stop-tray -AppDir ""{app}"""; Flags: runhidden waituntilterminated; RunOnceId: "StopMGATray"
@@ -89,6 +89,7 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Fil
 [Code]
 var
   InstallScopePage: TInputOptionWizardPage;
+  SetupIsUpdateMode: Boolean;
 
 procedure ExitProcess(ExitCode: UINT);
   external 'ExitProcess@kernel32.dll stdcall';
@@ -107,13 +108,27 @@ begin
 end;
 
 function ParamValue(Name: String; Default: String): String;
+var
+  Sentinel: String;
+  Value: String;
 begin
+  if Default = '' then
+  begin
+    Sentinel := '__MGA_EMPTY_PARAM__';
+    Value := ExpandConstant('{param:' + Name + '|' + Sentinel + '}');
+    if Value = Sentinel then
+      Result := ''
+    else
+      Result := Value;
+    Exit;
+  end;
+
   Result := ExpandConstant('{param:' + Name + '|' + Default + '}');
 end;
 
 function IsUpdateMode: Boolean;
 begin
-  Result := ParamValue('MGAUPDATE', '0') = '1';
+  Result := SetupIsUpdateMode;
 end;
 
 function IsDeleteDataUninstall: Boolean;
@@ -136,6 +151,7 @@ end;
 
 function InitializeSetup: Boolean;
 begin
+  SetupIsUpdateMode := ParamValue('MGAUPDATE', '0') = '1';
   Result := True;
   if IsUpdateMode then
     Exit;
@@ -218,6 +234,26 @@ begin
   Result := not IsAllUsersMode;
 end;
 
+function IsInteractiveAllUsersMode: Boolean;
+begin
+  if IsUpdateMode then
+  begin
+    Result := False;
+    Exit;
+  end;
+  Result := IsAllUsersMode;
+end;
+
+function IsInteractiveForMeMode: Boolean;
+begin
+  if IsUpdateMode then
+  begin
+    Result := False;
+    Exit;
+  end;
+  Result := IsForMeMode;
+end;
+
 function IsServiceInstall: Boolean;
 begin
   Result := IsAllUsersMode;
@@ -292,6 +328,11 @@ end;
 
 function ShouldAddFirewall: Boolean;
 begin
+  if IsUpdateMode then
+  begin
+    Result := False;
+    Exit;
+  end;
   Result := IsAllUsersMode and WizardIsTaskSelected('firewall');
 end;
 
@@ -401,6 +442,9 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+
+  if InstallScopePage = nil then
+    Exit;
 
   if (CurPageID = InstallScopePage.ID) then
   begin
