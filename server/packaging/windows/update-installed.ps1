@@ -11,7 +11,7 @@ param(
     [string]$LogPath,
     [ValidateSet("user","service","machine")]
     [string]$InstallType = "user",
-    [int]$Pid = 0
+    [int]$ServerPid = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -180,8 +180,8 @@ function Run-MigrateOnly {
 function Get-TargetServerProcesses {
     $serverExe = (Join-Path $AppDir "mga_server.exe").ToLowerInvariant()
     $candidates = @()
-    if ($Pid -gt 0) {
-        $process = Get-Process -Id $Pid -ErrorAction SilentlyContinue
+    if ($ServerPid -gt 0) {
+        $process = Get-Process -Id $ServerPid -ErrorAction SilentlyContinue
         if ($process) {
             $candidates += $process
         }
@@ -198,7 +198,7 @@ function Get-TargetServerProcesses {
                 $unique[$process.Id] = $process
             }
         } catch {
-            if ($Pid -gt 0 -and $process.Id -eq $Pid) {
+            if ($ServerPid -gt 0 -and $process.Id -eq $ServerPid) {
                 $unique[$process.Id] = $process
             }
         }
@@ -234,7 +234,7 @@ switch ($Action) {
         }
     }
     "stop-user" {
-        Write-InstallLog "Stopping user-mode MGA server. AppDir=$AppDir Pid=$Pid"
+        Write-InstallLog "Stopping user-mode MGA server. AppDir=$AppDir Pid=$ServerPid"
         foreach ($process in Get-TargetServerProcesses) {
             Write-InstallLog "Stopping MGA server PID $($process.Id)."
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue

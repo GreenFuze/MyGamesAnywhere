@@ -401,7 +401,7 @@ begin
       PSArg('DataDir', GetDataDir('')) + ' ' +
       PSArg('ConfigPath', GetConfigPath('')) + ' ' +
       PSArg('LogPath', LogPath) + ' ' +
-      '-Pid ' + ParamValue('MGAPID', '0');
+      '-ServerPid ' + ParamValue('MGAPID', '0');
     RunPowerShellScript(ScriptPath, StopParameters, 'MGA user process stop', LogPath);
   end;
 
