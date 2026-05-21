@@ -2115,6 +2115,71 @@ func TestManualReviewCandidatesSupportArchiveScopeAndUnarchive(t *testing.T) {
 	}
 }
 
+func TestManualReviewCandidateCanBeMarkedDLCAndRestored(t *testing.T) {
+	ctx := context.Background()
+	_, store := newTestGameStore(t)
+
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames: []*core.SourceGame{{
+			ID:            "scan:addon",
+			IntegrationID: "integration-1",
+			PluginID:      "game-source-smb",
+			ExternalID:    "addon",
+			RawTitle:      "setup_addon_level_pack",
+			Platform:      core.PlatformWindowsPC,
+			Kind:          core.GameKindBaseGame,
+			GroupKind:     core.GroupKindPacked,
+			Status:        "found",
+		}},
+		ResolverMatches: map[string][]core.ResolverMatch{},
+		MediaItems:      map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.SetManualReviewKindAndState(ctx, "scan:addon", core.GameKindDLC, core.ManualReviewStateNotAGame); err != nil {
+		t.Fatal(err)
+	}
+
+	archive, err := store.ListManualReviewCandidates(ctx, core.ManualReviewScopeArchive, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archive) != 1 || archive[0].ID != "scan:addon" {
+		t.Fatalf("archive candidates = %+v, want scan:addon", archive)
+	}
+	if archive[0].Kind != core.GameKindDLC {
+		t.Fatalf("archive kind = %q, want %q", archive[0].Kind, core.GameKindDLC)
+	}
+	if archive[0].ReviewState != core.ManualReviewStateNotAGame {
+		t.Fatalf("archive review_state = %q, want %q", archive[0].ReviewState, core.ManualReviewStateNotAGame)
+	}
+
+	foundGames, err := store.GetFoundSourceGames(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(foundGames) != 0 {
+		t.Fatalf("len(foundGames) = %d, want 0 while add-on is archived", len(foundGames))
+	}
+
+	if err := store.SetManualReviewKindAndState(ctx, "scan:addon", core.GameKindBaseGame, core.ManualReviewStatePending); err != nil {
+		t.Fatal(err)
+	}
+
+	active, err := store.ListManualReviewCandidates(ctx, core.ManualReviewScopeActive, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 1 || active[0].ID != "scan:addon" {
+		t.Fatalf("active candidates = %+v, want scan:addon after restore", active)
+	}
+	if active[0].Kind != core.GameKindBaseGame {
+		t.Fatalf("active kind = %q, want %q", active[0].Kind, core.GameKindBaseGame)
+	}
+}
+
 func TestManualReviewCandidateAccessIsProfileScoped(t *testing.T) {
 	ctx := context.Background()
 	profileOneCtx := core.WithProfile(ctx, &core.Profile{ID: "profile-1", Role: core.ProfileRoleAdminPlayer})

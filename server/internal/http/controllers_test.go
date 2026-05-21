@@ -1182,6 +1182,21 @@ func (f *fakeGameStore) SetManualReviewState(_ context.Context, candidateID stri
 	}
 	return nil
 }
+func (f *fakeGameStore) SetManualReviewKindAndState(_ context.Context, candidateID string, kind core.GameKind, state core.ManualReviewState) error {
+	if f.manualReviewByID != nil {
+		if candidate := f.manualReviewByID[candidateID]; candidate != nil {
+			candidate.Kind = kind
+			candidate.ReviewState = state
+		}
+	}
+	for _, candidate := range f.manualReviewCandidates {
+		if candidate != nil && candidate.ID == candidateID {
+			candidate.Kind = kind
+			candidate.ReviewState = state
+		}
+	}
+	return nil
+}
 func (f *fakeGameStore) GetFoundSourceGames(context.Context, []string) ([]*core.FoundSourceGame, error) {
 	panic("unexpected call")
 }

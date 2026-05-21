@@ -538,6 +538,20 @@ func Operations() []OperationDoc {
 		},
 		{
 			Method:       "POST",
+			Path:         "/api/review-candidates/{id}/dlc",
+			Summary:      "Archive a candidate as add-on content",
+			Description:  "Marks the source record kind as dlc and review_state as not_a_game, moving installer add-ons out of the active Undetected Games queue while keeping the record inspectable in the archive.",
+			ResponseDocs: map[string]string{"200": "Updated ManualReviewCandidateDetail JSON", "400": "Missing id", "404": "Candidate not found", "500": "Internal server error"},
+		},
+		{
+			Method:       "POST",
+			Path:         "/api/review-candidates/{id}/base-game",
+			Summary:      "Restore an archived add-on candidate as a base game",
+			Description:  "Marks the source record kind as base_game and review_state as pending so a manually archived add-on can return to the active Undetected Games queue.",
+			ResponseDocs: map[string]string{"200": "Updated ManualReviewCandidateDetail JSON", "400": "Missing id", "404": "Candidate not found", "500": "Internal server error"},
+		},
+		{
+			Method:       "POST",
 			Path:         "/api/review-candidates/{id}/unarchive",
 			Summary:      "Restore an archived manual-review candidate",
 			Description:  "Moves an archived candidate back into the active queue and resets its review_state to pending so it can be worked again.",

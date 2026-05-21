@@ -2693,6 +2693,43 @@ func (s *gameStore) SetManualReviewState(ctx context.Context, candidateID string
 	return tx.Commit()
 }
 
+func (s *gameStore) SetManualReviewKindAndState(ctx context.Context, candidateID string, kind core.GameKind, state core.ManualReviewState) error {
+	if candidateID == "" {
+		return fmt.Errorf("candidate id is required")
+	}
+	if kind == "" {
+		return fmt.Errorf("game kind is required")
+	}
+	if state == "" {
+		return fmt.Errorf("review state is required")
+	}
+
+	db := s.db.GetDB()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `UPDATE source_games
+		SET kind = ?, review_state = ?, manual_review_json = NULL
+		WHERE id = ?`+profileFilterSQL(ctx, "source_games"), string(kind), string(state), candidateID)
+	if err != nil {
+		return fmt.Errorf("update manual review kind/state %s: %w", candidateID, err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected for manual review kind/state %s: %w", candidateID, err)
+	}
+	if rowsAffected == 0 {
+		return core.ErrManualReviewCandidateNotFound
+	}
+	if err := s.recomputeCanonicalGroups(ctx, tx); err != nil {
+		return fmt.Errorf("recompute canonical after manual review kind/state update: %w", err)
+	}
+	return tx.Commit()
+}
+
 func (s *gameStore) GetFoundSourceGames(ctx context.Context, integrationIDs []string) ([]*core.FoundSourceGame, error) {
 	db := s.db.GetDB()
 

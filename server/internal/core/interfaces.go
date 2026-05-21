@@ -211,6 +211,10 @@ type GameStore interface {
 	// recomputes canonical membership if its visibility changes.
 	SetManualReviewState(ctx context.Context, candidateID string, state ManualReviewState) error
 
+	// SetManualReviewKindAndState updates one source record's kind and review state
+	// together, then recomputes canonical membership if visibility changes.
+	SetManualReviewKindAndState(ctx context.Context, candidateID string, kind GameKind, state ManualReviewState) error
+
 	// GetFoundSourceGames returns source games with status='found', optionally filtered
 	// by integration IDs. Used by metadata-only refresh to re-enrich existing games.
 	GetFoundSourceGames(ctx context.Context, integrationIDs []string) ([]*FoundSourceGame, error)

@@ -10,6 +10,8 @@ import {
   listIntegrations,
   listManualReviewCandidates,
   listPlugins,
+  markManualReviewCandidateBaseGame,
+  markManualReviewCandidateDLC,
   markManualReviewCandidateNotAGame,
   previewDeleteManualReviewCandidateFiles,
   redetectActiveManualReviewCandidates,
@@ -378,6 +380,18 @@ export function UndetectedGamesTab() {
     onSuccess: handleMutationSuccess,
   })
 
+  const markDLCMutation = useMutation({
+    mutationFn: (candidateId: string) => markManualReviewCandidateDLC(candidateId),
+    onMutate: () => setRedetectNotice(null),
+    onSuccess: handleMutationSuccess,
+  })
+
+  const restoreBaseGameMutation = useMutation({
+    mutationFn: (candidateId: string) => markManualReviewCandidateBaseGame(candidateId),
+    onMutate: () => setRedetectNotice(null),
+    onSuccess: handleMutationSuccess,
+  })
+
   const unarchiveMutation = useMutation({
     mutationFn: (candidateId: string) => unarchiveManualReviewCandidate(candidateId),
     onMutate: () => setRedetectNotice(null),
@@ -471,6 +485,8 @@ export function UndetectedGamesTab() {
   const mutationError =
     applyMutation.error ??
     notAGameMutation.error ??
+    markDLCMutation.error ??
+    restoreBaseGameMutation.error ??
     unarchiveMutation.error ??
     redetectMutation.error ??
     batchRedetectMutation.error ??
@@ -489,6 +505,7 @@ export function UndetectedGamesTab() {
   const candidateReviewReasons = safeList(candidateQuery.data?.review_reasons)
   const candidateFiles = safeList(candidateQuery.data?.files)
   const candidateResolverMatches = safeList(candidateQuery.data?.resolver_matches)
+  const selectedCandidateIsAddOn = isAddOnContentKind(candidateQuery.data?.kind)
   const deleteActionDescription =
     deletePreview?.plugin_id === 'game-source-google-drive'
       ? 'moves the source files shown below to Google Drive trash and removes the candidate from MGA'
@@ -793,25 +810,60 @@ export function UndetectedGamesTab() {
                     </Button>
                   ) : null}
                   {candidateQuery.data.review_state === 'not_a_game' ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => unarchiveMutation.mutate(candidateQuery.data.id)}
-                      disabled={unarchiveMutation.isPending}
-                    >
-                      {unarchiveMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : null}
-                      Unarchive
-                    </Button>
+                    selectedCandidateIsAddOn ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => restoreBaseGameMutation.mutate(candidateQuery.data.id)}
+                        disabled={restoreBaseGameMutation.isPending}
+                      >
+                        {restoreBaseGameMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : null}
+                        Restore as Base Game
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => unarchiveMutation.mutate(candidateQuery.data.id)}
+                        disabled={unarchiveMutation.isPending}
+                      >
+                        {unarchiveMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : null}
+                        Unarchive
+                      </Button>
+                    )
                   ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => notAGameMutation.mutate(candidateQuery.data.id)}
-                      disabled={notAGameMutation.isPending}
-                    >
-                      {notAGameMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : null}
-                      Mark as Not a Game
-                    </Button>
+                    <>
+                      {selectedCandidateIsAddOn ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => restoreBaseGameMutation.mutate(candidateQuery.data.id)}
+                          disabled={restoreBaseGameMutation.isPending}
+                        >
+                          {restoreBaseGameMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : null}
+                          Restore as Base Game
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => markDLCMutation.mutate(candidateQuery.data.id)}
+                          disabled={markDLCMutation.isPending}
+                        >
+                          {markDLCMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : null}
+                          Mark as DLC/Add-on
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => notAGameMutation.mutate(candidateQuery.data.id)}
+                        disabled={notAGameMutation.isPending}
+                      >
+                        {notAGameMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : null}
+                        Mark as Not a Game
+                      </Button>
+                    </>
                   )}
                   <Button
                     type="button"
@@ -830,7 +882,9 @@ export function UndetectedGamesTab() {
               <section className="rounded-mga border border-mga-border bg-mga-surface p-4">
                 {candidateQuery.data.review_state === 'not_a_game' ? (
                   <div className="rounded-mga border border-dashed border-mga-border p-4 text-sm text-mga-muted">
-                    Archived records stay out of the active queue. Unarchive this item to search providers or apply a metadata match again.
+                    {selectedCandidateIsAddOn
+                      ? 'Add-on content stays out of the active queue and game library. Restore it as a base game if this source record is actually standalone.'
+                      : 'Archived records stay out of the active queue. Unarchive this item to search providers or apply a metadata match again.'}
                   </div>
                 ) : (
                   <>

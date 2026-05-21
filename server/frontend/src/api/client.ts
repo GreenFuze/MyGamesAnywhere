@@ -1353,6 +1353,24 @@ export async function markManualReviewCandidateNotAGame(
   ) as Promise<ManualReviewCandidateDetail>;
 }
 
+export async function markManualReviewCandidateDLC(
+  id: string,
+): Promise<ManualReviewCandidateDetail> {
+  return postJson<ManualReviewCandidateDetail>(
+    `/api/review-candidates/${encodeURIComponent(id)}/dlc`,
+    {},
+  ) as Promise<ManualReviewCandidateDetail>;
+}
+
+export async function markManualReviewCandidateBaseGame(
+  id: string,
+): Promise<ManualReviewCandidateDetail> {
+  return postJson<ManualReviewCandidateDetail>(
+    `/api/review-candidates/${encodeURIComponent(id)}/base-game`,
+    {},
+  ) as Promise<ManualReviewCandidateDetail>;
+}
+
 export async function unarchiveManualReviewCandidate(
   id: string,
 ): Promise<ManualReviewCandidateDetail> {

@@ -784,6 +784,108 @@ func TestReviewControllerUnarchiveCandidateReturnsUpdatedDetail(t *testing.T) {
 	}
 }
 
+func TestReviewControllerMarkCandidateDLCReturnsArchivedAddOnDetail(t *testing.T) {
+	store := &fakeGameStore{
+		manualReviewByID: map[string]*core.ManualReviewCandidate{
+			"scan:review-1": {
+				ID:            "scan:review-1",
+				CurrentTitle:  "setup_addon_level_pack",
+				RawTitle:      "setup_addon_level_pack",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindBaseGame,
+				GroupKind:     core.GroupKindPacked,
+				IntegrationID: "source-1",
+				PluginID:      "game-source-smb",
+				ExternalID:    "source-1-game",
+				Status:        "found",
+				ReviewState:   core.ManualReviewStatePending,
+				CreatedAt:     time.Unix(1710000000, 0).UTC(),
+			},
+		},
+	}
+	controller := NewReviewController(
+		&fakeIntegrationRepo{items: []*core.Integration{{ID: "source-1", Label: "SMB", IntegrationType: "source"}}},
+		&fakePluginHost{},
+		store,
+		&fakeManualReviewService{},
+		nil,
+		noopLogger{},
+	)
+
+	router := chi.NewRouter()
+	router.Post("/api/review-candidates/{id}/dlc", controller.MarkCandidateDLC)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/review-candidates/scan%3Areview-1/dlc", http.NoBody)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var item ManualReviewCandidateDetailDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &item); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if item.Kind != string(core.GameKindDLC) {
+		t.Fatalf("kind = %q, want %q", item.Kind, core.GameKindDLC)
+	}
+	if item.ReviewState != string(core.ManualReviewStateNotAGame) {
+		t.Fatalf("review_state = %q, want %q", item.ReviewState, core.ManualReviewStateNotAGame)
+	}
+}
+
+func TestReviewControllerMarkCandidateBaseGameReturnsPendingDetail(t *testing.T) {
+	store := &fakeGameStore{
+		manualReviewByID: map[string]*core.ManualReviewCandidate{
+			"scan:review-1": {
+				ID:            "scan:review-1",
+				CurrentTitle:  "setup_addon_level_pack",
+				RawTitle:      "setup_addon_level_pack",
+				Platform:      core.PlatformWindowsPC,
+				Kind:          core.GameKindDLC,
+				GroupKind:     core.GroupKindPacked,
+				IntegrationID: "source-1",
+				PluginID:      "game-source-smb",
+				ExternalID:    "source-1-game",
+				Status:        "found",
+				ReviewState:   core.ManualReviewStateNotAGame,
+				CreatedAt:     time.Unix(1710000000, 0).UTC(),
+			},
+		},
+	}
+	controller := NewReviewController(
+		&fakeIntegrationRepo{items: []*core.Integration{{ID: "source-1", Label: "SMB", IntegrationType: "source"}}},
+		&fakePluginHost{},
+		store,
+		&fakeManualReviewService{},
+		nil,
+		noopLogger{},
+	)
+
+	router := chi.NewRouter()
+	router.Post("/api/review-candidates/{id}/base-game", controller.MarkCandidateBaseGame)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/review-candidates/scan%3Areview-1/base-game", http.NoBody)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var item ManualReviewCandidateDetailDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &item); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if item.Kind != string(core.GameKindBaseGame) {
+		t.Fatalf("kind = %q, want %q", item.Kind, core.GameKindBaseGame)
+	}
+	if item.ReviewState != string(core.ManualReviewStatePending) {
+		t.Fatalf("review_state = %q, want %q", item.ReviewState, core.ManualReviewStatePending)
+	}
+}
+
 func TestReviewControllerDeleteCandidateFilesReturnsDeletedCandidate(t *testing.T) {
 	deleteSvc := &fakeGameDeletionService{
 		result: &core.DeleteSourceGameResult{

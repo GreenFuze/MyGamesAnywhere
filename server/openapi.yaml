@@ -1203,6 +1203,46 @@ paths:
         500:
           description: Internal server error
 
+  /api/review-candidates/{id}/base-game:
+    post:
+      summary: Restore an archived add-on candidate as a base game
+      description: Marks the source record kind as base_game and review_state as pending so a manually archived add-on can return to the active Undetected Games queue.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Updated ManualReviewCandidateDetail JSON
+        400:
+          description: Missing id
+        404:
+          description: Candidate not found
+        500:
+          description: Internal server error
+
+  /api/review-candidates/{id}/dlc:
+    post:
+      summary: Archive a candidate as add-on content
+      description: Marks the source record kind as dlc and review_state as not_a_game, moving installer add-ons out of the active Undetected Games queue while keeping the record inspectable in the archive.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Updated ManualReviewCandidateDetail JSON
+        400:
+          description: Missing id
+        404:
+          description: Candidate not found
+        500:
+          description: Internal server error
+
   /api/review-candidates/{id}/files:
     delete:
       summary: Delete a manual-review candidate's backing files

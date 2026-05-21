@@ -538,6 +538,14 @@ func (c *ReviewController) MarkCandidateNotAGame(w http.ResponseWriter, r *http.
 	c.updateCandidateReviewState(w, r, core.ManualReviewStateNotAGame)
 }
 
+func (c *ReviewController) MarkCandidateDLC(w http.ResponseWriter, r *http.Request) {
+	c.updateCandidateKindAndReviewState(w, r, core.GameKindDLC, core.ManualReviewStateNotAGame)
+}
+
+func (c *ReviewController) MarkCandidateBaseGame(w http.ResponseWriter, r *http.Request) {
+	c.updateCandidateKindAndReviewState(w, r, core.GameKindBaseGame, core.ManualReviewStatePending)
+}
+
 func (c *ReviewController) UnarchiveCandidate(w http.ResponseWriter, r *http.Request) {
 	c.updateCandidateReviewState(w, r, core.ManualReviewStatePending)
 }
@@ -627,6 +635,28 @@ func (c *ReviewController) updateCandidateReviewState(w http.ResponseWriter, r *
 			status = http.StatusNotFound
 		}
 		c.logger.Error("update manual review state", err, "candidate_id", candidateID, "state", state)
+		http.Error(w, err.Error(), status)
+		return
+	}
+	c.respondWithCandidateDetail(w, r, candidateID)
+}
+
+func (c *ReviewController) updateCandidateKindAndReviewState(w http.ResponseWriter, r *http.Request, kind core.GameKind, state core.ManualReviewState) {
+	candidateID, err := decodedPathParam(r, "id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if candidateID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+	if err := c.gameStore.SetManualReviewKindAndState(r.Context(), candidateID, kind, state); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, core.ErrManualReviewCandidateNotFound) {
+			status = http.StatusNotFound
+		}
+		c.logger.Error("update manual review kind/state", err, "candidate_id", candidateID, "kind", kind, "state", state)
 		http.Error(w, err.Error(), status)
 		return
 	}
