@@ -19,6 +19,8 @@
 - Game detail now exposes `Refresh Metadata & Media`, backed by a shared game-scoped metadata refresh path that persists refreshed matches/media refs before enqueueing background media downloads.
 - Frontend build vulnerabilities are addressed by the Vite 7 toolchain upgrade and lockfile refresh; `npm audit` is clean again.
 - Shared title normalization now strips common dump/region suffix noise such as trailing `(...)` and `[...]`, with regression coverage for cases like `aladdin (u) [!]`.
+- Packed Windows installer add-ons such as LEGO level/character/movie packs are auto-classified as non-standalone content, skipped during automatic metadata lookup, and archived out of the active Undetected Games queue; long Undetected candidate titles now wrap inside their cards.
+- NO_MIGRATION_NEEDED: add-on detection changes scanner classification and frontend rendering over existing source-game `kind`/`review_state` fields only.
 - TGDB has been removed from plugin/runtime discovery and product-facing branding/about references.
 - Scan preparation and metadata-provider fetching now run with bounded concurrency, while persistence remains serialized on the shared scan path to avoid partial-write races and SQLite lock churn.
 

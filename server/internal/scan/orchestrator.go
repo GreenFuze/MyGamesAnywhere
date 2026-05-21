@@ -727,6 +727,7 @@ func (o *Orchestrator) prepareScanIntegration(
 			"group_count":    len(groups),
 		})
 		item.games = buildGames(integ.ID, integ.PluginID, groups)
+		NewInstallerAddOnClassifier().ClassifyAll(item.games)
 		o.logger.Info("orchestrator: built games", "integration_id", integ.ID, "games", len(item.games))
 
 	case pluginProvides(plugin, sourceGamesListMethod):
@@ -964,6 +965,7 @@ func buildGames(integrationID, pluginID string, groups []scanner.GameGroup) []*c
 // ready for persistence. Each Game becomes a SourceGame; resolver matches
 // and media are split out into their own maps.
 func gamesToScanBatch(integrationID, pluginID string, games []*core.Game) *core.ScanBatch {
+	addOnClassifier := NewInstallerAddOnClassifier()
 	batch := &core.ScanBatch{
 		IntegrationID:   integrationID,
 		SourceGames:     make([]*core.SourceGame, 0, len(games)),
@@ -990,6 +992,9 @@ func gamesToScanBatch(integrationID, pluginID string, games []*core.Game) *core.
 			Status:        g.Status,
 			LastSeenAt:    g.LastSeenAt,
 			Files:         g.Files,
+		}
+		if addOnClassifier.ShouldAutoArchive(g) {
+			sg.ReviewState = core.ManualReviewStateNotAGame
 		}
 		batch.SourceGames = append(batch.SourceGames, sg)
 

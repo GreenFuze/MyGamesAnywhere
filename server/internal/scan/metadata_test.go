@@ -447,6 +447,57 @@ func TestEnrich_BasicPipeline(t *testing.T) {
 	}
 }
 
+func TestEnrichSkipsAutoArchivedInstallerAddOns(t *testing.T) {
+	addOn := packedWindowsInstaller("setup_lego_dc_super-villains_batman_the_animated_series_level_pack_1.0_(64bit)_(57222)")
+	NewInstallerAddOnClassifier().ClassifyAll([]*core.Game{addOn})
+	base := packedWindowsInstaller("setup_lego_dc_super-villains_1.0_(64bit)_(57222)")
+	games := []*core.Game{addOn, base}
+
+	var queriedTitles []string
+	caller := &mockCaller{
+		callFn: func(pluginID, method string, params any) (any, error) {
+			b, _ := json.Marshal(params)
+			var request metadataLookupRequest
+			if err := json.Unmarshal(b, &request); err != nil {
+				return nil, err
+			}
+			for _, query := range request.Games {
+				queriedTitles = append(queriedTitles, query.Title)
+			}
+			return metadataLookupResponse{Results: []metadataMatch{{
+				Index:      0,
+				Title:      "LEGO DC Super-Villains",
+				Platform:   "windows_pc",
+				ExternalID: "base-game",
+			}}}, nil
+		},
+	}
+
+	resolver := NewMetadataResolver(caller, testLogger{})
+	_, err := resolver.EnrichWithPolicy(context.Background(), "integration-1", games, []MetadataSource{{PluginID: "metadata-a"}}, MetadataFailurePolicy{Name: "test", Strict: true})
+	if err != nil {
+		t.Fatalf("EnrichWithPolicy returned error: %v", err)
+	}
+
+	if len(queriedTitles) != 1 {
+		t.Fatalf("queried titles = %v, want one metadata call for the base game only", queriedTitles)
+	}
+	for _, title := range queriedTitles {
+		if title != base.RawTitle {
+			t.Fatalf("queried title = %q, want %q", title, base.RawTitle)
+		}
+	}
+	if len(addOn.ResolverMatches) != 0 {
+		t.Fatalf("add-on resolver matches = %d, want 0", len(addOn.ResolverMatches))
+	}
+	if addOn.Status != "found" {
+		t.Fatalf("add-on status = %q, want found", addOn.Status)
+	}
+	if base.Status != "identified" {
+		t.Fatalf("base status = %q, want identified", base.Status)
+	}
+}
+
 func TestEnrich_Unidentified(t *testing.T) {
 	caller := &mockCaller{
 		responses: map[string]any{

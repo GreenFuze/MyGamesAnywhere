@@ -86,11 +86,16 @@ function reviewReasonLabel(reason: string): string {
   }
 }
 
-function reviewStateLabel(state: ManualReviewCandidateDetail['review_state']): string {
+function isAddOnContentKind(kind: string | undefined): boolean {
+  return kind === 'dlc' || kind === 'addon' || kind === 'expansion'
+}
+
+function reviewStateLabel(state: ManualReviewCandidateDetail['review_state'], kind?: string): string {
   switch (state) {
     case 'matched':
       return 'Match Applied'
     case 'not_a_game':
+      if (isAddOnContentKind(kind)) return 'Archived as Add-on Content'
       return 'Archived as Not a Game'
     default:
       return 'Pending Review'
@@ -621,11 +626,11 @@ export function UndetectedGamesTab() {
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-2">
+                    <div className="min-w-0 space-y-2">
                       <div>
-                        <p className="font-semibold text-mga-text">{currentTitle}</p>
+                        <p className="font-semibold text-mga-text [overflow-wrap:anywhere]">{currentTitle}</p>
                         {rawTitle && currentTitle !== rawTitle ? (
-                          <p className="text-xs text-mga-muted">Raw title: {rawTitle}</p>
+                          <p className="text-xs text-mga-muted [overflow-wrap:anywhere]">Raw title: {rawTitle}</p>
                         ) : null}
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -637,7 +642,7 @@ export function UndetectedGamesTab() {
                           label={brandLabel(candidate.plugin_id, pluginLabel(candidate.plugin_id))}
                         />
                         {candidate.integration_label ? <Badge variant="muted">{candidate.integration_label}</Badge> : null}
-                        <Badge variant={reviewStateVariant(candidate.review_state)}>{reviewStateLabel(candidate.review_state)}</Badge>
+                        <Badge variant={reviewStateVariant(candidate.review_state)}>{reviewStateLabel(candidate.review_state, candidate.kind)}</Badge>
                       </div>
                     </div>
 
@@ -702,9 +707,9 @@ export function UndetectedGamesTab() {
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-xl font-semibold text-mga-text">{candidateTitle}</h3>
+                      <h3 className="min-w-0 text-xl font-semibold text-mga-text [overflow-wrap:anywhere]">{candidateTitle}</h3>
                       <Badge variant={reviewStateVariant(candidateQuery.data.review_state)}>
-                        {reviewStateLabel(candidateQuery.data.review_state)}
+                        {reviewStateLabel(candidateQuery.data.review_state, candidateQuery.data.kind)}
                       </Badge>
                       {!selectedInScope ? <Badge variant="muted">Direct reclassify target</Badge> : null}
                     </div>

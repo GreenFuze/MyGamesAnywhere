@@ -227,15 +227,20 @@ func (r *MetadataResolver) EnrichWithPolicy(
 		summary.setCounts(games)
 		return summary, nil
 	}
+	metadataGames := automaticMetadataEligibleGames(games)
+	if len(metadataGames) == 0 {
+		summary.setCounts(games)
+		return summary, nil
+	}
 
-	r.logger.Info("metadata: starting enrichment", "games", len(games), "sources", len(sources), "policy", policy.Name, "strict", policy.Strict)
+	r.logger.Info("metadata: starting enrichment", "games", len(metadataGames), "total_games", len(games), "sources", len(sources), "policy", policy.Name, "strict", policy.Strict)
 
-	if err := r.identifyWithPolicy(ctx, integrationID, games, sources, policy, summary); err != nil {
+	if err := r.identifyWithPolicy(ctx, integrationID, metadataGames, sources, policy, summary); err != nil {
 		summary.setCounts(games)
 		return summary, err
 	}
-	r.consensus(ctx, integrationID, games, sources)
-	if err := r.fillWithPolicy(ctx, integrationID, games, sources, policy, summary); err != nil {
+	r.consensus(ctx, integrationID, metadataGames, sources)
+	if err := r.fillWithPolicy(ctx, integrationID, metadataGames, sources, policy, summary); err != nil {
 		summary.setCounts(games)
 		return summary, err
 	}
@@ -244,6 +249,23 @@ func (r *MetadataResolver) EnrichWithPolicy(
 	r.logSummary(games)
 	r.emitMetadataFinished(ctx, integrationID, games, summary)
 	return summary, nil
+}
+
+func automaticMetadataEligibleGames(games []*core.Game) []*core.Game {
+	eligible := make([]*core.Game, 0, len(games))
+	for _, game := range games {
+		if game == nil {
+			continue
+		}
+		switch game.Kind {
+		case core.GameKindDLC, core.GameKindAddon, core.GameKindExpansion:
+			if NewInstallerAddOnClassifier().ShouldAutoArchive(game) {
+				continue
+			}
+		}
+		eligible = append(eligible, game)
+	}
+	return eligible
 }
 
 func (r *MetadataResolver) FillWithPolicy(
