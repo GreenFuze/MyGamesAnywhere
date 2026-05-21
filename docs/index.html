@@ -49,7 +49,7 @@
             trusting a hidden match.
           </p>
           <div class="hero__actions">
-            <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download v0.0.10</a>
+            <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download v0.0.11</a>
             <a class="button" href="./screenshots.html">View screenshots</a>
             <a class="button" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
             <a class="button" href="./install.html">Install guide</a>
@@ -101,6 +101,10 @@
             <article>
               <h3>Manual review and repair</h3>
               <p>Detection failures stay visible and repairable through an explicit review queue with fuzzy, platform-aware provider search instead of being silently hidden behind a bad automatic match.</p>
+            </article>
+            <article>
+              <h3>Add-on installer cleanup</h3>
+              <p>Strongly named Windows installer add-ons such as level packs, character packs, and season passes are recognized as non-standalone content and archived out of the active game queue.</p>
             </article>
             <article>
               <h3>Duplicate cleanup</h3>
@@ -228,11 +232,11 @@
               <figcaption>One canonical page combines title, launch controls, provider evidence, files, media, and runtime facts.</figcaption>
             </figure>
             <figure class="shot">
-              <img src="./screenshots/canonical-split-merge-v0.0.10.png" alt="A game detail source-record section showing split, merge, clear grouping, and hard delete controls for individual source records" />
+              <img src="./screenshots/canonical-split-merge-v0.0.11.png" alt="A game detail source-record section showing split, merge, clear grouping, and hard delete controls for individual source records" />
               <figcaption>Source-record grouping controls let a user split a wrongly merged version or merge it into an existing canonical game.</figcaption>
             </figure>
             <figure class="shot">
-              <img src="./screenshots/duplicates-v0.0.10.png" alt="Settings duplicates page showing duplicate source rows with cover art, canonical links, and hard-delete marking controls" />
+              <img src="./screenshots/duplicates-v0.0.11.png" alt="Settings duplicates page showing duplicate source rows with cover art, canonical links, and hard-delete marking controls" />
               <figcaption>Duplicate review shows cover art, source evidence, and explicit hard-delete marking before applying file-backed cleanup.</figcaption>
             </figure>
             <figure class="shot">
@@ -241,7 +245,7 @@
             </figure>
             <figure class="shot">
               <img src="./screenshots/manual-review.png" alt="The Undetected Games workflow showing pending review candidates, metadata search, source files, and repair actions" />
-              <figcaption>Detection failures stay fixable through a real review queue with re-detect, fuzzy platform-aware search, and repair actions.</figcaption>
+              <figcaption>Detection failures stay fixable through a real review queue with re-detect, fuzzy platform-aware search, repair actions, and add-on installer archiving for non-standalone content.</figcaption>
             </figure>
             <figure class="shot">
               <img src="./screenshots/game-detail.png" alt="An achievement section showing Xbox completion stats, a progress ring, and achievement cards" />
@@ -270,6 +274,10 @@
             <article class="note-card">
               <h3>Compact file views</h3>
               <p>Game and manual-review pages summarize backing files as a copyable path inventory with total size, keeping large file-backed games readable.</p>
+            </article>
+            <article class="note-card">
+              <h3>Add-on installers</h3>
+              <p>Installer names with strong add-on signals such as level packs, character packs, movie packs, and season passes are archived as add-on content instead of being treated as missing base games.</p>
             </article>
           </div>
         </div>

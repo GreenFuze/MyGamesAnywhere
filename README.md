@@ -10,7 +10,7 @@ Most launchers start from a storefront or a folder. MGA starts from the game ide
 
 [Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest) · [View screenshots](#screenshots) · [GitHub Pages](https://greenfuze.github.io/MyGamesAnywhere/) · [GitHub](https://github.com/GreenFuze/MyGamesAnywhere) · [Public roadmap](docs/public-roadmap.md)
 
-**Current release line:** `v0.0.10`
+**Current release line:** `v0.0.11`
 **Status:** pre-1.0, actively moving, local-first by design
 
 ![A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation](docs/screenshots/canonical-game-page.png)
@@ -102,25 +102,25 @@ That is the core differentiator. MGA is not just a prettier launcher row. It is 
 
 ### Play-first library
 
-![The Play page showing the poster-first browser-ready library with filters and shelf/grid controls](docs/screenshots/play-v0.0.10.png)
+![The Play page showing the poster-first browser-ready library with filters and shelf/grid controls](docs/screenshots/play-v0.0.11.png)
 
 *Play is now the default landing surface, focused on browser-ready and cloud-ready games instead of a duplicate dashboard.*
 
 ### Canonical split and merge controls
 
-![A game detail source-record section showing split, merge, clear grouping, and hard delete controls for individual source records](docs/screenshots/canonical-split-merge-v0.0.10.png)
+![A game detail source-record section showing split, merge, clear grouping, and hard delete controls for individual source records](docs/screenshots/canonical-split-merge-v0.0.11.png)
 
 *When automatic canonical grouping is wrong, a single source record can be split into its own game or merged into another known canonical game.*
 
 ### Duplicate cleanup
 
-![Settings duplicates page showing duplicate source rows with cover art, canonical links, and hard-delete marking controls](docs/screenshots/duplicates-v0.0.10.png)
+![Settings duplicates page showing duplicate source rows with cover art, canonical links, and hard-delete marking controls](docs/screenshots/duplicates-v0.0.11.png)
 
 *Settings -> Duplicates helps review duplicate-looking source records and batch hard-delete selected file-backed entries through preview and confirmation.*
 
 ### Provider-aware achievements
 
-![The Achievements page with provider tabs, stored achievement progress, and refresh status](docs/screenshots/achievements-v0.0.10.png)
+![The Achievements page with provider tabs, stored achievement progress, and refresh status](docs/screenshots/achievements-v0.0.11.png)
 
 *Achievements are shown from server-stored data with provider-aware tabs, provider-specific points, and visible background refresh progress.*
 
@@ -175,6 +175,7 @@ Additional screenshot coverage is tracked in the public docs, but the committed 
 - Play-first app landing experience for browser-ready and cloud-ready games
 - Source-backed game pages with metadata, media, files, external links, provider evidence, favorites, and per-version context
 - Manual review, fuzzy provider search, platform-aware matching, numeral-aware manual provider search, authoritative reclassify, and re-detect for unresolved records
+- Packed Windows installer add-on detection keeps strong DLC/level-pack/character-pack installer names out of the active game review queue
 - Manual canonical split/merge controls for source records that automatic grouping gets wrong
 - Poster-first library browsing and game pages
 - Profile-owned favorite games persisted by the local server, including automatic Favorites shelves in Library and Play
@@ -337,7 +338,7 @@ The important split is:
 
 ## Release And Upgrade Safety
 
-MGA carries a repository version source at [`VERSION`](VERSION). The current stable line is **`0.0.10`**.
+MGA carries a repository version source at [`VERSION`](VERSION). The current stable line is **`0.0.11`**.
 
 Upgrade policy:
 
