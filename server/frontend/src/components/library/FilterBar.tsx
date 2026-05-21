@@ -14,6 +14,7 @@ interface FilterBarProps {
   availablePlatforms: string[]
   availableGenres: string[]
   availableSources: string[]
+  availableIntegrations: Array<{ id: string; label: string }>
   yearRange: [number, number] | null
   isOpen: boolean
 }
@@ -34,6 +35,7 @@ function countActiveFilters(state: FilterState): number {
   if (state.developer) n++
   if (state.publisher) n++
   if (state.source) n++
+  if (state.integration) n++
   if (state.playableOnly) n++
   if (state.xcloudOnly) n++
   if (state.gamePassOnly) n++
@@ -50,6 +52,7 @@ export function FilterBar({
   availablePlatforms,
   availableGenres,
   availableSources,
+  availableIntegrations,
   yearRange,
   isOpen,
 }: FilterBarProps) {
@@ -64,6 +67,7 @@ export function FilterBar({
       developer: '',
       publisher: '',
       source: '',
+      integration: '',
       playableOnly: false,
       xcloudOnly: false,
       gamePassOnly: false,
@@ -214,6 +218,41 @@ export function FilterBar({
                     )}
                   >
                     {sourceLabel(s)}
+                  </button>
+                ))}
+              </div>
+            </FilterSection>
+          )}
+
+          {/* Source integration */}
+          {availableIntegrations.length > 0 && (
+            <FilterSection label="Integration">
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onChange({ integration: '' })}
+                  className={cn(
+                    'rounded-mga border px-2 py-1 text-xs font-medium transition-colors',
+                    !state.integration
+                      ? 'border-mga-accent bg-mga-accent/20 text-mga-accent'
+                      : 'border-mga-border bg-mga-bg text-mga-muted hover:text-mga-text',
+                  )}
+                >
+                  All
+                </button>
+                {availableIntegrations.map((integration) => (
+                  <button
+                    key={integration.id}
+                    type="button"
+                    onClick={() => onChange({ integration: state.integration === integration.id ? '' : integration.id })}
+                    className={cn(
+                      'rounded-mga border px-2 py-1 text-xs font-medium transition-colors',
+                      state.integration === integration.id
+                        ? 'border-mga-accent bg-mga-accent/20 text-mga-accent'
+                        : 'border-mga-border bg-mga-bg text-mga-muted hover:text-mga-text',
+                    )}
+                  >
+                    {integration.label}
                   </button>
                 ))}
               </div>

@@ -16,6 +16,7 @@ export type FilterState = {
   developer: string
   publisher: string
   source: string
+  integration: string
   playableOnly: boolean
   xcloudOnly: boolean
   gamePassOnly: boolean
@@ -32,6 +33,7 @@ export const DEFAULT_FILTER_STATE: FilterState = {
   developer: '',
   publisher: '',
   source: '',
+  integration: '',
   playableOnly: false,
   xcloudOnly: false,
   gamePassOnly: false,
@@ -82,7 +84,11 @@ export class LibraryFilter {
       }
 
       // Platform
-      if (state.platforms.length > 0 && !state.platforms.includes(g.platform)) {
+      if (
+        state.platforms.length > 0 &&
+        !state.platforms.includes(g.platform) &&
+        !g.source_games?.some((sg) => state.platforms.includes(sg.platform))
+      ) {
         return false
       }
 
@@ -113,6 +119,11 @@ export class LibraryFilter {
         if (!g.source_games?.some((sg) => sg.plugin_id === state.source)) return false
       }
 
+      // Source integration
+      if (state.integration) {
+        if (!g.source_games?.some((sg) => sg.integration_id === state.integration)) return false
+      }
+
       // Flag toggles
       if (state.playableOnly && !isPlayable(g)) return false
       if (state.xcloudOnly && !g.xcloud_available) return false
@@ -127,7 +138,14 @@ export class LibraryFilter {
   // -- Facet extraction (from full unfiltered list) -------------------------
 
   allPlatforms(): string[] {
-    return uniqueSorted(this.games.map((g) => g.platform))
+    const platforms: string[] = []
+    for (const g of this.games) {
+      platforms.push(g.platform)
+      if (g.source_games) {
+        for (const sg of g.source_games) platforms.push(sg.platform)
+      }
+    }
+    return uniqueSorted(platforms)
   }
 
   allGenres(): string[] {
@@ -155,6 +173,16 @@ export class LibraryFilter {
     for (const g of this.games) {
       if (g.source_games) {
         for (const sg of g.source_games) ids.push(sg.plugin_id)
+      }
+    }
+    return uniqueSorted(ids)
+  }
+
+  allIntegrations(): string[] {
+    const ids: string[] = []
+    for (const g of this.games) {
+      if (g.source_games) {
+        for (const sg of g.source_games) ids.push(sg.integration_id)
       }
     }
     return uniqueSorted(ids)

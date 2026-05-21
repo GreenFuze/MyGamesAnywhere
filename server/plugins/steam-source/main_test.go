@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"testing"
@@ -55,6 +57,48 @@ func TestHandleAchievementsGetUsesNestedProfileOwnedConfig(t *testing.T) {
 	params := json.RawMessage(`{"external_game_id":"not-numeric","config":{"api_key":"profile-key","steam_id":"76561198012345678"}}`)
 	if _, errObj := handleAchievementsGet(params); errObj == nil || errObj.Code != "INVALID_PARAMS" {
 		t.Fatalf("nested profile config was not used before validation: got %+v, want INVALID_PARAMS", errObj)
+	}
+}
+
+func TestHandleAchievementsGetTreatsSteamSchema400EmptyObjectAsNoAchievements(t *testing.T) {
+	withTempWorkingDir(t)
+
+	originalCfg := cfg
+	originalFetchAchievementSchemaBaseURL := fetchAchievementSchemaBaseURL
+	t.Cleanup(func() {
+		cfg = originalCfg
+		fetchAchievementSchemaBaseURL = originalFetchAchievementSchemaBaseURL
+	})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ISteamUserStats/GetSchemaForGame/v2/" {
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("appid"); got != "7807" {
+			t.Fatalf("appid = %q, want 7807", got)
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(server.Close)
+	fetchAchievementSchemaBaseURL = server.URL
+	cfg = steamConfig{}
+
+	params := json.RawMessage(`{"external_game_id":"7807","config":{"api_key":"profile-key","steam_id":"76561198012345678"}}`)
+	result, errObj := handleAchievementsGet(params)
+	if errObj != nil {
+		t.Fatalf("handleAchievementsGet() error = %+v, want no-achievements result", errObj)
+	}
+	resultMap, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T, want map", result)
+	}
+	if resultMap["total_count"] != 0 || resultMap["unlocked_count"] != 0 {
+		t.Fatalf("counts = total %#v unlocked %#v, want 0/0", resultMap["total_count"], resultMap["unlocked_count"])
+	}
+	achievements, ok := resultMap["achievements"].([]any)
+	if !ok || len(achievements) != 0 {
+		t.Fatalf("achievements = %#v, want empty []any", resultMap["achievements"])
 	}
 }
 

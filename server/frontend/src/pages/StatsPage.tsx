@@ -72,6 +72,12 @@ function identityStatLabel(item: CountStat): string {
   return item.label || item.key
 }
 
+function libraryFilterPath(key: string, value: string): string {
+  const params = new URLSearchParams()
+  params.set(key, value)
+  return `/library?${params.toString()}`
+}
+
 function StatTile({
   label,
   value,
@@ -123,12 +129,14 @@ function RankedBars({
   subtitle,
   items,
   labelFor = identityStatLabel,
+  hrefFor,
   limit = 8,
 }: {
   title: string
   subtitle: string
   items: CountStat[]
   labelFor?: (item: CountStat) => string
+  hrefFor?: (item: CountStat) => string | undefined
   limit?: number
 }) {
   const visible = items.slice(0, limit)
@@ -146,8 +154,9 @@ function RankedBars({
         <div className="space-y-3">
           {visible.map((item, index) => {
             const width = max > 0 ? `${Math.max((item.count / max) * 100, 7)}%` : '0%'
-            return (
-              <div key={item.key} className="space-y-1">
+            const href = hrefFor?.(item)
+            const content = (
+              <>
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="truncate text-mga-text">{labelFor(item)}</span>
                   <span className="shrink-0 font-mono text-mga-muted">{formatNumber(item.count)}</span>
@@ -155,7 +164,23 @@ function RankedBars({
                 <div className="h-2 overflow-hidden rounded-full bg-mga-bg">
                   <div className={cn('h-full rounded-full', barColors[index % barColors.length])} style={{ width }} />
                 </div>
-              </div>
+              </>
+            )
+            return (
+              href ? (
+                <Link
+                  key={item.key}
+                  to={href}
+                  className="block space-y-1 rounded-mga outline-none transition-colors hover:bg-mga-elevated/50 focus-visible:ring-2 focus-visible:ring-mga-accent"
+                  aria-label={`Show ${labelFor(item)} in library`}
+                >
+                  {content}
+                </Link>
+              ) : (
+                <div key={item.key} className="space-y-1">
+                  {content}
+                </div>
+              )
             )
           })}
         </div>
@@ -270,17 +295,45 @@ function LibraryStatsView({ data }: { data: LibraryStatistics }) {
       <CoveragePanel items={data.coverage} />
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <RankedBars title="Platforms" subtitle="Visible source records by detected platform." items={data.platforms} labelFor={platformStatLabel} />
-        <RankedBars title="Source Integrations" subtitle="Configured sources contributing library records." items={data.source_integrations} />
+        <RankedBars
+          title="Platforms"
+          subtitle="Visible source records by detected platform."
+          items={data.platforms}
+          labelFor={platformStatLabel}
+          hrefFor={(item) => libraryFilterPath('platform', item.key)}
+        />
+        <RankedBars
+          title="Source Integrations"
+          subtitle="Configured sources contributing library records."
+          items={data.source_integrations}
+          hrefFor={(item) => libraryFilterPath('integration', item.key)}
+        />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <RankedBars title="Genres" subtitle="Canonical games grouped by metadata genre." items={data.genres} />
-        <RankedBars title="Decades" subtitle="Release-date coverage by decade." items={data.decades} />
+        <RankedBars
+          title="Genres"
+          subtitle="Canonical games grouped by metadata genre."
+          items={data.genres}
+          hrefFor={(item) => libraryFilterPath('genre', item.key)}
+        />
+        <RankedBars
+          title="Decades"
+          subtitle="Release-date coverage by decade."
+          items={data.decades}
+          hrefFor={(item) => libraryFilterPath('decade', item.key)}
+        />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1fr_1fr_1.1fr]">
-        <RankedBars title="Source Plugins" subtitle="Source record distribution by plugin." items={data.source_plugins} labelFor={pluginStatLabel} limit={6} />
+        <RankedBars
+          title="Source Plugins"
+          subtitle="Source record distribution by plugin."
+          items={data.source_plugins}
+          labelFor={pluginStatLabel}
+          hrefFor={(item) => libraryFilterPath('source', item.key)}
+          limit={6}
+        />
         <RankedBars title="Metadata Providers" subtitle="Winning resolver matches by provider." items={data.metadata_providers} labelFor={pluginStatLabel} limit={6} />
         <RecentScansPanel reports={data.recent_scans} />
       </section>

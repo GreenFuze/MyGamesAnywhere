@@ -66,6 +66,30 @@ function scopeSectionPath(scope: CollectionScope, sectionID: string): string {
   return `${scopeBasePath(scope)}/section/${encodeURIComponent(sectionID)}`
 }
 
+function listParam(params: URLSearchParams, key: string): string[] {
+  return params
+    .getAll(key)
+    .flatMap((value) => value.split(','))
+    .map((value) => value.trim())
+    .filter(Boolean)
+}
+
+function filterStateFromSearch(search: string): FilterState {
+  const params = new URLSearchParams(search)
+  const decade = params.get('decade')?.trim() ?? ''
+  const decadeStart = /^\d{4}s?$/.test(decade) ? Number(decade.substring(0, 4)) : null
+
+  return {
+    ...DEFAULT_FILTER_STATE,
+    platforms: listParam(params, 'platform'),
+    genres: listParam(params, 'genre'),
+    source: params.get('source')?.trim() ?? '',
+    integration: params.get('integration')?.trim() ?? '',
+    yearMin: decadeStart,
+    yearMax: decadeStart === null ? null : decadeStart + 9,
+  }
+}
+
 function releaseYear(game: GameDetailResponse): string {
   const value = game.release_date?.substring(0, 4)
   return value && /^\d{4}$/.test(value) ? value : 'Unknown release date'
@@ -172,7 +196,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   } = useLibraryPrefs(scope)
 
   // Local filter state (not persisted — session only)
-  const [filterState, setFilterState] = useState<FilterState>(DEFAULT_FILTER_STATE)
+  const [filterState, setFilterState] = useState<FilterState>(() => filterStateFromSearch(location.search))
   const [filterBarOpen, setFilterBarOpen] = useState(false)
   const [sectionPickerOpen, setSectionPickerOpen] = useState(false)
 
@@ -217,6 +241,19 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   const availablePlatforms = useMemo(() => filter.allPlatforms(), [filter])
   const availableGenres = useMemo(() => filter.allGenres(), [filter])
   const availableSources = useMemo(() => filter.allSources(), [filter])
+  const availableIntegrations = useMemo(() => {
+    const labels = new Map<string, string>()
+    for (const game of filteredScopeGames) {
+      for (const source of game.source_games ?? []) {
+        if (!labels.has(source.integration_id)) {
+          labels.set(source.integration_id, source.integration_label || source.integration_id)
+        }
+      }
+    }
+    return Array.from(labels.entries())
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [filteredScopeGames])
   const yearRange = useMemo(() => filter.yearRange(), [filter])
 
   // Active filter count
@@ -228,6 +265,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     if (filterState.developer) n++
     if (filterState.publisher) n++
     if (filterState.source) n++
+    if (filterState.integration) n++
     if (filterState.playableOnly) n++
     if (filterState.xcloudOnly) n++
     if (filterState.gamePassOnly) n++
@@ -241,10 +279,12 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     : scopeMeta.emptyMessage
   const canUseRemoteTotal = !focusedSection && scope === 'library' && activeFilterCount === 0 && searchQuery.trim() === ''
   const toolbarTotalCount = canUseRemoteTotal ? Math.max(totalCount, filteredScopeGames.length) : filteredScopeGames.length
+  const filterRequiresAllPages = activeFilterCount > 0
   const searchRequiresAllPages = searchQuery.trim().length > 0
   const isCompletingSearch = searchRequiresAllPages && hasNextPage
+  const isCompletingFilter = !searchRequiresAllPages && filterRequiresAllPages && hasNextPage
   const isClosedShelfOverview = prefs.viewMode === 'shelf' && !focusedSection
-  const showLoadMoreSentinel = hasNextPage && (!isClosedShelfOverview || searchRequiresAllPages)
+  const showLoadMoreSentinel = hasNextPage && (!isClosedShelfOverview || searchRequiresAllPages || filterRequiresAllPages)
 
   const recentPlayedGames = useMemo(() => {
     if (scope !== 'play') return []
@@ -305,9 +345,14 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   }, [isFetchingNextPage])
 
   useEffect(() => {
-    if (!searchRequiresAllPages || !hasNextPage) return
+    if ((!searchRequiresAllPages && !filterRequiresAllPages) || !hasNextPage) return
     requestNextPage()
-  }, [hasNextPage, loadedCount, requestNextPage, searchRequiresAllPages])
+  }, [filterRequiresAllPages, hasNextPage, loadedCount, requestNextPage, searchRequiresAllPages])
+
+  useEffect(() => {
+    setFilterState(filterStateFromSearch(location.search))
+    setFilterBarOpen(location.search.length > 1)
+  }, [location.search])
 
   useEffect(() => {
     if (!showLoadMoreSentinel || isPending) return
@@ -393,6 +438,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         availablePlatforms={availablePlatforms}
         availableGenres={availableGenres}
         availableSources={availableSources}
+        availableIntegrations={availableIntegrations}
         yearRange={yearRange}
         isOpen={filterBarOpen}
       />
@@ -476,6 +522,8 @@ export function CollectionPage({ scope }: CollectionPageProps) {
           <p className="text-mga-muted">
             {isCompletingSearch
               ? 'Searching all loaded and unloaded games...'
+              : isCompletingFilter
+              ? 'Filtering all loaded and unloaded games...'
               : searchQuery || activeFilterCount > 0
               ? 'No games match your filters.'
               : emptyMessage}
@@ -489,6 +537,8 @@ export function CollectionPage({ scope }: CollectionPageProps) {
           <p className="text-xs text-mga-muted">
             {searchRequiresAllPages
               ? `Searching all games: ${loadedCount} of ${totalCount} loaded.`
+              : filterRequiresAllPages
+              ? `Filtering all games: ${loadedCount} of ${totalCount} loaded.`
               : isFetchingNextPage
               ? 'Loading more games...'
               : `Scroll to load more games. ${loadedCount} of ${totalCount} loaded.`}

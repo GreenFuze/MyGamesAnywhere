@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -50,6 +51,9 @@ const (
 	tokenFile      = "tokens.json"
 	steamOpenIDURL = "https://steamcommunity.com/openid/login"
 )
+
+var errNoAchievementSchema = errors.New("steam achievement schema is unavailable")
+var fetchAchievementSchemaBaseURL = steamAPIBase
 
 // oauthPending tracks OpenID state tokens for CSRF validation.
 var oauthPending = map[string]bool{}
@@ -468,7 +472,7 @@ func fetchPlayerAchievements(apiKey, steamID string, appID int) (*playerAchievem
 
 func fetchAchievementSchema(apiKey string, appID int) (*schemaResponse, error) {
 	url := fmt.Sprintf("%s/ISteamUserStats/GetSchemaForGame/v2/?key=%s&appid=%d&l=english",
-		steamAPIBase, apiKey, appID)
+		fetchAchievementSchemaBaseURL, apiKey, appID)
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -478,6 +482,9 @@ func fetchAchievementSchema(apiKey string, appID int) (*schemaResponse, error) {
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusBadRequest && strings.TrimSpace(string(body)) == "{}" {
+			return nil, errNoAchievementSchema
+		}
 		return nil, fmt.Errorf("achievement schema: status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -555,7 +562,7 @@ func buildSteamAchievementEntries(
 
 func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 	var p struct {
-		ExternalGameID string `json:"external_game_id"`
+		ExternalGameID string         `json:"external_game_id"`
 		Config         map[string]any `json:"config"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -576,6 +583,16 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 
 	schema, err := fetchAchievementSchema(effectiveCfg.APIKey, appID)
 	if err != nil {
+		if errors.Is(err, errNoAchievementSchema) {
+			log.Printf("steam achievements unavailable for appid %d: no public achievement schema", appID)
+			return map[string]any{
+				"source":           "steam",
+				"external_game_id": p.ExternalGameID,
+				"total_count":      0,
+				"unlocked_count":   0,
+				"achievements":     []any{},
+			}, nil
+		}
 		return nil, &Error{Code: "API_ERROR", Message: fmt.Sprintf("schema: %v", err)}
 	}
 	if len(schema.Game.Stats.Achievements) == 0 {
