@@ -2694,6 +2694,9 @@ func (s *gameStore) SetManualReviewState(ctx context.Context, candidateID string
 }
 
 func (s *gameStore) SetManualReviewKindAndState(ctx context.Context, candidateID string, kind core.GameKind, state core.ManualReviewState) error {
+	// NO_MIGRATION_NEEDED: this manual review action updates existing source_games
+	// kind/review_state columns only; it does not change the SQLite schema or
+	// persisted config shape.
 	if candidateID == "" {
 		return fmt.Errorf("candidate id is required")
 	}

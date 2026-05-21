@@ -49,7 +49,7 @@
             trusting a hidden match.
           </p>
           <div class="hero__actions">
-            <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download v0.0.11</a>
+            <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download v0.0.12</a>
             <a class="button" href="./screenshots.html">View screenshots</a>
             <a class="button" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
             <a class="button" href="./install.html">Install guide</a>
@@ -113,6 +113,14 @@
             <article>
               <h3>Provider-aware achievements</h3>
               <p>Achievements are stored server-side and shown through provider tabs, refresh status, and provider-specific point totals instead of mixed global point counts.</p>
+            </article>
+            <article>
+              <h3>Local web client</h3>
+              <p>The React web client and REST API run from the same local server, so the same library works on the host machine and, when explicitly enabled, across your LAN.</p>
+            </article>
+            <article>
+              <h3>Library statistics</h3>
+              <p>Stats pages turn local source records into colorful coverage, platform, source, metadata, media, and achievement-readiness views.</p>
             </article>
           </div>
         </div>
@@ -232,20 +240,24 @@
               <figcaption>One canonical page combines title, launch controls, provider evidence, files, media, and runtime facts.</figcaption>
             </figure>
             <figure class="shot">
-              <img src="./screenshots/canonical-split-merge-v0.0.11.png" alt="A game detail source-record section showing split, merge, clear grouping, and hard delete controls for individual source records" />
+              <img src="./screenshots/canonical-split-merge-v0.0.12.png" alt="A game detail source-record section showing split, merge, clear grouping, and hard delete controls for individual source records" />
               <figcaption>Source-record grouping controls let a user split a wrongly merged version or merge it into an existing canonical game.</figcaption>
             </figure>
             <figure class="shot">
-              <img src="./screenshots/duplicates-v0.0.11.png" alt="Settings duplicates page showing duplicate source rows with cover art, canonical links, and hard-delete marking controls" />
+              <img src="./screenshots/duplicates-v0.0.12.png" alt="Settings duplicates page showing duplicate source rows with cover art, canonical links, and hard-delete marking controls" />
               <figcaption>Duplicate review shows cover art, source evidence, and explicit hard-delete marking before applying file-backed cleanup.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="./screenshots/stats-library-v0.0.12.png" alt="The Library Statistics page showing coverage tiles, platform bars, and source integration breakdowns" />
+              <figcaption>Library Statistics turns local source data into coverage tiles, platform bars, and source integration breakdowns.</figcaption>
             </figure>
             <figure class="shot">
               <img src="./screenshots/source-provenance.png" alt="A provenance-focused game section showing source records, integration labels, root paths, file counts, and resolver match counts" />
               <figcaption>One canonical game instead of duplicate rows: MGA keeps source records and resolver evidence visible.</figcaption>
             </figure>
             <figure class="shot">
-              <img src="./screenshots/manual-review.png" alt="The Undetected Games workflow showing pending review candidates, metadata search, source files, and repair actions" />
-              <figcaption>Detection failures stay fixable through a real review queue with re-detect, fuzzy platform-aware search, repair actions, and add-on installer archiving for non-standalone content.</figcaption>
+              <img src="./screenshots/manual-review-addon-v0.0.12.png" alt="The Undetected Games workflow showing pending review candidates, metadata search, source files, and repair actions" />
+              <figcaption>Detection failures stay fixable through re-detect, fuzzy platform-aware search, repair actions, and manual DLC/Add-on archiving for non-standalone content.</figcaption>
             </figure>
             <figure class="shot">
               <img src="./screenshots/game-detail.png" alt="An achievement section showing Xbox completion stats, a progress ring, and achievement cards" />
