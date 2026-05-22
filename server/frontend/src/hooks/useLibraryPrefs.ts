@@ -69,10 +69,12 @@ function extractPrefs(raw: unknown): LibraryPrefs | null {
     source.viewMode === 'list' ||
     source.viewMode === 'timeline'
   ) {
+    // NO_MIGRATION_NEEDED: "list" is already part of the persisted frontend
+    // config contract; this only stops mapping that existing value back to grid.
     if (source.viewMode === 'accordion') {
       next.viewMode = 'shelf'
     } else {
-      next.viewMode = source.viewMode === 'list' ? 'grid' : source.viewMode
+      next.viewMode = source.viewMode
     }
     found = true
   }

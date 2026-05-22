@@ -14,6 +14,14 @@ const SORT_OPTIONS: { value: LibraryPrefs['sortBy']; label: string }[] = [
   { value: 'rating',       label: 'Rating' },
 ]
 
+type ViewModeOption = { value: LibraryPrefs['viewMode']; label: string }
+
+const DEFAULT_VIEW_OPTIONS: ViewModeOption[] = [
+  { value: 'shelf', label: 'Shelf' },
+  { value: 'grid', label: 'Grid' },
+  { value: 'timeline', label: 'Timeline' },
+]
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -36,6 +44,7 @@ interface LibraryToolbarProps {
   onFilterBarToggle: () => void
   activeFilterCount: number
   showViewToggle?: boolean
+  viewModeOptions?: ViewModeOption[]
 }
 
 export function LibraryToolbar({
@@ -56,6 +65,7 @@ export function LibraryToolbar({
   onFilterBarToggle,
   activeFilterCount,
   showViewToggle = true,
+  viewModeOptions = DEFAULT_VIEW_OPTIONS,
 }: LibraryToolbarProps) {
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -103,11 +113,7 @@ export function LibraryToolbar({
         <ToggleGroup
           value={viewMode}
           onChange={onViewModeChange}
-          options={[
-            { value: 'shelf' as const, label: 'Shelf' },
-            { value: 'grid' as const, label: 'Grid' },
-            { value: 'timeline' as const, label: 'Timeline' },
-          ]}
+          options={viewModeOptions}
         />
       )}
 

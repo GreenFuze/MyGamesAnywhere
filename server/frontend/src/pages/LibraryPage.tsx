@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { ArrowRightLeft, Plus, Trash2 } from 'lucide-react'
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { useSearch } from '@/hooks/useSearchContext'
 import { useLibraryData } from '@/hooks/useLibraryData'
 import { useLibraryPrefs } from '@/hooks/useLibraryPrefs'
@@ -9,9 +10,12 @@ import { HorizontalGameShelf } from '@/components/library/HorizontalGameShelf'
 import { LibraryToolbar } from '@/components/library/LibraryToolbar'
 import { FilterBar } from '@/components/library/FilterBar'
 import { GameGrid } from '@/components/library/GameGrid'
+import { GameListView } from '@/components/library/GameListView'
 import { SectionPickerDialog } from '@/components/library/SectionPickerDialog'
 import { Button } from '@/components/ui/button'
+import { BatchSourceHardDeleteDialog, type BatchSourceDeleteTarget } from '@/components/library/BatchSourceHardDeleteDialog'
 import { useRecentPlayed } from '@/hooks/useRecentPlayed'
+import { buildBulkReclassifySearchParams, writeBulkReclassifyQueue, type BulkReclassifyQueueItem } from '@/lib/bulkReclassifyQueue'
 import {
   createFavoritesSection,
   filterGamesBySection,
@@ -31,7 +35,7 @@ import {
   rememberRouteScroll,
   shouldRestoreRouteScroll,
 } from '@/lib/gameNavigation'
-import type { GameDetailResponse } from '@/api/client'
+import type { GameDetailResponse, LibraryPrefs } from '@/api/client'
 
 // ---------------------------------------------------------------------------
 // Section metadata
@@ -49,6 +53,19 @@ const SCOPES: Record<CollectionScope, { title: string; subtitle: string; emptyMe
     emptyMessage: 'No actionable games found. Add sources and run a scan.',
   },
 }
+
+const LIBRARY_VIEW_OPTIONS: Array<{ value: LibraryPrefs['viewMode']; label: string }> = [
+  { value: 'shelf', label: 'Shelf' },
+  { value: 'grid', label: 'Grid' },
+  { value: 'list', label: 'List' },
+  { value: 'timeline', label: 'Timeline' },
+]
+
+const PLAY_VIEW_OPTIONS: Array<{ value: LibraryPrefs['viewMode']; label: string }> = [
+  { value: 'shelf', label: 'Shelf' },
+  { value: 'grid', label: 'Grid' },
+  { value: 'timeline', label: 'Timeline' },
+]
 
 // ---------------------------------------------------------------------------
 // Component
@@ -93,6 +110,20 @@ function filterStateFromSearch(search: string): FilterState {
 function releaseYear(game: GameDetailResponse): string {
   const value = game.release_date?.substring(0, 4)
   return value && /^\d{4}$/.test(value) ? value : 'Unknown release date'
+}
+
+function sourceRecordLabel(game: GameDetailResponse): string {
+  const source = game.source_games[0]
+  if (!source) return game.title
+  return `${source.integration_label || source.integration_id} · ${source.raw_title || source.external_id}`
+}
+
+function selectedSourceIssue(games: GameDetailResponse[]): string | null {
+  const multiSourceCount = games.filter((game) => game.source_games.length !== 1).length
+  if (multiSourceCount > 0) {
+    return `${multiSourceCount} selected game${multiSourceCount === 1 ? ' has' : 's have'} multiple or missing source records.`
+  }
+  return null
 }
 
 function TimelineView({ games }: { games: GameDetailResponse[] }) {
@@ -171,6 +202,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   const { sectionId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { searchQuery } = useSearch()
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
   const loadMoreRequestedRef = useRef(false)
@@ -194,11 +226,16 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     setSections,
     setExpandedSectionId,
   } = useLibraryPrefs(scope)
+  const effectiveViewMode = scope === 'play' && prefs.viewMode === 'list' ? 'shelf' : prefs.viewMode
 
   // Local filter state (not persisted — session only)
   const [filterState, setFilterState] = useState<FilterState>(() => filterStateFromSearch(location.search))
   const [filterBarOpen, setFilterBarOpen] = useState(false)
   const [sectionPickerOpen, setSectionPickerOpen] = useState(false)
+  const [selectedGameIds, setSelectedGameIds] = useState<Set<string>>(() => new Set())
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkNotice, setBulkNotice] = useState('')
+  const [bulkWarnings, setBulkWarnings] = useState<string[]>([])
 
   const scopeGames = useMemo(() => applyScopeFilter(allGames, scope), [allGames, scope])
   const basePath = scopeBasePath(scope)
@@ -235,6 +272,33 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         sortDir: prefs.sortDir,
       }),
     [filter, filterState, searchQuery, prefs.sortBy, prefs.sortDir],
+  )
+  const displayedGameIds = useMemo(() => new Set(displayedGames.map((game) => game.id)), [displayedGames])
+  const selectedGames = useMemo(
+    () => displayedGames.filter((game) => selectedGameIds.has(game.id)),
+    [displayedGames, selectedGameIds],
+  )
+  const selectedSourceProblem = selectedSourceIssue(selectedGames)
+  const bulkReclassifyEnabled = selectedGames.length > 0 && selectedSourceProblem === null
+  const hardDeleteIneligibleCount = selectedGames.filter((game) => game.source_games[0]?.hard_delete?.eligible !== true).length
+  const bulkHardDeleteEnabled = bulkReclassifyEnabled && hardDeleteIneligibleCount === 0
+  const bulkHardDeleteReason = selectedSourceProblem ?? (
+    hardDeleteIneligibleCount > 0
+      ? `${hardDeleteIneligibleCount} selected source${hardDeleteIneligibleCount === 1 ? ' is' : 's are'} not eligible for hard delete.`
+      : ''
+  )
+  const bulkDeleteTargets = useMemo<BatchSourceDeleteTarget[]>(
+    () =>
+      selectedGames
+        .filter((game) => game.source_games.length === 1 && game.source_games[0].hard_delete?.eligible === true)
+        .map((game) => ({
+          key: game.source_games[0].id,
+          canonicalGameId: game.id,
+          sourceGameId: game.source_games[0].id,
+          sourceLabel: sourceRecordLabel(game),
+          gameTitle: game.title,
+        })),
+    [selectedGames],
   )
 
   // Facets for filter bar (derived from full section list, not filtered subset)
@@ -273,7 +337,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   }, [filterState])
 
   const scopeMeta = SCOPES[scope]
-  const showLibraryShelfAddButton = scope === 'library' && prefs.viewMode === 'shelf' && !focusedSection
+  const showLibraryShelfAddButton = scope === 'library' && effectiveViewMode === 'shelf' && !focusedSection
   const emptyMessage = focusedSection
     ? 'No games in this section match the current filters.'
     : scopeMeta.emptyMessage
@@ -283,7 +347,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   const searchRequiresAllPages = searchQuery.trim().length > 0
   const isCompletingSearch = searchRequiresAllPages && hasNextPage
   const isCompletingFilter = !searchRequiresAllPages && filterRequiresAllPages && hasNextPage
-  const isClosedShelfOverview = prefs.viewMode === 'shelf' && !focusedSection
+  const isClosedShelfOverview = effectiveViewMode === 'shelf' && !focusedSection
   const showLoadMoreSentinel = hasNextPage && (!isClosedShelfOverview || searchRequiresAllPages || filterRequiresAllPages)
 
   const recentPlayedGames = useMemo(() => {
@@ -330,6 +394,73 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     navigate(scopeSectionPath(scope, sectionID), { state: { from } })
   }
 
+  const toggleSelectedGame = (game: GameDetailResponse) => {
+    setBulkNotice('')
+    setBulkWarnings([])
+    setSelectedGameIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(game.id)) next.delete(game.id)
+      else next.add(game.id)
+      return next
+    })
+  }
+
+  const selectLoadedVisibleGames = () => {
+    setBulkNotice('')
+    setBulkWarnings([])
+    setSelectedGameIds(new Set(displayedGames.map((game) => game.id)))
+  }
+
+  const clearSelection = () => {
+    setSelectedGameIds(new Set())
+    setBulkWarnings([])
+  }
+
+  const startBulkReclassify = () => {
+    if (!bulkReclassifyEnabled) return
+    const queue: BulkReclassifyQueueItem[] = selectedGames.map((game) => ({
+      gameId: game.id,
+      sourceGameId: game.source_games[0].id,
+      title: game.title,
+      platform: game.platform,
+      pluginId: game.source_games[0].plugin_id,
+    }))
+    writeBulkReclassifyQueue(queue)
+    const first = queue[0]
+    navigate({ pathname: '/settings', search: buildBulkReclassifySearchParams(first).toString() })
+  }
+
+  const handleBulkDeleteCompleted = async (deleted: BatchSourceDeleteTarget[], warnings: string[]) => {
+    const deletedIds = new Set(deleted.map((target) => target.sourceGameId))
+    const affectedCanonicalIds = Array.from(new Set(deleted.map((target) => target.canonicalGameId)))
+    setSelectedGameIds((prev) => {
+      const next = new Set(prev)
+      for (const game of selectedGames) {
+        if (game.source_games.some((source) => deletedIds.has(source.id))) next.delete(game.id)
+      }
+      return next
+    })
+    const warningSuffix = warnings.length
+      ? ` ${warnings.length} directory cleanup warning${warnings.length === 1 ? '' : 's'}.`
+      : ''
+    setBulkNotice(`Deleted ${deleted.length} source record${deleted.length === 1 ? '' : 's'}.${warningSuffix}`)
+    setBulkWarnings(warnings)
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['games'] }),
+      queryClient.invalidateQueries({ queryKey: ['duplicate-games'] }),
+      queryClient.invalidateQueries({ queryKey: ['stats'] }),
+      queryClient.invalidateQueries({ queryKey: ['library-statistics'] }),
+      queryClient.invalidateQueries({ queryKey: ['gamer-statistics'] }),
+      queryClient.invalidateQueries({ queryKey: ['achievements'] }),
+      queryClient.invalidateQueries({ queryKey: ['cache-entries'] }),
+      queryClient.invalidateQueries({ queryKey: ['cache-jobs'] }),
+      ...affectedCanonicalIds.flatMap((canonicalId) => [
+        queryClient.invalidateQueries({ queryKey: ['game', canonicalId] }),
+        queryClient.invalidateQueries({ queryKey: ['game', canonicalId, 'achievements'] }),
+      ]),
+    ])
+  }
+
   const requestNextPage = useCallback(() => {
     if (!hasNextPage || isFetchingNextPage || loadMoreRequestedRef.current) return
     loadMoreRequestedRef.current = true
@@ -348,6 +479,19 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     if ((!searchRequiresAllPages && !filterRequiresAllPages) || !hasNextPage) return
     requestNextPage()
   }, [filterRequiresAllPages, hasNextPage, loadedCount, requestNextPage, searchRequiresAllPages])
+
+  useEffect(() => {
+    setSelectedGameIds((prev) => {
+      if (effectiveViewMode !== 'list' || focusedSection || scope !== 'library') {
+        return prev.size === 0 ? prev : new Set()
+      }
+      const next = new Set<string>()
+      for (const id of prev) {
+        if (displayedGameIds.has(id)) next.add(id)
+      }
+      return next.size === prev.size ? prev : next
+    })
+  }, [displayedGameIds, effectiveViewMode, focusedSection, scope])
 
   useEffect(() => {
     setFilterState(filterStateFromSearch(location.search))
@@ -417,8 +561,9 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         totalCount={toolbarTotalCount}
         filteredCount={displayedGames.length}
         isLoading={isPending || isCompletingSearch}
-        viewMode={focusedSection ? 'grid' : prefs.viewMode}
+        viewMode={focusedSection ? 'grid' : effectiveViewMode}
         onViewModeChange={setViewMode}
+        viewModeOptions={scope === 'library' ? LIBRARY_VIEW_OPTIONS : PLAY_VIEW_OPTIONS}
         sortBy={prefs.sortBy}
         sortDir={prefs.sortDir}
         onSortChange={handleSortChange}
@@ -443,6 +588,69 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         isOpen={filterBarOpen}
       />
 
+      {bulkNotice ? (
+        <div className="rounded-mga border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+          {bulkNotice}
+        </div>
+      ) : null}
+
+      {bulkWarnings.length ? (
+        <div className="space-y-1 rounded-mga border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          {bulkWarnings.map((warning) => (
+            <p key={warning}>{warning}</p>
+          ))}
+        </div>
+      ) : null}
+
+      {scope === 'library' && effectiveViewMode === 'list' && !focusedSection && selectedGames.length > 0 ? (
+        <div className="sticky top-3 z-20 rounded-mga border border-mga-accent/30 bg-mga-surface/95 p-3 shadow-xl shadow-black/20 backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-mga-text">
+                {selectedGames.length} loaded game{selectedGames.length === 1 ? '' : 's'} selected
+              </p>
+              <p className="mt-1 text-xs text-mga-muted">
+                Source-level bulk actions require every selected game to have exactly one eligible source record.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={selectLoadedVisibleGames}>
+                Select loaded visible rows
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={clearSelection}>
+                Clear
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={startBulkReclassify}
+                disabled={!bulkReclassifyEnabled}
+                title={selectedSourceProblem ?? 'Queue selected games for manual reclassification'}
+              >
+                <ArrowRightLeft size={14} />
+                Reclassify
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkDeleteOpen(true)}
+                disabled={!bulkHardDeleteEnabled}
+                title={bulkHardDeleteReason || 'Preview and hard delete selected source records'}
+                className="border-red-500/30 text-red-200 hover:bg-red-500/10"
+              >
+                <Trash2 size={14} />
+                Hard Delete
+              </Button>
+            </div>
+          </div>
+          {selectedSourceProblem || bulkHardDeleteReason ? (
+            <p className="mt-2 text-xs text-amber-300">{bulkHardDeleteReason || selectedSourceProblem}</p>
+          ) : null}
+        </div>
+      ) : null}
+
       {/* Content */}
       {isError && (
         <p className="text-sm text-red-400">Error: {(error as Error).message}</p>
@@ -457,7 +665,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
             cardVariant={scope === 'play' ? 'play' : 'library'}
           />
         </div>
-      ) : prefs.viewMode === 'grid' ? (
+      ) : effectiveViewMode === 'grid' ? (
         <div className="space-y-8">
           <RecentPlayedShelf games={recentPlayedGames} onRemove={removeRecentPlayed} />
           <GameGrid
@@ -466,7 +674,13 @@ export function CollectionPage({ scope }: CollectionPageProps) {
             cardVariant={scope === 'play' ? 'play' : 'library'}
           />
         </div>
-      ) : prefs.viewMode === 'timeline' ? (
+      ) : effectiveViewMode === 'list' && scope === 'library' ? (
+        <GameListView
+          games={displayedGames}
+          selectedIds={selectedGameIds}
+          onToggleSelected={toggleSelectedGame}
+        />
+      ) : effectiveViewMode === 'timeline' ? (
         <div className="space-y-8">
           <RecentPlayedShelf games={recentPlayedGames} onRemove={removeRecentPlayed} />
           <TimelineView games={displayedGames} />
@@ -552,6 +766,16 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         games={filteredScopeGames}
         existingSections={prefs.sections}
         onAddSections={handleAddSections}
+      />
+
+      <BatchSourceHardDeleteDialog
+        open={bulkDeleteOpen}
+        title="Apply Library Hard Delete"
+        description="Review every backing file below before applying deletion. This removes the selected one-source library records using the same hard-delete flow as game details and duplicate cleanup."
+        confirmCopy="I reviewed the listed files and want to hard delete the selected library source records."
+        targets={bulkDeleteTargets}
+        onClose={() => setBulkDeleteOpen(false)}
+        onDeleted={handleBulkDeleteCompleted}
       />
     </div>
   )

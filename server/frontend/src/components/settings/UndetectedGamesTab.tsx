@@ -37,6 +37,13 @@ import { PlatformIcon } from '@/components/ui/platform-icon'
 import { SourceFileInventory } from '@/components/ui/source-file-inventory'
 import { brandLabel } from '@/lib/brands'
 import { pluginLabel } from '@/lib/gameUtils'
+import {
+  buildBulkReclassifySearchParams,
+  clearBulkReclassifyQueue,
+  readBulkReclassifyQueue,
+  removeBulkReclassifyQueueItem,
+  type BulkReclassifyQueueItem,
+} from '@/lib/bulkReclassifyQueue'
 
 const CANDIDATE_LIMIT = 200
 const RESULT_DESCRIPTION_PREVIEW_LENGTH = 280
@@ -216,9 +223,11 @@ export function UndetectedGamesTab() {
   const [deletePreview, setDeletePreview] = useState<DeleteSourceGamePreview | null>(null)
   const [deleteConfirmed, setDeleteConfirmed] = useState(false)
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(() => new Set())
+  const [bulkQueue, setBulkQueue] = useState<BulkReclassifyQueueItem[]>(() => readBulkReclassifyQueue())
 
   const scope: ManualReviewScope = searchParams.get('scope') === 'archive' ? 'archive' : 'active'
   const activeCandidateId = searchParams.get('candidate_id')?.trim() ?? ''
+  const bulkReclassifyActive = searchParams.get('bulk_reclassify') === '1'
   const legacyGameId = searchParams.get('reclassify_game_id')
   const legacyTitle = searchParams.get('reclassify_title')
   const legacyPlatform = searchParams.get('reclassify_platform')
@@ -317,6 +326,53 @@ export function UndetectedGamesTab() {
   const selectedInScope =
     filteredCandidates.some((candidate) => candidate.id === activeCandidateId) ||
     (candidatesQuery.data ?? []).some((candidate) => candidate.id === activeCandidateId)
+  const bulkQueueIndex = bulkQueue.findIndex((item) => item.sourceGameId === activeCandidateId)
+  const currentBulkQueueItem = bulkQueueIndex >= 0 ? bulkQueue[bulkQueueIndex] : null
+
+  const openBulkQueueItem = (item: BulkReclassifyQueueItem) => {
+    setSearchParams(buildBulkReclassifySearchParams(item), { replace: true })
+  }
+
+  const exitBulkQueue = () => {
+    clearBulkReclassifyQueue()
+    setBulkQueue([])
+    const next = new URLSearchParams(searchParams)
+    next.delete('bulk_reclassify')
+    setSearchParams(next, { replace: true })
+  }
+
+  const advanceBulkQueue = (completedSourceGameId: string, notice?: string) => {
+    const nextQueue = removeBulkReclassifyQueueItem(completedSourceGameId)
+    setBulkQueue(nextQueue)
+    if (notice) setRedetectNotice(notice)
+    if (nextQueue.length > 0) {
+      openBulkQueueItem(nextQueue[0])
+      return true
+    }
+    const next = new URLSearchParams(searchParams)
+    next.delete('bulk_reclassify')
+    next.delete('reclassify_game_id')
+    next.delete('reclassify_title')
+    next.delete('reclassify_platform')
+    next.delete('reclassify_source')
+    setSearchParams(next, { replace: true })
+    setRedetectNotice(notice ?? 'Bulk reclassify queue completed.')
+    return false
+  }
+
+  useEffect(() => {
+    if (!bulkReclassifyActive) return
+    const latest = readBulkReclassifyQueue()
+    setBulkQueue(latest)
+    if (!activeCandidateId && latest.length > 0) {
+      openBulkQueueItem(latest[0])
+    }
+  }, [activeCandidateId, bulkReclassifyActive])
+
+  useEffect(() => {
+    if (!bulkReclassifyActive || !activeCandidateId || !candidateQuery.isError) return
+    advanceBulkQueue(activeCandidateId, `Skipped ${activeCandidateId}; the source record is no longer available.`)
+  }, [activeCandidateId, bulkReclassifyActive, candidateQuery.isError])
 
   const selectCandidate = (candidateId: string) => {
     const next = new URLSearchParams(searchParams)
@@ -371,7 +427,15 @@ export function UndetectedGamesTab() {
     mutationFn: ({ candidateId, result }: { candidateId: string; result: ManualReviewSearchResult }) =>
       applyManualReviewCandidate(candidateId, legacyGameId ? { ...result, authoritative_reclassify: true } : result),
     onMutate: () => setRedetectNotice(null),
-    onSuccess: handleMutationSuccess,
+    onSuccess: (updated) => {
+      if (bulkReclassifyActive) {
+        queryClient.setQueryData(['manual-review-candidate', updated.id], updated)
+        invalidateReviewQueries(updated.id)
+        advanceBulkQueue(updated.id, `Applied match for ${updated.current_title || updated.raw_title || updated.id}.`)
+        return
+      }
+      handleMutationSuccess(updated)
+    },
   })
 
   const notAGameMutation = useMutation({
@@ -578,6 +642,40 @@ export function UndetectedGamesTab() {
           </div>
         </div>
       </section>
+
+      {bulkReclassifyActive ? (
+        <div className="rounded-mga border border-mga-accent/30 bg-mga-accent/10 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-mga-text">
+                Bulk reclassify queue
+                {bulkQueueIndex >= 0 ? ` · ${bulkQueueIndex + 1} of ${bulkQueue.length}` : bulkQueue.length > 0 ? ` · ${bulkQueue.length} remaining` : ''}
+              </p>
+              <p className="mt-1 text-xs text-mga-muted">
+                {currentBulkQueueItem
+                  ? `Current: ${currentBulkQueueItem.title}`
+                  : bulkQueue.length > 0
+                    ? 'Preparing the next selected source record.'
+                    : 'The queue is empty.'}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => activeCandidateId && advanceBulkQueue(activeCandidateId, `Skipped ${currentBulkQueueItem?.title || activeCandidateId}.`)}
+                disabled={!activeCandidateId || bulkQueue.length === 0}
+              >
+                Skip
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={exitBulkQueue}>
+                Exit queue
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <section className="grid gap-6 xl:grid-cols-[minmax(320px,360px)_1fr]">
         <div className="space-y-4 rounded-mga border border-mga-border bg-mga-surface p-4">
