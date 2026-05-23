@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Check, LogOut, Users } from 'lucide-react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { THEME_IDS, THEME_LABELS, type ThemeId } from '@/theme/presets'
@@ -21,8 +21,31 @@ export function AppLayout() {
   const { searchQuery, setSearchQuery, searchRef } = useSearch()
   const { profiles, currentProfile, selectProfile, clearProfile } = useProfiles()
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const [headerHeight, setHeaderHeight] = useState(112)
+  const headerRef = useRef<HTMLElement | null>(null)
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
   const loc = useLocation()
+
+  useEffect(() => {
+    const header = headerRef.current
+    if (!header) return
+
+    const updateHeaderHeight = () => {
+      const next = Math.ceil(header.getBoundingClientRect().height)
+      setHeaderHeight((current) => (current === next ? current : next))
+    }
+
+    updateHeaderHeight()
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateHeaderHeight)
+      return () => window.removeEventListener('resize', updateHeaderHeight)
+    }
+
+    const observer = new ResizeObserver(updateHeaderHeight)
+    observer.observe(header)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     if (!profileMenuOpen) return
@@ -52,8 +75,11 @@ export function AppLayout() {
   )
 
   return (
-    <div className="min-h-screen bg-mga-bg font-mga text-mga-text">
-      <header className="sticky top-0 z-20 border-b border-mga-border bg-mga-surface/95 backdrop-blur">
+    <div
+      className="min-h-screen bg-mga-bg font-mga text-mga-text"
+      style={{ '--mga-app-header-height': `${headerHeight}px` } as CSSProperties}
+    >
+      <header ref={headerRef} className="sticky top-0 z-20 border-b border-mga-border bg-mga-surface/95 backdrop-blur">
         <div className="flex flex-wrap items-center gap-3 px-3 py-3 md:px-4">
           <NavLink
             to="/play"

@@ -603,7 +603,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
       ) : null}
 
       {scope === 'library' && effectiveViewMode === 'list' && !focusedSection && selectedGames.length > 0 ? (
-        <div className="sticky top-3 z-20 rounded-mga border border-mga-accent/30 bg-mga-surface/95 p-3 shadow-xl shadow-black/20 backdrop-blur">
+        <div className="sticky top-[calc(var(--mga-app-header-height,7rem)+0.75rem)] z-30 rounded-mga border border-mga-accent/30 bg-mga-surface/95 p-3 shadow-xl shadow-black/20 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-medium text-mga-text">
