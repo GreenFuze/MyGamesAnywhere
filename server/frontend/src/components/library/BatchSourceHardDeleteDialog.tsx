@@ -131,7 +131,6 @@ export function BatchSourceHardDeleteDialog({
     !previewBusy &&
     !deleteBusy &&
     confirmed &&
-    previewErrors.length === 0 &&
     previewEntriesWithFiles.length > 0
 
   const close = () => {
@@ -211,7 +210,12 @@ export function BatchSourceHardDeleteDialog({
                     </div>
                     {entry.preview ? <span className="text-xs text-red-100/80">{entry.preview.items.length} file{entry.preview.items.length === 1 ? '' : 's'}</span> : null}
                   </div>
-                  {entry.error ? <p className="mt-2 text-xs text-red-200">{entry.error}</p> : null}
+                  {entry.error ? (
+                    <div className="mt-3 rounded-mga border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                      <p className="font-semibold text-amber-50">This source record will be skipped.</p>
+                      <p className="mt-1 break-words">{entry.error}</p>
+                    </div>
+                  ) : null}
                   {entry.preview?.warnings?.length ? (
                     <div className="mt-2 space-y-1 text-xs text-amber-200">
                       {entry.preview.warnings.map((warning) => (
@@ -256,8 +260,30 @@ export function BatchSourceHardDeleteDialog({
           </div>
         ) : null}
 
+        {previewErrors.length > 0 ? (
+          <div className="rounded-mga border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+            <p className="font-semibold text-amber-50">
+              {previewErrors.length} source record{previewErrors.length === 1 ? '' : 's'} cannot be previewed and will be skipped.
+            </p>
+            <div className="mt-2 max-h-40 space-y-2 overflow-auto pr-1 text-xs">
+              {previewErrors.map((entry) => (
+                <div key={entry.target.key}>
+                  <p className="font-medium text-amber-50">{entry.target.sourceLabel}</p>
+                  <p className="break-words text-amber-100/85">{entry.error}</p>
+                </div>
+              ))}
+            </div>
+            {previewEntriesWithFiles.length > 0 ? (
+              <p className="mt-2 text-xs text-amber-100/80">
+                You can continue with the {previewEntriesWithFiles.length} source record{previewEntriesWithFiles.length === 1 ? '' : 's'} that previewed successfully.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         {error ? <p className="text-xs text-red-300">{error}</p> : null}
-        {previewErrors.length > 0 ? <p className="text-xs text-amber-300">Resolve preview errors before applying deletion.</p> : null}
+        {!previewBusy && entries.length > 0 && previewEntriesWithFiles.length === 0 ? (
+          <p className="text-xs text-red-300">No selected source records can be deleted because none produced a valid delete preview.</p>
+        ) : null}
 
         {entries.length > 0 && !previewBusy ? (
           <label className="flex items-start gap-3 rounded-mga border border-red-500/30 bg-red-500/5 p-3 text-sm leading-6 text-red-100">
@@ -265,7 +291,7 @@ export function BatchSourceHardDeleteDialog({
               type="checkbox"
               checked={confirmed}
               onChange={(event) => setConfirmed(event.target.checked)}
-              disabled={deleteBusy || previewErrors.length > 0 || previewEntriesWithFiles.length === 0}
+              disabled={deleteBusy || previewEntriesWithFiles.length === 0}
               className="mt-1 h-4 w-4 rounded border-red-400 bg-mga-bg accent-red-600"
             />
             <span>{confirmCopy}</span>
