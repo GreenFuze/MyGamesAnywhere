@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"time"
 
@@ -218,10 +219,44 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 		out.ExternalIDs = append(out.ExternalIDs, ExternalIDDTO{
 			Source:     eid.Source,
 			ExternalID: eid.ExternalID,
-			URL:        eid.URL,
+			URL:        externalIDURL(cg, eid),
 		})
 	}
 	return out
+}
+
+func externalIDURL(cg *core.CanonicalGame, eid core.ExternalID) string {
+	if eid.Source == "metadata-launchbox" {
+		if title := launchBoxTitleForExternalID(cg, eid.ExternalID); title != "" {
+			return launchBoxSearchURL(title)
+		}
+	}
+	return eid.URL
+}
+
+func launchBoxTitleForExternalID(cg *core.CanonicalGame, externalID string) string {
+	if cg == nil {
+		return ""
+	}
+	for _, sg := range cg.SourceGames {
+		if sg == nil {
+			continue
+		}
+		for _, match := range sg.ResolverMatches {
+			if match.PluginID == "metadata-launchbox" && match.ExternalID == externalID && strings.TrimSpace(match.Title) != "" {
+				return strings.TrimSpace(match.Title)
+			}
+		}
+	}
+	return strings.TrimSpace(cg.Title)
+}
+
+func launchBoxSearchURL(title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return "https://gamesdb.launchbox-app.com/games/search"
+	}
+	return "https://gamesdb.launchbox-app.com/games/results?id=" + url.QueryEscape(title)
 }
 
 func launchOptionsForSource(source SourceGameDetailDTO, launchSource *GameLaunchSourceDTO, launchCandidate *GameLaunchCandidateDTO) []GameLaunchOptionDTO {
@@ -327,7 +362,7 @@ func (c *GameController) sourceGameToDetailDTO(
 		CreatedAt:        sg.CreatedAt.UTC().Format(time.RFC3339Nano),
 		Files:            make([]GameFileDTO, 0, len(sg.Files)),
 		CanonicalPin:     canonicalSourcePinDTO(sg.CanonicalPin),
-		ResolverMatches:  sg.ResolverMatches,
+		ResolverMatches:  resolverMatchesForDetail(sg.ResolverMatches),
 	}
 	eligible, reason := sourcegames.HardDeleteEligibility(sg)
 	dto.HardDelete = &SourceGameHardDeleteDTO{Eligible: eligible, Reason: reason}
@@ -401,6 +436,17 @@ func (c *GameController) sourceGameToDetailDTO(
 		dto.ResolverMatches = []core.ResolverMatch{}
 	}
 	return dto, playSource, rootCandidate
+}
+
+func resolverMatchesForDetail(matches []core.ResolverMatch) []core.ResolverMatch {
+	out := make([]core.ResolverMatch, 0, len(matches))
+	for _, match := range matches {
+		if match.PluginID == "metadata-launchbox" {
+			match.URL = launchBoxSearchURL(match.Title)
+		}
+		out = append(out, match)
+	}
+	return out
 }
 
 func (c *GameController) describeSourceGameDelivery(ctx context.Context, canonicalPlatform core.Platform, sg *core.SourceGame) []core.SourceDeliveryProfile {

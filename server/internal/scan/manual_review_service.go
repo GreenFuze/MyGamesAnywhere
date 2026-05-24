@@ -453,17 +453,9 @@ func candidateExternalIDs(candidate *core.ManualReviewCandidate) []core.External
 }
 
 func manualReviewSelectionToResolverMatch(selection core.ManualReviewSelection) core.ResolverMatch {
-	var media []core.MediaItem
 	platform := strings.TrimSpace(selection.Platform)
 	if normalized := core.NormalizePlatformAlias(platform); normalized != core.PlatformUnknown {
 		platform = string(normalized)
-	}
-	if strings.TrimSpace(selection.ImageURL) != "" {
-		media = append(media, core.MediaItem{
-			Type:   core.MediaTypeCover,
-			URL:    strings.TrimSpace(selection.ImageURL),
-			Source: strings.TrimSpace(selection.ProviderPluginID),
-		})
 	}
 	return core.ResolverMatch{
 		PluginID:        strings.TrimSpace(selection.ProviderPluginID),
@@ -478,11 +470,40 @@ func manualReviewSelectionToResolverMatch(selection core.ManualReviewSelection) 
 		Genres:          append([]string(nil), selection.Genres...),
 		Developer:       strings.TrimSpace(selection.Developer),
 		Publisher:       strings.TrimSpace(selection.Publisher),
-		Media:           media,
+		Media:           manualReviewSelectionMedia(selection),
 		Rating:          selection.Rating,
 		MaxPlayers:      selection.MaxPlayers,
 		ManualSelection: true,
 	}
+}
+
+func manualReviewSelectionMedia(selection core.ManualReviewSelection) []core.MediaItem {
+	seen := map[string]bool{}
+	media := make([]core.MediaItem, 0, len(selection.Media)+1)
+	provider := strings.TrimSpace(selection.ProviderPluginID)
+	add := func(item core.MediaItem) {
+		item.URL = strings.TrimSpace(item.URL)
+		if item.URL == "" || seen[item.URL] {
+			return
+		}
+		if item.Type == "" {
+			item.Type = core.MediaTypeCover
+		}
+		if strings.TrimSpace(item.Source) == "" {
+			item.Source = provider
+		}
+		seen[item.URL] = true
+		media = append(media, item)
+	}
+	for _, item := range selection.Media {
+		add(item)
+	}
+	add(core.MediaItem{
+		Type:   core.MediaTypeCover,
+		URL:    selection.ImageURL,
+		Source: provider,
+	})
+	return media
 }
 
 func gameMediaToRefs(game *core.Game) []core.MediaRef {

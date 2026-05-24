@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1158,7 +1159,7 @@ func buildResult(index int, ge *gameEntry, idx *launchBoxIndex) *lookupResult {
 		Index:       index,
 		Title:       ge.Name,
 		ExternalID:  fmt.Sprintf("%d", ge.DatabaseID),
-		URL:         fmt.Sprintf("https://gamesdb.launchbox-app.com/games/details/%d", ge.DatabaseID),
+		URL:         launchBoxSearchURL(ge.Name),
 		Description: ge.Overview,
 		Developer:   ge.Developer,
 		Publisher:   ge.Publisher,
@@ -1218,6 +1219,14 @@ func buildResult(index int, ge *gameEntry, idx *launchBoxIndex) *lookupResult {
 	}
 
 	return r
+}
+
+func launchBoxSearchURL(title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return "https://gamesdb.launchbox-app.com/games/search"
+	}
+	return "https://gamesdb.launchbox-app.com/games/results?id=" + url.QueryEscape(title)
 }
 
 // --- Main ---

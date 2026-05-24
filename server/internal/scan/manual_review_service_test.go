@@ -353,6 +353,11 @@ func TestManualReviewServiceAuthoritativeReclassifyReplacesMatchesMovesCanonical
 		ExternalID:            "selected-game",
 		URL:                   "https://example.com/selected",
 		ImageURL:              "https://example.com/selected-cover.jpg",
+		Media: []core.MediaItem{{
+			Type:   core.MediaTypeScreenshot,
+			URL:    "https://example.com/selected-screenshot.jpg",
+			Source: "metadata-igdb",
+		}},
 	}, core.ManualReviewApplyOptions{AuthoritativeReclassify: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -378,8 +383,8 @@ func TestManualReviewServiceAuthoritativeReclassifyReplacesMatchesMovesCanonical
 	}
 
 	mediaURLs := mediaURLsForSource(t, sqlDB, "scan:target")
-	if len(mediaURLs) != 1 || mediaURLs[0] != "https://example.com/selected-cover.jpg" {
-		t.Fatalf("target media urls = %+v, want only selected cover", mediaURLs)
+	if len(mediaURLs) != 2 || mediaURLs[0] != "https://example.com/selected-cover.jpg" || mediaURLs[1] != "https://example.com/selected-screenshot.jpg" {
+		t.Fatalf("target media urls = %+v, want selected media plus cover fallback", mediaURLs)
 	}
 
 	assertNoCanonicalMediaOverrideRows(t, sqlDB, oldCanonicalID)

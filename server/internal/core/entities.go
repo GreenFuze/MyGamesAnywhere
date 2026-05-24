@@ -1015,23 +1015,24 @@ const (
 )
 
 type ManualReviewSelection struct {
-	ProviderIntegrationID string   `json:"provider_integration_id"`
-	ProviderLabel         string   `json:"provider_label,omitempty"`
-	ProviderPluginID      string   `json:"provider_plugin_id"`
-	Title                 string   `json:"title"`
-	Platform              string   `json:"platform,omitempty"`
-	Kind                  string   `json:"kind,omitempty"`
-	ParentGameID          string   `json:"parent_game_id,omitempty"`
-	ExternalID            string   `json:"external_id"`
-	URL                   string   `json:"url,omitempty"`
-	Description           string   `json:"description,omitempty"`
-	ReleaseDate           string   `json:"release_date,omitempty"`
-	Genres                []string `json:"genres,omitempty"`
-	Developer             string   `json:"developer,omitempty"`
-	Publisher             string   `json:"publisher,omitempty"`
-	Rating                float64  `json:"rating,omitempty"`
-	MaxPlayers            int      `json:"max_players,omitempty"`
-	ImageURL              string   `json:"image_url,omitempty"`
+	ProviderIntegrationID string      `json:"provider_integration_id"`
+	ProviderLabel         string      `json:"provider_label,omitempty"`
+	ProviderPluginID      string      `json:"provider_plugin_id"`
+	Title                 string      `json:"title"`
+	Platform              string      `json:"platform,omitempty"`
+	Kind                  string      `json:"kind,omitempty"`
+	ParentGameID          string      `json:"parent_game_id,omitempty"`
+	ExternalID            string      `json:"external_id"`
+	URL                   string      `json:"url,omitempty"`
+	Description           string      `json:"description,omitempty"`
+	ReleaseDate           string      `json:"release_date,omitempty"`
+	Genres                []string    `json:"genres,omitempty"`
+	Developer             string      `json:"developer,omitempty"`
+	Publisher             string      `json:"publisher,omitempty"`
+	Rating                float64     `json:"rating,omitempty"`
+	MaxPlayers            int         `json:"max_players,omitempty"`
+	ImageURL              string      `json:"image_url,omitempty"`
+	Media                 []MediaItem `json:"media,omitempty"`
 }
 
 type ManualReviewApplyOptions struct {

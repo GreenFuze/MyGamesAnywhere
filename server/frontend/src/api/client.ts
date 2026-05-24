@@ -52,6 +52,7 @@ export type {
   ManualReviewRedetectResponse,
   ManualReviewRedetectResult,
   ManualReviewRedetectStatus,
+  ManualReviewMediaItem,
   ManualReviewScope,
   ManualReviewSearchProviderStatus,
   ManualReviewSearchResponse,

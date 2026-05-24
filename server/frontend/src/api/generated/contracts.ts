@@ -140,6 +140,15 @@ export type GameMediaDetailDTO = {
   mime_type?: string;
 };
 
+export type ManualReviewMediaItem = {
+  type: string;
+  url: string;
+  source?: string;
+  width?: number;
+  height?: number;
+  mime_type?: string;
+};
+
 export type AchievementSummaryDTO = {
   source_count: number;
   total_count: number;
@@ -603,6 +612,7 @@ export type ManualReviewSearchResult = {
   rating?: number;
   max_players?: number;
   image_url?: string;
+  media?: ManualReviewMediaItem[];
 };
 
 export type ManualReviewApplyRequest = ManualReviewSearchResult & {

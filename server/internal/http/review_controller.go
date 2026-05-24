@@ -93,23 +93,24 @@ type ManualReviewSearchProviderStatusDTO struct {
 }
 
 type ManualReviewSearchResultDTO struct {
-	ProviderIntegrationID string   `json:"provider_integration_id"`
-	ProviderLabel         string   `json:"provider_label,omitempty"`
-	ProviderPluginID      string   `json:"provider_plugin_id"`
-	Title                 string   `json:"title"`
-	Platform              string   `json:"platform,omitempty"`
-	Kind                  string   `json:"kind,omitempty"`
-	ParentGameID          string   `json:"parent_game_id,omitempty"`
-	ExternalID            string   `json:"external_id"`
-	URL                   string   `json:"url,omitempty"`
-	Description           string   `json:"description,omitempty"`
-	ReleaseDate           string   `json:"release_date,omitempty"`
-	Genres                []string `json:"genres,omitempty"`
-	Developer             string   `json:"developer,omitempty"`
-	Publisher             string   `json:"publisher,omitempty"`
-	Rating                float64  `json:"rating,omitempty"`
-	MaxPlayers            int      `json:"max_players,omitempty"`
-	ImageURL              string   `json:"image_url,omitempty"`
+	ProviderIntegrationID string           `json:"provider_integration_id"`
+	ProviderLabel         string           `json:"provider_label,omitempty"`
+	ProviderPluginID      string           `json:"provider_plugin_id"`
+	Title                 string           `json:"title"`
+	Platform              string           `json:"platform,omitempty"`
+	Kind                  string           `json:"kind,omitempty"`
+	ParentGameID          string           `json:"parent_game_id,omitempty"`
+	ExternalID            string           `json:"external_id"`
+	URL                   string           `json:"url,omitempty"`
+	Description           string           `json:"description,omitempty"`
+	ReleaseDate           string           `json:"release_date,omitempty"`
+	Genres                []string         `json:"genres,omitempty"`
+	Developer             string           `json:"developer,omitempty"`
+	Publisher             string           `json:"publisher,omitempty"`
+	Rating                float64          `json:"rating,omitempty"`
+	MaxPlayers            int              `json:"max_players,omitempty"`
+	ImageURL              string           `json:"image_url,omitempty"`
+	Media                 []core.MediaItem `json:"media,omitempty"`
 }
 
 type ManualReviewSearchResponseDTO struct {
@@ -397,6 +398,7 @@ func (c *ReviewController) SearchCandidate(w http.ResponseWriter, r *http.Reques
 				Rating:                match.Rating,
 				MaxPlayers:            match.MaxPlayers,
 				ImageURL:              reviewRepresentativeLookupImage(match.Media),
+				Media:                 reviewLookupMediaItems(match.Media, lookup.Source.PluginID),
 			})
 		}
 	}
@@ -783,7 +785,41 @@ func manualReviewSearchResultDTO(integration *core.Integration, match reviewMeta
 		Rating:                match.Rating,
 		MaxPlayers:            match.MaxPlayers,
 		ImageURL:              reviewRepresentativeImage(match.Media),
+		Media:                 reviewMetadataMediaItems(match.Media, integration.PluginID),
 	}, true
+}
+
+func reviewLookupMediaItems(media []scan.MetadataLookupMediaItem, source string) []core.MediaItem {
+	out := make([]core.MediaItem, 0, len(media))
+	for _, item := range media {
+		if strings.TrimSpace(item.URL) == "" {
+			continue
+		}
+		out = append(out, core.MediaItem{
+			Type:     core.MediaType(strings.TrimSpace(item.Type)),
+			URL:      strings.TrimSpace(item.URL),
+			Source:   strings.TrimSpace(source),
+			Width:    item.Width,
+			Height:   item.Height,
+			MimeType: strings.TrimSpace(item.MimeType),
+		})
+	}
+	return out
+}
+
+func reviewMetadataMediaItems(media []reviewMetadataMedia, source string) []core.MediaItem {
+	out := make([]core.MediaItem, 0, len(media))
+	for _, item := range media {
+		if strings.TrimSpace(item.URL) == "" {
+			continue
+		}
+		out = append(out, core.MediaItem{
+			Type:   core.MediaType(strings.TrimSpace(item.Type)),
+			URL:    strings.TrimSpace(item.URL),
+			Source: strings.TrimSpace(source),
+		})
+	}
+	return out
 }
 
 func reviewRepresentativeImage(media []reviewMetadataMedia) string {

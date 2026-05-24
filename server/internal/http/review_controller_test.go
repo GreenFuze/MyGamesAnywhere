@@ -231,6 +231,9 @@ func TestReviewControllerSearchCandidateDefaultsQueryAndKeepsProviderFailures(t 
 	if resp.Results[0].ImageURL != "https://example.com/cover.png" {
 		t.Fatalf("image_url = %q, want cover url", resp.Results[0].ImageURL)
 	}
+	if len(resp.Results[0].Media) != 1 || resp.Results[0].Media[0].URL != "https://example.com/cover.png" || resp.Results[0].Media[0].Source != "metadata-igdb" {
+		t.Fatalf("media = %+v, want provider media with source", resp.Results[0].Media)
+	}
 	if resp.Providers[0].Status != "success" {
 		t.Fatalf("providers[0].status = %q, want %q", resp.Providers[0].Status, "success")
 	}
