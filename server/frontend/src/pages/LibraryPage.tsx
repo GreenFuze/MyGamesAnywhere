@@ -13,6 +13,7 @@ import { GameGrid } from '@/components/library/GameGrid'
 import { GameListView } from '@/components/library/GameListView'
 import { SectionPickerDialog } from '@/components/library/SectionPickerDialog'
 import { Button } from '@/components/ui/button'
+import { Dialog } from '@/components/ui/dialog'
 import { BatchSourceHardDeleteDialog, type BatchSourceDeleteTarget } from '@/components/library/BatchSourceHardDeleteDialog'
 import { useRecentPlayed } from '@/hooks/useRecentPlayed'
 import { buildBulkReclassifySearchParams, writeBulkReclassifyQueue, type BulkReclassifyQueueItem } from '@/lib/bulkReclassifyQueue'
@@ -118,12 +119,14 @@ function sourceRecordLabel(game: GameDetailResponse): string {
   return `${source.integration_label || source.integration_id} · ${source.raw_title || source.external_id}`
 }
 
-function selectedSourceIssue(games: GameDetailResponse[]): string | null {
-  const multiSourceCount = games.filter((game) => game.source_games.length !== 1).length
-  if (multiSourceCount > 0) {
-    return `${multiSourceCount} selected game${multiSourceCount === 1 ? ' has' : 's have'} multiple or missing source records.`
-  }
-  return null
+type BulkActionKind = 'reclassify' | 'hard_delete'
+
+type BulkActionReview = {
+  kind: BulkActionKind
+  title: string
+  actionLabel: string
+  eligibleCount: number
+  skipped: string[]
 }
 
 function TimelineView({ games }: { games: GameDetailResponse[] }) {
@@ -234,6 +237,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   const [sectionPickerOpen, setSectionPickerOpen] = useState(false)
   const [selectedGameIds, setSelectedGameIds] = useState<Set<string>>(() => new Set())
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkActionReview, setBulkActionReview] = useState<BulkActionReview | null>(null)
   const [bulkNotice, setBulkNotice] = useState('')
   const [bulkWarnings, setBulkWarnings] = useState<string[]>([])
 
@@ -278,27 +282,45 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     () => displayedGames.filter((game) => selectedGameIds.has(game.id)),
     [displayedGames, selectedGameIds],
   )
-  const selectedSourceProblem = selectedSourceIssue(selectedGames)
-  const bulkReclassifyEnabled = selectedGames.length > 0 && selectedSourceProblem === null
-  const hardDeleteIneligibleCount = selectedGames.filter((game) => game.source_games[0]?.hard_delete?.eligible !== true).length
-  const bulkHardDeleteEnabled = bulkReclassifyEnabled && hardDeleteIneligibleCount === 0
-  const bulkHardDeleteReason = selectedSourceProblem ?? (
-    hardDeleteIneligibleCount > 0
-      ? `${hardDeleteIneligibleCount} selected source${hardDeleteIneligibleCount === 1 ? ' is' : 's are'} not eligible for hard delete.`
-      : ''
+  const bulkReclassifyGames = useMemo(
+    () => selectedGames.filter((game) => game.source_games.length === 1),
+    [selectedGames],
   )
-  const bulkDeleteTargets = useMemo<BatchSourceDeleteTarget[]>(
+  const bulkReclassifySkipped = useMemo(
     () =>
       selectedGames
-        .filter((game) => game.source_games.length === 1 && game.source_games[0].hard_delete?.eligible === true)
-        .map((game) => ({
-          key: game.source_games[0].id,
-          canonicalGameId: game.id,
-          sourceGameId: game.source_games[0].id,
-          sourceLabel: sourceRecordLabel(game),
-          gameTitle: game.title,
-        })),
+        .filter((game) => game.source_games.length !== 1)
+        .map((game) => `${game.title}: ${game.source_games.length === 0 ? 'no source record' : `${game.source_games.length} source records`}`),
     [selectedGames],
+  )
+  const bulkReclassifyEnabled = bulkReclassifyGames.length > 0
+  const bulkHardDeleteGames = useMemo(
+    () => selectedGames.filter((game) => game.source_games.length === 1 && game.source_games[0].hard_delete?.eligible === true),
+    [selectedGames],
+  )
+  const bulkHardDeleteSkipped = useMemo(
+    () =>
+      selectedGames
+        .filter((game) => !(game.source_games.length === 1 && game.source_games[0].hard_delete?.eligible === true))
+        .map((game) => {
+          if (game.source_games.length !== 1) {
+            return `${game.title}: ${game.source_games.length === 0 ? 'no source record' : `${game.source_games.length} source records`}`
+          }
+          return `${game.title}: ${game.source_games[0].hard_delete?.reason || 'source cannot be hard deleted'}`
+        }),
+    [selectedGames],
+  )
+  const bulkHardDeleteEnabled = bulkHardDeleteGames.length > 0
+  const bulkDeleteTargets = useMemo<BatchSourceDeleteTarget[]>(
+    () =>
+      bulkHardDeleteGames.map((game) => ({
+        key: game.source_games[0].id,
+        canonicalGameId: game.id,
+        sourceGameId: game.source_games[0].id,
+        sourceLabel: sourceRecordLabel(game),
+        gameTitle: game.title,
+      })),
+    [bulkHardDeleteGames],
   )
 
   // Facets for filter bar (derived from full section list, not filtered subset)
@@ -418,7 +440,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
 
   const startBulkReclassify = () => {
     if (!bulkReclassifyEnabled) return
-    const queue: BulkReclassifyQueueItem[] = selectedGames.map((game) => ({
+    const queue: BulkReclassifyQueueItem[] = bulkReclassifyGames.map((game) => ({
       gameId: game.id,
       sourceGameId: game.source_games[0].id,
       title: game.title,
@@ -428,6 +450,47 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     writeBulkReclassifyQueue(queue)
     const first = queue[0]
     navigate({ pathname: '/settings', search: buildBulkReclassifySearchParams(first).toString() })
+  }
+
+  const requestBulkReclassify = () => {
+    if (!bulkReclassifyEnabled) return
+    if (bulkReclassifySkipped.length > 0) {
+      setBulkActionReview({
+        kind: 'reclassify',
+        title: 'Continue Bulk Reclassify?',
+        actionLabel: 'Continue',
+        eligibleCount: bulkReclassifyGames.length,
+        skipped: bulkReclassifySkipped,
+      })
+      return
+    }
+    startBulkReclassify()
+  }
+
+  const requestBulkHardDelete = () => {
+    if (!bulkHardDeleteEnabled) return
+    if (bulkHardDeleteSkipped.length > 0) {
+      setBulkActionReview({
+        kind: 'hard_delete',
+        title: 'Continue Bulk Hard Delete?',
+        actionLabel: 'Continue',
+        eligibleCount: bulkHardDeleteGames.length,
+        skipped: bulkHardDeleteSkipped,
+      })
+      return
+    }
+    setBulkDeleteOpen(true)
+  }
+
+  const continueReviewedBulkAction = () => {
+    const review = bulkActionReview
+    setBulkActionReview(null)
+    if (!review) return
+    if (review.kind === 'reclassify') {
+      startBulkReclassify()
+    } else {
+      setBulkDeleteOpen(true)
+    }
   }
 
   const handleBulkDeleteCompleted = async (deleted: BatchSourceDeleteTarget[], warnings: string[]) => {
@@ -610,7 +673,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
                 {selectedGames.length} loaded game{selectedGames.length === 1 ? '' : 's'} selected
               </p>
               <p className="mt-1 text-xs text-mga-muted">
-                Source-level bulk actions require every selected game to have exactly one eligible source record.
+                Source-level bulk actions will use eligible selected games and warn before skipping the rest.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -624,9 +687,13 @@ export function CollectionPage({ scope }: CollectionPageProps) {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={startBulkReclassify}
+                onClick={requestBulkReclassify}
                 disabled={!bulkReclassifyEnabled}
-                title={selectedSourceProblem ?? 'Queue selected games for manual reclassification'}
+                title={
+                  bulkReclassifyEnabled
+                    ? `${bulkReclassifyGames.length} selected game${bulkReclassifyGames.length === 1 ? '' : 's'} can be reclassified.`
+                    : 'No selected games can be reclassified.'
+                }
               >
                 <ArrowRightLeft size={14} />
                 Reclassify
@@ -635,9 +702,13 @@ export function CollectionPage({ scope }: CollectionPageProps) {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setBulkDeleteOpen(true)}
+                onClick={requestBulkHardDelete}
                 disabled={!bulkHardDeleteEnabled}
-                title={bulkHardDeleteReason || 'Preview and hard delete selected source records'}
+                title={
+                  bulkHardDeleteEnabled
+                    ? `${bulkHardDeleteGames.length} selected source${bulkHardDeleteGames.length === 1 ? '' : 's'} can be hard deleted.`
+                    : 'No selected sources can be hard deleted.'
+                }
                 className="border-red-500/30 text-red-200 hover:bg-red-500/10"
               >
                 <Trash2 size={14} />
@@ -645,8 +716,10 @@ export function CollectionPage({ scope }: CollectionPageProps) {
               </Button>
             </div>
           </div>
-          {selectedSourceProblem || bulkHardDeleteReason ? (
-            <p className="mt-2 text-xs text-amber-300">{bulkHardDeleteReason || selectedSourceProblem}</p>
+          {bulkReclassifySkipped.length > 0 || bulkHardDeleteSkipped.length > 0 ? (
+            <p className="mt-2 text-xs text-amber-300">
+              Reclassify: {bulkReclassifyGames.length} eligible, {bulkReclassifySkipped.length} skipped. Hard delete: {bulkHardDeleteGames.length} eligible, {bulkHardDeleteSkipped.length} skipped.
+            </p>
           ) : null}
         </div>
       ) : null}
@@ -767,6 +840,33 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         existingSections={prefs.sections}
         onAddSections={handleAddSections}
       />
+
+      <Dialog
+        open={bulkActionReview !== null}
+        onClose={() => setBulkActionReview(null)}
+        title={bulkActionReview?.title ?? 'Continue Bulk Action?'}
+      >
+        {bulkActionReview ? (
+          <div className="space-y-4">
+            <p className="text-sm text-mga-muted">
+              {bulkActionReview.eligibleCount} selected game{bulkActionReview.eligibleCount === 1 ? '' : 's'} support this operation. The following selected game{bulkActionReview.skipped.length === 1 ? '' : 's'} will be skipped:
+            </p>
+            <div className="max-h-72 space-y-2 overflow-auto rounded-mga border border-amber-400/25 bg-amber-500/10 p-3 text-sm text-amber-100">
+              {bulkActionReview.skipped.map((item) => (
+                <p key={item} className="break-words">{item}</p>
+              ))}
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={() => setBulkActionReview(null)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={continueReviewedBulkAction}>
+                {bulkActionReview.actionLabel}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Dialog>
 
       <BatchSourceHardDeleteDialog
         open={bulkDeleteOpen}
