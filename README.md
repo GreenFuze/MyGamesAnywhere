@@ -10,7 +10,7 @@ Most launchers start from a storefront or a folder. MGA starts from the game ide
 
 [Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest) · [View screenshots](#screenshots) · [GitHub Pages](https://greenfuze.github.io/MyGamesAnywhere/) · [GitHub](https://github.com/GreenFuze/MyGamesAnywhere) · [Public roadmap](docs/public-roadmap.md)
 
-**Current release line:** `v0.0.12`
+**Current release line:** `v0.0.13`
 **Status:** pre-1.0, actively moving, local-first by design
 
 ![A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation](docs/screenshots/canonical-game-page.png)
@@ -106,6 +106,12 @@ That is the core differentiator. MGA is not just a prettier launcher row. It is 
 
 *Play is now the default landing surface, focused on browser-ready and cloud-ready games instead of a duplicate dashboard.*
 
+### Library List bulk workflow
+
+![The Library List view showing sticky bulk controls, eligible/skipped counts, and detailed source/file columns](docs/screenshots/library-list-bulk-v0.0.13.png)
+
+*Library List view is the dense cleanup surface: selected rows expose sticky bulk controls, eligible/skipped counts, and source/file evidence before reclassify or hard-delete actions.*
+
 ### Canonical split and merge controls
 
 ![A game detail source-record section showing split, merge, clear grouping, and hard delete controls for individual source records](docs/screenshots/canonical-split-merge-v0.0.12.png)
@@ -196,6 +202,7 @@ Additional screenshot coverage is tracked in the public docs, but the committed 
 - Configurable server `LISTEN_IP` for loopback or opt-in LAN binding, while released packages stay local-only by default
 - Plugin-backed dry-delete previews for file-backed source deletes, with checkbox confirmation before the real delete action
 - Settings -> Duplicates review with canonical cover links, duplicate modes, batch hard-delete review, and progress
+- Library List view with sticky bulk controls, partial bulk Reclassify and Hard Delete, and Continue/Cancel skipped-row review when only some selected games support an operation
 - Compact source-file inventory views that show all backing paths in one copyable textbox with total size instead of one card per file
 - First-run profile flow, browser-local profile picker, profile menu, and admin-managed profile settings
 - Profile-owned integrations and library data, so storefront credentials, source scans, favorites, achievements, and settings can be separated per profile
@@ -344,7 +351,7 @@ The important split is:
 
 ## Release And Upgrade Safety
 
-MGA carries a repository version source at [`VERSION`](VERSION). The current stable line is **`0.0.12`**.
+MGA carries a repository version source at [`VERSION`](VERSION). The current stable line is **`0.0.13`**.
 
 Upgrade policy:
 
