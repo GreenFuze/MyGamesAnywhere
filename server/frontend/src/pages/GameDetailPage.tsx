@@ -8,7 +8,6 @@ import {
   ExternalLink,
   FileText,
   FolderOpen,
-  HardDrive,
   Loader2,
   MoreHorizontal,
   PlayCircle,
@@ -1206,7 +1205,10 @@ export function GameDetailPage() {
       )
     : 0
   const externalLinks = useMemo(() => buildExternalLinks(gameData?.external_ids), [gameData?.external_ids])
-  const sourceFiles = useMemo(() => (gameData?.source_games ?? []).flatMap((source) => source.files), [gameData?.source_games])
+  const sourceFileCount = useMemo(
+    () => (gameData?.source_games ?? []).reduce((total, source) => total + source.files.length, 0),
+    [gameData?.source_games],
+  )
   const metadataSources = useMemo(
     () => collectUnifiedMetadataSources(gameData?.source_games ?? [], gameData?.media),
     [gameData?.media, gameData?.source_games],
@@ -1752,7 +1754,6 @@ export function GameDetailPage() {
               <HeroTabLink href="#howlongtobeat" label="HowLongToBeat" />
             ) : null}
             {achievementSets.length > 0 ? <HeroTabLink href="#achievements" label="Achievements" /> : null}
-            <HeroTabLink href="#game-files" label="Files" />
             <HeroTabLink href="#source-records" label="Sources" />
             {externalLinks.length > 0 ? <HeroTabLink href="#external-links" label="Links" /> : null}
           </div>
@@ -1808,7 +1809,7 @@ export function GameDetailPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <MetaItem label="Launchable Sources" value={launchableSourceCount} />
                   <MetaItem label="Resolver Matches" value={resolverCount} />
-                  <MetaItem label="Files" value={sourceFiles.length} />
+                  <MetaItem label="Files" value={sourceFileCount} />
                   <MetaItem label="Canonical ID" value={data.id} />
                 </div>
               </div>
@@ -1913,20 +1914,6 @@ export function GameDetailPage() {
             <p className="text-sm text-white/58">No achievements are available for this game.</p>
           )}
         </SectionCard>
-
-        <SectionCard
-            id="game-files"
-            title="Game Files"
-            icon={<HardDrive size={18} className="text-mga-accent" />}
-            description="Stored source file paths for this game."
-            actions={
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="muted">{sourceFiles.length} total</Badge>
-              </div>
-            }
-          >
-            <SourceFileInventory files={sourceFiles} emptyMessage="No source files are available for this game yet." />
-          </SectionCard>
 
         <SectionCard
           id="source-records"
