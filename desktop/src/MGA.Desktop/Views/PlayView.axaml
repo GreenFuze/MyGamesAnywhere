@@ -1,0 +1,14 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MGA.Desktop.ViewModels"
+             x:Class="MGA.Desktop.Views.PlayView"
+             x:DataType="vm:PlayViewModel">
+
+  <Border Padding="32">
+    <StackPanel Spacing="8">
+      <TextBlock Text="Play" Classes="heading"/>
+      <TextBlock Text="Recently played games and featured content — coming soon."
+                 Classes="muted"/>
+    </StackPanel>
+  </Border>
+</UserControl>

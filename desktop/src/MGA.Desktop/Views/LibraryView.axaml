@@ -1,0 +1,14 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MGA.Desktop.ViewModels"
+             x:Class="MGA.Desktop.Views.LibraryView"
+             x:DataType="vm:LibraryViewModel">
+
+  <Border Padding="32">
+    <StackPanel Spacing="8">
+      <TextBlock Text="Library" Classes="heading"/>
+      <TextBlock Text="Full game collection with sort, filter, and view modes — coming soon."
+                 Classes="muted"/>
+    </StackPanel>
+  </Border>
+</UserControl>

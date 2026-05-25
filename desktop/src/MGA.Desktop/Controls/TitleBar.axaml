@@ -1,0 +1,86 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MGA.Desktop.ViewModels"
+             x:Class="MGA.Desktop.Controls.TitleBar"
+             x:DataType="vm:MainWindowViewModel"
+             Height="48">
+
+  <!--
+    Custom title bar.
+    The entire bar is a drag region except for the window chrome buttons (right end).
+    IsHitTestVisible is managed in code-behind: Chrome buttons are excluded from drag.
+  -->
+  <Grid ColumnDefinitions="Auto,*,Auto,Auto"
+        Background="{DynamicResource MgaSurfaceBrush}"
+        IsHitTestVisible="True">
+
+    <!-- Drag region covers the whole bar; the chrome buttons sit on top with IsHitTestVisible=True -->
+    <Border Grid.ColumnSpan="4"
+            Name="DragRegion"
+            Background="Transparent"/>
+
+    <!-- Left: logo + app name -->
+    <StackPanel Grid.Column="0"
+                Orientation="Horizontal"
+                Spacing="10"
+                Margin="16,0"
+                VerticalAlignment="Center"
+                IsHitTestVisible="False">
+      <Image Source="/Assets/mga.ico" Width="20" Height="20"/>
+      <TextBlock Text="MyGamesAnywhere"
+                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                 FontSize="{DynamicResource MgaFontSizeMd}"
+                 VerticalAlignment="Center"/>
+    </StackPanel>
+
+    <!-- Center: search box placeholder (functional search in v2) -->
+    <Border Grid.Column="1"
+            Background="{DynamicResource MgaElevatedBrush}"
+            CornerRadius="{DynamicResource MgaRadiusFull}"
+            Padding="12,6"
+            MaxWidth="400"
+            Margin="8,8"
+            VerticalAlignment="Center"
+            IsHitTestVisible="False">
+      <TextBlock Text="Search games…"
+                 Foreground="{DynamicResource MgaMutedBrush}"
+                 FontSize="{DynamicResource MgaFontSizeSm}"
+                 VerticalAlignment="Center"/>
+    </Border>
+
+    <!-- Right: window chrome buttons (NOT part of drag region) -->
+    <StackPanel Grid.Column="3"
+                Orientation="Horizontal"
+                Spacing="0"
+                Margin="0,0,4,0"
+                VerticalAlignment="Stretch"
+                IsHitTestVisible="True"
+                Name="ChromeButtons">
+
+      <!-- Minimize -->
+      <Button Name="MinimizeButton"
+              Classes="ghost chrome"
+              Width="46" Height="48"
+              ToolTip.Tip="Minimize">
+        <TextBlock Text="&#xE921;" FontFamily="Segoe MDL2 Assets,Segoe UI Symbol" FontSize="10"/>
+      </Button>
+
+      <!-- Maximize / Restore -->
+      <Button Name="MaximizeButton"
+              Classes="ghost chrome"
+              Width="46" Height="48"
+              ToolTip.Tip="Maximize">
+        <TextBlock Text="&#xE922;" FontFamily="Segoe MDL2 Assets,Segoe UI Symbol" FontSize="10"/>
+      </Button>
+
+      <!-- Close -->
+      <Button Name="CloseButton"
+              Classes="ghost chrome close"
+              Width="46" Height="48"
+              ToolTip.Tip="Close">
+        <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets,Segoe UI Symbol" FontSize="10"/>
+      </Button>
+    </StackPanel>
+
+  </Grid>
+</UserControl>

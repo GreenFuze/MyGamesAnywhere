@@ -1,0 +1,84 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MGA.Desktop.ViewModels"
+             xmlns:ctrl="using:MGA.Desktop.Controls"
+             x:Class="MGA.Desktop.Views.OnboardingView"
+             x:DataType="vm:OnboardingViewModel">
+
+  <!--
+    Full-screen onboarding overlay.
+    Shown on first launch; user enters the server URL and tests connectivity.
+  -->
+  <Border Background="{DynamicResource MgaBgBrush}">
+    <Grid RowDefinitions="*,Auto,*"
+          HorizontalAlignment="Center"
+          Width="440">
+
+      <!-- Centre card -->
+      <Border Grid.Row="1"
+              Classes="card"
+              Padding="40,36">
+        <StackPanel Spacing="0">
+
+          <!-- Logo + heading -->
+          <StackPanel HorizontalAlignment="Center" Spacing="12" Margin="0,0,0,32">
+            <Image Source="/Assets/mga.ico" Width="56" Height="56"
+                   HorizontalAlignment="Center"/>
+            <TextBlock Text="MyGamesAnywhere"
+                       Classes="heading"
+                       HorizontalAlignment="Center"/>
+            <TextBlock Text="Enter your server address to get started."
+                       Classes="muted"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"/>
+          </StackPanel>
+
+          <!-- URL input -->
+          <TextBlock Text="Server URL"
+                     FontSize="{DynamicResource MgaFontSizeSm}"
+                     FontWeight="{DynamicResource MgaFontWeightMedium}"
+                     Margin="0,0,0,6"/>
+          <TextBox Classes="mga"
+                   Text="{Binding ServerUrl}"
+                   PlaceholderText="http://hostname:8900"
+                   IsEnabled="{Binding !IsTesting}"
+                   Margin="0,0,0,16"/>
+
+          <!-- Error message -->
+          <Border Background="{DynamicResource MgaDangerBrush}"
+                  CornerRadius="{DynamicResource MgaRadiusMd}"
+                  Padding="12,10"
+                  IsVisible="{Binding TestError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                  Margin="0,0,0,16">
+            <TextBlock Text="{Binding TestError}"
+                       Foreground="#ffffff"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource MgaFontSizeSm}"/>
+          </Border>
+
+          <!-- Connect button + spinner row -->
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+
+            <Button Grid.Column="0"
+                    Classes="primary"
+                    Command="{Binding ConnectCommand}"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    IsEnabled="{Binding !IsTesting}">
+              <Panel>
+                <TextBlock Text="Connect"     IsVisible="{Binding !IsTesting}"/>
+                <TextBlock Text="Connecting…" IsVisible="{Binding IsTesting}"/>
+              </Panel>
+            </Button>
+
+            <ctrl:LoadingSpinner Grid.Column="1"
+                                 IsVisible="{Binding IsTesting}"
+                                 Width="28" Height="28"/>
+          </Grid>
+
+        </StackPanel>
+      </Border>
+
+    </Grid>
+  </Border>
+</UserControl>

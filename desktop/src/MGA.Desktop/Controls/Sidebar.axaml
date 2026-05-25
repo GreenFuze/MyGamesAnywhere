@@ -1,0 +1,96 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MGA.Desktop.ViewModels"
+             x:Class="MGA.Desktop.Controls.Sidebar"
+             x:DataType="vm:MainWindowViewModel">
+
+  <!--
+    Collapsible sidebar navigation.
+    Width animates between 220px (full) and 56px (icon-only) in MainWindow code-behind.
+    Nav items use IsActive to show the accent-bar indicator.
+  -->
+  <Border Background="{DynamicResource MgaSidebarBgBrush}"
+          BorderBrush="{DynamicResource MgaBorderBrush}"
+          BorderThickness="0,0,1,0">
+
+    <DockPanel LastChildFill="True">
+
+      <!-- Collapse / expand toggle -->
+      <Button DockPanel.Dock="Top"
+              Command="{Binding ToggleSidebarCommand}"
+              Classes="ghost"
+              HorizontalAlignment="Stretch"
+              Height="48"
+              ToolTip.Tip="Toggle sidebar">
+        <TextBlock Text="☰"
+                   FontSize="16"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"/>
+      </Button>
+
+      <!-- Nav item list -->
+      <ItemsControl DockPanel.Dock="Top"
+                    ItemsSource="{Binding NavItems}"
+                    Margin="6,4">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:NavItem">
+            <Button Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).NavigateToCommand}"
+                    CommandParameter="{Binding PageId}"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Left"
+                    Height="44"
+                    Margin="0,1"
+                    Padding="0"
+                    BorderThickness="0"
+                    Cursor="Hand">
+
+              <!-- Style based on IsActive state -->
+              <Button.Styles>
+                <Style Selector="Button">
+                  <Setter Property="Background"  Value="Transparent"/>
+                  <Setter Property="Foreground"  Value="{DynamicResource MgaMutedBrush}"/>
+                  <Setter Property="CornerRadius" Value="{DynamicResource MgaRadiusMd}"/>
+                </Style>
+                <Style Selector="Button:pointerover /template/ ContentPresenter">
+                  <Setter Property="Background" Value="{DynamicResource MgaElevatedBrush}"/>
+                </Style>
+              </Button.Styles>
+
+              <Grid ColumnDefinitions="4,32,*">
+
+                <!-- Left accent bar — visible only when active -->
+                <Border Grid.Column="0"
+                        CornerRadius="0,2,2,0"
+                        Background="{DynamicResource MgaAccentBrush}"
+                        IsVisible="{Binding IsActive}"
+                        Width="3"
+                        Margin="-6,8,0,8"/>
+
+                <!-- Icon -->
+                <TextBlock Grid.Column="1"
+                           Text="{Binding Icon}"
+                           FontSize="16"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Center"/>
+
+                <!-- Label (always rendered; width clipping hides it when collapsed) -->
+                <TextBlock Grid.Column="2"
+                           Text="{Binding Label}"
+                           VerticalAlignment="Center"
+                           FontSize="{DynamicResource MgaFontSizeSm}"
+                           FontWeight="{DynamicResource MgaFontWeightMedium}"
+                           Margin="6,0,0,0"
+                           TextTrimming="CharacterEllipsis"/>
+
+              </Grid>
+            </Button>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <!-- Spacer fills remaining space -->
+      <Border/>
+
+    </DockPanel>
+  </Border>
+</UserControl>

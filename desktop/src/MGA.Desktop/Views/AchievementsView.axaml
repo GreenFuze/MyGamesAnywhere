@@ -1,0 +1,13 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MGA.Desktop.ViewModels"
+             x:Class="MGA.Desktop.Views.AchievementsView"
+             x:DataType="vm:AchievementsViewModel">
+
+  <Border Padding="32">
+    <StackPanel Spacing="8">
+      <TextBlock Text="Achievements" Classes="heading"/>
+      <TextBlock Text="Progress rings and SSE-driven refresh — coming soon." Classes="muted"/>
+    </StackPanel>
+  </Border>
+</UserControl>

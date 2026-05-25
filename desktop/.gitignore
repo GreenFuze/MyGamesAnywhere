@@ -1,0 +1,16 @@
+# .NET build artifacts
+bin/
+obj/
+publish/
+
+# NuGet
+*.user
+.vs/
+
+# Rider / Resharper
+.idea/
+*.DotSettings.user
+
+# Visual Studio
+*.suo
+*.rsuser

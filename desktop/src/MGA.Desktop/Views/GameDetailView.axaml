@@ -1,0 +1,14 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MGA.Desktop.ViewModels"
+             x:Class="MGA.Desktop.Views.GameDetailView"
+             x:DataType="vm:GameDetailViewModel">
+
+  <Border Padding="32">
+    <StackPanel Spacing="8">
+      <TextBlock Text="Game Detail" Classes="heading"/>
+      <TextBlock Text="{Binding GameId, StringFormat='Game ID: {0}'}" Classes="muted"/>
+      <TextBlock Text="Hero banner and metadata panel — coming soon." Classes="muted"/>
+    </StackPanel>
+  </Border>
+</UserControl>

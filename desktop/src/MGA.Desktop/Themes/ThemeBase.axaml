@@ -1,0 +1,188 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    ThemeBase.axaml — derives SolidColorBrush resources from color tokens and
+    defines all MGA control styles.
+
+    Rules:
+    - ALL brush resources use DynamicResource on the *Color keys.
+    - No hardcoded colors here — colors come from Midnight.axaml / Daylight.axaml.
+    - Controls reference only MGA* resource keys.
+  -->
+
+  <Styles.Resources>
+
+    <!-- =========================================================
+         Brush resources (derived from color tokens)
+         ========================================================= -->
+    <SolidColorBrush x:Key="MgaBgBrush"           Color="{DynamicResource MgaBgColor}"/>
+    <SolidColorBrush x:Key="MgaSurfaceBrush"       Color="{DynamicResource MgaSurfaceColor}"/>
+    <SolidColorBrush x:Key="MgaElevatedBrush"      Color="{DynamicResource MgaElevatedColor}"/>
+    <SolidColorBrush x:Key="MgaBorderBrush"        Color="{DynamicResource MgaBorderColor}"/>
+    <SolidColorBrush x:Key="MgaTextBrush"          Color="{DynamicResource MgaTextColor}"/>
+    <SolidColorBrush x:Key="MgaMutedBrush"         Color="{DynamicResource MgaMutedColor}"/>
+    <SolidColorBrush x:Key="MgaAccentBrush"        Color="{DynamicResource MgaAccentColor}"/>
+    <SolidColorBrush x:Key="MgaAccentMutedBrush"   Color="{DynamicResource MgaAccentMutedColor}"/>
+    <SolidColorBrush x:Key="MgaAccentGlowBrush"    Color="{DynamicResource MgaAccentGlowColor}"/>
+    <SolidColorBrush x:Key="MgaDangerBrush"        Color="{DynamicResource MgaDangerColor}"/>
+    <SolidColorBrush x:Key="MgaSuccessBrush"       Color="{DynamicResource MgaSuccessColor}"/>
+    <SolidColorBrush x:Key="MgaWarningBrush"       Color="{DynamicResource MgaWarningColor}"/>
+    <SolidColorBrush x:Key="MgaSidebarBgBrush"     Color="{DynamicResource MgaSidebarBgColor}"/>
+    <SolidColorBrush x:Key="MgaSidebarActiveBrush" Color="{DynamicResource MgaSidebarActiveColor}"/>
+    <SolidColorBrush x:Key="MgaOverlayBrush"       Color="{DynamicResource MgaOverlayColor}"/>
+
+    <!-- =========================================================
+         Typography
+         ========================================================= -->
+    <x:Double x:Key="MgaFontSizeXs">11</x:Double>
+    <x:Double x:Key="MgaFontSizeSm">13</x:Double>
+    <x:Double x:Key="MgaFontSizeMd">15</x:Double>
+    <x:Double x:Key="MgaFontSizeLg">18</x:Double>
+    <x:Double x:Key="MgaFontSizeXl">24</x:Double>
+    <x:Double x:Key="MgaFontSize2xl">32</x:Double>
+
+    <FontWeight x:Key="MgaFontWeightNormal">Normal</FontWeight>
+    <FontWeight x:Key="MgaFontWeightMedium">Medium</FontWeight>
+    <FontWeight x:Key="MgaFontWeightSemiBold">SemiBold</FontWeight>
+    <FontWeight x:Key="MgaFontWeightBold">Bold</FontWeight>
+
+    <!-- =========================================================
+         Spacing & corner radius
+         ========================================================= -->
+    <x:Double x:Key="MgaSpacingXs">4</x:Double>
+    <x:Double x:Key="MgaSpacingSm">8</x:Double>
+    <x:Double x:Key="MgaSpacingMd">16</x:Double>
+    <x:Double x:Key="MgaSpacingLg">24</x:Double>
+    <x:Double x:Key="MgaSpacingXl">32</x:Double>
+
+    <CornerRadius x:Key="MgaRadiusSm">4</CornerRadius>
+    <CornerRadius x:Key="MgaRadiusMd">8</CornerRadius>
+    <CornerRadius x:Key="MgaRadiusLg">12</CornerRadius>
+    <CornerRadius x:Key="MgaRadiusXl">16</CornerRadius>
+    <CornerRadius x:Key="MgaRadiusFull">9999</CornerRadius>
+
+  </Styles.Resources>
+
+  <!-- =========================================================
+       Window background
+       ========================================================= -->
+  <Style Selector="Window.MgaWindow">
+    <Setter Property="Background" Value="{DynamicResource MgaBgBrush}"/>
+    <Setter Property="FontFamily" Value="Inter,Segoe UI,SF Pro,system-ui,sans-serif"/>
+    <Setter Property="FontSize"   Value="{DynamicResource MgaFontSizeMd}"/>
+    <Setter Property="Foreground" Value="{DynamicResource MgaTextBrush}"/>
+  </Style>
+
+  <!-- =========================================================
+       TextBlock
+       ========================================================= -->
+  <Style Selector="TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource MgaTextBrush}"/>
+    <Setter Property="FontFamily" Value="Inter,Segoe UI,SF Pro,system-ui,sans-serif"/>
+  </Style>
+
+  <Style Selector="TextBlock.muted">
+    <Setter Property="Foreground" Value="{DynamicResource MgaMutedBrush}"/>
+    <Setter Property="FontSize"   Value="{DynamicResource MgaFontSizeSm}"/>
+  </Style>
+
+  <Style Selector="TextBlock.heading">
+    <Setter Property="FontSize"   Value="{DynamicResource MgaFontSizeXl}"/>
+    <Setter Property="FontWeight" Value="{DynamicResource MgaFontWeightSemiBold}"/>
+  </Style>
+
+  <Style Selector="TextBlock.subheading">
+    <Setter Property="FontSize"   Value="{DynamicResource MgaFontSizeLg}"/>
+    <Setter Property="FontWeight" Value="{DynamicResource MgaFontWeightMedium}"/>
+  </Style>
+
+  <Style Selector="TextBlock.accent">
+    <Setter Property="Foreground" Value="{DynamicResource MgaAccentBrush}"/>
+  </Style>
+
+  <!-- =========================================================
+       Button — primary
+       ========================================================= -->
+  <Style Selector="Button.primary">
+    <Setter Property="Background"       Value="{DynamicResource MgaAccentBrush}"/>
+    <Setter Property="Foreground"       Value="#ffffff"/>
+    <Setter Property="CornerRadius"     Value="{DynamicResource MgaRadiusMd}"/>
+    <Setter Property="Padding"          Value="16,10"/>
+    <Setter Property="FontWeight"       Value="{DynamicResource MgaFontWeightSemiBold}"/>
+    <Setter Property="Cursor"           Value="Hand"/>
+    <Setter Property="BorderThickness"  Value="0"/>
+  </Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource MgaAccentMutedBrush}"/>
+  </Style>
+  <Style Selector="Button.primary:disabled /template/ ContentPresenter">
+    <Setter Property="Opacity" Value="0.5"/>
+  </Style>
+
+  <!-- Button — ghost -->
+  <Style Selector="Button.ghost">
+    <Setter Property="Background"      Value="Transparent"/>
+    <Setter Property="Foreground"      Value="{DynamicResource MgaMutedBrush}"/>
+    <Setter Property="CornerRadius"    Value="{DynamicResource MgaRadiusMd}"/>
+    <Setter Property="Padding"         Value="12,8"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Cursor"          Value="Hand"/>
+  </Style>
+  <Style Selector="Button.ghost:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource MgaElevatedBrush}"/>
+  </Style>
+
+  <!-- Button — chrome (title bar buttons) -->
+  <Style Selector="Button.chrome">
+    <Setter Property="Background"      Value="Transparent"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="CornerRadius"    Value="0"/>
+    <Setter Property="Padding"         Value="0"/>
+    <Setter Property="Cursor"          Value="Arrow"/>
+  </Style>
+  <Style Selector="Button.chrome:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource MgaElevatedBrush}"/>
+  </Style>
+  <Style Selector="Button.chrome.close:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource MgaDangerBrush}"/>
+  </Style>
+
+  <!-- Button — danger -->
+  <Style Selector="Button.danger">
+    <Setter Property="Background"      Value="{DynamicResource MgaDangerBrush}"/>
+    <Setter Property="Foreground"      Value="#ffffff"/>
+    <Setter Property="CornerRadius"    Value="{DynamicResource MgaRadiusMd}"/>
+    <Setter Property="Padding"         Value="16,10"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Cursor"          Value="Hand"/>
+  </Style>
+
+  <!-- =========================================================
+       TextBox
+       ========================================================= -->
+  <Style Selector="TextBox.mga">
+    <Setter Property="Background"      Value="{DynamicResource MgaElevatedBrush}"/>
+    <Setter Property="Foreground"      Value="{DynamicResource MgaTextBrush}"/>
+    <Setter Property="BorderBrush"     Value="{DynamicResource MgaBorderBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius"    Value="{DynamicResource MgaRadiusMd}"/>
+    <Setter Property="Padding"         Value="12,10"/>
+    <Setter Property="CaretBrush"      Value="{DynamicResource MgaAccentBrush}"/>
+    <Setter Property="SelectionBrush"  Value="{DynamicResource MgaAccentMutedBrush}"/>
+  </Style>
+  <Style Selector="TextBox.mga:focus">
+    <Setter Property="BorderBrush" Value="{DynamicResource MgaAccentBrush}"/>
+  </Style>
+
+  <!-- =========================================================
+       Border — card surface
+       ========================================================= -->
+  <Style Selector="Border.card">
+    <Setter Property="Background"      Value="{DynamicResource MgaSurfaceBrush}"/>
+    <Setter Property="BorderBrush"     Value="{DynamicResource MgaBorderBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius"    Value="{DynamicResource MgaRadiusLg}"/>
+    <Setter Property="Padding"         Value="16"/>
+  </Style>
+
+</Styles>

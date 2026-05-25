@@ -1,0 +1,17 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MGA.Desktop.ViewModels"
+             x:Class="MGA.Desktop.Views.AboutView"
+             x:DataType="vm:AboutViewModel">
+
+  <Border Padding="32">
+    <StackPanel Spacing="12" HorizontalAlignment="Left">
+      <Image Source="/Assets/mga.ico" Width="64" Height="64"/>
+      <TextBlock Text="MyGamesAnywhere" Classes="heading"/>
+      <TextBlock Text="{Binding Version, StringFormat='Version {0}'}" Classes="muted"/>
+      <TextBlock Text="{Binding BuildDate, StringFormat='Built {0}'}" Classes="muted"/>
+      <TextBlock Text="© GreenFuze. Open-source licenses available in the repository."
+                 Classes="muted" TextWrapping="Wrap" MaxWidth="500"/>
+    </StackPanel>
+  </Border>
+</UserControl>

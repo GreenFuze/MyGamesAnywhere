@@ -1,0 +1,81 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MGA.Desktop.ViewModels.Settings"
+             x:Class="MGA.Desktop.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+
+  <Border Padding="32">
+    <StackPanel Spacing="16">
+      <TextBlock Text="Settings" Classes="heading"/>
+
+      <!-- Tab strip -->
+      <TabControl SelectedIndex="{Binding SelectedTabIndex}">
+
+        <TabItem Header="Integrations">
+          <Border Padding="0,16,0,0">
+            <TextBlock Text="Integrations — manage game-source plugins (coming soon)."
+                       Classes="muted"/>
+          </Border>
+        </TabItem>
+
+        <TabItem Header="Updates">
+          <Border Padding="0,16,0,0">
+            <TextBlock Text="Check for server and plugin updates (coming soon)." Classes="muted"/>
+          </Border>
+        </TabItem>
+
+        <TabItem Header="Profiles">
+          <Border Padding="0,16,0,0">
+            <TextBlock Text="Manage user profiles (coming soon)." Classes="muted"/>
+          </Border>
+        </TabItem>
+
+        <TabItem Header="Plugins">
+          <Border Padding="0,16,0,0">
+            <TextBlock Text="Install and remove plugins (coming soon)." Classes="muted"/>
+          </Border>
+        </TabItem>
+
+        <TabItem Header="Cache">
+          <Border Padding="0,16,0,0">
+            <TextBlock Text="Clear metadata and image cache (coming soon)." Classes="muted"/>
+          </Border>
+        </TabItem>
+
+        <TabItem Header="Duplicates">
+          <Border Padding="0,16,0,0">
+            <TextBlock Text="Resolve duplicate game entries (coming soon)." Classes="muted"/>
+          </Border>
+        </TabItem>
+
+        <TabItem Header="Appearance">
+          <Border Padding="0,16,0,0">
+            <StackPanel Spacing="12">
+              <TextBlock Text="Theme" FontWeight="{DynamicResource MgaFontWeightMedium}"/>
+              <StackPanel Orientation="Horizontal" Spacing="8"
+                          DataContext="{Binding Appearance}">
+                <RadioButton Content="Midnight (Dark)"
+                             IsChecked="{Binding SelectedTheme,
+                               Converter={x:Static StringConverters.IsNotNullOrEmpty},
+                               ConverterParameter='midnight'}"
+                             GroupName="Theme"/>
+                <RadioButton Content="Daylight (Light)"
+                             IsChecked="{Binding SelectedTheme,
+                               Converter={x:Static StringConverters.IsNotNullOrEmpty},
+                               ConverterParameter='daylight'}"
+                             GroupName="Theme"/>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+        </TabItem>
+
+        <TabItem Header="Undetected">
+          <Border Padding="0,16,0,0">
+            <TextBlock Text="Manually add undetected games (coming soon)." Classes="muted"/>
+          </Border>
+        </TabItem>
+
+      </TabControl>
+    </StackPanel>
+  </Border>
+</UserControl>

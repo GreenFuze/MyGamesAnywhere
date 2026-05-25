@@ -1,0 +1,29 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    Midnight theme — dark color tokens.
+    Values mirror the web CSS variables in server/frontend/src/theme/presets.ts.
+  -->
+
+  <!-- Base colors -->
+  <Color x:Key="MgaBgColor">#0c0a10</Color>
+  <Color x:Key="MgaSurfaceColor">#13101a</Color>
+  <Color x:Key="MgaElevatedColor">#1a1624</Color>
+  <Color x:Key="MgaBorderColor">#2c2640</Color>
+  <Color x:Key="MgaTextColor">#eef0f6</Color>
+  <Color x:Key="MgaMutedColor">#8f8aa3</Color>
+  <Color x:Key="MgaAccentColor">#3db8ff</Color>
+  <Color x:Key="MgaAccentMutedColor">#1e6faf</Color>
+  <Color x:Key="MgaAccentGlowColor">#3db8ff40</Color>
+  <Color x:Key="MgaDangerColor">#ff4d6a</Color>
+  <Color x:Key="MgaSuccessColor">#22c55e</Color>
+  <Color x:Key="MgaWarningColor">#f59e0b</Color>
+
+  <!-- Sidebar -->
+  <Color x:Key="MgaSidebarBgColor">#0f0d16</Color>
+  <Color x:Key="MgaSidebarActiveColor">#1e1a2e</Color>
+
+  <!-- Overlay / scrim -->
+  <Color x:Key="MgaOverlayColor">#800c0a10</Color>
+
+</ResourceDictionary>
