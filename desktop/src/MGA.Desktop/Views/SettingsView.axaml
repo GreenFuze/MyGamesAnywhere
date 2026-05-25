@@ -166,12 +166,34 @@
 
       <!-- Plugins -->
       <TabItem Header="Plugins">
-        <Border Padding="0,20,0,0">
-          <StackPanel Spacing="8">
-            <TextBlock Text="Plugins" Classes="subheading"/>
-            <TextBlock Text="Install, update, and remove server-side plugins." Classes="muted"/>
-            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
-          </StackPanel>
+        <Border Padding="0,20,0,0" DataContext="{Binding Plugins}">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="Plugins" Classes="subheading"/>
+                <Button Classes="ghost" Content="↻ Reload" Command="{Binding ReloadCommand}" VerticalAlignment="Center"/>
+              </StackPanel>
+              <TextBlock Text="Server-side plugins that provide game sources and enrichment." Classes="muted"/>
+            </StackPanel>
+            <Border DockPanel.Dock="Top" HorizontalAlignment="Left" IsVisible="{Binding IsLoading}">
+              <controls:LoadingSpinner Width="32" Height="32"/>
+            </Border>
+            <ItemsControl ItemsSource="{Binding Plugins}" IsVisible="{Binding !IsLoading}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="settingsVm:PluginRowModel">
+                  <Border Classes="card" Margin="0,0,0,8" MaxWidth="480" HorizontalAlignment="Left">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <StackPanel Grid.Column="0" Spacing="4">
+                        <TextBlock Text="{Binding PluginId}" FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                        <TextBlock Text="{Binding ProvidesText}" Classes="muted"/>
+                      </StackPanel>
+                      <TextBlock Grid.Column="1" Text="{Binding Version}" Classes="muted" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </DockPanel>
         </Border>
       </TabItem>
 
@@ -233,12 +255,37 @@
 
       <!-- Duplicates -->
       <TabItem Header="Duplicates">
-        <Border Padding="0,20,0,0">
-          <StackPanel Spacing="8">
-            <TextBlock Text="Duplicates" Classes="subheading"/>
-            <TextBlock Text="Review and resolve duplicate game entries." Classes="muted"/>
-            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
-          </StackPanel>
+        <Border Padding="0,20,0,0" DataContext="{Binding Duplicates}">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="Duplicates" Classes="subheading"/>
+                <Button Classes="ghost" Content="↻ Reload" Command="{Binding ReloadCommand}" VerticalAlignment="Center"/>
+              </StackPanel>
+              <TextBlock Classes="muted">
+                <Run Text="{Binding GroupCount}"/>
+                <Run Text=" duplicate group(s) found."/>
+              </TextBlock>
+            </StackPanel>
+            <Border DockPanel.Dock="Top" HorizontalAlignment="Left" IsVisible="{Binding IsLoading}">
+              <controls:LoadingSpinner Width="32" Height="32"/>
+            </Border>
+            <ScrollViewer IsVisible="{Binding !IsLoading}">
+              <ItemsControl ItemsSource="{Binding Groups}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="settingsVm:DuplicateGroupRowModel">
+                    <Border Classes="card" Margin="0,0,0,8" MaxWidth="560" HorizontalAlignment="Left">
+                      <Grid ColumnDefinitions="*,Auto,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding RepresentativeTitle}" FontWeight="{DynamicResource MgaFontWeightSemiBold}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="{Binding SourceCount, StringFormat='{}{0} sources'}" Classes="muted" VerticalAlignment="Center" Margin="12,0"/>
+                        <TextBlock Grid.Column="2" Text="{Binding SizeText}" Classes="muted" VerticalAlignment="Center"/>
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </DockPanel>
         </Border>
       </TabItem>
 

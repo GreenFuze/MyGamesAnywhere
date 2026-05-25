@@ -413,3 +413,66 @@ public sealed record Profile
     [JsonPropertyName("created_at")]
     public string? CreatedAt { get; init; }
 }
+
+// ---------------------------------------------------------------------------
+// Plugins
+// ---------------------------------------------------------------------------
+
+/// <summary>A single server-side plugin returned by GET /api/plugins.</summary>
+public sealed record PluginDto
+{
+    [JsonPropertyName("plugin_id")]
+    public string PluginId { get; init; } = string.Empty;
+
+    [JsonPropertyName("plugin_version")]
+    public string Version { get; init; } = string.Empty;
+
+    [JsonPropertyName("provides")]
+    public List<string> Provides { get; init; } = [];
+
+    [JsonPropertyName("capabilities")]
+    public List<string> Capabilities { get; init; } = [];
+}
+
+// ---------------------------------------------------------------------------
+// Duplicates
+// ---------------------------------------------------------------------------
+
+/// <summary>A single source entry within a duplicate group.</summary>
+public sealed record DuplicateSourceDto
+{
+    [JsonPropertyName("canonical_game_id")]
+    public string CanonicalGameId { get; init; } = string.Empty;
+
+    [JsonPropertyName("canonical_title")]
+    public string CanonicalTitle { get; init; } = string.Empty;
+
+    [JsonPropertyName("file_count")]
+    public int FileCount { get; init; }
+
+    [JsonPropertyName("total_size")]
+    public long TotalSize { get; init; }
+}
+
+/// <summary>A group of duplicate games returned by GET /api/duplicates/games.</summary>
+public sealed record DuplicateGroupDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; init; } = string.Empty;
+
+    [JsonPropertyName("representative_title")]
+    public string RepresentativeTitle { get; init; } = string.Empty;
+
+    [JsonPropertyName("sources")]
+    public List<DuplicateSourceDto> Sources { get; init; } = [];
+}
+
+/// <summary>Full response from GET /api/duplicates/games.</summary>
+public sealed record DuplicateGamesResponse
+{
+    [JsonPropertyName("mode")]
+    public string Mode { get; init; } = string.Empty;
+
+    [JsonPropertyName("groups")]
+    public List<DuplicateGroupDto> Groups { get; init; } = [];
+}

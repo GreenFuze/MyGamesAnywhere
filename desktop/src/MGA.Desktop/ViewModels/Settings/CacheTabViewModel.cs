@@ -107,7 +107,7 @@ public sealed partial class CacheTabViewModel : ViewModelBase
     // Private helpers
     // ---------------------------------------------------------------------------
 
-    private static string FormatBytes(long bytes)
+    internal static string FormatBytes(long bytes)
     {
         const long KB = 1024;
         const long MB = KB * 1024;

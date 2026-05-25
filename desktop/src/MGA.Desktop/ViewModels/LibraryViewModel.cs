@@ -213,33 +213,15 @@ public sealed partial class LibraryViewModel : ViewModelBase
     /// </summary>
     private void RebuildFilteredGames()
     {
-        var query = Games.AsEnumerable();
-
-        // Text filter — matches title or platform.
-        var text = SearchText.Trim();
-        if (!string.IsNullOrEmpty(text))
-            query = query.Where(g =>
-                g.Title.Contains(text, StringComparison.OrdinalIgnoreCase) ||
-                g.Platform.Contains(text, StringComparison.OrdinalIgnoreCase));
-
-        // Platform filter.
-        if (SelectedPlatform != "All Platforms")
-            query = query.Where(g => g.Platform == SelectedPlatform);
-
-        // Favorites filter.
-        if (ShowFavoritesOnly)
-            query = query.Where(g => g.Favorite);
-
-        // Sort.
-        query = SelectedSortIndex switch
-        {
-            1 => query.OrderByDescending(g => g.Title),
-            2 => query.OrderBy(g => g.Platform).ThenBy(g => g.Title),
-            _ => query.OrderBy(g => g.Title),
-        };
+        var filtered = LibraryFilter.Apply(
+            Games,
+            SearchText,
+            SelectedPlatform,
+            ShowFavoritesOnly,
+            SelectedSortIndex);
 
         FilteredGames.Clear();
-        foreach (var card in query)
+        foreach (var card in filtered)
             FilteredGames.Add(card);
     }
 

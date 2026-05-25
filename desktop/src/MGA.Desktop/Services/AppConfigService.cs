@@ -57,6 +57,16 @@ public sealed class AppConfigService
         _config = TryLoad() ?? new AppConfig();
     }
 
+    /// <summary>
+    /// Test constructor — uses a caller-specified path instead of %APPDATA%.
+    /// Does not create directories; the caller is responsible for the path.
+    /// </summary>
+    internal AppConfigService(string configPath)
+    {
+        _configPath = configPath;
+        _config = TryLoad() ?? new AppConfig();
+    }
+
     // ---------------------------------------------------------------------------
     // Public API
     // ---------------------------------------------------------------------------

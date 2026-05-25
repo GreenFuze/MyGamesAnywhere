@@ -223,6 +223,22 @@ public sealed class MgaApiService
     }
 
     // ---------------------------------------------------------------------------
+    // Plugins
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Returns all server-side plugins from GET /api/plugins.</summary>
+    public Task<List<PluginDto>> GetPluginsAsync(CancellationToken ct = default)
+        => GetAsync<List<PluginDto>>("/api/plugins", ct);
+
+    // ---------------------------------------------------------------------------
+    // Duplicates
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Returns all duplicate-game groups from GET /api/duplicates/games.</summary>
+    public Task<DuplicateGamesResponse> GetDuplicatesAsync(CancellationToken ct = default)
+        => GetAsync<DuplicateGamesResponse>("/api/duplicates/games", ct);
+
+    // ---------------------------------------------------------------------------
     // Media
     // ---------------------------------------------------------------------------
 

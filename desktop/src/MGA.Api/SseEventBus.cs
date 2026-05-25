@@ -14,7 +14,7 @@ namespace MGA.Api;
 public sealed class SseEventBus : IDisposable
 {
     private readonly Subject<SseMessage> _subject = new();
-    private readonly SseClient _client;
+    private readonly SseClient? _client;
 
     /// <summary>All raw SSE messages as an observable sequence.</summary>
     public IObservable<SseMessage> Messages => _subject.AsObservable();
@@ -24,6 +24,9 @@ public sealed class SseEventBus : IDisposable
         _client = client;
         _client.EventReceived += OnEventReceived;
     }
+
+    /// <summary>Test constructor — no SseClient dependency.</summary>
+    internal SseEventBus() { _client = null; }
 
     // ---------------------------------------------------------------------------
     // Filtering helpers
@@ -48,9 +51,13 @@ public sealed class SseEventBus : IDisposable
     private void OnEventReceived(string eventType, string data) =>
         _subject.OnNext(new SseMessage(eventType, data));
 
+    /// <summary>Pushes a fake event directly into the bus. For unit tests only.</summary>
+    internal void Inject(string eventType, string data) => OnEventReceived(eventType, data);
+
     public void Dispose()
     {
-        _client.EventReceived -= OnEventReceived;
+        if (_client is not null)
+            _client.EventReceived -= OnEventReceived;
         _subject.Dispose();
     }
 }
