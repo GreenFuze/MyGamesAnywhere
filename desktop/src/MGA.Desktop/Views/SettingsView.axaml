@@ -107,11 +107,90 @@
 
       <!-- Updates -->
       <TabItem Header="Updates">
-        <Border Padding="0,20,0,0">
-          <StackPanel Spacing="8">
-            <TextBlock Text="Updates" Classes="subheading"/>
-            <TextBlock Text="Check for server and plugin updates." Classes="muted"/>
-            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
+        <Border Padding="0,20,0,0"
+                DataContext="{Binding Update}"
+                x:DataType="settingsVm:UpdateTabViewModel">
+          <StackPanel Spacing="20" MaxWidth="480" HorizontalAlignment="Left">
+
+            <!-- Header -->
+            <StackPanel Spacing="4">
+              <TextBlock Text="Updates" Classes="subheading"/>
+              <TextBlock Text="Server version information and update management."
+                         Classes="muted"/>
+            </StackPanel>
+
+            <!-- Loading spinner -->
+            <Border HorizontalAlignment="Left" IsVisible="{Binding IsLoading}">
+              <controls:LoadingSpinner Width="32" Height="32"/>
+            </Border>
+
+            <!-- Content (visible once loaded) -->
+            <StackPanel Spacing="16" IsVisible="{Binding !IsLoading}">
+
+              <!-- Server version card -->
+              <Border Classes="card">
+                <StackPanel Spacing="12">
+                  <TextBlock Text="Server"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Text="Version" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{Binding ServerVersion}"
+                               Classes="muted" VerticalAlignment="Center"
+                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                  </Grid>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Text="Build date" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{Binding ServerBuildDate}"
+                               Classes="muted" VerticalAlignment="Center"/>
+                  </Grid>
+                </StackPanel>
+              </Border>
+
+              <!-- Update status card -->
+              <Border Classes="card">
+                <StackPanel Spacing="12">
+                  <TextBlock Text="Update Status"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Text="Current" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{Binding CurrentVersion}"
+                               Classes="muted" VerticalAlignment="Center"
+                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                  </Grid>
+
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Text="Latest available" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{Binding LatestVersion}"
+                               Classes="muted" VerticalAlignment="Center"
+                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                               Foreground="{DynamicResource MgaSuccessBrush}"
+                               IsVisible="{Binding UpdateAvailable}"/>
+                    <TextBlock Grid.Column="1" Text="{Binding LatestVersion}"
+                               Classes="muted" VerticalAlignment="Center"
+                               IsVisible="{Binding !UpdateAvailable}"/>
+                  </Grid>
+
+                  <!-- Status message (only shown when non-empty) -->
+                  <TextBlock Text="{Binding StatusMessage}"
+                             Classes="muted"
+                             TextWrapping="Wrap"
+                             IsVisible="{Binding HasStatusMessage}"/>
+                </StackPanel>
+              </Border>
+
+              <!-- Actions -->
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Classes="primary"
+                        Content="Check for Updates"
+                        Command="{Binding CheckForUpdatesCommand}"
+                        IsEnabled="{Binding !IsChecking}"/>
+                <Button Classes="ghost"
+                        Content="↻ Reload"
+                        Command="{Binding ReloadCommand}"/>
+              </StackPanel>
+
+            </StackPanel>
           </StackPanel>
         </Border>
       </TabItem>

@@ -476,3 +476,55 @@ public sealed record DuplicateGamesResponse
     [JsonPropertyName("groups")]
     public List<DuplicateGroupDto> Groups { get; init; } = [];
 }
+
+// ---------------------------------------------------------------------------
+// About / Version
+// ---------------------------------------------------------------------------
+
+/// <summary>Server build metadata from GET /api/about.</summary>
+public sealed record AboutInfo
+{
+    [JsonPropertyName("version")]
+    public string Version { get; init; } = string.Empty;
+
+    [JsonPropertyName("commit")]
+    public string Commit { get; init; } = string.Empty;
+
+    [JsonPropertyName("build_date")]
+    public string BuildDate { get; init; } = string.Empty;
+
+    [JsonPropertyName("author_credits")]
+    public List<string> AuthorCredits { get; init; } = [];
+}
+
+// ---------------------------------------------------------------------------
+// Update
+// ---------------------------------------------------------------------------
+
+/// <summary>Live update status from GET /api/update/status.</summary>
+public sealed record UpdateStatus
+{
+    [JsonPropertyName("current_version")]
+    public string CurrentVersion { get; init; } = string.Empty;
+
+    [JsonPropertyName("latest_version")]
+    public string? LatestVersion { get; init; }
+
+    [JsonPropertyName("update_available")]
+    public bool UpdateAvailable { get; init; }
+
+    [JsonPropertyName("release_notes_url")]
+    public string? ReleaseNotesUrl { get; init; }
+
+    [JsonPropertyName("install_type")]
+    public string InstallType { get; init; } = string.Empty;
+
+    [JsonPropertyName("download_in_progress")]
+    public bool DownloadInProgress { get; init; }
+
+    [JsonPropertyName("download_percent")]
+    public double DownloadPercent { get; init; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; init; }
+}

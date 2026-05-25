@@ -239,6 +239,40 @@ public sealed class MgaApiService
         => GetAsync<DuplicateGamesResponse>("/api/duplicates/games", ct);
 
     // ---------------------------------------------------------------------------
+    // About / Version
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Returns server build metadata from GET /api/about.</summary>
+    public Task<AboutInfo> GetAboutInfoAsync(CancellationToken ct = default)
+        => GetAsync<AboutInfo>("/api/about", ct);
+
+    // ---------------------------------------------------------------------------
+    // Update
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Returns the current update status from GET /api/update/status.</summary>
+    public Task<UpdateStatus> GetUpdateStatusAsync(CancellationToken ct = default)
+        => GetAsync<UpdateStatus>("/api/update/status", ct);
+
+    /// <summary>
+    /// Triggers an update check via POST /api/update/check (returns 200 with UpdateStatus).
+    /// </summary>
+    public Task<UpdateStatus> CheckForUpdatesAsync(CancellationToken ct = default)
+        => PostAsync<UpdateStatus>("/api/update/check", ct);
+
+    // ---------------------------------------------------------------------------
+    // Internal helpers (extended)
+    // ---------------------------------------------------------------------------
+
+    private async Task<T> PostAsync<T>(string path, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync(path, null, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var result = await resp.Content.ReadFromJsonAsync<T>(JsonOptions, ct).ConfigureAwait(false);
+        return result ?? throw new MgaApiException(200, $"Server returned null for {path}");
+    }
+
+    // ---------------------------------------------------------------------------
     // Media
     // ---------------------------------------------------------------------------
 

@@ -5,7 +5,7 @@ namespace MGA.Desktop.ViewModels.Settings;
 
 /// <summary>
 /// Settings page — tabbed host for all settings sub-pages.
-/// Scaffold stub: full implementation added in the next iteration.
+/// Each tab has its own ViewModel; all are constructed eagerly so tabs are ready immediately.
 /// </summary>
 public sealed partial class SettingsViewModel : ViewModelBase
 {
@@ -29,7 +29,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ToastService            toast)
     {
         Integrations    = new IntegrationsTabViewModel(server, toast);
-        Update          = new UpdateTabViewModel(toast);
+        Update          = new UpdateTabViewModel(server, toast);
         Profiles        = new ProfilesTabViewModel(server, toast);
         Plugins         = new PluginsTabViewModel(server, toast);
         Cache           = new CacheTabViewModel(server, toast);
