@@ -1,14 +1,100 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MGA.Desktop.ViewModels"
+             xmlns:controls="using:MGA.Desktop.Controls"
              x:Class="MGA.Desktop.Views.LibraryView"
              x:DataType="vm:LibraryViewModel">
 
-  <Border Padding="32">
-    <StackPanel Spacing="8">
-      <TextBlock Text="Library" Classes="heading"/>
-      <TextBlock Text="Full game collection with sort, filter, and view modes — coming soon."
-                 Classes="muted"/>
+  <DockPanel>
+
+    <!-- ==========================================================================
+         Fixed header + search bar (docked to top)
+         ========================================================================== -->
+    <StackPanel DockPanel.Dock="Top"
+                Spacing="12"
+                Margin="32,32,32,16">
+
+      <!-- Heading row -->
+      <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+        <TextBlock Text="Library" Classes="heading"/>
+        <TextBlock Text="{Binding TotalCount, StringFormat='{}{0} games'}"
+                   Classes="muted"
+                   VerticalAlignment="Center"/>
+      </StackPanel>
+
+      <!-- Search box -->
+      <TextBox Classes="mga"
+               PlaceholderText="Search games…"
+               Text="{Binding SearchText}"
+               MaxWidth="400"
+               HorizontalAlignment="Left"/>
+
     </StackPanel>
-  </Border>
+
+    <!-- ==========================================================================
+         Loading indicator
+         ========================================================================== -->
+    <Border DockPanel.Dock="Top"
+            IsVisible="{Binding IsLoading}"
+            HorizontalAlignment="Center"
+            Margin="0,16">
+      <controls:LoadingSpinner/>
+    </Border>
+
+    <!-- ==========================================================================
+         Scrollable game grid
+         ========================================================================== -->
+    <ScrollViewer IsVisible="{Binding !IsLoading}">
+      <Border Margin="32,0,32,32">
+        <ItemsControl ItemsSource="{Binding FilteredGames}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <WrapPanel Orientation="Horizontal"/>
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:GameCardModel">
+              <Button Command="{Binding $parent[ItemsControl].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
+                      CommandParameter="{Binding Id}"
+                      Width="160" Height="220"
+                      Background="Transparent" BorderThickness="0" Padding="0"
+                      Margin="0,0,12,12"
+                      Cursor="Hand">
+                <Border CornerRadius="{DynamicResource MgaRadiusLg}"
+                        Background="{DynamicResource MgaSurfaceBrush}"
+                        ClipToBounds="True">
+                  <Grid>
+
+                    <!-- Placeholder when no cover -->
+                    <Border Background="{DynamicResource MgaElevatedBrush}"
+                            IsVisible="{Binding CoverUrl, Converter={x:Static StringConverters.IsNullOrEmpty}}">
+                      <TextBlock Text="{Binding Title}"
+                                 TextWrapping="Wrap"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Center"
+                                 Margin="8"
+                                 Classes="muted"/>
+                    </Border>
+
+                    <!-- Title bar at bottom -->
+                    <Border VerticalAlignment="Bottom"
+                            Background="#CC000000"
+                            Padding="8,6">
+                      <TextBlock Text="{Binding Title}"
+                                 FontSize="12"
+                                 TextTrimming="CharacterEllipsis"
+                                 Foreground="#FFFFFF"/>
+                    </Border>
+
+                  </Grid>
+                </Border>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </Border>
+    </ScrollViewer>
+
+  </DockPanel>
+
 </UserControl>

@@ -93,10 +93,47 @@ public sealed class MgaApiService
     }
 
     // ---------------------------------------------------------------------------
-    // TODO: replace stubs below with generated client calls after running
-    //       desktop/scripts/generate-api-client.ps1
+    // Games
     // ---------------------------------------------------------------------------
-    // Example generated shape:
-    //   public Task<GameListResponse> ListGamesAsync(int page = 0, int pageSize = 100, CancellationToken ct = default)
-    //       => GetAsync<GameListResponse>($"/api/games?page={page}&page_size={pageSize}", ct);
+
+    /// <summary>Returns a paginated list of games from the server.</summary>
+    public Task<ListGamesResponse> ListGamesAsync(
+        int page = 0,
+        int pageSize = 100,
+        CancellationToken ct = default)
+        => GetAsync<ListGamesResponse>($"/api/games?page={page}&page_size={pageSize}", ct);
+
+    /// <summary>Returns the full detail for a single game.</summary>
+    public Task<GameDetail> GetGameAsync(string id, CancellationToken ct = default)
+        => GetAsync<GameDetail>($"/api/games/{Uri.EscapeDataString(id)}", ct);
+
+    // ---------------------------------------------------------------------------
+    // Stats
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Returns top-level library statistics.</summary>
+    public Task<LibraryStats> GetLibraryStatsAsync(CancellationToken ct = default)
+        => GetAsync<LibraryStats>("/api/stats", ct);
+
+    // ---------------------------------------------------------------------------
+    // Profiles
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Returns all gamer profiles configured on the server.</summary>
+    public Task<List<Profile>> GetProfilesAsync(CancellationToken ct = default)
+        => GetAsync<List<Profile>>("/api/profiles", ct);
+
+    // ---------------------------------------------------------------------------
+    // Media
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Converts a relative media path (e.g. "/api/media/123") to an absolute URL
+    /// using the HttpClient's base address.
+    /// </summary>
+    public string GetMediaUrl(string relativeUrl)
+    {
+        var baseAddress = _http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
+        return baseAddress + relativeUrl;
+    }
 }

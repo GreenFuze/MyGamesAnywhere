@@ -1,14 +1,152 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MGA.Desktop.ViewModels"
+             xmlns:controls="using:MGA.Desktop.Controls"
              x:Class="MGA.Desktop.Views.PlayView"
              x:DataType="vm:PlayViewModel">
 
-  <Border Padding="32">
-    <StackPanel Spacing="8">
-      <TextBlock Text="Play" Classes="heading"/>
-      <TextBlock Text="Recently played games and featured content — coming soon."
-                 Classes="muted"/>
+  <ScrollViewer>
+    <StackPanel Spacing="0">
+
+      <!-- =====================================================================
+           Page header
+           ===================================================================== -->
+      <Border Padding="32,32,32,16">
+        <TextBlock Text="Play" Classes="heading"/>
+      </Border>
+
+      <!-- =====================================================================
+           Loading indicator
+           ===================================================================== -->
+      <Border IsVisible="{Binding IsLoading}"
+              HorizontalAlignment="Center"
+              Margin="0,16,0,0">
+        <controls:LoadingSpinner/>
+      </Border>
+
+      <!-- =====================================================================
+           Recently Played shelf
+           ===================================================================== -->
+      <StackPanel IsVisible="{Binding !IsLoading}"
+                  Spacing="12"
+                  Margin="32,0,32,24">
+
+        <TextBlock Text="Recently Played" Classes="subheading"/>
+
+        <!-- Empty state -->
+        <TextBlock Text="No recently played games."
+                   Classes="muted"
+                   IsVisible="{Binding RecentGames.Count, Converter={x:Static ObjectConverters.IsNull}}"/>
+
+        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Disabled">
+          <ItemsControl ItemsSource="{Binding RecentGames}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Orientation="Horizontal" Spacing="12"/>
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:GameCardModel">
+                <Button Command="{Binding $parent[ItemsControl].((vm:PlayViewModel)DataContext).OpenGameCommand}"
+                        CommandParameter="{Binding Id}"
+                        Width="160" Height="220"
+                        Background="Transparent" BorderThickness="0" Padding="0"
+                        Cursor="Hand">
+                  <Border CornerRadius="{DynamicResource MgaRadiusLg}"
+                          Background="{DynamicResource MgaSurfaceBrush}"
+                          ClipToBounds="True">
+                    <Grid>
+
+                      <!-- Placeholder when no cover -->
+                      <Border Background="{DynamicResource MgaElevatedBrush}"
+                              IsVisible="{Binding CoverUrl, Converter={x:Static StringConverters.IsNullOrEmpty}}">
+                        <TextBlock Text="{Binding Title}"
+                                   TextWrapping="Wrap"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Margin="8"
+                                   Classes="muted"/>
+                      </Border>
+
+                      <!-- Title bar at bottom -->
+                      <Border VerticalAlignment="Bottom"
+                              Background="#CC000000"
+                              Padding="8,6">
+                        <TextBlock Text="{Binding Title}"
+                                   FontSize="12"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="#FFFFFF"/>
+                      </Border>
+
+                    </Grid>
+                  </Border>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </StackPanel>
+
+      <!-- =====================================================================
+           All Games grid
+           ===================================================================== -->
+      <StackPanel IsVisible="{Binding !IsLoading}"
+                  Spacing="12"
+                  Margin="32,0,32,32">
+
+        <TextBlock Text="All Games" Classes="subheading"/>
+
+        <ItemsControl ItemsSource="{Binding Games}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <WrapPanel Orientation="Horizontal"/>
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:GameCardModel">
+              <Button Command="{Binding $parent[ItemsControl].((vm:PlayViewModel)DataContext).OpenGameCommand}"
+                      CommandParameter="{Binding Id}"
+                      Width="160" Height="220"
+                      Background="Transparent" BorderThickness="0" Padding="0"
+                      Margin="0,0,12,12"
+                      Cursor="Hand">
+                <Border CornerRadius="{DynamicResource MgaRadiusLg}"
+                        Background="{DynamicResource MgaSurfaceBrush}"
+                        ClipToBounds="True">
+                  <Grid>
+
+                    <!-- Placeholder when no cover -->
+                    <Border Background="{DynamicResource MgaElevatedBrush}"
+                            IsVisible="{Binding CoverUrl, Converter={x:Static StringConverters.IsNullOrEmpty}}">
+                      <TextBlock Text="{Binding Title}"
+                                 TextWrapping="Wrap"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Center"
+                                 Margin="8"
+                                 Classes="muted"/>
+                    </Border>
+
+                    <!-- Title bar at bottom -->
+                    <Border VerticalAlignment="Bottom"
+                            Background="#CC000000"
+                            Padding="8,6">
+                      <TextBlock Text="{Binding Title}"
+                                 FontSize="12"
+                                 TextTrimming="CharacterEllipsis"
+                                 Foreground="#FFFFFF"/>
+                    </Border>
+
+                  </Grid>
+                </Border>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+      </StackPanel>
+
     </StackPanel>
-  </Border>
+  </ScrollViewer>
+
 </UserControl>
