@@ -172,6 +172,57 @@ public sealed class MgaApiService
         => GetAsync<List<Profile>>("/api/profiles", ct);
 
     // ---------------------------------------------------------------------------
+    // Scan
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Triggers a full library scan via POST /api/scan.
+    /// The server starts the job and fires SSE events (scan_started, scan_complete, scan_error).
+    /// </summary>
+    public async Task TriggerScanAsync(CancellationToken ct = default)
+    {
+        // Empty body = scan all sources.
+        var resp = await _http.PostAsJsonAsync("/api/scan", new { }, JsonOptions, ct)
+                              .ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Integrations
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Returns live status for all configured integrations.</summary>
+    public Task<List<IntegrationStatusEntry>> GetIntegrationStatusAsync(CancellationToken ct = default)
+        => GetAsync<List<IntegrationStatusEntry>>("/api/integrations/status", ct);
+
+    /// <summary>Triggers a background refresh for integration {id} via POST /api/integrations/{id}/refresh.</summary>
+    public async Task RefreshIntegrationAsync(string id, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync(
+            $"/api/integrations/{Uri.EscapeDataString(id)}/refresh",
+            null, ct).ConfigureAwait(false);
+
+        // 202 Accepted is the normal success code for async jobs.
+        if ((int)resp.StatusCode != 202 && !resp.IsSuccessStatusCode)
+            await EnsureSuccess(resp, ct).ConfigureAwait(false);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Cache
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Returns all source-cache entries from GET /api/cache/entries.</summary>
+    public Task<CacheEntriesResponse> GetCacheEntriesAsync(CancellationToken ct = default)
+        => GetAsync<CacheEntriesResponse>("/api/cache/entries", ct);
+
+    /// <summary>Clears all source-cache entries via POST /api/cache/clear.</summary>
+    public async Task ClearCacheAsync(CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync("/api/cache/clear", null, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+    }
+
+    // ---------------------------------------------------------------------------
     // Media
     // ---------------------------------------------------------------------------
 

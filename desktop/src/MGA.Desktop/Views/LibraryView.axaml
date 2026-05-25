@@ -32,6 +32,37 @@
                MaxWidth="400"
                HorizontalAlignment="Left"/>
 
+      <!-- Filter / sort / scan row -->
+      <StackPanel Orientation="Horizontal" Spacing="8">
+
+        <!-- Platform dropdown -->
+        <ComboBox ItemsSource="{Binding Platforms}"
+                  SelectedItem="{Binding SelectedPlatform}"
+                  MinWidth="160"/>
+
+        <!-- Sort dropdown -->
+        <ComboBox ItemsSource="{Binding SortOptions}"
+                  SelectedIndex="{Binding SelectedSortIndex}"
+                  MinWidth="140"/>
+
+        <!-- Favorites toggle — two overlapping buttons -->
+        <Button Classes="primary"
+                Content="★ Favorites Only"
+                Command="{Binding ToggleFavoritesOnlyCommand}"
+                IsVisible="{Binding ShowFavoritesOnly}"/>
+        <Button Classes="ghost"
+                Content="☆ Favorites Only"
+                Command="{Binding ToggleFavoritesOnlyCommand}"
+                IsVisible="{Binding !ShowFavoritesOnly}"/>
+
+        <!-- Scan trigger -->
+        <Button Classes="ghost"
+                Content="↻ Scan Library"
+                Command="{Binding ScanCommand}"
+                IsEnabled="{Binding !IsScanning}"/>
+
+      </StackPanel>
+
     </StackPanel>
 
     <!-- ==========================================================================

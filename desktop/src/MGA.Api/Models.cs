@@ -329,6 +329,69 @@ public sealed record GamerStatistics
 }
 
 // ---------------------------------------------------------------------------
+// Integrations
+// ---------------------------------------------------------------------------
+
+/// <summary>Live status entry from GET /api/integrations/status.</summary>
+public sealed record IntegrationStatusEntry
+{
+    [JsonPropertyName("integration_id")]
+    public string IntegrationId { get; init; } = string.Empty;
+
+    [JsonPropertyName("plugin_id")]
+    public string PluginId { get; init; } = string.Empty;
+
+    [JsonPropertyName("label")]
+    public string Label { get; init; } = string.Empty;
+
+    /// <summary>"ok", "error", "pending", etc.</summary>
+    [JsonPropertyName("status")]
+    public string Status { get; init; } = string.Empty;
+
+    [JsonPropertyName("message")]
+    public string Message { get; init; } = string.Empty;
+}
+
+// ---------------------------------------------------------------------------
+// Cache
+// ---------------------------------------------------------------------------
+
+/// <summary>A single source-cache entry from GET /api/cache/entries.</summary>
+public sealed record CacheEntryDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; init; } = string.Empty;
+
+    [JsonPropertyName("canonical_title")]
+    public string CanonicalTitle { get; init; } = string.Empty;
+
+    [JsonPropertyName("source_title")]
+    public string SourceTitle { get; init; } = string.Empty;
+
+    [JsonPropertyName("integration_label")]
+    public string IntegrationLabel { get; init; } = string.Empty;
+
+    [JsonPropertyName("plugin_id")]
+    public string PluginId { get; init; } = string.Empty;
+
+    [JsonPropertyName("status")]
+    public string Status { get; init; } = string.Empty;
+
+    [JsonPropertyName("size")]
+    public long Size { get; init; }
+
+    [JsonPropertyName("file_count")]
+    public int FileCount { get; init; }
+}
+
+/// <summary>Wrapper from GET /api/cache/entries.</summary>
+public sealed record CacheEntriesResponse
+{
+    [JsonPropertyName("entries")]
+    public List<CacheEntryDto> Entries { get; init; } = [];
+}
+
+// ---------------------------------------------------------------------------
 // Profile
 // ---------------------------------------------------------------------------
 

@@ -24,13 +24,84 @@
 
       <!-- Integrations -->
       <TabItem Header="Integrations">
-        <Border Padding="0,20,0,0">
-          <StackPanel Spacing="8">
-            <TextBlock Text="Integrations" Classes="subheading"/>
-            <TextBlock Text="Manage game-source plugins (Steam, GOG, Epic, etc.)."
-                       Classes="muted"/>
-            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
-          </StackPanel>
+        <Border Padding="0,20,0,0"
+                DataContext="{Binding Integrations}">
+          <DockPanel>
+
+            <!-- Header row -->
+            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="Integrations" Classes="subheading"/>
+                <Button Classes="ghost"
+                        Content="↻ Reload"
+                        Command="{Binding ReloadCommand}"
+                        VerticalAlignment="Center"/>
+              </StackPanel>
+              <TextBlock Text="Status of all configured game-source integrations."
+                         Classes="muted"/>
+            </StackPanel>
+
+            <!-- Loading spinner -->
+            <Border DockPanel.Dock="Top"
+                    HorizontalAlignment="Left"
+                    Margin="0,8,0,0"
+                    IsVisible="{Binding IsLoading}">
+              <controls:LoadingSpinner Width="32" Height="32"/>
+            </Border>
+
+            <!-- Integration rows -->
+            <ItemsControl ItemsSource="{Binding Integrations}"
+                          IsVisible="{Binding !IsLoading}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="settingsVm:IntegrationRowModel">
+                  <Border Classes="card" Margin="0,0,0,8" MaxWidth="560" HorizontalAlignment="Left">
+                    <Grid ColumnDefinitions="*,Auto">
+
+                      <!-- Label + status -->
+                      <StackPanel Grid.Column="0" Spacing="4">
+                        <TextBlock Text="{Binding Label}"
+                                   FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <!-- Status badge -->
+                          <Border CornerRadius="{DynamicResource MgaRadiusFull}"
+                                  Padding="8,2">
+                            <Border.Background>
+                              <SolidColorBrush Color="{Binding Status,
+                                Converter={x:Static StringConverters.IsNotNullOrEmpty},
+                                FallbackValue=#1e6faf}"/>
+                            </Border.Background>
+                            <TextBlock Text="{Binding Status}"
+                                       FontSize="{DynamicResource MgaFontSizeXs}"
+                                       Foreground="#FFFFFF"/>
+                          </Border>
+                          <TextBlock Text="{Binding PluginId}"
+                                     Classes="muted"
+                                     VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <!-- Error message if present -->
+                        <TextBlock Text="{Binding Message}"
+                                   Classes="muted"
+                                   TextWrapping="Wrap"
+                                   IsVisible="{Binding HasError}"
+                                   Foreground="{DynamicResource MgaDangerBrush}"/>
+                      </StackPanel>
+
+                      <!-- Refresh button -->
+                      <Button Grid.Column="1"
+                              Classes="ghost"
+                              Content="↻ Refresh"
+                              Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).RefreshIntegrationCommand}"
+                              CommandParameter="{Binding IntegrationId}"
+                              VerticalAlignment="Top"
+                              Margin="12,0,0,0"/>
+
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+          </DockPanel>
         </Border>
       </TabItem>
 
@@ -106,11 +177,56 @@
 
       <!-- Cache -->
       <TabItem Header="Cache">
-        <Border Padding="0,20,0,0">
-          <StackPanel Spacing="8">
-            <TextBlock Text="Cache" Classes="subheading"/>
-            <TextBlock Text="View cache size and clear metadata / image caches." Classes="muted"/>
-            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
+        <Border Padding="0,20,0,0"
+                DataContext="{Binding Cache}">
+          <StackPanel Spacing="20" MaxWidth="480" HorizontalAlignment="Left">
+
+            <!-- Header -->
+            <StackPanel Spacing="4">
+              <TextBlock Text="Source Cache" Classes="subheading"/>
+              <TextBlock Text="Cached game source files used for fast library access."
+                         Classes="muted"/>
+            </StackPanel>
+
+            <!-- Loading spinner -->
+            <Border HorizontalAlignment="Left" IsVisible="{Binding IsLoading}">
+              <controls:LoadingSpinner Width="32" Height="32"/>
+            </Border>
+
+            <!-- Stats card -->
+            <Border Classes="card" IsVisible="{Binding !IsLoading}">
+              <StackPanel Spacing="12">
+
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Grid.Column="0" Text="Cached entries" VerticalAlignment="Center"/>
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding EntryCount}"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                             VerticalAlignment="Center"/>
+                </Grid>
+
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Grid.Column="0" Text="Total size" VerticalAlignment="Center"/>
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding TotalSizeText}"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                             VerticalAlignment="Center"/>
+                </Grid>
+
+              </StackPanel>
+            </Border>
+
+            <!-- Actions -->
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !IsLoading}">
+              <Button Classes="danger"
+                      Content="Clear All Cache"
+                      Command="{Binding ClearCacheCommand}"
+                      IsEnabled="{Binding !IsClearing}"/>
+              <Button Classes="ghost"
+                      Content="↻ Reload"
+                      Command="{Binding ReloadCommand}"/>
+            </StackPanel>
+
           </StackPanel>
         </Border>
       </TabItem>
