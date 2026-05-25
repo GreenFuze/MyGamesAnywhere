@@ -47,43 +47,59 @@
               <TextBlock Text="games in library" Classes="muted"/>
             </StackPanel>
 
-            <!-- Platform breakdown -->
+            <!-- Platform breakdown — proportional bar chart -->
             <StackPanel Spacing="8">
               <TextBlock Text="By Platform" Classes="subheading"/>
               <ItemsControl ItemsSource="{Binding PlatformBreakdown}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:CountStatModel">
-                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
-                      <TextBlock Grid.Column="0"
-                                 Text="{Binding Label}"
-                                 VerticalAlignment="Center"/>
-                      <TextBlock Grid.Column="1"
-                                 Text="{Binding Count}"
-                                 Classes="muted"
-                                 VerticalAlignment="Center"
-                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-                    </Grid>
+                    <StackPanel Spacing="2" Margin="0,0,0,8">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding Count}"
+                                   Classes="muted"
+                                   MinWidth="40"
+                                   TextAlignment="Right"
+                                   FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                      </Grid>
+                      <ProgressBar Minimum="0"
+                                   Maximum="{Binding MaxCount}"
+                                   Value="{Binding Count}"
+                                   Height="5"
+                                   CornerRadius="{DynamicResource MgaRadiusFull}"
+                                   Foreground="{DynamicResource MgaAccentBrush}"
+                                   Background="{DynamicResource MgaElevatedBrush}"/>
+                    </StackPanel>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </StackPanel>
 
-            <!-- Genre breakdown -->
+            <!-- Genre breakdown — proportional bar chart -->
             <StackPanel Spacing="8">
               <TextBlock Text="By Genre" Classes="subheading"/>
               <ItemsControl ItemsSource="{Binding GenreBreakdown}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:CountStatModel">
-                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
-                      <TextBlock Grid.Column="0"
-                                 Text="{Binding Label}"
-                                 VerticalAlignment="Center"/>
-                      <TextBlock Grid.Column="1"
-                                 Text="{Binding Count}"
-                                 Classes="muted"
-                                 VerticalAlignment="Center"
-                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-                    </Grid>
+                    <StackPanel Spacing="2" Margin="0,0,0,8">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding Count}"
+                                   Classes="muted"
+                                   MinWidth="40"
+                                   TextAlignment="Right"
+                                   FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                      </Grid>
+                      <ProgressBar Minimum="0"
+                                   Maximum="{Binding MaxCount}"
+                                   Value="{Binding Count}"
+                                   Height="5"
+                                   CornerRadius="{DynamicResource MgaRadiusFull}"
+                                   Foreground="{DynamicResource MgaAccentBrush}"
+                                   Background="{DynamicResource MgaElevatedBrush}"/>
+                    </StackPanel>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>

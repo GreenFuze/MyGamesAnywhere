@@ -103,25 +103,31 @@ public sealed partial class StatsViewModel : ViewModelBase
             // Populate library tab.
             TotalGames = library.Summary.CanonicalGameCount;
 
+            // Compute per-list maximums so bar widths are proportional within each group.
+            int platformMax = library.Platforms.Count > 0 ? library.Platforms.Max(p => p.Count) : 1;
+            int genreMax    = library.Genres.Count    > 0 ? library.Genres.Max(g => g.Count)    : 1;
+
             PlatformBreakdown = new ObservableCollection<CountStatModel>(
                 library.Platforms.Select(p => new CountStatModel
                 {
-                    Label = p.Label,
-                    Count = p.Count,
+                    Label    = p.Label,
+                    Count    = p.Count,
+                    MaxCount = platformMax,
                 }));
 
             GenreBreakdown = new ObservableCollection<CountStatModel>(
                 library.Genres.Select(g => new CountStatModel
                 {
-                    Label = g.Label,
-                    Count = g.Count,
+                    Label    = g.Label,
+                    Count    = g.Count,
+                    MaxCount = genreMax,
                 }));
 
             // Populate gamer tab.
             FavoriteGames        = gamer.FavoriteGames;
             TotalAchievements    = gamer.TotalAchievements;
             UnlockedAchievements = gamer.UnlockedAchievements;
-            UnlockPercent        = FormatPercent(gamer.UnlockedAchievements, gamer.TotalAchievements);
+            UnlockPercent        = PercentFormatter.Format(gamer.UnlockedAchievements, gamer.TotalAchievements);
 
             AchievementSystems = new ObservableCollection<AchievementSystemRowModel>(
                 gamer.AchievementSystems.Select(s => new AchievementSystemRowModel
@@ -129,7 +135,7 @@ public sealed partial class StatsViewModel : ViewModelBase
                     Source      = s.Source,
                     Total       = s.TotalCount,
                     Unlocked    = s.UnlockedCount,
-                    PercentText = FormatPercent(s.UnlockedCount, s.TotalCount),
+                    PercentText = PercentFormatter.Format(s.UnlockedCount, s.TotalCount),
                 }));
         }
         catch (Exception ex)
@@ -142,12 +148,4 @@ public sealed partial class StatsViewModel : ViewModelBase
         }
     }
 
-    // ---------------------------------------------------------------------------
-    // Private helpers
-    // ---------------------------------------------------------------------------
-
-    private static string FormatPercent(int unlocked, int total)
-        => total > 0
-            ? $"{(int)Math.Round(unlocked * 100.0 / total)}%"
-            : "0%";
 }

@@ -118,7 +118,7 @@ public sealed partial class AchievementsViewModel : ViewModelBase
             // Populate summary totals.
             TotalAchievements    = dashboard.Totals.TotalCount;
             UnlockedAchievements = dashboard.Totals.UnlockedCount;
-            UnlockPercent        = FormatPercent(dashboard.Totals.UnlockedCount, dashboard.Totals.TotalCount);
+            UnlockPercent        = PercentFormatter.Format(dashboard.Totals.UnlockedCount, dashboard.Totals.TotalCount);
 
             // Populate systems collection.
             Systems = new ObservableCollection<AchievementSystemRowModel>(
@@ -127,7 +127,7 @@ public sealed partial class AchievementsViewModel : ViewModelBase
                     Source       = s.Source,
                     Total        = s.TotalCount,
                     Unlocked     = s.UnlockedCount,
-                    PercentText  = FormatPercent(s.UnlockedCount, s.TotalCount),
+                    PercentText  = PercentFormatter.Format(s.UnlockedCount, s.TotalCount),
                     TotalPoints  = s.TotalPoints,
                     EarnedPoints = s.EarnedPoints,
                 }));
@@ -155,7 +155,7 @@ public sealed partial class AchievementsViewModel : ViewModelBase
                         CoverUrl    = coverUrl,
                         Total       = total,
                         Unlocked    = unlocked,
-                        PercentText = FormatPercent(unlocked, total),
+                        PercentText = PercentFormatter.Format(unlocked, total),
                     };
                 }));
         }
@@ -169,12 +169,4 @@ public sealed partial class AchievementsViewModel : ViewModelBase
         }
     }
 
-    // ---------------------------------------------------------------------------
-    // Private helpers
-    // ---------------------------------------------------------------------------
-
-    private static string FormatPercent(int unlocked, int total)
-        => total > 0
-            ? $"{(int)Math.Round(unlocked * 100.0 / total)}%"
-            : "0%";
 }

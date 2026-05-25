@@ -74,7 +74,7 @@ public sealed partial class DuplicatesTabViewModel : ViewModelBase
                 {
                     RepresentativeTitle = g.RepresentativeTitle,
                     SourceCount         = g.Sources.Count,
-                    SizeText            = FormatBytes(g.Sources.Sum(s => s.TotalSize)),
+                    SizeText            = ByteFormatter.Format(g.Sources.Sum(s => s.TotalSize)),
                 }));
         }
         catch (Exception ex)
@@ -87,22 +87,4 @@ public sealed partial class DuplicatesTabViewModel : ViewModelBase
         }
     }
 
-    // ---------------------------------------------------------------------------
-    // Private helpers
-    // ---------------------------------------------------------------------------
-
-    private static string FormatBytes(long bytes)
-    {
-        const long GB = 1024L * 1024 * 1024;
-        const long MB = 1024L * 1024;
-        const long KB = 1024L;
-
-        return bytes switch
-        {
-            >= GB => $"{bytes / (double)GB:F1} GB",
-            >= MB => $"{bytes / (double)MB:F1} MB",
-            >= KB => $"{bytes / (double)KB:F1} KB",
-            _     => $"{bytes} B",
-        };
-    }
 }

@@ -1,11 +1,10 @@
-using MGA.Desktop.ViewModels.Settings;
+using MGA.Desktop.ViewModels;
 using Xunit;
 
 namespace MGA.Tests.Desktop;
 
 /// <summary>
-/// Tests for CacheTabViewModel.FormatBytes.
-/// The method is internal so requires InternalsVisibleTo in MGA.Desktop.
+/// Tests for ByteFormatter.Format (formerly CacheTabViewModel.FormatBytes).
 /// </summary>
 public sealed class CacheFormatTests
 {
@@ -20,6 +19,6 @@ public sealed class CacheFormatTests
     [InlineData(1610612736, "1.5 GB")]
     public void FormatBytes_returns_expected_string(long bytes, string expected)
     {
-        Assert.Equal(expected, CacheTabViewModel.FormatBytes(bytes));
+        Assert.Equal(expected, ByteFormatter.Format(bytes));
     }
 }

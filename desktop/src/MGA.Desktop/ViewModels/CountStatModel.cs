@@ -13,4 +13,10 @@ public sealed class CountStatModel
 
     /// <summary>The count for this label.</summary>
     public int Count { get; init; }
+
+    /// <summary>
+    /// The maximum count in the current dataset — used by the Stats bar chart
+    /// to proportion the ProgressBar's Maximum so the widest bar fills 100%.
+    /// </summary>
+    public int MaxCount { get; init; }
 }

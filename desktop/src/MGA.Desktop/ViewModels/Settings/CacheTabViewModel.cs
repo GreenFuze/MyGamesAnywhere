@@ -90,8 +90,8 @@ public sealed partial class CacheTabViewModel : ViewModelBase
         {
             var response = await _server.Api.GetCacheEntriesAsync().ConfigureAwait(true);
 
-            EntryCount   = response.Entries.Count;
-            TotalSizeText = FormatBytes(response.Entries.Sum(e => e.Size));
+            EntryCount    = response.Entries.Count;
+            TotalSizeText = ByteFormatter.Format(response.Entries.Sum(e => e.Size));
         }
         catch (Exception ex)
         {
@@ -103,22 +103,4 @@ public sealed partial class CacheTabViewModel : ViewModelBase
         }
     }
 
-    // ---------------------------------------------------------------------------
-    // Private helpers
-    // ---------------------------------------------------------------------------
-
-    internal static string FormatBytes(long bytes)
-    {
-        const long KB = 1024;
-        const long MB = KB * 1024;
-        const long GB = MB * 1024;
-
-        return bytes switch
-        {
-            >= GB => $"{bytes / (double)GB:F1} GB",
-            >= MB => $"{bytes / (double)MB:F1} MB",
-            >= KB => $"{bytes / (double)KB:F1} KB",
-            _     => $"{bytes} B",
-        };
-    }
 }
