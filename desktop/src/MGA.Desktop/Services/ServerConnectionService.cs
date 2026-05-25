@@ -1,4 +1,6 @@
 using MGA.Api;
+using System.Reactive.Linq;
+using System.Reactive.Subjects;
 
 namespace MGA.Desktop.Services;
 
@@ -18,9 +20,13 @@ public sealed class ServerConnectionService : IDisposable
     private MgaApiService _api = null!;
     private SseEventBus _events = null!;
 
+    private readonly BehaviorSubject<string> _urlSubject;
+
     public ServerConnectionService(AppConfigService appConfig)
     {
         _appConfig = appConfig;
+
+        _urlSubject = new BehaviorSubject<string>(appConfig.Config.ActiveServer);
 
         // Connect to the last active server immediately if one is configured.
         if (!string.IsNullOrWhiteSpace(appConfig.Config.ActiveServer))
@@ -39,6 +45,9 @@ public sealed class ServerConnectionService : IDisposable
 
     /// <summary>The base URL of the active server, or empty if not connected.</summary>
     public string ActiveUrl => _appConfig.Config.ActiveServer;
+
+    /// <summary>Fires the current URL immediately on subscribe, then on every server switch.</summary>
+    public IObservable<string> UrlChanged => _urlSubject.AsObservable();
 
     /// <summary>
     /// Switches to a different server: disposes the current connection, updates config,
@@ -90,6 +99,9 @@ public sealed class ServerConnectionService : IDisposable
         // Profile header is sent via query param matching the web client convention.
         _sse = new SseClient(_http, "/api/events");
         _events = new SseEventBus(_sse);
+
+        // Notify all URL subscribers of the new active server.
+        _urlSubject.OnNext(baseUrl);
     }
 
     private void DisposeConnection()
@@ -103,5 +115,10 @@ public sealed class ServerConnectionService : IDisposable
     // IDisposable
     // ---------------------------------------------------------------------------
 
-    public void Dispose() => DisposeConnection();
+    public void Dispose()
+    {
+        DisposeConnection();
+        _urlSubject.OnCompleted();
+        _urlSubject.Dispose();
+    }
 }

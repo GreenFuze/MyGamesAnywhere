@@ -107,6 +107,42 @@
         </StackPanel>
 
         <!-- ================================================================
+             Media carousel — screenshots and header images
+             ================================================================ -->
+        <Border Margin="0,12,0,0"
+                IsVisible="{Binding Screenshots.Count}">
+          <StackPanel Spacing="8">
+
+            <TextBlock Text="Media"
+                       Classes="subheading"
+                       Margin="24,0"/>
+
+            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled"
+                          Margin="24,0">
+              <ItemsControl ItemsSource="{Binding Screenshots}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="8"/>
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:MediaItemModel">
+                    <Border CornerRadius="{DynamicResource MgaRadiusMd}"
+                            ClipToBounds="True"
+                            Width="280" Height="158">
+                      <Image Source="{Binding Url}"
+                             Stretch="UniformToFill"/>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+
+          </StackPanel>
+        </Border>
+
+        <!-- ================================================================
              Achievement summary row (only visible when game has achievements)
              ================================================================ -->
         <Border Margin="24,12,24,0"

@@ -105,8 +105,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Disposables.Add(
             theme.Changed.Subscribe(id => CurrentTheme = id));
 
-        // Reflect the currently connected server URL.
-        ActiveServerUrl = serverConn.ActiveUrl;
+        // Reflect the currently connected server URL — BehaviorSubject fires immediately
+        // on subscribe (initial value) and again on every future switch.
+        Disposables.Add(
+            serverConn.UrlChanged.Subscribe(url => ActiveServerUrl = url));
 
         // Show onboarding on first run; otherwise go straight to Play.
         if (config.Config.IsFirstRun)
@@ -159,7 +161,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         old?.Dispose();
 
         IsShowingOnboarding = false;
-        ActiveServerUrl     = _serverConn.ActiveUrl;
         NavigateTo("play");
     }
 

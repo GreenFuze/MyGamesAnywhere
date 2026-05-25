@@ -1,6 +1,9 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MGA.Desktop.ViewModels.Settings"
+             xmlns:settingsVm="using:MGA.Desktop.ViewModels.Settings"
+             xmlns:controls="using:MGA.Desktop.Controls"
+             xmlns:services="using:MGA.Desktop.Services"
              x:Class="MGA.Desktop.Views.SettingsView"
              x:DataType="vm:SettingsViewModel">
 
@@ -44,12 +47,49 @@
 
       <!-- Profiles -->
       <TabItem Header="Profiles">
-        <Border Padding="0,20,0,0">
-          <StackPanel Spacing="8">
-            <TextBlock Text="Profiles" Classes="subheading"/>
-            <TextBlock Text="Manage user profiles on the connected server." Classes="muted"/>
-            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
-          </StackPanel>
+        <Border Padding="0,20,0,0"
+                DataContext="{Binding Profiles}">
+          <DockPanel>
+
+            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
+              <TextBlock Text="Profiles" Classes="subheading"/>
+              <TextBlock Text="User profiles configured on the connected server."
+                         Classes="muted"/>
+            </StackPanel>
+
+            <Border DockPanel.Dock="Top"
+                    HorizontalAlignment="Left"
+                    Margin="0,8,0,0"
+                    IsVisible="{Binding IsLoading}">
+              <controls:LoadingSpinner Width="32" Height="32"/>
+            </Border>
+
+            <ItemsControl ItemsSource="{Binding Profiles}"
+                          IsVisible="{Binding !IsLoading}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="settingsVm:ProfileRowModel">
+                  <Border Classes="card"
+                          Margin="0,0,0,8"
+                          MaxWidth="480"
+                          HorizontalAlignment="Left">
+                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding DisplayName}"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                 VerticalAlignment="Center"/>
+                      <Border Background="{DynamicResource MgaAccentMutedBrush}"
+                              CornerRadius="{DynamicResource MgaRadiusSm}"
+                              Padding="8,3">
+                        <TextBlock Text="{Binding Role}"
+                                   FontSize="{DynamicResource MgaFontSizeXs}"
+                                   Foreground="#FFFFFF"/>
+                      </Border>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+          </DockPanel>
         </Border>
       </TabItem>
 
@@ -103,12 +143,58 @@
                         MinWidth="200"/>
             </StackPanel>
 
-            <!-- Server URL display -->
+            <!-- Server management -->
             <StackPanel Spacing="8">
               <TextBlock Text="Connection"
                          FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-              <TextBlock Text="Server switching and profile selection — coming soon."
-                         Classes="muted"/>
+
+              <!-- Active server -->
+              <StackPanel Spacing="4">
+                <TextBlock Text="Active server" Classes="muted"/>
+                <TextBlock Text="{Binding ActiveServerUrl}"
+                           Classes="accent"
+                           IsVisible="{Binding ActiveServerUrl,
+                                       Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+              </StackPanel>
+
+              <!-- Known servers list -->
+              <TextBlock Text="Saved servers" Classes="muted" Margin="0,4,0,0"/>
+              <ItemsControl ItemsSource="{Binding KnownServers}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="services:ServerProfile">
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                      <TextBlock Text="{Binding Name}"
+                                 VerticalAlignment="Center"
+                                 MinWidth="100"/>
+                      <TextBlock Text="{Binding Url}"
+                                 Classes="muted"
+                                 VerticalAlignment="Center"/>
+                      <Button Classes="ghost"
+                              Content="Switch"
+                              Command="{Binding $parent[ItemsControl].((settingsVm:AppearanceTabViewModel)DataContext).SwitchToServerCommand}"
+                              CommandParameter="{Binding}"/>
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <!-- Add new server form -->
+              <TextBlock Text="Add server" Classes="muted" Margin="0,8,0,0"/>
+              <TextBox Classes="mga"
+                       PlaceholderText="Name (optional)"
+                       Text="{Binding NewServerName}"
+                       MaxWidth="400"
+                       HorizontalAlignment="Left"/>
+              <TextBox Classes="mga"
+                       PlaceholderText="http://hostname:8900"
+                       Text="{Binding NewServerUrl}"
+                       MaxWidth="400"
+                       HorizontalAlignment="Left"/>
+              <Button Classes="primary"
+                      Content="Connect"
+                      Command="{Binding AddServerCommand}"
+                      IsEnabled="{Binding !IsConnecting}"
+                      HorizontalAlignment="Left"/>
             </StackPanel>
 
           </StackPanel>

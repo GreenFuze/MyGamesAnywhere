@@ -34,7 +34,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Plugins         = new PluginsTabViewModel(server, toast);
         Cache           = new CacheTabViewModel(server, toast);
         Duplicates      = new DuplicatesTabViewModel(server, toast);
-        Appearance      = new AppearanceTabViewModel(theme, config, toast);
+        Appearance      = new AppearanceTabViewModel(theme, config, server, toast);
         UndetectedGames = new UndetectedGamesTabViewModel(server, toast);
     }
 

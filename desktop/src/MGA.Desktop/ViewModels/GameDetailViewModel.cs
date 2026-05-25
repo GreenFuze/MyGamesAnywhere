@@ -6,6 +6,12 @@ using MGA.Desktop.Services;
 
 namespace MGA.Desktop.ViewModels;
 
+/// <summary>Single media item (screenshot or header) for the detail-page carousel.</summary>
+public sealed class MediaItemModel
+{
+    public string Url { get; init; } = string.Empty;
+}
+
 /// <summary>
 /// Game detail page — full-bleed hero banner, metadata panel, and action bar.
 ///
@@ -71,6 +77,10 @@ public sealed partial class GameDetailViewModel : ViewModelBase
 
     [ObservableProperty]
     private string? _coverUrl;
+
+    /// <summary>Screenshot and header images — shown in the media carousel strip.</summary>
+    [ObservableProperty]
+    private ObservableCollection<MediaItemModel> _screenshots = [];
 
     // ---------------------------------------------------------------------------
     // Favorite / Achievements
@@ -177,6 +187,15 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             HeroImageUrl = heroMedia is not null && _server.Api is not null
                 ? _server.Api.GetMediaUrl(heroMedia.Url)
                 : CoverUrl;
+
+            // Populate screenshot carousel.
+            Screenshots = new ObservableCollection<MediaItemModel>(
+                game.Media
+                    .Where(m => m.Type == "screenshot" || m.Type == "header")
+                    .Select(m => new MediaItemModel
+                    {
+                        Url = _server.Api!.GetMediaUrl(m.Url),
+                    }));
 
             // Achievement summary.
             if (game.AchievementSummary is not null)
