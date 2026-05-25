@@ -73,5 +73,6 @@ temp-resources/
 # SuitCode
 .suit/
 server/.suit/
+.suitcode/
 
 .claude/
