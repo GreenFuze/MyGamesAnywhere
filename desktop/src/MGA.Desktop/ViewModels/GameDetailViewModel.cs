@@ -130,12 +130,26 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
     }
 
-    /// <summary>Stub — toggles the favorite state. Full implementation to follow.</summary>
+    /// <summary>Toggles the favorite flag via PUT/DELETE /api/games/{id}/favorite.</summary>
     [RelayCommand]
-    private Task ToggleFavoriteAsync()
+    private async Task ToggleFavoriteAsync()
     {
-        _toast.Info("Coming soon", "Toggle favorite is not yet implemented.");
-        return Task.CompletedTask;
+        if (_server.Api is null)
+            return;
+
+        bool newValue = !Favorite;
+        try
+        {
+            await _server.Api.SetFavoriteAsync(GameId, newValue).ConfigureAwait(true);
+            Favorite = newValue;
+            _toast.Success(
+                newValue ? "Added to favorites" : "Removed from favorites",
+                Title);
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Could not update favorite", ex.Message);
+        }
     }
 
     /// <summary>Navigates back to the library.</summary>

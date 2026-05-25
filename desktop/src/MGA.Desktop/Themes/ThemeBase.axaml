@@ -175,6 +175,32 @@
   </Style>
 
   <!-- =========================================================
+       Button — game card (scale + depth on hover)
+       ========================================================= -->
+  <Style Selector="Button.game-card">
+    <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+    <Setter Property="ZIndex"               Value="0"/>
+    <Setter Property="Transitions">
+      <Transitions>
+        <TransformOperationsTransition Property="RenderTransform"
+                                       Duration="0:0:0.15"
+                                       Easing="CubicEaseOut"/>
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.game-card:pointerover">
+    <Setter Property="RenderTransform" Value="scale(1.05)"/>
+    <Setter Property="ZIndex"          Value="1"/>
+  </Style>
+  <Style Selector="Button.game-card:pressed">
+    <Setter Property="RenderTransform" Value="scale(0.97)"/>
+  </Style>
+  <!-- Suppress the default button hover chrome inside the card -->
+  <Style Selector="Button.game-card:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="Transparent"/>
+  </Style>
+
+  <!-- =========================================================
        Border — card surface
        ========================================================= -->
   <Style Selector="Border.card">

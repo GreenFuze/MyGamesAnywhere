@@ -2,31 +2,31 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MGA.Desktop.ViewModels"
              xmlns:controls="using:MGA.Desktop.Controls"
+             xmlns:ac="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.ItemsRepeater"
+             xmlns:al="clr-namespace:Avalonia.Layout;assembly=Avalonia.Controls.ItemsRepeater"
              x:Class="MGA.Desktop.Views.PlayView"
              x:DataType="vm:PlayViewModel">
 
-  <ScrollViewer>
-    <StackPanel Spacing="0">
+  <DockPanel>
 
-      <!-- =====================================================================
-           Page header
-           ===================================================================== -->
+    <!-- =====================================================================
+         Fixed top section — header, spinner, recent shelf, grid heading
+         ===================================================================== -->
+    <StackPanel DockPanel.Dock="Top" Spacing="0">
+
+      <!-- Page header -->
       <Border Padding="32,32,32,16">
         <TextBlock Text="Play" Classes="heading"/>
       </Border>
 
-      <!-- =====================================================================
-           Loading indicator
-           ===================================================================== -->
+      <!-- Loading indicator -->
       <Border IsVisible="{Binding IsLoading}"
               HorizontalAlignment="Center"
               Margin="0,16,0,0">
         <controls:LoadingSpinner/>
       </Border>
 
-      <!-- =====================================================================
-           Recently Played shelf
-           ===================================================================== -->
+      <!-- Recently Played shelf -->
       <StackPanel IsVisible="{Binding !IsLoading}"
                   Spacing="12"
                   Margin="32,0,32,24">
@@ -36,10 +36,12 @@
         <!-- Empty state -->
         <TextBlock Text="No recently played games."
                    Classes="muted"
-                   IsVisible="{Binding RecentGames.Count, Converter={x:Static ObjectConverters.IsNull}}"/>
+                   IsVisible="{Binding HasNoRecentGames}"/>
 
+        <!-- Horizontal card strip -->
         <ScrollViewer HorizontalScrollBarVisibility="Auto"
-                      VerticalScrollBarVisibility="Disabled">
+                      VerticalScrollBarVisibility="Disabled"
+                      IsVisible="{Binding !HasNoRecentGames}">
           <ItemsControl ItemsSource="{Binding RecentGames}">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
@@ -48,7 +50,8 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:GameCardModel">
-                <Button Command="{Binding $parent[ItemsControl].((vm:PlayViewModel)DataContext).OpenGameCommand}"
+                <Button Classes="game-card"
+                        Command="{Binding $parent[ItemsControl].((vm:PlayViewModel)DataContext).OpenGameCommand}"
                         CommandParameter="{Binding Id}"
                         Width="160" Height="220"
                         Background="Transparent" BorderThickness="0" Padding="0"
@@ -57,10 +60,7 @@
                           Background="{DynamicResource MgaSurfaceBrush}"
                           ClipToBounds="True">
                     <Grid>
-
-                      <!-- Placeholder when no cover -->
-                      <Border Background="{DynamicResource MgaElevatedBrush}"
-                              IsVisible="{Binding CoverUrl, Converter={x:Static StringConverters.IsNullOrEmpty}}">
+                      <Border Background="{DynamicResource MgaElevatedBrush}">
                         <TextBlock Text="{Binding Title}"
                                    TextWrapping="Wrap"
                                    HorizontalAlignment="Center"
@@ -68,8 +68,6 @@
                                    Margin="8"
                                    Classes="muted"/>
                       </Border>
-
-                      <!-- Title bar at bottom -->
                       <Border VerticalAlignment="Bottom"
                               Background="#CC000000"
                               Padding="8,6">
@@ -78,7 +76,6 @@
                                    TextTrimming="CharacterEllipsis"
                                    Foreground="#FFFFFF"/>
                       </Border>
-
                     </Grid>
                   </Border>
                 </Button>
@@ -88,65 +85,60 @@
         </ScrollViewer>
       </StackPanel>
 
-      <!-- =====================================================================
-           All Games grid
-           ===================================================================== -->
-      <StackPanel IsVisible="{Binding !IsLoading}"
-                  Spacing="12"
-                  Margin="32,0,32,32">
-
+      <!-- All Games section heading -->
+      <Border Padding="32,0,32,12"
+              IsVisible="{Binding !IsLoading}">
         <TextBlock Text="All Games" Classes="subheading"/>
-
-        <ItemsControl ItemsSource="{Binding Games}">
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate>
-              <WrapPanel Orientation="Horizontal"/>
-            </ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:GameCardModel">
-              <Button Command="{Binding $parent[ItemsControl].((vm:PlayViewModel)DataContext).OpenGameCommand}"
-                      CommandParameter="{Binding Id}"
-                      Width="160" Height="220"
-                      Background="Transparent" BorderThickness="0" Padding="0"
-                      Margin="0,0,12,12"
-                      Cursor="Hand">
-                <Border CornerRadius="{DynamicResource MgaRadiusLg}"
-                        Background="{DynamicResource MgaSurfaceBrush}"
-                        ClipToBounds="True">
-                  <Grid>
-
-                    <!-- Placeholder when no cover -->
-                    <Border Background="{DynamicResource MgaElevatedBrush}"
-                            IsVisible="{Binding CoverUrl, Converter={x:Static StringConverters.IsNullOrEmpty}}">
-                      <TextBlock Text="{Binding Title}"
-                                 TextWrapping="Wrap"
-                                 HorizontalAlignment="Center"
-                                 VerticalAlignment="Center"
-                                 Margin="8"
-                                 Classes="muted"/>
-                    </Border>
-
-                    <!-- Title bar at bottom -->
-                    <Border VerticalAlignment="Bottom"
-                            Background="#CC000000"
-                            Padding="8,6">
-                      <TextBlock Text="{Binding Title}"
-                                 FontSize="12"
-                                 TextTrimming="CharacterEllipsis"
-                                 Foreground="#FFFFFF"/>
-                    </Border>
-
-                  </Grid>
-                </Border>
-              </Button>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-
-      </StackPanel>
+      </Border>
 
     </StackPanel>
-  </ScrollViewer>
+
+    <!-- =====================================================================
+         Virtualized game grid — fills remaining vertical space
+         ===================================================================== -->
+    <ScrollViewer IsVisible="{Binding !IsLoading}">
+      <ac:ItemsRepeater ItemsSource="{Binding Games}"
+                     Margin="32,0,32,32">
+        <ac:ItemsRepeater.Layout>
+          <al:UniformGridLayout MinItemWidth="160" MinItemHeight="220"
+                             MinColumnSpacing="12" MinRowSpacing="12"/>
+        </ac:ItemsRepeater.Layout>
+        <ac:ItemsRepeater.ItemTemplate>
+          <DataTemplate x:DataType="vm:GameCardModel">
+            <Button Classes="game-card"
+                    Command="{Binding $parent[ac:ItemsRepeater].((vm:PlayViewModel)DataContext).OpenGameCommand}"
+                    CommandParameter="{Binding Id}"
+                    Width="160" Height="220"
+                    Background="Transparent" BorderThickness="0" Padding="0"
+                    Cursor="Hand">
+              <Border CornerRadius="{DynamicResource MgaRadiusLg}"
+                      Background="{DynamicResource MgaSurfaceBrush}"
+                      ClipToBounds="True">
+                <Grid>
+                  <Border Background="{DynamicResource MgaElevatedBrush}">
+                    <TextBlock Text="{Binding Title}"
+                               TextWrapping="Wrap"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Margin="8"
+                               Classes="muted"/>
+                  </Border>
+                  <Border VerticalAlignment="Bottom"
+                          Background="#CC000000"
+                          Padding="8,6">
+                    <TextBlock Text="{Binding Title}"
+                               FontSize="12"
+                               TextTrimming="CharacterEllipsis"
+                               Foreground="#FFFFFF"/>
+                  </Border>
+                </Grid>
+              </Border>
+            </Button>
+          </DataTemplate>
+        </ac:ItemsRepeater.ItemTemplate>
+      </ac:ItemsRepeater>
+    </ScrollViewer>
+
+  </DockPanel>
 
 </UserControl>

@@ -2,13 +2,15 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MGA.Desktop.ViewModels"
              xmlns:controls="using:MGA.Desktop.Controls"
+             xmlns:ac="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.ItemsRepeater"
+             xmlns:al="clr-namespace:Avalonia.Layout;assembly=Avalonia.Controls.ItemsRepeater"
              x:Class="MGA.Desktop.Views.LibraryView"
              x:DataType="vm:LibraryViewModel">
 
   <DockPanel>
 
     <!-- ==========================================================================
-         Fixed header + search bar (docked to top)
+         Fixed header + search bar
          ========================================================================== -->
     <StackPanel DockPanel.Dock="Top"
                 Spacing="12"
@@ -42,57 +44,49 @@
     </Border>
 
     <!-- ==========================================================================
-         Scrollable game grid
+         Virtualized game grid — fills remaining vertical space
          ========================================================================== -->
     <ScrollViewer IsVisible="{Binding !IsLoading}">
-      <Border Margin="32,0,32,32">
-        <ItemsControl ItemsSource="{Binding FilteredGames}">
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate>
-              <WrapPanel Orientation="Horizontal"/>
-            </ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:GameCardModel">
-              <Button Command="{Binding $parent[ItemsControl].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
-                      CommandParameter="{Binding Id}"
-                      Width="160" Height="220"
-                      Background="Transparent" BorderThickness="0" Padding="0"
-                      Margin="0,0,12,12"
-                      Cursor="Hand">
-                <Border CornerRadius="{DynamicResource MgaRadiusLg}"
-                        Background="{DynamicResource MgaSurfaceBrush}"
-                        ClipToBounds="True">
-                  <Grid>
-
-                    <!-- Placeholder when no cover -->
-                    <Border Background="{DynamicResource MgaElevatedBrush}"
-                            IsVisible="{Binding CoverUrl, Converter={x:Static StringConverters.IsNullOrEmpty}}">
-                      <TextBlock Text="{Binding Title}"
-                                 TextWrapping="Wrap"
-                                 HorizontalAlignment="Center"
-                                 VerticalAlignment="Center"
-                                 Margin="8"
-                                 Classes="muted"/>
-                    </Border>
-
-                    <!-- Title bar at bottom -->
-                    <Border VerticalAlignment="Bottom"
-                            Background="#CC000000"
-                            Padding="8,6">
-                      <TextBlock Text="{Binding Title}"
-                                 FontSize="12"
-                                 TextTrimming="CharacterEllipsis"
-                                 Foreground="#FFFFFF"/>
-                    </Border>
-
-                  </Grid>
-                </Border>
-              </Button>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-      </Border>
+      <ac:ItemsRepeater ItemsSource="{Binding FilteredGames}"
+                     Margin="32,0,32,32">
+        <ac:ItemsRepeater.Layout>
+          <al:UniformGridLayout MinItemWidth="160" MinItemHeight="220"
+                             MinColumnSpacing="12" MinRowSpacing="12"/>
+        </ac:ItemsRepeater.Layout>
+        <ac:ItemsRepeater.ItemTemplate>
+          <DataTemplate x:DataType="vm:GameCardModel">
+            <Button Classes="game-card"
+                    Command="{Binding $parent[ac:ItemsRepeater].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
+                    CommandParameter="{Binding Id}"
+                    Width="160" Height="220"
+                    Background="Transparent" BorderThickness="0" Padding="0"
+                    Cursor="Hand">
+              <Border CornerRadius="{DynamicResource MgaRadiusLg}"
+                      Background="{DynamicResource MgaSurfaceBrush}"
+                      ClipToBounds="True">
+                <Grid>
+                  <Border Background="{DynamicResource MgaElevatedBrush}">
+                    <TextBlock Text="{Binding Title}"
+                               TextWrapping="Wrap"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Margin="8"
+                               Classes="muted"/>
+                  </Border>
+                  <Border VerticalAlignment="Bottom"
+                          Background="#CC000000"
+                          Padding="8,6">
+                    <TextBlock Text="{Binding Title}"
+                               FontSize="12"
+                               TextTrimming="CharacterEllipsis"
+                               Foreground="#FFFFFF"/>
+                  </Border>
+                </Grid>
+              </Border>
+            </Button>
+          </DataTemplate>
+        </ac:ItemsRepeater.ItemTemplate>
+      </ac:ItemsRepeater>
     </ScrollViewer>
 
   </DockPanel>

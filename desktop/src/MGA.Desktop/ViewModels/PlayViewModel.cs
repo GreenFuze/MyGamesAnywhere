@@ -30,6 +30,10 @@ public sealed partial class PlayViewModel : ViewModelBase
     [ObservableProperty]
     private ObservableCollection<GameCardModel> _recentGames = [];
 
+    /// <summary>True when the recently-played shelf has no games to show.</summary>
+    [ObservableProperty]
+    private bool _hasNoRecentGames = true;
+
     // ---------------------------------------------------------------------------
     // Constructor
     // ---------------------------------------------------------------------------
@@ -45,6 +49,27 @@ public sealed partial class PlayViewModel : ViewModelBase
 
         // Start loading immediately — fire-and-forget with error handling inside.
         _ = LoadAsync();
+
+        // Subscribe to library scan events so the grid refreshes automatically
+        // and the user gets a heads-up toast while a scan is running.
+        if (_server.Events is not null)
+        {
+            Disposables.Add(
+                _server.Events.Of("scan_started")
+                    .Subscribe(_ => _toast.Info("Library scan", "Scanning for games…")));
+
+            Disposables.Add(
+                _server.Events.Of("scan_complete")
+                    .Subscribe(__ =>
+                    {
+                        _toast.Success("Scan complete", "Library updated.");
+                        _ = LoadAsync();
+                    }));
+
+            Disposables.Add(
+                _server.Events.Of("scan_error")
+                    .Subscribe(_ => _toast.Error("Scan failed", "Check server logs for details.")));
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -82,7 +107,8 @@ public sealed partial class PlayViewModel : ViewModelBase
 
             // Recent shelf: first 10 games that can be played.
             var recent = cards.Where(c => c.CanPlay).Take(10).ToList();
-            RecentGames = new ObservableCollection<GameCardModel>(recent);
+            RecentGames      = new ObservableCollection<GameCardModel>(recent);
+            HasNoRecentGames = recent.Count == 0;
         }
         catch (Exception ex)
         {

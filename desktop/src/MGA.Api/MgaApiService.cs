@@ -145,6 +145,25 @@ public sealed class MgaApiService
     }
 
     // ---------------------------------------------------------------------------
+    // Favorites
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Sets or clears the favorite flag for a game.
+    /// PUT /api/games/{id}/favorite to set; DELETE to clear.
+    /// </summary>
+    public async Task SetFavoriteAsync(string id, bool favorite, CancellationToken ct = default)
+    {
+        var path = $"/api/games/{Uri.EscapeDataString(id)}/favorite";
+
+        var resp = favorite
+            ? await _http.PutAsync(path, null, ct).ConfigureAwait(false)
+            : await _http.DeleteAsync(path, ct).ConfigureAwait(false);
+
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+    }
+
+    // ---------------------------------------------------------------------------
     // Profiles
     // ---------------------------------------------------------------------------
 
