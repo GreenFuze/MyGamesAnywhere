@@ -82,6 +82,10 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     [ObservableProperty]
     private ObservableCollection<MediaItemModel> _screenshots = [];
 
+    /// <summary>True when at least one screenshot/header image is available.</summary>
+    [ObservableProperty]
+    private bool _hasScreenshots;
+
     // ---------------------------------------------------------------------------
     // Favorite / Achievements
     // ---------------------------------------------------------------------------
@@ -97,6 +101,10 @@ public sealed partial class GameDetailViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _hasAchievements;
+
+    /// <summary>True when the game has a non-zero rating value.</summary>
+    [ObservableProperty]
+    private bool _hasRating;
 
     // ---------------------------------------------------------------------------
     // Constructor
@@ -210,6 +218,10 @@ public sealed partial class GameDetailViewModel : ViewModelBase
                     {
                         Url = _server.Api!.GetMediaUrl(m.Url),
                     }));
+            HasScreenshots = Screenshots.Count > 0;
+
+            // Set rating visibility flag.
+            HasRating = Rating > 0;
 
             // Achievement summary.
             if (game.AchievementSummary is not null)

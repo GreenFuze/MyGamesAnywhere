@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MGA.Desktop.ViewModels"
              xmlns:controls="using:MGA.Desktop.Controls"
+             xmlns:asyncImage="using:AsyncImageLoader"
              x:Class="MGA.Desktop.Views.AchievementsView"
              x:DataType="vm:AchievementsViewModel">
 
@@ -121,17 +122,15 @@
                 <Border Classes="card" Margin="0,0,0,6">
                   <Grid ColumnDefinitions="48,*,Auto">
 
-                    <!-- Thumbnail -->
+                    <!-- Thumbnail — async loaded, placeholder color shows when no cover -->
                     <Border Grid.Column="0"
                             Width="40" Height="56"
                             CornerRadius="{DynamicResource MgaRadiusSm}"
                             ClipToBounds="True"
                             Background="{DynamicResource MgaElevatedBrush}"
                             Margin="0,0,12,0">
-                      <Image Source="{Binding CoverUrl}"
-                             Stretch="UniformToFill"
-                             IsVisible="{Binding CoverUrl,
-                                         Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                      <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
+                                               Stretch="UniformToFill"/>
                     </Border>
 
                     <!-- Title + progress bar -->

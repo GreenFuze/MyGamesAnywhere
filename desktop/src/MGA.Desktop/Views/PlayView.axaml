@@ -4,6 +4,7 @@
              xmlns:controls="using:MGA.Desktop.Controls"
              xmlns:ac="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.ItemsRepeater"
              xmlns:al="clr-namespace:Avalonia.Layout;assembly=Avalonia.Controls.ItemsRepeater"
+             xmlns:asyncImage="using:AsyncImageLoader"
              x:Class="MGA.Desktop.Views.PlayView"
              x:DataType="vm:PlayViewModel">
 
@@ -60,6 +61,7 @@
                           Background="{DynamicResource MgaSurfaceBrush}"
                           ClipToBounds="True">
                     <Grid>
+                      <!-- Placeholder shown when cover art is absent -->
                       <Border Background="{DynamicResource MgaElevatedBrush}">
                         <TextBlock Text="{Binding Title}"
                                    TextWrapping="Wrap"
@@ -68,6 +70,10 @@
                                    Margin="8"
                                    Classes="muted"/>
                       </Border>
+                      <!-- Cover art — AdvancedImage renders nothing when Source is null -->
+                      <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
+                                               Stretch="UniformToFill"/>
+                      <!-- Title overlay at bottom -->
                       <Border VerticalAlignment="Bottom"
                               Background="#CC000000"
                               Padding="8,6">

@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MGA.Desktop.ViewModels"
              xmlns:controls="using:MGA.Desktop.Controls"
+             xmlns:asyncImage="using:AsyncImageLoader"
              x:Class="MGA.Desktop.Views.GameDetailView"
              x:DataType="vm:GameDetailViewModel">
 
@@ -29,15 +30,13 @@
              ================================================================ -->
         <Grid Height="300">
 
-          <!-- Hero background image (background media or cover fallback) -->
+          <!-- Hero background image (async-loaded; background media or cover fallback) -->
           <Border ClipToBounds="True"
                   Background="{DynamicResource MgaElevatedBrush}">
-            <Image Source="{Binding HeroImageUrl}"
-                   Stretch="UniformToFill"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   IsVisible="{Binding HeroImageUrl,
-                               Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+            <asyncImage:AdvancedImage Source="{Binding HeroImageUrl}"
+                                      Stretch="UniformToFill"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"/>
           </Border>
 
           <!-- Frosted gradient overlay at the bottom of the hero -->
@@ -100,9 +99,19 @@
                   Command="{Binding PlayInBrowserCommand}"
                   Content="▶ Play in Browser"/>
 
+          <!-- Favorite toggle — label swaps based on current state -->
+          <Button Classes="ghost"
+                  Command="{Binding ToggleFavoriteCommand}"
+                  Content="★ Unfavorite"
+                  IsVisible="{Binding Favorite}"/>
+          <Button Classes="ghost"
+                  Command="{Binding ToggleFavoriteCommand}"
+                  Content="☆ Add to Favorites"
+                  IsVisible="{Binding !Favorite}"/>
+
           <Button Classes="ghost"
                   Command="{Binding GoBackCommand}"
-                  Content="← Back to Library"/>
+                  Content="← Back"/>
 
         </StackPanel>
 
@@ -110,7 +119,7 @@
              Media carousel — screenshots and header images
              ================================================================ -->
         <Border Margin="0,12,0,0"
-                IsVisible="{Binding Screenshots.Count}">
+                IsVisible="{Binding HasScreenshots}">
           <StackPanel Spacing="8">
 
             <TextBlock Text="Media"
@@ -130,9 +139,10 @@
                   <DataTemplate x:DataType="vm:MediaItemModel">
                     <Border CornerRadius="{DynamicResource MgaRadiusMd}"
                             ClipToBounds="True"
+                            Background="{DynamicResource MgaElevatedBrush}"
                             Width="280" Height="158">
-                      <Image Source="{Binding Url}"
-                             Stretch="UniformToFill"/>
+                      <asyncImage:AdvancedImage Source="{Binding Url}"
+                                               Stretch="UniformToFill"/>
                     </Border>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
@@ -211,7 +221,7 @@
 
             <!-- Rating -->
             <StackPanel Spacing="4"
-                        IsVisible="{Binding Rating}">
+                        IsVisible="{Binding HasRating}">
               <TextBlock Text="Rating" Classes="subheading"/>
               <TextBlock Text="{Binding Rating, StringFormat='{}{0:0.0}'}"
                          Classes="muted"/>
