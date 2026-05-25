@@ -92,39 +92,3 @@ The typed API client is generated from `server/openapi.yaml` via NSwag:
 ```
 
 The generated file (`src/MGA.Api/Generated/MgaApiClient.g.cs`) is committed so the build never requires NSwag at CI time.
-
-## Developer tooling — SuitCode
-
-[SuitCode](https://suitcode.dev) is a **CLI tool** (not an MCP server) that provides authoritative repository intelligence — real import graphs and symbol resolution across the whole monorepo.
-
-### Install / update
-
-```powershell
-winget install SuitCode.SuitCode    # Windows
-brew install suitcode               # macOS / Linux
-```
-
-### Warm up at the start of every session
-
-SuitCode indexes the repo and builds a symbol graph. Always run this first — other commands give shallow results without it:
-
-```powershell
-suitcode . warmup
-```
-
-### Useful commands for this project
-
-| Goal | Command |
-|---|---|
-| Understand a file | `suitcode . explain-file --file desktop/src/MGA.Desktop/Services/ServerConnectionService.cs` |
-| Find all callers of a symbol | `suitcode . references --symbol SwitchServer` |
-| Pull context for a set of files | `suitcode . context --files "desktop/src/MGA.Api/MgaApiService.cs,desktop/src/MGA.Api/Models.cs" --budget 4000 --format text` |
-| Import graph for a ViewModel | `suitcode . imports --file desktop/src/MGA.Desktop/ViewModels/MainWindowViewModel.cs` |
-
-### Known limitations
-
-| Area | Symptom | Workaround |
-|---|---|---|
-| Go files | `Symbols` is null even after warmup (`LspEnhanced: false`) | Use `explain-file` for Go source navigation |
-| TypeScript imports | Cross-file import resolution is incomplete | Seed related files explicitly with `--files` |
-| PowerShell pipe | Progress lines appear before JSON, breaking `ConvertFrom-Json` | Pipe to `Out-File` and then read the file, or use the Read tool directly on source files |
