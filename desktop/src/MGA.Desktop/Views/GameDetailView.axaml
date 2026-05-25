@@ -1,14 +1,191 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MGA.Desktop.ViewModels"
+             xmlns:controls="using:MGA.Desktop.Controls"
              x:Class="MGA.Desktop.Views.GameDetailView"
              x:DataType="vm:GameDetailViewModel">
 
-  <Border Padding="32">
-    <StackPanel Spacing="8">
-      <TextBlock Text="Game Detail" Classes="heading"/>
-      <TextBlock Text="{Binding GameId, StringFormat='Game ID: {0}'}" Classes="muted"/>
-      <TextBlock Text="Hero banner and metadata panel — coming soon." Classes="muted"/>
-    </StackPanel>
-  </Border>
+  <DockPanel>
+
+    <!-- ======================================================================
+         Loading state — centered spinner
+         ====================================================================== -->
+    <Border DockPanel.Dock="Top"
+            IsVisible="{Binding IsLoading}"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Margin="0,64">
+      <controls:LoadingSpinner/>
+    </Border>
+
+    <!-- ======================================================================
+         Main content (hidden while loading)
+         ====================================================================== -->
+    <ScrollViewer IsVisible="{Binding !IsLoading}">
+      <StackPanel>
+
+        <!-- ================================================================
+             Hero image area with frosted overlay
+             ================================================================ -->
+        <Grid Height="300">
+
+          <!-- Hero background image (background media or cover fallback) -->
+          <Border ClipToBounds="True"
+                  Background="{DynamicResource MgaElevatedBrush}">
+            <Image Source="{Binding HeroImageUrl}"
+                   Stretch="UniformToFill"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   IsVisible="{Binding HeroImageUrl,
+                               Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+          </Border>
+
+          <!-- Frosted gradient overlay at the bottom of the hero -->
+          <Border VerticalAlignment="Bottom"
+                  Height="140">
+            <Border.Background>
+              <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                <GradientStop Color="#00000000" Offset="0"/>
+                <GradientStop Color="#CC000000" Offset="1"/>
+              </LinearGradientBrush>
+            </Border.Background>
+
+            <!-- Title, platform badge, and favorite indicator inside the overlay -->
+            <StackPanel VerticalAlignment="Bottom"
+                        Margin="24,0,24,16"
+                        Spacing="6">
+
+              <!-- Title -->
+              <TextBlock Text="{Binding Title}"
+                         FontSize="{DynamicResource MgaFontSize2xl}"
+                         FontWeight="{DynamicResource MgaFontWeightBold}"
+                         Foreground="#FFFFFF"
+                         TextTrimming="CharacterEllipsis"
+                         MaxLines="2"/>
+
+              <!-- Platform badge + favorite row -->
+              <StackPanel Orientation="Horizontal" Spacing="12">
+
+                <!-- Platform badge -->
+                <Border Background="{DynamicResource MgaAccentMutedBrush}"
+                        CornerRadius="{DynamicResource MgaRadiusFull}"
+                        Padding="10,3">
+                  <TextBlock Text="{Binding Platform}"
+                             FontSize="{DynamicResource MgaFontSizeXs}"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                             Foreground="#FFFFFF"/>
+                </Border>
+
+                <!-- Favorite indicator -->
+                <TextBlock Text="★ Favorite"
+                           FontSize="{DynamicResource MgaFontSizeSm}"
+                           Foreground="{DynamicResource MgaWarningBrush}"
+                           IsVisible="{Binding Favorite}"
+                           VerticalAlignment="Center"/>
+
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+        </Grid>
+
+        <!-- ================================================================
+             Action bar — Play button + Back button
+             ================================================================ -->
+        <StackPanel Orientation="Horizontal"
+                    Spacing="12"
+                    Margin="24,16,24,0">
+
+          <Button Classes="primary"
+                  Command="{Binding PlayInBrowserCommand}"
+                  Content="▶ Play in Browser"/>
+
+          <Button Classes="ghost"
+                  Command="{Binding GoBackCommand}"
+                  Content="← Back to Library"/>
+
+        </StackPanel>
+
+        <!-- ================================================================
+             Achievement summary row (only visible when game has achievements)
+             ================================================================ -->
+        <Border Margin="24,12,24,0"
+                Classes="card"
+                IsVisible="{Binding HasAchievements}">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBlock Text="🏆" VerticalAlignment="Center"/>
+            <TextBlock VerticalAlignment="Center">
+              <Run Text="{Binding AchievementUnlocked}"/>
+              <Run Text=" / "/>
+              <Run Text="{Binding AchievementTotal}"/>
+              <Run Text=" achievements"/>
+            </TextBlock>
+          </StackPanel>
+        </Border>
+
+        <!-- ================================================================
+             Metadata panel
+             ================================================================ -->
+        <Border Margin="24,12,24,24"
+                Classes="card">
+          <StackPanel Spacing="12">
+
+            <!-- Description -->
+            <StackPanel Spacing="4"
+                        IsVisible="{Binding Description,
+                                    Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+              <TextBlock Text="Description"
+                         Classes="subheading"/>
+              <TextBlock Text="{Binding Description}"
+                         TextWrapping="Wrap"
+                         Classes="muted"/>
+            </StackPanel>
+
+            <!-- Genres -->
+            <StackPanel Spacing="4"
+                        IsVisible="{Binding GenresText,
+                                    Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+              <TextBlock Text="Genres" Classes="subheading"/>
+              <TextBlock Text="{Binding GenresText}" Classes="muted"/>
+            </StackPanel>
+
+            <!-- Release date -->
+            <StackPanel Spacing="4"
+                        IsVisible="{Binding ReleaseDate,
+                                    Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+              <TextBlock Text="Release Date" Classes="subheading"/>
+              <TextBlock Text="{Binding ReleaseDate}" Classes="muted"/>
+            </StackPanel>
+
+            <!-- Developer -->
+            <StackPanel Spacing="4"
+                        IsVisible="{Binding Developer,
+                                    Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+              <TextBlock Text="Developer" Classes="subheading"/>
+              <TextBlock Text="{Binding Developer}" Classes="muted"/>
+            </StackPanel>
+
+            <!-- Publisher -->
+            <StackPanel Spacing="4"
+                        IsVisible="{Binding Publisher,
+                                    Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+              <TextBlock Text="Publisher" Classes="subheading"/>
+              <TextBlock Text="{Binding Publisher}" Classes="muted"/>
+            </StackPanel>
+
+            <!-- Rating -->
+            <StackPanel Spacing="4"
+                        IsVisible="{Binding Rating}">
+              <TextBlock Text="Rating" Classes="subheading"/>
+              <TextBlock Text="{Binding Rating, StringFormat='{}{0:0.0}'}"
+                         Classes="muted"/>
+            </StackPanel>
+
+          </StackPanel>
+        </Border>
+
+      </StackPanel>
+    </ScrollViewer>
+
+  </DockPanel>
 </UserControl>

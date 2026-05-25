@@ -1,13 +1,181 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MGA.Desktop.ViewModels"
+             xmlns:controls="using:MGA.Desktop.Controls"
              x:Class="MGA.Desktop.Views.AchievementsView"
              x:DataType="vm:AchievementsViewModel">
 
-  <Border Padding="32">
-    <StackPanel Spacing="8">
-      <TextBlock Text="Achievements" Classes="heading"/>
-      <TextBlock Text="Progress rings and SSE-driven refresh — coming soon." Classes="muted"/>
+  <DockPanel>
+
+    <!-- ======================================================================
+         Fixed header
+         ====================================================================== -->
+    <StackPanel DockPanel.Dock="Top"
+                Margin="32,32,32,16"
+                Spacing="12">
+
+      <!-- Heading row: title + refresh button -->
+      <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+        <TextBlock Text="Achievements" Classes="heading"/>
+        <Button Classes="primary"
+                Command="{Binding RefreshCommand}"
+                Content="↻ Refresh"
+                VerticalAlignment="Center"/>
+      </StackPanel>
+
+      <!-- Unlock summary -->
+      <TextBlock Classes="muted">
+        <Run Text="{Binding UnlockedAchievements}"/>
+        <Run Text=" / "/>
+        <Run Text="{Binding TotalAchievements}"/>
+        <Run Text=" unlocked ("/>
+        <Run Text="{Binding UnlockPercent}"/>
+        <Run Text=")"/>
+      </TextBlock>
+
     </StackPanel>
-  </Border>
+
+    <!-- ======================================================================
+         Loading spinner
+         ====================================================================== -->
+    <Border DockPanel.Dock="Top"
+            IsVisible="{Binding IsLoading}"
+            HorizontalAlignment="Center"
+            Margin="0,24">
+      <controls:LoadingSpinner/>
+    </Border>
+
+    <!-- ======================================================================
+         Scrollable body
+         ====================================================================== -->
+    <ScrollViewer IsVisible="{Binding !IsLoading}">
+      <StackPanel Margin="32,0,32,32" Spacing="24">
+
+        <!-- ==================================================================
+             Systems section
+             ================================================================== -->
+        <StackPanel Spacing="8">
+          <TextBlock Text="By Source" Classes="subheading"/>
+
+          <ItemsControl ItemsSource="{Binding Systems}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:AchievementSystemRowModel">
+                <Border Classes="card" Margin="0,0,0,6">
+                  <Grid ColumnDefinitions="*,Auto">
+
+                    <!-- Source name + unlock count -->
+                    <StackPanel Grid.Column="0" Spacing="4">
+                      <TextBlock Text="{Binding Source}"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                      <TextBlock Classes="muted">
+                        <Run Text="{Binding Unlocked}"/>
+                        <Run Text=" / "/>
+                        <Run Text="{Binding Total}"/>
+                        <Run Text=" ("/>
+                        <Run Text="{Binding PercentText}"/>
+                        <Run Text=")"/>
+                      </TextBlock>
+
+                      <!-- Progress bar -->
+                      <ProgressBar Minimum="0"
+                                   Maximum="{Binding Total}"
+                                   Value="{Binding Unlocked}"
+                                   Height="6"
+                                   CornerRadius="{DynamicResource MgaRadiusFull}"
+                                   Foreground="{DynamicResource MgaAccentBrush}"
+                                   Background="{DynamicResource MgaElevatedBrush}"
+                                   Margin="0,4,0,0"/>
+                    </StackPanel>
+
+                    <!-- Points (if source has them) -->
+                    <StackPanel Grid.Column="1"
+                                VerticalAlignment="Center"
+                                HorizontalAlignment="Right"
+                                Margin="16,0,0,0"
+                                Spacing="2"
+                                IsVisible="{Binding TotalPoints}">
+                      <TextBlock Text="{Binding EarnedPoints}"
+                                 FontWeight="{DynamicResource MgaFontWeightBold}"
+                                 HorizontalAlignment="Right"/>
+                      <TextBlock Text="{Binding TotalPoints, StringFormat='/ {0} pts'}"
+                                 Classes="muted"
+                                 HorizontalAlignment="Right"/>
+                    </StackPanel>
+
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+
+        <!-- ==================================================================
+             Games section
+             ================================================================== -->
+        <StackPanel Spacing="8">
+          <TextBlock Text="By Game" Classes="subheading"/>
+
+          <ItemsControl ItemsSource="{Binding Games}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:AchievementGameRowModel">
+                <Border Classes="card" Margin="0,0,0,6">
+                  <Grid ColumnDefinitions="48,*,Auto">
+
+                    <!-- Thumbnail -->
+                    <Border Grid.Column="0"
+                            Width="40" Height="56"
+                            CornerRadius="{DynamicResource MgaRadiusSm}"
+                            ClipToBounds="True"
+                            Background="{DynamicResource MgaElevatedBrush}"
+                            Margin="0,0,12,0">
+                      <Image Source="{Binding CoverUrl}"
+                             Stretch="UniformToFill"
+                             IsVisible="{Binding CoverUrl,
+                                         Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                    </Border>
+
+                    <!-- Title + progress bar -->
+                    <StackPanel Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Spacing="4">
+                      <TextBlock Text="{Binding Title}"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                 TextTrimming="CharacterEllipsis"/>
+                      <ProgressBar Minimum="0"
+                                   Maximum="{Binding Total}"
+                                   Value="{Binding Unlocked}"
+                                   Height="5"
+                                   CornerRadius="{DynamicResource MgaRadiusFull}"
+                                   Foreground="{DynamicResource MgaSuccessBrush}"
+                                   Background="{DynamicResource MgaElevatedBrush}"/>
+                    </StackPanel>
+
+                    <!-- Count + percent -->
+                    <StackPanel Grid.Column="2"
+                                VerticalAlignment="Center"
+                                HorizontalAlignment="Right"
+                                Margin="16,0,0,0"
+                                Spacing="2">
+                      <TextBlock FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                 HorizontalAlignment="Right">
+                        <Run Text="{Binding Unlocked}"/>
+                        <Run Text="/"/>
+                        <Run Text="{Binding Total}"/>
+                      </TextBlock>
+                      <TextBlock Text="{Binding PercentText}"
+                                 Classes="muted"
+                                 HorizontalAlignment="Right"/>
+                    </StackPanel>
+
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+
+      </StackPanel>
+    </ScrollViewer>
+
+  </DockPanel>
 </UserControl>

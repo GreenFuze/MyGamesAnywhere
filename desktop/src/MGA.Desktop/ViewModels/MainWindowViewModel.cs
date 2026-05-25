@@ -46,6 +46,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string _currentTheme = "midnight";
 
+    /// <summary>
+    /// Base URL of the currently connected server (e.g. "http://tv2:8900").
+    /// Shown in the title bar. Empty string when not connected.
+    /// </summary>
+    [ObservableProperty]
+    private string _activeServerUrl = string.Empty;
+
     // ---------------------------------------------------------------------------
     // Nav items
     // ---------------------------------------------------------------------------
@@ -98,6 +105,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Disposables.Add(
             theme.Changed.Subscribe(id => CurrentTheme = id));
 
+        // Reflect the currently connected server URL.
+        ActiveServerUrl = serverConn.ActiveUrl;
+
         // Show onboarding on first run; otherwise go straight to Play.
         if (config.Config.IsFirstRun)
         {
@@ -149,6 +159,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         old?.Dispose();
 
         IsShowingOnboarding = false;
+        ActiveServerUrl     = _serverConn.ActiveUrl;
         NavigateTo("play");
     }
 

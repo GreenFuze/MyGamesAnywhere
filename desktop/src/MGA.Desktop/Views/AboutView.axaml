@@ -4,14 +4,57 @@
              x:Class="MGA.Desktop.Views.AboutView"
              x:DataType="vm:AboutViewModel">
 
-  <Border Padding="32">
-    <StackPanel Spacing="12" HorizontalAlignment="Left">
-      <Image Source="/Assets/mga.ico" Width="64" Height="64"/>
-      <TextBlock Text="MyGamesAnywhere" Classes="heading"/>
-      <TextBlock Text="{Binding Version, StringFormat='Version {0}'}" Classes="muted"/>
-      <TextBlock Text="{Binding BuildDate, StringFormat='Built {0}'}" Classes="muted"/>
-      <TextBlock Text="© GreenFuze. Open-source licenses available in the repository."
-                 Classes="muted" TextWrapping="Wrap" MaxWidth="500"/>
-    </StackPanel>
-  </Border>
+  <ScrollViewer>
+    <Border Padding="48">
+      <StackPanel Spacing="0" MaxWidth="560">
+
+        <!-- Logo + app name -->
+        <StackPanel Spacing="16" Margin="0,0,0,32">
+          <Image Source="/Assets/mga.ico" Width="72" Height="72"
+                 HorizontalAlignment="Left"/>
+          <TextBlock Text="MyGamesAnywhere" Classes="heading"/>
+          <StackPanel Spacing="4">
+            <TextBlock Text="{Binding Version, StringFormat='Version {0}'}"
+                       Classes="muted"/>
+            <TextBlock Text="{Binding BuildDate, StringFormat='Built {0}'}"
+                       Classes="muted"/>
+          </StackPanel>
+        </StackPanel>
+
+        <!-- Separator -->
+        <Border Height="1"
+                Background="{DynamicResource MgaBorderBrush}"
+                Margin="0,0,0,24"/>
+
+        <!-- Description -->
+        <TextBlock Text="MyGamesAnywhere is an open-source self-hosted game library manager and desktop client. Discover, organize, and launch your games from anywhere."
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,24"/>
+
+        <!-- Links (display only in v1; interactive links in v2) -->
+        <StackPanel Spacing="8" Margin="0,0,0,24">
+          <TextBlock Text="Repository"
+                     FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+          <TextBlock Text="github.com/GreenFuze/MyGamesAnywhere"
+                     Foreground="{DynamicResource MgaAccentBrush}"
+                     Cursor="Hand"/>
+        </StackPanel>
+
+        <!-- Separator -->
+        <Border Height="1"
+                Background="{DynamicResource MgaBorderBrush}"
+                Margin="0,0,0,24"/>
+
+        <!-- License notice -->
+        <StackPanel Spacing="8">
+          <TextBlock Text="Licenses"
+                     FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+          <TextBlock Text="© GreenFuze. Open-source licenses for all bundled dependencies are available in the repository's LICENSES directory."
+                     Classes="muted"
+                     TextWrapping="Wrap"/>
+        </StackPanel>
+
+      </StackPanel>
+    </Border>
+  </ScrollViewer>
 </UserControl>

@@ -115,6 +115,35 @@ public sealed class MgaApiService
     public Task<LibraryStats> GetLibraryStatsAsync(CancellationToken ct = default)
         => GetAsync<LibraryStats>("/api/stats", ct);
 
+    /// <summary>Returns detailed library statistics from GET /api/stats/library.</summary>
+    public Task<LibraryStatistics> GetLibraryStatisticsAsync(CancellationToken ct = default)
+        => GetAsync<LibraryStatistics>("/api/stats/library", ct);
+
+    /// <summary>Returns gamer-profile statistics from GET /api/stats/gamer.</summary>
+    public Task<GamerStatistics> GetGamerStatisticsAsync(CancellationToken ct = default)
+        => GetAsync<GamerStatistics>("/api/stats/gamer", ct);
+
+    // ---------------------------------------------------------------------------
+    // Achievements
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Returns the full achievements dashboard from GET /api/achievements.</summary>
+    public Task<AchievementsDashboard> GetAchievementsDashboardAsync(CancellationToken ct = default)
+        => GetAsync<AchievementsDashboard>("/api/achievements", ct);
+
+    /// <summary>
+    /// Posts to /api/achievements/refresh to start a background refresh job (returns 202).
+    /// Throws MgaApiException for any non-2xx response other than 202.
+    /// </summary>
+    public async Task StartAchievementsRefreshAsync(CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync("/api/achievements/refresh", null, ct).ConfigureAwait(false);
+
+        // 202 Accepted is the expected success code for async jobs.
+        if ((int)resp.StatusCode != 202 && !resp.IsSuccessStatusCode)
+            await EnsureSuccess(resp, ct).ConfigureAwait(false);
+    }
+
     // ---------------------------------------------------------------------------
     // Profiles
     // ---------------------------------------------------------------------------

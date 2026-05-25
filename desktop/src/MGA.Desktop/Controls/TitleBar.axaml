@@ -48,6 +48,24 @@
                  VerticalAlignment="Center"/>
     </Border>
 
+    <!-- Server URL indicator (col 2) -->
+    <StackPanel Grid.Column="2"
+                Orientation="Horizontal"
+                Spacing="6"
+                Margin="0,0,12,0"
+                VerticalAlignment="Center"
+                IsHitTestVisible="False"
+                IsVisible="{Binding ActiveServerUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+      <TextBlock Text="●"
+                 Foreground="{DynamicResource MgaSuccessBrush}"
+                 FontSize="8"
+                 VerticalAlignment="Center"/>
+      <TextBlock Text="{Binding ActiveServerUrl}"
+                 Foreground="{DynamicResource MgaMutedBrush}"
+                 FontSize="{DynamicResource MgaFontSizeSm}"
+                 VerticalAlignment="Center"/>
+    </StackPanel>
+
     <!-- Right: window chrome buttons (NOT part of drag region) -->
     <StackPanel Grid.Column="3"
                 Orientation="Horizontal"

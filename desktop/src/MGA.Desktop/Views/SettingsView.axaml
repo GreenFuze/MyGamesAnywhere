@@ -4,78 +4,128 @@
              x:Class="MGA.Desktop.Views.SettingsView"
              x:DataType="vm:SettingsViewModel">
 
-  <Border Padding="32">
-    <StackPanel Spacing="16">
+  <DockPanel>
+
+    <!-- ================================================================
+         Fixed heading
+         ================================================================ -->
+    <Border DockPanel.Dock="Top" Padding="32,32,32,0">
       <TextBlock Text="Settings" Classes="heading"/>
+    </Border>
 
-      <!-- Tab strip -->
-      <TabControl SelectedIndex="{Binding SelectedTabIndex}">
+    <!-- ================================================================
+         Tab control
+         ================================================================ -->
+    <TabControl SelectedIndex="{Binding SelectedTabIndex}"
+                Margin="32,16,32,32">
 
-        <TabItem Header="Integrations">
-          <Border Padding="0,16,0,0">
-            <TextBlock Text="Integrations — manage game-source plugins (coming soon)."
+      <!-- Integrations -->
+      <TabItem Header="Integrations">
+        <Border Padding="0,20,0,0">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Integrations" Classes="subheading"/>
+            <TextBlock Text="Manage game-source plugins (Steam, GOG, Epic, etc.)."
                        Classes="muted"/>
-          </Border>
-        </TabItem>
+            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
+          </StackPanel>
+        </Border>
+      </TabItem>
 
-        <TabItem Header="Updates">
-          <Border Padding="0,16,0,0">
-            <TextBlock Text="Check for server and plugin updates (coming soon)." Classes="muted"/>
-          </Border>
-        </TabItem>
+      <!-- Updates -->
+      <TabItem Header="Updates">
+        <Border Padding="0,20,0,0">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Updates" Classes="subheading"/>
+            <TextBlock Text="Check for server and plugin updates." Classes="muted"/>
+            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
+          </StackPanel>
+        </Border>
+      </TabItem>
 
-        <TabItem Header="Profiles">
-          <Border Padding="0,16,0,0">
-            <TextBlock Text="Manage user profiles (coming soon)." Classes="muted"/>
-          </Border>
-        </TabItem>
+      <!-- Profiles -->
+      <TabItem Header="Profiles">
+        <Border Padding="0,20,0,0">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Profiles" Classes="subheading"/>
+            <TextBlock Text="Manage user profiles on the connected server." Classes="muted"/>
+            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
+          </StackPanel>
+        </Border>
+      </TabItem>
 
-        <TabItem Header="Plugins">
-          <Border Padding="0,16,0,0">
-            <TextBlock Text="Install and remove plugins (coming soon)." Classes="muted"/>
-          </Border>
-        </TabItem>
+      <!-- Plugins -->
+      <TabItem Header="Plugins">
+        <Border Padding="0,20,0,0">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Plugins" Classes="subheading"/>
+            <TextBlock Text="Install, update, and remove server-side plugins." Classes="muted"/>
+            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
+          </StackPanel>
+        </Border>
+      </TabItem>
 
-        <TabItem Header="Cache">
-          <Border Padding="0,16,0,0">
-            <TextBlock Text="Clear metadata and image cache (coming soon)." Classes="muted"/>
-          </Border>
-        </TabItem>
+      <!-- Cache -->
+      <TabItem Header="Cache">
+        <Border Padding="0,20,0,0">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Cache" Classes="subheading"/>
+            <TextBlock Text="View cache size and clear metadata / image caches." Classes="muted"/>
+            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
+          </StackPanel>
+        </Border>
+      </TabItem>
 
-        <TabItem Header="Duplicates">
-          <Border Padding="0,16,0,0">
-            <TextBlock Text="Resolve duplicate game entries (coming soon)." Classes="muted"/>
-          </Border>
-        </TabItem>
+      <!-- Duplicates -->
+      <TabItem Header="Duplicates">
+        <Border Padding="0,20,0,0">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Duplicates" Classes="subheading"/>
+            <TextBlock Text="Review and resolve duplicate game entries." Classes="muted"/>
+            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
+          </StackPanel>
+        </Border>
+      </TabItem>
 
-        <TabItem Header="Appearance">
-          <Border Padding="0,16,0,0">
-            <StackPanel Spacing="12">
-              <TextBlock Text="Theme" FontWeight="{DynamicResource MgaFontWeightMedium}"/>
-              <StackPanel Orientation="Horizontal" Spacing="8"
-                          DataContext="{Binding Appearance}">
-                <RadioButton Content="Midnight (Dark)"
-                             IsChecked="{Binding SelectedTheme,
-                               Converter={x:Static StringConverters.IsNotNullOrEmpty},
-                               ConverterParameter='midnight'}"
-                             GroupName="Theme"/>
-                <RadioButton Content="Daylight (Light)"
-                             IsChecked="{Binding SelectedTheme,
-                               Converter={x:Static StringConverters.IsNotNullOrEmpty},
-                               ConverterParameter='daylight'}"
-                             GroupName="Theme"/>
-              </StackPanel>
+      <!-- Appearance — FUNCTIONAL: theme switcher -->
+      <TabItem Header="Appearance">
+        <Border Padding="0,20,0,0"
+                DataContext="{Binding Appearance}">
+          <StackPanel Spacing="20" MaxWidth="480" HorizontalAlignment="Left">
+
+            <!-- Theme selector -->
+            <StackPanel Spacing="8">
+              <TextBlock Text="Theme"
+                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+              <TextBlock Text="Choose between dark (Midnight) and light (Daylight) modes."
+                         Classes="muted"/>
+              <ComboBox ItemsSource="{Binding AvailableThemes}"
+                        SelectedItem="{Binding SelectedTheme}"
+                        MinWidth="200"/>
             </StackPanel>
-          </Border>
-        </TabItem>
 
-        <TabItem Header="Undetected">
-          <Border Padding="0,16,0,0">
-            <TextBlock Text="Manually add undetected games (coming soon)." Classes="muted"/>
-          </Border>
-        </TabItem>
+            <!-- Server URL display -->
+            <StackPanel Spacing="8">
+              <TextBlock Text="Connection"
+                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+              <TextBlock Text="Server switching and profile selection — coming soon."
+                         Classes="muted"/>
+            </StackPanel>
 
-      </TabControl>
-    </StackPanel>
-  </Border>
+          </StackPanel>
+        </Border>
+      </TabItem>
+
+      <!-- Undetected -->
+      <TabItem Header="Undetected">
+        <Border Padding="0,20,0,0">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Undetected Games" Classes="subheading"/>
+            <TextBlock Text="Manually add games that weren't auto-detected." Classes="muted"/>
+            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
+          </StackPanel>
+        </Border>
+      </TabItem>
+
+    </TabControl>
+  </DockPanel>
 </UserControl>

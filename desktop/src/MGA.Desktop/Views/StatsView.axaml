@@ -1,14 +1,178 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MGA.Desktop.ViewModels"
+             xmlns:controls="using:MGA.Desktop.Controls"
              x:Class="MGA.Desktop.Views.StatsView"
              x:DataType="vm:StatsViewModel">
 
-  <Border Padding="32">
-    <StackPanel Spacing="8">
+  <DockPanel>
+
+    <!-- ======================================================================
+         Fixed header
+         ====================================================================== -->
+    <StackPanel DockPanel.Dock="Top"
+                Margin="32,32,32,16">
       <TextBlock Text="Stats" Classes="heading"/>
-      <TextBlock Text="Library and Gamer statistics with animated charts — coming soon."
-                 Classes="muted"/>
     </StackPanel>
-  </Border>
+
+    <!-- ======================================================================
+         Loading spinner
+         ====================================================================== -->
+    <Border DockPanel.Dock="Top"
+            IsVisible="{Binding IsLoading}"
+            HorizontalAlignment="Center"
+            Margin="0,24">
+      <controls:LoadingSpinner/>
+    </Border>
+
+    <!-- ======================================================================
+         Tab control
+         ====================================================================== -->
+    <TabControl IsVisible="{Binding !IsLoading}"
+                Margin="24,0,24,24"
+                SelectedIndex="{Binding SelectedTabIndex}">
+
+      <!-- ==================================================================
+           Library tab
+           ================================================================== -->
+      <TabItem Header="Library">
+        <ScrollViewer Margin="0,16,0,0">
+          <StackPanel Spacing="24">
+
+            <!-- Total games big number -->
+            <StackPanel Spacing="4">
+              <TextBlock Text="{Binding TotalGames}"
+                         FontSize="{DynamicResource MgaFontSize2xl}"
+                         FontWeight="{DynamicResource MgaFontWeightBold}"/>
+              <TextBlock Text="games in library" Classes="muted"/>
+            </StackPanel>
+
+            <!-- Platform breakdown -->
+            <StackPanel Spacing="8">
+              <TextBlock Text="By Platform" Classes="subheading"/>
+              <ItemsControl ItemsSource="{Binding PlatformBreakdown}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CountStatModel">
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+                      <TextBlock Grid.Column="0"
+                                 Text="{Binding Label}"
+                                 VerticalAlignment="Center"/>
+                      <TextBlock Grid.Column="1"
+                                 Text="{Binding Count}"
+                                 Classes="muted"
+                                 VerticalAlignment="Center"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+            <!-- Genre breakdown -->
+            <StackPanel Spacing="8">
+              <TextBlock Text="By Genre" Classes="subheading"/>
+              <ItemsControl ItemsSource="{Binding GenreBreakdown}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CountStatModel">
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+                      <TextBlock Grid.Column="0"
+                                 Text="{Binding Label}"
+                                 VerticalAlignment="Center"/>
+                      <TextBlock Grid.Column="1"
+                                 Text="{Binding Count}"
+                                 Classes="muted"
+                                 VerticalAlignment="Center"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- ==================================================================
+           Gamer tab
+           ================================================================== -->
+      <TabItem Header="Gamer">
+        <ScrollViewer Margin="0,16,0,0">
+          <StackPanel Spacing="24">
+
+            <!-- Favorite games count -->
+            <StackPanel Spacing="4">
+              <TextBlock Text="{Binding FavoriteGames}"
+                         FontSize="{DynamicResource MgaFontSize2xl}"
+                         FontWeight="{DynamicResource MgaFontWeightBold}"/>
+              <TextBlock Text="favorite games" Classes="muted"/>
+            </StackPanel>
+
+            <!-- Achievement unlock summary -->
+            <Border Classes="card">
+              <StackPanel Spacing="8">
+                <TextBlock Text="Achievements" Classes="subheading"/>
+
+                <TextBlock Classes="muted">
+                  <Run Text="{Binding UnlockedAchievements}"/>
+                  <Run Text=" / "/>
+                  <Run Text="{Binding TotalAchievements}"/>
+                  <Run Text=" unlocked ("/>
+                  <Run Text="{Binding UnlockPercent}"/>
+                  <Run Text=")"/>
+                </TextBlock>
+
+                <ProgressBar Minimum="0"
+                             Maximum="{Binding TotalAchievements}"
+                             Value="{Binding UnlockedAchievements}"
+                             Height="8"
+                             CornerRadius="{DynamicResource MgaRadiusFull}"
+                             Foreground="{DynamicResource MgaAccentBrush}"
+                             Background="{DynamicResource MgaElevatedBrush}"/>
+              </StackPanel>
+            </Border>
+
+            <!-- Achievement systems breakdown -->
+            <StackPanel Spacing="8">
+              <TextBlock Text="By Source" Classes="subheading"/>
+              <ItemsControl ItemsSource="{Binding AchievementSystems}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:AchievementSystemRowModel">
+                    <Border Classes="card" Margin="0,0,0,6">
+                      <StackPanel Spacing="4">
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Grid.Column="0"
+                                     Text="{Binding Source}"
+                                     FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                          <TextBlock Grid.Column="1"
+                                     Classes="muted">
+                            <Run Text="{Binding Unlocked}"/>
+                            <Run Text="/"/>
+                            <Run Text="{Binding Total}"/>
+                            <Run Text=" ("/>
+                            <Run Text="{Binding PercentText}"/>
+                            <Run Text=")"/>
+                          </TextBlock>
+                        </Grid>
+                        <ProgressBar Minimum="0"
+                                     Maximum="{Binding Total}"
+                                     Value="{Binding Unlocked}"
+                                     Height="5"
+                                     CornerRadius="{DynamicResource MgaRadiusFull}"
+                                     Foreground="{DynamicResource MgaAccentBrush}"
+                                     Background="{DynamicResource MgaElevatedBrush}"/>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+    </TabControl>
+
+  </DockPanel>
 </UserControl>

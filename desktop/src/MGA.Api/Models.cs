@@ -138,6 +138,197 @@ public sealed record LibraryStats
 }
 
 // ---------------------------------------------------------------------------
+// Achievement dashboard models
+// ---------------------------------------------------------------------------
+
+/// <summary>Overall achievement totals (total vs unlocked).</summary>
+public sealed record AchievementTotals
+{
+    [JsonPropertyName("total_count")]
+    public int TotalCount { get; init; }
+
+    [JsonPropertyName("unlocked_count")]
+    public int UnlockedCount { get; init; }
+}
+
+/// <summary>Per-source achievement statistics for the dashboard systems list.</summary>
+public sealed record AchievementSystemStat
+{
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = string.Empty;
+
+    [JsonPropertyName("game_count")]
+    public int GameCount { get; init; }
+
+    [JsonPropertyName("total_count")]
+    public int TotalCount { get; init; }
+
+    [JsonPropertyName("unlocked_count")]
+    public int UnlockedCount { get; init; }
+
+    [JsonPropertyName("total_points")]
+    public int TotalPoints { get; init; }
+
+    [JsonPropertyName("earned_points")]
+    public int EarnedPoints { get; init; }
+}
+
+/// <summary>A single game entry inside the achievements dashboard.</summary>
+public sealed record AchievementGameEntry
+{
+    [JsonPropertyName("game")]
+    public GameDetail Game { get; init; } = new();
+
+    [JsonPropertyName("systems")]
+    public List<AchievementSystemStat> Systems { get; init; } = [];
+}
+
+/// <summary>Metadata about the last achievements refresh job.</summary>
+public sealed record AchievementRefreshInfo
+{
+    [JsonPropertyName("total")]
+    public int Total { get; init; }
+
+    [JsonPropertyName("success_count")]
+    public int SuccessCount { get; init; }
+
+    [JsonPropertyName("last_successful_at")]
+    public string? LastSuccessfulAt { get; init; }
+}
+
+/// <summary>Full response from GET /api/achievements.</summary>
+public sealed record AchievementsDashboard
+{
+    [JsonPropertyName("totals")]
+    public AchievementTotals Totals { get; init; } = new();
+
+    [JsonPropertyName("systems")]
+    public List<AchievementSystemStat> Systems { get; init; } = [];
+
+    [JsonPropertyName("games")]
+    public List<AchievementGameEntry> Games { get; init; } = [];
+
+    [JsonPropertyName("refresh")]
+    public AchievementRefreshInfo Refresh { get; init; } = new();
+}
+
+// ---------------------------------------------------------------------------
+// Library / Gamer stats models
+// ---------------------------------------------------------------------------
+
+/// <summary>A key/label/count triplet used for breakdown rows (platforms, genres, etc.).</summary>
+public sealed record CountStat
+{
+    [JsonPropertyName("key")]
+    public string Key { get; init; } = string.Empty;
+
+    [JsonPropertyName("label")]
+    public string Label { get; init; } = string.Empty;
+
+    [JsonPropertyName("count")]
+    public int Count { get; init; }
+}
+
+/// <summary>Like CountStat but also carries a percentage for coverage rows.</summary>
+public sealed record CoverageStat
+{
+    [JsonPropertyName("key")]
+    public string Key { get; init; } = string.Empty;
+
+    [JsonPropertyName("label")]
+    public string Label { get; init; } = string.Empty;
+
+    [JsonPropertyName("count")]
+    public int Count { get; init; }
+
+    [JsonPropertyName("percent")]
+    public double Percent { get; init; }
+}
+
+/// <summary>Top-line summary inside LibraryStatistics.</summary>
+public sealed record LibraryStatsSummary
+{
+    [JsonPropertyName("canonical_game_count")]
+    public int CanonicalGameCount { get; init; }
+}
+
+/// <summary>Full response from GET /api/stats/library.</summary>
+public sealed record LibraryStatistics
+{
+    [JsonPropertyName("summary")]
+    public LibraryStatsSummary Summary { get; init; } = new();
+
+    [JsonPropertyName("platforms")]
+    public List<CountStat> Platforms { get; init; } = [];
+
+    [JsonPropertyName("kinds")]
+    public List<CountStat> Kinds { get; init; } = [];
+
+    [JsonPropertyName("genres")]
+    public List<CountStat> Genres { get; init; } = [];
+
+    [JsonPropertyName("decades")]
+    public List<CountStat> Decades { get; init; } = [];
+
+    [JsonPropertyName("coverage")]
+    public List<CoverageStat> Coverage { get; init; } = [];
+}
+
+/// <summary>A bucket of games grouped by achievement-completion percentage.</summary>
+public sealed record AchievementCompletionBucket
+{
+    [JsonPropertyName("key")]
+    public string Key { get; init; } = string.Empty;
+
+    [JsonPropertyName("label")]
+    public string Label { get; init; } = string.Empty;
+
+    [JsonPropertyName("game_count")]
+    public int GameCount { get; init; }
+}
+
+/// <summary>Per-source achievement stats inside GamerStatistics.</summary>
+public sealed record AchievementSystem
+{
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = string.Empty;
+
+    [JsonPropertyName("game_count")]
+    public int GameCount { get; init; }
+
+    [JsonPropertyName("total_count")]
+    public int TotalCount { get; init; }
+
+    [JsonPropertyName("unlocked_count")]
+    public int UnlockedCount { get; init; }
+}
+
+/// <summary>Full response from GET /api/stats/gamer.</summary>
+public sealed record GamerStatistics
+{
+    [JsonPropertyName("total_games")]
+    public int TotalGames { get; init; }
+
+    [JsonPropertyName("favorite_games")]
+    public int FavoriteGames { get; init; }
+
+    [JsonPropertyName("total_achievements")]
+    public int TotalAchievements { get; init; }
+
+    [JsonPropertyName("unlocked_achievements")]
+    public int UnlockedAchievements { get; init; }
+
+    [JsonPropertyName("achievement_unlock_percent")]
+    public double AchievementUnlockPercent { get; init; }
+
+    [JsonPropertyName("achievement_systems")]
+    public List<AchievementSystem> AchievementSystems { get; init; } = [];
+
+    [JsonPropertyName("achievement_completion_buckets")]
+    public List<AchievementCompletionBucket> AchievementCompletionBuckets { get; init; } = [];
+}
+
+// ---------------------------------------------------------------------------
 // Profile
 // ---------------------------------------------------------------------------
 
