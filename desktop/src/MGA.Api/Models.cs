@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace MGA.Api;
@@ -352,6 +353,68 @@ public sealed record IntegrationStatusEntry
     public string Message { get; init; } = string.Empty;
 }
 
+/// <summary>Full integration record from GET /api/integrations or POST /api/integrations.</summary>
+public sealed record IntegrationDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; init; } = string.Empty;
+
+    [JsonPropertyName("plugin_id")]
+    public string PluginId { get; init; } = string.Empty;
+
+    [JsonPropertyName("label")]
+    public string Label { get; init; } = string.Empty;
+
+    /// <summary>Double-encoded JSON string, e.g. "{\"root_path\":\"/games\"}".</summary>
+    [JsonPropertyName("config_json")]
+    public string ConfigJson { get; init; } = string.Empty;
+
+    [JsonPropertyName("integration_type")]
+    public string IntegrationType { get; init; } = string.Empty;
+
+    [JsonPropertyName("created_at")]
+    public string? CreatedAt { get; init; }
+
+    [JsonPropertyName("updated_at")]
+    public string? UpdatedAt { get; init; }
+}
+
+/// <summary>
+/// Returned as HTTP 202 when an OAuth flow is required to complete
+/// creating or updating an integration.
+/// </summary>
+public sealed record OAuthRequiredResponse
+{
+    [JsonPropertyName("authorize_url")]
+    public string AuthorizeUrl { get; init; } = string.Empty;
+
+    [JsonPropertyName("state")]
+    public string State { get; init; } = string.Empty;
+}
+
+/// <summary>Job status returned by POST /api/scan and GET /api/scan/jobs/{job_id}.</summary>
+public sealed record ScanJobStatus
+{
+    [JsonPropertyName("job_id")]
+    public string JobId { get; init; } = string.Empty;
+
+    /// <summary>"pending", "running", "completed", "failed", "cancelled", "cancelling".</summary>
+    [JsonPropertyName("status")]
+    public string Status { get; init; } = string.Empty;
+
+    [JsonPropertyName("integration_count")]
+    public int IntegrationCount { get; init; }
+
+    [JsonPropertyName("integrations_completed")]
+    public int IntegrationsCompleted { get; init; }
+
+    [JsonPropertyName("current_integration_label")]
+    public string? CurrentIntegrationLabel { get; init; }
+
+    [JsonPropertyName("error")]
+    public string? Error { get; init; }
+}
+
 // ---------------------------------------------------------------------------
 // Cache
 // ---------------------------------------------------------------------------
@@ -418,7 +481,7 @@ public sealed record Profile
 // Plugins
 // ---------------------------------------------------------------------------
 
-/// <summary>A single server-side plugin returned by GET /api/plugins.</summary>
+/// <summary>A single server-side plugin returned by GET /api/plugins or GET /api/plugins/{id}.</summary>
 public sealed record PluginDto
 {
     [JsonPropertyName("plugin_id")]
@@ -432,6 +495,14 @@ public sealed record PluginDto
 
     [JsonPropertyName("capabilities")]
     public List<string> Capabilities { get; init; } = [];
+
+    /// <summary>
+    /// Config schema map returned under the "config" key.
+    /// Each key is a field name; value is a JsonElement with optional sub-keys:
+    /// type, required, description, x-secret, x-help-url.
+    /// </summary>
+    [JsonPropertyName("config")]
+    public Dictionary<string, JsonElement>? ConfigSchema { get; init; }
 }
 
 // ---------------------------------------------------------------------------

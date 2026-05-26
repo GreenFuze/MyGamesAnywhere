@@ -28,7 +28,7 @@
                 DataContext="{Binding Integrations}">
           <DockPanel>
 
-            <!-- Header row -->
+            <!-- ── Header row ── -->
             <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
               <StackPanel Orientation="Horizontal" Spacing="12">
                 <TextBlock Text="Integrations" Classes="subheading"/>
@@ -37,69 +37,327 @@
                         Command="{Binding ReloadCommand}"
                         VerticalAlignment="Center"/>
               </StackPanel>
-              <TextBlock Text="Status of all configured game-source integrations."
+              <TextBlock Text="Manage game-source integrations. Add, configure, and scan."
                          Classes="muted"/>
             </StackPanel>
 
-            <!-- Loading spinner -->
+            <!-- ── Loading spinner ── -->
             <Border DockPanel.Dock="Top"
                     HorizontalAlignment="Left"
-                    Margin="0,8,0,0"
+                    Margin="0,8,0,8"
                     IsVisible="{Binding IsLoading}">
               <controls:LoadingSpinner Width="32" Height="32"/>
             </Border>
 
-            <!-- Integration rows -->
-            <ItemsControl ItemsSource="{Binding Integrations}"
-                          IsVisible="{Binding !IsLoading}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="settingsVm:IntegrationRowModel">
-                  <Border Classes="card" Margin="0,0,0,8" MaxWidth="560" HorizontalAlignment="Left">
-                    <Grid ColumnDefinitions="*,Auto">
+            <!-- ── Scan progress bar ── -->
+            <Border DockPanel.Dock="Top"
+                    Classes="card"
+                    Margin="0,0,0,12"
+                    MaxWidth="560"
+                    HorizontalAlignment="Left"
+                    IsVisible="{Binding IsScanning}">
+              <StackPanel Spacing="8">
+                <TextBlock Text="{Binding ScanStatus}"
+                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                <ProgressBar IsIndeterminate="True" Height="4"/>
+                <Button Classes="ghost"
+                        Content="Cancel Scan"
+                        Command="{Binding CancelScanCommand}"
+                        HorizontalAlignment="Left"/>
+              </StackPanel>
+            </Border>
 
-                      <!-- Label + status -->
-                      <StackPanel Grid.Column="0" Spacing="4">
-                        <TextBlock Text="{Binding Label}"
-                                   FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                          <!-- Status badge -->
-                          <Border CornerRadius="{DynamicResource MgaRadiusFull}"
-                                  Padding="8,2">
-                            <Border.Background>
-                              <SolidColorBrush Color="{Binding Status,
-                                Converter={x:Static StringConverters.IsNotNullOrEmpty},
-                                FallbackValue=#1e6faf}"/>
-                            </Border.Background>
-                            <TextBlock Text="{Binding Status}"
-                                       FontSize="{DynamicResource MgaFontSizeXs}"
-                                       Foreground="#FFFFFF"/>
-                          </Border>
-                          <TextBlock Text="{Binding PluginId}"
+            <!-- ── Add / Edit integration form ── -->
+            <Border DockPanel.Dock="Top"
+                    Classes="card"
+                    Margin="0,0,0,12"
+                    MaxWidth="560"
+                    HorizontalAlignment="Left"
+                    IsVisible="{Binding IsAddingIntegration}">
+              <StackPanel Spacing="12">
+
+                <!-- Step 1: Plugin selection (no plugin chosen yet) -->
+                <StackPanel Spacing="10"
+                            IsVisible="{Binding SelectedPlugin, Converter={x:Static ObjectConverters.IsNull}}">
+
+                  <TextBlock Text="Step 1 — Choose a plugin:"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+
+                  <ItemsControl ItemsSource="{Binding AvailablePlugins}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="settingsVm:PluginRowModel">
+                        <Border Classes="card"
+                                Margin="0,0,0,6">
+                          <Grid ColumnDefinitions="*,Auto">
+
+                            <!-- Plugin info -->
+                            <StackPanel Grid.Column="0" Spacing="4">
+                              <TextBlock Text="{Binding PluginId}"
+                                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                              <TextBlock Text="{Binding ProvidesText}"
+                                         Classes="muted"
+                                         FontSize="{DynamicResource MgaFontSizeXs}"/>
+                            </StackPanel>
+
+                            <!-- Select button -->
+                            <Button Grid.Column="1"
+                                    Classes="ghost"
+                                    Content="Select →"
+                                    VerticalAlignment="Center"
+                                    Margin="12,0,0,0"
+                                    Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).SelectPluginCommand}"
+                                    CommandParameter="{Binding}"/>
+
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+
+                  <!-- Cancel -->
+                  <Button Classes="ghost"
+                          Content="Cancel"
+                          Command="{Binding CancelAddCommand}"
+                          HorizontalAlignment="Left"/>
+
+                </StackPanel>
+
+                <!-- Step 2: Configure (plugin chosen) -->
+                <StackPanel Spacing="12"
+                            IsVisible="{Binding SelectedPlugin, Converter={x:Static ObjectConverters.IsNotNull}}">
+
+                  <!-- Back button -->
+                  <Button Classes="ghost"
+                          Content="← Back"
+                          Command="{Binding BackToPluginSelectionCommand}"
+                          HorizontalAlignment="Left"
+                          IsVisible="{Binding EditingIntegration, Converter={x:Static ObjectConverters.IsNull}}"/>
+
+                  <TextBlock Text="Step 2 — Configure integration:"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                             IsVisible="{Binding EditingIntegration, Converter={x:Static ObjectConverters.IsNull}}"/>
+
+                  <TextBlock Text="Edit integration:"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                             IsVisible="{Binding EditingIntegration, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+                  <!-- Label field -->
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="Label" Classes="muted"/>
+                    <TextBox Classes="mga"
+                             PlaceholderText="My Steam Library"
+                             Text="{Binding NewIntegrationLabel}"
+                             MaxWidth="400"
+                             HorizontalAlignment="Left"/>
+                  </StackPanel>
+
+                  <!-- Integration type -->
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="Type" Classes="muted"/>
+                    <ComboBox SelectedItem="{Binding NewIntegrationType}"
+                              MinWidth="160"
+                              HorizontalAlignment="Left">
+                      <x:String>source</x:String>
+                      <x:String>metadata</x:String>
+                    </ComboBox>
+                  </StackPanel>
+
+                  <!-- Dynamic config fields -->
+                  <ItemsControl ItemsSource="{Binding ConfigFields}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="settingsVm:ConfigFieldModel">
+                        <StackPanel Spacing="4" Margin="0,0,0,10">
+
+                          <!-- Field label + required indicator -->
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding Label}"
+                                       Classes="muted"/>
+                            <TextBlock Text="*"
+                                       Foreground="{DynamicResource MgaDangerBrush}"
+                                       IsVisible="{Binding IsRequired}"/>
+                          </StackPanel>
+
+                          <!-- Optional description -->
+                          <TextBlock Text="{Binding Description}"
                                      Classes="muted"
-                                     VerticalAlignment="Center"/>
+                                     FontSize="{DynamicResource MgaFontSizeXs}"
+                                     TextWrapping="Wrap"
+                                     IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                          <!-- Boolean field (CheckBox) -->
+                          <CheckBox IsChecked="{Binding BoolValue}"
+                                    Content="{Binding Label}"
+                                    IsVisible="{Binding IsBoolean}"
+                                    HorizontalAlignment="Left"/>
+
+                          <!-- Text / Number field (plain, non-secret) -->
+                          <TextBox Classes="mga"
+                                   Text="{Binding StringValue}"
+                                   MaxWidth="400"
+                                   HorizontalAlignment="Left"
+                                   IsVisible="{Binding IsTextNotSecret}"/>
+
+                          <!-- Secret field row: masked TextBox + show/hide toggle -->
+                          <Grid ColumnDefinitions="*,Auto"
+                                MaxWidth="400"
+                                HorizontalAlignment="Left"
+                                IsVisible="{Binding IsSecret}">
+
+                            <!-- Masked input (shown when IsHidden = true) -->
+                            <TextBox Grid.Column="0"
+                                     Classes="mga"
+                                     Text="{Binding StringValue}"
+                                     PasswordChar="•"
+                                     HorizontalAlignment="Stretch"
+                                     IsVisible="{Binding IsHidden}"/>
+
+                            <!-- Plain-text input (shown when !IsHidden) -->
+                            <TextBox Grid.Column="0"
+                                     Classes="mga"
+                                     Text="{Binding StringValue}"
+                                     HorizontalAlignment="Stretch"
+                                     IsVisible="{Binding !IsHidden}"/>
+
+                            <!-- Show/hide toggle button -->
+                            <Button Grid.Column="1"
+                                    Classes="ghost"
+                                    Content="Show"
+                                    Command="{Binding ToggleShowValueCommand}"
+                                    Margin="6,0,0,0"
+                                    VerticalAlignment="Center"
+                                    IsVisible="{Binding IsHidden}"/>
+
+                            <Button Grid.Column="1"
+                                    Classes="ghost"
+                                    Content="Hide"
+                                    Command="{Binding ToggleShowValueCommand}"
+                                    Margin="6,0,0,0"
+                                    VerticalAlignment="Center"
+                                    IsVisible="{Binding !IsHidden}"/>
+
+                          </Grid>
+
                         </StackPanel>
-                        <!-- Error message if present -->
-                        <TextBlock Text="{Binding Message}"
-                                   Classes="muted"
-                                   TextWrapping="Wrap"
-                                   IsVisible="{Binding HasError}"
-                                   Foreground="{DynamicResource MgaDangerBrush}"/>
-                      </StackPanel>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
 
-                      <!-- Refresh button -->
-                      <Button Grid.Column="1"
-                              Classes="ghost"
-                              Content="↻ Refresh"
-                              Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).RefreshIntegrationCommand}"
-                              CommandParameter="{Binding IntegrationId}"
-                              VerticalAlignment="Top"
-                              Margin="12,0,0,0"/>
+                  <!-- Save / Cancel buttons -->
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Classes="primary"
+                            Content="Save"
+                            Command="{Binding SaveIntegrationCommand}"
+                            IsEnabled="{Binding !IsSaving}"/>
+                    <Button Classes="ghost"
+                            Content="Cancel"
+                            Command="{Binding CancelAddCommand}"/>
+                  </StackPanel>
 
-                    </Grid>
-                  </Border>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                </StackPanel>
+
+              </StackPanel>
+            </Border>
+
+            <!-- ── Integration list + action bar ── -->
+            <DockPanel DockPanel.Dock="Top"
+                       IsVisible="{Binding !IsAddingIntegration}">
+
+              <!-- Action bar -->
+              <StackPanel DockPanel.Dock="Top"
+                          Orientation="Horizontal"
+                          Spacing="8"
+                          Margin="0,0,0,12">
+                <Button Classes="primary"
+                        Content="+ Add Integration"
+                        Command="{Binding AddIntegrationCommand}"/>
+                <Button Classes="ghost"
+                        Content="↻ Reload"
+                        Command="{Binding ReloadCommand}"/>
+                <Button Classes="ghost"
+                        Content="⊳ Scan"
+                        Command="{Binding ScanCommand}"
+                        IsEnabled="{Binding !IsScanning}"/>
+              </StackPanel>
+
+              <!-- Scrollable list -->
+              <ScrollViewer>
+                <ItemsControl ItemsSource="{Binding Integrations}"
+                              IsVisible="{Binding !IsLoading}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="settingsVm:IntegrationRowViewModel">
+                      <Border Classes="card"
+                              Margin="0,0,0,8"
+                              MaxWidth="640"
+                              HorizontalAlignment="Left">
+                        <Grid ColumnDefinitions="*,Auto">
+
+                          <!-- Label + status badge + plugin id + error -->
+                          <StackPanel Grid.Column="0" Spacing="4">
+
+                            <TextBlock Text="{Binding Label}"
+                                       FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                              <!-- Status badge -->
+                              <Border CornerRadius="{DynamicResource MgaRadiusFull}"
+                                      Padding="8,2"
+                                      Background="{DynamicResource MgaAccentMutedBrush}">
+                                <TextBlock Text="{Binding Status}"
+                                           FontSize="{DynamicResource MgaFontSizeXs}"
+                                           Foreground="#FFFFFF"/>
+                              </Border>
+
+                              <TextBlock Text="{Binding PluginId}"
+                                         Classes="muted"
+                                         VerticalAlignment="Center"/>
+
+                              <TextBlock Text="{Binding IntegrationType}"
+                                         Classes="muted"
+                                         VerticalAlignment="Center"
+                                         FontSize="{DynamicResource MgaFontSizeXs}"/>
+                            </StackPanel>
+
+                            <!-- Error message -->
+                            <TextBlock Text="{Binding Message}"
+                                       Classes="muted"
+                                       TextWrapping="Wrap"
+                                       IsVisible="{Binding HasError}"
+                                       Foreground="{DynamicResource MgaDangerBrush}"/>
+
+                          </StackPanel>
+
+                          <!-- Row action buttons -->
+                          <StackPanel Grid.Column="1"
+                                      Orientation="Horizontal"
+                                      Spacing="6"
+                                      VerticalAlignment="Top"
+                                      Margin="12,0,0,0">
+
+                            <Button Classes="ghost"
+                                    Content="Edit"
+                                    Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).EditIntegrationCommand}"
+                                    CommandParameter="{Binding}"/>
+
+                            <Button Classes="ghost"
+                                    Content="↻ Refresh"
+                                    Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).RefreshIntegrationCommand}"
+                                    CommandParameter="{Binding IntegrationId}"/>
+
+                            <Button Classes="danger"
+                                    Content="✕ Delete"
+                                    Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).DeleteIntegrationCommand}"
+                                    CommandParameter="{Binding IntegrationId}"/>
+
+                          </StackPanel>
+
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+
+            </DockPanel>
 
           </DockPanel>
         </Border>

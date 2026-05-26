@@ -195,6 +195,94 @@ public sealed class MgaApiService
     public Task<List<IntegrationStatusEntry>> GetIntegrationStatusAsync(CancellationToken ct = default)
         => GetAsync<List<IntegrationStatusEntry>>("/api/integrations/status", ct);
 
+    /// <summary>Returns the full list of configured integrations from GET /api/integrations.</summary>
+    public Task<List<IntegrationDto>> ListIntegrationsAsync(CancellationToken ct = default)
+        => GetAsync<List<IntegrationDto>>("/api/integrations", ct);
+
+    /// <summary>
+    /// Creates a new integration via POST /api/integrations.
+    /// Returns either (IntegrationDto, null) on HTTP 201 or (null, OAuthRequiredResponse) on HTTP 202.
+    /// </summary>
+    public async Task<(IntegrationDto? Integration, OAuthRequiredResponse? OAuth)> CreateIntegrationAsync(
+        string pluginId,
+        string label,
+        string integrationType,
+        Dictionary<string, object> config,
+        CancellationToken ct = default)
+    {
+        var body = new { plugin_id = pluginId, label, integration_type = integrationType, config };
+        var resp = await _http.PostAsJsonAsync("/api/integrations", body, JsonOptions, ct).ConfigureAwait(false);
+
+        if ((int)resp.StatusCode == 202)
+        {
+            var oauth = await resp.Content.ReadFromJsonAsync<OAuthRequiredResponse>(JsonOptions, ct).ConfigureAwait(false);
+            return (null, oauth ?? throw new MgaApiException(202, "Server returned null OAuth response"));
+        }
+
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var dto = await resp.Content.ReadFromJsonAsync<IntegrationDto>(JsonOptions, ct).ConfigureAwait(false);
+        return (dto ?? throw new MgaApiException(201, "Server returned null integration"), null);
+    }
+
+    /// <summary>
+    /// Updates an existing integration via PUT /api/integrations/{id}.
+    /// Returns either (IntegrationDto, null) on HTTP 200 or (null, OAuthRequiredResponse) on HTTP 202.
+    /// </summary>
+    public async Task<(IntegrationDto? Integration, OAuthRequiredResponse? OAuth)> UpdateIntegrationAsync(
+        string id,
+        string label,
+        string integrationType,
+        Dictionary<string, object> config,
+        CancellationToken ct = default)
+    {
+        var body = new { label, integration_type = integrationType, config };
+        var resp = await _http.PutAsJsonAsync(
+            $"/api/integrations/{Uri.EscapeDataString(id)}", body, JsonOptions, ct).ConfigureAwait(false);
+
+        if ((int)resp.StatusCode == 202)
+        {
+            var oauth = await resp.Content.ReadFromJsonAsync<OAuthRequiredResponse>(JsonOptions, ct).ConfigureAwait(false);
+            return (null, oauth ?? throw new MgaApiException(202, "Server returned null OAuth response"));
+        }
+
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var dto = await resp.Content.ReadFromJsonAsync<IntegrationDto>(JsonOptions, ct).ConfigureAwait(false);
+        return (dto ?? throw new MgaApiException(200, "Server returned null integration"), null);
+    }
+
+    /// <summary>Deletes an integration via DELETE /api/integrations/{id} (expects 204).</summary>
+    public async Task DeleteIntegrationAsync(string id, CancellationToken ct = default)
+    {
+        var resp = await _http.DeleteAsync(
+            $"/api/integrations/{Uri.EscapeDataString(id)}", ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Returns a single plugin with its config schema from GET /api/plugins/{plugin_id}.</summary>
+    public Task<PluginDto> GetPluginAsync(string pluginId, CancellationToken ct = default)
+        => GetAsync<PluginDto>($"/api/plugins/{Uri.EscapeDataString(pluginId)}", ct);
+
+    /// <summary>
+    /// Authorizes an integration via POST /api/integrations/{id}/authorize.
+    /// Returns either (IntegrationStatusEntry, null) on HTTP 200 or (null, OAuthRequiredResponse) on HTTP 202.
+    /// </summary>
+    public async Task<(IntegrationStatusEntry? Status, OAuthRequiredResponse? OAuth)> AuthorizeIntegrationAsync(
+        string id, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync(
+            $"/api/integrations/{Uri.EscapeDataString(id)}/authorize", null, ct).ConfigureAwait(false);
+
+        if ((int)resp.StatusCode == 202)
+        {
+            var oauth = await resp.Content.ReadFromJsonAsync<OAuthRequiredResponse>(JsonOptions, ct).ConfigureAwait(false);
+            return (null, oauth ?? throw new MgaApiException(202, "Server returned null OAuth response"));
+        }
+
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var status = await resp.Content.ReadFromJsonAsync<IntegrationStatusEntry>(JsonOptions, ct).ConfigureAwait(false);
+        return (status ?? throw new MgaApiException(200, "Server returned null status"), null);
+    }
+
     /// <summary>Triggers a background refresh for integration {id} via POST /api/integrations/{id}/refresh.</summary>
     public async Task RefreshIntegrationAsync(string id, CancellationToken ct = default)
     {
@@ -205,6 +293,48 @@ public sealed class MgaApiService
         // 202 Accepted is the normal success code for async jobs.
         if ((int)resp.StatusCode != 202 && !resp.IsSuccessStatusCode)
             await EnsureSuccess(resp, ct).ConfigureAwait(false);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Scan jobs
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Starts a scan job via POST /api/scan (returns HTTP 202 with ScanJobStatus).
+    /// Pass integrationIds to scan specific integrations; null/empty scans all.
+    /// </summary>
+    public async Task<ScanJobStatus> StartScanAsync(
+        IEnumerable<string>? integrationIds = null,
+        bool metadataOnly = false,
+        CancellationToken ct = default)
+    {
+        var ids = integrationIds?.ToList();
+        object body = (ids is { Count: > 0 })
+            ? new { game_sources = ids, metadata_only = metadataOnly }
+            : new { metadata_only = metadataOnly };
+
+        var resp = await _http.PostAsJsonAsync("/api/scan", body, JsonOptions, ct).ConfigureAwait(false);
+
+        // 202 is the expected response for a successfully queued scan.
+        if ((int)resp.StatusCode != 202 && !resp.IsSuccessStatusCode)
+            await EnsureSuccess(resp, ct).ConfigureAwait(false);
+
+        var result = await resp.Content.ReadFromJsonAsync<ScanJobStatus>(JsonOptions, ct).ConfigureAwait(false);
+        return result ?? throw new MgaApiException(202, "Server returned null scan job status");
+    }
+
+    /// <summary>Returns the current status of a scan job from GET /api/scan/jobs/{job_id}.</summary>
+    public Task<ScanJobStatus> GetScanJobAsync(string jobId, CancellationToken ct = default)
+        => GetAsync<ScanJobStatus>($"/api/scan/jobs/{Uri.EscapeDataString(jobId)}", ct);
+
+    /// <summary>Cancels a running scan job via POST /api/scan/jobs/{job_id}/cancel.</summary>
+    public async Task<ScanJobStatus> CancelScanJobAsync(string jobId, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync(
+            $"/api/scan/jobs/{Uri.EscapeDataString(jobId)}/cancel", null, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var result = await resp.Content.ReadFromJsonAsync<ScanJobStatus>(JsonOptions, ct).ConfigureAwait(false);
+        return result ?? throw new MgaApiException(200, "Server returned null scan job status");
     }
 
     // ---------------------------------------------------------------------------

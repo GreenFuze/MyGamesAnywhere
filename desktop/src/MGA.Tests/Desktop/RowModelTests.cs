@@ -21,7 +21,7 @@ public sealed class RowModelTests
     [InlineData("",        false)]
     public void IntegrationRowModel_HasError_reflects_status(string status, bool expectedHasError)
     {
-        var row = new IntegrationRowModel { Status = status };
+        var row = new IntegrationRowViewModel { Status = status };
         Assert.Equal(expectedHasError, row.HasError);
     }
 
