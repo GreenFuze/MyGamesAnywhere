@@ -1,30 +1,118 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using MGA.Api;
 using MGA.Desktop.Services;
 
 namespace MGA.Desktop.ViewModels;
 
-/// <summary>Display row for one scan report entry.</summary>
-public sealed class ScanReportRowViewModel
-{
-    public string Id           { get; init; } = string.Empty;
-    public string StartedAt    { get; init; } = string.Empty;
-    public string Duration     { get; init; } = string.Empty;
-    public int    GamesAdded   { get; init; }
-    public int    GamesRemoved { get; init; }
-    public int    GamesUpdated { get; init; }
-    public int    TotalGames   { get; init; }
-    public bool   MetadataOnly { get; init; }
-    public string Summary      { get; init; } = string.Empty;
-}
+// ---------------------------------------------------------------------------
+// ScanReportRowViewModel
+// ---------------------------------------------------------------------------
 
 /// <summary>
-/// Stats page — Library and Gamer tabs.
+/// Display model for one scan report row in the Stats → Scans tab.
+/// The constructor handles duration formatting and summary-string generation.
+/// </summary>
+public sealed class ScanReportRowViewModel
+{
+    public string Id           { get; }
+    public string StartedAt    { get; }
+    public string Duration     { get; }
+    public int    GamesAdded   { get; }
+    public int    GamesRemoved { get; }
+    public int    GamesUpdated { get; }
+    public int    TotalGames   { get; }
+    public bool   MetadataOnly { get; }
+
+    /// <summary>One-line summary, e.g. "+3 added, −1 removed, 12 updated".</summary>
+    public string Summary { get; }
+
+    public ScanReportRowViewModel(ScanReport r)
+    {
+        var span = TimeSpan.FromMilliseconds(r.DurationMs);
+        var durationStr = span.TotalMinutes >= 1
+            ? $"{(int)span.TotalMinutes}m {span.Seconds}s"
+            : $"{span.Seconds}s";
+
+        Id           = r.Id;
+        StartedAt    = r.StartedAt;
+        Duration     = durationStr;
+        GamesAdded   = r.GamesAdded;
+        GamesRemoved = r.GamesRemoved;
+        GamesUpdated = r.GamesUpdated;
+        TotalGames   = r.TotalGames;
+        MetadataOnly = r.MetadataOnly;
+        Summary      = $"+{r.GamesAdded} added, −{r.GamesRemoved} removed, {r.GamesUpdated} updated";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StatTileModel
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Display model for one summary stat tile (icon + label + value).
+/// Constructed directly from resolved values so the ViewModel stays clean.
+/// </summary>
+public sealed class StatTileModel
+{
+    /// <summary>Unicode icon character shown above the value.</summary>
+    public string  Icon     { get; }
+
+    /// <summary>Human-readable label, e.g. "Total Games".</summary>
+    public string  Label    { get; }
+
+    /// <summary>Primary value string, e.g. "1,234" or "890 / 2,100".</summary>
+    public string  Value    { get; }
+
+    /// <summary>Optional secondary line beneath the value, e.g. "42%".</summary>
+    public string? SubText  { get; }
+
+    public StatTileModel(string icon, string label, string value, string? subText = null)
+    {
+        Icon    = icon;
+        Label   = label;
+        Value   = value;
+        SubText = subText;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CoverageStatModel
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Display model for one metadata-coverage row.
+/// Maps from a <see cref="CoverageStat"/> API record and pre-formats the percentage.
+/// </summary>
+public sealed class CoverageStatModel
+{
+    public string Label       { get; }
+    public int    Count       { get; }
+    public double Percent     { get; }
+
+    /// <summary>Formatted percentage string, e.g. "78.4%".</summary>
+    public string PercentText { get; }
+
+    public CoverageStatModel(CoverageStat stat)
+    {
+        Label       = stat.Label;
+        Count       = stat.Count;
+        Percent     = stat.Percent;
+        PercentText = $"{stat.Percent:F1}%";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StatsViewModel
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Stats page — Library, Gamer, and Scans tabs.
 ///
-/// Library tab: total game count, platform breakdown, genre breakdown.
-/// Gamer tab: favorite count, achievement totals, per-source achievement systems.
-///
-/// Loaded on construction via _ = LoadAsync().
+/// Library tab: stat tiles, platform/kind/genre breakdowns, metadata coverage.
+/// Gamer tab:   achievement totals and per-source breakdown.
+/// Scans tab:   recent scan reports.
 /// </summary>
 public sealed partial class StatsViewModel : ViewModelBase
 {
@@ -39,7 +127,7 @@ public sealed partial class StatsViewModel : ViewModelBase
     private bool _isLoading;
 
     // ---------------------------------------------------------------------------
-    // Tab selection (0 = Library, 1 = Gamer)
+    // Tab selection (0 = Library, 1 = Gamer, 2 = Scans)
     // ---------------------------------------------------------------------------
 
     [ObservableProperty]
@@ -52,11 +140,24 @@ public sealed partial class StatsViewModel : ViewModelBase
     [ObservableProperty]
     private int _totalGames;
 
+    /// <summary>Top-row summary tiles shown at the top of the Library tab.</summary>
+    [ObservableProperty]
+    private ObservableCollection<StatTileModel> _statTiles = [];
+
     [ObservableProperty]
     private ObservableCollection<CountStatModel> _platformBreakdown = [];
 
     [ObservableProperty]
+    private ObservableCollection<CountStatModel> _kindBreakdown = [];
+
+    [ObservableProperty]
     private ObservableCollection<CountStatModel> _genreBreakdown = [];
+
+    [ObservableProperty]
+    private ObservableCollection<CoverageStatModel> _coverage = [];
+
+    [ObservableProperty]
+    private bool _hasCoverage;
 
     // ---------------------------------------------------------------------------
     // Gamer tab
@@ -71,7 +172,6 @@ public sealed partial class StatsViewModel : ViewModelBase
     [ObservableProperty]
     private int _unlockedAchievements;
 
-    /// <summary>Human-readable unlock percentage, e.g. "42%".</summary>
     [ObservableProperty]
     private string _unlockPercent = "0%";
 
@@ -79,7 +179,7 @@ public sealed partial class StatsViewModel : ViewModelBase
     private ObservableCollection<AchievementSystemRowModel> _achievementSystems = [];
 
     // ---------------------------------------------------------------------------
-    // Scan history
+    // Scans tab
     // ---------------------------------------------------------------------------
 
     [ObservableProperty]
@@ -115,7 +215,6 @@ public sealed partial class StatsViewModel : ViewModelBase
 
         try
         {
-            // Fetch library, gamer stats, and scan reports in parallel.
             var libraryTask = _server.Api.GetLibraryStatisticsAsync();
             var gamerTask   = _server.Api.GetGamerStatisticsAsync();
             var reportsTask = _server.Api.ListScanReportsAsync(limit: 10);
@@ -124,67 +223,44 @@ public sealed partial class StatsViewModel : ViewModelBase
 
             var library = await libraryTask;
             var gamer   = await gamerTask;
+            var reports = await reportsTask;
 
-            // Populate library tab.
-            TotalGames = library.Summary.CanonicalGameCount;
-
-            // Compute per-list maximums so bar widths are proportional within each group.
-            int platformMax = library.Platforms.Count > 0 ? library.Platforms.Max(p => p.Count) : 1;
-            int genreMax    = library.Genres.Count    > 0 ? library.Genres.Max(g => g.Count)    : 1;
-
-            PlatformBreakdown = new ObservableCollection<CountStatModel>(
-                library.Platforms.Select(p => new CountStatModel
-                {
-                    Label    = p.Label,
-                    Count    = p.Count,
-                    MaxCount = platformMax,
-                }));
-
-            GenreBreakdown = new ObservableCollection<CountStatModel>(
-                library.Genres.Select(g => new CountStatModel
-                {
-                    Label    = g.Label,
-                    Count    = g.Count,
-                    MaxCount = genreMax,
-                }));
-
-            // Populate gamer tab.
+            // Populate totals used by both tabs.
+            TotalGames           = library.Summary.CanonicalGameCount;
             FavoriteGames        = gamer.FavoriteGames;
             TotalAchievements    = gamer.TotalAchievements;
             UnlockedAchievements = gamer.UnlockedAchievements;
             UnlockPercent        = PercentFormatter.Format(gamer.UnlockedAchievements, gamer.TotalAchievements);
 
-            AchievementSystems = new ObservableCollection<AchievementSystemRowModel>(
-                gamer.AchievementSystems.Select(s => new AchievementSystemRowModel
-                {
-                    Source      = s.Source,
-                    Total       = s.TotalCount,
-                    Unlocked    = s.UnlockedCount,
-                    PercentText = PercentFormatter.Format(s.UnlockedCount, s.TotalCount),
-                }));
+            // Stat tiles — combine library + gamer data.
+            BuildStatTiles(library, gamer);
 
-            // Populate scan history.
-            var reports = await reportsTask.ConfigureAwait(true);
-            ScanReports = new ObservableCollection<ScanReportRowViewModel>(
-                reports.Select(r =>
-                {
-                    var duration    = TimeSpan.FromMilliseconds(r.DurationMs);
-                    var durationStr = duration.TotalMinutes >= 1
-                        ? $"{(int)duration.TotalMinutes}m {duration.Seconds}s"
-                        : $"{duration.Seconds}s";
-                    return new ScanReportRowViewModel
-                    {
-                        Id           = r.Id,
-                        StartedAt    = r.StartedAt,
-                        Duration     = durationStr,
-                        GamesAdded   = r.GamesAdded,
-                        GamesRemoved = r.GamesRemoved,
-                        GamesUpdated = r.GamesUpdated,
-                        TotalGames   = r.TotalGames,
-                        MetadataOnly = r.MetadataOnly,
-                        Summary      = $"+{r.GamesAdded} added, −{r.GamesRemoved} removed, {r.GamesUpdated} updated",
-                    };
-                }));
+            // Breakdown bar charts — each uses the group maximum to normalise bar widths.
+            int platformMax = library.Platforms.Count > 0 ? library.Platforms.Max(p => p.Count) : 1;
+            int kindMax     = library.Kinds.Count     > 0 ? library.Kinds.Max(k => k.Count)     : 1;
+            int genreMax    = library.Genres.Count    > 0 ? library.Genres.Max(g => g.Count)    : 1;
+
+            PlatformBreakdown = new ObservableCollection<CountStatModel>(
+                library.Platforms.Select(p => new CountStatModel(p, platformMax)));
+
+            KindBreakdown = new ObservableCollection<CountStatModel>(
+                library.Kinds.Select(k => new CountStatModel(k, kindMax)));
+
+            GenreBreakdown = new ObservableCollection<CountStatModel>(
+                library.Genres.Select(g => new CountStatModel(g, genreMax)));
+
+            // Metadata coverage tiles.
+            Coverage     = new ObservableCollection<CoverageStatModel>(
+                library.Coverage.Select(c => new CoverageStatModel(c)));
+            HasCoverage  = Coverage.Count > 0;
+
+            // Gamer achievement systems.
+            AchievementSystems = new ObservableCollection<AchievementSystemRowModel>(
+                gamer.AchievementSystems.Select(s => new AchievementSystemRowModel(s)));
+
+            // Scan history.
+            ScanReports    = new ObservableCollection<ScanReportRowViewModel>(
+                reports.Select(r => new ScanReportRowViewModel(r)));
             HasScanReports = ScanReports.Count > 0;
         }
         catch (Exception ex)
@@ -197,4 +273,31 @@ public sealed partial class StatsViewModel : ViewModelBase
         }
     }
 
+    // ---------------------------------------------------------------------------
+    // Private helpers
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Builds the four summary stat tiles from combined library + gamer data.
+    /// Keeps the construction logic inside the ViewModel rather than scattering it.
+    /// </summary>
+    private void BuildStatTiles(LibraryStatistics library, GamerStatistics gamer)
+    {
+        // Cover art coverage percentage from the library coverage list.
+        var coverStat  = library.Coverage.FirstOrDefault(c => c.Key == "cover");
+        string coverPct = coverStat is not null ? $"{coverStat.Percent:F0}% covered" : string.Empty;
+
+        // Achievement unlock fraction.
+        string achieveValue = gamer.TotalAchievements > 0
+            ? $"{gamer.UnlockedAchievements:N0} / {gamer.TotalAchievements:N0}"
+            : "—";
+
+        StatTiles = new ObservableCollection<StatTileModel>
+        {
+            new("▤",  "Total Games",  $"{library.Summary.CanonicalGameCount:N0}"),
+            new("★",  "Favorites",    $"{gamer.FavoriteGames:N0}"),
+            new("🏆", "Achievements", achieveValue,  UnlockPercent),
+            new("🎨", "Cover Art",    coverPct.Length > 0 ? coverPct : "—"),
+        };
+    }
 }

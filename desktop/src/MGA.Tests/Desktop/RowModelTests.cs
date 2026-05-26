@@ -32,14 +32,16 @@ public sealed class RowModelTests
     [Fact]
     public void PluginRowModel_ProvidesText_empty_when_no_provides()
     {
-        var row = new PluginRowModel { ProvidesText = string.Empty };
+        var dto = new MGA.Api.PluginDto { PluginId = "p", Provides = [] };
+        var row = new PluginRowModel(dto);
         Assert.Equal(string.Empty, row.ProvidesText);
     }
 
     [Fact]
     public void PluginRowModel_ProvidesText_single_entry()
     {
-        var row = new PluginRowModel { ProvidesText = "game-source" };
+        var dto = new MGA.Api.PluginDto { PluginId = "p", Provides = ["game-source"] };
+        var row = new PluginRowModel(dto);
         Assert.Equal("game-source", row.ProvidesText);
     }
 

@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Desktop.Services;
 using MGA.Desktop.ViewModels.Settings;
+using System.Reactive.Linq;
 
 namespace MGA.Desktop.ViewModels;
 
@@ -63,6 +64,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     public IReadOnlyList<NavItem> NavItems { get; }
 
+    // Reference kept for badge-count updates without list lookup on every event.
+    private NavItem _libraryNavItem = null!;
+
     // ---------------------------------------------------------------------------
     // Constructor
     // ---------------------------------------------------------------------------
@@ -95,6 +99,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             new("about",        "About",        "ℹ"),
         };
 
+        // Cache the Library item so badge updates don't scan the list each time.
+        _libraryNavItem = NavItems.First(n => n.PageId == "library");
+
         // Mirror NavigationService → CurrentPage (with old-VM disposal).
         Disposables.Add(
             nav.CurrentPage.Subscribe(vm =>
@@ -114,6 +121,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Disposables.Add(
             serverConn.UrlChanged.Subscribe(url => ActiveServerUrl = url));
 
+        // Wire SSE: refresh the Library badge whenever an integration refresh finishes.
+        if (serverConn.Events is not null)
+            Disposables.Add(
+                serverConn.Events.Of("integration_refresh_complete")
+                    .Subscribe(msg => Avalonia.Threading.Dispatcher.UIThread.Post(
+                        () => _ = RefreshLibraryCountAsync())));
+
         // Show onboarding on first run; otherwise go straight to Play.
         if (config.Config.IsFirstRun)
         {
@@ -122,6 +136,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         else
         {
             NavigateTo("play");
+
+            // Populate the Library badge immediately on startup.
+            _ = RefreshLibraryCountAsync();
         }
     }
 
@@ -212,6 +229,33 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         _              => null,
     };
 
+    // ---------------------------------------------------------------------------
+    // Private — live badge updates
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Fetches the total game count from the server and updates the Library nav-item badge.
+    /// Best-effort: exceptions are swallowed so a transient failure never shows a toast.
+    /// </summary>
+    private async Task RefreshLibraryCountAsync()
+    {
+        if (_serverConn.Api is null)
+            return;
+
+        try
+        {
+            // page_size=1 — we only need the Total field, not the full game list.
+            var resp = await _serverConn.Api.ListGamesAsync(page: 0, pageSize: 1)
+                .ConfigureAwait(true);
+
+            _libraryNavItem.BadgeCount = resp.Total;
+        }
+        catch
+        {
+            // Badge is best-effort; don't surface transient network errors.
+        }
+    }
+
     public override void Dispose()
     {
         OnboardingVm?.Dispose();
@@ -238,6 +282,15 @@ public sealed partial class NavItem : ObservableObject
 
     [ObservableProperty]
     private bool _isActive;
+
+    /// <summary>Numeric badge shown beside the label (e.g. total game count). 0 = hidden.</summary>
+    [ObservableProperty]
+    private int _badgeCount;
+
+    /// <summary>True when <see cref="BadgeCount"/> is greater than zero.</summary>
+    public bool HasBadge => BadgeCount > 0;
+
+    partial void OnBadgeCountChanged(int value) => OnPropertyChanged(nameof(HasBadge));
 
     public NavItem(string pageId, string label, string icon)
     {

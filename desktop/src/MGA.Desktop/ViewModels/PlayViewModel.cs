@@ -127,24 +127,5 @@ public sealed partial class PlayViewModel : ViewModelBase
     // Private helpers
     // ---------------------------------------------------------------------------
 
-    private GameCardModel ToCard(MGA.Api.GameDetail g)
-    {
-        // Prefer cover_override, then the first media asset of type "cover".
-        var coverMedia = g.CoverOverride
-            ?? g.Media.FirstOrDefault(m => m.Type == "cover");
-
-        string? coverUrl = coverMedia is not null && _server.Api is not null
-            ? _server.Api.GetMediaUrl(coverMedia.Url)
-            : null;
-
-        return new GameCardModel
-        {
-            Id       = g.Id,
-            Title    = g.Title,
-            Platform = g.Platform,
-            CoverUrl = coverUrl,
-            Favorite = g.Favorite,
-            CanPlay  = g.Kind == "game",
-        };
-    }
+    private GameCardModel ToCard(MGA.Api.GameDetail g) => new(g, _server.Api);
 }

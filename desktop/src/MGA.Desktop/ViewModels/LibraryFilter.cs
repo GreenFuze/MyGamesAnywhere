@@ -1,58 +1,87 @@
 namespace MGA.Desktop.ViewModels;
 
 /// <summary>
-/// Pure static helper that applies text search, platform filter, favorites filter,
-/// and sort order to a sequence of GameCardModel items.
-///
-/// Extracted from LibraryViewModel.RebuildFilteredGames for testability.
+/// All active filter and sort parameters for the Library page.
+/// Passed as a single value object to <see cref="LibraryFilter.Apply"/>.
+/// </summary>
+internal readonly record struct FilterCriteria
+{
+    public string             SearchText     { get; init; }
+    public IReadOnlySet<string> Platforms    { get; init; }
+    public IReadOnlySet<string> Genres       { get; init; }
+    public string             Developer      { get; init; }
+    public string             Publisher      { get; init; }
+    public string             Integration    { get; init; }
+    public int?               YearFrom       { get; init; }
+    public int?               YearTo         { get; init; }
+    public bool               FavoritesOnly  { get; init; }
+    public int                SortIndex      { get; init; }
+}
+
+/// <summary>
+/// Pure static helper that applies a <see cref="FilterCriteria"/> to a
+/// sequence of <see cref="GameCardModel"/> items and returns the filtered,
+/// sorted result.  Extracted from <see cref="LibraryViewModel"/> for testability.
 /// </summary>
 internal static class LibraryFilter
 {
-    /// <summary>
-    /// Applies all active filters and the selected sort order.
-    /// </summary>
-    /// <param name="source">Input sequence of game cards.</param>
-    /// <param name="searchText">Free-text search matched against Title and Platform (OrdinalIgnoreCase).</param>
-    /// <param name="selectedPlatform">Exact platform name, or "All Platforms" to skip platform filtering.</param>
-    /// <param name="selectedGenre">Exact genre name, or "All Genres" to skip genre filtering.</param>
-    /// <param name="showFavoritesOnly">When true, only favorite games are returned.</param>
-    /// <param name="sortIndex">0 = Title A–Z, 1 = Title Z–A, 2 = Platform then Title, 3 = Developer then Title.</param>
-    /// <returns>Filtered and sorted enumerable (not materialised).</returns>
     internal static IEnumerable<GameCardModel> Apply(
         IEnumerable<GameCardModel> source,
-        string searchText,
-        string selectedPlatform,
-        string selectedGenre,
-        bool showFavoritesOnly,
-        int sortIndex)
+        FilterCriteria             criteria)
     {
         var query = source;
 
-        // Text filter — matches title or platform (case-insensitive).
-        var text = searchText.Trim();
+        // Free-text: matches title, platform, developer (case-insensitive).
+        var text = criteria.SearchText.Trim();
         if (!string.IsNullOrEmpty(text))
             query = query.Where(g =>
-                g.Title.Contains(text, StringComparison.OrdinalIgnoreCase) ||
-                g.Platform.Contains(text, StringComparison.OrdinalIgnoreCase));
+                g.Title.Contains(text,      StringComparison.OrdinalIgnoreCase) ||
+                g.Platform.Contains(text,   StringComparison.OrdinalIgnoreCase) ||
+                g.Developer.Contains(text,  StringComparison.OrdinalIgnoreCase));
 
-        // Platform filter — skip when "All Platforms".
-        if (selectedPlatform != "All Platforms")
-            query = query.Where(g => g.Platform == selectedPlatform);
+        // Platform multi-select — empty set means "All Platforms".
+        if (criteria.Platforms.Count > 0)
+            query = query.Where(g => criteria.Platforms.Contains(g.Platform));
 
-        // Genre filter — skip when "All Genres".
-        if (selectedGenre != "All Genres")
-            query = query.Where(g => g.Genres.Contains(selectedGenre, StringComparer.OrdinalIgnoreCase));
+        // Genre multi-select — empty set means "All Genres".
+        if (criteria.Genres.Count > 0)
+            query = query.Where(g =>
+                g.Genres.Any(genre => criteria.Genres.Contains(genre)));
+
+        // Developer single-select.
+        if (!string.IsNullOrEmpty(criteria.Developer))
+            query = query.Where(g =>
+                g.Developer.Equals(criteria.Developer, StringComparison.OrdinalIgnoreCase));
+
+        // Publisher single-select.
+        if (!string.IsNullOrEmpty(criteria.Publisher))
+            query = query.Where(g =>
+                g.Publisher.Equals(criteria.Publisher, StringComparison.OrdinalIgnoreCase));
+
+        // Integration single-select (matched against IntegrationLabel).
+        if (!string.IsNullOrEmpty(criteria.Integration))
+            query = query.Where(g =>
+                g.IntegrationLabel.Equals(criteria.Integration, StringComparison.OrdinalIgnoreCase));
+
+        // Year range — only applied when a year is entered.
+        if (criteria.YearFrom.HasValue)
+            query = query.Where(g => g.ReleaseYear >= criteria.YearFrom.Value);
+
+        if (criteria.YearTo.HasValue)
+            query = query.Where(g => g.ReleaseYear > 0 && g.ReleaseYear <= criteria.YearTo.Value);
 
         // Favorites filter.
-        if (showFavoritesOnly)
+        if (criteria.FavoritesOnly)
             query = query.Where(g => g.Favorite);
 
         // Sort.
-        query = sortIndex switch
+        query = criteria.SortIndex switch
         {
             1 => query.OrderByDescending(g => g.Title),
             2 => query.OrderBy(g => g.Platform).ThenBy(g => g.Title),
             3 => query.OrderBy(g => g.Developer).ThenBy(g => g.Title),
+            4 => query.OrderByDescending(g => g.ReleaseYear).ThenBy(g => g.Title),
+            5 => query.OrderBy(g => g.ReleaseYear == 0 ? int.MaxValue : g.ReleaseYear).ThenBy(g => g.Title),
             _ => query.OrderBy(g => g.Title),
         };
 

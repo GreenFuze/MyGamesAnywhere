@@ -58,6 +58,34 @@ public sealed record ExternalIdDto
     public string? Url { get; init; }
 }
 
+/// <summary>A single metadata resolver match stored against a source game.</summary>
+public sealed record SourceResolverMatch
+{
+    [JsonPropertyName("plugin_id")]
+    public string PluginId { get; init; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string? Title { get; init; }
+
+    [JsonPropertyName("platform")]
+    public string? Platform { get; init; }
+
+    [JsonPropertyName("kind")]
+    public string? Kind { get; init; }
+
+    [JsonPropertyName("external_id")]
+    public string ExternalId { get; init; } = string.Empty;
+
+    [JsonPropertyName("url")]
+    public string? Url { get; init; }
+
+    [JsonPropertyName("outvoted")]
+    public bool Outvoted { get; init; }
+
+    [JsonPropertyName("manual_selection")]
+    public bool ManualSelection { get; init; }
+}
+
 /// <summary>A source game summary within game detail (integration + files).</summary>
 public sealed record SourceGameSummary
 {
@@ -93,6 +121,9 @@ public sealed record SourceGameSummary
 
     [JsonPropertyName("files")]
     public List<GameFileDto> Files { get; init; } = [];
+
+    [JsonPropertyName("resolver_matches")]
+    public List<SourceResolverMatch> ResolverMatches { get; init; } = [];
 }
 
 /// <summary>Achievement summary statistics for a game.</summary>
@@ -158,6 +189,79 @@ public sealed record GameDetail
 
     [JsonPropertyName("source_games")]
     public List<SourceGameSummary> SourceGames { get; init; } = [];
+}
+
+// ---------------------------------------------------------------------------
+// Game Detail mutation responses
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Response from DELETE /api/games/{id}/sources/{source_game_id}.
+/// When <see cref="CanonicalExists"/> is false the canonical game was deleted with its last source.
+/// </summary>
+public sealed record DeleteSourceGameResponse
+{
+    [JsonPropertyName("deleted_source_game_id")]
+    public string DeletedSourceGameId { get; init; } = string.Empty;
+
+    [JsonPropertyName("canonical_exists")]
+    public bool CanonicalExists { get; init; }
+
+    /// <summary>Updated game detail (omitted when the canonical was also deleted).</summary>
+    [JsonPropertyName("game")]
+    public GameDetail? Game { get; init; }
+
+    [JsonPropertyName("warnings")]
+    public List<string> Warnings { get; init; } = [];
+}
+
+/// <summary>
+/// Response for canonical-grouping operations: split, merge, clear-pin.
+/// </summary>
+public sealed record CanonicalGroupingResponse
+{
+    [JsonPropertyName("source_game_id")]
+    public string SourceGameId { get; init; } = string.Empty;
+
+    [JsonPropertyName("old_canonical_game_id")]
+    public string? OldCanonicalGameId { get; init; }
+
+    [JsonPropertyName("canonical_game_id")]
+    public string CanonicalGameId { get; init; } = string.Empty;
+
+    /// <summary>Updated game detail for the (new or existing) canonical game.</summary>
+    [JsonPropertyName("game")]
+    public GameDetail? Game { get; init; }
+}
+
+// ---------------------------------------------------------------------------
+// Canonical game search
+// ---------------------------------------------------------------------------
+
+/// <summary>A single result from GET /api/canonical-games/search.</summary>
+public sealed record CanonicalGameSearchResult
+{
+    [JsonPropertyName("id")]
+    public string Id { get; init; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; init; } = string.Empty;
+
+    [JsonPropertyName("platform")]
+    public string Platform { get; init; } = string.Empty;
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; init; } = string.Empty;
+
+    [JsonPropertyName("source_count")]
+    public int SourceCount { get; init; }
+}
+
+/// <summary>Response wrapper from GET /api/canonical-games/search.</summary>
+public sealed record CanonicalGameSearchResponse
+{
+    [JsonPropertyName("games")]
+    public List<CanonicalGameSearchResult> Games { get; init; } = [];
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +371,101 @@ public sealed record AchievementsDashboard
 
     [JsonPropertyName("refresh")]
     public AchievementRefreshInfo Refresh { get; init; } = new();
+}
+
+// ---------------------------------------------------------------------------
+// Achievement explorer models (GET /api/achievements/explorer)
+// ---------------------------------------------------------------------------
+
+/// <summary>An individual achievement row returned by the explorer endpoint.</summary>
+public sealed record AchievementDto
+{
+    [JsonPropertyName("external_id")]
+    public string ExternalId { get; init; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; init; } = string.Empty;
+
+    [JsonPropertyName("description")]
+    public string Description { get; init; } = string.Empty;
+
+    [JsonPropertyName("locked_icon")]
+    public string? LockedIcon { get; init; }
+
+    [JsonPropertyName("unlocked_icon")]
+    public string? UnlockedIcon { get; init; }
+
+    [JsonPropertyName("points")]
+    public int Points { get; init; }
+
+    [JsonPropertyName("rarity")]
+    public double Rarity { get; init; }
+
+    [JsonPropertyName("unlocked")]
+    public bool Unlocked { get; init; }
+
+    [JsonPropertyName("unlocked_at")]
+    public string? UnlockedAt { get; init; }
+}
+
+/// <summary>One achievement set from a single source/integration within a game.</summary>
+public sealed record AchievementSetDto
+{
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = string.Empty;
+
+    [JsonPropertyName("external_game_id")]
+    public string ExternalGameId { get; init; } = string.Empty;
+
+    [JsonPropertyName("source_game_id")]
+    public string? SourceGameId { get; init; }
+
+    [JsonPropertyName("source_title")]
+    public string? SourceTitle { get; init; }
+
+    [JsonPropertyName("platform")]
+    public string? Platform { get; init; }
+
+    [JsonPropertyName("integration_id")]
+    public string? IntegrationId { get; init; }
+
+    [JsonPropertyName("integration_label")]
+    public string? IntegrationLabel { get; init; }
+
+    [JsonPropertyName("plugin_id")]
+    public string? PluginId { get; init; }
+
+    [JsonPropertyName("total_count")]
+    public int TotalCount { get; init; }
+
+    [JsonPropertyName("unlocked_count")]
+    public int UnlockedCount { get; init; }
+
+    [JsonPropertyName("total_points")]
+    public int TotalPoints { get; init; }
+
+    [JsonPropertyName("earned_points")]
+    public int EarnedPoints { get; init; }
+
+    [JsonPropertyName("achievements")]
+    public List<AchievementDto> Achievements { get; init; } = [];
+}
+
+/// <summary>A game entry in the explorer — canonical game info plus all achievement sets.</summary>
+public sealed record AchievementGameExplorerDto
+{
+    [JsonPropertyName("game")]
+    public GameDetail Game { get; init; } = new();
+
+    [JsonPropertyName("systems")]
+    public List<AchievementSetDto> Systems { get; init; } = [];
+}
+
+/// <summary>Full response from GET /api/achievements/explorer.</summary>
+public sealed record AchievementsExplorerResponse
+{
+    [JsonPropertyName("games")]
+    public List<AchievementGameExplorerDto> Games { get; init; } = [];
 }
 
 // ---------------------------------------------------------------------------
@@ -565,6 +764,32 @@ public sealed record PluginDto
 // Duplicates
 // ---------------------------------------------------------------------------
 
+/// <summary>
+/// Minimal source-game record nested inside a duplicate source entry.
+/// Carries the source game ID (needed to call the merge endpoint) and
+/// integration metadata for display.
+/// </summary>
+public sealed record DuplicateSourceRecord
+{
+    [JsonPropertyName("id")]
+    public string Id { get; init; } = string.Empty;
+
+    [JsonPropertyName("integration_id")]
+    public string IntegrationId { get; init; } = string.Empty;
+
+    [JsonPropertyName("integration_label")]
+    public string? IntegrationLabel { get; init; }
+
+    [JsonPropertyName("raw_title")]
+    public string RawTitle { get; init; } = string.Empty;
+
+    [JsonPropertyName("platform")]
+    public string Platform { get; init; } = string.Empty;
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; init; } = string.Empty;
+}
+
 /// <summary>A single source entry within a duplicate group.</summary>
 public sealed record DuplicateSourceDto
 {
@@ -574,11 +799,18 @@ public sealed record DuplicateSourceDto
     [JsonPropertyName("canonical_title")]
     public string CanonicalTitle { get; init; } = string.Empty;
 
+    /// <summary>The nested source-game record carrying the source game ID and integration info.</summary>
+    [JsonPropertyName("source")]
+    public DuplicateSourceRecord Source { get; init; } = new();
+
     [JsonPropertyName("file_count")]
     public int FileCount { get; init; }
 
     [JsonPropertyName("total_size")]
     public long TotalSize { get; init; }
+
+    [JsonPropertyName("cached")]
+    public bool Cached { get; init; }
 }
 
 /// <summary>A group of duplicate games returned by GET /api/duplicates/games.</summary>
@@ -587,8 +819,14 @@ public sealed record DuplicateGroupDto
     [JsonPropertyName("id")]
     public string Id { get; init; } = string.Empty;
 
+    [JsonPropertyName("mode")]
+    public string Mode { get; init; } = string.Empty;
+
     [JsonPropertyName("representative_title")]
     public string RepresentativeTitle { get; init; } = string.Empty;
+
+    [JsonPropertyName("canonical_ids")]
+    public List<string> CanonicalIds { get; init; } = [];
 
     [JsonPropertyName("sources")]
     public List<DuplicateSourceDto> Sources { get; init; } = [];

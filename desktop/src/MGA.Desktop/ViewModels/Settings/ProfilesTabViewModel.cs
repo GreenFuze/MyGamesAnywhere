@@ -5,12 +5,22 @@ using MGA.Desktop.Services;
 
 namespace MGA.Desktop.ViewModels.Settings;
 
-/// <summary>Display model for a single profile row.</summary>
+/// <summary>
+/// Display model for a single profile row.
+/// Maps from a <see cref="Profile"/> API record on construction.
+/// </summary>
 public sealed class ProfileRowModel
 {
-    public string Id          { get; init; } = string.Empty;
-    public string DisplayName { get; init; } = string.Empty;
-    public string Role        { get; init; } = string.Empty;
+    public string Id          { get; }
+    public string DisplayName { get; }
+    public string Role        { get; }
+
+    public ProfileRowModel(Profile p)
+    {
+        Id          = p.Id;
+        DisplayName = p.DisplayName;
+        Role        = p.Role;
+    }
 }
 
 /// <summary>
@@ -45,13 +55,9 @@ public sealed partial class ProfilesTabViewModel : ViewModelBase
         {
             var list = await _server.Api.GetProfilesAsync().ConfigureAwait(true);
 
+            // Each ProfileRowModel maps its own Profile record.
             Profiles = new ObservableCollection<ProfileRowModel>(
-                list.Select(p => new ProfileRowModel
-                {
-                    Id          = p.Id,
-                    DisplayName = p.DisplayName,
-                    Role        = p.Role,
-                }));
+                list.Select(p => new ProfileRowModel(p)));
         }
         catch (Exception ex)
         {

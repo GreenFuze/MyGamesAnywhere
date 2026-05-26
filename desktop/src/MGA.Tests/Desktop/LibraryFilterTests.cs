@@ -16,6 +16,10 @@ public sealed class LibraryFilterTests
         bool favorite = false)
         => new() { Id = id, Title = title, Platform = platform, Favorite = favorite };
 
+    /// <summary>
+    /// Convenience wrapper that translates legacy positional test arguments into
+    /// a <see cref="FilterCriteria"/> so individual test cases stay concise.
+    /// </summary>
     private static IEnumerable<GameCardModel> Apply(
         IEnumerable<GameCardModel> source,
         string searchText       = "",
@@ -23,7 +27,30 @@ public sealed class LibraryFilterTests
         string selectedGenre    = "All Genres",
         bool   showFavs         = false,
         int    sortIndex        = 0)
-        => LibraryFilter.Apply(source, searchText, selectedPlatform, selectedGenre, showFavs, sortIndex);
+    {
+        // "All Platforms" / "All Genres" → empty set → LibraryFilter treats as "no filter".
+        var platforms = selectedPlatform == "All Platforms" || string.IsNullOrEmpty(selectedPlatform)
+            ? (IReadOnlySet<string>)new HashSet<string>()
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { selectedPlatform };
+
+        var genres = selectedGenre == "All Genres" || string.IsNullOrEmpty(selectedGenre)
+            ? (IReadOnlySet<string>)new HashSet<string>()
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { selectedGenre };
+
+        var criteria = new FilterCriteria
+        {
+            SearchText    = searchText,
+            Platforms     = platforms,
+            Genres        = genres,
+            Developer     = string.Empty,
+            Publisher     = string.Empty,
+            Integration   = string.Empty,
+            FavoritesOnly = showFavs,
+            SortIndex     = sortIndex,
+        };
+
+        return LibraryFilter.Apply(source, criteria);
+    }
 
     // ---------------------------------------------------------------------------
     // Source data

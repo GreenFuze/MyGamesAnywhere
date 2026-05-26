@@ -6,10 +6,13 @@ using MGA.Desktop.Services;
 namespace MGA.Desktop.ViewModels;
 
 /// <summary>
-/// Library page — full game collection with live text search, platform filter,
-/// sort order, favorites toggle, and a Scan Library button.
+/// Library page — full game collection with live text search, advanced filter bar
+/// (multi-select platform/genre, developer, publisher, integration, year range,
+/// favorites toggle), sort order, view mode cycling (Grid / List / Timeline / Shelf),
+/// and a Scan Library button.
 ///
 /// FilteredGames is recomputed whenever any filter/sort property changes.
+/// TimelineGroups and ShelfRows are rebuilt automatically from FilteredGames.
 /// </summary>
 public sealed partial class LibraryViewModel : ViewModelBase
 {
@@ -19,13 +22,21 @@ public sealed partial class LibraryViewModel : ViewModelBase
     private readonly AppConfigService        _config;
 
     // ---------------------------------------------------------------------------
-    // Sort options (constant; exposed as instance property for compiled bindings)
+    // Sort options
     // ---------------------------------------------------------------------------
 
-    public string[] SortOptions { get; } = ["Title (A–Z)", "Title (Z–A)", "Platform", "Developer"];
+    public string[] SortOptions { get; } =
+    [
+        "Title (A–Z)",
+        "Title (Z–A)",
+        "Platform",
+        "Developer",
+        "Year (newest)",
+        "Year (oldest)",
+    ];
 
     // ---------------------------------------------------------------------------
-    // Observable state
+    // Observable state — loading / scanning / view mode
     // ---------------------------------------------------------------------------
 
     [ObservableProperty]
@@ -35,48 +46,114 @@ public sealed partial class LibraryViewModel : ViewModelBase
     private bool _isScanning;
 
     [ObservableProperty]
+    private int _totalCount;
+
+    /// <summary>Active display mode. Cycles Grid → List → Timeline → Shelf.</summary>
+    [ObservableProperty]
+    private ViewMode _viewMode = ViewMode.Grid;
+
+    // ---------------------------------------------------------------------------
+    // Observable state — all loaded games (source for rebuilds)
+    // ---------------------------------------------------------------------------
+
+    [ObservableProperty]
     private ObservableCollection<GameCardModel> _games = [];
+
+    // ---------------------------------------------------------------------------
+    // Observable state — filter bar
+    // ---------------------------------------------------------------------------
 
     [ObservableProperty]
     private string _searchText = string.Empty;
 
-    [ObservableProperty]
-    private int _totalCount;
+    /// <summary>Multi-select platform options; each item fires RebuildFilteredGames on change.</summary>
+    public ObservableCollection<FilterOptionModel> PlatformOptions { get; } = [];
 
-    // --- Filter / sort ---
-
-    [ObservableProperty]
-    private ObservableCollection<string> _platforms = ["All Platforms"];
+    /// <summary>Multi-select genre options; each item fires RebuildFilteredGames on change.</summary>
+    public ObservableCollection<FilterOptionModel> GenreOptions { get; } = [];
 
     [ObservableProperty]
-    private string _selectedPlatform = "All Platforms";
+    private ObservableCollection<string> _developers = ["All Developers"];
 
     [ObservableProperty]
-    private ObservableCollection<string> _genres = ["All Genres"];
+    private string _selectedDeveloper = "All Developers";
 
     [ObservableProperty]
-    private string _selectedGenre = "All Genres";
+    private ObservableCollection<string> _publishers = ["All Publishers"];
 
     [ObservableProperty]
-    private int _selectedSortIndex;
+    private string _selectedPublisher = "All Publishers";
+
+    [ObservableProperty]
+    private ObservableCollection<string> _integrations = ["All Sources"];
+
+    [ObservableProperty]
+    private string _selectedIntegration = "All Sources";
+
+    [ObservableProperty]
+    private string _yearFrom = string.Empty;
+
+    [ObservableProperty]
+    private string _yearTo = string.Empty;
 
     [ObservableProperty]
     private bool _showFavoritesOnly;
 
     [ObservableProperty]
-    private bool _isListView;
+    private int _selectedSortIndex;
 
     // ---------------------------------------------------------------------------
-    // Derived state — the live-filtered, sorted subset shown in the grid
+    // Derived state — live-filtered, sorted subset
     // ---------------------------------------------------------------------------
 
-    public ObservableCollection<GameCardModel> FilteredGames { get; } = [];
+    public ObservableCollection<GameCardModel>           FilteredGames  { get; } = [];
+    public ObservableCollection<TimelineYearGroupViewModel> TimelineGroups { get; } = [];
+    public ObservableCollection<ShelfRowViewModel>       ShelfRows      { get; } = [];
 
-    /// <summary>True when the grid view should be shown (not loading, not in list mode).</summary>
-    public bool ShowGridView => !IsLoading && !IsListView;
+    // ---------------------------------------------------------------------------
+    // Derived — filter bar labels
+    // ---------------------------------------------------------------------------
 
-    /// <summary>True when the list view should be shown (not loading, in list mode).</summary>
-    public bool ShowListView => !IsLoading && IsListView;
+    /// <summary>Label for the Platforms multi-select button, e.g. "Platforms (3)" or "Platforms".</summary>
+    public string SelectedPlatformsText
+    {
+        get
+        {
+            var count = PlatformOptions.Count(p => p.IsSelected);
+            return count == 0 ? "Platforms" : $"Platforms ({count})";
+        }
+    }
+
+    /// <summary>Label for the Genres multi-select button, e.g. "Genres (2)" or "Genres".</summary>
+    public string SelectedGenresText
+    {
+        get
+        {
+            var count = GenreOptions.Count(g => g.IsSelected);
+            return count == 0 ? "Genres" : $"Genres ({count})";
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Derived — view visibility + mode toggle label
+    // ---------------------------------------------------------------------------
+
+    public bool ShowGridView     => !IsLoading && ViewMode == ViewMode.Grid;
+    public bool ShowListView     => !IsLoading && ViewMode == ViewMode.List;
+    public bool ShowTimelineView => !IsLoading && ViewMode == ViewMode.Timeline;
+    public bool ShowShelfView    => !IsLoading && ViewMode == ViewMode.Shelf;
+
+    /// <summary>
+    /// Label for the view-mode cycle button — shows what the NEXT mode will be,
+    /// so the user can see what clicking will switch TO.
+    /// </summary>
+    public string ViewModeNextLabel => ViewMode switch
+    {
+        ViewMode.Grid     => "☰ List",
+        ViewMode.List     => "⊞ Timeline",
+        ViewMode.Timeline => "▤ Shelf",
+        _                 => "▦ Grid",
+    };
 
     // ---------------------------------------------------------------------------
     // Constructor
@@ -126,56 +203,93 @@ public sealed partial class LibraryViewModel : ViewModelBase
     }
 
     // ---------------------------------------------------------------------------
-    // Property change hooks — trigger filter rebuild
+    // Property change hooks
     // ---------------------------------------------------------------------------
 
     partial void OnSearchTextChanged(string value)          => RebuildFilteredGames();
-    partial void OnGamesChanged(ObservableCollection<GameCardModel> value)
-    {
-        RebuildPlatforms();
-        RebuildGenres();
-        RebuildFilteredGames();
-    }
-    partial void OnSelectedPlatformChanged(string value)    => RebuildFilteredGames();
-    partial void OnSelectedGenreChanged(string value)       => RebuildFilteredGames();
+    partial void OnSelectedDeveloperChanged(string value)   => RebuildFilteredGames();
+    partial void OnSelectedPublisherChanged(string value)   => RebuildFilteredGames();
+    partial void OnSelectedIntegrationChanged(string value) => RebuildFilteredGames();
+    partial void OnYearFromChanged(string value)            => RebuildFilteredGames();
+    partial void OnYearToChanged(string value)              => RebuildFilteredGames();
     partial void OnSelectedSortIndexChanged(int value)      => RebuildFilteredGames();
     partial void OnShowFavoritesOnlyChanged(bool value)     => RebuildFilteredGames();
-    partial void OnIsListViewChanged(bool value)
+
+    partial void OnGamesChanged(ObservableCollection<GameCardModel> value)
+    {
+        RebuildPlatformOptions();
+        RebuildGenreOptions();
+        RebuildDevelopers();
+        RebuildPublishers();
+        RebuildIntegrations();
+        RebuildFilteredGames();
+    }
+
+    partial void OnViewModeChanged(ViewMode value)
     {
         OnPropertyChanged(nameof(ShowGridView));
         OnPropertyChanged(nameof(ShowListView));
+        OnPropertyChanged(nameof(ShowTimelineView));
+        OnPropertyChanged(nameof(ShowShelfView));
+        OnPropertyChanged(nameof(ViewModeNextLabel));
     }
+
     partial void OnIsLoadingChanged(bool value)
     {
         OnPropertyChanged(nameof(ShowGridView));
         OnPropertyChanged(nameof(ShowListView));
+        OnPropertyChanged(nameof(ShowTimelineView));
+        OnPropertyChanged(nameof(ShowShelfView));
     }
 
     // ---------------------------------------------------------------------------
     // Commands
     // ---------------------------------------------------------------------------
 
-    /// <summary>Toggles the ShowFavoritesOnly filter.</summary>
     [RelayCommand]
     private void ToggleFavoritesOnly() => ShowFavoritesOnly = !ShowFavoritesOnly;
 
-    /// <summary>Toggles between grid view and list view.</summary>
+    /// <summary>Cycles the view mode: Grid → List → Timeline → Shelf → Grid.</summary>
     [RelayCommand]
-    private void ToggleViewMode() => IsListView = !IsListView;
+    private void ToggleViewMode() => ViewMode = ViewMode switch
+    {
+        ViewMode.Grid     => ViewMode.List,
+        ViewMode.List     => ViewMode.Timeline,
+        ViewMode.Timeline => ViewMode.Shelf,
+        _                 => ViewMode.Grid,
+    };
 
-    /// <summary>Navigate to the full game detail page for the given game ID.</summary>
+    /// <summary>Clears all active filter selections back to defaults.</summary>
+    [RelayCommand]
+    private void ClearFilters()
+    {
+        SearchText            = string.Empty;
+        SelectedDeveloper     = "All Developers";
+        SelectedPublisher     = "All Publishers";
+        SelectedIntegration   = "All Sources";
+        YearFrom              = string.Empty;
+        YearTo                = string.Empty;
+        ShowFavoritesOnly     = false;
+        SelectedSortIndex     = 0;
+
+        foreach (var p in PlatformOptions) p.IsSelected = false;
+        foreach (var g in GenreOptions)    g.IsSelected = false;
+
+        // Button labels update immediately.
+        OnPropertyChanged(nameof(SelectedPlatformsText));
+        OnPropertyChanged(nameof(SelectedGenresText));
+    }
+
     [RelayCommand]
     private void OpenGame(string gameId)
     {
         _nav.NavigateTo(new GameDetailViewModel(gameId, _server, _nav, _toast, _config));
     }
 
-    /// <summary>Triggers a full library scan via POST /api/scan.</summary>
     [RelayCommand]
     private async Task ScanAsync()
     {
-        if (_server.Api is null)
-            return;
+        if (_server.Api is null) return;
 
         IsScanning = true;
 
@@ -188,7 +302,6 @@ public sealed partial class LibraryViewModel : ViewModelBase
             IsScanning = false;
             _toast.Error("Scan failed to start", ex.Message);
         }
-        // IsScanning reset to false when scan_complete / scan_error SSE fires.
     }
 
     // ---------------------------------------------------------------------------
@@ -197,8 +310,7 @@ public sealed partial class LibraryViewModel : ViewModelBase
 
     private async Task LoadAsync()
     {
-        if (_server.Api is null)
-            return;
+        if (_server.Api is null) return;
 
         IsLoading = true;
 
@@ -222,88 +334,198 @@ public sealed partial class LibraryViewModel : ViewModelBase
     }
 
     // ---------------------------------------------------------------------------
-    // Private helpers
+    // Private — option list rebuilds
     // ---------------------------------------------------------------------------
 
-    /// <summary>Rebuilds the Platforms dropdown from the currently loaded games.</summary>
-    private void RebuildPlatforms()
+    private void RebuildPlatformOptions()
     {
-        var distinct = Games
-            .Select(g => g.Platform)
-            .Where(p => !string.IsNullOrEmpty(p))
-            .Distinct()
-            .OrderBy(p => p)
-            .ToList();
+        var previouslySelected = PlatformOptions
+            .Where(p => p.IsSelected)
+            .Select(p => p.Name)
+            .ToHashSet();
 
-        Platforms.Clear();
-        Platforms.Add("All Platforms");
-        foreach (var p in distinct)
-            Platforms.Add(p);
+        PlatformOptions.Clear();
 
-        // If the previously selected platform is no longer present, reset.
-        if (!Platforms.Contains(SelectedPlatform))
-            SelectedPlatform = "All Platforms";
+        foreach (var name in Games.Select(g => g.Platform)
+                                  .Where(p => !string.IsNullOrEmpty(p))
+                                  .Distinct()
+                                  .OrderBy(p => p))
+        {
+            var opt = new FilterOptionModel(name, OnPlatformOptionChanged);
+            if (previouslySelected.Contains(name)) opt.IsSelected = true;
+            PlatformOptions.Add(opt);
+        }
+
+        OnPropertyChanged(nameof(SelectedPlatformsText));
     }
 
-    /// <summary>Rebuilds the Genres dropdown from the currently loaded games.</summary>
-    private void RebuildGenres()
+    private void RebuildGenreOptions()
     {
-        var distinct = Games
-            .SelectMany(g => g.Genres)
-            .Where(g => !string.IsNullOrEmpty(g))
-            .Distinct()
-            .OrderBy(g => g)
-            .ToList();
+        var previouslySelected = GenreOptions
+            .Where(g => g.IsSelected)
+            .Select(g => g.Name)
+            .ToHashSet();
 
-        Genres.Clear();
-        Genres.Add("All Genres");
-        foreach (var g in distinct)
-            Genres.Add(g);
+        GenreOptions.Clear();
 
-        // If the previously selected genre is no longer present, reset.
-        if (!Genres.Contains(SelectedGenre))
-            SelectedGenre = "All Genres";
+        foreach (var name in Games.SelectMany(g => g.Genres)
+                                  .Where(g => !string.IsNullOrEmpty(g))
+                                  .Distinct()
+                                  .OrderBy(g => g))
+        {
+            var opt = new FilterOptionModel(name, OnGenreOptionChanged);
+            if (previouslySelected.Contains(name)) opt.IsSelected = true;
+            GenreOptions.Add(opt);
+        }
+
+        OnPropertyChanged(nameof(SelectedGenresText));
     }
 
-    /// <summary>
-    /// Applies all active filters (search, platform, favorites) and the selected
-    /// sort order, then replaces the contents of FilteredGames.
-    /// </summary>
+    private void RebuildDevelopers()
+    {
+        var distinct = Games.Select(g => g.Developer)
+                            .Where(d => !string.IsNullOrEmpty(d))
+                            .Distinct()
+                            .OrderBy(d => d)
+                            .ToList();
+
+        Developers.Clear();
+        Developers.Add("All Developers");
+        foreach (var d in distinct) Developers.Add(d);
+
+        if (!Developers.Contains(SelectedDeveloper))
+            SelectedDeveloper = "All Developers";
+    }
+
+    private void RebuildPublishers()
+    {
+        var distinct = Games.Select(g => g.Publisher)
+                            .Where(p => !string.IsNullOrEmpty(p))
+                            .Distinct()
+                            .OrderBy(p => p)
+                            .ToList();
+
+        Publishers.Clear();
+        Publishers.Add("All Publishers");
+        foreach (var p in distinct) Publishers.Add(p);
+
+        if (!Publishers.Contains(SelectedPublisher))
+            SelectedPublisher = "All Publishers";
+    }
+
+    private void RebuildIntegrations()
+    {
+        var distinct = Games.Select(g => g.IntegrationLabel)
+                            .Where(i => !string.IsNullOrEmpty(i))
+                            .Distinct()
+                            .OrderBy(i => i)
+                            .ToList();
+
+        Integrations.Clear();
+        Integrations.Add("All Sources");
+        foreach (var i in distinct) Integrations.Add(i);
+
+        if (!Integrations.Contains(SelectedIntegration))
+            SelectedIntegration = "All Sources";
+    }
+
+    // ---------------------------------------------------------------------------
+    // Private — filter application + derived view rebuilds
+    // ---------------------------------------------------------------------------
+
+    private void OnPlatformOptionChanged()
+    {
+        OnPropertyChanged(nameof(SelectedPlatformsText));
+        RebuildFilteredGames();
+    }
+
+    private void OnGenreOptionChanged()
+    {
+        OnPropertyChanged(nameof(SelectedGenresText));
+        RebuildFilteredGames();
+    }
+
     private void RebuildFilteredGames()
     {
-        var filtered = LibraryFilter.Apply(
-            Games,
-            SearchText,
-            SelectedPlatform,
-            SelectedGenre,
-            ShowFavoritesOnly,
-            SelectedSortIndex);
+        var selectedPlatforms = PlatformOptions
+            .Where(p => p.IsSelected)
+            .Select(p => p.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var selectedGenres = GenreOptions
+            .Where(g => g.IsSelected)
+            .Select(g => g.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var criteria = new FilterCriteria
+        {
+            SearchText    = SearchText,
+            Platforms     = selectedPlatforms,
+            Genres        = selectedGenres,
+            Developer     = SelectedDeveloper == "All Developers" ? string.Empty : SelectedDeveloper,
+            Publisher     = SelectedPublisher == "All Publishers" ? string.Empty : SelectedPublisher,
+            Integration   = SelectedIntegration == "All Sources" ? string.Empty : SelectedIntegration,
+            YearFrom      = int.TryParse(YearFrom, out var yf) ? yf : null,
+            YearTo        = int.TryParse(YearTo,   out var yt) ? yt : null,
+            FavoritesOnly = ShowFavoritesOnly,
+            SortIndex     = SelectedSortIndex,
+        };
+
+        var filtered = LibraryFilter.Apply(Games, criteria).ToList();
 
         FilteredGames.Clear();
         foreach (var card in filtered)
             FilteredGames.Add(card);
+
+        // Keep Timeline and Shelf collections in sync with the current filter result.
+        RebuildTimelineGroups(filtered);
+        RebuildShelfRows(filtered);
     }
 
-    private GameCardModel ToCard(MGA.Api.GameDetail g)
+    // ---------------------------------------------------------------------------
+    // Private — Timeline view rebuild
+    // ---------------------------------------------------------------------------
+
+    private void RebuildTimelineGroups(IReadOnlyList<GameCardModel> source)
     {
-        var coverMedia = g.CoverOverride
-            ?? g.Media.FirstOrDefault(m => m.Type == "cover");
+        TimelineGroups.Clear();
 
-        string? coverUrl = coverMedia is not null && _server.Api is not null
-            ? _server.Api.GetMediaUrl(coverMedia.Url)
-            : null;
+        // Group by release year descending; year == 0 (unknown) sinks to the bottom
+        // because 0 is less than any real year in descending order.
+        var groups = source
+            .GroupBy(g => g.ReleaseYear)
+            .OrderByDescending(g => g.Key);
 
-        return new GameCardModel
-        {
-            Id        = g.Id,
-            Title     = g.Title,
-            Platform  = g.Platform,
-            CoverUrl  = coverUrl,
-            Favorite  = g.Favorite,
-            CanPlay   = g.Kind == "game",
-            Kind      = g.Kind,
-            Developer = g.Developer ?? string.Empty,
-            Genres    = g.Genres,
-        };
+        foreach (var grp in groups)
+            TimelineGroups.Add(new TimelineYearGroupViewModel(grp.Key, grp));
     }
+
+    // ---------------------------------------------------------------------------
+    // Private — Shelf view rebuild
+    // ---------------------------------------------------------------------------
+
+    private void RebuildShelfRows(IReadOnlyList<GameCardModel> source)
+    {
+        ShelfRows.Clear();
+
+        // "Favorites" shelf — only when there are favorited games.
+        var favorites = source.Where(g => g.Favorite).ToList();
+        if (favorites.Count > 0)
+            ShelfRows.Add(new ShelfRowViewModel("Favorites", favorites));
+
+        // Per-platform shelves — one row per platform, alphabetically sorted.
+        var byPlatform = source
+            .Where(g => !string.IsNullOrEmpty(g.Platform))
+            .GroupBy(g => g.Platform, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var grp in byPlatform)
+            ShelfRows.Add(new ShelfRowViewModel(grp.Key, grp));
+    }
+
+    // ---------------------------------------------------------------------------
+    // Private — DTO mapping
+    // ---------------------------------------------------------------------------
+
+    private GameCardModel ToCard(MGA.Api.GameDetail g) => new(g, _server.Api);
 }

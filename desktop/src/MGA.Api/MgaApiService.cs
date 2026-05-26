@@ -107,6 +107,69 @@ public sealed class MgaApiService
     public Task<GameDetail> GetGameAsync(string id, CancellationToken ct = default)
         => GetAsync<GameDetail>($"/api/games/{Uri.EscapeDataString(id)}", ct);
 
+    /// <summary>
+    /// Triggers an online metadata refresh for a single game via
+    /// POST /api/games/{id}/refresh-metadata.
+    /// Returns the updated <see cref="GameDetail"/> on success.
+    /// Throws <see cref="MgaApiException"/> with status 409 when no eligible provider
+    /// exists, or 422 when metadata providers are unavailable.
+    /// </summary>
+    public Task<GameDetail> RefreshGameMetadataAsync(string id, CancellationToken ct = default)
+        => PostAsync<GameDetail>($"/api/games/{Uri.EscapeDataString(id)}/refresh-metadata", ct);
+
+    /// <summary>
+    /// Hard-deletes a source-game record (and its files) via
+    /// DELETE /api/games/{id}/sources/{sourceGameId}.
+    /// </summary>
+    public Task<DeleteSourceGameResponse> DeleteSourceGameAsync(
+        string gameId, string sourceGameId, CancellationToken ct = default)
+        => DeleteAsync<DeleteSourceGameResponse>(
+            $"/api/games/{Uri.EscapeDataString(gameId)}/sources/{Uri.EscapeDataString(sourceGameId)}", ct);
+
+    /// <summary>
+    /// Removes the canonical pin that forced this source to map to a specific game via
+    /// DELETE /api/games/{id}/sources/{sourceGameId}/canonical-pin.
+    /// </summary>
+    public Task<CanonicalGroupingResponse> ClearCanonicalPinAsync(
+        string gameId, string sourceGameId, CancellationToken ct = default)
+        => DeleteAsync<CanonicalGroupingResponse>(
+            $"/api/games/{Uri.EscapeDataString(gameId)}/sources/{Uri.EscapeDataString(sourceGameId)}/canonical-pin", ct);
+
+    /// <summary>
+    /// Splits a source-game into its own canonical entry via
+    /// POST /api/games/{id}/sources/{sourceGameId}/canonical/split.
+    /// </summary>
+    public Task<CanonicalGroupingResponse> SplitSourceGameAsync(
+        string gameId, string sourceGameId, CancellationToken ct = default)
+        => PostAsync<CanonicalGroupingResponse>(
+            $"/api/games/{Uri.EscapeDataString(gameId)}/sources/{Uri.EscapeDataString(sourceGameId)}/canonical/split", ct);
+
+    /// <summary>
+    /// Merges a source game into a different canonical entry via
+    /// POST /api/games/{id}/sources/{sourceGameId}/canonical/merge.
+    /// The source is detached from the current canonical and re-pinned to the target.
+    /// </summary>
+    public async Task<CanonicalGroupingResponse> MergeSourceGameAsync(
+        string gameId, string sourceGameId, string targetCanonicalGameId, CancellationToken ct = default)
+    {
+        var body = new { target_canonical_game_id = targetCanonicalGameId };
+        var resp = await _http.PostAsJsonAsync(
+            $"/api/games/{Uri.EscapeDataString(gameId)}/sources/{Uri.EscapeDataString(sourceGameId)}/canonical/merge",
+            body, JsonOptions, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var result = await resp.Content.ReadFromJsonAsync<CanonicalGroupingResponse>(JsonOptions, ct).ConfigureAwait(false);
+        return result ?? throw new MgaApiException(200, "Server returned null for merge source");
+    }
+
+    /// <summary>
+    /// Searches canonical games by title query via GET /api/canonical-games/search.
+    /// Returns up to <paramref name="limit"/> results (default 20).
+    /// </summary>
+    public Task<CanonicalGameSearchResponse> SearchCanonicalGamesAsync(
+        string query, int limit = 20, CancellationToken ct = default)
+        => GetAsync<CanonicalGameSearchResponse>(
+            $"/api/canonical-games/search?q={Uri.EscapeDataString(query)}&limit={limit}", ct);
+
     // ---------------------------------------------------------------------------
     // Stats
     // ---------------------------------------------------------------------------
@@ -130,6 +193,13 @@ public sealed class MgaApiService
     /// <summary>Returns the full achievements dashboard from GET /api/achievements.</summary>
     public Task<AchievementsDashboard> GetAchievementsDashboardAsync(CancellationToken ct = default)
         => GetAsync<AchievementsDashboard>("/api/achievements", ct);
+
+    /// <summary>
+    /// Returns stored achievement sets grouped by canonical game from GET /api/achievements/explorer.
+    /// Read-only; does not trigger provider fetches.
+    /// </summary>
+    public Task<AchievementsExplorerResponse> GetAchievementsExplorerAsync(CancellationToken ct = default)
+        => GetAsync<AchievementsExplorerResponse>("/api/achievements/explorer", ct);
 
     /// <summary>
     /// Posts to /api/achievements/refresh to start a background refresh job (returns 202).
@@ -352,6 +422,14 @@ public sealed class MgaApiService
         await EnsureSuccess(resp, ct).ConfigureAwait(false);
     }
 
+    /// <summary>Triggers cache preparation for one game via POST /api/games/{id}/cache/prepare.</summary>
+    public async Task PrepareCacheAsync(string gameId, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync(
+            $"/api/games/{Uri.EscapeDataString(gameId)}/cache/prepare", null, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+    }
+
     // ---------------------------------------------------------------------------
     // Plugins
     // ---------------------------------------------------------------------------
@@ -364,9 +442,11 @@ public sealed class MgaApiService
     // Duplicates
     // ---------------------------------------------------------------------------
 
-    /// <summary>Returns all duplicate-game groups from GET /api/duplicates/games.</summary>
-    public Task<DuplicateGamesResponse> GetDuplicatesAsync(CancellationToken ct = default)
-        => GetAsync<DuplicateGamesResponse>("/api/duplicates/games", ct);
+    /// <summary>Returns duplicate-game groups from GET /api/duplicates/games.</summary>
+    /// <param name="mode">"loose" (default) or "strict".</param>
+    public Task<DuplicateGamesResponse> GetDuplicatesAsync(
+        string mode = "loose", CancellationToken ct = default)
+        => GetAsync<DuplicateGamesResponse>($"/api/duplicates/games?mode={Uri.EscapeDataString(mode)}", ct);
 
     // ---------------------------------------------------------------------------
     // About / Version
@@ -400,6 +480,14 @@ public sealed class MgaApiService
         await EnsureSuccess(resp, ct).ConfigureAwait(false);
         var result = await resp.Content.ReadFromJsonAsync<T>(JsonOptions, ct).ConfigureAwait(false);
         return result ?? throw new MgaApiException(200, $"Server returned null for {path}");
+    }
+
+    private async Task<T> DeleteAsync<T>(string path, CancellationToken ct = default)
+    {
+        var resp = await _http.DeleteAsync(path, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var result = await resp.Content.ReadFromJsonAsync<T>(JsonOptions, ct).ConfigureAwait(false);
+        return result ?? throw new MgaApiException(200, $"Server returned null for DELETE {path}");
     }
 
     // ---------------------------------------------------------------------------
@@ -478,6 +566,10 @@ public sealed class MgaApiService
     /// <summary>Archives a candidate as DLC via POST /api/review-candidates/{id}/dlc.</summary>
     public Task<ReviewCandidateDetail> MarkCandidateDlcAsync(string id, CancellationToken ct = default)
         => PostAsync<ReviewCandidateDetail>($"/api/review-candidates/{Uri.EscapeDataString(id)}/dlc", ct);
+
+    /// <summary>Marks a candidate as base game (not DLC) via POST /api/review-candidates/{id}/base-game.</summary>
+    public Task<ReviewCandidateDetail> MarkCandidateBaseGameAsync(string id, CancellationToken ct = default)
+        => PostAsync<ReviewCandidateDetail>($"/api/review-candidates/{Uri.EscapeDataString(id)}/base-game", ct);
 
     /// <summary>Unarchives a candidate to active queue via POST /api/review-candidates/{id}/unarchive.</summary>
     public Task<ReviewCandidateDetail> UnarchiveCandidateAsync(string id, CancellationToken ct = default)

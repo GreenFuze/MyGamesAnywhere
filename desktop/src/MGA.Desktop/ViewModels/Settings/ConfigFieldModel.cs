@@ -12,6 +12,11 @@ public enum ConfigFieldType
     Password,
     Boolean,
     Number,
+    /// <summary>
+    /// A path string whose value can be filled via the inline server-side folder browser.
+    /// Detected when the schema key is "root_path", "sync_path", or ends with "_path".
+    /// </summary>
+    FolderPicker,
 }
 
 /// <summary>
@@ -69,7 +74,10 @@ public sealed partial class ConfigFieldModel : ObservableObject
     public bool IsBoolean => Type == ConfigFieldType.Boolean;
 
     /// <summary>True when the field is a non-secret text/number field (renders as plain TextBox).</summary>
-    public bool IsTextNotSecret => Type != ConfigFieldType.Boolean && !IsSecret;
+    public bool IsTextNotSecret => Type is ConfigFieldType.Text or ConfigFieldType.Number;
+
+    /// <summary>True when the field is a folder path that supports server-side browsing.</summary>
+    public bool IsFolderPicker => Type == ConfigFieldType.FolderPicker;
 
     /// <summary>True when a secret field is currently masked.</summary>
     public bool IsHidden => IsSecret && !ShowValue;
@@ -113,11 +121,15 @@ public sealed partial class ConfigFieldModel : ObservableObject
         var isRequired  = ReadBool(schemaDef, "required");
         var isSecret    = ReadBool(schemaDef, "x-secret");
 
+        // Detect folder-picker fields by key naming convention (matches web client logic).
+        var isFolderPath = key == "root_path" || key == "sync_path" || key.EndsWith("_path");
+
         var fieldType = typeStr switch
         {
             "boolean" => ConfigFieldType.Boolean,
             "number"  => ConfigFieldType.Number,
-            _ when isSecret => ConfigFieldType.Password,
+            _ when isSecret    => ConfigFieldType.Password,
+            _ when isFolderPath => ConfigFieldType.FolderPicker,
             _ => ConfigFieldType.Text,
         };
 

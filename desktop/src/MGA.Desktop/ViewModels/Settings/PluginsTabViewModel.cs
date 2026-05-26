@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using MGA.Api;
 using MGA.Desktop.Services;
 
 namespace MGA.Desktop.ViewModels.Settings;
@@ -8,11 +9,26 @@ namespace MGA.Desktop.ViewModels.Settings;
 /// <summary>Display model for a single plugin row in the Plugins tab.</summary>
 public sealed class PluginRowModel
 {
-    public string PluginId      { get; init; } = string.Empty;
-    public string Version       { get; init; } = string.Empty;
+    public string PluginId          { get; }
+    public string Version           { get; }
 
     /// <summary>Comma-joined list of the plugin's Provides entries.</summary>
-    public string ProvidesText  { get; init; } = string.Empty;
+    public string ProvidesText      { get; }
+
+    /// <summary>Comma-joined list of the plugin's human-readable capability labels.</summary>
+    public string CapabilitiesText  { get; }
+
+    /// <summary>True when the plugin exposes at least one capability label.</summary>
+    public bool   HasCapabilities   { get; }
+
+    public PluginRowModel(PluginDto dto)
+    {
+        PluginId         = dto.PluginId;
+        Version          = dto.Version;
+        ProvidesText     = string.Join(", ", dto.Provides);
+        CapabilitiesText = string.Join(", ", dto.Capabilities);
+        HasCapabilities  = dto.Capabilities.Count > 0;
+    }
 }
 
 /// <summary>
@@ -67,12 +83,8 @@ public sealed partial class PluginsTabViewModel : ViewModelBase
         {
             var list = await _server.Api.GetPluginsAsync().ConfigureAwait(true);
 
-            Plugins = new ObservableCollection<PluginRowModel>(list.Select(p => new PluginRowModel
-            {
-                PluginId     = p.PluginId,
-                Version      = p.Version,
-                ProvidesText = string.Join(", ", p.Provides),
-            }));
+            Plugins = new ObservableCollection<PluginRowModel>(
+                list.Select(p => new PluginRowModel(p)));
         }
         catch (Exception ex)
         {

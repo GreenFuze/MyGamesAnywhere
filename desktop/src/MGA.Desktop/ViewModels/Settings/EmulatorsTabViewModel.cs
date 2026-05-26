@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Desktop.Services;
@@ -25,6 +26,10 @@ public sealed partial class EmulatorRowViewModel : ObservableObject
 
     [ObservableProperty]
     private string _argsTemplate = "{rom}";
+
+    /// <summary>True while this row's executable is being tested.</summary>
+    [ObservableProperty]
+    private bool _isTesting;
 
     /// <summary>Converts this row back to a plain EmulatorEntry for persistence.</summary>
     public EmulatorEntry ToEntry() => new()
@@ -187,6 +192,64 @@ public sealed partial class EmulatorsTabViewModel : ViewModelBase
         }
         PersistToConfig();
         _toast.Success("Deleted", $"Emulator \"{row.Name}\" removed.");
+    }
+
+    /// <summary>
+    /// Verifies the emulator executable exists on disk and can be started.
+    /// Launches the process with no arguments and immediately terminates it —
+    /// this proves the binary is valid without opening any game UI.
+    /// </summary>
+    [RelayCommand]
+    private async Task TestEmulatorAsync(EmulatorRowViewModel row)
+    {
+        if (row.IsTesting) return;
+
+        var path = row.ExecutablePath.Trim();
+
+        // Step 1: check the file exists on disk.
+        if (!File.Exists(path))
+        {
+            _toast.Error("Test failed", $"File not found:\n{path}");
+            return;
+        }
+
+        row.IsTesting = true;
+
+        try
+        {
+            // Step 2: launch the process with no arguments.
+            // We give it a short window (500 ms) to start, then kill it
+            // immediately — this confirms the binary is executable without
+            // waiting for full initialisation.
+            var psi = new ProcessStartInfo(path)
+            {
+                UseShellExecute  = false,
+                CreateNoWindow   = true,
+                WindowStyle      = ProcessWindowStyle.Hidden,
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc is null)
+            {
+                _toast.Error("Test failed", "Could not start the process.");
+                return;
+            }
+
+            // Wait briefly, then kill — we don't want to keep it open.
+            await Task.Delay(500).ConfigureAwait(true);
+
+            if (!proc.HasExited) proc.Kill(entireProcessTree: true);
+
+            _toast.Success("Test passed", $"\"{row.Name}\" launched successfully.");
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Test failed", ex.Message);
+        }
+        finally
+        {
+            row.IsTesting = false;
+        }
     }
 
     // ---------------------------------------------------------------------------

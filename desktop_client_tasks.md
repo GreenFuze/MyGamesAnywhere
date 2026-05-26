@@ -19,10 +19,10 @@ Checked off as they land. Grouped by area.
 
 ## Library
 
-- [ ] **Advanced filter bar** — developer, publisher, genres (multi-select), platform (multi-select), source, integration, decade/year-range
-- [ ] **List view** — tabular rows (title, platform, developer, year) alongside existing grid
-- [ ] **Timeline view** — games grouped by release year, newest-first
-- [ ] **Shelf view** — horizontal shelf rows per configured section (mirrors web "Shelf" mode)
+- [x] **Advanced filter bar** — platform + genre multi-select (Flyout + CheckBox); developer, publisher, integration single-select dropdowns; year from/to; Clear Filters button
+- [x] **List view** — tabular rows (title, platform, developer, year) alongside existing grid; Year (newest/oldest) sort options added
+- [x] **Timeline view** — games grouped by release year, newest-first
+- [x] **Shelf view** — horizontal shelf rows per configured section (mirrors web "Shelf" mode)
 - [ ] **Bulk select + reclassify** — checkbox multi-select → push queue to Undetected/reclassify workflow
 - [ ] **Bulk hard-delete sources** — select multiple source records → preview files → confirm → DELETE
 - [ ] **Move to source** — for file-backed games: pick a target source + directory (with create-dir support), apply move for multiple games; move entire directory when all files are within it; update database paths; mirrors webclient_tasks item
@@ -33,36 +33,36 @@ Checked off as they land. Grouped by area.
 
 ## Game Detail
 
-- [ ] **Source games panel** — list each source_game with integration label, platform, raw title, external ID
-- [ ] **Source file inventory** — files attached to each source (path, size, status)
-- [ ] **External links** — IGDB, Steam store page, etc. from external_ids; open in system browser
-- [ ] **Merge source into another game** — "Move to another game" search → `POST /api/games/{id}/source/{sourceId}/merge`
-- [ ] **Split source** — detach source into its own canonical entry → `POST /api/games/{id}/source/{sourceId}/split`
-- [ ] **Hard-delete source** — preview files → confirm → `DELETE /api/games/{id}/source/{sourceId}`; skip if files already gone
-- [ ] **Clear canonical pin** — `DELETE /api/games/{id}/canonical-pin`
-- [ ] **Refresh metadata** — `POST /api/games/{id}/metadata/refresh` with SSE progress feedback
-- [ ] **Resolver matches** — show metadata resolver candidates with accept/reject actions
+- [x] **Source games panel** — list each source_game with integration label, platform, raw title, external ID
+- [x] **Source file inventory** — files attached to each source (path, size, status)
+- [x] **External links** — IGDB, Steam store page, etc. from external_ids; open in system browser
+- [x] **Merge source into another game** — inline search panel → `GET /api/canonical-games/search` + `POST /api/games/{id}/sources/{sourceId}/canonical/merge`
+- [x] **Split source** — detach source into its own canonical entry; inline button per source row
+- [x] **Hard-delete source** — two-step inline confirm → `DELETE /api/games/{id}/sources/{sourceId}`; navigates back if canonical deleted
+- [x] **Clear canonical pin** — Unpin button per source row → `DELETE /api/games/{id}/sources/{sourceId}/canonical-pin`
+- [x] **Refresh metadata** — ↻ Metadata button in action bar → `POST /api/games/{id}/refresh-metadata`; handles 409/422
+- [x] **Resolver matches** — per-source expandable list of resolver matches with Active/Outvoted/Manual status badges
 
 ---
 
 ## Achievements
 
-- [ ] **Achievement Explorer** — per-game expandable list: individual achievement name, description, icon, unlock date, points, rarity; calls `GET /api/achievements/explorer`
-- [ ] **Per-source achievement sets** — expandable sets within a game (one per source/system)
-- [ ] **Achievement search + filter** — search by name/description; filter by unlocked / locked / all
-- [ ] **Refresh job progress** — SSE-driven progress bar during refresh; per-provider success/fail counts
-- [ ] **Failed provider summary** — surface rate-limit and auth-failure errors with actionable messages
-- [ ] **Points display** — earned/total points where available (RetroAchievements, Xbox)
+- [x] **Achievement Explorer** — per-game expandable list: individual achievement name, description, icon, unlock date, points, rarity; calls `GET /api/achievements/explorer`
+- [x] **Per-source achievement sets** — expandable sets within a game (one per source/system)
+- [x] **Achievement search + filter** — search by name/description; filter by unlocked / locked / all
+- [x] **Refresh job progress** — SSE-driven progress bar during refresh; per-provider success/fail counts
+- [x] **Failed provider summary** — rate-limit waiting message + warning count; error toast on failure
+- [x] **Points display** — earned/total points where available (RetroAchievements, Xbox)
 
 ---
 
 ## Stats
 
 - [ ] **Source/integration breakdown bar chart** — "By Source" ranked bars
-- [ ] **Kinds breakdown bar chart** — game, dlc, demo, etc.
-- [ ] **Coverage panel** — metadata coverage tiles (cover art %, description %, genres %) from `LibraryStatistics.coverage`
-- [ ] **Scan history** — recent scan reports list (started_at, duration, games added/removed/updated)
-- [ ] **Stat tiles row** — total games, favorites, achievements unlocked, with icons (matches web StatTile grid)
+- [x] **Kinds breakdown bar chart** — game, dlc, demo, etc. (added in Phase 18)
+- [x] **Coverage panel** — metadata coverage tiles (cover art %, description %, genres %) from `LibraryStatistics.coverage`
+- [x] **Scan history** — recent scan reports list (started_at, duration, games added/removed/updated)
+- [x] **Stat tiles row** — total games, favorites, achievements unlocked, with icons (matches web StatTile grid)
 
 ---
 
@@ -77,34 +77,34 @@ Checked off as they land. Grouped by area.
 - [ ] **Scan job progress** — current/total, per-integration status, events log via SSE
 - [ ] **Cancel scan** — `POST /api/scan/{jobId}/cancel`
 - [ ] **Integration config fields** — dynamic form for plugin-defined schema (text, password, folder-picker, bool, enum)
-- [ ] **Folder browser dialog** — server-side folder tree for picking local paths
-- [ ] **Per-integration games list** — expandable list of games per integration
+- [x] **Folder browser dialog** — server-side folder tree for `_path` config fields via `POST /api/plugins/{id}/browse`; inline panel with Up navigation + Select
+- [x] **Per-integration games list** — expandable panel per row, lazy-loaded via `GET /api/integrations/{id}/games`
 - [ ] **Import integrations from sync settings** — pull integration configs from a sync_settings source and apply locally
 
 ### Emulators tab (new)
-- [ ] **List configured emulators** — name, executable path, platforms served, args template
-- [ ] **Add / Edit / Delete emulator**
-- [ ] **Test emulator** — verify the executable exists and runs
+- [x] **List configured emulators** — name, executable path, platforms served, args template
+- [x] **Add / Edit / Delete emulator**
+- [x] **Test emulator** — File.Exists check + Process.Start + 500ms kill; per-row IsTesting spinner
 
 ### Undetected Games tab
-- [ ] **Manual review candidate list** — paginated, filterable (`GET /api/manual-review`)
-- [ ] **Candidate detail** — file inventory, current classification, resolver suggestions
-- [ ] **Search & match** — search canonical games → `POST /api/manual-review/{id}/match`
-- [ ] **Mark DLC / Not a game / Base game** — quick classification buttons
-- [ ] **Re-detect single / all** — `POST /api/manual-review/{id}/redetect`
-- [ ] **Delete candidate files** — preview → confirm hard-delete
-- [ ] **Bulk reclassify queue** — accept queue from Library bulk-select
+- [x] **Manual review candidate list** — filterable by title/platform/integration; scope toggle (active/archive)
+- [x] **Candidate detail** — lazy-loaded file inventory + resolver suggestions in right panel
+- [x] **Search & match** — metadata provider search → apply result
+- [x] **Mark DLC / Not a game / Base game** — quick classification buttons (WrapPanel)
+- [x] **Re-detect single / all** — per-row + batch redetect with status feedback
+- [x] **Delete candidate files** — two-step via Delete Files button → toast confirmation
+- [ ] **Bulk reclassify queue** — accept queue from Library bulk-select (deferred — depends on Library bulk-select)
 
 ### Duplicates tab
-- [ ] **Merge workflow** — select preferred canonical → merge others into it
-- [ ] **Per-group source breakdown** — which integrations/files make up each duplicate
+- [x] **Merge workflow** — expand group → per-source breakdown → "⊕ Merge into this" → inline confirm → MergeSourceGameAsync for each non-preferred source
+- [x] **Per-group source breakdown** — integration label, platform, kind, file count, size, cached badge per source; loose/strict mode toggle
 
 ### Cache tab
-- [ ] **Entry list view** — individual entries with canonical title, integration, status, size, file count
-- [ ] **Prepare cache** — trigger cache preparation for selected entries
+- [x] **Entry list view** — individual entries with canonical title, integration, status, size, file count
+- [x] **Prepare cache** — per-entry Prepare button → POST /api/games/{id}/cache/prepare; spinner while in flight
 
 ### Plugins tab
-- [ ] **Capabilities list** — human-readable capability labels per plugin
+- [x] **Capabilities list** — CapabilitiesText shown in accent color below Provides (hidden when empty)
 
 ---
 
@@ -134,7 +134,7 @@ Checked off as they land. Grouped by area.
 ## Cross-Cutting
 
 - [ ] **Global search** — TitleBar search box functional; filters current page or navigates to Library with query
-- [ ] **Sidebar game count badge** — live game count next to Library nav item
-- [ ] **SSE: integration refresh events** — `integration_refresh_complete` reloads Integrations tab status
+- [x] **Sidebar game count badge** — live game count next to Library nav item
+- [x] **SSE: integration refresh events** — `integration_refresh_complete` reloads Integrations tab status + started/progress/failed handlers
 - [ ] **Deep links** — navigate directly to a game by ID from external sources (file association, URL scheme `mga://`)
 

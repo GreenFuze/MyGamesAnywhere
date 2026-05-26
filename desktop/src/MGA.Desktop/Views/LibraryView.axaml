@@ -11,11 +11,11 @@
   <DockPanel>
 
     <!-- ==========================================================================
-         Fixed header + search bar
+         Fixed header + filter bar
          ========================================================================== -->
     <StackPanel DockPanel.Dock="Top"
-                Spacing="12"
-                Margin="32,32,32,16">
+                Spacing="10"
+                Margin="32,32,32,12">
 
       <!-- Heading row -->
       <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
@@ -27,48 +27,123 @@
 
       <!-- Search box -->
       <TextBox Classes="mga"
-               PlaceholderText="Search games…"
+               PlaceholderText="Search by title, platform, developer…"
                Text="{Binding SearchText}"
-               MaxWidth="400"
+               MaxWidth="480"
                HorizontalAlignment="Left"/>
 
-      <!-- Filter / sort / scan row -->
+      <!-- ── Row 1: multi-select filters + year range ── -->
+      <WrapPanel Orientation="Horizontal">
+
+        <!-- Platform multi-select flyout -->
+        <Button Classes="ghost" Margin="0,0,6,6">
+          <Button.Content>
+            <TextBlock Text="{Binding SelectedPlatformsText}"/>
+          </Button.Content>
+          <Button.Flyout>
+            <Flyout Placement="Bottom">
+              <Border MaxHeight="240" MinWidth="180">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                  <ItemsControl ItemsSource="{Binding PlatformOptions}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:FilterOptionModel">
+                        <CheckBox Content="{Binding Name}"
+                                  IsChecked="{Binding IsSelected}"
+                                  Margin="4,2"/>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </Border>
+            </Flyout>
+          </Button.Flyout>
+        </Button>
+
+        <!-- Genre multi-select flyout -->
+        <Button Classes="ghost" Margin="0,0,6,6">
+          <Button.Content>
+            <TextBlock Text="{Binding SelectedGenresText}"/>
+          </Button.Content>
+          <Button.Flyout>
+            <Flyout Placement="Bottom">
+              <Border MaxHeight="240" MinWidth="180">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                  <ItemsControl ItemsSource="{Binding GenreOptions}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:FilterOptionModel">
+                        <CheckBox Content="{Binding Name}"
+                                  IsChecked="{Binding IsSelected}"
+                                  Margin="4,2"/>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </Border>
+            </Flyout>
+          </Button.Flyout>
+        </Button>
+
+        <!-- Developer dropdown -->
+        <ComboBox ItemsSource="{Binding Developers}"
+                  SelectedItem="{Binding SelectedDeveloper}"
+                  MinWidth="160"
+                  Margin="0,0,6,6"/>
+
+        <!-- Publisher dropdown -->
+        <ComboBox ItemsSource="{Binding Publishers}"
+                  SelectedItem="{Binding SelectedPublisher}"
+                  MinWidth="160"
+                  Margin="0,0,6,6"/>
+
+        <!-- Integration / source dropdown -->
+        <ComboBox ItemsSource="{Binding Integrations}"
+                  SelectedItem="{Binding SelectedIntegration}"
+                  MinWidth="140"
+                  Margin="0,0,6,6"/>
+
+        <!-- Year from / to -->
+        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="0,0,6,6">
+          <TextBlock Text="Year" VerticalAlignment="Center" Classes="muted"/>
+          <TextBox Classes="mga"
+                   PlaceholderText="From"
+                   Text="{Binding YearFrom}"
+                   Width="70"/>
+          <TextBlock Text="–" VerticalAlignment="Center" Classes="muted"/>
+          <TextBox Classes="mga"
+                   PlaceholderText="To"
+                   Text="{Binding YearTo}"
+                   Width="70"/>
+        </StackPanel>
+
+      </WrapPanel>
+
+      <!-- ── Row 2: sort + toggles + actions ── -->
       <StackPanel Orientation="Horizontal" Spacing="8">
-
-        <!-- Platform dropdown -->
-        <ComboBox ItemsSource="{Binding Platforms}"
-                  SelectedItem="{Binding SelectedPlatform}"
-                  MinWidth="160"/>
-
-        <!-- Genre dropdown -->
-        <ComboBox ItemsSource="{Binding Genres}"
-                  SelectedItem="{Binding SelectedGenre}"
-                  MinWidth="140"/>
 
         <!-- Sort dropdown -->
         <ComboBox ItemsSource="{Binding SortOptions}"
                   SelectedIndex="{Binding SelectedSortIndex}"
-                  MinWidth="140"/>
+                  MinWidth="160"/>
 
-        <!-- Favorites toggle — two overlapping buttons -->
+        <!-- Favorites toggle -->
         <Button Classes="primary"
-                Content="★ Favorites Only"
+                Content="★ Favorites"
                 Command="{Binding ToggleFavoritesOnlyCommand}"
                 IsVisible="{Binding ShowFavoritesOnly}"/>
         <Button Classes="ghost"
-                Content="☆ Favorites Only"
+                Content="☆ Favorites"
                 Command="{Binding ToggleFavoritesOnlyCommand}"
                 IsVisible="{Binding !ShowFavoritesOnly}"/>
 
-        <!-- View mode toggle — shows opposite of current mode -->
+        <!-- View mode cycle button — label shows the NEXT mode -->
         <Button Classes="ghost"
-                Content="▦ Grid"
-                Command="{Binding ToggleViewModeCommand}"
-                IsVisible="{Binding IsListView}"/>
+                Content="{Binding ViewModeNextLabel}"
+                Command="{Binding ToggleViewModeCommand}"/>
+
+        <!-- Clear all filters -->
         <Button Classes="ghost"
-                Content="☰ List"
-                Command="{Binding ToggleViewModeCommand}"
-                IsVisible="{Binding !IsListView}"/>
+                Content="✕ Clear Filters"
+                Command="{Binding ClearFiltersCommand}"/>
 
         <!-- Scan trigger -->
         <Button Classes="ghost"
@@ -91,18 +166,18 @@
     </Border>
 
     <!-- ==========================================================================
-         List view — shown when IsListView = true and not loading
+         List view — tabular rows (title, platform, developer, year)
          ========================================================================== -->
     <ScrollViewer IsVisible="{Binding ShowListView}">
       <StackPanel Margin="32,0,32,32">
 
         <!-- Column header row -->
         <Border Padding="8,8" Background="{DynamicResource MgaElevatedBrush}">
-          <Grid ColumnDefinitions="*,140,80,160">
-            <TextBlock Grid.Column="0" Text="Title" Classes="muted" FontWeight="SemiBold"/>
-            <TextBlock Grid.Column="1" Text="Platform" Classes="muted" FontWeight="SemiBold"/>
-            <TextBlock Grid.Column="2" Text="Kind" Classes="muted" FontWeight="SemiBold"/>
-            <TextBlock Grid.Column="3" Text="Developer" Classes="muted" FontWeight="SemiBold"/>
+          <Grid ColumnDefinitions="*,140,160,60">
+            <TextBlock Grid.Column="0" Text="Title"     Classes="muted" FontWeight="SemiBold"/>
+            <TextBlock Grid.Column="1" Text="Platform"  Classes="muted" FontWeight="SemiBold"/>
+            <TextBlock Grid.Column="2" Text="Developer" Classes="muted" FontWeight="SemiBold"/>
+            <TextBlock Grid.Column="3" Text="Year"      Classes="muted" FontWeight="SemiBold"/>
           </Grid>
         </Border>
 
@@ -121,11 +196,22 @@
                       CommandParameter="{Binding Id}"
                       Cursor="Hand">
                 <Border Padding="8,10" Background="Transparent">
-                  <Grid ColumnDefinitions="*,140,80,160">
-                    <TextBlock Grid.Column="0" Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="1" Text="{Binding Platform}" Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="2" Text="{Binding Kind}" Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="3" Text="{Binding Developer}" Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                  <Grid ColumnDefinitions="*,140,160,60">
+                    <TextBlock Grid.Column="0" Text="{Binding Title}"
+                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{Binding Platform}"
+                               Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Text="{Binding Developer}"
+                               Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="3"
+                               Classes="muted" VerticalAlignment="Center">
+                      <TextBlock.Text>
+                        <Binding Path="ReleaseYear"
+                                 StringFormat="{}{0}"
+                                 FallbackValue="–"
+                                 TargetNullValue="–"/>
+                      </TextBlock.Text>
+                    </TextBlock>
                   </Grid>
                 </Border>
               </Button>
@@ -137,7 +223,171 @@
     </ScrollViewer>
 
     <!-- ==========================================================================
-         Virtualized game grid — shown when IsListView = false and not loading
+         Timeline view — games grouped by release year, newest-first
+         ========================================================================== -->
+    <ScrollViewer IsVisible="{Binding ShowTimelineView}">
+      <StackPanel Margin="32,0,32,32" Spacing="32">
+
+        <ItemsControl ItemsSource="{Binding TimelineGroups}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Spacing="32"/>
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:TimelineYearGroupViewModel">
+              <StackPanel Spacing="12">
+
+                <!-- Year heading with accent underline -->
+                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                  <TextBlock Text="{Binding YearLabel}"
+                             FontSize="22"
+                             FontWeight="Bold"
+                             Foreground="{DynamicResource MgaAccentBrush}"/>
+                  <Border Height="2"
+                          VerticalAlignment="Center"
+                          Background="{DynamicResource MgaBorderBrush}"
+                          HorizontalAlignment="Stretch"
+                          MinWidth="60"/>
+                </StackPanel>
+
+                <!-- Games in a wrapping card grid -->
+                <ItemsControl ItemsSource="{Binding Games}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel Orientation="Horizontal" ItemWidth="160" ItemHeight="220"/>
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:GameCardModel">
+                      <Button Classes="game-card"
+                              Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
+                              CommandParameter="{Binding Id}"
+                              Width="160" Height="220" Margin="0,0,12,12"
+                              Background="Transparent" BorderThickness="0" Padding="0"
+                              Cursor="Hand">
+                        <Border CornerRadius="{DynamicResource MgaRadiusLg}"
+                                Background="{DynamicResource MgaSurfaceBrush}"
+                                ClipToBounds="True">
+                          <Grid>
+                            <!-- Placeholder shown when cover art is absent -->
+                            <Border Background="{DynamicResource MgaElevatedBrush}">
+                              <TextBlock Text="{Binding Title}"
+                                         TextWrapping="Wrap"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center"
+                                         Margin="8"
+                                         Classes="muted"/>
+                            </Border>
+                            <!-- Cover art -->
+                            <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
+                                                     Stretch="UniformToFill"/>
+                            <!-- Title overlay at bottom -->
+                            <Border VerticalAlignment="Bottom"
+                                    Background="#CC000000"
+                                    Padding="8,6">
+                              <TextBlock Text="{Binding Title}"
+                                         FontSize="12"
+                                         TextTrimming="CharacterEllipsis"
+                                         Foreground="#FFFFFF"/>
+                            </Border>
+                          </Grid>
+                        </Border>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- ==========================================================================
+         Shelf view — horizontal scroll rows (Favorites + per-platform)
+         ========================================================================== -->
+    <ScrollViewer IsVisible="{Binding ShowShelfView}">
+      <StackPanel Margin="32,0,32,32" Spacing="32">
+
+        <ItemsControl ItemsSource="{Binding ShelfRows}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Spacing="32"/>
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ShelfRowViewModel">
+              <StackPanel Spacing="10">
+
+                <!-- Row heading -->
+                <TextBlock Text="{Binding Title}"
+                           FontSize="16"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource MgaTextBrush}"/>
+
+                <!-- Horizontal scroll strip of game cards -->
+                <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled">
+                  <ItemsControl ItemsSource="{Binding Games}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="12"/>
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:GameCardModel">
+                        <Button Classes="game-card"
+                                Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
+                                CommandParameter="{Binding Id}"
+                                Width="160" Height="220"
+                                Background="Transparent" BorderThickness="0" Padding="0"
+                                Cursor="Hand">
+                          <Border CornerRadius="{DynamicResource MgaRadiusLg}"
+                                  Background="{DynamicResource MgaSurfaceBrush}"
+                                  ClipToBounds="True">
+                            <Grid>
+                              <!-- Placeholder when no cover art -->
+                              <Border Background="{DynamicResource MgaElevatedBrush}">
+                                <TextBlock Text="{Binding Title}"
+                                           TextWrapping="Wrap"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Margin="8"
+                                           Classes="muted"/>
+                              </Border>
+                              <!-- Cover art -->
+                              <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
+                                                       Stretch="UniformToFill"/>
+                              <!-- Title overlay -->
+                              <Border VerticalAlignment="Bottom"
+                                      Background="#CC000000"
+                                      Padding="8,6">
+                                <TextBlock Text="{Binding Title}"
+                                           FontSize="12"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="#FFFFFF"/>
+                              </Border>
+                            </Grid>
+                          </Border>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- ==========================================================================
+         Virtualized game grid — shown in Grid mode
          ========================================================================== -->
     <ScrollViewer IsVisible="{Binding ShowGridView}">
       <ac:ItemsRepeater ItemsSource="{Binding FilteredGames}"
@@ -167,7 +417,7 @@
                                Margin="8"
                                Classes="muted"/>
                   </Border>
-                  <!-- Cover art — AdvancedImage renders nothing when Source is null -->
+                  <!-- Cover art -->
                   <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
                                            Stretch="UniformToFill"/>
                   <!-- Title overlay at bottom -->

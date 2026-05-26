@@ -73,14 +73,34 @@
                            VerticalAlignment="Center"
                            HorizontalAlignment="Center"/>
 
-                <!-- Label (always rendered; width clipping hides it when collapsed) -->
-                <TextBlock Grid.Column="2"
-                           Text="{Binding Label}"
-                           VerticalAlignment="Center"
-                           FontSize="{DynamicResource MgaFontSizeSm}"
-                           FontWeight="{DynamicResource MgaFontWeightMedium}"
-                           Margin="6,0,0,0"
-                           TextTrimming="CharacterEllipsis"/>
+                <!-- Label + optional badge pill (clipped when sidebar is collapsed) -->
+                <Grid Grid.Column="2"
+                      ColumnDefinitions="*,Auto"
+                      Margin="6,0,0,0">
+
+                  <TextBlock Grid.Column="0"
+                             Text="{Binding Label}"
+                             VerticalAlignment="Center"
+                             FontSize="{DynamicResource MgaFontSizeSm}"
+                             FontWeight="{DynamicResource MgaFontWeightMedium}"
+                             TextTrimming="CharacterEllipsis"/>
+
+                  <!-- Badge pill — visible only when count > 0 -->
+                  <Border Grid.Column="1"
+                          Background="{DynamicResource MgaAccentMutedBrush}"
+                          CornerRadius="8"
+                          IsVisible="{Binding HasBadge}"
+                          Padding="5,1"
+                          Margin="4,0,8,0">
+                    <TextBlock Text="{Binding BadgeCount}"
+                               FontSize="10"
+                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                               Foreground="{DynamicResource MgaTextBrush}"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Center"/>
+                  </Border>
+
+                </Grid>
 
               </Grid>
             </Button>

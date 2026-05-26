@@ -197,6 +197,25 @@
                                    HorizontalAlignment="Left"
                                    IsVisible="{Binding IsTextNotSecret}"/>
 
+                          <!-- Folder-picker field: text input + Browse button -->
+                          <Grid ColumnDefinitions="*,Auto"
+                                MaxWidth="400"
+                                HorizontalAlignment="Left"
+                                IsVisible="{Binding IsFolderPicker}">
+                            <TextBox Grid.Column="0"
+                                     Classes="mga"
+                                     Text="{Binding StringValue}"
+                                     PlaceholderText="/path/to/folder"
+                                     HorizontalAlignment="Stretch"/>
+                            <Button Grid.Column="1"
+                                    Classes="ghost"
+                                    Content="📁 Browse…"
+                                    Margin="6,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).OpenFolderBrowserCommand}"
+                                    CommandParameter="{Binding}"/>
+                          </Grid>
+
                           <!-- Secret field row: masked TextBox + show/hide toggle -->
                           <Grid ColumnDefinitions="*,Auto"
                                 MaxWidth="400"
@@ -241,6 +260,70 @@
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
+
+                  <!-- Inline folder browser (opens when user clicks 📁 Browse… on a path field) -->
+                  <Border Classes="card"
+                          Padding="12"
+                          IsVisible="{Binding IsFolderBrowserOpen}">
+                    <StackPanel Spacing="8">
+
+                      <TextBlock Text="Choose a folder:"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+
+                      <!-- Navigation: Up button + current path -->
+                      <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button Classes="ghost"
+                                Content="⬆ Up"
+                                Command="{Binding BrowseFolderUpCommand}"
+                                IsEnabled="{Binding FolderBrowserCurrentPath,
+                                            Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        <TextBlock Text="{Binding FolderBrowserCurrentPath}"
+                                   Classes="muted"
+                                   VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"/>
+                      </StackPanel>
+
+                      <!-- Loading indicator -->
+                      <Border HorizontalAlignment="Left"
+                              IsVisible="{Binding IsFolderBrowserLoading}">
+                        <controls:LoadingSpinner Width="20" Height="20"/>
+                      </Border>
+
+                      <!-- Directory list -->
+                      <ScrollViewer MaxHeight="180"
+                                    IsVisible="{Binding !IsFolderBrowserLoading}">
+                        <ItemsControl ItemsSource="{Binding FolderBrowserEntries}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="settingsVm:FolderBrowserEntry">
+                              <Button Classes="ghost"
+                                      HorizontalAlignment="Left"
+                                      Margin="0,1"
+                                      Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).BrowseFolderEntryCommand}"
+                                      CommandParameter="{Binding}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                  <TextBlock Text="{Binding Icon}" VerticalAlignment="Center"/>
+                                  <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                              </Button>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </ScrollViewer>
+
+                      <!-- Confirm + Cancel -->
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Classes="primary"
+                                Content="Select This Folder"
+                                Command="{Binding SelectFolderPathCommand}"
+                                IsEnabled="{Binding FolderBrowserCurrentPath,
+                                            Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        <Button Classes="ghost"
+                                Content="Cancel"
+                                Command="{Binding CloseFolderBrowserCommand}"/>
+                      </StackPanel>
+
+                    </StackPanel>
+                  </Border>
 
                   <!-- Save / Cancel buttons -->
                   <StackPanel Orientation="Horizontal" Spacing="8">
@@ -289,68 +372,124 @@
                               Margin="0,0,0,8"
                               MaxWidth="640"
                               HorizontalAlignment="Left">
-                        <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Spacing="0">
 
-                          <!-- Label + status badge + plugin id + error -->
-                          <StackPanel Grid.Column="0" Spacing="4">
+                          <!-- ── Main row: info + actions ── -->
+                          <Grid ColumnDefinitions="*,Auto">
 
-                            <TextBlock Text="{Binding Label}"
-                                       FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                            <!-- Label + status badge + plugin id + error -->
+                            <StackPanel Grid.Column="0" Spacing="4">
 
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                              <!-- Status badge -->
-                              <Border CornerRadius="{DynamicResource MgaRadiusFull}"
-                                      Padding="8,2"
-                                      Background="{DynamicResource MgaAccentMutedBrush}">
-                                <TextBlock Text="{Binding Status}"
-                                           FontSize="{DynamicResource MgaFontSizeXs}"
-                                           Foreground="#FFFFFF"/>
-                              </Border>
+                              <TextBlock Text="{Binding Label}"
+                                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
 
-                              <TextBlock Text="{Binding PluginId}"
+                              <StackPanel Orientation="Horizontal" Spacing="8">
+                                <!-- Status badge -->
+                                <Border CornerRadius="{DynamicResource MgaRadiusFull}"
+                                        Padding="8,2"
+                                        Background="{DynamicResource MgaAccentMutedBrush}">
+                                  <TextBlock Text="{Binding Status}"
+                                             FontSize="{DynamicResource MgaFontSizeXs}"
+                                             Foreground="#FFFFFF"/>
+                                </Border>
+
+                                <TextBlock Text="{Binding PluginId}"
+                                           Classes="muted"
+                                           VerticalAlignment="Center"/>
+
+                                <TextBlock Text="{Binding IntegrationType}"
+                                           Classes="muted"
+                                           VerticalAlignment="Center"
+                                           FontSize="{DynamicResource MgaFontSizeXs}"/>
+                              </StackPanel>
+
+                              <!-- Error message -->
+                              <TextBlock Text="{Binding Message}"
                                          Classes="muted"
-                                         VerticalAlignment="Center"/>
+                                         TextWrapping="Wrap"
+                                         IsVisible="{Binding HasError}"
+                                         Foreground="{DynamicResource MgaDangerBrush}"/>
 
-                              <TextBlock Text="{Binding IntegrationType}"
-                                         Classes="muted"
-                                         VerticalAlignment="Center"
-                                         FontSize="{DynamicResource MgaFontSizeXs}"/>
                             </StackPanel>
 
-                            <!-- Error message -->
-                            <TextBlock Text="{Binding Message}"
-                                       Classes="muted"
-                                       TextWrapping="Wrap"
-                                       IsVisible="{Binding HasError}"
-                                       Foreground="{DynamicResource MgaDangerBrush}"/>
+                            <!-- Row action buttons -->
+                            <StackPanel Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        Spacing="6"
+                                        VerticalAlignment="Top"
+                                        Margin="12,0,0,0">
 
-                          </StackPanel>
+                              <Button Classes="ghost"
+                                      Content="Edit"
+                                      Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).EditIntegrationCommand}"
+                                      CommandParameter="{Binding}"/>
 
-                          <!-- Row action buttons -->
-                          <StackPanel Grid.Column="1"
-                                      Orientation="Horizontal"
-                                      Spacing="6"
-                                      VerticalAlignment="Top"
-                                      Margin="12,0,0,0">
+                              <Button Classes="ghost"
+                                      Content="↻ Refresh"
+                                      Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).RefreshIntegrationCommand}"
+                                      CommandParameter="{Binding IntegrationId}"/>
 
-                            <Button Classes="ghost"
-                                    Content="Edit"
-                                    Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).EditIntegrationCommand}"
-                                    CommandParameter="{Binding}"/>
+                              <!-- Games expand/collapse toggle -->
+                              <Button Classes="ghost"
+                                      Content="▶ Games"
+                                      IsVisible="{Binding !IsGamesExpanded}"
+                                      Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).ToggleGamesCommand}"
+                                      CommandParameter="{Binding}"/>
+                              <Button Classes="ghost"
+                                      Content="▼ Games"
+                                      IsVisible="{Binding IsGamesExpanded}"
+                                      Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).ToggleGamesCommand}"
+                                      CommandParameter="{Binding}"/>
 
-                            <Button Classes="ghost"
-                                    Content="↻ Refresh"
-                                    Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).RefreshIntegrationCommand}"
-                                    CommandParameter="{Binding IntegrationId}"/>
+                              <Button Classes="danger"
+                                      Content="✕ Delete"
+                                      Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).DeleteIntegrationCommand}"
+                                      CommandParameter="{Binding IntegrationId}"/>
 
-                            <Button Classes="danger"
-                                    Content="✕ Delete"
-                                    Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).DeleteIntegrationCommand}"
-                                    CommandParameter="{Binding IntegrationId}"/>
+                            </StackPanel>
 
-                          </StackPanel>
+                          </Grid>
 
-                        </Grid>
+                          <!-- ── Games expansion panel ── -->
+                          <Border Margin="0,8,0,0"
+                                  Background="{DynamicResource MgaElevatedBrush}"
+                                  CornerRadius="{DynamicResource MgaRadiusSm}"
+                                  Padding="8,6"
+                                  IsVisible="{Binding IsGamesExpanded}">
+                            <StackPanel Spacing="4">
+
+                              <!-- Loading spinner -->
+                              <Border HorizontalAlignment="Left"
+                                      IsVisible="{Binding IsGamesLoading}">
+                                <controls:LoadingSpinner Width="20" Height="20"/>
+                              </Border>
+
+                              <!-- Games list -->
+                              <ItemsControl ItemsSource="{Binding Games}"
+                                            IsVisible="{Binding !IsGamesLoading}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="settingsVm:IntegrationGameRowModel">
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="8"
+                                                Margin="0,2">
+                                      <TextBlock Text="{Binding Title}"
+                                                 FontSize="11"
+                                                 VerticalAlignment="Center"/>
+                                      <TextBlock Text="{Binding Platform}"
+                                                 FontSize="10"
+                                                 Classes="muted"
+                                                 VerticalAlignment="Center"
+                                                 IsVisible="{Binding Platform,
+                                                             Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                    </StackPanel>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+
+                            </StackPanel>
+                          </Border>
+
+                        </StackPanel>
                       </Border>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
@@ -515,21 +654,35 @@
             <Border DockPanel.Dock="Top" HorizontalAlignment="Left" IsVisible="{Binding IsLoading}">
               <controls:LoadingSpinner Width="32" Height="32"/>
             </Border>
-            <ItemsControl ItemsSource="{Binding Plugins}" IsVisible="{Binding !IsLoading}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="settingsVm:PluginRowModel">
-                  <Border Classes="card" Margin="0,0,0,8" MaxWidth="480" HorizontalAlignment="Left">
-                    <Grid ColumnDefinitions="*,Auto">
-                      <StackPanel Grid.Column="0" Spacing="4">
-                        <TextBlock Text="{Binding PluginId}" FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-                        <TextBlock Text="{Binding ProvidesText}" Classes="muted"/>
-                      </StackPanel>
-                      <TextBlock Grid.Column="1" Text="{Binding Version}" Classes="muted" VerticalAlignment="Center" Margin="12,0,0,0"/>
-                    </Grid>
-                  </Border>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
+            <ScrollViewer IsVisible="{Binding !IsLoading}">
+              <ItemsControl ItemsSource="{Binding Plugins}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="settingsVm:PluginRowModel">
+                    <Border Classes="card" Margin="0,0,0,8" MaxWidth="560" HorizontalAlignment="Left">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                          <TextBlock Text="{Binding PluginId}"
+                                     FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                          <TextBlock Text="{Binding ProvidesText}" Classes="muted"
+                                     FontSize="{DynamicResource MgaFontSizeXs}"/>
+                          <!-- Capabilities (only shown when present) -->
+                          <StackPanel Orientation="Horizontal" Spacing="4"
+                                      IsVisible="{Binding HasCapabilities}">
+                            <TextBlock Text="Capabilities:" Classes="muted"
+                                       FontSize="{DynamicResource MgaFontSizeXs}"/>
+                            <TextBlock Text="{Binding CapabilitiesText}" Classes="accent"
+                                       FontSize="{DynamicResource MgaFontSizeXs}"/>
+                          </StackPanel>
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" Text="{Binding Version}" Classes="muted"
+                                   VerticalAlignment="Top" Margin="12,0,0,0"
+                                   FontSize="{DynamicResource MgaFontSizeXs}"/>
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
           </DockPanel>
         </Border>
       </TabItem>
@@ -537,91 +690,287 @@
       <!-- Cache -->
       <TabItem Header="Cache">
         <Border Padding="0,20,0,0"
-                DataContext="{Binding Cache}">
-          <StackPanel Spacing="20" MaxWidth="480" HorizontalAlignment="Left">
+                DataContext="{Binding Cache}"
+                x:DataType="settingsVm:CacheTabViewModel">
+          <DockPanel>
 
-            <!-- Header -->
-            <StackPanel Spacing="4">
-              <TextBlock Text="Source Cache" Classes="subheading"/>
+            <!-- ── Header ── -->
+            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,12">
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="Source Cache" Classes="subheading"/>
+                <Button Classes="ghost" Content="↻ Reload"
+                        Command="{Binding ReloadCommand}"
+                        VerticalAlignment="Center"/>
+              </StackPanel>
               <TextBlock Text="Cached game source files used for fast library access."
                          Classes="muted"/>
             </StackPanel>
 
-            <!-- Loading spinner -->
-            <Border HorizontalAlignment="Left" IsVisible="{Binding IsLoading}">
-              <controls:LoadingSpinner Width="32" Height="32"/>
-            </Border>
-
-            <!-- Stats card -->
-            <Border Classes="card" IsVisible="{Binding !IsLoading}">
-              <StackPanel Spacing="12">
-
-                <Grid ColumnDefinitions="*,Auto">
-                  <TextBlock Grid.Column="0" Text="Cached entries" VerticalAlignment="Center"/>
-                  <TextBlock Grid.Column="1"
-                             Text="{Binding EntryCount}"
-                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
-                             VerticalAlignment="Center"/>
-                </Grid>
-
-                <Grid ColumnDefinitions="*,Auto">
-                  <TextBlock Grid.Column="0" Text="Total size" VerticalAlignment="Center"/>
-                  <TextBlock Grid.Column="1"
-                             Text="{Binding TotalSizeText}"
-                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
-                             VerticalAlignment="Center"/>
-                </Grid>
-
-              </StackPanel>
-            </Border>
-
-            <!-- Actions -->
-            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !IsLoading}">
+            <!-- ── Summary + actions bar ── -->
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="20"
+                        Margin="0,0,0,12" IsVisible="{Binding !IsLoading}">
+              <TextBlock VerticalAlignment="Center">
+                <Run Text="{Binding EntryCount}"/>
+                <Run Text=" entries ·"/>
+                <Run Text="{Binding TotalSizeText}" FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+              </TextBlock>
               <Button Classes="danger"
-                      Content="Clear All Cache"
+                      Content="Clear All"
                       Command="{Binding ClearCacheCommand}"
                       IsEnabled="{Binding !IsClearing}"/>
-              <Button Classes="ghost"
-                      Content="↻ Reload"
-                      Command="{Binding ReloadCommand}"/>
             </StackPanel>
 
-          </StackPanel>
-        </Border>
-      </TabItem>
-
-      <!-- Duplicates -->
-      <TabItem Header="Duplicates">
-        <Border Padding="0,20,0,0" DataContext="{Binding Duplicates}">
-          <DockPanel>
-            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
-              <StackPanel Orientation="Horizontal" Spacing="12">
-                <TextBlock Text="Duplicates" Classes="subheading"/>
-                <Button Classes="ghost" Content="↻ Reload" Command="{Binding ReloadCommand}" VerticalAlignment="Center"/>
-              </StackPanel>
-              <TextBlock Classes="muted">
-                <Run Text="{Binding GroupCount}"/>
-                <Run Text=" duplicate group(s) found."/>
-              </TextBlock>
-            </StackPanel>
-            <Border DockPanel.Dock="Top" HorizontalAlignment="Left" IsVisible="{Binding IsLoading}">
+            <!-- ── Loading spinner ── -->
+            <Border DockPanel.Dock="Top" HorizontalAlignment="Left"
+                    Margin="0,8,0,8" IsVisible="{Binding IsLoading}">
               <controls:LoadingSpinner Width="32" Height="32"/>
             </Border>
+
+            <!-- ── Entry list ── -->
             <ScrollViewer IsVisible="{Binding !IsLoading}">
-              <ItemsControl ItemsSource="{Binding Groups}">
+              <ItemsControl ItemsSource="{Binding Entries}">
                 <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="settingsVm:DuplicateGroupRowModel">
-                    <Border Classes="card" Margin="0,0,0,8" MaxWidth="560" HorizontalAlignment="Left">
+                  <DataTemplate x:DataType="settingsVm:CacheEntryRowViewModel">
+                    <Border Classes="card" Margin="0,0,0,6"
+                            MaxWidth="640" HorizontalAlignment="Left">
                       <Grid ColumnDefinitions="*,Auto,Auto">
-                        <TextBlock Grid.Column="0" Text="{Binding RepresentativeTitle}" FontWeight="{DynamicResource MgaFontWeightSemiBold}" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1" Text="{Binding SourceCount, StringFormat='{}{0} sources'}" Classes="muted" VerticalAlignment="Center" Margin="12,0"/>
-                        <TextBlock Grid.Column="2" Text="{Binding SizeText}" Classes="muted" VerticalAlignment="Center"/>
+
+                        <!-- Entry info -->
+                        <StackPanel Grid.Column="0" Spacing="3">
+                          <TextBlock Text="{Binding CanonicalTitle}"
+                                     FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                     TextTrimming="CharacterEllipsis"/>
+                          <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding IntegrationLabel}" Classes="muted"
+                                       FontSize="{DynamicResource MgaFontSizeXs}"/>
+                            <TextBlock Text="{Binding Status}" Classes="muted"
+                                       FontSize="{DynamicResource MgaFontSizeXs}"/>
+                          </StackPanel>
+                          <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Classes="muted" FontSize="{DynamicResource MgaFontSizeXs}">
+                              <Run Text="{Binding FileCount}"/>
+                              <Run Text=" file(s)"/>
+                            </TextBlock>
+                            <TextBlock Text="{Binding SizeText}" Classes="muted"
+                                       FontSize="{DynamicResource MgaFontSizeXs}"/>
+                          </StackPanel>
+                        </StackPanel>
+
+                        <!-- Prepare spinner (visible while preparing) -->
+                        <Border Grid.Column="1" Margin="8,0"
+                                VerticalAlignment="Center"
+                                IsVisible="{Binding IsPreparing}">
+                          <controls:LoadingSpinner Width="16" Height="16"/>
+                        </Border>
+
+                        <!-- Prepare button -->
+                        <Button Grid.Column="2"
+                                Classes="ghost"
+                                Content="Prepare"
+                                VerticalAlignment="Center"
+                                IsEnabled="{Binding !IsPreparing}"
+                                IsVisible="{Binding !IsPreparing}"
+                                Command="{Binding $parent[ItemsControl].((settingsVm:CacheTabViewModel)DataContext).PrepareCacheCommand}"
+                                CommandParameter="{Binding}"/>
+
                       </Grid>
                     </Border>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </ScrollViewer>
+
+          </DockPanel>
+        </Border>
+      </TabItem>
+
+      <!-- Duplicates -->
+      <TabItem Header="Duplicates">
+        <Border Padding="0,20,0,0"
+                DataContext="{Binding Duplicates}"
+                x:DataType="settingsVm:DuplicatesTabViewModel">
+          <DockPanel>
+
+            <!-- ── Header ── -->
+            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,12">
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="Duplicates" Classes="subheading"/>
+                <Button Classes="ghost" Content="↻ Reload"
+                        Command="{Binding ReloadCommand}"
+                        VerticalAlignment="Center"/>
+              </StackPanel>
+              <TextBlock Classes="muted">
+                <Run Text="{Binding GroupCount}"/>
+                <Run Text=" duplicate group(s) ·"/>
+                <Run Text="{Binding Mode}"/>
+                <Run Text=" mode"/>
+              </TextBlock>
+            </StackPanel>
+
+            <!-- ── Mode toggle — show opposing mode as the action label ── -->
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal"
+                        Spacing="8" Margin="0,0,0,12"
+                        IsVisible="{Binding !IsLoading}">
+              <!-- In loose mode: offer switching to strict -->
+              <Button Classes="ghost"
+                      Content="Switch to Strict"
+                      Command="{Binding ToggleModeCommand}"
+                      IsVisible="{Binding IsLooseMode}"/>
+              <!-- In strict mode: offer switching to loose -->
+              <Button Classes="ghost"
+                      Content="Switch to Loose"
+                      Command="{Binding ToggleModeCommand}"
+                      IsVisible="{Binding IsStrictMode}"/>
+            </StackPanel>
+
+            <!-- ── Loading spinner ── -->
+            <Border DockPanel.Dock="Top" HorizontalAlignment="Left" IsVisible="{Binding IsLoading}">
+              <controls:LoadingSpinner Width="32" Height="32"/>
+            </Border>
+
+            <!-- ── Group list ── -->
+            <ScrollViewer IsVisible="{Binding !IsLoading}">
+              <ItemsControl ItemsSource="{Binding Groups}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="settingsVm:DuplicateGroupRowViewModel">
+                    <StackPanel Margin="0,0,0,8">
+
+                      <!-- Group header row -->
+                      <Border Classes="card" MaxWidth="640" HorizontalAlignment="Left">
+                        <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                          <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="{Binding RepresentativeTitle}"
+                                       FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                              <TextBlock Text="{Binding SourceCountText}" Classes="muted"
+                                         FontSize="{DynamicResource MgaFontSizeXs}"/>
+                              <TextBlock Text="{Binding TotalSizeText}" Classes="muted"
+                                         FontSize="{DynamicResource MgaFontSizeXs}"/>
+                            </StackPanel>
+                          </StackPanel>
+
+                          <!-- Merging spinner -->
+                          <Border Grid.Column="1" Margin="8,0"
+                                  VerticalAlignment="Center"
+                                  IsVisible="{Binding IsMerging}">
+                            <controls:LoadingSpinner Width="18" Height="18"/>
+                          </Border>
+
+                          <!-- Expand toggle -->
+                          <Button Grid.Column="2"
+                                  Classes="ghost"
+                                  Content="▶ Sources"
+                                  VerticalAlignment="Center"
+                                  IsVisible="{Binding !IsExpanded}"
+                                  IsEnabled="{Binding !IsMerging}"
+                                  Command="{Binding $parent[ItemsControl].((settingsVm:DuplicatesTabViewModel)DataContext).ToggleGroupCommand}"
+                                  CommandParameter="{Binding}"/>
+                          <Button Grid.Column="2"
+                                  Classes="ghost"
+                                  Content="▼ Sources"
+                                  VerticalAlignment="Center"
+                                  IsVisible="{Binding IsExpanded}"
+                                  IsEnabled="{Binding !IsMerging}"
+                                  Command="{Binding $parent[ItemsControl].((settingsVm:DuplicatesTabViewModel)DataContext).ToggleGroupCommand}"
+                                  CommandParameter="{Binding}"/>
+                          <Grid Grid.Column="3"/>
+                        </Grid>
+                      </Border>
+
+                      <!-- Expanded source breakdown -->
+                      <Border IsVisible="{Binding IsExpanded}"
+                              Margin="16,0,0,0"
+                              MaxWidth="624"
+                              HorizontalAlignment="Left">
+                        <ItemsControl ItemsSource="{Binding Sources}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="settingsVm:DuplicateSourceRowViewModel">
+                              <StackPanel Margin="0,0,0,4">
+
+                                <!-- Source info row -->
+                                <Border Classes="card" Padding="10,8">
+                                  <Grid ColumnDefinitions="*,Auto">
+
+                                    <!-- Source info -->
+                                    <StackPanel Grid.Column="0" Spacing="2">
+                                      <TextBlock Text="{Binding CanonicalTitle}"
+                                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{Binding IntegrationLabel}" Classes="muted"
+                                                   FontSize="{DynamicResource MgaFontSizeXs}"/>
+                                        <TextBlock Text="{Binding Platform}" Classes="muted"
+                                                   FontSize="{DynamicResource MgaFontSizeXs}"/>
+                                        <TextBlock Text="{Binding Kind}" Classes="muted"
+                                                   FontSize="{DynamicResource MgaFontSizeXs}"/>
+                                      </StackPanel>
+                                      <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Classes="muted" FontSize="{DynamicResource MgaFontSizeXs}">
+                                          <Run Text="{Binding FileCount}"/>
+                                          <Run Text=" file(s)"/>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding SizeText}" Classes="muted"
+                                                   FontSize="{DynamicResource MgaFontSizeXs}"/>
+                                        <Border Background="{DynamicResource MgaAccentMutedBrush}"
+                                                CornerRadius="{DynamicResource MgaRadiusSm}"
+                                                Padding="6,2"
+                                                IsVisible="{Binding Cached}">
+                                          <TextBlock Text="cached"
+                                                     FontSize="{DynamicResource MgaFontSizeXs}"
+                                                     Foreground="#FFFFFF"/>
+                                        </Border>
+                                      </StackPanel>
+                                    </StackPanel>
+
+                                    <!-- Merge-into button -->
+                                    <Button Grid.Column="1"
+                                            Classes="ghost"
+                                            Content="⊕ Merge into this"
+                                            VerticalAlignment="Center"
+                                            Margin="8,0,0,0"
+                                            IsVisible="{Binding !IsMergePending}"
+                                            Command="{Binding $parent[ItemsControl].((settingsVm:DuplicatesTabViewModel)DataContext).RequestMergeIntoCommand}"
+                                            CommandParameter="{Binding}"/>
+
+                                  </Grid>
+                                </Border>
+
+                                <!-- Inline merge confirm strip -->
+                                <Border IsVisible="{Binding IsMergePending}"
+                                        Classes="card"
+                                        Background="{DynamicResource MgaElevatedBrush}"
+                                        Padding="10,8"
+                                        Margin="0,2,0,0">
+                                  <StackPanel Spacing="6">
+                                    <TextBlock Text="Merge all other sources in this group into this canonical?"
+                                               Classes="muted" TextWrapping="Wrap"
+                                               FontSize="{DynamicResource MgaFontSizeXs}"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                      <Button Classes="primary"
+                                              Content="Confirm Merge"
+                                              Command="{Binding $parent[ItemsControl].((settingsVm:DuplicatesTabViewModel)DataContext).ConfirmMergeIntoCommand}"
+                                              CommandParameter="{Binding}"/>
+                                      <Button Classes="ghost"
+                                              Content="Cancel"
+                                              Command="{Binding $parent[ItemsControl].((settingsVm:DuplicatesTabViewModel)DataContext).CancelMergeIntoCommand}"
+                                              CommandParameter="{Binding}"/>
+                                    </StackPanel>
+                                  </StackPanel>
+                                </Border>
+
+                              </StackPanel>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </Border>
+
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+
           </DockPanel>
         </Border>
       </TabItem>
@@ -725,13 +1074,13 @@
             <StackPanel DockPanel.Dock="Top"
                         Orientation="Horizontal"
                         Spacing="8"
-                        Margin="0,0,0,12">
+                        Margin="0,0,0,8">
               <Button Classes="ghost"
-                      Content="Active"
+                      Content="← Active"
                       Command="{Binding ToggleScopeCommand}"
                       IsVisible="{Binding ShowArchive}"/>
               <Button Classes="ghost"
-                      Content="Archive"
+                      Content="Archive →"
                       Command="{Binding ToggleScopeCommand}"
                       IsVisible="{Binding !ShowArchive}"/>
               <Button Classes="ghost"
@@ -742,6 +1091,16 @@
                 <controls:LoadingSpinner Width="20" Height="20"/>
               </Border>
             </StackPanel>
+
+            <!-- ── List filter ── -->
+            <TextBox DockPanel.Dock="Top"
+                     Classes="mga"
+                     PlaceholderText="Filter by title, platform, integration…"
+                     Text="{Binding ListFilter}"
+                     Margin="0,0,0,8"
+                     MaxWidth="400"
+                     HorizontalAlignment="Left"
+                     IsVisible="{Binding !IsLoading}"/>
 
             <!-- ── Status message ── -->
             <Border DockPanel.Dock="Top"
@@ -819,77 +1178,141 @@
               </ScrollViewer>
 
               <!-- Right: detail / action panel (shown when candidate selected) -->
-              <Border Grid.Column="1"
-                      Width="320"
-                      Classes="card"
-                      VerticalAlignment="Top"
-                      IsVisible="{Binding SelectedCandidate, Converter={x:Static ObjectConverters.IsNotNull}}">
-                <StackPanel Spacing="12">
+              <ScrollViewer Grid.Column="1"
+                            Width="340"
+                            MaxHeight="700"
+                            VerticalScrollBarVisibility="Auto"
+                            IsVisible="{Binding SelectedCandidate, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <Border Classes="card" VerticalAlignment="Top">
+                  <StackPanel Spacing="12">
 
-                  <!-- Title -->
-                  <TextBlock Text="{Binding SelectedCandidate.Title}"
-                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
-                             TextWrapping="Wrap"/>
-                  <TextBlock Text="{Binding SelectedCandidate.ReasonsText}"
-                             Classes="muted"
-                             FontSize="{DynamicResource MgaFontSizeXs}"
-                             TextWrapping="Wrap"/>
-
-                  <!-- Classification actions -->
-                  <StackPanel Spacing="6">
-                    <TextBlock Text="Classify" Classes="muted"
+                    <!-- Title + reasons -->
+                    <TextBlock Text="{Binding SelectedCandidate.Title}"
+                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding SelectedCandidate.ReasonsText}"
+                               Classes="muted"
                                FontSize="{DynamicResource MgaFontSizeXs}"
-                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                      <Button Classes="ghost"
-                              Content="Not a Game"
-                              Command="{Binding MarkNotGameCommand}"
-                              CommandParameter="{Binding SelectedCandidate}"/>
-                      <Button Classes="ghost"
-                              Content="DLC / Add-on"
-                              Command="{Binding MarkDlcCommand}"
-                              CommandParameter="{Binding SelectedCandidate}"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                      <Button Classes="ghost"
-                              Content="↺ Re-detect"
-                              Command="{Binding RedetectOneCommand}"
-                              CommandParameter="{Binding SelectedCandidate}"/>
-                      <Button Classes="ghost"
-                              Content="Restore"
-                              IsVisible="{Binding SelectedCandidate.IsArchived}"
-                              Command="{Binding UnarchiveCommand}"
-                              CommandParameter="{Binding SelectedCandidate}"/>
-                      <Button Classes="danger"
-                              Content="Delete Files"
-                              Command="{Binding DeleteFilesCommand}"
-                              CommandParameter="{Binding SelectedCandidate}"/>
-                    </StackPanel>
-                  </StackPanel>
+                               TextWrapping="Wrap"/>
 
-                  <!-- Metadata search -->
-                  <StackPanel Spacing="6">
-                    <TextBlock Text="Find Metadata" Classes="muted"
-                               FontSize="{DynamicResource MgaFontSizeXs}"
-                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-                    <TextBox Classes="mga"
-                             PlaceholderText="Search query…"
-                             Text="{Binding SearchQuery}"/>
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                      <Button Classes="primary"
-                              Content="Search"
-                              Command="{Binding SearchCommand}"
-                              IsEnabled="{Binding !IsSearching}"/>
-                      <Border IsVisible="{Binding IsSearching}" VerticalAlignment="Center">
-                        <controls:LoadingSpinner Width="20" Height="20"/>
-                      </Border>
-                    </StackPanel>
-                  </StackPanel>
+                    <!-- Detail loading spinner -->
+                    <Border HorizontalAlignment="Left" IsVisible="{Binding IsLoadingDetail}">
+                      <controls:LoadingSpinner Width="20" Height="20"/>
+                    </Border>
 
-                  <!-- Search results -->
-                  <ScrollViewer MaxHeight="300"
-                                IsVisible="{Binding SearchResults.Count, Converter={x:Static ObjectConverters.IsNotNull}}">
-                    <ItemsControl ItemsSource="{Binding SearchResults}">
+                    <!-- File inventory (lazy-loaded) -->
+                    <StackPanel Spacing="4" IsVisible="{Binding HasFiles}">
+                      <TextBlock Text="Files" Classes="muted"
+                                 FontSize="{DynamicResource MgaFontSizeXs}"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                      <ItemsControl ItemsSource="{Binding SelectedFiles}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="settingsVm:CandidateFileRowViewModel">
+                            <StackPanel Margin="0,0,0,4">
+                              <TextBlock Text="{Binding FileName}"
+                                         FontSize="{DynamicResource MgaFontSizeXs}"
+                                         TextTrimming="CharacterEllipsis"
+                                         ToolTip.Tip="{Binding Path}"/>
+                              <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="{Binding Role}" Classes="muted"
+                                           FontSize="{DynamicResource MgaFontSizeXs}"/>
+                                <TextBlock Text="{Binding SizeText}" Classes="muted"
+                                           FontSize="{DynamicResource MgaFontSizeXs}"/>
+                              </StackPanel>
+                            </StackPanel>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+
+                    <!-- Resolver matches (lazy-loaded) -->
+                    <StackPanel Spacing="4" IsVisible="{Binding HasMatches}">
+                      <TextBlock Text="Resolver Suggestions" Classes="muted"
+                                 FontSize="{DynamicResource MgaFontSizeXs}"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                      <ItemsControl ItemsSource="{Binding SelectedMatches}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="settingsVm:CandidateMatchRowViewModel">
+                            <Border Classes="card" Margin="0,0,0,4" Padding="6">
+                              <StackPanel Spacing="2">
+                                <TextBlock Text="{Binding Title}"
+                                           FontSize="{DynamicResource MgaFontSizeXs}"
+                                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                  <TextBlock Text="{Binding Provider}" Classes="muted"
+                                             FontSize="{DynamicResource MgaFontSizeXs}"/>
+                                  <TextBlock Text="{Binding Platform}" Classes="muted"
+                                             FontSize="{DynamicResource MgaFontSizeXs}"/>
+                                </StackPanel>
+                              </StackPanel>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+
+                    <!-- Classification actions -->
+                    <StackPanel Spacing="6">
+                      <TextBlock Text="Classify" Classes="muted"
+                                 FontSize="{DynamicResource MgaFontSizeXs}"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                      <WrapPanel>
+                        <Button Classes="ghost"
+                                Content="Not a Game"
+                                Margin="0,0,4,4"
+                                Command="{Binding MarkNotGameCommand}"
+                                CommandParameter="{Binding SelectedCandidate}"/>
+                        <Button Classes="ghost"
+                                Content="DLC / Add-on"
+                                Margin="0,0,4,4"
+                                Command="{Binding MarkDlcCommand}"
+                                CommandParameter="{Binding SelectedCandidate}"/>
+                        <Button Classes="ghost"
+                                Content="Base Game"
+                                Margin="0,0,4,4"
+                                Command="{Binding MarkBaseGameCommand}"
+                                CommandParameter="{Binding SelectedCandidate}"/>
+                      </WrapPanel>
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button Classes="ghost"
+                                Content="↺ Re-detect"
+                                Command="{Binding RedetectOneCommand}"
+                                CommandParameter="{Binding SelectedCandidate}"/>
+                        <Button Classes="ghost"
+                                Content="Restore"
+                                IsVisible="{Binding SelectedCandidate.IsArchived}"
+                                Command="{Binding UnarchiveCommand}"
+                                CommandParameter="{Binding SelectedCandidate}"/>
+                        <Button Classes="danger"
+                                Content="Delete Files"
+                                Command="{Binding DeleteFilesCommand}"
+                                CommandParameter="{Binding SelectedCandidate}"/>
+                      </StackPanel>
+                    </StackPanel>
+
+                    <!-- Metadata search -->
+                    <StackPanel Spacing="6">
+                      <TextBlock Text="Find Metadata" Classes="muted"
+                                 FontSize="{DynamicResource MgaFontSizeXs}"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                      <TextBox Classes="mga"
+                               PlaceholderText="Search query…"
+                               Text="{Binding SearchQuery}"/>
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button Classes="primary"
+                                Content="Search"
+                                Command="{Binding SearchCommand}"
+                                IsEnabled="{Binding !IsSearching}"/>
+                        <Border IsVisible="{Binding IsSearching}" VerticalAlignment="Center">
+                          <controls:LoadingSpinner Width="20" Height="20"/>
+                        </Border>
+                      </StackPanel>
+                    </StackPanel>
+
+                    <!-- Search results -->
+                    <ItemsControl ItemsSource="{Binding SearchResults}"
+                                  IsVisible="{Binding SearchResults.Count, Converter={x:Static ObjectConverters.IsNotNull}}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="settingsVm:ReviewSearchResultRowViewModel">
                           <Border Classes="card"
@@ -920,10 +1343,10 @@
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                  </ScrollViewer>
 
-                </StackPanel>
-              </Border>
+                  </StackPanel>
+                </Border>
+              </ScrollViewer>
 
             </Grid>
 
@@ -1056,12 +1479,23 @@
                                     Spacing="6"
                                     VerticalAlignment="Center"
                                     Margin="12,0,0,0">
+                          <!-- Test spinner (replaces Test button while running) -->
+                          <Border VerticalAlignment="Center" IsVisible="{Binding IsTesting}">
+                            <controls:LoadingSpinner Width="18" Height="18"/>
+                          </Border>
+                          <Button Classes="ghost"
+                                  Content="Test"
+                                  IsVisible="{Binding !IsTesting}"
+                                  Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).TestEmulatorCommand}"
+                                  CommandParameter="{Binding}"/>
                           <Button Classes="ghost"
                                   Content="Edit"
+                                  IsEnabled="{Binding !IsTesting}"
                                   Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).EditEmulatorCommand}"
                                   CommandParameter="{Binding}"/>
                           <Button Classes="danger"
                                   Content="✕ Delete"
+                                  IsEnabled="{Binding !IsTesting}"
                                   Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).DeleteEmulatorCommand}"
                                   CommandParameter="{Binding}"/>
                         </StackPanel>

@@ -10,8 +10,7 @@
     <!-- ======================================================================
          Fixed header
          ====================================================================== -->
-    <StackPanel DockPanel.Dock="Top"
-                Margin="32,32,32,16">
+    <StackPanel DockPanel.Dock="Top" Margin="32,32,32,16">
       <TextBlock Text="Stats" Classes="heading"/>
     </StackPanel>
 
@@ -37,17 +36,46 @@
            ================================================================== -->
       <TabItem Header="Library">
         <ScrollViewer Margin="0,16,0,0">
-          <StackPanel Spacing="24">
+          <StackPanel Spacing="28">
 
-            <!-- Total games big number -->
-            <StackPanel Spacing="4">
-              <TextBlock Text="{Binding TotalGames}"
-                         FontSize="{DynamicResource MgaFontSize2xl}"
-                         FontWeight="{DynamicResource MgaFontWeightBold}"/>
-              <TextBlock Text="games in library" Classes="muted"/>
-            </StackPanel>
+            <!-- ── Stat tiles row ── -->
+            <ItemsControl ItemsSource="{Binding StatTiles}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <WrapPanel Orientation="Horizontal"/>
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:StatTileModel">
+                  <Border Classes="card"
+                          MinWidth="140"
+                          Margin="0,0,12,12"
+                          Padding="20,16">
+                    <StackPanel Spacing="6">
+                      <!-- Icon -->
+                      <TextBlock Text="{Binding Icon}"
+                                 FontSize="24"
+                                 Margin="0,0,0,4"/>
+                      <!-- Primary value -->
+                      <TextBlock Text="{Binding Value}"
+                                 FontSize="{DynamicResource MgaFontSizeLg}"
+                                 FontWeight="{DynamicResource MgaFontWeightBold}"/>
+                      <!-- Sub-text (e.g. unlock percent) -->
+                      <TextBlock Text="{Binding SubText}"
+                                 Classes="muted"
+                                 FontSize="{DynamicResource MgaFontSizeXs}"
+                                 IsVisible="{Binding SubText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                      <!-- Label -->
+                      <TextBlock Text="{Binding Label}"
+                                 Classes="muted"
+                                 FontSize="{DynamicResource MgaFontSizeSm}"/>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
 
-            <!-- Platform breakdown — proportional bar chart -->
+            <!-- ── Platform breakdown ── -->
             <StackPanel Spacing="8">
               <TextBlock Text="By Platform" Classes="subheading"/>
               <ItemsControl ItemsSource="{Binding PlatformBreakdown}">
@@ -55,7 +83,9 @@
                   <DataTemplate x:DataType="vm:CountStatModel">
                     <StackPanel Spacing="2" Margin="0,0,0,8">
                       <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding Label}"
+                                   VerticalAlignment="Center"/>
                         <TextBlock Grid.Column="1"
                                    Text="{Binding Count}"
                                    Classes="muted"
@@ -76,7 +106,38 @@
               </ItemsControl>
             </StackPanel>
 
-            <!-- Genre breakdown — proportional bar chart -->
+            <!-- ── Kind breakdown ── -->
+            <StackPanel Spacing="8">
+              <TextBlock Text="By Kind" Classes="subheading"/>
+              <ItemsControl ItemsSource="{Binding KindBreakdown}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CountStatModel">
+                    <StackPanel Spacing="2" Margin="0,0,0,8">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding Label}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding Count}"
+                                   Classes="muted"
+                                   MinWidth="40"
+                                   TextAlignment="Right"
+                                   FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                      </Grid>
+                      <ProgressBar Minimum="0"
+                                   Maximum="{Binding MaxCount}"
+                                   Value="{Binding Count}"
+                                   Height="5"
+                                   CornerRadius="{DynamicResource MgaRadiusFull}"
+                                   Foreground="{DynamicResource MgaSuccessBrush}"
+                                   Background="{DynamicResource MgaElevatedBrush}"/>
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+            <!-- ── Genre breakdown ── -->
             <StackPanel Spacing="8">
               <TextBlock Text="By Genre" Classes="subheading"/>
               <ItemsControl ItemsSource="{Binding GenreBreakdown}">
@@ -84,7 +145,9 @@
                   <DataTemplate x:DataType="vm:CountStatModel">
                     <StackPanel Spacing="2" Margin="0,0,0,8">
                       <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding Label}"
+                                   VerticalAlignment="Center"/>
                         <TextBlock Grid.Column="1"
                                    Text="{Binding Count}"
                                    Classes="muted"
@@ -100,6 +163,52 @@
                                    Foreground="{DynamicResource MgaAccentBrush}"
                                    Background="{DynamicResource MgaElevatedBrush}"/>
                     </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+            <!-- ── Metadata coverage ── -->
+            <StackPanel Spacing="8"
+                        IsVisible="{Binding HasCoverage}">
+              <TextBlock Text="Metadata Coverage" Classes="subheading"/>
+              <TextBlock Text="Percentage of games that have each metadata field populated."
+                         Classes="muted"
+                         FontSize="{DynamicResource MgaFontSizeSm}"
+                         Margin="0,0,0,4"/>
+
+              <ItemsControl ItemsSource="{Binding Coverage}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal"/>
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CoverageStatModel">
+                    <Border Classes="card"
+                            MinWidth="120"
+                            Margin="0,0,12,12"
+                            Padding="16,12">
+                      <StackPanel Spacing="6">
+                        <!-- Percentage value -->
+                        <TextBlock Text="{Binding PercentText}"
+                                   FontSize="{DynamicResource MgaFontSizeLg}"
+                                   FontWeight="{DynamicResource MgaFontWeightBold}"
+                                   Foreground="{DynamicResource MgaAccentBrush}"/>
+                        <!-- Label -->
+                        <TextBlock Text="{Binding Label}"
+                                   Classes="muted"
+                                   FontSize="{DynamicResource MgaFontSizeSm}"/>
+                        <!-- Mini progress bar -->
+                        <ProgressBar Minimum="0"
+                                     Maximum="100"
+                                     Value="{Binding Percent}"
+                                     Height="4"
+                                     CornerRadius="{DynamicResource MgaRadiusFull}"
+                                     Foreground="{DynamicResource MgaAccentBrush}"
+                                     Background="{DynamicResource MgaElevatedBrush}"/>
+                      </StackPanel>
+                    </Border>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
@@ -116,7 +225,7 @@
         <ScrollViewer Margin="0,16,0,0">
           <StackPanel Spacing="24">
 
-            <!-- Favorite games count -->
+            <!-- Favorite games -->
             <StackPanel Spacing="4">
               <TextBlock Text="{Binding FavoriteGames}"
                          FontSize="{DynamicResource MgaFontSize2xl}"
@@ -128,7 +237,6 @@
             <Border Classes="card">
               <StackPanel Spacing="8">
                 <TextBlock Text="Achievements" Classes="subheading"/>
-
                 <TextBlock Classes="muted">
                   <Run Text="{Binding UnlockedAchievements}"/>
                   <Run Text=" / "/>
@@ -137,7 +245,6 @@
                   <Run Text="{Binding UnlockPercent}"/>
                   <Run Text=")"/>
                 </TextBlock>
-
                 <ProgressBar Minimum="0"
                              Maximum="{Binding TotalAchievements}"
                              Value="{Binding UnlockedAchievements}"
@@ -160,8 +267,7 @@
                           <TextBlock Grid.Column="0"
                                      Text="{Binding Source}"
                                      FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-                          <TextBlock Grid.Column="1"
-                                     Classes="muted">
+                          <TextBlock Grid.Column="1" Classes="muted">
                             <Run Text="{Binding Unlocked}"/>
                             <Run Text="/"/>
                             <Run Text="{Binding Total}"/>
@@ -195,9 +301,7 @@
         <ScrollViewer Margin="0,16,0,0">
           <StackPanel Spacing="24">
 
-            <!-- Scan history list -->
-            <Border Classes="card"
-                    IsVisible="{Binding HasScanReports}">
+            <Border Classes="card" IsVisible="{Binding HasScanReports}">
               <StackPanel Spacing="8">
                 <TextBlock Text="Recent Scans" Classes="subheading"/>
                 <ItemsControl ItemsSource="{Binding ScanReports}">
@@ -230,7 +334,6 @@
               </StackPanel>
             </Border>
 
-            <!-- Empty state when no scans recorded -->
             <TextBlock Text="No scan reports available."
                        Classes="muted"
                        IsVisible="{Binding !HasScanReports}"/>

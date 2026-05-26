@@ -121,6 +121,12 @@
                   IsVisible="{Binding !Favorite}"/>
 
           <Button Classes="ghost"
+                  Command="{Binding RefreshMetadataCommand}"
+                  Content="↻ Metadata"
+                  IsEnabled="{Binding !IsRefreshingMetadata}"
+                  ToolTip.Tip="Refresh metadata from online providers"/>
+
+          <Button Classes="ghost"
                   Command="{Binding GoBackCommand}"
                   Content="← Back"/>
 
@@ -284,30 +290,230 @@
             <ItemsControl ItemsSource="{Binding SourceGames}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:SourceGameRowViewModel">
-                  <Border Padding="0,6"
+                  <Border Padding="0,8"
                           BorderThickness="0,0,0,1"
                           BorderBrush="{DynamicResource MgaBorderBrush}">
-                    <Grid ColumnDefinitions="*,Auto">
-                      <StackPanel Grid.Column="0" Spacing="2">
-                        <TextBlock Text="{Binding RawTitle}"
-                                   FontWeight="SemiBold"
-                                   TextTrimming="CharacterEllipsis"/>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                          <TextBlock Text="{Binding IntegrationLabel}" Classes="muted"/>
-                          <TextBlock Text="·" Classes="muted"/>
-                          <TextBlock Text="{Binding Platform}" Classes="muted"/>
-                          <TextBlock Text="·" Classes="muted"/>
-                          <TextBlock Text="{Binding FileSummary}" Classes="muted"/>
+                    <StackPanel Spacing="0">
+
+                      <!-- ── Main row: title (left) + status/actions (right) ── -->
+                      <Grid ColumnDefinitions="*,Auto">
+
+                        <!-- Left: raw title + metadata line -->
+                        <StackPanel Grid.Column="0" Spacing="2">
+                          <TextBlock Text="{Binding RawTitle}"
+                                     FontWeight="SemiBold"
+                                     TextTrimming="CharacterEllipsis"/>
+                          <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding IntegrationLabel}" Classes="muted"/>
+                            <TextBlock Text="·" Classes="muted"/>
+                            <TextBlock Text="{Binding Platform}" Classes="muted"/>
+                            <TextBlock Text="·" Classes="muted"/>
+                            <TextBlock Text="{Binding FileSummary}" Classes="muted"/>
+                          </StackPanel>
                         </StackPanel>
+
+                        <!-- Right: status badge + action buttons -->
+                        <StackPanel Grid.Column="1"
+                                    VerticalAlignment="Center"
+                                    HorizontalAlignment="Right"
+                                    Spacing="4"
+                                    Margin="12,0,0,0">
+
+                          <!-- Status badge -->
+                          <Border Background="{DynamicResource MgaElevatedBrush}"
+                                  CornerRadius="{DynamicResource MgaRadiusSm}"
+                                  Padding="6,2"
+                                  HorizontalAlignment="Right">
+                            <TextBlock Text="{Binding Status}" Classes="muted" FontSize="11"/>
+                          </Border>
+
+                          <!-- Normal action strip (hidden while delete or merge is pending) -->
+                          <StackPanel Orientation="Horizontal"
+                                      Spacing="4"
+                                      HorizontalAlignment="Right"
+                                      IsVisible="{Binding !IsDeletePending}">
+                            <Button Classes="ghost"
+                                    FontSize="11"
+                                    Padding="6,2"
+                                    Content="⌥ Split"
+                                    ToolTip.Tip="Detach this source into its own game entry"
+                                    Command="{Binding $parent[UserControl].((vm:GameDetailViewModel)DataContext).SplitSourceCommand}"
+                                    CommandParameter="{Binding}"/>
+                            <Button Classes="ghost"
+                                    FontSize="11"
+                                    Padding="6,2"
+                                    Content="⊕ Merge"
+                                    ToolTip.Tip="Move this source into another game"
+                                    Command="{Binding $parent[UserControl].((vm:GameDetailViewModel)DataContext).RequestMergeSourceCommand}"
+                                    CommandParameter="{Binding}"/>
+                            <Button Classes="ghost"
+                                    FontSize="11"
+                                    Padding="6,2"
+                                    Content="⊘ Unpin"
+                                    ToolTip.Tip="Remove the canonical pin for this source"
+                                    Command="{Binding $parent[UserControl].((vm:GameDetailViewModel)DataContext).ClearPinCommand}"
+                                    CommandParameter="{Binding}"/>
+                            <Button Classes="ghost"
+                                    FontSize="11"
+                                    Padding="6,2"
+                                    Foreground="{DynamicResource MgaDangerBrush}"
+                                    Content="🗑 Delete"
+                                    ToolTip.Tip="Hard-delete this source and its files"
+                                    Command="{Binding $parent[UserControl].((vm:GameDetailViewModel)DataContext).RequestDeleteSourceCommand}"
+                                    CommandParameter="{Binding}"/>
+                          </StackPanel>
+
+                          <!-- Inline delete confirmation strip -->
+                          <StackPanel Orientation="Horizontal"
+                                      Spacing="4"
+                                      HorizontalAlignment="Right"
+                                      IsVisible="{Binding IsDeletePending}">
+                            <TextBlock Text="Delete files?"
+                                       Classes="muted"
+                                       FontSize="11"
+                                       VerticalAlignment="Center"/>
+                            <Button Classes="ghost"
+                                    FontSize="11"
+                                    Padding="6,2"
+                                    Foreground="{DynamicResource MgaDangerBrush}"
+                                    Content="✓ Confirm"
+                                    Command="{Binding $parent[UserControl].((vm:GameDetailViewModel)DataContext).ConfirmDeleteSourceCommand}"
+                                    CommandParameter="{Binding}"/>
+                            <Button Classes="ghost"
+                                    FontSize="11"
+                                    Padding="6,2"
+                                    Content="✕ Cancel"
+                                    Command="{Binding $parent[UserControl].((vm:GameDetailViewModel)DataContext).CancelDeleteSourceCommand}"
+                                    CommandParameter="{Binding}"/>
+                          </StackPanel>
+
+                        </StackPanel>
+                      </Grid>
+
+                      <!-- ── Inline merge-target search panel ── -->
+                      <StackPanel Spacing="6"
+                                  Margin="0,8,0,0"
+                                  IsVisible="{Binding IsMergePending}">
+
+                        <TextBlock Text="Move this source into another game:"
+                                   FontSize="11"
+                                   Classes="muted"/>
+
+                        <!-- Search box + button -->
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                          <TextBox Grid.Column="0"
+                                   Text="{Binding MergeSearchQuery}"
+                                   PlaceholderText="Search by title…"
+                                   FontSize="12"
+                                   Padding="6,4"/>
+                          <Button Grid.Column="1"
+                                  FontSize="11"
+                                  Padding="8,4"
+                                  Content="Search"
+                                  IsEnabled="{Binding !IsMergeSearching}"
+                                  Command="{Binding $parent[UserControl].((vm:GameDetailViewModel)DataContext).SearchMergeTargetsCommand}"
+                                  CommandParameter="{Binding}"/>
+                        </Grid>
+
+                        <!-- In-progress indicator -->
+                        <TextBlock Text="Searching…"
+                                   FontSize="11"
+                                   Classes="muted"
+                                   IsVisible="{Binding IsMergeSearching}"/>
+
+                        <!-- Search results list -->
+                        <ItemsControl ItemsSource="{Binding MergeSearchResults}"
+                                      IsVisible="{Binding HasMergeSearchResults}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:CanonicalSearchResultViewModel">
+                              <Border Margin="0,2"
+                                      Background="{DynamicResource MgaElevatedBrush}"
+                                      CornerRadius="{DynamicResource MgaRadiusSm}"
+                                      Padding="8,5">
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <StackPanel Grid.Column="0" Spacing="1">
+                                    <TextBlock Text="{Binding Title}"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding Subtitle}"
+                                               FontSize="10"
+                                               Classes="muted"/>
+                                  </StackPanel>
+                                  <Button Grid.Column="1"
+                                          Classes="ghost"
+                                          FontSize="10"
+                                          Padding="6,2"
+                                          Foreground="{DynamicResource MgaWarningBrush}"
+                                          Content="↪ Merge here"
+                                          Command="{Binding $parent[UserControl].((vm:GameDetailViewModel)DataContext).ConfirmMergeSourceCommand}"
+                                          CommandParameter="{Binding}"/>
+                                </Grid>
+                              </Border>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- Cancel -->
+                        <Button Classes="ghost"
+                                FontSize="11"
+                                Padding="6,2"
+                                Content="✕ Cancel merge"
+                                Command="{Binding $parent[UserControl].((vm:GameDetailViewModel)DataContext).CancelMergeSourceCommand}"
+                                CommandParameter="{Binding}"/>
                       </StackPanel>
-                      <Border Grid.Column="1"
+
+                      <!-- ── Resolver matches (read-only, collapsible) ── -->
+                      <Border Margin="0,6,0,0"
                               Background="{DynamicResource MgaElevatedBrush}"
                               CornerRadius="{DynamicResource MgaRadiusSm}"
-                              Padding="6,2"
-                              VerticalAlignment="Center">
-                        <TextBlock Text="{Binding Status}" Classes="muted" FontSize="11"/>
+                              Padding="8,6"
+                              IsVisible="{Binding HasResolverMatches}">
+                        <StackPanel Spacing="4">
+                          <TextBlock Text="{Binding ResolverMatchCountText}"
+                                     FontSize="11"
+                                     FontWeight="SemiBold"
+                                     Classes="muted"/>
+                          <ItemsControl ItemsSource="{Binding ResolverMatches}">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="vm:SourceResolverMatchViewModel">
+                                <StackPanel Orientation="Horizontal"
+                                            Spacing="6"
+                                            Margin="0,2">
+                                  <!-- Plugin ID badge -->
+                                  <Border Background="{DynamicResource MgaAccentMutedBrush}"
+                                          CornerRadius="{DynamicResource MgaRadiusSm}"
+                                          Padding="4,1">
+                                    <TextBlock Text="{Binding PluginId}"
+                                               FontSize="9"
+                                               Foreground="#FFFFFF"/>
+                                  </Border>
+                                  <!-- Status badge -->
+                                  <Border Background="{DynamicResource MgaBorderBrush}"
+                                          CornerRadius="{DynamicResource MgaRadiusSm}"
+                                          Padding="4,1">
+                                    <TextBlock Text="{Binding StatusLabel}"
+                                               FontSize="9"
+                                               Classes="muted"/>
+                                  </Border>
+                                  <!-- Title -->
+                                  <TextBlock Text="{Binding Title}"
+                                             FontSize="11"
+                                             VerticalAlignment="Center"/>
+                                  <!-- Platform -->
+                                  <TextBlock Text="{Binding Platform}"
+                                             FontSize="10"
+                                             Classes="muted"
+                                             VerticalAlignment="Center"
+                                             IsVisible="{Binding Platform,
+                                                         Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                </StackPanel>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
                       </Border>
-                    </Grid>
+
+                    </StackPanel>
                   </Border>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>

@@ -4,3 +4,6 @@
   [ ] if we ask to hard delete a game, and the files are not found, that is okay - remove the game and don't delete the files that doesn't exist.
 [ ] Games in library/play are loaded dynamically in the background and added. this is great, but make a progress bar that shows the progress and when it is complete. currently games just pop into the page while it is shown (which is fine), but the user needs to have some progress to know when its done.
 [ ] There's the text "base_game" shown in many places. I don't think this label is really required, DLCs and such are not of kind "game" so they won't be displayed on their own. DLCs should be inside the game page.
+[ ] http://tv2:8900/game/009e63f6-36cd-4fb2-8be4-e0fe552aa343 - (1) The game was manually classified to Launchbox entry, but no images or metadata is defined. (2) There's an error 'EmulatorJS needs a root launch file for "ad&d - eye of the beholder (u)".'
+[ ] When hard deleting files - you must check after removing all the files (recusively starting at the leafs), if the directory is empty - also delete the directory. go all the way up to the game root directory.
+[ ] if during hard delete dialog is open I switch to another window and get back, the page refreshes, causing the deletion process and going over the games to delete to re-run (even if during delete).
