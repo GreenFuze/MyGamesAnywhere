@@ -86,12 +86,16 @@ public sealed partial class LibraryViewModel : ViewModelBase
         ServerConnectionService server,
         NavigationService       nav,
         ToastService            toast,
-        AppConfigService        config)
+        AppConfigService        config,
+        string?                 initialSearch = null)
     {
         _server = server;
         _nav    = nav;
         _toast  = toast;
         _config = config;
+
+        if (!string.IsNullOrEmpty(initialSearch))
+            SearchText = initialSearch;
 
         _ = LoadAsync();
 
