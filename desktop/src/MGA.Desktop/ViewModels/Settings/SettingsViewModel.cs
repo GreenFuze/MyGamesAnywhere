@@ -13,14 +13,15 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private int _selectedTabIndex;
 
     // One ViewModel per tab — constructed eagerly so tabs are ready immediately.
-    public IntegrationsTabViewModel  Integrations  { get; }
-    public UpdateTabViewModel        Update        { get; }
-    public ProfilesTabViewModel      Profiles      { get; }
-    public PluginsTabViewModel       Plugins       { get; }
-    public CacheTabViewModel         Cache         { get; }
-    public DuplicatesTabViewModel    Duplicates    { get; }
-    public AppearanceTabViewModel    Appearance    { get; }
+    public IntegrationsTabViewModel    Integrations    { get; }
+    public UpdateTabViewModel          Update          { get; }
+    public ProfilesTabViewModel        Profiles        { get; }
+    public PluginsTabViewModel         Plugins         { get; }
+    public CacheTabViewModel           Cache           { get; }
+    public DuplicatesTabViewModel      Duplicates      { get; }
+    public AppearanceTabViewModel      Appearance      { get; }
     public UndetectedGamesTabViewModel UndetectedGames { get; }
+    public EmulatorsTabViewModel       Emulators       { get; }
 
     public SettingsViewModel(
         ServerConnectionService server,
@@ -36,6 +37,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Duplicates      = new DuplicatesTabViewModel(server, toast);
         Appearance      = new AppearanceTabViewModel(theme, config, server, toast);
         UndetectedGames = new UndetectedGamesTabViewModel(server, toast);
+        Emulators       = new EmulatorsTabViewModel(config, toast);
     }
 
     public override void Dispose()
@@ -49,6 +51,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Duplicates.Dispose();
         Appearance.Dispose();
         UndetectedGames.Dispose();
+        Emulators.Dispose();
         base.Dispose();
     }
 }

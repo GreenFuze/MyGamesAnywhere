@@ -701,14 +701,379 @@
         </Border>
       </TabItem>
 
-      <!-- Undetected -->
+      <!-- Undetected Games -->
       <TabItem Header="Undetected">
-        <Border Padding="0,20,0,0">
-          <StackPanel Spacing="8">
-            <TextBlock Text="Undetected Games" Classes="subheading"/>
-            <TextBlock Text="Manually add games that weren't auto-detected." Classes="muted"/>
-            <TextBlock Text="Full implementation coming soon." Classes="muted"/>
-          </StackPanel>
+        <Border Padding="0,20,0,0"
+                DataContext="{Binding UndetectedGames}"
+                x:DataType="settingsVm:UndetectedGamesTabViewModel">
+          <DockPanel>
+
+            <!-- ── Header row ── -->
+            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,12">
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="Undetected Games" Classes="subheading"/>
+                <Button Classes="ghost"
+                        Content="↻ Reload"
+                        Command="{Binding ReloadCommand}"
+                        VerticalAlignment="Center"/>
+              </StackPanel>
+              <TextBlock Text="Review game files that could not be auto-identified. Classify, search, or delete."
+                         Classes="muted"/>
+            </StackPanel>
+
+            <!-- ── Action bar ── -->
+            <StackPanel DockPanel.Dock="Top"
+                        Orientation="Horizontal"
+                        Spacing="8"
+                        Margin="0,0,0,12">
+              <Button Classes="ghost"
+                      Content="Active"
+                      Command="{Binding ToggleScopeCommand}"
+                      IsVisible="{Binding ShowArchive}"/>
+              <Button Classes="ghost"
+                      Content="Archive"
+                      Command="{Binding ToggleScopeCommand}"
+                      IsVisible="{Binding !ShowArchive}"/>
+              <Button Classes="ghost"
+                      Content="⊳ Re-detect All"
+                      Command="{Binding RedetectAllCommand}"
+                      IsEnabled="{Binding !IsRedetecting}"/>
+              <Border HorizontalAlignment="Left" IsVisible="{Binding IsRedetecting}" VerticalAlignment="Center">
+                <controls:LoadingSpinner Width="20" Height="20"/>
+              </Border>
+            </StackPanel>
+
+            <!-- ── Status message ── -->
+            <Border DockPanel.Dock="Top"
+                    Classes="card"
+                    Margin="0,0,0,8"
+                    IsVisible="{Binding HasStatusMessage}">
+              <TextBlock Text="{Binding StatusMessage}" Classes="muted" TextWrapping="Wrap"/>
+            </Border>
+
+            <!-- ── Loading spinner ── -->
+            <Border DockPanel.Dock="Top"
+                    HorizontalAlignment="Left"
+                    Margin="0,8,0,8"
+                    IsVisible="{Binding IsLoading}">
+              <controls:LoadingSpinner Width="32" Height="32"/>
+            </Border>
+
+            <!-- ── Two-column layout: list + detail panel ── -->
+            <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsLoading}">
+
+              <!-- Left: candidate list -->
+              <ScrollViewer Grid.Column="0" Margin="0,0,12,0">
+                <ItemsControl ItemsSource="{Binding Candidates}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="settingsVm:ReviewCandidateRowViewModel">
+                      <Border Classes="card"
+                              Margin="0,0,0,6"
+                              MaxWidth="480"
+                              HorizontalAlignment="Left">
+                        <Grid ColumnDefinitions="*,Auto">
+
+                          <!-- Candidate info -->
+                          <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="{Binding Title}"
+                                       FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                              <TextBlock Text="{Binding Platform}" Classes="muted"
+                                         FontSize="{DynamicResource MgaFontSizeXs}"/>
+                              <TextBlock Text="{Binding Kind}" Classes="muted"
+                                         FontSize="{DynamicResource MgaFontSizeXs}"/>
+                              <TextBlock Text="{Binding IntegrationLabel}" Classes="muted"
+                                         FontSize="{DynamicResource MgaFontSizeXs}"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                              <TextBlock Classes="muted" FontSize="{DynamicResource MgaFontSizeXs}">
+                                <Run Text="{Binding FileCount}"/>
+                                <Run Text=" file(s)"/>
+                              </TextBlock>
+                              <TextBlock Classes="muted" FontSize="{DynamicResource MgaFontSizeXs}"
+                                         IsVisible="{Binding HasResolverMatches}">
+                                <Run Text="{Binding ResolverMatches}"/>
+                                <Run Text=" match(es)"/>
+                              </TextBlock>
+                              <TextBlock Text="{Binding ReasonsText}" Classes="muted"
+                                         FontSize="{DynamicResource MgaFontSizeXs}"
+                                         TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                          </StackPanel>
+
+                          <!-- Select button -->
+                          <Button Grid.Column="1"
+                                  Classes="ghost"
+                                  Content="Review →"
+                                  VerticalAlignment="Center"
+                                  Margin="8,0,0,0"
+                                  Command="{Binding $parent[ItemsControl].((settingsVm:UndetectedGamesTabViewModel)DataContext).SelectCandidateCommand}"
+                                  CommandParameter="{Binding}"/>
+
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+
+              <!-- Right: detail / action panel (shown when candidate selected) -->
+              <Border Grid.Column="1"
+                      Width="320"
+                      Classes="card"
+                      VerticalAlignment="Top"
+                      IsVisible="{Binding SelectedCandidate, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <StackPanel Spacing="12">
+
+                  <!-- Title -->
+                  <TextBlock Text="{Binding SelectedCandidate.Title}"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                             TextWrapping="Wrap"/>
+                  <TextBlock Text="{Binding SelectedCandidate.ReasonsText}"
+                             Classes="muted"
+                             FontSize="{DynamicResource MgaFontSizeXs}"
+                             TextWrapping="Wrap"/>
+
+                  <!-- Classification actions -->
+                  <StackPanel Spacing="6">
+                    <TextBlock Text="Classify" Classes="muted"
+                               FontSize="{DynamicResource MgaFontSizeXs}"
+                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Button Classes="ghost"
+                              Content="Not a Game"
+                              Command="{Binding MarkNotGameCommand}"
+                              CommandParameter="{Binding SelectedCandidate}"/>
+                      <Button Classes="ghost"
+                              Content="DLC / Add-on"
+                              Command="{Binding MarkDlcCommand}"
+                              CommandParameter="{Binding SelectedCandidate}"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Button Classes="ghost"
+                              Content="↺ Re-detect"
+                              Command="{Binding RedetectOneCommand}"
+                              CommandParameter="{Binding SelectedCandidate}"/>
+                      <Button Classes="ghost"
+                              Content="Restore"
+                              IsVisible="{Binding SelectedCandidate.IsArchived}"
+                              Command="{Binding UnarchiveCommand}"
+                              CommandParameter="{Binding SelectedCandidate}"/>
+                      <Button Classes="danger"
+                              Content="Delete Files"
+                              Command="{Binding DeleteFilesCommand}"
+                              CommandParameter="{Binding SelectedCandidate}"/>
+                    </StackPanel>
+                  </StackPanel>
+
+                  <!-- Metadata search -->
+                  <StackPanel Spacing="6">
+                    <TextBlock Text="Find Metadata" Classes="muted"
+                               FontSize="{DynamicResource MgaFontSizeXs}"
+                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                    <TextBox Classes="mga"
+                             PlaceholderText="Search query…"
+                             Text="{Binding SearchQuery}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Button Classes="primary"
+                              Content="Search"
+                              Command="{Binding SearchCommand}"
+                              IsEnabled="{Binding !IsSearching}"/>
+                      <Border IsVisible="{Binding IsSearching}" VerticalAlignment="Center">
+                        <controls:LoadingSpinner Width="20" Height="20"/>
+                      </Border>
+                    </StackPanel>
+                  </StackPanel>
+
+                  <!-- Search results -->
+                  <ScrollViewer MaxHeight="300"
+                                IsVisible="{Binding SearchResults.Count, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <ItemsControl ItemsSource="{Binding SearchResults}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="settingsVm:ReviewSearchResultRowViewModel">
+                          <Border Classes="card"
+                                  Margin="0,0,0,4"
+                                  Padding="8">
+                            <Grid ColumnDefinitions="*,Auto">
+                              <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock Text="{Binding Title}"
+                                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                  <TextBlock Text="{Binding ProviderLabel}" Classes="muted"
+                                             FontSize="{DynamicResource MgaFontSizeXs}"/>
+                                  <TextBlock Text="{Binding Platform}" Classes="muted"
+                                             FontSize="{DynamicResource MgaFontSizeXs}"/>
+                                </StackPanel>
+                              </StackPanel>
+                              <Button Grid.Column="1"
+                                      Classes="primary"
+                                      Content="Apply"
+                                      VerticalAlignment="Center"
+                                      Margin="6,0,0,0"
+                                      IsEnabled="{Binding $parent[ItemsControl].((settingsVm:UndetectedGamesTabViewModel)DataContext).IsApplying, Converter={x:Static BoolConverters.Not}}"
+                                      Command="{Binding $parent[ItemsControl].((settingsVm:UndetectedGamesTabViewModel)DataContext).ApplyMatchCommand}"
+                                      CommandParameter="{Binding}"/>
+                            </Grid>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+
+                </StackPanel>
+              </Border>
+
+            </Grid>
+
+          </DockPanel>
+        </Border>
+      </TabItem>
+
+      <!-- Emulators -->
+      <TabItem Header="Emulators">
+        <Border Padding="0,20,0,0"
+                DataContext="{Binding Emulators}"
+                x:DataType="settingsVm:EmulatorsTabViewModel">
+          <DockPanel>
+
+            <!-- ── Header ── -->
+            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,12">
+              <TextBlock Text="Emulators" Classes="subheading"/>
+              <TextBlock Text="Configure local emulator executables for running ROM-based games."
+                         Classes="muted"/>
+            </StackPanel>
+
+            <!-- ── Action bar ── -->
+            <StackPanel DockPanel.Dock="Top"
+                        Orientation="Horizontal"
+                        Spacing="8"
+                        Margin="0,0,0,12"
+                        IsVisible="{Binding !IsEditing}">
+              <Button Classes="primary"
+                      Content="+ Add Emulator"
+                      Command="{Binding AddEmulatorCommand}"/>
+            </StackPanel>
+
+            <!-- ── Edit panel ── -->
+            <Border DockPanel.Dock="Top"
+                    Classes="card"
+                    Margin="0,0,0,12"
+                    MaxWidth="520"
+                    HorizontalAlignment="Left"
+                    IsVisible="{Binding IsEditing}">
+              <StackPanel Spacing="12">
+
+                <TextBlock Text="Add Emulator"
+                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                           IsVisible="{Binding EditingId, Converter={x:Static ObjectConverters.IsNull}}"/>
+                <TextBlock Text="Edit Emulator"
+                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                           IsVisible="{Binding EditingId, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+                <StackPanel Spacing="4">
+                  <TextBlock Text="Name *" Classes="muted"/>
+                  <TextBox Classes="mga"
+                           PlaceholderText="e.g. RetroArch"
+                           Text="{Binding EditName}"
+                           MaxWidth="400"
+                           HorizontalAlignment="Left"/>
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                  <TextBlock Text="Executable Path *" Classes="muted"/>
+                  <TextBox Classes="mga"
+                           PlaceholderText="C:\RetroArch\retroarch.exe"
+                           Text="{Binding EditExecutablePath}"
+                           MaxWidth="400"
+                           HorizontalAlignment="Left"/>
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                  <TextBlock Text="Platforms (comma-separated)" Classes="muted"/>
+                  <TextBox Classes="mga"
+                           PlaceholderText="nes,snes,gba"
+                           Text="{Binding EditPlatforms}"
+                           MaxWidth="400"
+                           HorizontalAlignment="Left"/>
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                  <TextBlock Text="Arguments Template" Classes="muted"/>
+                  <TextBox Classes="mga"
+                           PlaceholderText="{}{rom}"
+                           Text="{Binding EditArgsTemplate}"
+                           MaxWidth="400"
+                           HorizontalAlignment="Left"/>
+                  <TextBlock Text="Use {{rom}} as a placeholder for the ROM file path."
+                             Classes="muted"
+                             FontSize="{DynamicResource MgaFontSizeXs}"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Classes="primary"
+                          Content="Save"
+                          Command="{Binding SaveEmulatorCommand}"/>
+                  <Button Classes="ghost"
+                          Content="Cancel"
+                          Command="{Binding CancelEditCommand}"/>
+                </StackPanel>
+
+              </StackPanel>
+            </Border>
+
+            <!-- ── Emulator list ── -->
+            <ScrollViewer>
+              <ItemsControl ItemsSource="{Binding Emulators}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="settingsVm:EmulatorRowViewModel">
+                    <Border Classes="card"
+                            Margin="0,0,0,8"
+                            MaxWidth="560"
+                            HorizontalAlignment="Left">
+                      <Grid ColumnDefinitions="*,Auto">
+
+                        <!-- Emulator info -->
+                        <StackPanel Grid.Column="0" Spacing="4">
+                          <TextBlock Text="{Binding Name}"
+                                     FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                          <TextBlock Text="{Binding ExecutablePath}"
+                                     Classes="muted"
+                                     FontSize="{DynamicResource MgaFontSizeXs}"
+                                     TextTrimming="CharacterEllipsis"/>
+                          <TextBlock Classes="muted" FontSize="{DynamicResource MgaFontSizeXs}"
+                                     IsVisible="{Binding Platforms,
+                                                 Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                            <Run Text="Platforms: "/>
+                            <Run Text="{Binding Platforms}"/>
+                          </TextBlock>
+                        </StackPanel>
+
+                        <!-- Row action buttons -->
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    Spacing="6"
+                                    VerticalAlignment="Center"
+                                    Margin="12,0,0,0">
+                          <Button Classes="ghost"
+                                  Content="Edit"
+                                  Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).EditEmulatorCommand}"
+                                  CommandParameter="{Binding}"/>
+                          <Button Classes="danger"
+                                  Content="✕ Delete"
+                                  Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).DeleteEmulatorCommand}"
+                                  CommandParameter="{Binding}"/>
+                        </StackPanel>
+
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+
+          </DockPanel>
         </Border>
       </TabItem>
 

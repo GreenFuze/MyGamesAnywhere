@@ -415,4 +415,105 @@ public sealed class MgaApiService
         var baseAddress = _http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
         return baseAddress + relativeUrl;
     }
+
+    // ---------------------------------------------------------------------------
+    // Manual Review / Undetected Games
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Lists manual-review candidates from GET /api/review-candidates.</summary>
+    public Task<List<ReviewCandidateSummary>> ListReviewCandidatesAsync(
+        string scope = "active", int? limit = null, CancellationToken ct = default)
+    {
+        var url = $"/api/review-candidates?scope={Uri.EscapeDataString(scope)}";
+        if (limit.HasValue) url += $"&limit={limit.Value}";
+        return GetAsync<List<ReviewCandidateSummary>>(url, ct);
+    }
+
+    /// <summary>Returns full detail for one review candidate from GET /api/review-candidates/{id}.</summary>
+    public Task<ReviewCandidateDetail> GetReviewCandidateAsync(string id, CancellationToken ct = default)
+        => GetAsync<ReviewCandidateDetail>($"/api/review-candidates/{Uri.EscapeDataString(id)}", ct);
+
+    /// <summary>Batch re-detects all pending candidates via POST /api/review-candidates/redetect.</summary>
+    public Task<ReviewRedetectBatchResult> RedetectAllCandidatesAsync(CancellationToken ct = default)
+        => PostAsync<ReviewRedetectBatchResult>("/api/review-candidates/redetect", ct);
+
+    /// <summary>Re-detects one candidate via POST /api/review-candidates/{id}/redetect.</summary>
+    public Task<ReviewRedetectResponse> RedetectCandidateAsync(string id, CancellationToken ct = default)
+        => PostAsync<ReviewRedetectResponse>($"/api/review-candidates/{Uri.EscapeDataString(id)}/redetect", ct);
+
+    /// <summary>Searches metadata providers for a candidate via POST /api/review-candidates/{id}/search.</summary>
+    public async Task<ReviewSearchResponse> SearchCandidateAsync(
+        string id, string? query = null, CancellationToken ct = default)
+    {
+        var body = query is not null ? new { query } : (object)new { };
+        var resp = await _http.PostAsJsonAsync(
+            $"/api/review-candidates/{Uri.EscapeDataString(id)}/search", body, JsonOptions, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var result = await resp.Content.ReadFromJsonAsync<ReviewSearchResponse>(JsonOptions, ct).ConfigureAwait(false);
+        return result ?? throw new MgaApiException(200, "Server returned null search response");
+    }
+
+    /// <summary>Applies a search result to a candidate via POST /api/review-candidates/{id}/apply.</summary>
+    public async Task<ReviewCandidateDetail> ApplyCandidateMatchAsync(
+        string id, ReviewSearchResultDto result, CancellationToken ct = default)
+    {
+        var body = new
+        {
+            provider_integration_id = result.ProviderIntegrationId,
+            provider_plugin_id      = result.ProviderPluginId,
+            external_id             = result.ExternalId,
+            title                   = result.Title,
+        };
+        var resp = await _http.PostAsJsonAsync(
+            $"/api/review-candidates/{Uri.EscapeDataString(id)}/apply", body, JsonOptions, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var detail = await resp.Content.ReadFromJsonAsync<ReviewCandidateDetail>(JsonOptions, ct).ConfigureAwait(false);
+        return detail ?? throw new MgaApiException(200, "Server returned null candidate detail");
+    }
+
+    /// <summary>Archives a candidate as "not a game" via POST /api/review-candidates/{id}/not-a-game.</summary>
+    public Task<ReviewCandidateDetail> MarkCandidateNotGameAsync(string id, CancellationToken ct = default)
+        => PostAsync<ReviewCandidateDetail>($"/api/review-candidates/{Uri.EscapeDataString(id)}/not-a-game", ct);
+
+    /// <summary>Archives a candidate as DLC via POST /api/review-candidates/{id}/dlc.</summary>
+    public Task<ReviewCandidateDetail> MarkCandidateDlcAsync(string id, CancellationToken ct = default)
+        => PostAsync<ReviewCandidateDetail>($"/api/review-candidates/{Uri.EscapeDataString(id)}/dlc", ct);
+
+    /// <summary>Unarchives a candidate to active queue via POST /api/review-candidates/{id}/unarchive.</summary>
+    public Task<ReviewCandidateDetail> UnarchiveCandidateAsync(string id, CancellationToken ct = default)
+        => PostAsync<ReviewCandidateDetail>($"/api/review-candidates/{Uri.EscapeDataString(id)}/unarchive", ct);
+
+    /// <summary>Deletes a candidate's backing files via DELETE /api/review-candidates/{id}/files.</summary>
+    public async Task<ReviewDeleteFilesResponse> DeleteCandidateFilesAsync(string id, CancellationToken ct = default)
+    {
+        var resp = await _http.DeleteAsync(
+            $"/api/review-candidates/{Uri.EscapeDataString(id)}/files", ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var result = await resp.Content.ReadFromJsonAsync<ReviewDeleteFilesResponse>(JsonOptions, ct).ConfigureAwait(false);
+        return result ?? throw new MgaApiException(200, "Server returned null delete response");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Integration games
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Returns games linked to a source integration from GET /api/integrations/{id}/games.</summary>
+    public Task<List<GameListItem>> GetIntegrationGamesAsync(string id, CancellationToken ct = default)
+        => GetAsync<List<GameListItem>>($"/api/integrations/{Uri.EscapeDataString(id)}/games", ct);
+
+    // ---------------------------------------------------------------------------
+    // Plugin browse
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Browses a plugin's file system via POST /api/plugins/{plugin_id}/browse.</summary>
+    public async Task<PluginBrowseResponse> BrowsePluginPathAsync(
+        string pluginId, string path, CancellationToken ct = default)
+    {
+        var body = new { path };
+        var resp = await _http.PostAsJsonAsync(
+            $"/api/plugins/{Uri.EscapeDataString(pluginId)}/browse", body, JsonOptions, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var result = await resp.Content.ReadFromJsonAsync<PluginBrowseResponse>(JsonOptions, ct).ConfigureAwait(false);
+        return result ?? throw new MgaApiException(200, "Server returned null browse response");
+    }
 }

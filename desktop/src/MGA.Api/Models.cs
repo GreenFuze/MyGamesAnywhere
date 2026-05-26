@@ -599,3 +599,265 @@ public sealed record UpdateStatus
     [JsonPropertyName("message")]
     public string? Message { get; init; }
 }
+
+// ---------------------------------------------------------------------------
+// Manual Review / Undetected Games
+// ---------------------------------------------------------------------------
+
+/// <summary>Lightweight manual-review candidate for the list view.</summary>
+public record ReviewCandidateSummary
+{
+    [JsonPropertyName("id")]
+    public string Id { get; init; } = string.Empty;
+
+    [JsonPropertyName("canonical_game_id")]
+    public string? CanonicalGameId { get; init; }
+
+    [JsonPropertyName("current_title")]
+    public string CurrentTitle { get; init; } = string.Empty;
+
+    [JsonPropertyName("raw_title")]
+    public string RawTitle { get; init; } = string.Empty;
+
+    [JsonPropertyName("platform")]
+    public string Platform { get; init; } = string.Empty;
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; init; } = string.Empty;
+
+    [JsonPropertyName("integration_id")]
+    public string IntegrationId { get; init; } = string.Empty;
+
+    [JsonPropertyName("integration_label")]
+    public string? IntegrationLabel { get; init; }
+
+    [JsonPropertyName("plugin_id")]
+    public string PluginId { get; init; } = string.Empty;
+
+    [JsonPropertyName("external_id")]
+    public string ExternalId { get; init; } = string.Empty;
+
+    [JsonPropertyName("root_path")]
+    public string? RootPath { get; init; }
+
+    [JsonPropertyName("status")]
+    public string Status { get; init; } = string.Empty;
+
+    [JsonPropertyName("review_state")]
+    public string ReviewState { get; init; } = string.Empty;
+
+    [JsonPropertyName("file_count")]
+    public int FileCount { get; init; }
+
+    [JsonPropertyName("resolver_match_count")]
+    public int ResolverMatchCount { get; init; }
+
+    [JsonPropertyName("review_reasons")]
+    public List<string> ReviewReasons { get; init; } = [];
+
+    [JsonPropertyName("created_at")]
+    public string CreatedAt { get; init; } = string.Empty;
+}
+
+/// <summary>A single file attached to a review candidate.</summary>
+public sealed record GameFileDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; init; } = string.Empty;
+
+    [JsonPropertyName("path")]
+    public string Path { get; init; } = string.Empty;
+
+    [JsonPropertyName("role")]
+    public string Role { get; init; } = string.Empty;
+
+    [JsonPropertyName("file_kind")]
+    public string? FileKind { get; init; }
+
+    [JsonPropertyName("size")]
+    public long Size { get; init; }
+}
+
+/// <summary>A single metadata resolver match for a review candidate.</summary>
+public sealed record ResolverMatchDto
+{
+    [JsonPropertyName("provider")]
+    public string Provider { get; init; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; init; } = string.Empty;
+
+    [JsonPropertyName("platform")]
+    public string Platform { get; init; } = string.Empty;
+
+    [JsonPropertyName("external_id")]
+    public string ExternalId { get; init; } = string.Empty;
+
+    [JsonPropertyName("url")]
+    public string? Url { get; init; }
+
+    [JsonPropertyName("image_url")]
+    public string? ImageUrl { get; init; }
+}
+
+/// <summary>Full review candidate detail including files and resolver matches.</summary>
+public sealed record ReviewCandidateDetail : ReviewCandidateSummary
+{
+    [JsonPropertyName("url")]
+    public string? Url { get; init; }
+
+    [JsonPropertyName("files")]
+    public List<GameFileDto> Files { get; init; } = [];
+
+    [JsonPropertyName("resolver_matches")]
+    public List<ResolverMatchDto> ResolverMatches { get; init; } = [];
+}
+
+/// <summary>A single metadata search result for a review candidate.</summary>
+public sealed record ReviewSearchResultDto
+{
+    [JsonPropertyName("provider_integration_id")]
+    public string ProviderIntegrationId { get; init; } = string.Empty;
+
+    [JsonPropertyName("provider_label")]
+    public string? ProviderLabel { get; init; }
+
+    [JsonPropertyName("provider_plugin_id")]
+    public string ProviderPluginId { get; init; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; init; } = string.Empty;
+
+    [JsonPropertyName("platform")]
+    public string? Platform { get; init; }
+
+    [JsonPropertyName("kind")]
+    public string? Kind { get; init; }
+
+    [JsonPropertyName("external_id")]
+    public string ExternalId { get; init; } = string.Empty;
+
+    [JsonPropertyName("url")]
+    public string? Url { get; init; }
+
+    [JsonPropertyName("description")]
+    public string? Description { get; init; }
+
+    [JsonPropertyName("release_date")]
+    public string? ReleaseDate { get; init; }
+
+    [JsonPropertyName("image_url")]
+    public string? ImageUrl { get; init; }
+}
+
+/// <summary>Response from POST /api/review-candidates/{id}/search.</summary>
+public sealed record ReviewSearchResponse
+{
+    [JsonPropertyName("candidate_id")]
+    public string CandidateId { get; init; } = string.Empty;
+
+    [JsonPropertyName("query")]
+    public string Query { get; init; } = string.Empty;
+
+    [JsonPropertyName("results")]
+    public List<ReviewSearchResultDto> Results { get; init; } = [];
+}
+
+/// <summary>Response from POST /api/review-candidates/{id}/redetect.</summary>
+public sealed record ReviewRedetectResponse
+{
+    [JsonPropertyName("result")]
+    public ReviewRedetectResult Result { get; init; } = new();
+
+    [JsonPropertyName("candidate")]
+    public ReviewCandidateDetail? Candidate { get; init; }
+}
+
+/// <summary>Single result entry within a redetect response.</summary>
+public sealed record ReviewRedetectResult
+{
+    [JsonPropertyName("candidate_id")]
+    public string CandidateId { get; init; } = string.Empty;
+
+    [JsonPropertyName("status")]
+    public string Status { get; init; } = string.Empty;
+
+    [JsonPropertyName("match_count")]
+    public int MatchCount { get; init; }
+
+    [JsonPropertyName("provider_count")]
+    public int ProviderCount { get; init; }
+}
+
+/// <summary>Response from POST /api/review-candidates/redetect (batch).</summary>
+public sealed record ReviewRedetectBatchResult
+{
+    [JsonPropertyName("attempted")]
+    public int Attempted { get; init; }
+
+    [JsonPropertyName("matched")]
+    public int Matched { get; init; }
+
+    [JsonPropertyName("unidentified")]
+    public int Unidentified { get; init; }
+
+    [JsonPropertyName("error")]
+    public string? Error { get; init; }
+}
+
+/// <summary>Response from DELETE /api/review-candidates/{id}/files.</summary>
+public sealed record ReviewDeleteFilesResponse
+{
+    [JsonPropertyName("deleted_candidate_id")]
+    public string DeletedCandidateId { get; init; } = string.Empty;
+
+    [JsonPropertyName("canonical_exists")]
+    public bool CanonicalExists { get; init; }
+}
+
+// ---------------------------------------------------------------------------
+// Integration games
+// ---------------------------------------------------------------------------
+
+/// <summary>Lightweight game reference from GET /api/integrations/{id}/games.</summary>
+public sealed record GameListItem
+{
+    [JsonPropertyName("id")]
+    public string Id { get; init; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; init; } = string.Empty;
+
+    [JsonPropertyName("platform")]
+    public string Platform { get; init; } = string.Empty;
+}
+
+// ---------------------------------------------------------------------------
+// Plugin browse
+// ---------------------------------------------------------------------------
+
+/// <summary>A single entry in a plugin file-browse response.</summary>
+public sealed record BrowseEntry
+{
+    [JsonPropertyName("name")]
+    public string Name { get; init; } = string.Empty;
+
+    [JsonPropertyName("path")]
+    public string Path { get; init; } = string.Empty;
+
+    [JsonPropertyName("is_dir")]
+    public bool IsDir { get; init; }
+
+    [JsonPropertyName("size")]
+    public long Size { get; init; }
+}
+
+/// <summary>Response from POST /api/plugins/{plugin_id}/browse.</summary>
+public sealed record PluginBrowseResponse
+{
+    [JsonPropertyName("path")]
+    public string Path { get; init; } = string.Empty;
+
+    [JsonPropertyName("entries")]
+    public List<BrowseEntry> Entries { get; init; } = [];
+}

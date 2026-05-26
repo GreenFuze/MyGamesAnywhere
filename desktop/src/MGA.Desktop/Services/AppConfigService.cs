@@ -13,12 +13,23 @@ public sealed class ServerProfile
     public string Url { get; set; } = string.Empty;
 }
 
+/// <summary>Persisted emulator entry in config.json.</summary>
+public sealed class EmulatorEntry
+{
+    public string Id             { get; set; } = Guid.NewGuid().ToString();
+    public string Name           { get; set; } = string.Empty;
+    public string ExecutablePath { get; set; } = string.Empty;
+    public string Platforms      { get; set; } = string.Empty;
+    public string ArgsTemplate   { get; set; } = "{rom}";
+}
+
 public sealed class AppConfig
 {
     public List<ServerProfile> Servers { get; set; } = [];
     public string ActiveServer { get; set; } = string.Empty;
     public string ThemeId { get; set; } = "midnight";
     public bool SidebarCollapsed { get; set; } = false;
+    public List<EmulatorEntry> Emulators { get; set; } = [];
 
     [JsonIgnore]
     public bool IsFirstRun => Servers.Count == 0 || string.IsNullOrWhiteSpace(ActiveServer);
@@ -78,6 +89,18 @@ public sealed class AppConfigService
         mutate(_config);
         Persist();
     }
+
+    /// <summary>Returns the list of configured emulators (never null).</summary>
+    public List<EmulatorEntry> GetEmulators() => _config.Emulators;
+
+    /// <summary>Replaces the emulator list and persists config to disk.</summary>
+    public void SetEmulators(List<EmulatorEntry> emulators)
+    {
+        _config.Emulators = emulators;
+    }
+
+    /// <summary>Persists the current in-memory config to disk.</summary>
+    public void Save() => Persist();
 
     // ---------------------------------------------------------------------------
     // Private
