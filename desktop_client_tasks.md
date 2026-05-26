@@ -13,7 +13,7 @@ Checked off as they land. Grouped by area.
 - [ ] **"Install emulator" prompt** — if a game needs an emulator that isn't configured, offer a guided setup or link to download
 - [ ] **RetroAchievements-enabled play mode** — pass RetroAchievements credentials to emulator via command-line args (RAIntegration / retroachievements hardcore mode)
 - [ ] **Recent Played** — record launched games locally; show horizontal shelf on Play page; allow removing entries
-- [ ] **Game Detail: Launch button** — prominent Play button that picks the best launch option; dropdown for multiple sources
+- [x] **Game Detail: Launch button** — "▶ Launch with [Emulator]" (when configured) + "🌐 Open Web Page" in action bar
 
 ---
 
