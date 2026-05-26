@@ -24,7 +24,7 @@ Checked off as they land. Grouped by area.
 - [x] **Timeline view** — games grouped by release year, newest-first
 - [x] **Shelf view** — horizontal shelf rows per configured section (mirrors web "Shelf" mode)
 - [ ] **Bulk select + reclassify** — checkbox multi-select → push queue to Undetected/reclassify workflow
-- [ ] **Bulk hard-delete sources** — select multiple source records → preview files → confirm → DELETE
+- [x] **Bulk hard-delete sources** — select multiple source records → confirm → batch DELETE via /api/games/sources/delete-batch
 - [ ] **Move to source** — for file-backed games: pick a target source + directory (with create-dir support), apply move for multiple games; move entire directory when all files are within it; update database paths; mirrors webclient_tasks item
 - [ ] **Validate files** — Settings > Integrations: "Validate files" for file-backed sources; list games whose files are missing; offer to remove stale records
 - [ ] **Hard-delete: missing files OK** — if game files don't exist on disk, remove the DB record anyway (don't error)

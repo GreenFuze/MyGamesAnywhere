@@ -145,6 +145,16 @@
                 Content="✕ Clear Filters"
                 Command="{Binding ClearFiltersCommand}"/>
 
+        <!-- Bulk-select mode toggle -->
+        <Button Classes="primary"
+                Content="☑ Select"
+                Command="{Binding ToggleBulkSelectModeCommand}"
+                IsVisible="{Binding IsBulkSelectMode}"/>
+        <Button Classes="ghost"
+                Content="☐ Select"
+                Command="{Binding ToggleBulkSelectModeCommand}"
+                IsVisible="{Binding !IsBulkSelectMode}"/>
+
         <!-- Scan trigger -->
         <Button Classes="ghost"
                 Content="↻ Scan Library"
@@ -154,6 +164,32 @@
       </StackPanel>
 
     </StackPanel>
+
+    <!-- ==========================================================================
+         Bulk-action toolbar — visible only when IsBulkSelectMode is active
+         ========================================================================== -->
+    <Border DockPanel.Dock="Top"
+            IsVisible="{Binding IsBulkSelectMode}"
+            Background="{DynamicResource MgaElevatedBrush}"
+            Padding="32,8"
+            Margin="0,0,0,4">
+      <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+        <TextBlock VerticalAlignment="Center" Classes="muted">
+          <Run Text="{Binding SelectedCount}"/>
+          <Run Text=" selected"/>
+        </TextBlock>
+        <Button Classes="ghost"
+                Content="Select All"
+                Command="{Binding SelectAllCommand}"/>
+        <Button Classes="ghost"
+                Content="Clear"
+                Command="{Binding ClearSelectionCommand}"/>
+        <Button Classes="danger"
+                Content="{Binding BulkDeleteLabel}"
+                Command="{Binding BulkHardDeleteCommand}"
+                IsEnabled="{Binding HasSelectedGames}"/>
+      </StackPanel>
+    </Border>
 
     <!-- ==========================================================================
          Loading indicator
@@ -173,11 +209,12 @@
 
         <!-- Column header row -->
         <Border Padding="8,8" Background="{DynamicResource MgaElevatedBrush}">
-          <Grid ColumnDefinitions="*,140,160,60">
-            <TextBlock Grid.Column="0" Text="Title"     Classes="muted" FontWeight="SemiBold"/>
-            <TextBlock Grid.Column="1" Text="Platform"  Classes="muted" FontWeight="SemiBold"/>
-            <TextBlock Grid.Column="2" Text="Developer" Classes="muted" FontWeight="SemiBold"/>
-            <TextBlock Grid.Column="3" Text="Year"      Classes="muted" FontWeight="SemiBold"/>
+          <Grid ColumnDefinitions="Auto,*,140,160,60">
+            <Border Grid.Column="0" Width="32" IsVisible="{Binding IsBulkSelectMode}"/>
+            <TextBlock Grid.Column="1" Text="Title"     Classes="muted" FontWeight="SemiBold"/>
+            <TextBlock Grid.Column="2" Text="Platform"  Classes="muted" FontWeight="SemiBold"/>
+            <TextBlock Grid.Column="3" Text="Developer" Classes="muted" FontWeight="SemiBold"/>
+            <TextBlock Grid.Column="4" Text="Year"      Classes="muted" FontWeight="SemiBold"/>
           </Grid>
         </Border>
 
@@ -190,31 +227,42 @@
           </ItemsControl.ItemsPanel>
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:GameCardModel">
-              <Button Background="Transparent" BorderThickness="0" Padding="0"
-                      HorizontalContentAlignment="Stretch"
-                      Command="{Binding $parent[ItemsControl].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
-                      CommandParameter="{Binding Id}"
-                      Cursor="Hand">
-                <Border Padding="8,10" Background="Transparent">
-                  <Grid ColumnDefinitions="*,140,160,60">
-                    <TextBlock Grid.Column="0" Text="{Binding Title}"
-                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="1" Text="{Binding Platform}"
-                               Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="2" Text="{Binding Developer}"
-                               Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="3"
-                               Classes="muted" VerticalAlignment="Center">
-                      <TextBlock.Text>
-                        <Binding Path="ReleaseYear"
-                                 StringFormat="{}{0}"
-                                 FallbackValue="–"
-                                 TargetNullValue="–"/>
-                      </TextBlock.Text>
-                    </TextBlock>
-                  </Grid>
-                </Border>
-              </Button>
+              <Grid ColumnDefinitions="Auto,*">
+                <!-- Checkbox column (only visible in bulk mode) -->
+                <CheckBox Grid.Column="0"
+                          IsChecked="{Binding IsSelected}"
+                          Width="32"
+                          VerticalAlignment="Center"
+                          IsVisible="{Binding $parent[ItemsControl].((vm:LibraryViewModel)DataContext).IsBulkSelectMode}"/>
+                <!-- Row content — navigates when NOT in bulk mode -->
+                <Button Grid.Column="1"
+                        Background="Transparent" BorderThickness="0" Padding="0"
+                        HorizontalContentAlignment="Stretch"
+                        Command="{Binding $parent[ItemsControl].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
+                        CommandParameter="{Binding Id}"
+                        IsEnabled="{Binding $parent[ItemsControl].((vm:LibraryViewModel)DataContext).IsBulkSelectMode, Converter={x:Static BoolConverters.Not}}"
+                        Cursor="Hand">
+                  <Border Padding="8,10" Background="Transparent">
+                    <Grid ColumnDefinitions="*,140,160,60">
+                      <TextBlock Grid.Column="0" Text="{Binding Title}"
+                                 TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                      <TextBlock Grid.Column="1" Text="{Binding Platform}"
+                                 Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                      <TextBlock Grid.Column="2" Text="{Binding Developer}"
+                                 Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                      <TextBlock Grid.Column="3"
+                                 Classes="muted" VerticalAlignment="Center">
+                        <TextBlock.Text>
+                          <Binding Path="ReleaseYear"
+                                   StringFormat="{}{0}"
+                                   FallbackValue="–"
+                                   TargetNullValue="–"/>
+                        </TextBlock.Text>
+                      </TextBlock>
+                    </Grid>
+                  </Border>
+                </Button>
+              </Grid>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
@@ -398,17 +446,46 @@
         </ac:ItemsRepeater.Layout>
         <ac:ItemsRepeater.ItemTemplate>
           <DataTemplate x:DataType="vm:GameCardModel">
-            <Button Classes="game-card"
-                    Command="{Binding $parent[ac:ItemsRepeater].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
-                    CommandParameter="{Binding Id}"
-                    Width="160" Height="220"
-                    Background="Transparent" BorderThickness="0" Padding="0"
-                    Cursor="Hand">
+            <Grid Width="160" Height="220">
+              <!-- Game card button (navigates when not in bulk mode) -->
+              <Button Classes="game-card"
+                      Command="{Binding $parent[ac:ItemsRepeater].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
+                      CommandParameter="{Binding Id}"
+                      Width="160" Height="220"
+                      Background="Transparent" BorderThickness="0" Padding="0"
+                      Cursor="Hand"
+                      IsVisible="{Binding $parent[ac:ItemsRepeater].((vm:LibraryViewModel)DataContext).IsBulkSelectMode, Converter={x:Static BoolConverters.Not}}">
+                <Border CornerRadius="{DynamicResource MgaRadiusLg}"
+                        Background="{DynamicResource MgaSurfaceBrush}"
+                        ClipToBounds="True">
+                  <Grid>
+                    <Border Background="{DynamicResource MgaElevatedBrush}">
+                      <TextBlock Text="{Binding Title}"
+                                 TextWrapping="Wrap"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Center"
+                                 Margin="8"
+                                 Classes="muted"/>
+                    </Border>
+                    <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
+                                             Stretch="UniformToFill"/>
+                    <Border VerticalAlignment="Bottom"
+                            Background="#CC000000"
+                            Padding="8,6">
+                      <TextBlock Text="{Binding Title}"
+                                 FontSize="12"
+                                 TextTrimming="CharacterEllipsis"
+                                 Foreground="#FFFFFF"/>
+                    </Border>
+                  </Grid>
+                </Border>
+              </Button>
+              <!-- Bulk-select overlay: card + checkbox (visible in bulk mode) -->
               <Border CornerRadius="{DynamicResource MgaRadiusLg}"
                       Background="{DynamicResource MgaSurfaceBrush}"
-                      ClipToBounds="True">
+                      ClipToBounds="True"
+                      IsVisible="{Binding $parent[ac:ItemsRepeater].((vm:LibraryViewModel)DataContext).IsBulkSelectMode}">
                 <Grid>
-                  <!-- Placeholder shown when cover art is absent -->
                   <Border Background="{DynamicResource MgaElevatedBrush}">
                     <TextBlock Text="{Binding Title}"
                                TextWrapping="Wrap"
@@ -417,10 +494,8 @@
                                Margin="8"
                                Classes="muted"/>
                   </Border>
-                  <!-- Cover art -->
                   <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
                                            Stretch="UniformToFill"/>
-                  <!-- Title overlay at bottom -->
                   <Border VerticalAlignment="Bottom"
                           Background="#CC000000"
                           Padding="8,6">
@@ -429,9 +504,17 @@
                                TextTrimming="CharacterEllipsis"
                                Foreground="#FFFFFF"/>
                   </Border>
+                  <!-- Selection tint when checked -->
+                  <Border Background="#553db8ff"
+                          IsVisible="{Binding IsSelected}"/>
+                  <!-- Checkbox in top-left corner -->
+                  <CheckBox IsChecked="{Binding IsSelected}"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Top"
+                            Margin="6"/>
                 </Grid>
               </Border>
-            </Button>
+            </Grid>
           </DataTemplate>
         </ac:ItemsRepeater.ItemTemplate>
       </ac:ItemsRepeater>

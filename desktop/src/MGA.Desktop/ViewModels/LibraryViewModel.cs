@@ -156,6 +156,23 @@ public sealed partial class LibraryViewModel : ViewModelBase
     };
 
     // ---------------------------------------------------------------------------
+    // Bulk-select state
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Whether the library is in multi-select mode (checkboxes visible on cards).</summary>
+    [ObservableProperty]
+    private bool _isBulkSelectMode;
+
+    /// <summary>Number of currently selected games.</summary>
+    public int SelectedCount => FilteredGames.Count(g => g.IsSelected);
+
+    /// <summary>True when at least one game is selected — enables the Delete button.</summary>
+    public bool HasSelectedGames => SelectedCount > 0;
+
+    /// <summary>Label for the Delete button, e.g. "Delete 3 games".</summary>
+    public string BulkDeleteLabel => $"Delete {SelectedCount} game{(SelectedCount == 1 ? "" : "s")}";
+
+    // ---------------------------------------------------------------------------
     // Constructor
     // ---------------------------------------------------------------------------
 
@@ -234,6 +251,16 @@ public sealed partial class LibraryViewModel : ViewModelBase
         OnPropertyChanged(nameof(ViewModeNextLabel));
     }
 
+    partial void OnIsBulkSelectModeChanged(bool value)
+    {
+        // Clear all selections when exiting bulk-select mode.
+        if (!value)
+            foreach (var g in FilteredGames)
+                g.IsSelected = false;
+
+        RefreshBulkCounters();
+    }
+
     partial void OnIsLoadingChanged(bool value)
     {
         OnPropertyChanged(nameof(ShowGridView));
@@ -302,6 +329,86 @@ public sealed partial class LibraryViewModel : ViewModelBase
             IsScanning = false;
             _toast.Error("Scan failed to start", ex.Message);
         }
+    }
+
+    /// <summary>Enters or exits bulk-select mode.</summary>
+    [RelayCommand]
+    private void ToggleBulkSelectMode() => IsBulkSelectMode = !IsBulkSelectMode;
+
+    /// <summary>Selects every visible (filtered) game card.</summary>
+    [RelayCommand]
+    private void SelectAll()
+    {
+        foreach (var g in FilteredGames)
+            g.IsSelected = true;
+        RefreshBulkCounters();
+    }
+
+    /// <summary>Deselects all game cards without leaving bulk-select mode.</summary>
+    [RelayCommand]
+    private void ClearSelection()
+    {
+        foreach (var g in FilteredGames)
+            g.IsSelected = false;
+        RefreshBulkCounters();
+    }
+
+    /// <summary>
+    /// Hard-deletes all source games of every selected canonical game.
+    /// Builds the batch items array from <see cref="GameCardModel.SourceGameIds"/>
+    /// (populated at load time) so no extra API round-trips are needed.
+    /// </summary>
+    [RelayCommand]
+    private async Task BulkHardDeleteAsync()
+    {
+        if (_server.Api is null) return;
+
+        var selected = FilteredGames.Where(g => g.IsSelected).ToList();
+        if (selected.Count == 0) return;
+
+        // Build {canonical_game_id, source_game_id} pairs for every source of each selected game.
+        var items = selected
+            .SelectMany(game => game.SourceGameIds
+                .Select(sid => new MGA.Api.DeleteSourceGameBatchItem
+                {
+                    CanonicalGameId = game.Id,
+                    SourceGameId    = sid,
+                }))
+            .ToList();
+
+        if (items.Count == 0)
+        {
+            _toast.Info("Nothing to delete", "Selected games have no source records.");
+            return;
+        }
+
+        try
+        {
+            var result = await _server.Api.DeleteSourcesBatchAsync(items).ConfigureAwait(true);
+
+            var deleted = result.DeletedSourceGameIds.Count;
+            _toast.Success("Deleted", $"{deleted} source record{(deleted == 1 ? "" : "s")} removed.");
+
+            // Exit bulk-select mode and refresh the library.
+            IsBulkSelectMode = false;
+            await LoadAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Bulk delete failed", ex.Message);
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Private — bulk-select counter refresh
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Notifies the view that SelectedCount / HasSelectedGames / BulkDeleteLabel changed.</summary>
+    internal void RefreshBulkCounters()
+    {
+        OnPropertyChanged(nameof(SelectedCount));
+        OnPropertyChanged(nameof(HasSelectedGames));
+        OnPropertyChanged(nameof(BulkDeleteLabel));
     }
 
     // ---------------------------------------------------------------------------
@@ -527,5 +634,5 @@ public sealed partial class LibraryViewModel : ViewModelBase
     // Private — DTO mapping
     // ---------------------------------------------------------------------------
 
-    private GameCardModel ToCard(MGA.Api.GameDetail g) => new(g, _server.Api);
+    private GameCardModel ToCard(MGA.Api.GameDetail g) => new(g, _server.Api, RefreshBulkCounters);
 }
