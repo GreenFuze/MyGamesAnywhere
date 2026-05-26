@@ -214,7 +214,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void BeginOnboarding()
     {
         // Create the OnboardingViewModel with a callback to dismiss itself.
-        OnboardingVm        = new OnboardingViewModel(_serverConn, _toast, CompleteOnboarding);
+        OnboardingVm        = new OnboardingViewModel(_serverConn, _config, _toast, CompleteOnboarding);
         IsShowingOnboarding = true;
     }
 

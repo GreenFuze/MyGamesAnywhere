@@ -31,6 +31,12 @@ public sealed class AppConfig
     public bool SidebarCollapsed { get; set; } = false;
     public List<EmulatorEntry> Emulators { get; set; } = [];
 
+    /// <summary>
+    /// Selected gamer profile ID from the First-Run Wizard.
+    /// Empty string means "no profile selected" (server uses default).
+    /// </summary>
+    public string GamerProfileId { get; set; } = string.Empty;
+
     [JsonIgnore]
     public bool IsFirstRun => Servers.Count == 0 || string.IsNullOrWhiteSpace(ActiveServer);
 }

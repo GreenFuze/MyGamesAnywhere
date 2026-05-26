@@ -122,13 +122,13 @@ Checked off as they land. Grouped by area.
 
 ## First-Run Wizard (Onboarding rewrite)
 
-- [ ] **Multi-step wizard** — replace single-URL onboarding screen with a proper wizard:
+- [x] **Multi-step wizard** — replaced single-URL screen with 4-step wizard:
   1. Welcome + app intro
   2. Connect to server (URL input + test connection)
-  3. Select active profile
-  4. Import integrations (optional, from sync)
-  5. Done — open Library
-- [ ] **Skip wizard** — allow jumping straight to main UI if user already has config
+  3. Select active profile (ListBox; auto-advances if 0 or 1 profiles)
+  4. Done — open Library
+  - Step 4 "Import integrations from sync" deferred (no server API for it yet)
+- [x] **Skip wizard** — profile step has "Skip" button; wizard skipped entirely on subsequent launches (IsFirstRun check)
 
 ---
 
