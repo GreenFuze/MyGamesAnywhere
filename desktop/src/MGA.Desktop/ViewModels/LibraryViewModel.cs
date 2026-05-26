@@ -16,6 +16,7 @@ public sealed partial class LibraryViewModel : ViewModelBase
     private readonly ServerConnectionService _server;
     private readonly NavigationService       _nav;
     private readonly ToastService            _toast;
+    private readonly AppConfigService        _config;
 
     // ---------------------------------------------------------------------------
     // Sort options (constant; exposed as instance property for compiled bindings)
@@ -84,11 +85,13 @@ public sealed partial class LibraryViewModel : ViewModelBase
     public LibraryViewModel(
         ServerConnectionService server,
         NavigationService       nav,
-        ToastService            toast)
+        ToastService            toast,
+        AppConfigService        config)
     {
         _server = server;
         _nav    = nav;
         _toast  = toast;
+        _config = config;
 
         _ = LoadAsync();
 
@@ -160,7 +163,7 @@ public sealed partial class LibraryViewModel : ViewModelBase
     [RelayCommand]
     private void OpenGame(string gameId)
     {
-        _nav.NavigateTo(new GameDetailViewModel(gameId, _server, _nav, _toast));
+        _nav.NavigateTo(new GameDetailViewModel(gameId, _server, _nav, _toast, _config));
     }
 
     /// <summary>Triggers a full library scan via POST /api/scan.</summary>

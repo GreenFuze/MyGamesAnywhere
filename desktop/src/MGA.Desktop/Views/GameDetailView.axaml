@@ -95,6 +95,17 @@
                     Spacing="12"
                     Margin="24,16,24,0">
 
+          <!-- Emulator launch button — visible only when emulator is configured -->
+          <Button Classes="primary"
+                  Command="{Binding LaunchWithEmulatorCommand}"
+                  IsVisible="{Binding CanLaunchWithEmulator}"
+                  ToolTip.Tip="{Binding EmulatorName}">
+            <TextBlock>
+              <Run Text="▶ Launch with "/>
+              <Run Text="{Binding EmulatorName}"/>
+            </TextBlock>
+          </Button>
+
           <Button Classes="primary"
                   Command="{Binding PlayInBrowserCommand}"
                   Content="🌐 Open Web Page"/>

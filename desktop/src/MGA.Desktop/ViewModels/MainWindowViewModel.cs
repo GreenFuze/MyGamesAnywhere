@@ -177,8 +177,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     private ViewModelBase? CreatePageViewModel(string pageId) => pageId switch
     {
-        "play"         => new PlayViewModel(_serverConn, _nav, _toast),
-        "library"      => new LibraryViewModel(_serverConn, _nav, _toast),
+        "play"         => new PlayViewModel(_serverConn, _nav, _toast, _config),
+        "library"      => new LibraryViewModel(_serverConn, _nav, _toast, _config),
         "achievements" => new AchievementsViewModel(_serverConn, _toast),
         "stats"        => new StatsViewModel(_serverConn, _toast),
         "settings"     => new SettingsViewModel(_serverConn, _theme, _config, _toast),

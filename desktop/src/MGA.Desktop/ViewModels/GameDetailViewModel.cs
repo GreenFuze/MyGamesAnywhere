@@ -22,6 +22,9 @@ public sealed class SourceGameRowViewModel
     public string Status           { get; init; } = string.Empty;
     public int    FileCount        { get; init; }
     public string FileSummary      { get; init; } = string.Empty;
+
+    /// <summary>Absolute file paths for ROM launch. First entry is the primary ROM.</summary>
+    public List<string> FilePaths  { get; init; } = [];
 }
 
 /// <summary>Display model for one external link.</summary>
@@ -44,6 +47,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     private readonly ServerConnectionService _server;
     private readonly NavigationService       _nav;
     private readonly ToastService            _toast;
+    private readonly AppConfigService        _config;
 
     // ---------------------------------------------------------------------------
     // Identity
@@ -146,6 +150,18 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     private bool _hasRating;
 
     // ---------------------------------------------------------------------------
+    // Emulator launch
+    // ---------------------------------------------------------------------------
+
+    /// <summary>True when an emulator is configured for this game's platform.</summary>
+    [ObservableProperty]
+    private bool _canLaunchWithEmulator;
+
+    /// <summary>Name of the matched emulator (shown in button tooltip).</summary>
+    [ObservableProperty]
+    private string _emulatorName = string.Empty;
+
+    // ---------------------------------------------------------------------------
     // Constructor
     // ---------------------------------------------------------------------------
 
@@ -153,12 +169,14 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         string                  gameId,
         ServerConnectionService server,
         NavigationService       nav,
-        ToastService            toast)
+        ToastService            toast,
+        AppConfigService        config)
     {
         GameId  = gameId;
         _server = server;
         _nav    = nav;
         _toast  = toast;
+        _config = config;
 
         _ = LoadAsync();
     }
@@ -203,7 +221,51 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     [RelayCommand]
     private void GoBack()
     {
-        _nav.NavigateTo(new LibraryViewModel(_server, _nav, _toast));
+        _nav.NavigateTo(new LibraryViewModel(_server, _nav, _toast, _config));
+    }
+
+    /// <summary>Launches the game using the configured emulator for its platform.</summary>
+    [RelayCommand]
+    private void LaunchWithEmulator()
+    {
+        var emulators = _config.GetEmulators();
+        var emulator  = FindEmulatorForPlatform(Platform, emulators);
+
+        if (emulator is null)
+        {
+            _toast.Error("No emulator", $"No emulator configured for platform \"{Platform}\". Add one in Settings → Emulators.");
+            return;
+        }
+
+        // Find the primary ROM file path.
+        var romPath = SourceGames
+            .SelectMany(sg => sg.FilePaths)
+            .FirstOrDefault();
+
+        if (string.IsNullOrEmpty(romPath))
+        {
+            _toast.Error("No files", "This game has no local files available for launch.");
+            return;
+        }
+
+        try
+        {
+            // Build args: replace {rom} with the quoted ROM path.
+            var args = emulator.ArgsTemplate.Replace("{rom}", $"\"{romPath}\"");
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName        = emulator.ExecutablePath,
+                Arguments       = args,
+                UseShellExecute = true,
+            });
+
+            _toast.Success("Launched", $"Started \"{Title}\" with {emulator.Name}.");
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Launch failed", ex.Message);
+        }
     }
 
     /// <summary>Opens an external link in the system browser.</summary>
@@ -213,6 +275,30 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         if (string.IsNullOrEmpty(link.Url)) return;
         System.Diagnostics.Process.Start(
             new System.Diagnostics.ProcessStartInfo(link.Url) { UseShellExecute = true });
+    }
+
+    // ---------------------------------------------------------------------------
+    // Private — emulator helpers
+    // ---------------------------------------------------------------------------
+
+    private void CheckEmulatorAvailability()
+    {
+        var emulators = _config.GetEmulators();
+        var matched   = FindEmulatorForPlatform(Platform, emulators);
+
+        CanLaunchWithEmulator = matched is not null;
+        EmulatorName          = matched?.Name ?? string.Empty;
+    }
+
+    private static EmulatorEntry? FindEmulatorForPlatform(string platform, List<EmulatorEntry> emulators)
+    {
+        if (string.IsNullOrEmpty(platform))
+            return null;
+
+        return emulators.FirstOrDefault(e =>
+            e.Platforms
+             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+             .Any(p => p.Equals(platform, StringComparison.OrdinalIgnoreCase)));
     }
 
     // ---------------------------------------------------------------------------
@@ -232,8 +318,8 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             var game = await _server.Api.GetGameAsync(GameId).ConfigureAwait(true);
 
             // Populate scalar metadata.
-            Title       = game.Title;
-            Platform    = game.Platform;
+            Title    = game.Title;
+            Platform = game.Platform;
             Description = game.Description;
             ReleaseDate = game.ReleaseDate;
             Developer   = game.Developer;
@@ -271,6 +357,9 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             // Set rating visibility flag.
             HasRating = Rating > 0;
 
+            // Check whether a configured emulator matches this game's platform.
+            CheckEmulatorAvailability();
+
             // Achievement summary.
             if (game.AchievementSummary is not null)
             {
@@ -292,6 +381,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
                     FileSummary      = sg.RootPath is not null
                         ? $"{sg.Files.Count} file(s) in {sg.RootPath}"
                         : $"{sg.Files.Count} file(s)",
+                    FilePaths        = sg.Files.Select(f => f.Path).ToList(),
                 }));
             HasSourceGames = SourceGames.Count > 0;
 

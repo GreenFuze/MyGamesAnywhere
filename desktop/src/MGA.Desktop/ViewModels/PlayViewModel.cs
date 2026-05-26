@@ -16,6 +16,7 @@ public sealed partial class PlayViewModel : ViewModelBase
     private readonly ServerConnectionService _server;
     private readonly NavigationService       _nav;
     private readonly ToastService            _toast;
+    private readonly AppConfigService        _config;
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -41,11 +42,13 @@ public sealed partial class PlayViewModel : ViewModelBase
     public PlayViewModel(
         ServerConnectionService server,
         NavigationService       nav,
-        ToastService            toast)
+        ToastService            toast,
+        AppConfigService        config)
     {
         _server = server;
         _nav    = nav;
         _toast  = toast;
+        _config = config;
 
         // Start loading immediately — fire-and-forget with error handling inside.
         _ = LoadAsync();
@@ -80,7 +83,7 @@ public sealed partial class PlayViewModel : ViewModelBase
     [RelayCommand]
     private void OpenGame(string gameId)
     {
-        _nav.NavigateTo(new GameDetailViewModel(gameId, _server, _nav, _toast));
+        _nav.NavigateTo(new GameDetailViewModel(gameId, _server, _nav, _toast, _config));
     }
 
     // ---------------------------------------------------------------------------
