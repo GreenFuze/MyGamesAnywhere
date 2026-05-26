@@ -471,6 +471,67 @@ public sealed class MgaApiService
         => PostAsync<UpdateStatus>("/api/update/check", ct);
 
     // ---------------------------------------------------------------------------
+    // Batch source-game delete
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Hard-deletes multiple source-game records in one request via
+    /// POST /api/games/sources/delete-batch.
+    /// Each item must carry both the canonical-game ID and the source-game ID.
+    /// </summary>
+    public async Task<DeleteSourceGamesBatchResponse> DeleteSourcesBatchAsync(
+        IEnumerable<DeleteSourceGameBatchItem> items,
+        CancellationToken ct = default)
+    {
+        var body = new { items };
+        var resp = await _http.PostAsJsonAsync(
+            "/api/games/sources/delete-batch", body, JsonOptions, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var result = await resp.Content
+            .ReadFromJsonAsync<DeleteSourceGamesBatchResponse>(JsonOptions, ct).ConfigureAwait(false);
+        return result ?? throw new MgaApiException(200, "Server returned null for delete-batch");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Media overrides (cover / background / hover)
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Sets the cover-art override for a game via PUT /api/games/{id}/cover-override.</summary>
+    public async Task SetCoverOverrideAsync(string gameId, int assetId, CancellationToken ct = default)
+    {
+        var body = new { asset_id = assetId };
+        var resp = await _http.PutAsJsonAsync(
+            $"/api/games/{Uri.EscapeDataString(gameId)}/cover-override", body, JsonOptions, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Removes the cover-art override via DELETE /api/games/{id}/cover-override.</summary>
+    public async Task DeleteCoverOverrideAsync(string gameId, CancellationToken ct = default)
+    {
+        var resp = await _http.DeleteAsync(
+            $"/api/games/{Uri.EscapeDataString(gameId)}/cover-override", ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Sets the background-art override via PUT /api/games/{id}/background-override.</summary>
+    public async Task SetBackgroundOverrideAsync(string gameId, int assetId, CancellationToken ct = default)
+    {
+        var body = new { asset_id = assetId };
+        var resp = await _http.PutAsJsonAsync(
+            $"/api/games/{Uri.EscapeDataString(gameId)}/background-override", body, JsonOptions, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Sets the hover-image override via PUT /api/games/{id}/hover-override.</summary>
+    public async Task SetHoverOverrideAsync(string gameId, int assetId, CancellationToken ct = default)
+    {
+        var body = new { asset_id = assetId };
+        var resp = await _http.PutAsJsonAsync(
+            $"/api/games/{Uri.EscapeDataString(gameId)}/hover-override", body, JsonOptions, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+    }
+
+    // ---------------------------------------------------------------------------
     // Internal helpers (extended)
     // ---------------------------------------------------------------------------
 

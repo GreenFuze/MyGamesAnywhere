@@ -58,7 +58,7 @@ Checked off as they land. Grouped by area.
 
 ## Stats
 
-- [ ] **Source/integration breakdown bar chart** — "By Source" ranked bars
+- [x] **Source/integration breakdown bar chart** — "By Source" ranked bars
 - [x] **Kinds breakdown bar chart** — game, dlc, demo, etc. (added in Phase 18)
 - [x] **Coverage panel** — metadata coverage tiles (cover art %, description %, genres %) from `LibraryStatistics.coverage`
 - [x] **Scan history** — recent scan reports list (started_at, duration, games added/removed/updated)
@@ -69,14 +69,14 @@ Checked off as they land. Grouped by area.
 ## Settings
 
 ### Integrations tab
-- [ ] **Add integration wizard** — select plugin → fill config fields dynamically
-- [ ] **Edit integration** — edit name + config fields
-- [ ] **Delete integration** — confirm → `DELETE /api/integrations/{id}`
-- [ ] **OAuth flow** — open browser → poll for callback → show result (`POST /api/integrations/{id}/auth`)
-- [ ] **Scan trigger** — per-integration + global Scan button; live SSE scan progress bar with cancel
-- [ ] **Scan job progress** — current/total, per-integration status, events log via SSE
-- [ ] **Cancel scan** — `POST /api/scan/{jobId}/cancel`
-- [ ] **Integration config fields** — dynamic form for plugin-defined schema (text, password, folder-picker, bool, enum)
+- [x] **Add integration wizard** — select plugin → fill config fields dynamically
+- [x] **Edit integration** — edit name + config fields
+- [x] **Delete integration** — confirm → `DELETE /api/integrations/{id}`
+- [x] **OAuth flow** — open browser → poll for callback → show result (`POST /api/integrations/{id}/auth`)
+- [x] **Scan trigger** — per-integration + global Scan button; live SSE scan progress bar with cancel
+- [x] **Scan job progress** — current/total, per-integration status, events log via SSE
+- [x] **Cancel scan** — `POST /api/scan/{jobId}/cancel`
+- [x] **Integration config fields** — dynamic form for plugin-defined schema (text, password, folder-picker, bool, enum)
 - [x] **Folder browser dialog** — server-side folder tree for `_path` config fields via `POST /api/plugins/{id}/browse`; inline panel with Up navigation + Select
 - [x] **Per-integration games list** — expandable panel per row, lazy-loaded via `GET /api/integrations/{id}/games`
 - [ ] **Import integrations from sync settings** — pull integration configs from a sync_settings source and apply locally

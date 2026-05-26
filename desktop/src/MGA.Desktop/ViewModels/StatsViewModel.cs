@@ -159,6 +159,13 @@ public sealed partial class StatsViewModel : ViewModelBase
     [ObservableProperty]
     private bool _hasCoverage;
 
+    /// <summary>Game count per integration/source, for the "By Source" bar chart.</summary>
+    [ObservableProperty]
+    private ObservableCollection<CountStatModel> _integrationBreakdown = [];
+
+    [ObservableProperty]
+    private bool _hasIntegrationBreakdown;
+
     // ---------------------------------------------------------------------------
     // Gamer tab
     // ---------------------------------------------------------------------------
@@ -215,15 +222,17 @@ public sealed partial class StatsViewModel : ViewModelBase
 
         try
         {
-            var libraryTask = _server.Api.GetLibraryStatisticsAsync();
-            var gamerTask   = _server.Api.GetGamerStatisticsAsync();
-            var reportsTask = _server.Api.ListScanReportsAsync(limit: 10);
+            var libraryTask    = _server.Api.GetLibraryStatisticsAsync();
+            var gamerTask      = _server.Api.GetGamerStatisticsAsync();
+            var reportsTask    = _server.Api.ListScanReportsAsync(limit: 10);
+            var simpleStatsTask = _server.Api.GetLibraryStatsAsync();
 
-            await Task.WhenAll(libraryTask, gamerTask, reportsTask).ConfigureAwait(true);
+            await Task.WhenAll(libraryTask, gamerTask, reportsTask, simpleStatsTask).ConfigureAwait(true);
 
-            var library = await libraryTask;
-            var gamer   = await gamerTask;
-            var reports = await reportsTask;
+            var library     = await libraryTask;
+            var gamer       = await gamerTask;
+            var reports     = await reportsTask;
+            var simpleStats = await simpleStatsTask;
 
             // Populate totals used by both tabs.
             TotalGames           = library.Summary.CanonicalGameCount;
@@ -262,6 +271,18 @@ public sealed partial class StatsViewModel : ViewModelBase
             ScanReports    = new ObservableCollection<ScanReportRowViewModel>(
                 reports.Select(r => new ScanReportRowViewModel(r)));
             HasScanReports = ScanReports.Count > 0;
+
+            // Integration / "By Source" breakdown from the simple stats endpoint.
+            if (simpleStats.ByIntegration.Count > 0)
+            {
+                int intMax = simpleStats.ByIntegration.Values.Max();
+                IntegrationBreakdown = new ObservableCollection<CountStatModel>(
+                    simpleStats.ByIntegration
+                        .OrderByDescending(kv => kv.Value)
+                        .Select(kv => new CountStatModel(
+                            new CountStat { Label = kv.Key, Count = kv.Value }, intMax)));
+            }
+            HasIntegrationBreakdown = IntegrationBreakdown.Count > 0;
         }
         catch (Exception ex)
         {

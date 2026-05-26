@@ -215,6 +215,33 @@ public sealed record DeleteSourceGameResponse
     public List<string> Warnings { get; init; } = [];
 }
 
+// ---------------------------------------------------------------------------
+// Batch source-game delete models
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// One item in a batch hard-delete request: identifies a source record
+/// by both the canonical game ID and the source-game ID.
+/// </summary>
+public sealed record DeleteSourceGameBatchItem
+{
+    [JsonPropertyName("canonical_game_id")]
+    public string CanonicalGameId { get; init; } = string.Empty;
+
+    [JsonPropertyName("source_game_id")]
+    public string SourceGameId { get; init; } = string.Empty;
+}
+
+/// <summary>Response from POST /api/games/sources/delete-batch.</summary>
+public sealed record DeleteSourceGamesBatchResponse
+{
+    [JsonPropertyName("deleted_source_game_ids")]
+    public List<string> DeletedSourceGameIds { get; init; } = [];
+
+    [JsonPropertyName("warnings")]
+    public List<string> Warnings { get; init; } = [];
+}
+
 /// <summary>
 /// Response for canonical-grouping operations: split, merge, clear-pin.
 /// </summary>
@@ -296,6 +323,18 @@ public sealed record LibraryStats
 
     [JsonPropertyName("by_platform")]
     public Dictionary<string, int> ByPlatform { get; init; } = [];
+
+    /// <summary>Game count keyed by integration label (source breakdown).</summary>
+    [JsonPropertyName("by_integration")]
+    public Dictionary<string, int> ByIntegration { get; init; } = [];
+
+    /// <summary>Game count keyed by game kind (game / dlc / demo / etc.).</summary>
+    [JsonPropertyName("by_kind")]
+    public Dictionary<string, int> ByKind { get; init; } = [];
+
+    /// <summary>Game count keyed by plugin ID.</summary>
+    [JsonPropertyName("by_plugin")]
+    public Dictionary<string, int> ByPlugin { get; init; } = [];
 }
 
 // ---------------------------------------------------------------------------
