@@ -1,0 +1,138 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MGA.Desktop.ViewModels"
+             xmlns:controls="using:MGA.Desktop.Controls"
+             xmlns:asyncImage="using:AsyncImageLoader"
+             x:Class="MGA.Desktop.Views.MediaManagerView"
+             x:DataType="vm:MediaManagerViewModel">
+
+  <DockPanel>
+
+    <!-- ======================================================================
+         Fixed header
+         ====================================================================== -->
+    <StackPanel DockPanel.Dock="Top" Margin="32,32,32,16" Spacing="8">
+      <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+        <TextBlock Classes="heading">
+          <Run Text="Media — "/>
+          <Run Text="{Binding GameTitle}"/>
+        </TextBlock>
+      </StackPanel>
+
+      <!-- Action row -->
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button Classes="danger"
+                Content="✕ Clear Cover Override"
+                Command="{Binding ClearCoverCommand}"
+                IsVisible="{Binding HasCoverOverride}"
+                ToolTip.Tip="Remove the cover override; the server will auto-select a cover again"/>
+        <Button Classes="ghost"
+                Content="← Back"
+                Command="{Binding BackCommand}"/>
+      </StackPanel>
+    </StackPanel>
+
+    <!-- ======================================================================
+         Loading spinner
+         ====================================================================== -->
+    <Border DockPanel.Dock="Top"
+            IsVisible="{Binding IsLoading}"
+            HorizontalAlignment="Center"
+            Margin="0,24">
+      <controls:LoadingSpinner/>
+    </Border>
+
+    <!-- ======================================================================
+         Empty state
+         ====================================================================== -->
+    <TextBlock DockPanel.Dock="Top"
+               Text="No media assets found for this game."
+               Classes="muted"
+               IsVisible="{Binding !HasAssets}"
+               Margin="32,24"/>
+
+    <!-- ======================================================================
+         Media asset grid — wrapping tiles with action buttons
+         ====================================================================== -->
+    <ScrollViewer IsVisible="{Binding HasAssets}">
+      <ItemsControl ItemsSource="{Binding Assets}"
+                    Margin="32,0,32,32">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel Orientation="Horizontal"/>
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:MediaAssetModel">
+            <Border Classes="card"
+                    Width="200"
+                    Margin="0,0,16,16"
+                    Padding="12">
+              <StackPanel Spacing="8">
+
+                <!-- Thumbnail -->
+                <Border CornerRadius="{DynamicResource MgaRadiusMd}"
+                        ClipToBounds="True"
+                        Height="120">
+                  <Grid>
+                    <!-- Placeholder background -->
+                    <Border Background="{DynamicResource MgaElevatedBrush}">
+                      <TextBlock Text="{Binding TypeBadge}"
+                                 Classes="muted"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Center"/>
+                    </Border>
+                    <!-- Actual image -->
+                    <asyncImage:AdvancedImage Source="{Binding ImageUrl}"
+                                             Stretch="UniformToFill"/>
+                  </Grid>
+                </Border>
+
+                <!-- Type badge + dimensions -->
+                <StackPanel Spacing="2">
+                  <TextBlock Text="{Binding TypeBadge}"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                             FontSize="{DynamicResource MgaFontSizeSm}"/>
+                  <TextBlock Text="{Binding Dimensions}"
+                             Classes="muted"
+                             FontSize="{DynamicResource MgaFontSizeXs}"
+                             IsVisible="{Binding Dimensions, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                  <!-- "Current cover" indicator -->
+                  <TextBlock Text="★ Current cover"
+                             Foreground="{DynamicResource MgaAccentBrush}"
+                             FontSize="{DynamicResource MgaFontSizeXs}"
+                             IsVisible="{Binding IsCoverNow}"/>
+                </StackPanel>
+
+                <!-- Override action buttons -->
+                <StackPanel Spacing="4">
+                  <Button Classes="primary"
+                          Content="Set as Cover"
+                          Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetCoverCommand}"
+                          CommandParameter="{Binding}"
+                          FontSize="{DynamicResource MgaFontSizeXs}"
+                          HorizontalAlignment="Stretch"/>
+                  <Button Classes="ghost"
+                          Content="Set as Background"
+                          Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetBackgroundCommand}"
+                          CommandParameter="{Binding}"
+                          FontSize="{DynamicResource MgaFontSizeXs}"
+                          HorizontalAlignment="Stretch"/>
+                  <Button Classes="ghost"
+                          Content="Set as Hover"
+                          Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetHoverCommand}"
+                          CommandParameter="{Binding}"
+                          FontSize="{DynamicResource MgaFontSizeXs}"
+                          HorizontalAlignment="Stretch"/>
+                </StackPanel>
+
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+
+  </DockPanel>
+
+</UserControl>

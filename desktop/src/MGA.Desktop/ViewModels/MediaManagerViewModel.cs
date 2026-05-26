@@ -1,0 +1,233 @@
+using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using MGA.Api;
+using MGA.Desktop.Services;
+
+namespace MGA.Desktop.ViewModels;
+
+// ---------------------------------------------------------------------------
+// MediaAssetModel
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Display model for a single media asset tile in the Media Manager.
+/// Carries resolved URL, dimensions, type badge, and the raw asset_id
+/// needed by override commands.
+/// </summary>
+public sealed class MediaAssetModel
+{
+    public int    AssetId      { get; }
+    public string Type         { get; }
+
+    /// <summary>Badge text shown on the tile, e.g. "cover", "background", "screenshot".</summary>
+    public string TypeBadge    { get; }
+
+    public string ImageUrl     { get; }
+    public string Dimensions   { get; }
+
+    /// <summary>True when this asset is the current cover override.</summary>
+    public bool   IsCoverNow   { get; }
+
+    /// <summary>True when this asset is used as cover by any source (not necessarily overridden).</summary>
+    public bool   IsDefaultCover { get; }
+
+    public MediaAssetModel(GameMedia m, MgaApiService? api, GameDetail game)
+    {
+        AssetId      = m.AssetId;
+        Type         = m.Type;
+        TypeBadge    = m.Type.Length > 0
+                       ? char.ToUpperInvariant(m.Type[0]) + m.Type[1..]
+                       : "Media";
+        ImageUrl     = api?.GetMediaUrl(m.Url) ?? m.Url;
+        Dimensions   = m.Width > 0 && m.Height > 0 ? $"{m.Width}×{m.Height}" : string.Empty;
+        IsCoverNow   = game.CoverOverride?.AssetId == m.AssetId;
+        IsDefaultCover = m.Type == "cover" && game.CoverOverride is null;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MediaManagerViewModel
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Media Manager page — shows all media assets for a game and lets the user
+/// set cover / background / hover overrides from the existing asset set.
+/// Navigated to from Game Detail via "Manage Media" button.
+/// </summary>
+public sealed partial class MediaManagerViewModel : ViewModelBase
+{
+    private readonly string                  _gameId;
+    private readonly ServerConnectionService _server;
+    private readonly NavigationService       _nav;
+    private readonly ToastService            _toast;
+    private readonly AppConfigService        _config;
+
+    // ---------------------------------------------------------------------------
+    // Observable state
+    // ---------------------------------------------------------------------------
+
+    [ObservableProperty]
+    private bool _isLoading;
+
+    [ObservableProperty]
+    private string _gameTitle = string.Empty;
+
+    /// <summary>All media assets returned by the game detail, grouped display-order.</summary>
+    [ObservableProperty]
+    private ObservableCollection<MediaAssetModel> _assets = [];
+
+    /// <summary>True when there is at least one asset to show.</summary>
+    [ObservableProperty]
+    private bool _hasAssets;
+
+    /// <summary>True when a cover override is currently set (enables the Clear button).</summary>
+    [ObservableProperty]
+    private bool _hasCoverOverride;
+
+    // ---------------------------------------------------------------------------
+    // Constructor
+    // ---------------------------------------------------------------------------
+
+    public MediaManagerViewModel(
+        string                  gameId,
+        ServerConnectionService server,
+        NavigationService       nav,
+        ToastService            toast,
+        AppConfigService        config)
+    {
+        _gameId = gameId;
+        _server = server;
+        _nav    = nav;
+        _toast  = toast;
+        _config = config;
+
+        _ = LoadAsync();
+    }
+
+    // ---------------------------------------------------------------------------
+    // Commands
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Navigates back to Game Detail for this game.</summary>
+    [RelayCommand]
+    private void Back() =>
+        _nav.NavigateTo(new GameDetailViewModel(_gameId, _server, _nav, _toast, _config));
+
+    /// <summary>Sets the given asset as the cover override for this game.</summary>
+    [RelayCommand]
+    private async Task SetCoverAsync(MediaAssetModel asset)
+    {
+        if (_server.Api is null) return;
+
+        try
+        {
+            await _server.Api.SetCoverOverrideAsync(_gameId, asset.AssetId).ConfigureAwait(true);
+            _toast.Success("Cover updated", $"Cover set to {asset.TypeBadge} asset #{asset.AssetId}.");
+            await LoadAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Failed to set cover", ex.Message);
+        }
+    }
+
+    /// <summary>Clears the cover override, restoring automatic cover selection.</summary>
+    [RelayCommand]
+    private async Task ClearCoverAsync()
+    {
+        if (_server.Api is null) return;
+
+        try
+        {
+            await _server.Api.DeleteCoverOverrideAsync(_gameId).ConfigureAwait(true);
+            _toast.Success("Cover cleared", "Cover override removed; auto-selection restored.");
+            await LoadAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Failed to clear cover", ex.Message);
+        }
+    }
+
+    /// <summary>Sets the given asset as the background/hero override.</summary>
+    [RelayCommand]
+    private async Task SetBackgroundAsync(MediaAssetModel asset)
+    {
+        if (_server.Api is null) return;
+
+        try
+        {
+            await _server.Api.SetBackgroundOverrideAsync(_gameId, asset.AssetId).ConfigureAwait(true);
+            _toast.Success("Background updated", $"Background set to asset #{asset.AssetId}.");
+            await LoadAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Failed to set background", ex.Message);
+        }
+    }
+
+    /// <summary>Sets the given asset as the hover/card image override.</summary>
+    [RelayCommand]
+    private async Task SetHoverAsync(MediaAssetModel asset)
+    {
+        if (_server.Api is null) return;
+
+        try
+        {
+            await _server.Api.SetHoverOverrideAsync(_gameId, asset.AssetId).ConfigureAwait(true);
+            _toast.Success("Hover image updated", $"Hover image set to asset #{asset.AssetId}.");
+            await LoadAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Failed to set hover image", ex.Message);
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Private — data loading
+    // ---------------------------------------------------------------------------
+
+    private async Task LoadAsync()
+    {
+        if (_server.Api is null) return;
+
+        IsLoading = true;
+
+        try
+        {
+            // Game detail already includes the full media array.
+            var detail = await _server.Api.GetGameAsync(_gameId).ConfigureAwait(true);
+
+            GameTitle      = detail.Title;
+            HasCoverOverride = detail.CoverOverride is not null;
+
+            // Sort by type priority: covers first, then backgrounds, then others.
+            var sorted = detail.Media
+                .OrderBy(m => m.Type switch
+                {
+                    "cover"      => 0,
+                    "background" => 1,
+                    "hero"       => 2,
+                    "screenshot" => 3,
+                    _            => 4,
+                })
+                .ThenBy(m => m.AssetId);
+
+            Assets = new ObservableCollection<MediaAssetModel>(
+                sorted.Select(m => new MediaAssetModel(m, _server.Api, detail)));
+
+            HasAssets = Assets.Count > 0;
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Failed to load media", ex.Message);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+}

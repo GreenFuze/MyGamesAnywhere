@@ -127,6 +127,12 @@
                   ToolTip.Tip="Refresh metadata from online providers"/>
 
           <Button Classes="ghost"
+                  Command="{Binding OpenMediaManagerCommand}"
+                  Content="🖼 Media"
+                  ToolTip.Tip="Manage cover art and media overrides"
+                  IsVisible="{Binding HasMedia}"/>
+
+          <Button Classes="ghost"
                   Command="{Binding GoBackCommand}"
                   Content="← Back"/>
 

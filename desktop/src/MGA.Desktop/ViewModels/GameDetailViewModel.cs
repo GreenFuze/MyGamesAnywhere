@@ -274,6 +274,10 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     [ObservableProperty]
     private bool _hasScreenshots;
 
+    /// <summary>True when this game has at least one media asset (enables the Manage Media button).</summary>
+    [ObservableProperty]
+    private bool _hasMedia;
+
     // ---------------------------------------------------------------------------
     // Favorite / Achievements
     // ---------------------------------------------------------------------------
@@ -394,6 +398,13 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     private void GoBack()
     {
         _nav.NavigateTo(new LibraryViewModel(_server, _nav, _toast, _config));
+    }
+
+    /// <summary>Opens the Media Manager page for this game.</summary>
+    [RelayCommand]
+    private void OpenMediaManager()
+    {
+        _nav.NavigateTo(new MediaManagerViewModel(GameId, _server, _nav, _toast, _config));
     }
 
     /// <summary>Launches the game using the configured emulator for its platform.</summary>
@@ -762,6 +773,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
                     .Where(m => m.Type == "screenshot" || m.Type == "header")
                     .Select(m => new MediaItemModel(m, api)));
             HasScreenshots = Screenshots.Count > 0;
+            HasMedia       = game.Media.Count > 0;
 
             // Check for configured emulator.
             CheckEmulatorAvailability();

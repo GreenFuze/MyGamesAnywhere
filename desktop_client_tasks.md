@@ -110,10 +110,11 @@ Checked off as they land. Grouped by area.
 
 ## Media Manager (new page)
 
-- [ ] **Game Media page** — grid of all media assets; accessible from Game Detail
-- [ ] **Set as cover / hero / background** — PUT overrides via API
-- [ ] **Upload media** — `POST /api/games/{id}/media`
-- [ ] **Delete media asset** — `DELETE /api/games/{id}/media/{assetId}`
+- [x] **Game Media page** — grid of all media assets; accessible from Game Detail via "🖼 Media" button
+- [x] **Set as cover / hero / background** — PUT overrides via API (cover, background, hover)
+- [x] **Clear cover override** — DELETE /api/games/{id}/cover-override
+- [ ] **Upload media** — `POST /api/games/{id}/media` (no server endpoint yet)
+- [ ] **Delete media asset** — `DELETE /api/games/{id}/media/{assetId}` (no server endpoint yet)
 - [ ] **Image/video preview** — inline image preview; open video in system player
 - [ ] **YouTube thumbnail + open** — show thumbnail; open link in browser
 
