@@ -91,10 +91,15 @@
         </ScrollViewer>
       </StackPanel>
 
-      <!-- All Games section heading -->
+      <!-- Launchable Games section heading -->
       <Border Padding="32,0,32,12"
               IsVisible="{Binding !IsLoading}">
-        <TextBlock Text="All Games" Classes="subheading"/>
+        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <TextBlock Text="Launchable Games" Classes="subheading"/>
+          <TextBlock Text="{Binding LaunchableCount, StringFormat='{}{0} games'}"
+                     Classes="muted"
+                     VerticalAlignment="Center"/>
+        </StackPanel>
       </Border>
 
     </StackPanel>
@@ -129,6 +134,8 @@
                                Margin="8"
                                Classes="muted"/>
                   </Border>
+                  <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
+                                           Stretch="UniformToFill"/>
                   <Border VerticalAlignment="Bottom"
                           Background="#CC000000"
                           Padding="8,6">

@@ -6,7 +6,7 @@ Checked off as they land. Grouped by area.
 
 ## Play & Game Launch
 
-- [ ] **Play tab = Installed / Launchable games** — show only games that have a local file or emulator-backed source; not browser/xCloud games
+- [x] **Play tab = Installed / Launchable games** — grid filtered to CanPlay=true (Kind=="game") only; "Launchable Games N games" heading
 - [ ] **Auto-detect installed games** — scan sources for installed game files; mark games as launchable in the library
 - [ ] **Emulator management** — Settings > Emulators tab: add/edit/remove emulator entries (path, platform(s), args template)
 - [ ] **Launch game via emulator** — detect platform → look up emulator config → `Process.Start(emulator, args + gamePath)`
@@ -134,7 +134,7 @@ Checked off as they land. Grouped by area.
 
 ## Cross-Cutting
 
-- [ ] **Global search** — TitleBar search box functional; filters current page or navigates to Library with query
+- [x] **Global search** — TitleBar search box navigates to Library with query pre-filled (Enter key triggers GlobalSearchCommand)
 - [x] **Sidebar game count badge** — live game count next to Library nav item
 - [x] **SSE: integration refresh events** — `integration_refresh_complete` reloads Integrations tab status + started/progress/failed handlers
 - [ ] **Deep links** — navigate directly to a game by ID from external sources (file association, URL scheme `mga://`)

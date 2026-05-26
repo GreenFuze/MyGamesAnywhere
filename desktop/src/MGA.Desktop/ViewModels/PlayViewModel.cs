@@ -6,10 +6,10 @@ using MGA.Desktop.Services;
 namespace MGA.Desktop.ViewModels;
 
 /// <summary>
-/// Play page — recently played shelf and the full game grid.
+/// Play page — recently played shelf and the launchable-games grid.
 ///
-/// Loads all games from the server on construction.  The RecentGames shelf
-/// shows the first 10 games that have a play record (CanPlay = true).
+/// Only games with <see cref="GameCardModel.CanPlay"/> = true are shown in the
+/// main grid. The RecentGames shelf shows the first 10 of those same games.
 /// </summary>
 public sealed partial class PlayViewModel : ViewModelBase
 {
@@ -25,8 +25,12 @@ public sealed partial class PlayViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isLoading;
 
+    /// <summary>Only games with CanPlay = true — drives the main grid.</summary>
     [ObservableProperty]
     private ObservableCollection<GameCardModel> _games = [];
+
+    [ObservableProperty]
+    private int _launchableCount;
 
     [ObservableProperty]
     private ObservableCollection<GameCardModel> _recentGames = [];
@@ -103,13 +107,15 @@ public sealed partial class PlayViewModel : ViewModelBase
             var response = await _server.Api.ListGamesAsync(page: 0, pageSize: 500)
                                             .ConfigureAwait(true);
 
-            // Map API models → display models.
-            var cards = response.Games.Select(g => ToCard(g)).ToList();
+            // Map API models → display models, keeping only launchable games.
+            var allCards      = response.Games.Select(g => ToCard(g)).ToList();
+            var launchable    = allCards.Where(c => c.CanPlay).ToList();
 
-            Games = new ObservableCollection<GameCardModel>(cards);
+            Games           = new ObservableCollection<GameCardModel>(launchable);
+            LaunchableCount = launchable.Count;
 
-            // Recent shelf: first 10 games that can be played.
-            var recent = cards.Where(c => c.CanPlay).Take(10).ToList();
+            // Recent shelf: first 10 launchable games.
+            var recent = launchable.Take(10).ToList();
             RecentGames      = new ObservableCollection<GameCardModel>(recent);
             HasNoRecentGames = recent.Count == 0;
         }
