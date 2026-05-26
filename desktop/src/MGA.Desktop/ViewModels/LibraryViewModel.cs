@@ -21,7 +21,7 @@ public sealed partial class LibraryViewModel : ViewModelBase
     // Sort options (constant; exposed as instance property for compiled bindings)
     // ---------------------------------------------------------------------------
 
-    public string[] SortOptions { get; } = ["Title (A–Z)", "Title (Z–A)", "Platform"];
+    public string[] SortOptions { get; } = ["Title (A–Z)", "Title (Z–A)", "Platform", "Developer"];
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -51,16 +51,31 @@ public sealed partial class LibraryViewModel : ViewModelBase
     private string _selectedPlatform = "All Platforms";
 
     [ObservableProperty]
+    private ObservableCollection<string> _genres = ["All Genres"];
+
+    [ObservableProperty]
+    private string _selectedGenre = "All Genres";
+
+    [ObservableProperty]
     private int _selectedSortIndex;
 
     [ObservableProperty]
     private bool _showFavoritesOnly;
+
+    [ObservableProperty]
+    private bool _isListView;
 
     // ---------------------------------------------------------------------------
     // Derived state — the live-filtered, sorted subset shown in the grid
     // ---------------------------------------------------------------------------
 
     public ObservableCollection<GameCardModel> FilteredGames { get; } = [];
+
+    /// <summary>True when the grid view should be shown (not loading, not in list mode).</summary>
+    public bool ShowGridView => !IsLoading && !IsListView;
+
+    /// <summary>True when the list view should be shown (not loading, in list mode).</summary>
+    public bool ShowListView => !IsLoading && IsListView;
 
     // ---------------------------------------------------------------------------
     // Constructor
@@ -111,11 +126,23 @@ public sealed partial class LibraryViewModel : ViewModelBase
     partial void OnGamesChanged(ObservableCollection<GameCardModel> value)
     {
         RebuildPlatforms();
+        RebuildGenres();
         RebuildFilteredGames();
     }
     partial void OnSelectedPlatformChanged(string value)    => RebuildFilteredGames();
+    partial void OnSelectedGenreChanged(string value)       => RebuildFilteredGames();
     partial void OnSelectedSortIndexChanged(int value)      => RebuildFilteredGames();
     partial void OnShowFavoritesOnlyChanged(bool value)     => RebuildFilteredGames();
+    partial void OnIsListViewChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowGridView));
+        OnPropertyChanged(nameof(ShowListView));
+    }
+    partial void OnIsLoadingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowGridView));
+        OnPropertyChanged(nameof(ShowListView));
+    }
 
     // ---------------------------------------------------------------------------
     // Commands
@@ -124,6 +151,10 @@ public sealed partial class LibraryViewModel : ViewModelBase
     /// <summary>Toggles the ShowFavoritesOnly filter.</summary>
     [RelayCommand]
     private void ToggleFavoritesOnly() => ShowFavoritesOnly = !ShowFavoritesOnly;
+
+    /// <summary>Toggles between grid view and list view.</summary>
+    [RelayCommand]
+    private void ToggleViewMode() => IsListView = !IsListView;
 
     /// <summary>Navigate to the full game detail page for the given game ID.</summary>
     [RelayCommand]
@@ -207,6 +238,26 @@ public sealed partial class LibraryViewModel : ViewModelBase
             SelectedPlatform = "All Platforms";
     }
 
+    /// <summary>Rebuilds the Genres dropdown from the currently loaded games.</summary>
+    private void RebuildGenres()
+    {
+        var distinct = Games
+            .SelectMany(g => g.Genres)
+            .Where(g => !string.IsNullOrEmpty(g))
+            .Distinct()
+            .OrderBy(g => g)
+            .ToList();
+
+        Genres.Clear();
+        Genres.Add("All Genres");
+        foreach (var g in distinct)
+            Genres.Add(g);
+
+        // If the previously selected genre is no longer present, reset.
+        if (!Genres.Contains(SelectedGenre))
+            SelectedGenre = "All Genres";
+    }
+
     /// <summary>
     /// Applies all active filters (search, platform, favorites) and the selected
     /// sort order, then replaces the contents of FilteredGames.
@@ -217,6 +268,7 @@ public sealed partial class LibraryViewModel : ViewModelBase
             Games,
             SearchText,
             SelectedPlatform,
+            SelectedGenre,
             ShowFavoritesOnly,
             SelectedSortIndex);
 
@@ -236,12 +288,15 @@ public sealed partial class LibraryViewModel : ViewModelBase
 
         return new GameCardModel
         {
-            Id       = g.Id,
-            Title    = g.Title,
-            Platform = g.Platform,
-            CoverUrl = coverUrl,
-            Favorite = g.Favorite,
-            CanPlay  = g.Kind == "game",
+            Id        = g.Id,
+            Title     = g.Title,
+            Platform  = g.Platform,
+            CoverUrl  = coverUrl,
+            Favorite  = g.Favorite,
+            CanPlay   = g.Kind == "game",
+            Kind      = g.Kind,
+            Developer = g.Developer ?? string.Empty,
+            Genres    = g.Genres,
         };
     }
 }

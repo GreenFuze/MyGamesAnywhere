@@ -40,6 +40,11 @@
                   SelectedItem="{Binding SelectedPlatform}"
                   MinWidth="160"/>
 
+        <!-- Genre dropdown -->
+        <ComboBox ItemsSource="{Binding Genres}"
+                  SelectedItem="{Binding SelectedGenre}"
+                  MinWidth="140"/>
+
         <!-- Sort dropdown -->
         <ComboBox ItemsSource="{Binding SortOptions}"
                   SelectedIndex="{Binding SelectedSortIndex}"
@@ -54,6 +59,16 @@
                 Content="☆ Favorites Only"
                 Command="{Binding ToggleFavoritesOnlyCommand}"
                 IsVisible="{Binding !ShowFavoritesOnly}"/>
+
+        <!-- View mode toggle — shows opposite of current mode -->
+        <Button Classes="ghost"
+                Content="▦ Grid"
+                Command="{Binding ToggleViewModeCommand}"
+                IsVisible="{Binding IsListView}"/>
+        <Button Classes="ghost"
+                Content="☰ List"
+                Command="{Binding ToggleViewModeCommand}"
+                IsVisible="{Binding !IsListView}"/>
 
         <!-- Scan trigger -->
         <Button Classes="ghost"
@@ -76,9 +91,55 @@
     </Border>
 
     <!-- ==========================================================================
-         Virtualized game grid — fills remaining vertical space
+         List view — shown when IsListView = true and not loading
          ========================================================================== -->
-    <ScrollViewer IsVisible="{Binding !IsLoading}">
+    <ScrollViewer IsVisible="{Binding ShowListView}">
+      <StackPanel Margin="32,0,32,32">
+
+        <!-- Column header row -->
+        <Border Padding="8,8" Background="{DynamicResource MgaElevatedBrush}">
+          <Grid ColumnDefinitions="*,140,80,160">
+            <TextBlock Grid.Column="0" Text="Title" Classes="muted" FontWeight="SemiBold"/>
+            <TextBlock Grid.Column="1" Text="Platform" Classes="muted" FontWeight="SemiBold"/>
+            <TextBlock Grid.Column="2" Text="Kind" Classes="muted" FontWeight="SemiBold"/>
+            <TextBlock Grid.Column="3" Text="Developer" Classes="muted" FontWeight="SemiBold"/>
+          </Grid>
+        </Border>
+
+        <!-- List rows -->
+        <ItemsControl ItemsSource="{Binding FilteredGames}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel/>
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:GameCardModel">
+              <Button Background="Transparent" BorderThickness="0" Padding="0"
+                      HorizontalContentAlignment="Stretch"
+                      Command="{Binding $parent[ItemsControl].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
+                      CommandParameter="{Binding Id}"
+                      Cursor="Hand">
+                <Border Padding="8,10" Background="Transparent">
+                  <Grid ColumnDefinitions="*,140,80,160">
+                    <TextBlock Grid.Column="0" Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{Binding Platform}" Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Text="{Binding Kind}" Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="3" Text="{Binding Developer}" Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                  </Grid>
+                </Border>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- ==========================================================================
+         Virtualized game grid — shown when IsListView = false and not loading
+         ========================================================================== -->
+    <ScrollViewer IsVisible="{Binding ShowGridView}">
       <ac:ItemsRepeater ItemsSource="{Binding FilteredGames}"
                      Margin="32,0,32,32">
         <ac:ItemsRepeater.Layout>

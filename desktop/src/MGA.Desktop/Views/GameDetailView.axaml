@@ -97,7 +97,7 @@
 
           <Button Classes="primary"
                   Command="{Binding PlayInBrowserCommand}"
-                  Content="▶ Play in Browser"/>
+                  Content="🌐 Open Web Page"/>
 
           <!-- Favorite toggle — label swaps based on current state -->
           <Button Classes="ghost"

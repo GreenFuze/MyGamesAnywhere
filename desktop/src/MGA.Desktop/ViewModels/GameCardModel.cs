@@ -16,4 +16,8 @@ public sealed class GameCardModel
 
     public bool Favorite { get; init; }
     public bool CanPlay { get; init; }
+
+    public string Kind { get; init; } = string.Empty;
+    public string Developer { get; init; } = string.Empty;
+    public List<string> Genres { get; init; } = [];
 }

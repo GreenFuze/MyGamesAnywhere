@@ -20,9 +20,10 @@ public sealed class LibraryFilterTests
         IEnumerable<GameCardModel> source,
         string searchText       = "",
         string selectedPlatform = "All Platforms",
+        string selectedGenre    = "All Genres",
         bool   showFavs         = false,
         int    sortIndex        = 0)
-        => LibraryFilter.Apply(source, searchText, selectedPlatform, showFavs, sortIndex);
+        => LibraryFilter.Apply(source, searchText, selectedPlatform, selectedGenre, showFavs, sortIndex);
 
     // ---------------------------------------------------------------------------
     // Source data

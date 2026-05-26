@@ -14,13 +14,15 @@ internal static class LibraryFilter
     /// <param name="source">Input sequence of game cards.</param>
     /// <param name="searchText">Free-text search matched against Title and Platform (OrdinalIgnoreCase).</param>
     /// <param name="selectedPlatform">Exact platform name, or "All Platforms" to skip platform filtering.</param>
+    /// <param name="selectedGenre">Exact genre name, or "All Genres" to skip genre filtering.</param>
     /// <param name="showFavoritesOnly">When true, only favorite games are returned.</param>
-    /// <param name="sortIndex">0 = Title A–Z, 1 = Title Z–A, 2 = Platform then Title.</param>
+    /// <param name="sortIndex">0 = Title A–Z, 1 = Title Z–A, 2 = Platform then Title, 3 = Developer then Title.</param>
     /// <returns>Filtered and sorted enumerable (not materialised).</returns>
     internal static IEnumerable<GameCardModel> Apply(
         IEnumerable<GameCardModel> source,
         string searchText,
         string selectedPlatform,
+        string selectedGenre,
         bool showFavoritesOnly,
         int sortIndex)
     {
@@ -37,6 +39,10 @@ internal static class LibraryFilter
         if (selectedPlatform != "All Platforms")
             query = query.Where(g => g.Platform == selectedPlatform);
 
+        // Genre filter — skip when "All Genres".
+        if (selectedGenre != "All Genres")
+            query = query.Where(g => g.Genres.Contains(selectedGenre, StringComparer.OrdinalIgnoreCase));
+
         // Favorites filter.
         if (showFavoritesOnly)
             query = query.Where(g => g.Favorite);
@@ -46,6 +52,7 @@ internal static class LibraryFilter
         {
             1 => query.OrderByDescending(g => g.Title),
             2 => query.OrderBy(g => g.Platform).ThenBy(g => g.Title),
+            3 => query.OrderBy(g => g.Developer).ThenBy(g => g.Title),
             _ => query.OrderBy(g => g.Title),
         };
 
