@@ -188,6 +188,57 @@
         </ScrollViewer>
       </TabItem>
 
+      <!-- ==================================================================
+           Scans tab
+           ================================================================== -->
+      <TabItem Header="Scans">
+        <ScrollViewer Margin="0,16,0,0">
+          <StackPanel Spacing="24">
+
+            <!-- Scan history list -->
+            <Border Classes="card"
+                    IsVisible="{Binding HasScanReports}">
+              <StackPanel Spacing="8">
+                <TextBlock Text="Recent Scans" Classes="subheading"/>
+                <ItemsControl ItemsSource="{Binding ScanReports}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ScanReportRowViewModel">
+                      <Border Padding="0,6"
+                              BorderThickness="0,0,0,1"
+                              BorderBrush="{DynamicResource MgaBorderBrush}">
+                        <Grid ColumnDefinitions="*,Auto,Auto">
+                          <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="{Binding StartedAt}"
+                                       FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding Summary}" Classes="muted"/>
+                          </StackPanel>
+                          <TextBlock Grid.Column="1"
+                                     Text="{Binding Duration}"
+                                     Classes="muted"
+                                     VerticalAlignment="Center"
+                                     Margin="12,0"/>
+                          <TextBlock Grid.Column="2"
+                                     Text="{Binding TotalGames, StringFormat='{}{0} games'}"
+                                     Classes="muted"
+                                     VerticalAlignment="Center"/>
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <!-- Empty state when no scans recorded -->
+            <TextBlock Text="No scan reports available."
+                       Classes="muted"
+                       IsVisible="{Binding !HasScanReports}"/>
+
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
     </TabControl>
 
   </DockPanel>

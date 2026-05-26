@@ -4,6 +4,20 @@ using MGA.Desktop.Services;
 
 namespace MGA.Desktop.ViewModels;
 
+/// <summary>Display row for one scan report entry.</summary>
+public sealed class ScanReportRowViewModel
+{
+    public string Id           { get; init; } = string.Empty;
+    public string StartedAt    { get; init; } = string.Empty;
+    public string Duration     { get; init; } = string.Empty;
+    public int    GamesAdded   { get; init; }
+    public int    GamesRemoved { get; init; }
+    public int    GamesUpdated { get; init; }
+    public int    TotalGames   { get; init; }
+    public bool   MetadataOnly { get; init; }
+    public string Summary      { get; init; } = string.Empty;
+}
+
 /// <summary>
 /// Stats page — Library and Gamer tabs.
 ///
@@ -65,6 +79,16 @@ public sealed partial class StatsViewModel : ViewModelBase
     private ObservableCollection<AchievementSystemRowModel> _achievementSystems = [];
 
     // ---------------------------------------------------------------------------
+    // Scan history
+    // ---------------------------------------------------------------------------
+
+    [ObservableProperty]
+    private ObservableCollection<ScanReportRowViewModel> _scanReports = [];
+
+    [ObservableProperty]
+    private bool _hasScanReports;
+
+    // ---------------------------------------------------------------------------
     // Constructor
     // ---------------------------------------------------------------------------
 
@@ -91,11 +115,12 @@ public sealed partial class StatsViewModel : ViewModelBase
 
         try
         {
-            // Fetch library and gamer stats in parallel.
+            // Fetch library, gamer stats, and scan reports in parallel.
             var libraryTask = _server.Api.GetLibraryStatisticsAsync();
             var gamerTask   = _server.Api.GetGamerStatisticsAsync();
+            var reportsTask = _server.Api.ListScanReportsAsync(limit: 10);
 
-            await Task.WhenAll(libraryTask, gamerTask).ConfigureAwait(true);
+            await Task.WhenAll(libraryTask, gamerTask, reportsTask).ConfigureAwait(true);
 
             var library = await libraryTask;
             var gamer   = await gamerTask;
@@ -137,6 +162,30 @@ public sealed partial class StatsViewModel : ViewModelBase
                     Unlocked    = s.UnlockedCount,
                     PercentText = PercentFormatter.Format(s.UnlockedCount, s.TotalCount),
                 }));
+
+            // Populate scan history.
+            var reports = await reportsTask.ConfigureAwait(true);
+            ScanReports = new ObservableCollection<ScanReportRowViewModel>(
+                reports.Select(r =>
+                {
+                    var duration    = TimeSpan.FromMilliseconds(r.DurationMs);
+                    var durationStr = duration.TotalMinutes >= 1
+                        ? $"{(int)duration.TotalMinutes}m {duration.Seconds}s"
+                        : $"{duration.Seconds}s";
+                    return new ScanReportRowViewModel
+                    {
+                        Id           = r.Id,
+                        StartedAt    = r.StartedAt,
+                        Duration     = durationStr,
+                        GamesAdded   = r.GamesAdded,
+                        GamesRemoved = r.GamesRemoved,
+                        GamesUpdated = r.GamesUpdated,
+                        TotalGames   = r.TotalGames,
+                        MetadataOnly = r.MetadataOnly,
+                        Summary      = $"+{r.GamesAdded} added, −{r.GamesRemoved} removed, {r.GamesUpdated} updated",
+                    };
+                }));
+            HasScanReports = ScanReports.Count > 0;
         }
         catch (Exception ex)
         {

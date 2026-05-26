@@ -172,7 +172,7 @@
         <!-- ================================================================
              Metadata panel
              ================================================================ -->
-        <Border Margin="24,12,24,24"
+        <Border Margin="24,12,24,12"
                 Classes="card">
           <StackPanel Spacing="12">
 
@@ -227,6 +227,80 @@
                          Classes="muted"/>
             </StackPanel>
 
+          </StackPanel>
+        </Border>
+
+        <!-- ================================================================
+             External Links
+             ================================================================ -->
+        <Border Margin="24,0,24,12"
+                Classes="card"
+                IsVisible="{Binding HasExternalLinks}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="External Links" Classes="subheading"/>
+            <ItemsControl ItemsSource="{Binding ExternalLinks}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <WrapPanel Orientation="Horizontal"/>
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ExternalLinkViewModel">
+                  <Button Classes="ghost"
+                          Margin="0,0,8,0"
+                          Command="{Binding $parent[UserControl].((vm:GameDetailViewModel)DataContext).OpenExternalLinkCommand}"
+                          CommandParameter="{Binding .}"
+                          IsEnabled="{Binding HasUrl}">
+                    <TextBlock>
+                      <Run Text="{Binding Source}"/>
+                      <Run Text=" ↗" Foreground="{DynamicResource MgaAccentBrush}"/>
+                    </TextBlock>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <!-- ================================================================
+             Source Games
+             ================================================================ -->
+        <Border Margin="24,0,24,24"
+                Classes="card"
+                IsVisible="{Binding HasSourceGames}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Sources" Classes="subheading"/>
+            <ItemsControl ItemsSource="{Binding SourceGames}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:SourceGameRowViewModel">
+                  <Border Padding="0,6"
+                          BorderThickness="0,0,0,1"
+                          BorderBrush="{DynamicResource MgaBorderBrush}">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="{Binding RawTitle}"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <TextBlock Text="{Binding IntegrationLabel}" Classes="muted"/>
+                          <TextBlock Text="·" Classes="muted"/>
+                          <TextBlock Text="{Binding Platform}" Classes="muted"/>
+                          <TextBlock Text="·" Classes="muted"/>
+                          <TextBlock Text="{Binding FileSummary}" Classes="muted"/>
+                        </StackPanel>
+                      </StackPanel>
+                      <Border Grid.Column="1"
+                              Background="{DynamicResource MgaElevatedBrush}"
+                              CornerRadius="{DynamicResource MgaRadiusSm}"
+                              Padding="6,2"
+                              VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Status}" Classes="muted" FontSize="11"/>
+                      </Border>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
           </StackPanel>
         </Border>
 

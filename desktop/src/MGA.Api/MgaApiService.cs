@@ -502,6 +502,18 @@ public sealed class MgaApiService
         => GetAsync<List<GameListItem>>($"/api/integrations/{Uri.EscapeDataString(id)}/games", ct);
 
     // ---------------------------------------------------------------------------
+    // Scan reports
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Returns recent scan reports from GET /api/scan/reports.</summary>
+    public Task<List<ScanReport>> ListScanReportsAsync(int? limit = null, CancellationToken ct = default)
+    {
+        var url = "/api/scan/reports";
+        if (limit.HasValue) url += $"?limit={limit.Value}";
+        return GetAsync<List<ScanReport>>(url, ct);
+    }
+
+    // ---------------------------------------------------------------------------
     // Plugin browse
     // ---------------------------------------------------------------------------
 

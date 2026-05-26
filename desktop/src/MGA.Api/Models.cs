@@ -45,6 +45,56 @@ public sealed record GameMedia
     public int Height { get; init; }
 }
 
+/// <summary>An external ID link (IGDB, Steam, etc.) attached to a game.</summary>
+public sealed record ExternalIdDto
+{
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = string.Empty;
+
+    [JsonPropertyName("external_id")]
+    public string ExternalId { get; init; } = string.Empty;
+
+    [JsonPropertyName("url")]
+    public string? Url { get; init; }
+}
+
+/// <summary>A source game summary within game detail (integration + files).</summary>
+public sealed record SourceGameSummary
+{
+    [JsonPropertyName("id")]
+    public string Id { get; init; } = string.Empty;
+
+    [JsonPropertyName("integration_id")]
+    public string IntegrationId { get; init; } = string.Empty;
+
+    [JsonPropertyName("integration_label")]
+    public string? IntegrationLabel { get; init; }
+
+    [JsonPropertyName("plugin_id")]
+    public string PluginId { get; init; } = string.Empty;
+
+    [JsonPropertyName("external_id")]
+    public string ExternalId { get; init; } = string.Empty;
+
+    [JsonPropertyName("raw_title")]
+    public string RawTitle { get; init; } = string.Empty;
+
+    [JsonPropertyName("platform")]
+    public string Platform { get; init; } = string.Empty;
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; init; } = string.Empty;
+
+    [JsonPropertyName("root_path")]
+    public string? RootPath { get; init; }
+
+    [JsonPropertyName("status")]
+    public string Status { get; init; } = string.Empty;
+
+    [JsonPropertyName("files")]
+    public List<GameFileDto> Files { get; init; } = [];
+}
+
 /// <summary>Achievement summary statistics for a game.</summary>
 public sealed record AchievementSummary
 {
@@ -102,6 +152,12 @@ public sealed record GameDetail
 
     [JsonPropertyName("achievement_summary")]
     public AchievementSummary? AchievementSummary { get; init; }
+
+    [JsonPropertyName("external_ids")]
+    public List<ExternalIdDto> ExternalIds { get; init; } = [];
+
+    [JsonPropertyName("source_games")]
+    public List<SourceGameSummary> SourceGames { get; init; } = [];
 }
 
 // ---------------------------------------------------------------------------
@@ -860,4 +916,67 @@ public sealed record PluginBrowseResponse
 
     [JsonPropertyName("entries")]
     public List<BrowseEntry> Entries { get; init; } = [];
+}
+
+// ---------------------------------------------------------------------------
+// Scan reports
+// ---------------------------------------------------------------------------
+
+/// <summary>Per-integration breakdown within a scan report.</summary>
+public sealed record ScanIntegrationResult
+{
+    [JsonPropertyName("integration_id")]
+    public string IntegrationId { get; init; } = string.Empty;
+
+    [JsonPropertyName("label")]
+    public string Label { get; init; } = string.Empty;
+
+    [JsonPropertyName("plugin_id")]
+    public string PluginId { get; init; } = string.Empty;
+
+    [JsonPropertyName("games_found")]
+    public int GamesFound { get; init; }
+
+    [JsonPropertyName("games_added")]
+    public int GamesAdded { get; init; }
+
+    [JsonPropertyName("games_removed")]
+    public int GamesRemoved { get; init; }
+
+    [JsonPropertyName("error")]
+    public string? Error { get; init; }
+}
+
+/// <summary>A completed scan report from GET /api/scan/reports.</summary>
+public sealed record ScanReport
+{
+    [JsonPropertyName("id")]
+    public string Id { get; init; } = string.Empty;
+
+    [JsonPropertyName("started_at")]
+    public string StartedAt { get; init; } = string.Empty;
+
+    [JsonPropertyName("finished_at")]
+    public string FinishedAt { get; init; } = string.Empty;
+
+    [JsonPropertyName("duration_ms")]
+    public long DurationMs { get; init; }
+
+    [JsonPropertyName("metadata_only")]
+    public bool MetadataOnly { get; init; }
+
+    [JsonPropertyName("games_added")]
+    public int GamesAdded { get; init; }
+
+    [JsonPropertyName("games_removed")]
+    public int GamesRemoved { get; init; }
+
+    [JsonPropertyName("games_updated")]
+    public int GamesUpdated { get; init; }
+
+    [JsonPropertyName("total_games")]
+    public int TotalGames { get; init; }
+
+    [JsonPropertyName("integration_results")]
+    public List<ScanIntegrationResult> IntegrationResults { get; init; } = [];
 }

@@ -12,6 +12,27 @@ public sealed class MediaItemModel
     public string Url { get; init; } = string.Empty;
 }
 
+/// <summary>Display model for one source game row.</summary>
+public sealed class SourceGameRowViewModel
+{
+    public string IntegrationLabel { get; init; } = string.Empty;
+    public string Platform         { get; init; } = string.Empty;
+    public string Kind             { get; init; } = string.Empty;
+    public string RawTitle         { get; init; } = string.Empty;
+    public string Status           { get; init; } = string.Empty;
+    public int    FileCount        { get; init; }
+    public string FileSummary      { get; init; } = string.Empty;
+}
+
+/// <summary>Display model for one external link.</summary>
+public sealed class ExternalLinkViewModel
+{
+    public string Source     { get; init; } = string.Empty;
+    public string ExternalId { get; init; } = string.Empty;
+    public string? Url       { get; init; }
+    public bool HasUrl => !string.IsNullOrEmpty(Url);
+}
+
 /// <summary>
 /// Game detail page — full-bleed hero banner, metadata panel, and action bar.
 ///
@@ -102,6 +123,24 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     [ObservableProperty]
     private bool _hasAchievements;
 
+    // ---------------------------------------------------------------------------
+    // Source games + external IDs
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Source games attached to this canonical entry.</summary>
+    [ObservableProperty]
+    private ObservableCollection<SourceGameRowViewModel> _sourceGames = [];
+
+    [ObservableProperty]
+    private bool _hasSourceGames;
+
+    /// <summary>External ID links (IGDB, Steam, etc.).</summary>
+    [ObservableProperty]
+    private ObservableCollection<ExternalLinkViewModel> _externalLinks = [];
+
+    [ObservableProperty]
+    private bool _hasExternalLinks;
+
     /// <summary>True when the game has a non-zero rating value.</summary>
     [ObservableProperty]
     private bool _hasRating;
@@ -167,6 +206,15 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         _nav.NavigateTo(new LibraryViewModel(_server, _nav, _toast));
     }
 
+    /// <summary>Opens an external link in the system browser.</summary>
+    [RelayCommand]
+    private void OpenExternalLink(ExternalLinkViewModel link)
+    {
+        if (string.IsNullOrEmpty(link.Url)) return;
+        System.Diagnostics.Process.Start(
+            new System.Diagnostics.ProcessStartInfo(link.Url) { UseShellExecute = true });
+    }
+
     // ---------------------------------------------------------------------------
     // Private — data loading
     // ---------------------------------------------------------------------------
@@ -230,6 +278,34 @@ public sealed partial class GameDetailViewModel : ViewModelBase
                 AchievementTotal   = game.AchievementSummary.TotalCount;
                 AchievementUnlocked = game.AchievementSummary.UnlockedCount;
             }
+
+            // Populate source games.
+            SourceGames = new ObservableCollection<SourceGameRowViewModel>(
+                game.SourceGames.Select(sg => new SourceGameRowViewModel
+                {
+                    IntegrationLabel = sg.IntegrationLabel ?? sg.IntegrationId,
+                    Platform         = sg.Platform,
+                    Kind             = sg.Kind,
+                    RawTitle         = sg.RawTitle,
+                    Status           = sg.Status,
+                    FileCount        = sg.Files.Count,
+                    FileSummary      = sg.RootPath is not null
+                        ? $"{sg.Files.Count} file(s) in {sg.RootPath}"
+                        : $"{sg.Files.Count} file(s)",
+                }));
+            HasSourceGames = SourceGames.Count > 0;
+
+            // Populate external links.
+            ExternalLinks = new ObservableCollection<ExternalLinkViewModel>(
+                game.ExternalIds
+                    .Where(e => !string.IsNullOrEmpty(e.Url))
+                    .Select(e => new ExternalLinkViewModel
+                    {
+                        Source     = e.Source,
+                        ExternalId = e.ExternalId,
+                        Url        = e.Url,
+                    }));
+            HasExternalLinks = ExternalLinks.Count > 0;
         }
         catch (Exception ex)
         {
