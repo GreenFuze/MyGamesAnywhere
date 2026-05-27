@@ -7,7 +7,7 @@ Checked off as they land. Grouped by area.
 ## Play & Game Launch
 
 - [x] **Play tab = Installed / Launchable games** — grid filtered to CanPlay=true (Kind=="game") only; "Launchable Games N games" heading
-- [ ] **Auto-detect installed games** — scan sources for installed game files; mark games as launchable in the library
+- [x] **Auto-detect installed games** — Steam (registry + VDF), ARP fallback (≥0.85 fuzzy), exe resolution; Launch/Install/Browse-exe/Folder buttons in Game Detail; manual binding persisted to install-bindings.json
 - [ ] **Emulator management** — Settings > Emulators tab: add/edit/remove emulator entries (path, platform(s), args template)
 - [ ] **Launch game via emulator** — detect platform → look up emulator config → `Process.Start(emulator, args + gamePath)`
 - [ ] **"Install emulator" prompt** — if a game needs an emulator that isn't configured, offer a guided setup or link to download
