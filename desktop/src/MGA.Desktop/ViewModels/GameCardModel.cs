@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using MGA.Api;
+using MGA.Desktop.Services.Install;
 
 namespace MGA.Desktop.ViewModels;
 
@@ -33,8 +34,19 @@ public sealed partial class GameCardModel : ObservableObject
     /// <summary>Label of the first source integration (e.g. "RetroAchievements", "Steam").</summary>
     public string IntegrationLabel { get; init; } = string.Empty;
 
-    /// <summary>All source-game IDs for this canonical game — used by bulk hard-delete.</summary>
-    public IReadOnlyList<string> SourceGameIds { get; init; } = [];
+    /// <summary>
+    /// Full source-game info for each source attached to this canonical game.
+    /// Carries PluginId + ExternalId for client-side install detection,
+    /// and SourceGameId for bulk hard-delete operations.
+    /// </summary>
+    public IReadOnlyList<SourceGameInfo> Sources { get; init; } = [];
+
+    /// <summary>
+    /// Convenience accessor: all source-game IDs — derived from <see cref="Sources"/>.
+    /// Used by bulk hard-delete to identify each source record on the server.
+    /// </summary>
+    public IReadOnlyList<string> SourceGameIds =>
+        Sources.Select(s => s.SourceGameId).ToList();
 
     // ---------------------------------------------------------------------------
     // Observable (mutable) state
@@ -52,6 +64,14 @@ public sealed partial class GameCardModel : ObservableObject
     private bool _isSelected;
 
     partial void OnIsSelectedChanged(bool value) => _onSelectionChanged?.Invoke();
+
+    /// <summary>
+    /// Install detection result for this game on this machine.
+    /// Null until <see cref="Services.Install.InstallDetectionService"/> has run.
+    /// Must be set on the UI thread (or via Dispatcher.UIThread.InvokeAsync).
+    /// </summary>
+    [ObservableProperty]
+    private InstallStatus? _installStatus;
 
     // ---------------------------------------------------------------------------
     // Constructors
@@ -91,7 +111,16 @@ public sealed partial class GameCardModel : ObservableObject
         IntegrationLabel = g.SourceGames.FirstOrDefault()?.IntegrationLabel
                            ?? g.SourceGames.FirstOrDefault()?.IntegrationId
                            ?? string.Empty;
-        SourceGameIds    = g.SourceGames.Select(s => s.Id).ToList();
+
+        // Build SourceGameInfo list for client-side install detection.
+        Sources = g.SourceGames.Select(sg => new SourceGameInfo
+        {
+            SourceGameId = sg.Id,
+            PluginId     = sg.PluginId,
+            ExternalId   = sg.ExternalId,
+            RootPath     = sg.RootPath,
+            Label        = sg.IntegrationLabel,
+        }).ToList();
 
         // Parse "YYYY-MM-DD" or "YYYY" → year int.
         if (!string.IsNullOrEmpty(g.ReleaseDate) &&

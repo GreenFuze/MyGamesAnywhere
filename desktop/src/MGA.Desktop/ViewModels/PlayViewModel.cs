@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Desktop.Services;
+using MGA.Desktop.Services.Install;
 
 namespace MGA.Desktop.ViewModels;
 
@@ -13,10 +14,11 @@ namespace MGA.Desktop.ViewModels;
 /// </summary>
 public sealed partial class PlayViewModel : ViewModelBase
 {
-    private readonly ServerConnectionService _server;
-    private readonly NavigationService       _nav;
-    private readonly ToastService            _toast;
-    private readonly AppConfigService        _config;
+    private readonly ServerConnectionService    _server;
+    private readonly NavigationService          _nav;
+    private readonly ToastService               _toast;
+    private readonly AppConfigService           _config;
+    private readonly InstallDetectionService?   _installDetector;
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -44,15 +46,17 @@ public sealed partial class PlayViewModel : ViewModelBase
     // ---------------------------------------------------------------------------
 
     public PlayViewModel(
-        ServerConnectionService server,
-        NavigationService       nav,
-        ToastService            toast,
-        AppConfigService        config)
+        ServerConnectionService  server,
+        NavigationService        nav,
+        ToastService             toast,
+        AppConfigService         config,
+        InstallDetectionService? installDetector = null)
     {
-        _server = server;
-        _nav    = nav;
-        _toast  = toast;
-        _config = config;
+        _server          = server;
+        _nav             = nav;
+        _toast           = toast;
+        _config          = config;
+        _installDetector = installDetector;
 
         // Start loading immediately — fire-and-forget with error handling inside.
         _ = LoadAsync();
@@ -87,7 +91,8 @@ public sealed partial class PlayViewModel : ViewModelBase
     [RelayCommand]
     private void OpenGame(string gameId)
     {
-        _nav.NavigateTo(new GameDetailViewModel(gameId, _server, _nav, _toast, _config));
+        _nav.NavigateTo(new GameDetailViewModel(
+            gameId, _server, _nav, _toast, _config, _installDetector));
     }
 
     // ---------------------------------------------------------------------------
@@ -118,6 +123,10 @@ public sealed partial class PlayViewModel : ViewModelBase
             var recent = launchable.Take(10).ToList();
             RecentGames      = new ObservableCollection<GameCardModel>(recent);
             HasNoRecentGames = recent.Count == 0;
+
+            // Kick off install detection in the background for all launchable games.
+            // Each card's InstallStatus is updated individually as results arrive.
+            StartDetectionAsync(launchable);
         }
         catch (Exception ex)
         {
@@ -134,4 +143,31 @@ public sealed partial class PlayViewModel : ViewModelBase
     // ---------------------------------------------------------------------------
 
     private GameCardModel ToCard(MGA.Api.GameDetail g) => new(g, _server.Api);
+
+    /// <summary>
+    /// Starts background install detection for the given cards.
+    /// Subscribes to <see cref="InstallDetectionService.StatusUpdated"/> so that
+    /// each result is marshalled back to the UI thread and applied to the correct card.
+    /// </summary>
+    private void StartDetectionAsync(List<GameCardModel> cards)
+    {
+        if (_installDetector is null) return;
+
+        // Build lookup: gameId → card for O(1) updates.
+        var cardById = cards.ToDictionary(c => c.Id);
+
+        // Subscribe: receive each status update and apply it on the UI thread.
+        Disposables.Add(
+            _installDetector.StatusUpdated
+                .Subscribe(evt =>
+                {
+                    if (!cardById.TryGetValue(evt.GameId, out var card)) return;
+                    Avalonia.Threading.Dispatcher.UIThread.Post(
+                        () => card.InstallStatus = evt.Status);
+                }));
+
+        // Fire off detection; results arrive via the subscription above.
+        var gameInfos = cards.Select(c => (c.Id, c.Title, c.Sources));
+        _ = Task.Run(() => _installDetector.DetectAllAsync(gameInfos));
+    }
 }

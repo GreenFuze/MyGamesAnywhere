@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Api;
 using MGA.Desktop.Services;
+using MGA.Desktop.Services.Install;
 
 namespace MGA.Desktop.ViewModels;
 
@@ -208,10 +209,14 @@ public sealed class ExternalLinkViewModel
 /// </summary>
 public sealed partial class GameDetailViewModel : ViewModelBase
 {
-    private readonly ServerConnectionService _server;
-    private readonly NavigationService       _nav;
-    private readonly ToastService            _toast;
-    private readonly AppConfigService        _config;
+    private readonly ServerConnectionService    _server;
+    private readonly NavigationService          _nav;
+    private readonly ToastService               _toast;
+    private readonly AppConfigService           _config;
+    private readonly InstallDetectionService?   _installDetector;
+
+    // Cached for re-detection after manual binding changes.
+    private IReadOnlyList<SourceGameInfo> _sourcesForDetection = [];
 
     // ---------------------------------------------------------------------------
     // Identity
@@ -332,6 +337,51 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     private string _emulatorName = string.Empty;
 
     // ---------------------------------------------------------------------------
+    // Install detection
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Latest install detection result for this game on this machine.
+    /// Null until detection has completed (shows "Detecting…" spinner in UI).
+    /// Updated on the UI thread by the background detection task.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsInstalled))]
+    [NotifyPropertyChangedFor(nameof(CanInstallGame))]
+    [NotifyPropertyChangedFor(nameof(NeedsClientInstall))]
+    [NotifyPropertyChangedFor(nameof(NeedsManualBind))]
+    [NotifyPropertyChangedFor(nameof(IsDetectingInstall))]
+    [NotifyPropertyChangedFor(nameof(InstallStateText))]
+    [NotifyPropertyChangedFor(nameof(ClientMissingMessage))]
+    [NotifyPropertyChangedFor(nameof(ClientDownloadUrl))]
+    private InstallStatus? _installStatus;
+
+    // Derived convenience booleans — computed fresh whenever InstallStatus changes.
+    // Note: use the generated property `InstallStatus`, not the backing field `_installStatus`.
+    public bool IsInstalled         => InstallStatus?.IsInstalled ?? false;
+    public bool CanInstallGame      => InstallStatus?.CanInstall ?? false;
+    public bool NeedsClientInstall  => InstallStatus?.NeedsClientInstall ?? false;
+    public bool NeedsManualBind     => InstallStatus?.NeedsManualBind ?? false;
+    public bool IsDetectingInstall  => InstallStatus is null;
+
+    public string? ClientMissingMessage => InstallStatus?.ClientMissingMessage;
+    public string? ClientDownloadUrl    => InstallStatus?.ClientDownloadUrl;
+
+    /// <summary>Short human-readable install state label shown in the action bar.</summary>
+    public string InstallStateText => InstallStatus?.State switch
+    {
+        InstallState.Installed             => "✓ Installed",
+        InstallState.NotInstalled          => "Not installed",
+        InstallState.ClientMissing         => "Client missing",
+        InstallState.ManualBindNeeded      => "Setup required",
+        InstallState.RomRemote             => "Remote ROM",
+        InstallState.EmulatorMissing       => "Emulator missing",
+        InstallState.EmulatorNotConfigured => "Emulator not set up",
+        InstallState.Unknown               => "Detecting…",
+        _                                  => string.Empty,
+    };
+
+    // ---------------------------------------------------------------------------
     // Merge tracking — only one row can be in merge mode at a time
     // ---------------------------------------------------------------------------
 
@@ -343,17 +393,19 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     // ---------------------------------------------------------------------------
 
     public GameDetailViewModel(
-        string                  gameId,
-        ServerConnectionService server,
-        NavigationService       nav,
-        ToastService            toast,
-        AppConfigService        config)
+        string                   gameId,
+        ServerConnectionService  server,
+        NavigationService        nav,
+        ToastService             toast,
+        AppConfigService         config,
+        InstallDetectionService? installDetector = null)
     {
-        GameId  = gameId;
-        _server = server;
-        _nav    = nav;
-        _toast  = toast;
-        _config = config;
+        GameId           = gameId;
+        _server          = server;
+        _nav             = nav;
+        _toast           = toast;
+        _config          = config;
+        _installDetector = installDetector;
 
         _ = LoadAsync();
     }
@@ -369,6 +421,164 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         var url = $"{_server.ActiveUrl}/game/{Uri.EscapeDataString(GameId)}/play";
         System.Diagnostics.Process.Start(
             new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+    }
+
+    /// <summary>
+    /// Launches the game using the resolved exe path or a storefront URI
+    /// stored in <see cref="InstallStatus.LaunchUri"/>.
+    /// </summary>
+    [RelayCommand]
+    private void LaunchGame()
+    {
+        var launchUri = InstallStatus?.LaunchUri;
+        if (string.IsNullOrEmpty(launchUri))
+        {
+            _toast.Error("Cannot launch", "No launch path is available for this game.");
+            return;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(launchUri) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Launch failed", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Opens the storefront install flow (e.g. <c>steam://install/730</c>)
+    /// or navigates to a download page when the game is not installed.
+    /// </summary>
+    [RelayCommand]
+    private void InstallGame()
+    {
+        var installUri = InstallStatus?.LaunchUri;
+        if (string.IsNullOrEmpty(installUri))
+        {
+            _toast.Error("Cannot install", "No install URI available for this game.");
+            return;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(installUri) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Install failed", ex.Message);
+        }
+    }
+
+    /// <summary>Opens the client download URL when the storefront client is missing.</summary>
+    [RelayCommand]
+    private void OpenClientDownload()
+    {
+        var url = InstallStatus?.ClientDownloadUrl;
+        if (string.IsNullOrEmpty(url)) return;
+
+        System.Diagnostics.Process.Start(
+            new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+    }
+
+    /// <summary>Opens the game's install folder in Explorer.</summary>
+    [RelayCommand]
+    private void OpenInstallFolder()
+    {
+        var path = InstallStatus?.InstallPath;
+        if (string.IsNullOrEmpty(path)) return;
+
+        try
+        {
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{path}\"")
+                { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Cannot open folder", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Re-runs install detection for this game, clearing cached state first.
+    /// Useful after the user installs/uninstalls the game.
+    /// </summary>
+    [RelayCommand]
+    private async Task RefreshInstallStatusAsync()
+    {
+        if (_installDetector is null) return;
+
+        InstallStatus = null; // shows "Detecting…" spinner
+
+        var status = await _installDetector
+            .DetectGameAsync(GameId, Title, _sourcesForDetection)
+            .ConfigureAwait(true);
+
+        InstallStatus = status;
+    }
+
+    /// <summary>
+    /// Opens a file picker for the user to manually select the game executable.
+    /// Stores the selected path as a permanent override via <see cref="InstallDetectionService"/>.
+    /// </summary>
+    [RelayCommand]
+    private async Task PickExePathAsync()
+    {
+        // Obtain the main window from the Avalonia application lifetime.
+        var lifetime = Avalonia.Application.Current?.ApplicationLifetime
+            as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+
+        var mainWindow = lifetime?.MainWindow;
+        if (mainWindow is null) return;
+
+        var options = new Avalonia.Platform.Storage.FilePickerOpenOptions
+        {
+            Title          = $"Select executable for \"{Title}\"",
+            AllowMultiple  = false,
+            FileTypeFilter =
+            [
+                new Avalonia.Platform.Storage.FilePickerFileType("Executable (*.exe)")
+                {
+                    Patterns = ["*.exe"],
+                },
+                new Avalonia.Platform.Storage.FilePickerFileType("All files")
+                {
+                    Patterns = ["*"],
+                },
+            ],
+        };
+
+        var result   = await mainWindow.StorageProvider.OpenFilePickerAsync(options)
+            .ConfigureAwait(true);
+        var selected = result.FirstOrDefault();
+        if (selected is null) return;
+
+        var exePath = selected.Path.IsAbsoluteUri && selected.Path.IsFile
+            ? selected.Path.LocalPath
+            : selected.Path.AbsolutePath;
+        SetManualBinding(exePath);
+    }
+
+    /// <summary>
+    /// Stores a manually chosen exe path as the permanent override for this game.
+    /// </summary>
+    public void SetManualBinding(string exePath)
+    {
+        if (_installDetector is null) return;
+
+        _installDetector.SetManualBinding(GameId, exePath);
+        InstallStatus = new InstallStatus
+        {
+            State      = InstallState.Installed,
+            ExePath    = exePath,
+            LaunchUri  = exePath,
+            Confidence = 1.0,
+        };
+        _toast.Success("Executable bound", $"Game will now launch from:\n{exePath}");
     }
 
     /// <summary>Toggles the favorite flag via PUT/DELETE /api/games/{id}/favorite.</summary>
@@ -397,14 +607,16 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     [RelayCommand]
     private void GoBack()
     {
-        _nav.NavigateTo(new LibraryViewModel(_server, _nav, _toast, _config));
+        _nav.NavigateTo(new LibraryViewModel(
+            _server, _nav, _toast, _config, installDetector: _installDetector));
     }
 
     /// <summary>Opens the Media Manager page for this game.</summary>
     [RelayCommand]
     private void OpenMediaManager()
     {
-        _nav.NavigateTo(new MediaManagerViewModel(GameId, _server, _nav, _toast, _config));
+        _nav.NavigateTo(new MediaManagerViewModel(
+            GameId, _server, _nav, _toast, _config, _installDetector));
     }
 
     /// <summary>Launches the game using the configured emulator for its platform.</summary>
@@ -534,7 +746,8 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             if (!result.CanonicalExists)
             {
                 // The canonical game itself was deleted — navigate back.
-                _nav.NavigateTo(new LibraryViewModel(_server, _nav, _toast, _config));
+                _nav.NavigateTo(new LibraryViewModel(
+            _server, _nav, _toast, _config, installDetector: _installDetector));
             }
             else
             {
@@ -682,7 +895,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             if (result.CanonicalGameId != GameId)
             {
                 _nav.NavigateTo(new GameDetailViewModel(
-                    result.CanonicalGameId, _server, _nav, _toast, _config));
+                    result.CanonicalGameId, _server, _nav, _toast, _config, _installDetector));
             }
             else
             {
@@ -797,6 +1010,21 @@ public sealed partial class GameDetailViewModel : ViewModelBase
                     .Where(e => !string.IsNullOrEmpty(e.Url))
                     .Select(e => new ExternalLinkViewModel(e)));
             HasExternalLinks = ExternalLinks.Count > 0;
+
+            // Cache SourceGameInfo list for install detection + re-detection.
+            _sourcesForDetection = game.SourceGames.Select(sg => new SourceGameInfo
+            {
+                SourceGameId = sg.Id,
+                PluginId     = sg.PluginId,
+                ExternalId   = sg.ExternalId,
+                RootPath     = sg.RootPath,
+                Label        = sg.IntegrationLabel,
+            }).ToList();
+
+            // Kick off install detection in the background (non-blocking).
+            // Result arrives via InstallStatus property update on the UI thread.
+            if (_installDetector is not null)
+                _ = RunInstallDetectionAsync();
         }
         catch (Exception ex)
         {
@@ -805,6 +1033,34 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         finally
         {
             IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// Background helper: runs detection and marshals the result to the UI thread.
+    /// Fire-and-forget from <see cref="LoadAsync"/> — exceptions are caught internally.
+    /// </summary>
+    private async Task RunInstallDetectionAsync()
+    {
+        if (_installDetector is null) return;
+
+        try
+        {
+            // Run detection off the UI thread (registry + file I/O).
+            var status = await Task.Run(async () =>
+                await _installDetector.DetectGameAsync(
+                    GameId, Title, _sourcesForDetection).ConfigureAwait(false))
+                .ConfigureAwait(false);
+
+            // Apply result on the UI thread.
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                InstallStatus = status;
+            });
+        }
+        catch
+        {
+            // Non-fatal — install state remains null (shows "Detecting…").
         }
     }
 }

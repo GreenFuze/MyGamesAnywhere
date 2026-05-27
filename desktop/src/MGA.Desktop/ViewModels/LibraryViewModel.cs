@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Desktop.Services;
+using MGA.Desktop.Services.Install;
 
 namespace MGA.Desktop.ViewModels;
 
@@ -16,10 +17,11 @@ namespace MGA.Desktop.ViewModels;
 /// </summary>
 public sealed partial class LibraryViewModel : ViewModelBase
 {
-    private readonly ServerConnectionService _server;
-    private readonly NavigationService       _nav;
-    private readonly ToastService            _toast;
-    private readonly AppConfigService        _config;
+    private readonly ServerConnectionService    _server;
+    private readonly NavigationService          _nav;
+    private readonly ToastService               _toast;
+    private readonly AppConfigService           _config;
+    private readonly InstallDetectionService?   _installDetector;
 
     // ---------------------------------------------------------------------------
     // Sort options
@@ -177,16 +179,18 @@ public sealed partial class LibraryViewModel : ViewModelBase
     // ---------------------------------------------------------------------------
 
     public LibraryViewModel(
-        ServerConnectionService server,
-        NavigationService       nav,
-        ToastService            toast,
-        AppConfigService        config,
-        string?                 initialSearch = null)
+        ServerConnectionService  server,
+        NavigationService        nav,
+        ToastService             toast,
+        AppConfigService         config,
+        string?                  initialSearch    = null,
+        InstallDetectionService? installDetector  = null)
     {
-        _server = server;
-        _nav    = nav;
-        _toast  = toast;
-        _config = config;
+        _server          = server;
+        _nav             = nav;
+        _toast           = toast;
+        _config          = config;
+        _installDetector = installDetector;
 
         if (!string.IsNullOrEmpty(initialSearch))
             SearchText = initialSearch;
@@ -310,7 +314,8 @@ public sealed partial class LibraryViewModel : ViewModelBase
     [RelayCommand]
     private void OpenGame(string gameId)
     {
-        _nav.NavigateTo(new GameDetailViewModel(gameId, _server, _nav, _toast, _config));
+        _nav.NavigateTo(new GameDetailViewModel(
+            gameId, _server, _nav, _toast, _config, _installDetector));
     }
 
     [RelayCommand]

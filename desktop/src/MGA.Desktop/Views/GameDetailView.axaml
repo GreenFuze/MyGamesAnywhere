@@ -95,6 +95,75 @@
                     Spacing="12"
                     Margin="24,16,24,0">
 
+          <!-- ============================================================
+               Install detection section
+               ============================================================ -->
+
+          <!-- "Detecting…" label shown while detection is running -->
+          <Border VerticalAlignment="Center"
+                  IsVisible="{Binding IsDetectingInstall}">
+            <TextBlock Text="Detecting…"
+                       Classes="muted"
+                       FontSize="{DynamicResource MgaFontSizeXs}"
+                       VerticalAlignment="Center"/>
+          </Border>
+
+          <!-- Launch button — shown when game exe is known and installed -->
+          <Button Classes="primary"
+                  Command="{Binding LaunchGameCommand}"
+                  IsVisible="{Binding IsInstalled}"
+                  ToolTip.Tip="{Binding InstallStatus.ExePath}">
+            <TextBlock Text="▶ Launch"/>
+          </Button>
+
+          <!-- Install button — shown when game is in library but not downloaded -->
+          <Button Classes="primary"
+                  Command="{Binding InstallGameCommand}"
+                  Content="⬇ Install"
+                  IsVisible="{Binding CanInstallGame}"/>
+
+          <!-- Install client — shown when the storefront client is missing -->
+          <Button Classes="ghost"
+                  Command="{Binding OpenClientDownloadCommand}"
+                  IsVisible="{Binding NeedsClientInstall}"
+                  ToolTip.Tip="{Binding ClientDownloadUrl}">
+            <TextBlock>
+              <Run Text="⬇ "/>
+              <Run Text="{Binding ClientMissingMessage}"/>
+            </TextBlock>
+          </Button>
+
+          <!-- Browse for exe — shown when installed but exe could not be resolved -->
+          <Button Classes="ghost"
+                  Command="{Binding PickExePathCommand}"
+                  Content="📂 Browse exe"
+                  IsVisible="{Binding NeedsManualBind}"/>
+
+          <!-- Open install folder — shown alongside Launch when path is known -->
+          <Button Classes="ghost"
+                  Command="{Binding OpenInstallFolderCommand}"
+                  Content="📁 Folder"
+                  IsVisible="{Binding IsInstalled}"
+                  ToolTip.Tip="{Binding InstallStatus.InstallPath}"/>
+
+          <!-- Installed state badge -->
+          <Border Background="#223db8ff"
+                  CornerRadius="{DynamicResource MgaRadiusFull}"
+                  Padding="8,3"
+                  VerticalAlignment="Center"
+                  IsVisible="{Binding IsInstalled}">
+            <TextBlock Text="✓ Installed"
+                       Foreground="{DynamicResource MgaAccentBrush}"
+                       FontSize="{DynamicResource MgaFontSizeXs}"
+                       FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+          </Border>
+
+          <!-- Separator between install section and standard actions -->
+          <Border Width="1"
+                  Background="{DynamicResource MgaBorderBrush}"
+                  Margin="4,4"
+                  VerticalAlignment="Stretch"/>
+
           <!-- Emulator launch button — visible only when emulator is configured -->
           <Button Classes="primary"
                   Command="{Binding LaunchWithEmulatorCommand}"

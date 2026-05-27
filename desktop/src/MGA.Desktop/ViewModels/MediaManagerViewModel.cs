@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Api;
 using MGA.Desktop.Services;
+using MGA.Desktop.Services.Install;
 
 namespace MGA.Desktop.ViewModels;
 
@@ -57,11 +58,12 @@ public sealed class MediaAssetModel
 /// </summary>
 public sealed partial class MediaManagerViewModel : ViewModelBase
 {
-    private readonly string                  _gameId;
-    private readonly ServerConnectionService _server;
-    private readonly NavigationService       _nav;
-    private readonly ToastService            _toast;
-    private readonly AppConfigService        _config;
+    private readonly string                   _gameId;
+    private readonly ServerConnectionService  _server;
+    private readonly NavigationService        _nav;
+    private readonly ToastService             _toast;
+    private readonly AppConfigService         _config;
+    private readonly InstallDetectionService? _installDetector;
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -90,17 +92,19 @@ public sealed partial class MediaManagerViewModel : ViewModelBase
     // ---------------------------------------------------------------------------
 
     public MediaManagerViewModel(
-        string                  gameId,
-        ServerConnectionService server,
-        NavigationService       nav,
-        ToastService            toast,
-        AppConfigService        config)
+        string                   gameId,
+        ServerConnectionService  server,
+        NavigationService        nav,
+        ToastService             toast,
+        AppConfigService         config,
+        InstallDetectionService? installDetector = null)
     {
-        _gameId = gameId;
-        _server = server;
-        _nav    = nav;
-        _toast  = toast;
-        _config = config;
+        _gameId          = gameId;
+        _server          = server;
+        _nav             = nav;
+        _toast           = toast;
+        _config          = config;
+        _installDetector = installDetector;
 
         _ = LoadAsync();
     }
@@ -112,7 +116,8 @@ public sealed partial class MediaManagerViewModel : ViewModelBase
     /// <summary>Navigates back to Game Detail for this game.</summary>
     [RelayCommand]
     private void Back() =>
-        _nav.NavigateTo(new GameDetailViewModel(_gameId, _server, _nav, _toast, _config));
+        _nav.NavigateTo(new GameDetailViewModel(
+            _gameId, _server, _nav, _toast, _config, _installDetector));
 
     /// <summary>Sets the given asset as the cover override for this game.</summary>
     [RelayCommand]

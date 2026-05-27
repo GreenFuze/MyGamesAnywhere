@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Desktop.Services;
+using MGA.Desktop.Services.Install;
 using MGA.Desktop.ViewModels.Settings;
 using System.Reactive.Linq;
 
@@ -14,11 +15,12 @@ namespace MGA.Desktop.ViewModels;
 /// </summary>
 public sealed partial class MainWindowViewModel : ViewModelBase
 {
-    private readonly AppConfigService         _config;
-    private readonly ServerConnectionService  _serverConn;
-    private readonly ThemeService             _theme;
-    private readonly NavigationService        _nav;
-    private readonly ToastService             _toast;
+    private readonly AppConfigService          _config;
+    private readonly ServerConnectionService   _serverConn;
+    private readonly ThemeService              _theme;
+    private readonly NavigationService         _nav;
+    private readonly ToastService              _toast;
+    private readonly InstallDetectionService?  _installDetector;
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -72,17 +74,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     // ---------------------------------------------------------------------------
 
     public MainWindowViewModel(
-        AppConfigService         config,
-        ServerConnectionService  serverConn,
-        ThemeService             theme,
-        NavigationService        nav,
-        ToastService             toast)
+        AppConfigService          config,
+        ServerConnectionService   serverConn,
+        ThemeService              theme,
+        NavigationService         nav,
+        ToastService              toast,
+        InstallDetectionService?  installDetector = null)
     {
-        _config     = config;
-        _serverConn = serverConn;
-        _theme      = theme;
-        _nav        = nav;
-        _toast      = toast;
+        _config          = config;
+        _serverConn      = serverConn;
+        _theme           = theme;
+        _nav             = nav;
+        _toast           = toast;
+        _installDetector = installDetector;
 
         // Restore persisted shell state.
         SidebarCollapsed = config.Config.SidebarCollapsed;
@@ -182,7 +186,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             item.IsActive = item.PageId == "library";
 
         // Navigate to Library with the search query pre-filled.
-        _nav.NavigateTo(new LibraryViewModel(_serverConn, _nav, _toast, _config, initialSearch: query));
+        _nav.NavigateTo(new LibraryViewModel(
+            _serverConn, _nav, _toast, _config,
+            initialSearch: query, installDetector: _installDetector));
 
         // Clear the search box after navigation.
         GlobalSearchText = string.Empty;
@@ -220,8 +226,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     private ViewModelBase? CreatePageViewModel(string pageId) => pageId switch
     {
-        "play"         => new PlayViewModel(_serverConn, _nav, _toast, _config),
-        "library"      => new LibraryViewModel(_serverConn, _nav, _toast, _config),
+        "play"         => new PlayViewModel(_serverConn, _nav, _toast, _config, _installDetector),
+        "library"      => new LibraryViewModel(_serverConn, _nav, _toast, _config, installDetector: _installDetector),
         "achievements" => new AchievementsViewModel(_serverConn, _toast),
         "stats"        => new StatsViewModel(_serverConn, _toast),
         "settings"     => new SettingsViewModel(_serverConn, _theme, _config, _toast),
