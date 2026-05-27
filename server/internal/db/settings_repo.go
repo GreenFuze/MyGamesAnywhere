@@ -105,8 +105,12 @@ func (r *integrationRepository) Create(ctx context.Context, a *core.Integration)
 	if a.ProfileID == "" {
 		a.ProfileID = core.ProfileIDFromContext(ctx)
 	}
-	_, err := r.db.GetDB().ExecContext(ctx, `INSERT INTO integrations (id, profile_id, plugin_id, label, config_json, integration_type, created_at, updated_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, a.ID, a.ProfileID, a.PluginID, a.Label, a.ConfigJSON, a.IntegrationType, a.CreatedAt.Unix(), a.UpdatedAt.Unix())
+	needsReauth := 0
+	if a.NeedsReauth {
+		needsReauth = 1
+	}
+	_, err := r.db.GetDB().ExecContext(ctx, `INSERT INTO integrations (id, profile_id, plugin_id, label, config_json, integration_type, needs_reauth, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, a.ID, a.ProfileID, a.PluginID, a.Label, a.ConfigJSON, a.IntegrationType, needsReauth, a.CreatedAt.Unix(), a.UpdatedAt.Unix())
 	return err
 }
 
@@ -114,8 +118,12 @@ func (r *integrationRepository) Update(ctx context.Context, a *core.Integration)
 	if a.ProfileID == "" {
 		a.ProfileID = core.ProfileIDFromContext(ctx)
 	}
-	query := `UPDATE integrations SET profile_id=?, plugin_id=?, label=?, config_json=?, integration_type=?, updated_at=? WHERE id=?`
-	args := []any{a.ProfileID, a.PluginID, a.Label, a.ConfigJSON, a.IntegrationType, a.UpdatedAt.Unix(), a.ID}
+	needsReauth := 0
+	if a.NeedsReauth {
+		needsReauth = 1
+	}
+	query := `UPDATE integrations SET profile_id=?, plugin_id=?, label=?, config_json=?, integration_type=?, needs_reauth=?, updated_at=? WHERE id=?`
+	args := []any{a.ProfileID, a.PluginID, a.Label, a.ConfigJSON, a.IntegrationType, needsReauth, a.UpdatedAt.Unix(), a.ID}
 	if profileID := core.ProfileIDFromContext(ctx); profileID != "" {
 		query += ` AND profile_id=?`
 		args = append(args, profileID)
@@ -134,7 +142,7 @@ func (r *integrationRepository) Delete(ctx context.Context, id string) error {
 }
 
 func (r *integrationRepository) List(ctx context.Context) ([]*core.Integration, error) {
-	query := `SELECT id, COALESCE(profile_id,''), plugin_id, label, config_json, integration_type, created_at, updated_at FROM integrations`
+	query := `SELECT id, COALESCE(profile_id,''), plugin_id, label, config_json, integration_type, COALESCE(needs_reauth,0), created_at, updated_at FROM integrations`
 	args := []any{}
 	if profileID := core.ProfileIDFromContext(ctx); profileID != "" {
 		query += ` WHERE profile_id = ?`
@@ -149,9 +157,11 @@ func (r *integrationRepository) List(ctx context.Context) ([]*core.Integration, 
 	for rows.Next() {
 		var a core.Integration
 		var created, updated int64
-		if err := rows.Scan(&a.ID, &a.ProfileID, &a.PluginID, &a.Label, &a.ConfigJSON, &a.IntegrationType, &created, &updated); err != nil {
+		var needsReauth int
+		if err := rows.Scan(&a.ID, &a.ProfileID, &a.PluginID, &a.Label, &a.ConfigJSON, &a.IntegrationType, &needsReauth, &created, &updated); err != nil {
 			return nil, err
 		}
+		a.NeedsReauth = needsReauth != 0
 		a.CreatedAt = time.Unix(created, 0)
 		a.UpdatedAt = time.Unix(updated, 0)
 		integrations = append(integrations, &a)
@@ -160,7 +170,7 @@ func (r *integrationRepository) List(ctx context.Context) ([]*core.Integration, 
 }
 
 func (r *integrationRepository) GetByID(ctx context.Context, id string) (*core.Integration, error) {
-	query := `SELECT id, COALESCE(profile_id,''), plugin_id, label, config_json, integration_type, created_at, updated_at FROM integrations WHERE id = ?`
+	query := `SELECT id, COALESCE(profile_id,''), plugin_id, label, config_json, integration_type, COALESCE(needs_reauth,0), created_at, updated_at FROM integrations WHERE id = ?`
 	args := []any{id}
 	if profileID := core.ProfileIDFromContext(ctx); profileID != "" {
 		query += ` AND profile_id = ?`
@@ -169,19 +179,21 @@ func (r *integrationRepository) GetByID(ctx context.Context, id string) (*core.I
 	row := r.db.GetDB().QueryRowContext(ctx, query, args...)
 	var a core.Integration
 	var created, updated int64
-	if err := row.Scan(&a.ID, &a.ProfileID, &a.PluginID, &a.Label, &a.ConfigJSON, &a.IntegrationType, &created, &updated); err != nil {
+	var needsReauth int
+	if err := row.Scan(&a.ID, &a.ProfileID, &a.PluginID, &a.Label, &a.ConfigJSON, &a.IntegrationType, &needsReauth, &created, &updated); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
+	a.NeedsReauth = needsReauth != 0
 	a.CreatedAt = time.Unix(created, 0)
 	a.UpdatedAt = time.Unix(updated, 0)
 	return &a, nil
 }
 
 func (r *integrationRepository) ListByPluginID(ctx context.Context, pluginID string) ([]*core.Integration, error) {
-	query := `SELECT id, COALESCE(profile_id,''), plugin_id, label, config_json, integration_type, created_at, updated_at FROM integrations WHERE plugin_id=?`
+	query := `SELECT id, COALESCE(profile_id,''), plugin_id, label, config_json, integration_type, COALESCE(needs_reauth,0), created_at, updated_at FROM integrations WHERE plugin_id=?`
 	args := []any{pluginID}
 	if profileID := core.ProfileIDFromContext(ctx); profileID != "" {
 		query += ` AND profile_id = ?`
@@ -196,9 +208,11 @@ func (r *integrationRepository) ListByPluginID(ctx context.Context, pluginID str
 	for rows.Next() {
 		var a core.Integration
 		var created, updated int64
-		if err := rows.Scan(&a.ID, &a.ProfileID, &a.PluginID, &a.Label, &a.ConfigJSON, &a.IntegrationType, &created, &updated); err != nil {
+		var needsReauth int
+		if err := rows.Scan(&a.ID, &a.ProfileID, &a.PluginID, &a.Label, &a.ConfigJSON, &a.IntegrationType, &needsReauth, &created, &updated); err != nil {
 			return nil, err
 		}
+		a.NeedsReauth = needsReauth != 0
 		a.CreatedAt = time.Unix(created, 0)
 		a.UpdatedAt = time.Unix(updated, 0)
 		integrations = append(integrations, &a)

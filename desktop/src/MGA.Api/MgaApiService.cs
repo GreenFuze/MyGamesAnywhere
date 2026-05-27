@@ -654,6 +654,45 @@ public sealed class MgaApiService
     public Task<List<GameListItem>> GetIntegrationGamesAsync(string id, CancellationToken ct = default)
         => GetAsync<List<GameListItem>>($"/api/integrations/{Uri.EscapeDataString(id)}/games", ct);
 
+    /// <summary>
+    /// Validates that each game file linked to integration {id} still exists on disk.
+    /// Returns a list of stale records and the total count checked.
+    /// POST /api/integrations/{id}/validate-files
+    /// </summary>
+    public async Task<ValidateFilesResponse> ValidateIntegrationFilesAsync(
+        string id, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync(
+            $"/api/integrations/{Uri.EscapeDataString(id)}/validate-files", null, ct)
+            .ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var result = await resp.Content
+            .ReadFromJsonAsync<ValidateFilesResponse>(JsonOptions, ct).ConfigureAwait(false);
+        return result ?? throw new MgaApiException(200, "Server returned null for validate-files");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Sync
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Pulls and merges the latest remote sync snapshot.
+    /// POST /api/sync/pull with optional passphrase.
+    /// </summary>
+    public async Task<SyncPullResponse> SyncPullAsync(
+        string? passphrase = null, CancellationToken ct = default)
+    {
+        // Always send the field; server ignores empty/null passphrase and uses stored key.
+        var body = new { passphrase = passphrase ?? string.Empty };
+
+        var resp = await _http.PostAsJsonAsync("/api/sync/pull", body, JsonOptions, ct)
+            .ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        var result = await resp.Content
+            .ReadFromJsonAsync<SyncPullResponse>(JsonOptions, ct).ConfigureAwait(false);
+        return result ?? throw new MgaApiException(200, "Server returned null for sync/pull");
+    }
+
     // ---------------------------------------------------------------------------
     // Scan reports
     // ---------------------------------------------------------------------------

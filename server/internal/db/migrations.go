@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 9
+const latestMigrationVersion = 10
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -163,6 +163,18 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 				);`,
 				`CREATE INDEX IF NOT EXISTS idx_canonical_source_pins_canonical ON canonical_source_pins(canonical_id);`,
 				`CREATE INDEX IF NOT EXISTS idx_canonical_source_pins_mode ON canonical_source_pins(mode);`,
+			},
+		},
+		{
+			Version: 10,
+			Name:    "integration_needs_reauth",
+			Run: func(_ context.Context, db *sqliteDatabase) error {
+				if _, err := db.db.Exec(`ALTER TABLE integrations ADD COLUMN needs_reauth INTEGER NOT NULL DEFAULT 0`); err != nil {
+					if !strings.Contains(err.Error(), "duplicate column") {
+						return fmt.Errorf("add needs_reauth to integrations: %w", err)
+					}
+				}
+				return nil
 			},
 		},
 	}

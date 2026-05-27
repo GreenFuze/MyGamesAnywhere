@@ -4,6 +4,7 @@
              xmlns:settingsVm="using:MGA.Desktop.ViewModels.Settings"
              xmlns:controls="using:MGA.Desktop.Controls"
              xmlns:services="using:MGA.Desktop.Services"
+             xmlns:mga="using:MGA.Api"
              x:Class="MGA.Desktop.Views.SettingsView"
              x:DataType="vm:SettingsViewModel">
 
@@ -360,6 +361,10 @@
                         Content="⊳ Scan"
                         Command="{Binding ScanCommand}"
                         IsEnabled="{Binding !IsScanning}"/>
+                <Button Classes="ghost"
+                        Content="⬇ Import from Sync"
+                        Command="{Binding ImportFromSyncCommand}"
+                        ToolTip.Tip="Pull the latest remote sync snapshot and merge integrations into this device. New integrations will be marked 'Auth Required'."/>
               </StackPanel>
 
               <!-- Scrollable list -->
@@ -377,7 +382,7 @@
                           <!-- ── Main row: info + actions ── -->
                           <Grid ColumnDefinitions="*,Auto">
 
-                            <!-- Label + status badge + plugin id + error -->
+                            <!-- Label + status badges + plugin id + error -->
                             <StackPanel Grid.Column="0" Spacing="4">
 
                               <TextBlock Text="{Binding Label}"
@@ -391,6 +396,18 @@
                                   <TextBlock Text="{Binding Status}"
                                              FontSize="{DynamicResource MgaFontSizeXs}"
                                              Foreground="#FFFFFF"/>
+                                </Border>
+
+                                <!-- Auth Required badge (shown when NeedsReauth) -->
+                                <Border CornerRadius="{DynamicResource MgaRadiusFull}"
+                                        Padding="8,2"
+                                        Background="Transparent"
+                                        BorderBrush="#7D6015"
+                                        BorderThickness="1"
+                                        IsVisible="{Binding NeedsReauth}">
+                                  <TextBlock Text="Auth Required"
+                                             FontSize="{DynamicResource MgaFontSizeXs}"
+                                             Foreground="#F59E0B"/>
                                 </Border>
 
                                 <TextBlock Text="{Binding PluginId}"
@@ -410,6 +427,41 @@
                                          IsVisible="{Binding HasError}"
                                          Foreground="{DynamicResource MgaDangerBrush}"/>
 
+                              <!-- Validate-files result panel -->
+                              <Border IsVisible="{Binding HasValidateResult}"
+                                      Margin="0,4,0,0">
+                                <StackPanel Spacing="4">
+
+                                  <!-- Summary line -->
+                                  <TextBlock Text="{Binding ValidateResultText}"
+                                             Classes="muted"
+                                             FontSize="{DynamicResource MgaFontSizeXs}"/>
+
+                                  <!-- Missing files list + remove button -->
+                                  <StackPanel Spacing="4"
+                                              IsVisible="{Binding MissingFiles.Count}">
+                                    <ItemsControl ItemsSource="{Binding MissingFiles}">
+                                      <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="mga:MissingFileEntry">
+                                          <TextBlock Text="{Binding Title}"
+                                                     Classes="muted"
+                                                     FontSize="{DynamicResource MgaFontSizeXs}"
+                                                     TextTrimming="CharacterEllipsis"
+                                                     ToolTip.Tip="{Binding Path}"/>
+                                        </DataTemplate>
+                                      </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Classes="danger"
+                                            Content="Remove Stale Records"
+                                            FontSize="{DynamicResource MgaFontSizeXs}"
+                                            HorizontalAlignment="Left"
+                                            Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).RemoveMissingFilesCommand}"
+                                            CommandParameter="{Binding}"/>
+                                  </StackPanel>
+
+                                </StackPanel>
+                              </Border>
+
                             </StackPanel>
 
                             <!-- Row action buttons -->
@@ -428,6 +480,18 @@
                                       Content="↻ Refresh"
                                       Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).RefreshIntegrationCommand}"
                                       CommandParameter="{Binding IntegrationId}"/>
+
+                              <!-- Validate files: spinner while in-flight, button otherwise -->
+                              <Border VerticalAlignment="Center"
+                                      IsVisible="{Binding IsValidating}">
+                                <controls:LoadingSpinner Width="18" Height="18"/>
+                              </Border>
+                              <Button Classes="ghost"
+                                      Content="✔ Validate Files"
+                                      IsVisible="{Binding !IsValidating}"
+                                      ToolTip.Tip="Check whether the game files linked to this integration still exist on disk."
+                                      Command="{Binding $parent[ItemsControl].((settingsVm:IntegrationsTabViewModel)DataContext).ValidateFilesCommand}"
+                                      CommandParameter="{Binding}"/>
 
                               <!-- Games expand/collapse toggle -->
                               <Button Classes="ghost"

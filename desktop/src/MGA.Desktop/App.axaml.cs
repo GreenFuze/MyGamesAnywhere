@@ -21,6 +21,8 @@ public partial class App : Application
     private NavigationService?         _nav;
     private ToastService?              _toast;
     private InstallDetectionService?   _installDetector;
+    private RecentPlayedService?       _recentPlayed;
+    private DeepLinkService?           _deepLink;
     private MainWindowViewModel?       _mainVm;
 
     /// <summary>Exposed so MainWindow code-behind can bind the toast overlay.</summary>
@@ -36,11 +38,12 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Build service graph bottom-up (RAII order: dependencies first).
-            _config     = new AppConfigService();
-            _serverConn = new ServerConnectionService(_config);
-            _theme      = new ThemeService(_config, this);
-            _nav        = new NavigationService();
-            _toast      = new ToastService();
+            _config       = new AppConfigService();
+            _serverConn   = new ServerConnectionService(_config);
+            _theme        = new ThemeService(_config, this);
+            _nav          = new NavigationService();
+            _toast        = new ToastService();
+            _recentPlayed = new RecentPlayedService(_config);
 
             // Install detection — wires all storefront + ARP detectors.
             var bindings = new InstallBindingService();
@@ -54,9 +57,20 @@ public partial class App : Application
 
             // Root ViewModel drives the whole shell (also creates OnboardingViewModel if needed).
             _mainVm = new MainWindowViewModel(
-                _config, _serverConn, _theme, _nav, _toast, _installDetector);
+                _config, _serverConn, _theme, _nav, _toast, _installDetector, _recentPlayed);
+
+            // Deep link service — single-instance pipe server + mga:// URI handler.
+            _deepLink = new DeepLinkService(_nav, _serverConn, _toast, _config, _recentPlayed);
 
             var window = new MainWindow { DataContext = _mainVm };
+
+            // Start deep-link pipe server once the window is shown, then
+            // process any startup URI passed on the command line.
+            window.Opened += (_, _) =>
+            {
+                _deepLink.StartServer();
+                _deepLink.HandleStartupUri(Program.StartupUri);
+            };
 
             // Dispose services when the window closes (RAII cleanup).
             window.Closed += (_, _) => DisposeServices();
@@ -74,10 +88,12 @@ public partial class App : Application
     private void DisposeServices()
     {
         _mainVm?.Dispose();
+        _deepLink?.Dispose();
         _installDetector?.Dispose();
         _nav?.Dispose();
         _theme?.Dispose();
         _serverConn?.Dispose();
-        // AppConfigService, ToastService, and InstallBindingService have no unmanaged resources.
+        // AppConfigService, ToastService, RecentPlayedService, and InstallBindingService
+        // have no unmanaged resources.
     }
 }

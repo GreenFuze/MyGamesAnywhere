@@ -21,6 +21,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private readonly NavigationService         _nav;
     private readonly ToastService              _toast;
     private readonly InstallDetectionService?  _installDetector;
+    private readonly RecentPlayedService?      _recentPlayed;
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -79,7 +80,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ThemeService              theme,
         NavigationService         nav,
         ToastService              toast,
-        InstallDetectionService?  installDetector = null)
+        InstallDetectionService?  installDetector = null,
+        RecentPlayedService?      recentPlayed    = null)
     {
         _config          = config;
         _serverConn      = serverConn;
@@ -87,6 +89,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         _nav             = nav;
         _toast           = toast;
         _installDetector = installDetector;
+        _recentPlayed    = recentPlayed;
 
         // Restore persisted shell state.
         SidebarCollapsed = config.Config.SidebarCollapsed;
@@ -188,7 +191,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Navigate to Library with the search query pre-filled.
         _nav.NavigateTo(new LibraryViewModel(
             _serverConn, _nav, _toast, _config,
-            initialSearch: query, installDetector: _installDetector));
+            initialSearch: query, installDetector: _installDetector, recentPlayed: _recentPlayed));
 
         // Clear the search box after navigation.
         GlobalSearchText = string.Empty;
@@ -226,8 +229,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     private ViewModelBase? CreatePageViewModel(string pageId) => pageId switch
     {
-        "play"         => new PlayViewModel(_serverConn, _nav, _toast, _config, _installDetector),
-        "library"      => new LibraryViewModel(_serverConn, _nav, _toast, _config, installDetector: _installDetector),
+        "play"         => new PlayViewModel(_serverConn, _nav, _toast, _config, _installDetector, _recentPlayed),
+        "library"      => new LibraryViewModel(_serverConn, _nav, _toast, _config, installDetector: _installDetector, recentPlayed: _recentPlayed),
         "achievements" => new AchievementsViewModel(_serverConn, _toast),
         "stats"        => new StatsViewModel(_serverConn, _toast),
         "settings"     => new SettingsViewModel(_serverConn, _theme, _config, _toast),

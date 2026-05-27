@@ -214,6 +214,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     private readonly ToastService               _toast;
     private readonly AppConfigService           _config;
     private readonly InstallDetectionService?   _installDetector;
+    private readonly RecentPlayedService?       _recentPlayed;
 
     // Cached for re-detection after manual binding changes.
     private IReadOnlyList<SourceGameInfo> _sourcesForDetection = [];
@@ -398,7 +399,8 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         NavigationService        nav,
         ToastService             toast,
         AppConfigService         config,
-        InstallDetectionService? installDetector = null)
+        InstallDetectionService? installDetector = null,
+        RecentPlayedService?     recentPlayed    = null)
     {
         GameId           = gameId;
         _server          = server;
@@ -406,6 +408,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         _toast           = toast;
         _config          = config;
         _installDetector = installDetector;
+        _recentPlayed    = recentPlayed;
 
         _ = LoadAsync();
     }
@@ -430,6 +433,16 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     [RelayCommand]
     private void LaunchGame()
     {
+        // Check if an emulator is needed but not configured before attempting launch.
+        if (InstallStatus?.NeedsEmulator == true)
+        {
+            _toast.Warning(
+                "Emulator not configured",
+                $"This game requires an emulator for {Platform}. " +
+                "Go to Settings → Emulators to add one.");
+            return;
+        }
+
         var launchUri = InstallStatus?.LaunchUri;
         if (string.IsNullOrEmpty(launchUri))
         {
@@ -441,6 +454,9 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         {
             System.Diagnostics.Process.Start(
                 new System.Diagnostics.ProcessStartInfo(launchUri) { UseShellExecute = true });
+
+            // Record in recent-played history after a successful launch.
+            _recentPlayed?.RecordPlay(GameId, Title, CoverUrl);
         }
         catch (Exception ex)
         {
@@ -608,7 +624,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     private void GoBack()
     {
         _nav.NavigateTo(new LibraryViewModel(
-            _server, _nav, _toast, _config, installDetector: _installDetector));
+            _server, _nav, _toast, _config, installDetector: _installDetector, recentPlayed: _recentPlayed));
     }
 
     /// <summary>Opens the Media Manager page for this game.</summary>
@@ -654,6 +670,9 @@ public sealed partial class GameDetailViewModel : ViewModelBase
                 UseShellExecute = true,
             });
             _toast.Success("Launched", $"Started \"{Title}\" with {emulator.Name}.");
+
+            // Record in recent-played history after a successful emulator launch.
+            _recentPlayed?.RecordPlay(GameId, Title, CoverUrl);
         }
         catch (Exception ex)
         {
@@ -747,7 +766,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             {
                 // The canonical game itself was deleted — navigate back.
                 _nav.NavigateTo(new LibraryViewModel(
-            _server, _nav, _toast, _config, installDetector: _installDetector));
+            _server, _nav, _toast, _config, installDetector: _installDetector, recentPlayed: _recentPlayed));
             }
             else
             {
@@ -895,7 +914,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             if (result.CanonicalGameId != GameId)
             {
                 _nav.NavigateTo(new GameDetailViewModel(
-                    result.CanonicalGameId, _server, _nav, _toast, _config, _installDetector));
+                    result.CanonicalGameId, _server, _nav, _toast, _config, _installDetector, _recentPlayed));
             }
             else
             {

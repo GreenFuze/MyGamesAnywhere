@@ -19,6 +19,7 @@ public sealed partial class PlayViewModel : ViewModelBase
     private readonly ToastService               _toast;
     private readonly AppConfigService           _config;
     private readonly InstallDetectionService?   _installDetector;
+    private readonly RecentPlayedService?       _recentPlayed;
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -50,13 +51,15 @@ public sealed partial class PlayViewModel : ViewModelBase
         NavigationService        nav,
         ToastService             toast,
         AppConfigService         config,
-        InstallDetectionService? installDetector = null)
+        InstallDetectionService? installDetector = null,
+        RecentPlayedService?     recentPlayed    = null)
     {
         _server          = server;
         _nav             = nav;
         _toast           = toast;
         _config          = config;
         _installDetector = installDetector;
+        _recentPlayed    = recentPlayed;
 
         // Start loading immediately — fire-and-forget with error handling inside.
         _ = LoadAsync();
@@ -92,7 +95,17 @@ public sealed partial class PlayViewModel : ViewModelBase
     private void OpenGame(string gameId)
     {
         _nav.NavigateTo(new GameDetailViewModel(
-            gameId, _server, _nav, _toast, _config, _installDetector));
+            gameId, _server, _nav, _toast, _config, _installDetector, _recentPlayed));
+    }
+
+    /// <summary>Removes an entry from the recent-played history and reloads the shelf.</summary>
+    [RelayCommand]
+    private async Task RemoveRecentEntry(string gameId)
+    {
+        _recentPlayed?.RemoveEntry(gameId);
+
+        // Reload so the shelf reflects the removal immediately.
+        await LoadAsync().ConfigureAwait(true);
     }
 
     // ---------------------------------------------------------------------------
@@ -119,10 +132,36 @@ public sealed partial class PlayViewModel : ViewModelBase
             Games           = new ObservableCollection<GameCardModel>(launchable);
             LaunchableCount = launchable.Count;
 
-            // Recent shelf: first 10 launchable games.
-            var recent = launchable.Take(10).ToList();
-            RecentGames      = new ObservableCollection<GameCardModel>(recent);
-            HasNoRecentGames = recent.Count == 0;
+            // Recent shelf: use actual play history, fall back to first 10 launchable.
+            if (_recentPlayed is not null)
+            {
+                var history  = _recentPlayed.GetEntries();
+                var byId     = allCards.ToDictionary(c => c.Id);
+                var recentFromHistory = history
+                    .Select(e => byId.GetValueOrDefault(e.GameId))
+                    .OfType<GameCardModel>()
+                    .Take(10)
+                    .ToList();
+
+                if (recentFromHistory.Count > 0)
+                {
+                    RecentGames      = new ObservableCollection<GameCardModel>(recentFromHistory);
+                    HasNoRecentGames = false;
+                }
+                else
+                {
+                    // No history yet — fall back to first 10 launchable.
+                    var fallback = launchable.Take(10).ToList();
+                    RecentGames      = new ObservableCollection<GameCardModel>(fallback);
+                    HasNoRecentGames = fallback.Count == 0;
+                }
+            }
+            else
+            {
+                var recent = launchable.Take(10).ToList();
+                RecentGames      = new ObservableCollection<GameCardModel>(recent);
+                HasNoRecentGames = recent.Count == 0;
+            }
 
             // Kick off install detection in the background for all launchable games.
             // Each card's InstallStatus is updated individually as results arrive.

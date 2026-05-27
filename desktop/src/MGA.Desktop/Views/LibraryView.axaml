@@ -184,6 +184,11 @@
         <Button Classes="ghost"
                 Content="Clear"
                 Command="{Binding ClearSelectionCommand}"/>
+        <Button Classes="ghost"
+                Content="{Binding BulkReclassifyLabel}"
+                Command="{Binding BulkReclassifyCommand}"
+                IsEnabled="{Binding HasSelectedGames}"
+                ToolTip.Tip="Clear canonical pins — games will be re-grouped automatically"/>
         <Button Classes="danger"
                 Content="{Binding BulkDeleteLabel}"
                 Command="{Binding BulkHardDeleteCommand}"

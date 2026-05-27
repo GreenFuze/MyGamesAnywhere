@@ -22,6 +22,7 @@ public sealed partial class LibraryViewModel : ViewModelBase
     private readonly ToastService               _toast;
     private readonly AppConfigService           _config;
     private readonly InstallDetectionService?   _installDetector;
+    private readonly RecentPlayedService?       _recentPlayed;
 
     // ---------------------------------------------------------------------------
     // Sort options
@@ -168,11 +169,14 @@ public sealed partial class LibraryViewModel : ViewModelBase
     /// <summary>Number of currently selected games.</summary>
     public int SelectedCount => FilteredGames.Count(g => g.IsSelected);
 
-    /// <summary>True when at least one game is selected — enables the Delete button.</summary>
+    /// <summary>True when at least one game is selected — enables the Delete/Reclassify buttons.</summary>
     public bool HasSelectedGames => SelectedCount > 0;
 
     /// <summary>Label for the Delete button, e.g. "Delete 3 games".</summary>
     public string BulkDeleteLabel => $"Delete {SelectedCount} game{(SelectedCount == 1 ? "" : "s")}";
+
+    /// <summary>Label for the Reclassify button, e.g. "Reclassify 3 games".</summary>
+    public string BulkReclassifyLabel => $"Reclassify {SelectedCount} game{(SelectedCount == 1 ? "" : "s")}";
 
     // ---------------------------------------------------------------------------
     // Constructor
@@ -184,13 +188,15 @@ public sealed partial class LibraryViewModel : ViewModelBase
         ToastService             toast,
         AppConfigService         config,
         string?                  initialSearch    = null,
-        InstallDetectionService? installDetector  = null)
+        InstallDetectionService? installDetector  = null,
+        RecentPlayedService?     recentPlayed     = null)
     {
         _server          = server;
         _nav             = nav;
         _toast           = toast;
         _config          = config;
         _installDetector = installDetector;
+        _recentPlayed    = recentPlayed;
 
         if (!string.IsNullOrEmpty(initialSearch))
             SearchText = initialSearch;
@@ -315,7 +321,7 @@ public sealed partial class LibraryViewModel : ViewModelBase
     private void OpenGame(string gameId)
     {
         _nav.NavigateTo(new GameDetailViewModel(
-            gameId, _server, _nav, _toast, _config, _installDetector));
+            gameId, _server, _nav, _toast, _config, _installDetector, _recentPlayed));
     }
 
     [RelayCommand]
@@ -408,12 +414,65 @@ public sealed partial class LibraryViewModel : ViewModelBase
     // Private — bulk-select counter refresh
     // ---------------------------------------------------------------------------
 
-    /// <summary>Notifies the view that SelectedCount / HasSelectedGames / BulkDeleteLabel changed.</summary>
+    /// <summary>
+    /// Reclassifies all selected canonical games: clears canonical pins for all
+    /// their source games so the server's automatic grouping algorithm can re-classify them.
+    /// Games that can't be re-matched automatically will surface in Undetected Games.
+    /// </summary>
+    [RelayCommand]
+    private async Task BulkReclassifyAsync()
+    {
+        if (_server.Api is null) return;
+
+        var selected = FilteredGames.Where(g => g.IsSelected).ToList();
+        if (selected.Count == 0) return;
+
+        // Gather (canonicalId, sourceId) pairs for all sources of all selected games.
+        var pairs = selected
+            .SelectMany(game => game.SourceGameIds
+                .Select(sid => (CanonicalId: game.Id, SourceId: sid)))
+            .ToList();
+
+        if (pairs.Count == 0)
+        {
+            _toast.Info("Nothing to reclassify", "Selected games have no source records.");
+            return;
+        }
+
+        int cleared = 0;
+        int errors  = 0;
+
+        foreach (var (canonicalId, sourceId) in pairs)
+        {
+            try
+            {
+                await _server.Api.ClearCanonicalPinAsync(canonicalId, sourceId)
+                                  .ConfigureAwait(true);
+                cleared++;
+            }
+            catch
+            {
+                errors++;
+            }
+        }
+
+        if (errors > 0)
+            _toast.Warning("Reclassify partial", $"{cleared} source(s) cleared; {errors} failed.");
+        else
+            _toast.Success("Reclassified", $"{cleared} source record{(cleared == 1 ? "" : "s")} sent for re-detection.");
+
+        // Exit bulk-select mode and refresh the library.
+        IsBulkSelectMode = false;
+        await LoadAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>Notifies the view that SelectedCount / HasSelectedGames / label properties changed.</summary>
     internal void RefreshBulkCounters()
     {
         OnPropertyChanged(nameof(SelectedCount));
         OnPropertyChanged(nameof(HasSelectedGames));
         OnPropertyChanged(nameof(BulkDeleteLabel));
+        OnPropertyChanged(nameof(BulkReclassifyLabel));
     }
 
     // ---------------------------------------------------------------------------

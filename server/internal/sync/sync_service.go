@@ -740,6 +740,7 @@ func (s *syncService) mergePayload(ctx context.Context, payload *core.SyncPayloa
 				Label:           remote.Label,
 				IntegrationType: remote.IntegrationType,
 				ConfigJSON:      string(configJSON),
+				NeedsReauth:     true,
 				CreatedAt:       time.Now(),
 				UpdatedAt:       remote.UpdatedAt,
 			}

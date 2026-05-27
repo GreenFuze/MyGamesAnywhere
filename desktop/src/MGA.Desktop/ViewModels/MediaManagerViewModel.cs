@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Api;
@@ -24,14 +25,26 @@ public sealed class MediaAssetModel
     /// <summary>Badge text shown on the tile, e.g. "cover", "background", "screenshot".</summary>
     public string TypeBadge    { get; }
 
-    public string ImageUrl     { get; }
-    public string Dimensions   { get; }
+    public string  ImageUrl     { get; } = string.Empty;
+    public string  Dimensions   { get; } = string.Empty;
 
     /// <summary>True when this asset is the current cover override.</summary>
     public bool   IsCoverNow   { get; }
 
     /// <summary>True when this asset is used as cover by any source (not necessarily overridden).</summary>
     public bool   IsDefaultCover { get; }
+
+    /// <summary>Local file path if available (null for remote-only assets).</summary>
+    public string? LocalPath  { get; }
+
+    /// <summary>True when this asset is a video type.</summary>
+    public bool    IsVideo    { get; }
+
+    /// <summary>True when this asset is an image type.</summary>
+    public bool    IsImage    { get; }
+
+    /// <summary>True when this asset is hosted on YouTube.</summary>
+    public bool    IsYouTube  { get; }
 
     public MediaAssetModel(GameMedia m, MgaApiService? api, GameDetail game)
     {
@@ -44,6 +57,19 @@ public sealed class MediaAssetModel
         Dimensions   = m.Width > 0 && m.Height > 0 ? $"{m.Width}×{m.Height}" : string.Empty;
         IsCoverNow   = game.CoverOverride?.AssetId == m.AssetId;
         IsDefaultCover = m.Type == "cover" && game.CoverOverride is null;
+
+        // Derive media-kind flags from type and URL.
+        var url = ImageUrl ?? string.Empty;
+        IsVideo   = m.Type.Equals("video", StringComparison.OrdinalIgnoreCase)
+                    || url.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)
+                    || url.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase)
+                    || url.EndsWith(".webm", StringComparison.OrdinalIgnoreCase);
+        IsYouTube = url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase)
+                    || url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase);
+        IsImage   = !IsVideo && !IsYouTube;
+
+        // LocalPath: not provided by the API; may be set externally if needed.
+        LocalPath = null;
     }
 }
 
@@ -87,6 +113,10 @@ public sealed partial class MediaManagerViewModel : ViewModelBase
     [ObservableProperty]
     private bool _hasCoverOverride;
 
+    /// <summary>The currently selected asset for the preview panel; null when none.</summary>
+    [ObservableProperty]
+    private MediaAssetModel? _selectedAsset;
+
     // ---------------------------------------------------------------------------
     // Constructor
     // ---------------------------------------------------------------------------
@@ -118,6 +148,47 @@ public sealed partial class MediaManagerViewModel : ViewModelBase
     private void Back() =>
         _nav.NavigateTo(new GameDetailViewModel(
             _gameId, _server, _nav, _toast, _config, _installDetector));
+
+    /// <summary>Selects an asset and shows it in the preview panel.</summary>
+    [RelayCommand]
+    private void SelectAsset(MediaAssetModel asset)
+    {
+        SelectedAsset = asset;
+    }
+
+    /// <summary>Opens the asset URL in the system browser.</summary>
+    [RelayCommand]
+    private void OpenInBrowser(MediaAssetModel asset)
+    {
+        var url = asset.ImageUrl;
+        if (string.IsNullOrEmpty(url)) return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Cannot open URL", ex.Message);
+        }
+    }
+
+    /// <summary>Opens the asset's local file in the default system player.</summary>
+    [RelayCommand]
+    private void OpenInPlayer(MediaAssetModel asset)
+    {
+        var path = asset.LocalPath;
+        if (string.IsNullOrEmpty(path)) return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Cannot open file", ex.Message);
+        }
+    }
 
     /// <summary>Sets the given asset as the cover override for this game.</summary>
     [RelayCommand]

@@ -52,86 +52,153 @@
                Margin="32,24"/>
 
     <!-- ======================================================================
-         Media asset grid — wrapping tiles with action buttons
+         Main content area: asset grid (left) + preview panel (right)
          ====================================================================== -->
-    <ScrollViewer IsVisible="{Binding HasAssets}">
-      <ItemsControl ItemsSource="{Binding Assets}"
-                    Margin="32,0,32,32">
-        <ItemsControl.ItemsPanel>
-          <ItemsPanelTemplate>
-            <WrapPanel Orientation="Horizontal"/>
-          </ItemsPanelTemplate>
-        </ItemsControl.ItemsPanel>
-        <ItemsControl.ItemTemplate>
-          <DataTemplate x:DataType="vm:MediaAssetModel">
-            <Border Classes="card"
-                    Width="200"
-                    Margin="0,0,16,16"
-                    Padding="12">
-              <StackPanel Spacing="8">
+    <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasAssets}">
 
-                <!-- Thumbnail -->
-                <Border CornerRadius="{DynamicResource MgaRadiusMd}"
-                        ClipToBounds="True"
-                        Height="120">
-                  <Grid>
-                    <!-- Placeholder background -->
-                    <Border Background="{DynamicResource MgaElevatedBrush}">
-                      <TextBlock Text="{Binding TypeBadge}"
-                                 Classes="muted"
-                                 HorizontalAlignment="Center"
-                                 VerticalAlignment="Center"/>
-                    </Border>
-                    <!-- Actual image -->
-                    <asyncImage:AdvancedImage Source="{Binding ImageUrl}"
-                                             Stretch="UniformToFill"/>
-                  </Grid>
-                </Border>
+      <!-- Left: scrollable asset grid -->
+      <ScrollViewer Grid.Column="0">
+        <ItemsControl ItemsSource="{Binding Assets}"
+                      Margin="32,0,32,32">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <WrapPanel Orientation="Horizontal"/>
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:MediaAssetModel">
+              <Border Classes="card"
+                      Width="200"
+                      Margin="0,0,16,16"
+                      Padding="12">
+                <StackPanel Spacing="8">
 
-                <!-- Type badge + dimensions -->
-                <StackPanel Spacing="2">
-                  <TextBlock Text="{Binding TypeBadge}"
-                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
-                             FontSize="{DynamicResource MgaFontSizeSm}"/>
-                  <TextBlock Text="{Binding Dimensions}"
-                             Classes="muted"
-                             FontSize="{DynamicResource MgaFontSizeXs}"
-                             IsVisible="{Binding Dimensions, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                  <!-- "Current cover" indicator -->
-                  <TextBlock Text="★ Current cover"
-                             Foreground="{DynamicResource MgaAccentBrush}"
-                             FontSize="{DynamicResource MgaFontSizeXs}"
-                             IsVisible="{Binding IsCoverNow}"/>
+                  <!-- Thumbnail -->
+                  <Border CornerRadius="{DynamicResource MgaRadiusMd}"
+                          ClipToBounds="True"
+                          Height="120">
+                    <Grid>
+                      <!-- Placeholder background -->
+                      <Border Background="{DynamicResource MgaElevatedBrush}">
+                        <TextBlock Text="{Binding TypeBadge}"
+                                   Classes="muted"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                      </Border>
+                      <!-- Actual image -->
+                      <asyncImage:AdvancedImage Source="{Binding ImageUrl}"
+                                               Stretch="UniformToFill"/>
+                    </Grid>
+                  </Border>
+
+                  <!-- Type badge + dimensions -->
+                  <StackPanel Spacing="2">
+                    <TextBlock Text="{Binding TypeBadge}"
+                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                               FontSize="{DynamicResource MgaFontSizeSm}"/>
+                    <TextBlock Text="{Binding Dimensions}"
+                               Classes="muted"
+                               FontSize="{DynamicResource MgaFontSizeXs}"
+                               IsVisible="{Binding Dimensions, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                    <!-- "Current cover" indicator -->
+                    <TextBlock Text="★ Current cover"
+                               Foreground="{DynamicResource MgaAccentBrush}"
+                               FontSize="{DynamicResource MgaFontSizeXs}"
+                               IsVisible="{Binding IsCoverNow}"/>
+                  </StackPanel>
+
+                  <!-- Override action buttons -->
+                  <StackPanel Spacing="4">
+                    <Button Classes="ghost"
+                            Content="▶ Preview"
+                            Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SelectAssetCommand}"
+                            CommandParameter="{Binding}"
+                            FontSize="{DynamicResource MgaFontSizeXs}"
+                            HorizontalAlignment="Stretch"/>
+                    <Button Classes="primary"
+                            Content="Set as Cover"
+                            Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetCoverCommand}"
+                            CommandParameter="{Binding}"
+                            FontSize="{DynamicResource MgaFontSizeXs}"
+                            HorizontalAlignment="Stretch"/>
+                    <Button Classes="ghost"
+                            Content="Set as Background"
+                            Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetBackgroundCommand}"
+                            CommandParameter="{Binding}"
+                            FontSize="{DynamicResource MgaFontSizeXs}"
+                            HorizontalAlignment="Stretch"/>
+                    <Button Classes="ghost"
+                            Content="Set as Hover"
+                            Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetHoverCommand}"
+                            CommandParameter="{Binding}"
+                            FontSize="{DynamicResource MgaFontSizeXs}"
+                            HorizontalAlignment="Stretch"/>
+                  </StackPanel>
+
                 </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
 
-                <!-- Override action buttons -->
-                <StackPanel Spacing="4">
-                  <Button Classes="primary"
-                          Content="Set as Cover"
-                          Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetCoverCommand}"
-                          CommandParameter="{Binding}"
-                          FontSize="{DynamicResource MgaFontSizeXs}"
-                          HorizontalAlignment="Stretch"/>
-                  <Button Classes="ghost"
-                          Content="Set as Background"
-                          Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetBackgroundCommand}"
-                          CommandParameter="{Binding}"
-                          FontSize="{DynamicResource MgaFontSizeXs}"
-                          HorizontalAlignment="Stretch"/>
-                  <Button Classes="ghost"
-                          Content="Set as Hover"
-                          Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetHoverCommand}"
-                          CommandParameter="{Binding}"
-                          FontSize="{DynamicResource MgaFontSizeXs}"
-                          HorizontalAlignment="Stretch"/>
-                </StackPanel>
+      <!-- Right: preview panel — visible only when an asset is selected -->
+      <Border Grid.Column="1"
+              IsVisible="{Binding SelectedAsset, Converter={x:Static ObjectConverters.IsNotNull}}"
+              Width="320"
+              Margin="0,0,16,32"
+              Padding="16"
+              Classes="card"
+              VerticalAlignment="Top">
+        <StackPanel Spacing="12"
+                    DataContext="{Binding SelectedAsset}">
 
-              </StackPanel>
-            </Border>
-          </DataTemplate>
-        </ItemsControl.ItemTemplate>
-      </ItemsControl>
-    </ScrollViewer>
+          <!-- Preview heading -->
+          <TextBlock Text="Preview"
+                     FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+
+          <!-- Large image preview (shown for images) -->
+          <Border IsVisible="{Binding IsImage}"
+                  CornerRadius="{DynamicResource MgaRadiusMd}"
+                  ClipToBounds="True"
+                  MaxHeight="240">
+            <asyncImage:AdvancedImage Source="{Binding ImageUrl}"
+                                     Stretch="Uniform"/>
+          </Border>
+
+          <!-- Asset metadata -->
+          <StackPanel Spacing="4">
+            <TextBlock FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                       Text="{Binding TypeBadge}"/>
+            <TextBlock Classes="muted"
+                       FontSize="{DynamicResource MgaFontSizeXs}"
+                       Text="{Binding Dimensions}"
+                       IsVisible="{Binding Dimensions, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+            <TextBlock Classes="muted"
+                       FontSize="{DynamicResource MgaFontSizeXs}"
+                       Text="{Binding ImageUrl}"
+                       TextWrapping="Wrap"/>
+          </StackPanel>
+
+          <!-- Open-in-browser button (image or YouTube) -->
+          <Button Classes="ghost"
+                  Content="↗ Open in Browser"
+                  Command="{Binding $parent[Border].((vm:MediaManagerViewModel)DataContext).OpenInBrowserCommand}"
+                  CommandParameter="{Binding}"
+                  HorizontalAlignment="Stretch"/>
+
+          <!-- Open-in-player button (video with local path) -->
+          <Button Classes="ghost"
+                  Content="▶ Open in Player"
+                  IsVisible="{Binding IsVideo}"
+                  Command="{Binding $parent[Border].((vm:MediaManagerViewModel)DataContext).OpenInPlayerCommand}"
+                  CommandParameter="{Binding}"
+                  HorizontalAlignment="Stretch"/>
+
+        </StackPanel>
+      </Border>
+
+    </Grid>
 
   </DockPanel>
 

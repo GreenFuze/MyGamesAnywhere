@@ -77,6 +77,32 @@ public sealed partial class IntegrationRowViewModel : ObservableObject
     /// <summary>True when the server reports an error or failed state.</summary>
     public bool HasError => Status is "error" or "failed";
 
+    /// <summary>
+    /// True when this integration was imported from a sync snapshot and
+    /// needs to be re-authorized on this machine before it can be used.
+    /// </summary>
+    [ObservableProperty]
+    private bool _needsReauth;
+
+    // ---------------------------------------------------------------------------
+    // Validate-files state — populated on demand
+    // ---------------------------------------------------------------------------
+
+    /// <summary>True while the validate-files request is in flight.</summary>
+    [ObservableProperty]
+    private bool _isValidating;
+
+    /// <summary>Summary text shown after validation (e.g. "3 missing / 120 checked").</summary>
+    [ObservableProperty]
+    private string _validateResultText = string.Empty;
+
+    /// <summary>True once a validate-files result is available to display.</summary>
+    [ObservableProperty]
+    private bool _hasValidateResult;
+
+    /// <summary>Missing-file entries from the last validate-files call.</summary>
+    public ObservableCollection<MissingFileEntry> MissingFiles { get; } = [];
+
     // ---------------------------------------------------------------------------
     // Games panel state — populated lazily on first expand
     // ---------------------------------------------------------------------------
@@ -559,6 +585,136 @@ public sealed partial class IntegrationsTabViewModel : ViewModelBase
     }
 
     // ---------------------------------------------------------------------------
+    // Commands — validate files (Task 5)
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Calls POST /api/integrations/{id}/validate-files and shows how many game
+    /// source records link to files that no longer exist on disk.
+    /// </summary>
+    [RelayCommand]
+    private async Task ValidateFilesAsync(IntegrationRowViewModel row)
+    {
+        if (_server.Api is null || row.IsValidating)
+            return;
+
+        row.IsValidating       = true;
+        row.HasValidateResult  = false;
+        row.ValidateResultText = string.Empty;
+        row.MissingFiles.Clear();
+
+        try
+        {
+            var result = await _server.Api
+                .ValidateIntegrationFilesAsync(row.IntegrationId)
+                .ConfigureAwait(true);
+
+            foreach (var m in result.Missing)
+                row.MissingFiles.Add(m);
+
+            row.ValidateResultText = result.Missing.Count == 0
+                ? $"All {result.TotalChecked} file(s) present."
+                : $"{result.Missing.Count} missing / {result.TotalChecked} checked.";
+
+            row.HasValidateResult = true;
+
+            if (result.Missing.Count > 0)
+                _toast.Warning("Missing files found",
+                    $"{result.Missing.Count} game(s) in \"{row.Label}\" have missing files.");
+            else
+                _toast.Success("Files OK", $"All {result.TotalChecked} file(s) in \"{row.Label}\" exist on disk.");
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Validation failed", ex.Message);
+        }
+        finally
+        {
+            row.IsValidating = false;
+        }
+    }
+
+    /// <summary>
+    /// Removes all stale source-game records listed in the row's MissingFiles collection
+    /// via DELETE /api/games/{id}/sources/{sourceId}.
+    /// After removal the validate-files result is refreshed.
+    /// </summary>
+    [RelayCommand]
+    private async Task RemoveMissingFilesAsync(IntegrationRowViewModel row)
+    {
+        if (_server.Api is null || row.MissingFiles.Count == 0)
+            return;
+
+        // Snapshot before the async loop so we can iterate safely.
+        var toRemove = row.MissingFiles.ToList();
+        var removed  = 0;
+        var failed   = 0;
+
+        foreach (var m in toRemove)
+        {
+            try
+            {
+                await _server.Api
+                    .DeleteSourceGameAsync(m.CanonicalId, m.SourceGameId)
+                    .ConfigureAwait(true);
+                removed++;
+            }
+            catch
+            {
+                failed++;
+            }
+        }
+
+        _toast.Success("Stale records removed",
+            $"Removed {removed} record(s){(failed > 0 ? $", {failed} failed." : ".")}");
+
+        // Re-validate to refresh the list.
+        await ValidateFilesAsync(row).ConfigureAwait(true);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Commands — Import from Sync (Task 9)
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Pulls the latest remote sync snapshot and merges integrations into the local DB.
+    /// Integrations new to this device are marked "Auth Required" (needs_reauth).
+    /// </summary>
+    [RelayCommand]
+    private async Task ImportFromSyncAsync()
+    {
+        if (_server.Api is null)
+            return;
+
+        try
+        {
+            var response = await _server.Api.SyncPullAsync().ConfigureAwait(true);
+
+            var r = response.Result;
+            if (r is null)
+            {
+                _toast.Info("Sync pull", "No snapshot available or nothing to merge.");
+                return;
+            }
+
+            var added   = r.IntegrationsAdded;
+            var updated = r.IntegrationsUpdated;
+            var total   = added + updated + r.IntegrationsSkipped;
+
+            _toast.Success("Sync imported",
+                $"{added} integration(s) added, {updated} updated out of {total} total. " +
+                (added > 0 ? "New integrations need re-authorization on this device." : string.Empty));
+
+            // Reload so NeedsReauth badges appear immediately.
+            await LoadAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Sync import failed", ex.Message);
+        }
+    }
+
+    // ---------------------------------------------------------------------------
     // Commands — inline folder browser
     // ---------------------------------------------------------------------------
 
@@ -813,6 +969,7 @@ public sealed partial class IntegrationsTabViewModel : ViewModelBase
                         Label           = dto.Label,
                         IntegrationType = dto.IntegrationType,
                         ConfigJson      = dto.ConfigJson,
+                        NeedsReauth     = dto.NeedsReauth,
                         Status          = statusEntry?.Status  ?? "pending",
                         Message         = statusEntry?.Message ?? string.Empty,
                     };

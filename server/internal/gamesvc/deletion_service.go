@@ -343,17 +343,26 @@ func (s *DeletionService) executeDeletionPlan(ctx context.Context, plan *sourceD
 
 	var result sourceDeletePluginResponse
 	params := map[string]any{
-		"config":         plan.Config,
-		"root_path":      plan.RootPath,
-		"source_game_id": plan.SourceGameID,
-		"files":          plan.Files,
-		"dry_run":        false,
+		"config":              plan.Config,
+		"root_path":           plan.RootPath,
+		"source_game_id":      plan.SourceGameID,
+		"files":               plan.Files,
+		"dry_run":             false,
+		"allow_missing_files": true,
 	}
+	var warnings []string
 	if err := s.pluginCaller.Call(ctx, plan.PluginID, sourceFilesystemDeleteMethod, params, &result); err != nil {
-		return nil, fmt.Errorf("delete source files for %s via %s: %w", plan.SourceGameID, plan.PluginID, err)
+		errMsg := strings.ToLower(err.Error())
+		if strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "no such file") ||
+			strings.Contains(errMsg, "does not exist") || strings.Contains(errMsg, "enoent") {
+			// Files already gone from disk — treat as warning, still remove DB record.
+			warnings = append(warnings, fmt.Sprintf("files already missing from disk: %v", err))
+		} else {
+			return nil, fmt.Errorf("delete source files for %s via %s: %w", plan.SourceGameID, plan.PluginID, err)
+		}
 	}
 	s.logger.Info("deleted source record backing files", "canonical_id", plan.CanonicalID, "source_game_id", plan.SourceGameID, "plugin_id", plan.PluginID, "deleted_count", result.DeletedCount)
-	return append([]string(nil), result.Warnings...), nil
+	return append(warnings, result.Warnings...), nil
 }
 
 func sourceDeleteFileIdentity(plan *sourceDeletionPlan, file sourceDeleteFile) string {

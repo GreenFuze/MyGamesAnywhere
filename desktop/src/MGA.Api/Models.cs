@@ -671,6 +671,76 @@ public sealed record IntegrationDto
 
     [JsonPropertyName("updated_at")]
     public string? UpdatedAt { get; init; }
+
+    /// <summary>
+    /// True when this integration was imported from a sync snapshot on a new device
+    /// and has not yet been re-authorized on this machine.
+    /// </summary>
+    [JsonPropertyName("needs_reauth")]
+    public bool NeedsReauth { get; init; }
+}
+
+/// <summary>
+/// Response from POST /api/integrations/{id}/validate-files.
+/// Lists game source records whose primary file no longer exists on disk.
+/// </summary>
+public sealed record ValidateFilesResponse
+{
+    /// <summary>Source-game records whose file is missing.</summary>
+    [JsonPropertyName("missing")]
+    public List<MissingFileEntry> Missing { get; init; } = [];
+
+    /// <summary>Total number of source records that were checked.</summary>
+    [JsonPropertyName("total_checked")]
+    public int TotalChecked { get; init; }
+}
+
+/// <summary>One stale source-game record returned by the validate-files endpoint.</summary>
+public sealed record MissingFileEntry
+{
+    [JsonPropertyName("source_game_id")]
+    public string SourceGameId { get; init; } = string.Empty;
+
+    [JsonPropertyName("canonical_id")]
+    public string CanonicalId { get; init; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; init; } = string.Empty;
+
+    [JsonPropertyName("path")]
+    public string Path { get; init; } = string.Empty;
+}
+
+/// <summary>Result returned by POST /api/sync/pull wrapped in { status, result }.</summary>
+public sealed record SyncPullResult
+{
+    [JsonPropertyName("integrations_added")]
+    public int IntegrationsAdded { get; init; }
+
+    [JsonPropertyName("integrations_updated")]
+    public int IntegrationsUpdated { get; init; }
+
+    [JsonPropertyName("integrations_skipped")]
+    public int IntegrationsSkipped { get; init; }
+
+    [JsonPropertyName("settings_added")]
+    public int SettingsAdded { get; init; }
+
+    [JsonPropertyName("settings_updated")]
+    public int SettingsUpdated { get; init; }
+
+    [JsonPropertyName("settings_skipped")]
+    public int SettingsSkipped { get; init; }
+}
+
+/// <summary>Top-level wrapper returned by POST /api/sync/pull.</summary>
+public sealed record SyncPullResponse
+{
+    [JsonPropertyName("status")]
+    public string Status { get; init; } = string.Empty;
+
+    [JsonPropertyName("result")]
+    public SyncPullResult? Result { get; init; }
 }
 
 /// <summary>

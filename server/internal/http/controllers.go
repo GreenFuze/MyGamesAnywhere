@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -1725,6 +1726,16 @@ func (c *PluginController) StartIntegrationAuth(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// If the integration was flagged as needing re-auth (e.g. imported via sync)
+	// and check_config returned ok, clear the flag so the UI removes the badge.
+	if integration.NeedsReauth && (checkResult.Status == "" || checkResult.Status == "ok") {
+		integration.NeedsReauth = false
+		integration.UpdatedAt = time.Now()
+		if updateErr := c.repo.Update(r.Context(), integration); updateErr != nil {
+			c.logger.Error("clear needs_reauth flag", updateErr, "integration_id", integration.ID)
+		}
+	}
+
 	status := "ok"
 	message := checkResult.Message
 	if checkResult.Status != "" && checkResult.Status != "ok" {
@@ -2680,4 +2691,81 @@ func (c *AchievementController) configuredAchievementSources(ctx context.Context
 		})
 	}
 	return sources
+}
+
+// validateFilesGame is a single game entry returned by ValidateIntegrationFiles.
+type validateFilesGame struct {
+	ID       string              `json:"id"`
+	Title    string              `json:"title"`
+	RootPath string              `json:"root_path,omitempty"`
+	Files    []validateFilesFile `json:"files"`
+}
+
+// validateFilesFile is a file entry returned by ValidateIntegrationFiles.
+type validateFilesFile struct {
+	Path string `json:"path"`
+}
+
+// validateFilesResponse is the response body for POST /api/integrations/{id}/validate-files.
+type validateFilesResponse struct {
+	Missing      []validateFilesGame `json:"missing"`
+	TotalChecked int                 `json:"total_checked"`
+}
+
+// ValidateIntegrationFiles checks which source games in an integration have files
+// that no longer exist on disk. Returns a list of games with missing files.
+func (c *PluginController) ValidateIntegrationFiles(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify the integration exists.
+	integration, err := c.repo.GetByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if integration == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Load all found source games for this integration.
+	sourceGames, err := c.gameStore.GetFoundSourceGameRecords(r.Context(), []string{id})
+	if err != nil {
+		c.logger.Error("GetFoundSourceGameRecords failed", err, "integration_id", id)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	response := validateFilesResponse{
+		Missing:      []validateFilesGame{},
+		TotalChecked: len(sourceGames),
+	}
+
+	// For each source game, check if its files exist on disk.
+	for _, sg := range sourceGames {
+		missingFiles := make([]validateFilesFile, 0)
+		for _, f := range sg.Files {
+			if strings.TrimSpace(f.Path) == "" {
+				continue
+			}
+			if _, statErr := os.Stat(f.Path); os.IsNotExist(statErr) {
+				missingFiles = append(missingFiles, validateFilesFile{Path: f.Path})
+			}
+		}
+		if len(missingFiles) > 0 {
+			response.Missing = append(response.Missing, validateFilesGame{
+				ID:       sg.ID,
+				Title:    sg.RawTitle,
+				RootPath: sg.RootPath,
+				Files:    missingFiles,
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

@@ -482,6 +482,18 @@ func Operations() []OperationDoc {
 			ResponseDocs: map[string]string{"200": "Array of GameListItem JSON", "400": "id is required", "404": "Integration not found", "500": "Internal server error"},
 		},
 		{
+			Method:      "POST",
+			Path:        "/api/integrations/{id}/validate-files",
+			Summary:     "Validate files for an integration",
+			Description: "Checks which source games in the integration have files that no longer exist on disk. Returns a list of games with missing files along with the total number of source games checked. Useful for detecting stale library entries after files are moved or deleted outside MGA.",
+			ResponseDocs: map[string]string{
+				"200": "validateFilesResponse: { missing: [{id, title, root_path, files: [{path}]}], total_checked: number }",
+				"400": "id is required",
+				"404": "Integration not found",
+				"500": "Internal server error",
+			},
+		},
+		{
 			Method:      "GET",
 			Path:        "/api/review-candidates",
 			Summary:     "List manual-review candidates",

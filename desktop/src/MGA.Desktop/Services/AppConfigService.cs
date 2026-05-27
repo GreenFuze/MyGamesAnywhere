@@ -90,6 +90,10 @@ public sealed class AppConfigService
 
     public AppConfig Config => _config;
 
+    /// <summary>Base directory for all MGA local data files.</summary>
+    public string DataDirectory => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MGA");
+
     public void Update(Action<AppConfig> mutate)
     {
         mutate(_config);

@@ -7,3 +7,4 @@
 [ ] http://tv2:8900/game/009e63f6-36cd-4fb2-8be4-e0fe552aa343 - (1) The game was manually classified to Launchbox entry, but no images or metadata is defined. (2) There's an error 'EmulatorJS needs a root launch file for "ad&d - eye of the beholder (u)".'
 [ ] When hard deleting files - you must check after removing all the files (recusively starting at the leafs), if the directory is empty - also delete the directory. go all the way up to the game root directory.
 [ ] if during hard delete dialog is open I switch to another window and get back, the page refreshes, causing the deletion process and going over the games to delete to re-run (even if during delete).
+[ ] add Download game for file-backed sources

@@ -6,7 +6,7 @@ namespace MGA.Desktop.Services;
 // Toast model
 // ---------------------------------------------------------------------------
 
-public enum ToastTone { Info, Success, Error }
+public enum ToastTone { Info, Success, Error, Warning }
 
 public sealed class ToastMessage
 {
@@ -55,4 +55,7 @@ public sealed class ToastService
 
     public void Info(string title, string? description = null) =>
         Show(ToastTone.Info, title, description);
+
+    public void Warning(string title, string? description = null) =>
+        Show(ToastTone.Warning, title, description);
 }

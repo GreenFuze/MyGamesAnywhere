@@ -10,9 +10,9 @@ Checked off as they land. Grouped by area.
 - [x] **Auto-detect installed games** — Steam (registry + VDF), ARP fallback (≥0.85 fuzzy), exe resolution; Launch/Install/Browse-exe/Folder buttons in Game Detail; manual binding persisted to install-bindings.json
 - [ ] **Emulator management** — Settings > Emulators tab: add/edit/remove emulator entries (path, platform(s), args template)
 - [ ] **Launch game via emulator** — detect platform → look up emulator config → `Process.Start(emulator, args + gamePath)`
-- [ ] **"Install emulator" prompt** — if a game needs an emulator that isn't configured, offer a guided setup or link to download
+- [x] **"Install emulator" prompt** — if a game needs an emulator that isn't configured, offer a guided setup or link to download
 - [ ] **RetroAchievements-enabled play mode** — pass RetroAchievements credentials to emulator via command-line args (RAIntegration / retroachievements hardcore mode)
-- [ ] **Recent Played** — record launched games locally; show horizontal shelf on Play page; allow removing entries
+- [x] **Recent Played** — record launched games locally; show horizontal shelf on Play page; allow removing entries
 - [x] **Game Detail: Launch button** — "▶ Launch with [Emulator]" (when configured) + "🌐 Open Web Page" in action bar
 
 ---
@@ -23,11 +23,11 @@ Checked off as they land. Grouped by area.
 - [x] **List view** — tabular rows (title, platform, developer, year) alongside existing grid; Year (newest/oldest) sort options added
 - [x] **Timeline view** — games grouped by release year, newest-first
 - [x] **Shelf view** — horizontal shelf rows per configured section (mirrors web "Shelf" mode)
-- [ ] **Bulk select + reclassify** — checkbox multi-select → push queue to Undetected/reclassify workflow
+- [x] **Bulk select + reclassify** — checkbox multi-select → clear canonical pins → server re-groups automatically
 - [x] **Bulk hard-delete sources** — select multiple source records → confirm → batch DELETE via /api/games/sources/delete-batch
 - [ ] **Move to source** — for file-backed games: pick a target source + directory (with create-dir support), apply move for multiple games; move entire directory when all files are within it; update database paths; mirrors webclient_tasks item
-- [ ] **Validate files** — Settings > Integrations: "Validate files" for file-backed sources; list games whose files are missing; offer to remove stale records
-- [ ] **Hard-delete: missing files OK** — if game files don't exist on disk, remove the DB record anyway (don't error)
+- [x] **Validate files** — Settings > Integrations: "✔ Validate Files" per integration row; shows missing count + list; "Remove Stale Records" button calls delete-batch
+- [x] **Hard-delete: missing files OK** — server converts file-not-found plugin errors to warnings; DB record always removed
 
 ---
 
@@ -79,7 +79,7 @@ Checked off as they land. Grouped by area.
 - [x] **Integration config fields** — dynamic form for plugin-defined schema (text, password, folder-picker, bool, enum)
 - [x] **Folder browser dialog** — server-side folder tree for `_path` config fields via `POST /api/plugins/{id}/browse`; inline panel with Up navigation + Select
 - [x] **Per-integration games list** — expandable panel per row, lazy-loaded via `GET /api/integrations/{id}/games`
-- [ ] **Import integrations from sync settings** — pull integration configs from a sync_settings source and apply locally
+- [x] **Import integrations from sync settings** — "⬇ Import from Sync" button calls POST /api/sync/pull; new integrations show "Auth Required" badge (needs_reauth); web client also shows the badge
 
 ### Emulators tab (new)
 - [x] **List configured emulators** — name, executable path, platforms served, args template
@@ -115,8 +115,8 @@ Checked off as they land. Grouped by area.
 - [x] **Clear cover override** — DELETE /api/games/{id}/cover-override
 - [ ] **Upload media** — `POST /api/games/{id}/media` (no server endpoint yet)
 - [ ] **Delete media asset** — `DELETE /api/games/{id}/media/{assetId}` (no server endpoint yet)
-- [ ] **Image/video preview** — inline image preview; open video in system player
-- [ ] **YouTube thumbnail + open** — show thumbnail; open link in browser
+- [x] **Image/video preview** — inline image preview in right panel; open video in system player; open any asset in browser
+- [x] **YouTube thumbnail + open** — IsYouTube flag; "Open in Browser" button; preview panel distinguishes image/video/YouTube
 
 ---
 
@@ -132,10 +132,17 @@ Checked off as they land. Grouped by area.
 
 ---
 
+## Installer
+
+- [x] **Inno Setup installer** — user-scope (`PrivilegesRequired=lowest`); `%LocalAppData%\Programs\MGA`; Start Menu + optional Desktop shortcut; HKCU `mga://` protocol handler; `build-installer.ps1` script
+- [x] **Single-instance enforcement** — Windows named mutex (`MGA.Desktop.SingleInstance`); second instance forwards startup URI via named pipe and exits
+
+---
+
 ## Cross-Cutting
 
 - [x] **Global search** — TitleBar search box navigates to Library with query pre-filled (Enter key triggers GlobalSearchCommand)
 - [x] **Sidebar game count badge** — live game count next to Library nav item
 - [x] **SSE: integration refresh events** — `integration_refresh_complete` reloads Integrations tab status + started/progress/failed handlers
-- [ ] **Deep links** — navigate directly to a game by ID from external sources (file association, URL scheme `mga://`)
+- [x] **Deep links** — `mga://game/{id}` URL scheme; single-instance mutex + named-pipe forwarding; registered in Inno Setup installer (HKCU)
 

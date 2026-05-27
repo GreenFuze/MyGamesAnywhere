@@ -252,6 +252,16 @@ export function IntegrationCard({
           </Badge>
         )}
 
+        {/* Sync-imported integration not yet re-authorized on this device */}
+        {integration.needs_reauth && (
+          <Badge
+            variant="muted"
+            className="text-[10px] shrink-0 border border-amber-500/40 text-amber-300"
+          >
+            Auth Required
+          </Badge>
+        )}
+
         {isChecking ? (
           <Loader2
             size={14}

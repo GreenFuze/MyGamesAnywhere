@@ -456,6 +456,7 @@ func (c *OAuthController) persistOAuthConfigUpdates(ctx context.Context, pluginI
 		return fmt.Errorf("encode integration config: %w", err)
 	}
 	integration.ConfigJSON = string(configBytes)
+	integration.NeedsReauth = false
 	integration.UpdatedAt = time.Now()
 	if err := c.repo.Update(repoCtx, integration); err != nil {
 		return fmt.Errorf("save OAuth config update: %w", err)

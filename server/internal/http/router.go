@@ -139,6 +139,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				}
 				r.Get("/integrations/{id}/games", adminOnly(b.PluginCtrl.IntegrationGames))
 				r.Get("/integrations/{id}/enriched-games", adminOnly(b.PluginCtrl.IntegrationEnrichedGames))
+				r.Post("/integrations/{id}/validate-files", adminOnly(b.PluginCtrl.ValidateIntegrationFiles))
 				r.Get("/review-candidates", adminOnly(b.ReviewCtrl.ListCandidates))
 				r.Post("/review-candidates/redetect", adminOnly(b.ReviewCtrl.RedetectActive))
 				r.Get("/review-candidates/{id}", adminOnly(b.ReviewCtrl.GetCandidate))
@@ -265,6 +266,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Post("/integrations/{id}/refresh", noopHandler())
 			api.Get("/integrations/{id}/games", noopHandler())
 			api.Get("/integrations/{id}/enriched-games", noopHandler())
+			api.Post("/integrations/{id}/validate-files", noopHandler())
 			api.Get("/integration-refresh/jobs/{job_id}", noopHandler())
 			api.Get("/review-candidates", noopHandler())
 			api.Post("/review-candidates/redetect", noopHandler())

@@ -886,6 +886,8 @@ export type Integration = {
   integration_type: string;
   created_at: string;
   updated_at: string;
+  /** True when imported from sync on a new device and not yet re-authorized. */
+  needs_reauth?: boolean;
 };
 
 export type PluginInfo = {

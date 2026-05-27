@@ -44,6 +44,7 @@ type Integration struct {
 	Label           string    `json:"label"`
 	ConfigJSON      string    `json:"config_json"`
 	IntegrationType string    `json:"integration_type"`
+	NeedsReauth     bool      `json:"needs_reauth"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
