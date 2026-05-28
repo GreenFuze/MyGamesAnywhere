@@ -33,12 +33,19 @@ public sealed class AppConfig
 
     /// <summary>
     /// Selected gamer profile ID from the First-Run Wizard.
-    /// Empty string means "no profile selected" (server uses default).
+    /// Empty string means "no profile selected yet".
     /// </summary>
     public string GamerProfileId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// True when the wizard should show: either there is no server configured,
+    /// or a server is configured but no gamer profile has been selected yet.
+    /// </summary>
     [JsonIgnore]
-    public bool IsFirstRun => Servers.Count == 0 || string.IsNullOrWhiteSpace(ActiveServer);
+    public bool IsFirstRun =>
+        Servers.Count == 0 ||
+        string.IsNullOrWhiteSpace(ActiveServer) ||
+        string.IsNullOrWhiteSpace(GamerProfileId);
 }
 
 // ---------------------------------------------------------------------------
@@ -47,10 +54,18 @@ public sealed class AppConfig
 
 /// <summary>
 /// Reads and writes the desktop-local config.json.
-/// Path resolution (RAII — config directory is created in constructor):
+///
+/// <b>Portable mode</b> (dev / uninstalled): if <c>config.json</c> already exists
+/// next to the executable, or a <c>.mga-portable</c> marker file exists there, the
+/// config is stored beside the exe. This is the behaviour when running from the
+/// build output directory during development.
+///
+/// <b>Installed mode</b>: config lives in the OS user-data directory:
 ///   Windows: %APPDATA%\MGA\config.json
 ///   macOS:   ~/Library/Application Support/MGA/config.json
 ///   Linux:   ~/.config/mga/config.json
+///
+/// RAII — the config directory is created (if needed) in the constructor.
 /// </summary>
 public sealed class AppConfigService
 {
@@ -61,27 +76,29 @@ public sealed class AppConfigService
     };
 
     private readonly string _configPath;
+    private readonly string _dataDirectory;
     private AppConfig _config;
 
     public AppConfigService()
     {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var dir = Path.Combine(appData, "MGA");
-        Directory.CreateDirectory(dir);
-        _configPath = Path.Combine(dir, "config.json");
+        (_configPath, _dataDirectory) = ResolveConfigPath();
 
-        // Load immediately (RAII).
+        // Ensure the directory exists (RAII).
+        Directory.CreateDirectory(_dataDirectory);
+
+        // Load immediately.
         _config = TryLoad() ?? new AppConfig();
     }
 
     /// <summary>
-    /// Test constructor — uses a caller-specified path instead of %APPDATA%.
+    /// Test constructor — uses a caller-specified path instead of platform defaults.
     /// Does not create directories; the caller is responsible for the path.
     /// </summary>
     internal AppConfigService(string configPath)
     {
-        _configPath = configPath;
-        _config = TryLoad() ?? new AppConfig();
+        _configPath    = configPath;
+        _dataDirectory = Path.GetDirectoryName(configPath)!;
+        _config        = TryLoad() ?? new AppConfig();
     }
 
     // ---------------------------------------------------------------------------
@@ -90,9 +107,12 @@ public sealed class AppConfigService
 
     public AppConfig Config => _config;
 
-    /// <summary>Base directory for all MGA local data files.</summary>
-    public string DataDirectory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MGA");
+    /// <summary>
+    /// Base directory for all MGA local data files (same folder as config.json).
+    /// Other services should use this for caching, logs, etc. instead of
+    /// re-deriving %APPDATA% themselves.
+    /// </summary>
+    public string DataDirectory => _dataDirectory;
 
     public void Update(Action<AppConfig> mutate)
     {
@@ -111,6 +131,48 @@ public sealed class AppConfigService
 
     /// <summary>Persists the current in-memory config to disk.</summary>
     public void Save() => Persist();
+
+    // ---------------------------------------------------------------------------
+    // Portable vs. installed path resolution
+    // ---------------------------------------------------------------------------
+
+    private static (string configPath, string dataDir) ResolveConfigPath()
+    {
+        // The directory that contains the running executable.
+        var exeDir = AppContext.BaseDirectory;
+
+        var portableConfig = Path.Combine(exeDir, "config.json");
+        var portableMarker = Path.Combine(exeDir, ".mga-portable");
+
+        // Portable if: config.json already exists beside the exe (first run in a portable dir),
+        //              OR a .mga-portable sentinel file is present.
+        if (File.Exists(portableConfig) || File.Exists(portableMarker))
+            return (portableConfig, exeDir);
+
+        // Installed mode: use the OS user-data directory.
+        var appData = GetPlatformDataDirectory();
+        return (Path.Combine(appData, "config.json"), appData);
+    }
+
+    private static string GetPlatformDataDirectory()
+    {
+        if (OperatingSystem.IsWindows())
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MGA");
+
+        if (OperatingSystem.IsMacOS())
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Personal),
+                "Library", "Application Support", "MGA");
+
+        // Linux / other POSIX
+        var xdgConfig = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+        var configHome = string.IsNullOrWhiteSpace(xdgConfig)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Personal), ".config")
+            : xdgConfig;
+
+        return Path.Combine(configHome, "mga");
+    }
 
     // ---------------------------------------------------------------------------
     // Private

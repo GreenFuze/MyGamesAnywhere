@@ -6,26 +6,9 @@ using MGA.Desktop.Services;
 namespace MGA.Desktop.ViewModels.Settings;
 
 /// <summary>
-/// Display model for a single profile row.
-/// Maps from a <see cref="Profile"/> API record on construction.
-/// </summary>
-public sealed class ProfileRowModel
-{
-    public string Id          { get; }
-    public string DisplayName { get; }
-    public string Role        { get; }
-
-    public ProfileRowModel(Profile p)
-    {
-        Id          = p.Id;
-        DisplayName = p.DisplayName;
-        Role        = p.Role;
-    }
-}
-
-/// <summary>
 /// Profiles tab — lists gamer profiles from GET /api/profiles.
-/// Loaded on construction.
+/// Loaded on construction and bound directly to <see cref="Profile"/> records —
+/// no thin wrapper class is needed since the model already has the required display properties.
 /// </summary>
 public sealed partial class ProfilesTabViewModel : ViewModelBase
 {
@@ -36,7 +19,7 @@ public sealed partial class ProfilesTabViewModel : ViewModelBase
     private bool _isLoading;
 
     [ObservableProperty]
-    private ObservableCollection<ProfileRowModel> _profiles = [];
+    private ObservableCollection<Profile> _profiles = [];
 
     public ProfilesTabViewModel(ServerConnectionService server, ToastService toast)
     {
@@ -55,9 +38,8 @@ public sealed partial class ProfilesTabViewModel : ViewModelBase
         {
             var list = await _server.Api.GetProfilesAsync().ConfigureAwait(true);
 
-            // Each ProfileRowModel maps its own Profile record.
-            Profiles = new ObservableCollection<ProfileRowModel>(
-                list.Select(p => new ProfileRowModel(p)));
+            // Bind Profile records directly — no wrapper needed.
+            Profiles = new ObservableCollection<Profile>(list);
         }
         catch (Exception ex)
         {

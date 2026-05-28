@@ -19,7 +19,6 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\MGA.Api\MGA.Api.csproj"/>
     <ProjectReference Include="..\MGA.Desktop\MGA.Desktop.csproj"/>
   </ItemGroup>
 </Project>

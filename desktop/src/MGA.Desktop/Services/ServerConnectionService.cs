@@ -46,8 +46,29 @@ public sealed class ServerConnectionService : IDisposable
     /// <summary>The base URL of the active server, or empty if not connected.</summary>
     public string ActiveUrl => _appConfig.Config.ActiveServer;
 
+    /// <summary>The active gamer profile ID, or empty string when none is selected.</summary>
+    public string ActiveProfileId => _appConfig.Config.GamerProfileId;
+
     /// <summary>Fires the current URL immediately on subscribe, then on every server switch.</summary>
     public IObservable<string> UrlChanged => _urlSubject.AsObservable();
+
+    /// <summary>
+    /// Sets the active gamer profile and applies the <c>X-MGA-Profile-ID</c> header to the
+    /// live HttpClient so every subsequent API call carries it automatically.
+    /// Also persists the profile ID to config.
+    /// </summary>
+    public void SetActiveProfile(string profileId)
+    {
+        _appConfig.Update(cfg => cfg.GamerProfileId = profileId);
+
+        // Update the HttpClient default header so all in-flight and future requests include it.
+        if (_http is not null)
+        {
+            _http.DefaultRequestHeaders.Remove("X-MGA-Profile-ID");
+            if (!string.IsNullOrWhiteSpace(profileId))
+                _http.DefaultRequestHeaders.Add("X-MGA-Profile-ID", profileId);
+        }
+    }
 
     /// <summary>
     /// Switches to a different server: disposes the current connection, updates config,
@@ -92,11 +113,17 @@ public sealed class ServerConnectionService : IDisposable
         // Create a new HttpClient scoped to this server.
         _http = new HttpClient { BaseAddress = new Uri(baseUrl) };
 
+        // Stamp the profile header so every subsequent request carries it automatically.
+        // The server requires X-MGA-Profile-ID on all /api/* routes (except /api/profiles
+        // and /api/setup/* which are exempt by design for the profile-selection flow).
+        var profileId = _appConfig.Config.GamerProfileId;
+        if (!string.IsNullOrWhiteSpace(profileId))
+            _http.DefaultRequestHeaders.Add("X-MGA-Profile-ID", profileId);
+
         // Wrap it in the API service facade.
         _api = new MgaApiService(_http);
 
         // Start the SSE stream for real-time events.
-        // Profile header is sent via query param matching the web client convention.
         _sse = new SseClient(_http, "/api/events");
         _events = new SseEventBus(_sse);
 

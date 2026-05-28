@@ -13,7 +13,8 @@
         Width="1280" Height="800"
         Classes="MgaWindow"
         ExtendClientAreaToDecorationsHint="True"
-        WindowDecorations="None">
+        ExtendClientAreaTitleBarHeightHint="-1"
+        WindowDecorations="BorderOnly">
 
   <!--
     Custom-chrome window.

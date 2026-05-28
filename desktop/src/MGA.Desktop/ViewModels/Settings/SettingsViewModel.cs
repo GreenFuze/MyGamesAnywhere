@@ -1,7 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using MGA.Desktop.Services;
+using MGA.Desktop.ViewModels.Settings;
 
-namespace MGA.Desktop.ViewModels.Settings;
+namespace MGA.Desktop.ViewModels;
 
 /// <summary>
 /// Settings page — tabbed host for all settings sub-pages.

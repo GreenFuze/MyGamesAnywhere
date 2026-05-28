@@ -2,7 +2,6 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Desktop.Services;
 using MGA.Desktop.Services.Install;
-using MGA.Desktop.ViewModels.Settings;
 using System.Reactive.Linq;
 
 namespace MGA.Desktop.ViewModels;

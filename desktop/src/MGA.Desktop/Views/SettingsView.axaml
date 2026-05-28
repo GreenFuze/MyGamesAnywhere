@@ -1,6 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:MGA.Desktop.ViewModels.Settings"
+             xmlns:vm="using:MGA.Desktop.ViewModels"
              xmlns:settingsVm="using:MGA.Desktop.ViewModels.Settings"
              xmlns:controls="using:MGA.Desktop.Controls"
              xmlns:services="using:MGA.Desktop.Services"
@@ -678,7 +678,7 @@
             <ItemsControl ItemsSource="{Binding Profiles}"
                           IsVisible="{Binding !IsLoading}">
               <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="settingsVm:ProfileRowModel">
+                <DataTemplate x:DataType="mga:Profile">
                   <Border Classes="card"
                           Margin="0,0,0,8"
                           MaxWidth="480"

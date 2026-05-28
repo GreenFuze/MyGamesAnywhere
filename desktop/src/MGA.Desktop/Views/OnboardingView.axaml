@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MGA.Desktop.ViewModels"
              xmlns:ctrl="using:MGA.Desktop.Controls"
+             xmlns:api="using:MGA.Api"
              x:Class="MGA.Desktop.Views.OnboardingView"
              x:DataType="vm:OnboardingViewModel">
 
@@ -137,7 +138,7 @@
                      Background="Transparent"
                      BorderThickness="0">
               <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="vm:ProfileOptionModel">
+                <DataTemplate x:DataType="api:Profile">
                   <StackPanel Spacing="2" Margin="0,4">
                     <TextBlock Text="{Binding DisplayName}"
                                FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
@@ -149,16 +150,27 @@
               </ListBox.ItemTemplate>
             </ListBox>
 
-            <!-- Profile selection buttons -->
-            <StackPanel Orientation="Horizontal" Spacing="8">
+            <!-- No-profiles case: inline create-first-profile form -->
+            <StackPanel Spacing="8"
+                        IsVisible="{Binding ShowCreateProfile}">
+              <TextBlock Classes="muted" FontSize="{DynamicResource MgaFontSizeSm}">
+                No profiles found on this server. Enter a name to create the first one.
+              </TextBlock>
+              <TextBox Text="{Binding NewProfileName}"
+                       PlaceholderText="Your name"
+                       FontSize="{DynamicResource MgaFontSizeMd}"/>
               <Button Classes="primary"
-                      Content="Continue →"
-                      Command="{Binding ConfirmProfileCommand}"
-                      IsEnabled="{Binding SelectedProfile, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-              <Button Classes="ghost"
-                      Content="Skip"
-                      Command="{Binding SkipProfileCommand}"/>
+                      Content="Create Profile"
+                      Command="{Binding CreateProfileCommand}"
+                      IsEnabled="{Binding NewProfileName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
             </StackPanel>
+
+            <!-- Profiles-exist case: pick one and continue -->
+            <Button Classes="primary"
+                    Content="Continue →"
+                    Command="{Binding ConfirmProfileCommand}"
+                    IsVisible="{Binding !ShowCreateProfile}"
+                    IsEnabled="{Binding SelectedProfile, Converter={x:Static ObjectConverters.IsNotNull}}"/>
           </StackPanel>
 
           <!-- ==================================================================

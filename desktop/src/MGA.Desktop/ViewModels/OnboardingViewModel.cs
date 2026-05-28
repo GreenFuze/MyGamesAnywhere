@@ -7,25 +7,6 @@ using MGA.Desktop.Services;
 namespace MGA.Desktop.ViewModels;
 
 // ---------------------------------------------------------------------------
-// ProfileOptionModel
-// ---------------------------------------------------------------------------
-
-/// <summary>Display model for one gamer profile row in the wizard profile-picker.</summary>
-public sealed class ProfileOptionModel
-{
-    public string Id          { get; }
-    public string DisplayName { get; }
-    public string Role        { get; }
-
-    public ProfileOptionModel(Profile p)
-    {
-        Id          = p.Id;
-        DisplayName = p.DisplayName;
-        Role        = p.Role;
-    }
-}
-
-// ---------------------------------------------------------------------------
 // WizardStep enum
 // ---------------------------------------------------------------------------
 
@@ -46,8 +27,8 @@ public enum WizardStep
 /// Guides the user through:
 ///   Step 0 — Welcome
 ///   Step 1 — Connect to server (URL input + ping test)
-///   Step 2 — Select active gamer profile
-///   Step 3 — Done (open Library)
+///   Step 2 — Select OR create a gamer profile
+///   Step 3 — Done (enter the main app)
 ///
 /// The wizard fires <see cref="_onConnected"/> once the user reaches step 3.
 /// </summary>
@@ -65,10 +46,13 @@ public sealed partial class OnboardingViewModel : ViewModelBase
     [ObservableProperty]
     private WizardStep _currentStep = WizardStep.Welcome;
 
-    public bool ShowWelcome  => CurrentStep == WizardStep.Welcome;
-    public bool ShowConnect  => CurrentStep == WizardStep.Connect;
-    public bool ShowProfile  => CurrentStep == WizardStep.Profile;
-    public bool ShowDone     => CurrentStep == WizardStep.Done;
+    public bool ShowWelcome       => CurrentStep == WizardStep.Welcome;
+    public bool ShowConnect       => CurrentStep == WizardStep.Connect;
+    public bool ShowProfile       => CurrentStep == WizardStep.Profile;
+    public bool ShowDone          => CurrentStep == WizardStep.Done;
+
+    /// <summary>True when the profile list is empty — show create-profile form instead.</summary>
+    public bool ShowCreateProfile => ShowProfile && Profiles.Count == 0;
 
     // ---------------------------------------------------------------------------
     // Step 1 — Connect
@@ -93,11 +77,22 @@ public sealed partial class OnboardingViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isLoadingProfiles;
 
+    /// <summary>
+    /// Server profiles fetched after a successful server connection.
+    /// Bound directly to <see cref="Profile"/> records.
+    /// </summary>
     [ObservableProperty]
-    private ObservableCollection<ProfileOptionModel> _profiles = [];
+    private ObservableCollection<Profile> _profiles = [];
 
     [ObservableProperty]
-    private ProfileOptionModel? _selectedProfile;
+    private Profile? _selectedProfile;
+
+    /// <summary>Name typed into the "create first profile" form (shown when server has no profiles).</summary>
+    [ObservableProperty]
+    private string _newProfileName = string.Empty;
+
+    [ObservableProperty]
+    private bool _isCreatingProfile;
 
     // ---------------------------------------------------------------------------
     // Constructor
@@ -113,10 +108,19 @@ public sealed partial class OnboardingViewModel : ViewModelBase
         _config      = config;
         _toast       = toast;
         _onConnected = onConnected;
+
+        // If the server is already connected (URL saved from a previous run)
+        // but no profile is selected yet, skip straight to the profile-picker step.
+        if (!string.IsNullOrWhiteSpace(config.Config.ActiveServer) && server.Api is not null)
+        {
+            IsConnected = true;
+            ServerUrl   = config.Config.ActiveServer;
+            _ = LoadProfilesAndAdvanceAsync();
+        }
     }
 
     // ---------------------------------------------------------------------------
-    // Property change hooks — keep ShowXxx derived props in sync
+    // Property change hooks
     // ---------------------------------------------------------------------------
 
     partial void OnCurrentStepChanged(WizardStep value)
@@ -125,13 +129,19 @@ public sealed partial class OnboardingViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShowConnect));
         OnPropertyChanged(nameof(ShowProfile));
         OnPropertyChanged(nameof(ShowDone));
+        OnPropertyChanged(nameof(ShowCreateProfile));
+    }
+
+    partial void OnProfilesChanged(ObservableCollection<Profile> value)
+    {
+        // Notify AXAML so the create-profile / pick-profile branches flip correctly.
+        OnPropertyChanged(nameof(ShowCreateProfile));
     }
 
     // ---------------------------------------------------------------------------
     // Commands — Step 0: Welcome
     // ---------------------------------------------------------------------------
 
-    /// <summary>Advance from Welcome to the Connect step.</summary>
     [RelayCommand]
     private void GetStarted() => CurrentStep = WizardStep.Connect;
 
@@ -140,9 +150,8 @@ public sealed partial class OnboardingViewModel : ViewModelBase
     // ---------------------------------------------------------------------------
 
     /// <summary>
-    /// Probe the given server URL.
-    /// On success, persist the URL, switch <see cref="ServerConnectionService"/>,
-    /// and advance to the Profile step.
+    /// Probes the server URL. On success persists it, switches ServerConnectionService,
+    /// and advances to the profile step.
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanConnect))]
     private async Task ConnectAsync()
@@ -166,11 +175,10 @@ public sealed partial class OnboardingViewModel : ViewModelBase
             if (!ok)
                 throw new InvalidOperationException("Server returned a non-OK response.");
 
-            // Persist the server URL and switch the live connection.
+            // Persist and switch the live connection.
             _config.Update(c =>
             {
                 c.ActiveServer = url;
-                // Add to servers list if not already present.
                 if (!c.Servers.Any(s => s.Url == url))
                     c.Servers.Add(new ServerProfile { Name = url, Url = url });
             });
@@ -180,7 +188,6 @@ public sealed partial class OnboardingViewModel : ViewModelBase
             IsConnected = true;
             _toast.Success("Connected!", $"Linked to {url}");
 
-            // Load profiles and move on.
             await LoadProfilesAndAdvanceAsync().ConfigureAwait(true);
         }
         catch (Exception ex)
@@ -197,32 +204,64 @@ public sealed partial class OnboardingViewModel : ViewModelBase
     private bool CanConnect() => !IsTesting && !string.IsNullOrWhiteSpace(ServerUrl);
 
     // ---------------------------------------------------------------------------
-    // Commands — Step 2: Profile
+    // Commands — Step 2: Profile — pick existing
     // ---------------------------------------------------------------------------
 
     /// <summary>
-    /// Confirms the selected profile (or skips selection) and advances to Done.
+    /// Confirms the selected profile and advances to Done.
+    /// Updates the HttpClient default header immediately via SetActiveProfile.
     /// </summary>
     [RelayCommand]
     private void ConfirmProfile()
     {
         if (SelectedProfile is not null)
-        {
-            _config.Update(c => c.GamerProfileId = SelectedProfile.Id);
-        }
+            _server.SetActiveProfile(SelectedProfile.Id);
 
         CurrentStep = WizardStep.Done;
     }
 
-    /// <summary>Skips the profile selection step.</summary>
-    [RelayCommand]
-    private void SkipProfile() => CurrentStep = WizardStep.Done;
+    // ---------------------------------------------------------------------------
+    // Commands — Step 2: Profile — create first profile (no profiles on server yet)
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Creates the first gamer profile on the server via POST /api/setup/start-fresh,
+    /// then auto-selects it and advances to Done.
+    /// This path is only reachable when the server has zero profiles.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanCreateProfile))]
+    private async Task CreateProfileAsync()
+    {
+        IsCreatingProfile = true;
+        CreateProfileCommand.NotifyCanExecuteChanged();
+
+        try
+        {
+            var profile = await _server.Api!
+                .CreateFirstProfileAsync(NewProfileName.Trim())
+                .ConfigureAwait(true);
+
+            _server.SetActiveProfile(profile.Id);
+            CurrentStep = WizardStep.Done;
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Failed to create profile", ex.Message);
+        }
+        finally
+        {
+            IsCreatingProfile = false;
+            CreateProfileCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private bool CanCreateProfile() =>
+        !IsCreatingProfile && !string.IsNullOrWhiteSpace(NewProfileName);
 
     // ---------------------------------------------------------------------------
     // Commands — Step 3: Done
     // ---------------------------------------------------------------------------
 
-    /// <summary>Opens the main Library — fires the onConnected callback.</summary>
     [RelayCommand]
     private void OpenLibrary() => _onConnected();
 
@@ -238,20 +277,19 @@ public sealed partial class OnboardingViewModel : ViewModelBase
         {
             var profiles = await _server.Api!.GetProfilesAsync().ConfigureAwait(true);
 
-            Profiles = new ObservableCollection<ProfileOptionModel>(
-                profiles.Select(p => new ProfileOptionModel(p)));
+            Profiles = new ObservableCollection<Profile>(profiles);
 
-            // Auto-select if there's exactly one profile.
+            // Auto-select when there's exactly one profile.
             if (Profiles.Count == 1)
                 SelectedProfile = Profiles[0];
 
-            // Skip the profile step if the server has no profiles.
-            CurrentStep = Profiles.Count == 0 ? WizardStep.Done : WizardStep.Profile;
+            // Always go to the Profile step so the user consciously picks or creates.
+            CurrentStep = WizardStep.Profile;
         }
         catch
         {
-            // Profile load failure is non-fatal — just skip to Done.
-            CurrentStep = WizardStep.Done;
+            // Profile load failure — stay on Connect step so the user can retry.
+            _toast.Error("Could not load profiles", "Check the server connection and try again.");
         }
         finally
         {
