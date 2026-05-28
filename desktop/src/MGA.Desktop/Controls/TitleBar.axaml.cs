@@ -5,11 +5,8 @@ using Avalonia.Input;
 namespace MGA.Desktop.Controls;
 
 /// <summary>
-/// Custom immersive title bar with drag-region and native window chrome buttons.
-///
-/// ExtendClientAreaToDecorationsHint=true + SystemDecorations=BorderOnly on the
-/// window lets us own the entire non-client area while still getting OS-level
-/// window management (snap, resize, taskbar).
+/// Custom immersive title bar — logo, search box, server URL, drag region.
+/// Chrome buttons are in MainWindow (not here) so they always render at the right edge.
 /// </summary>
 public partial class TitleBar : UserControl
 {
@@ -22,11 +19,10 @@ public partial class TitleBar : UserControl
     {
         base.OnAttachedToVisualTree(e);
 
-        // Wire up the drag region for the host Window.
         var window = TopLevel.GetTopLevel(this) as Window;
         if (window is null) return;
 
-        // Make the bar drag the window when the user clicks anywhere except chrome buttons.
+        // ── Drag region ────────────────────────────────────────────
         var drag = this.FindControl<Border>("DragRegion")!;
         drag.PointerPressed += (_, args) =>
         {
@@ -34,22 +30,27 @@ public partial class TitleBar : UserControl
                 window.BeginMoveDrag(args);
         };
 
-        // Wire chrome buttons.
-        this.FindControl<Button>("MinimizeButton")!.Click += (_, _) =>
-            window.WindowState = WindowState.Minimized;
-
-        this.FindControl<Button>("MaximizeButton")!.Click += (_, _) =>
-            window.WindowState = window.WindowState == WindowState.Maximized
-                ? WindowState.Normal
-                : WindowState.Maximized;
-
-        this.FindControl<Button>("CloseButton")!.Click += (_, _) =>
-            window.Close();
-
-        // Double-click on drag region toggles maximize.
+        // Double-click toggles maximize.
         drag.DoubleTapped += (_, _) =>
             window.WindowState = window.WindowState == WindowState.Maximized
                 ? WindowState.Normal
                 : WindowState.Maximized;
+
+        // ── Chrome buttons ─────────────────────────────────────────
+        var minimize = this.FindControl<Button>("MinimizeButton");
+        var maximize = this.FindControl<Button>("MaximizeButton");
+        var close    = this.FindControl<Button>("CloseButton");
+
+        if (minimize is not null)
+            minimize.Click += (_, _) => window.WindowState = WindowState.Minimized;
+
+        if (maximize is not null)
+            maximize.Click += (_, _) =>
+                window.WindowState = window.WindowState == WindowState.Maximized
+                    ? WindowState.Normal
+                    : WindowState.Maximized;
+
+        if (close is not null)
+            close.Click += (_, _) => window.Close();
     }
 }

@@ -135,6 +135,7 @@
   <!-- Button — chrome (title bar buttons) -->
   <Style Selector="Button.chrome">
     <Setter Property="Background"      Value="Transparent"/>
+    <Setter Property="Foreground"      Value="{DynamicResource MgaMutedBrush}"/>
     <Setter Property="BorderThickness" Value="0"/>
     <Setter Property="CornerRadius"    Value="0"/>
     <Setter Property="Padding"         Value="0"/>
@@ -143,8 +144,28 @@
   <Style Selector="Button.chrome:pointerover /template/ ContentPresenter">
     <Setter Property="Background" Value="{DynamicResource MgaElevatedBrush}"/>
   </Style>
+  <Style Selector="Button.chrome:pointerover TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource MgaTextBrush}"/>
+  </Style>
   <Style Selector="Button.chrome.close:pointerover /template/ ContentPresenter">
     <Setter Property="Background" Value="{DynamicResource MgaDangerBrush}"/>
+  </Style>
+  <Style Selector="Button.chrome.close:pointerover TextBlock">
+    <Setter Property="Foreground" Value="#ffffff"/>
+  </Style>
+
+  <!-- Button — profileCard (onboarding profile selection rows) -->
+  <Style Selector="Button.profileCard">
+    <Setter Property="Background"      Value="{DynamicResource MgaElevatedBrush}"/>
+    <Setter Property="Foreground"      Value="{DynamicResource MgaTextBrush}"/>
+    <Setter Property="BorderBrush"     Value="{DynamicResource MgaBorderBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius"    Value="{DynamicResource MgaRadiusMd}"/>
+    <Setter Property="Padding"         Value="14,10"/>
+    <Setter Property="Cursor"          Value="Hand"/>
+  </Style>
+  <Style Selector="Button.profileCard:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource MgaAccentMutedBrush}"/>
   </Style>
 
   <!-- Button — danger -->

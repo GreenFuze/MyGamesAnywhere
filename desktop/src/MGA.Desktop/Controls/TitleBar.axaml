@@ -6,24 +6,22 @@
              Height="48">
 
   <!--
-    Custom title bar.
-    The entire bar is a drag region except for the window chrome buttons (right end).
-    IsHitTestVisible is managed in code-behind: Chrome buttons are excluded from drag.
+    Fixed-width column layout:
+      Col 0: 220px — logo + app name
+      Col 1: *     — search box (fills remaining space)
+      Col 2: 138px — chrome buttons (3 × 46px)
+
+    DragRegion sits behind all interactive controls (IsHitTestVisible on logo
+    prevents it intercepting clicks on the draggable area).
   -->
-  <Grid ColumnDefinitions="Auto,*,Auto,Auto"
-        Background="{DynamicResource MgaSurfaceBrush}"
-        IsHitTestVisible="True">
+  <Grid ColumnDefinitions="220,*,138"
+        Background="{DynamicResource MgaSurfaceBrush}">
 
-    <!-- Drag region covers the whole bar; the chrome buttons sit on top with IsHitTestVisible=True -->
-    <Border Grid.ColumnSpan="4"
-            Name="DragRegion"
-            Background="Transparent"/>
-
-    <!-- Left: logo + app name -->
+    <!-- ── Col 0: Logo + app name ──────────────────────────────── -->
     <StackPanel Grid.Column="0"
                 Orientation="Horizontal"
                 Spacing="10"
-                Margin="16,0"
+                Margin="14,0,0,0"
                 VerticalAlignment="Center"
                 IsHitTestVisible="False">
       <Image Source="/Assets/mga.ico" Width="20" Height="20"/>
@@ -33,75 +31,74 @@
                  VerticalAlignment="Center"/>
     </StackPanel>
 
-    <!-- Center: global search box -->
-    <TextBox Grid.Column="1"
-             Name="GlobalSearchBox"
-             Text="{Binding GlobalSearchText}"
-             PlaceholderText="Search games…"
-             MaxWidth="400"
-             Margin="8,6"
-             VerticalAlignment="Center"
-             IsHitTestVisible="True"
-             FontSize="{DynamicResource MgaFontSizeSm}"
-             Background="{DynamicResource MgaElevatedBrush}"
-             BorderThickness="0"
-             CornerRadius="{DynamicResource MgaRadiusFull}"
-             Padding="14,6">
-      <TextBox.KeyBindings>
-        <KeyBinding Gesture="Return" Command="{Binding GlobalSearchCommand}"/>
-      </TextBox.KeyBindings>
-    </TextBox>
+    <!-- ── Col 1: Search box ────────────────────────────────────── -->
+    <Border Grid.Column="1"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Width="400"
+            Height="36"
+            Background="{DynamicResource MgaElevatedBrush}"
+            CornerRadius="{DynamicResource MgaRadiusFull}">
+      <TextBox Name="GlobalSearchBox"
+               Text="{Binding GlobalSearchText}"
+               PlaceholderText="Search games…"
+               Background="Transparent"
+               BorderThickness="0"
+               VerticalContentAlignment="Center"
+               FontSize="{DynamicResource MgaFontSizeSm}"
+               Padding="14,0">
+        <TextBox.KeyBindings>
+          <KeyBinding Gesture="Return" Command="{Binding GlobalSearchCommand}"/>
+        </TextBox.KeyBindings>
+      </TextBox>
+    </Border>
 
-    <!-- Server URL indicator (col 2) -->
+    <!-- ── Full-width drag region (Col 0-2) — declared before chrome buttons
+         so that buttons render on top (higher Z-order) and receive clicks ── -->
+    <Border Name="DragRegion"
+            Grid.Column="0"
+            Grid.ColumnSpan="3"
+            Background="Transparent"/>
+
+    <!-- ── Col 2: Chrome buttons (min / max / close) ─────────────── -->
     <StackPanel Grid.Column="2"
                 Orientation="Horizontal"
-                Spacing="6"
-                Margin="0,0,12,0"
-                VerticalAlignment="Center"
-                IsHitTestVisible="False"
-                IsVisible="{Binding ActiveServerUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-      <TextBlock Text="●"
-                 Foreground="{DynamicResource MgaSuccessBrush}"
-                 FontSize="8"
-                 VerticalAlignment="Center"/>
-      <TextBlock Text="{Binding ActiveServerUrl}"
-                 Foreground="{DynamicResource MgaMutedBrush}"
-                 FontSize="{DynamicResource MgaFontSizeSm}"
-                 VerticalAlignment="Center"/>
-    </StackPanel>
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch">
 
-    <!-- Right: window chrome buttons (NOT part of drag region) -->
-    <StackPanel Grid.Column="3"
-                Orientation="Horizontal"
-                Spacing="0"
-                Margin="0,0,4,0"
-                VerticalAlignment="Stretch"
-                IsHitTestVisible="True"
-                Name="ChromeButtons">
-
-      <!-- Minimize -->
       <Button Name="MinimizeButton"
-              Classes="ghost chrome"
-              Width="46" Height="48"
+              Classes="chrome"
+              Width="46"
+              Height="48"
               ToolTip.Tip="Minimize">
-        <TextBlock Text="&#xE921;" FontFamily="Segoe MDL2 Assets,Segoe UI Symbol" FontSize="10"/>
+        <TextBlock Text="&#x2013;"
+                   FontSize="14"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"/>
       </Button>
 
-      <!-- Maximize / Restore -->
       <Button Name="MaximizeButton"
-              Classes="ghost chrome"
-              Width="46" Height="48"
-              ToolTip.Tip="Maximize">
-        <TextBlock Text="&#xE922;" FontFamily="Segoe MDL2 Assets,Segoe UI Symbol" FontSize="10"/>
+              Classes="chrome"
+              Width="46"
+              Height="48"
+              ToolTip.Tip="Maximize / Restore">
+        <TextBlock Text="&#x25A1;"
+                   FontSize="12"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"/>
       </Button>
 
-      <!-- Close -->
       <Button Name="CloseButton"
-              Classes="ghost chrome close"
-              Width="46" Height="48"
+              Classes="chrome close"
+              Width="46"
+              Height="48"
               ToolTip.Tip="Close">
-        <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets,Segoe UI Symbol" FontSize="10"/>
+        <TextBlock Text="&#x2715;"
+                   FontSize="12"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"/>
       </Button>
+
     </StackPanel>
 
   </Grid>

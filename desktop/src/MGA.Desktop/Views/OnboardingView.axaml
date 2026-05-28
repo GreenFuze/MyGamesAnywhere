@@ -130,25 +130,33 @@
               <ctrl:LoadingSpinner Width="28" Height="28"/>
             </Border>
 
-            <!-- Profile list — ListBox gives built-in single selection -->
-            <ListBox ItemsSource="{Binding Profiles}"
-                     SelectedItem="{Binding SelectedProfile}"
-                     IsVisible="{Binding !IsLoadingProfiles}"
-                     MaxHeight="240"
-                     Background="Transparent"
-                     BorderThickness="0">
-              <ListBox.ItemTemplate>
+            <!-- Profile list — each card is a button; clicking immediately selects & advances -->
+            <ItemsControl ItemsSource="{Binding Profiles}"
+                          IsVisible="{Binding !IsLoadingProfiles}"
+                          MaxHeight="260">
+              <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="api:Profile">
-                  <StackPanel Spacing="2" Margin="0,4">
-                    <TextBlock Text="{Binding DisplayName}"
-                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-                    <TextBlock Text="{Binding Role}"
-                               Classes="muted"
-                               FontSize="{DynamicResource MgaFontSizeXs}"/>
-                  </StackPanel>
+                  <!--
+                    Bind SelectAndConfirmCommand via the ancestor UserControl's DataContext.
+                    CommandParameter passes the current Profile item.
+                  -->
+                  <Button Classes="profileCard"
+                          HorizontalAlignment="Stretch"
+                          HorizontalContentAlignment="Stretch"
+                          Margin="0,0,0,6"
+                          Command="{Binding $parent[UserControl].((vm:OnboardingViewModel)DataContext).SelectAndConfirmCommand}"
+                          CommandParameter="{Binding}">
+                    <StackPanel Spacing="2" Margin="0,2">
+                      <TextBlock Text="{Binding DisplayName}"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                      <TextBlock Text="{Binding Role}"
+                                 Classes="muted"
+                                 FontSize="{DynamicResource MgaFontSizeXs}"/>
+                    </StackPanel>
+                  </Button>
                 </DataTemplate>
-              </ListBox.ItemTemplate>
-            </ListBox>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
 
             <!-- No-profiles case: inline create-first-profile form -->
             <StackPanel Spacing="8"
@@ -164,13 +172,6 @@
                       Command="{Binding CreateProfileCommand}"
                       IsEnabled="{Binding NewProfileName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
             </StackPanel>
-
-            <!-- Profiles-exist case: pick one and continue -->
-            <Button Classes="primary"
-                    Content="Continue →"
-                    Command="{Binding ConfirmProfileCommand}"
-                    IsVisible="{Binding !ShowCreateProfile}"
-                    IsEnabled="{Binding SelectedProfile, Converter={x:Static ObjectConverters.IsNotNull}}"/>
           </StackPanel>
 
           <!-- ==================================================================

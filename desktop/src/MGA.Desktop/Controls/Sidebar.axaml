@@ -42,17 +42,25 @@
                     Margin="0,1"
                     Padding="0"
                     BorderThickness="0"
-                    Cursor="Hand">
+                    Cursor="Hand"
+                    Classes.active="{Binding IsActive}">
 
               <!-- Style based on IsActive state -->
               <Button.Styles>
                 <Style Selector="Button">
-                  <Setter Property="Background"  Value="Transparent"/>
-                  <Setter Property="Foreground"  Value="{DynamicResource MgaMutedBrush}"/>
+                  <Setter Property="Background"   Value="Transparent"/>
+                  <Setter Property="Foreground"   Value="{DynamicResource MgaMutedBrush}"/>
                   <Setter Property="CornerRadius" Value="{DynamicResource MgaRadiusMd}"/>
                 </Style>
                 <Style Selector="Button:pointerover /template/ ContentPresenter">
                   <Setter Property="Background" Value="{DynamicResource MgaElevatedBrush}"/>
+                </Style>
+                <!-- Active nav item: brighter text + subtle filled background -->
+                <Style Selector="Button.active">
+                  <Setter Property="Foreground" Value="{DynamicResource MgaTextBrush}"/>
+                </Style>
+                <Style Selector="Button.active /template/ ContentPresenter">
+                  <Setter Property="Background" Value="{DynamicResource MgaSidebarActiveBrush}"/>
                 </Style>
               </Button.Styles>
 

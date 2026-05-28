@@ -84,9 +84,6 @@ public sealed partial class OnboardingViewModel : ViewModelBase
     [ObservableProperty]
     private ObservableCollection<Profile> _profiles = [];
 
-    [ObservableProperty]
-    private Profile? _selectedProfile;
-
     /// <summary>Name typed into the "create first profile" form (shown when server has no profiles).</summary>
     [ObservableProperty]
     private string _newProfileName = string.Empty;
@@ -208,15 +205,13 @@ public sealed partial class OnboardingViewModel : ViewModelBase
     // ---------------------------------------------------------------------------
 
     /// <summary>
-    /// Confirms the selected profile and advances to Done.
-    /// Updates the HttpClient default header immediately via SetActiveProfile.
+    /// Immediately confirms the tapped/clicked profile and advances to Done.
+    /// Bound to each profile card — no separate "Continue" button required.
     /// </summary>
     [RelayCommand]
-    private void ConfirmProfile()
+    private void SelectAndConfirm(Profile profile)
     {
-        if (SelectedProfile is not null)
-            _server.SetActiveProfile(SelectedProfile.Id);
-
+        _server.SetActiveProfile(profile.Id);
         CurrentStep = WizardStep.Done;
     }
 
@@ -278,10 +273,6 @@ public sealed partial class OnboardingViewModel : ViewModelBase
             var profiles = await _server.Api!.GetProfilesAsync().ConfigureAwait(true);
 
             Profiles = new ObservableCollection<Profile>(profiles);
-
-            // Auto-select when there's exactly one profile.
-            if (Profiles.Count == 1)
-                SelectedProfile = Profiles[0];
 
             // Always go to the Profile step so the user consciously picks or creates.
             CurrentStep = WizardStep.Profile;

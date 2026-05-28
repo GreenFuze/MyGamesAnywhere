@@ -12,9 +12,8 @@
         MinWidth="900" MinHeight="600"
         Width="1280" Height="800"
         Classes="MgaWindow"
-        ExtendClientAreaToDecorationsHint="True"
-        ExtendClientAreaTitleBarHeightHint="-1"
-        WindowDecorations="BorderOnly">
+        WindowDecorations="BorderOnly"
+        CanResize="True">
 
   <!--
     Custom-chrome window.
@@ -25,9 +24,10 @@
   <Grid RowDefinitions="48,*">
 
     <!-- ============================================================
-         Row 0 — Title bar
+         Row 0 — Title bar + chrome buttons overlay
          ============================================================ -->
-    <ctrl:TitleBar Grid.Row="0" ZIndex="10"/>
+    <!-- Chrome buttons live inside TitleBar.axaml (wired in TitleBar.axaml.cs) -->
+    <ctrl:TitleBar Grid.Row="0"/>
 
     <!-- ============================================================
          Row 1 — Shell body: sidebar + page area

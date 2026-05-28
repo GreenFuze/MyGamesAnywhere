@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // Chrome button wiring lives in TitleBar.axaml.cs (OnAttachedToVisualTree).
     }
 
     protected override void OnDataContextChanged(EventArgs e)
