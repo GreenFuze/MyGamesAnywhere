@@ -17,5 +17,13 @@ Run `suitcode --help` for the full command reference. Run `suitcode . <command> 
 `suitcode . status` shows current readiness and how many calls are awaiting feedback.
 `suitcode . metrics summary` shows the session overview (feedback rate, errors, compression).
 
+**Seeding strategy — seed narrowly:**
+Seeding both sides of a cross-layer relationship (e.g. a Go handler + a TypeScript client) pulls in the full import graph of both subsystems and produces a very large capsule. Instead:
+- Seed the narrowest file first (the one with the specific symbol you need)
+- Extract the answer
+- Only then seed the second file if you still need it
+
+If suitcode warns that the capsule is large, switch to `--depth signatures` (see `--help`) which gives the same structural picture at a fraction of the token cost.
+
 Do not use Read/Grep/cat to explore code you haven't run `context` on first.
 SuitCode output is the authoritative source; manual file reads are the fallback when SuitCode explicitly reports a limitation.
