@@ -62,10 +62,16 @@ if ($Publish) {
 # ---------------------------------------------------------------------------
 
 if ($Run) {
-    Write-Host "Launching…" -ForegroundColor Cyan
-    dotnet run --project "$PSScriptRoot\..\src\MGA.Desktop\MGA.Desktop.csproj" `
-        -c $Configuration `
-        --no-build
+    # Launch the built .exe directly — NOT via "dotnet run".
+    # dotnet.exe is a console-subsystem process, so using "dotnet run" always
+    # opens a terminal window even though the app is WinExe (no console subsystem).
+    # Launching the .exe directly respects the WinExe subsystem and shows no terminal.
+    $ExePath = Join-Path $PSScriptRoot "..\src\MGA.Desktop\bin\$Configuration\net9.0\MGA.Desktop.exe"
+    if (-not (Test-Path $ExePath)) {
+        throw "Executable not found at '$ExePath'. Build may have failed."
+    }
+    Write-Host "Launching $ExePath …" -ForegroundColor Cyan
+    Start-Process -FilePath $ExePath
 }
 
 Write-Host "Done." -ForegroundColor Green
