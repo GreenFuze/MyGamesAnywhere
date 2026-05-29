@@ -9,7 +9,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -392,7 +391,7 @@ func handleInit() (any, *Error) {
 	}
 
 	downloadedAt := readTimestamp()
-	hasIndex := fileExists(filesIndexFile) && fileExists(gamesIndexFile)
+	hasIndex := fileExists(filesIndexFile) && fileExists(gamesIndexFile) && fileExists(imagesIndexFile)
 
 	if hasIndex && time.Since(downloadedAt) < maxAge {
 		log.Printf("index is fresh (downloaded %s)", downloadedAt.Format(time.RFC3339))
@@ -1159,7 +1158,7 @@ func buildResult(index int, ge *gameEntry, idx *launchBoxIndex) *lookupResult {
 		Index:       index,
 		Title:       ge.Name,
 		ExternalID:  fmt.Sprintf("%d", ge.DatabaseID),
-		URL:         launchBoxSearchURL(ge.Name),
+		URL:         fmt.Sprintf("https://gamesdb.launchbox-app.com/games/details/%d", ge.DatabaseID),
 		Description: ge.Overview,
 		Developer:   ge.Developer,
 		Publisher:   ge.Publisher,
@@ -1219,14 +1218,6 @@ func buildResult(index int, ge *gameEntry, idx *launchBoxIndex) *lookupResult {
 	}
 
 	return r
-}
-
-func launchBoxSearchURL(title string) string {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return "https://gamesdb.launchbox-app.com/games/search"
-	}
-	return "https://gamesdb.launchbox-app.com/games/results?id=" + url.QueryEscape(title)
 }
 
 // --- Main ---

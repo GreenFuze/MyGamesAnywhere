@@ -152,7 +152,7 @@ func TestMatchGame_TitleBasedLookup(t *testing.T) {
 	if r.ExternalID != "3791" {
 		t.Errorf("external_id: got %q, want %q", r.ExternalID, "3791")
 	}
-	if r.URL != "https://gamesdb.launchbox-app.com/games/results?id=Duke+Nukem+3D" {
+	if r.URL != "https://gamesdb.launchbox-app.com/games/details/3791" {
 		t.Errorf("url: got %q", r.URL)
 	}
 }
