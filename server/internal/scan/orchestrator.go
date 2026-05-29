@@ -453,6 +453,24 @@ func (o *Orchestrator) RefreshGameMetadata(ctx context.Context, canonicalID stri
 		return nil, core.ErrMetadataProvidersUnavailable
 	}
 
+	// ── Force-reinit all metadata plugins so the user always gets truly
+	// fresh data (e.g. re-download LaunchBox index if stale).
+	// We use a generous timeout because a re-download may take minutes.
+	reinitCtx, reinitCancel := context.WithTimeout(ctx, 20*time.Minute)
+	defer reinitCancel()
+	seen := map[string]bool{}
+	for _, src := range metaSources {
+		if seen[src.PluginID] {
+			continue
+		}
+		seen[src.PluginID] = true
+		var reinitResult json.RawMessage
+		if err := o.pluginCaller.Call(reinitCtx, src.PluginID, "plugin.init", map[string]any{"force": true}, &reinitResult); err != nil {
+			o.logger.Warn("metadata plugin reinit during refresh failed", "plugin_id", src.PluginID, "error", err)
+			// Non-fatal: proceed with whatever data the plugin currently has.
+		}
+	}
+
 	grouped := make(map[string][]*core.SourceGame)
 	for _, sourceGame := range sourceGames {
 		if sourceGame == nil {

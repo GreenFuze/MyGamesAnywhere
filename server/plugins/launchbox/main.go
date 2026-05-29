@@ -385,7 +385,19 @@ var cache *launchBoxIndex
 
 // --- Init ---
 
-func handleInit() (any, *Error) {
+type initParams struct {
+	// Force instructs the plugin to skip the age/cache check and re-download
+	// the LaunchBox metadata index immediately. Set by the server when the
+	// user explicitly requests a metadata refresh so they always get fresh data.
+	Force bool `json:"force"`
+}
+
+func handleInit(rawParams json.RawMessage) (any, *Error) {
+	var p initParams
+	if len(rawParams) > 0 {
+		_ = json.Unmarshal(rawParams, &p)
+	}
+
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, &Error{Code: "INIT_FAILED", Message: "create data dir: " + err.Error()}
 	}
@@ -393,12 +405,18 @@ func handleInit() (any, *Error) {
 	downloadedAt := readTimestamp()
 	hasIndex := fileExists(filesIndexFile) && fileExists(gamesIndexFile) && fileExists(imagesIndexFile)
 
-	if hasIndex && time.Since(downloadedAt) < maxAge {
+	if hasIndex && !p.Force && time.Since(downloadedAt) < maxAge {
 		log.Printf("index is fresh (downloaded %s)", downloadedAt.Format(time.RFC3339))
 		return map[string]any{"status": "ok", "cached": true}, nil
 	}
 
-	log.Println("downloading LaunchBox metadata...")
+	if p.Force {
+		log.Println("force-refresh requested: clearing in-memory cache and re-downloading index")
+		cache = nil
+	} else {
+		log.Println("downloading LaunchBox metadata...")
+	}
+
 	if err := downloadAndBuildIndex(); err != nil {
 		log.Printf("WARNING: download failed: %v", err)
 		if hasIndex {
@@ -1251,7 +1269,7 @@ func main() {
 
 		switch req.Method {
 		case "plugin.init":
-			result, errObj := handleInit()
+			result, errObj := handleInit(req.Params)
 			if errObj != nil {
 				resp.Error = errObj
 			} else {

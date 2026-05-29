@@ -571,7 +571,7 @@ func TestTV2GamesCoverage(t *testing.T) {
 
 	cache = nil
 
-	if _, errObj := handleInit(); errObj != nil {
+	if _, errObj := handleInit(nil); errObj != nil {
 		t.Fatalf("handleInit: %s: %s", errObj.Code, errObj.Message)
 	}
 	idx, err := loadIndex()
@@ -748,7 +748,7 @@ func TestFullInit(t *testing.T) {
 
 	cache = nil
 
-	result, errObj := handleInit()
+	result, errObj := handleInit(nil)
 	if errObj != nil {
 		t.Fatalf("handleInit error: %s: %s", errObj.Code, errObj.Message)
 	}
