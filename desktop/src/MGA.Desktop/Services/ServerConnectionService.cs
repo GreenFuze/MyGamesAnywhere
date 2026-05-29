@@ -73,6 +73,11 @@ public sealed class ServerConnectionService : IDisposable
     /// <summary>
     /// Switches to a different server: disposes the current connection, updates config,
     /// and opens a new HttpClient + SSE stream.
+    ///
+    /// Profile IDs are server-specific — a profile that exists on server A may not exist
+    /// (or may collide with a different account) on server B. The stored GamerProfileId
+    /// is therefore cleared on every switch so the caller is forced back through
+    /// profile selection before issuing API requests.
     /// </summary>
     public void SwitchServer(ServerProfile profile)
     {
@@ -80,7 +85,8 @@ public sealed class ServerConnectionService : IDisposable
 
         _appConfig.Update(cfg =>
         {
-            cfg.ActiveServer = profile.Url;
+            cfg.ActiveServer    = profile.Url;
+            cfg.GamerProfileId  = string.Empty;   // invalidated — belongs to the old server
 
             // Add to server list if not already present.
             if (!cfg.Servers.Any(s => s.Url == profile.Url))

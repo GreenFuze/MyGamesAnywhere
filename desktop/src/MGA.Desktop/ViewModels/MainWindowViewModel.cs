@@ -127,6 +127,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Disposables.Add(
             serverConn.UrlChanged.Subscribe(url => ActiveServerUrl = url));
 
+        // When the server is switched at runtime, GamerProfileId has been cleared.
+        // Re-open onboarding so the user picks a profile on the new server.
+        // Skip(1) skips the BehaviorSubject's initial replay on subscribe.
+        Disposables.Add(
+            serverConn.UrlChanged
+                .Skip(1)
+                .Subscribe(_ =>
+                {
+                    if (_config.Config.IsFirstRun)
+                        Avalonia.Threading.Dispatcher.UIThread.Post(BeginOnboarding);
+                }));
+
         // Wire SSE: refresh the Library badge whenever an integration refresh finishes.
         if (serverConn.Events is not null)
             Disposables.Add(
