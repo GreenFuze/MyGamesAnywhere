@@ -383,7 +383,7 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 			"metadata_providers": metadataProviders,
 		})
 
-		if _, err := o.refreshCoordinator.refreshExistingSourceGames(ctx, integrationID, sourceGames, metaSources); err != nil {
+		if _, _, err := o.refreshCoordinator.refreshExistingSourceGames(ctx, integrationID, sourceGames, metaSources); err != nil {
 			o.publishScanError(ctx, integrationID, err)
 			return nil, fmt.Errorf("persist metadata refresh for %q: %w", integrationID, err)
 		}
@@ -422,7 +422,7 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 	return result, nil
 }
 
-func (o *Orchestrator) RefreshGameMetadata(ctx context.Context, canonicalID string) (*core.CanonicalGame, error) {
+func (o *Orchestrator) RefreshGameMetadata(ctx context.Context, canonicalID string) (*core.GameMetadataRefreshResult, error) {
 	if canonicalID == "" {
 		return nil, nil
 	}
@@ -482,13 +482,37 @@ func (o *Orchestrator) RefreshGameMetadata(ctx context.Context, canonicalID stri
 		return nil, core.ErrMetadataRefreshNoEligible
 	}
 
+	// Collect non-fatal provider failures across all integration groups.
+	var allSummaries []*MetadataExecutionSummary
 	for integrationID, records := range grouped {
-		if _, err := o.refreshCoordinator.refreshExistingSourceGames(ctx, integrationID, records, metaSources); err != nil {
+		_, summary, err := o.refreshCoordinator.refreshExistingSourceGames(ctx, integrationID, records, metaSources)
+		allSummaries = append(allSummaries, summary)
+		if err != nil {
 			return nil, fmt.Errorf("refresh source records for %q: %w", integrationID, err)
 		}
 	}
 
-	return o.gameStore.GetCanonicalGameByID(ctx, canonicalID)
+	game, err := o.gameStore.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build human-readable warnings from any provider that failed non-fatally.
+	var warnings []string
+	for _, summary := range allSummaries {
+		if summary == nil {
+			continue
+		}
+		for _, failure := range summary.ProviderFailures {
+			provider := strings.TrimSpace(failure.Label)
+			if provider == "" {
+				provider = failure.PluginID
+			}
+			warnings = append(warnings, fmt.Sprintf("%s was skipped: %s", provider, failure.Error))
+		}
+	}
+
+	return &core.GameMetadataRefreshResult{Game: game, Warnings: warnings}, nil
 }
 
 // buildScanReport computes diff between pre- and post-scan game counts and

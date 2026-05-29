@@ -755,7 +755,7 @@ func (c *GameController) RefreshMetadata(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	game, err := c.refreshSvc.RefreshGameMetadata(r.Context(), id)
+	result, err := c.refreshSvc.RefreshGameMetadata(r.Context(), id)
 	if err != nil {
 		switch {
 		case errors.Is(err, core.ErrMetadataRefreshNoEligible):
@@ -768,13 +768,17 @@ func (c *GameController) RefreshMetadata(w http.ResponseWriter, r *http.Request)
 		}
 		return
 	}
-	if game == nil {
+	if result == nil || result.Game == nil {
 		http.NotFound(w, r)
 		return
 	}
 
+	// Build the response and attach any non-fatal provider warnings.
+	detail := c.canonicalToGameDetailWithIntegrationLabels(r.Context(), result.Game, c.loadIntegrationLabels(r.Context()))
+	detail.MetadataWarnings = result.Warnings
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(r.Context(), game, c.loadIntegrationLabels(r.Context())))
+	_ = json.NewEncoder(w).Encode(detail)
 }
 
 func (c *GameController) DeleteSourceGame(w http.ResponseWriter, r *http.Request) {

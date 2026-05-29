@@ -375,9 +375,17 @@ type ManualReviewService interface {
 	RedetectActive(ctx context.Context) (*ManualReviewRedetectBatchResult, error)
 }
 
+// GameMetadataRefreshResult is returned by a single-game metadata refresh.
+// Warnings lists providers that were skipped due to non-fatal errors; the refresh
+// still succeeded using whichever providers did respond.
+type GameMetadataRefreshResult struct {
+	Game     *CanonicalGame
+	Warnings []string
+}
+
 // GameMetadataRefreshService handles explicit metadata/media refresh for one canonical game.
 type GameMetadataRefreshService interface {
-	RefreshGameMetadata(ctx context.Context, canonicalID string) (*CanonicalGame, error)
+	RefreshGameMetadata(ctx context.Context, canonicalID string) (*GameMetadataRefreshResult, error)
 }
 
 type DeleteSourceGameResult struct {

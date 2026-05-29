@@ -122,7 +122,9 @@ func TestRunScanContinuesAfterMetadataProviderFailureAndReportsDegradedStatus(t 
 	}
 }
 
-func TestRunMetadataRefreshFailsFastOnProviderError(t *testing.T) {
+func TestRunMetadataRefreshContinuesAndLogsWarningOnProviderError(t *testing.T) {
+	// When a metadata provider fails, RunMetadataRefresh should NOT abort — it should
+	// continue with the remaining providers and succeed (the failure is a non-fatal warning).
 	ctx := context.Background()
 	store := newManualReviewTestStore(t)
 	persistMetadataRefreshTestBatch(t, ctx, store, "source-1", "scan:refresh-1")
@@ -154,12 +156,14 @@ func TestRunMetadataRefreshFailsFastOnProviderError(t *testing.T) {
 
 	orchestrator := NewOrchestrator(caller, discovery, repo, store, &eventTestMediaDownloadQueue{}, eventTestLogger{})
 	_, err := orchestrator.RunMetadataRefresh(ctx, nil)
-	if !errors.Is(err, core.ErrMetadataProvidersUnavailable) {
-		t.Fatalf("error = %v, want %v", err, core.ErrMetadataProvidersUnavailable)
+	if err != nil {
+		t.Fatalf("RunMetadataRefresh should succeed despite provider failure; got error: %v", err)
 	}
 }
 
-func TestRefreshGameMetadataFailsFastOnProviderError(t *testing.T) {
+func TestRefreshGameMetadataWarnsOnProviderFailureAndSucceeds(t *testing.T) {
+	// When a metadata provider fails, RefreshGameMetadata must NOT abort — it continues
+	// using the remaining providers and surfaces the failure as a warning in the result.
 	ctx := context.Background()
 	store := newManualReviewTestStore(t)
 	persistMetadataRefreshTestBatch(t, ctx, store, "source-1", "scan:refresh-1")
@@ -198,9 +202,15 @@ func TestRefreshGameMetadataFailsFastOnProviderError(t *testing.T) {
 	}}
 
 	orchestrator := NewOrchestrator(caller, discovery, repo, store, &eventTestMediaDownloadQueue{}, eventTestLogger{})
-	_, err = orchestrator.RefreshGameMetadata(ctx, canonicalGames[0].ID)
-	if !errors.Is(err, core.ErrMetadataProvidersUnavailable) {
-		t.Fatalf("error = %v, want %v", err, core.ErrMetadataProvidersUnavailable)
+	result, err := orchestrator.RefreshGameMetadata(ctx, canonicalGames[0].ID)
+	if err != nil {
+		t.Fatalf("RefreshGameMetadata should succeed despite provider failure; got error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(result.Warnings) == 0 {
+		t.Fatal("expected at least one warning for the skipped provider")
 	}
 }
 
@@ -309,8 +319,12 @@ func TestRefreshGameMetadataDoesNotDropUnrelatedDetectedGames(t *testing.T) {
 	}}
 
 	orchestrator := NewOrchestrator(caller, discovery, repo, store, &eventTestMediaDownloadQueue{}, eventTestLogger{})
-	if _, err := orchestrator.RefreshGameMetadata(ctx, controlID); err != nil {
+	result, err := orchestrator.RefreshGameMetadata(ctx, controlID)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result == nil || result.Game == nil {
+		t.Fatal("expected non-nil game result")
 	}
 
 	after, err := store.GetCanonicalGames(ctx)

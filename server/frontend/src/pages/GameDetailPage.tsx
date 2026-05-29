@@ -1115,6 +1115,7 @@ export function GameDetailPage() {
   const [selectedMedia, setSelectedMedia] = useState<GameMediaDetailDTO | null>(null)
   const [refreshBusy, setRefreshBusy] = useState(false)
   const [refreshNotice, setRefreshNotice] = useState('')
+  const [refreshWarnings, setRefreshWarnings] = useState<string[]>([])
   const [refreshError, setRefreshError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<SourceGameDetailDTO | null>(null)
   const [deleteNotice, setDeleteNotice] = useState('')
@@ -1340,15 +1341,26 @@ export function GameDetailPage() {
     if (!game.data || refreshBusy) return
     setRefreshBusy(true)
     setRefreshNotice('')
+    setRefreshWarnings([])
     setRefreshError('')
     try {
       const refreshed = await refreshGameMetadata(game.data.id)
-      queryClient.setQueryData(['game', refreshed.id], refreshed)
+
+      // Strip ephemeral warnings before caching so they don't persist on later reads.
+      const warnings = refreshed.metadata_warnings ?? []
+      const { metadata_warnings: _dropped, ...gameData } = refreshed
+      queryClient.setQueryData(['game', gameData.id], gameData)
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['games'] }),
-        queryClient.invalidateQueries({ queryKey: ['game', refreshed.id, 'achievements'] }),
+        queryClient.invalidateQueries({ queryKey: ['game', gameData.id, 'achievements'] }),
       ])
+
       setRefreshNotice('Metadata and media refresh completed.')
+      // Surface non-fatal provider skips as separate amber warnings.
+      if (warnings.length > 0) {
+        setRefreshWarnings(warnings)
+      }
     } catch (error) {
       const message =
         error instanceof ApiError
@@ -1682,6 +1694,19 @@ export function GameDetailPage() {
                 </div>
               ) : null}
               {refreshNotice ? <p className="text-xs text-green-400">{refreshNotice}</p> : null}
+              {refreshWarnings.length > 0 ? (
+                <div className="max-w-xl rounded-[16px] border border-amber-400/25 bg-amber-400/[0.08] px-4 py-3 text-xs text-amber-100 shadow-[0_8px_20px_rgba(0,0,0,0.18)]">
+                  <p className="font-semibold text-amber-200">Some metadata providers were skipped:</p>
+                  <ul className="mt-1.5 space-y-1 pl-1">
+                    {refreshWarnings.map((w) => (
+                      <li key={w} className="flex items-start gap-1.5 text-amber-100/80">
+                        <span className="mt-px shrink-0 select-none">⚠</span>
+                        <span>{w}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               {deleteNotice ? <p className="text-xs text-green-400">{deleteNotice}</p> : null}
               {groupingNotice ? <p className="text-xs text-green-400">{groupingNotice}</p> : null}
               {refreshError ? <p className="text-xs text-red-400">{refreshError}</p> : null}

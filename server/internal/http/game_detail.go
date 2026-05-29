@@ -40,6 +40,10 @@ type GameDetailResponse struct {
 	Play               *GamePlayDTO           `json:"play,omitempty"`
 	AchievementSummary *AchievementSummaryDTO `json:"achievement_summary,omitempty"`
 	SourceGames        []SourceGameDetailDTO  `json:"source_games"`
+	// MetadataWarnings lists metadata providers that were skipped during a forced refresh
+	// due to non-fatal errors (e.g. timeout). Only present in refresh responses; empty on
+	// regular game-detail reads.
+	MetadataWarnings []string `json:"metadata_warnings,omitempty"`
 }
 
 type AchievementSummaryDTO struct {

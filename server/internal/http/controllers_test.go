@@ -41,12 +41,16 @@ func TestDecodedPathParamUnescapesLegacyGameIDs(t *testing.T) {
 }
 
 type fakeGameMetadataRefreshService struct {
-	game *core.CanonicalGame
-	err  error
+	game     *core.CanonicalGame
+	warnings []string
+	err      error
 }
 
-func (f *fakeGameMetadataRefreshService) RefreshGameMetadata(context.Context, string) (*core.CanonicalGame, error) {
-	return f.game, f.err
+func (f *fakeGameMetadataRefreshService) RefreshGameMetadata(context.Context, string) (*core.GameMetadataRefreshResult, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &core.GameMetadataRefreshResult{Game: f.game, Warnings: f.warnings}, nil
 }
 
 type fakeGameDeletionService struct {

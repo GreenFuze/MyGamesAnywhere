@@ -459,6 +459,8 @@ export type GameDetailResponse = {
   play?: GamePlayDTO;
   achievement_summary?: AchievementSummaryDTO;
   source_games: SourceGameDetailDTO[];
+  /** Non-fatal provider warnings from a forced refresh (absent on regular game reads). */
+  metadata_warnings?: string[];
 };
 
 export type AchievementDTO = {

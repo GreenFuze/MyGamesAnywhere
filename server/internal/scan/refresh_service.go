@@ -8,8 +8,11 @@ import (
 )
 
 var (
-	fullScanMetadataFailurePolicy     = MetadataFailurePolicy{Name: "full_scan", Strict: false}
-	refreshMetadataFailurePolicy      = MetadataFailurePolicy{Name: "refresh", Strict: true}
+	fullScanMetadataFailurePolicy = MetadataFailurePolicy{Name: "full_scan", Strict: false}
+	// refreshMetadataFailurePolicy is intentionally non-strict: if one provider (e.g. RAWG)
+	// times out, the refresh continues with the remaining providers and surfaces the failure
+	// as a warning rather than aborting the whole operation.
+	refreshMetadataFailurePolicy      = MetadataFailurePolicy{Name: "refresh", Strict: false}
 	manualReviewMetadataFailurePolicy = MetadataFailurePolicy{Name: "manual_review", Strict: true}
 )
 
@@ -43,25 +46,29 @@ func (c *metadataRefreshCoordinator) enrichDiscoveredGames(
 	return c.metadataResolver.EnrichWithPolicy(ctx, integrationID, games, metadataSources, fullScanMetadataFailurePolicy)
 }
 
+// refreshExistingSourceGames re-runs metadata enrichment on already-persisted source games
+// and returns the updated game list plus an execution summary.  The summary may contain
+// provider failures even on a nil error — callers must inspect it for non-fatal warnings.
 func (c *metadataRefreshCoordinator) refreshExistingSourceGames(
 	ctx context.Context,
 	integrationID string,
 	sourceGames []*core.SourceGame,
 	metadataSources []MetadataSource,
-) ([]*core.Game, error) {
+) ([]*core.Game, *MetadataExecutionSummary, error) {
 	games, err := gamesForSourceRefresh(sourceGames)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if _, err := c.metadataResolver.EnrichWithPolicy(ctx, integrationID, games, metadataSources, refreshMetadataFailurePolicy); err != nil {
-		return nil, err
+	summary, err := c.metadataResolver.EnrichWithPolicy(ctx, integrationID, games, metadataSources, refreshMetadataFailurePolicy)
+	if err != nil {
+		return nil, summary, err
 	}
 
 	if err := c.persistRefreshedSourceGames(ctx, sourceGames, games); err != nil {
-		return nil, err
+		return nil, summary, err
 	}
-	return games, nil
+	return games, summary, nil
 }
 
 func (c *metadataRefreshCoordinator) applyManualReviewSelection(
