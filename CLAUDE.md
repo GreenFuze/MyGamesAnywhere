@@ -27,3 +27,25 @@ If suitcode warns that the capsule is large, switch to `--depth signatures` (see
 
 Do not use Read/Grep/cat to explore code you haven't run `context` on first.
 SuitCode output is the authoritative source; manual file reads are the fallback when SuitCode explicitly reports a limitation.
+
+<!-- suitcode:start — managed by "suitcode . add-prompt"; run it again to update -->
+
+## SuitCode — mandatory workflow
+
+SuitCode provides authoritative import-graph intelligence for coding agents.
+Run `suitcode --help` for all commands.
+Run `suitcode . <command> --help` for per-command usage.
+
+**Non-negotiable steps:**
+
+1. **Session start** — run `suitcode . warmup` once before any other command.
+2. **Before reading or editing any code file** — run `suitcode . context` first.
+   Do not open files with Read/Grep/cat until you have run context on them.
+3. **After every feature call** — run `suitcode . feedback good|bad`. Mandatory, no exceptions.
+   Run `suitcode . status` to see how many calls are still unrated.
+4. **After session compaction** — re-anchor with `suitcode . context --from <ref>`.
+
+SuitCode output is the authoritative source. Use manual file reads only when SuitCode
+explicitly reports a limitation for that file.
+
+<!-- suitcode:end -->
