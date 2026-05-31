@@ -453,11 +453,20 @@ func (o *Orchestrator) RefreshGameMetadata(ctx context.Context, canonicalID stri
 		return nil, core.ErrMetadataProvidersUnavailable
 	}
 
-	// ── Force-reinit all metadata plugins so the user always gets truly
-	// fresh data (e.g. re-download LaunchBox index if stale).
-	// We use a generous timeout because a re-download may take minutes.
-	reinitCtx, reinitCancel := context.WithTimeout(ctx, 20*time.Minute)
-	defer reinitCancel()
+	// Detach from the caller's context (typically an HTTP request) so that a
+	// client disconnect or browser timeout cannot cancel the refresh mid-way
+	// through a database transaction.  Values (e.g. profile ID) are preserved;
+	// only the cancellation signal is removed.  A hard 10-minute ceiling is
+	// applied so the operation can never run indefinitely.
+	refreshCtx, refreshCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
+	defer refreshCancel()
+
+	// Reinit metadata plugins so stale local caches (e.g. LaunchBox Metadata.zip
+	// older than its 30-day maxAge) are refreshed before we run enrichment.
+	// We do NOT force a re-download on every call — plugins decide based on
+	// their own staleness policy.  Forcing caused an unconditional multi-minute
+	// Metadata.zip download on every single-game refresh, which reliably
+	// exceeded the HTTP request context deadline.
 	seen := map[string]bool{}
 	for _, src := range metaSources {
 		if seen[src.PluginID] {
@@ -465,7 +474,7 @@ func (o *Orchestrator) RefreshGameMetadata(ctx context.Context, canonicalID stri
 		}
 		seen[src.PluginID] = true
 		var reinitResult json.RawMessage
-		if err := o.pluginCaller.Call(reinitCtx, src.PluginID, "plugin.init", map[string]any{"force": true}, &reinitResult); err != nil {
+		if err := o.pluginCaller.Call(refreshCtx, src.PluginID, "plugin.init", map[string]any{}, &reinitResult); err != nil {
 			o.logger.Warn("metadata plugin reinit during refresh failed", "plugin_id", src.PluginID, "error", err)
 			// Non-fatal: proceed with whatever data the plugin currently has.
 		}
@@ -485,14 +494,14 @@ func (o *Orchestrator) RefreshGameMetadata(ctx context.Context, canonicalID stri
 	// Collect non-fatal provider failures across all integration groups.
 	var allSummaries []*MetadataExecutionSummary
 	for integrationID, records := range grouped {
-		_, summary, err := o.refreshCoordinator.refreshExistingSourceGames(ctx, integrationID, records, metaSources)
+		_, summary, err := o.refreshCoordinator.refreshExistingSourceGames(refreshCtx, integrationID, records, metaSources)
 		allSummaries = append(allSummaries, summary)
 		if err != nil {
 			return nil, fmt.Errorf("refresh source records for %q: %w", integrationID, err)
 		}
 	}
 
-	game, err := o.gameStore.GetCanonicalGameByID(ctx, canonicalID)
+	game, err := o.gameStore.GetCanonicalGameByID(refreshCtx, canonicalID)
 	if err != nil {
 		return nil, err
 	}
