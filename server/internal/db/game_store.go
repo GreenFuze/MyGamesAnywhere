@@ -3456,14 +3456,36 @@ func enforceManualSelection(matches []core.ResolverMatch, selection core.ManualR
 }
 
 func manualSelectionToResolverMatch(selection core.ManualReviewSelection) core.ResolverMatch {
+	// Build the full media list: all items from selection.Media plus the legacy
+	// ImageURL cover field (for backward-compat with old stored decisions).
+	// This logic mirrors manualReviewSelectionMedia in scan/manual_review_service.go —
+	// keep both in sync if the shape ever changes.
+	seen := map[string]bool{}
 	var media []core.MediaItem
-	if strings.TrimSpace(selection.ImageURL) != "" {
-		media = append(media, core.MediaItem{
-			Type:   core.MediaTypeCover,
-			URL:    strings.TrimSpace(selection.ImageURL),
-			Source: selection.ProviderPluginID,
-		})
+	provider := strings.TrimSpace(selection.ProviderPluginID)
+
+	addMedia := func(item core.MediaItem) {
+		item.URL = strings.TrimSpace(item.URL)
+		if item.URL == "" || seen[item.URL] {
+			return
+		}
+		if item.Type == "" {
+			item.Type = core.MediaTypeCover
+		}
+		if strings.TrimSpace(item.Source) == "" {
+			item.Source = provider
+		}
+		seen[item.URL] = true
+		media = append(media, item)
 	}
+
+	// Full media list first (covers, screenshots, backgrounds, …).
+	for _, item := range selection.Media {
+		addMedia(item)
+	}
+	// Legacy single-image field: add as fallback/extra cover if not already present.
+	addMedia(core.MediaItem{Type: core.MediaTypeCover, URL: selection.ImageURL, Source: provider})
+
 	return core.ResolverMatch{
 		PluginID:        strings.TrimSpace(selection.ProviderPluginID),
 		Title:           strings.TrimSpace(selection.Title),
@@ -4799,6 +4821,10 @@ type metadataExtra struct {
 	XcloudAvailable bool                 `json:"xcloud_available,omitempty"`
 	StoreProductID  string               `json:"store_product_id,omitempty"`
 	XcloudURL       string               `json:"xcloud_url,omitempty"`
+	// Media stores the full provider media list so it survives metadata refreshes.
+	// Without this, resolver matches lose their images each time they are re-read
+	// from the database, causing source_game_media to be wiped on every refresh.
+	Media []core.MediaItem `json:"media,omitempty"`
 }
 
 func buildMetadataJSON(m core.ResolverMatch) (string, error) {
@@ -4813,6 +4839,7 @@ func buildMetadataJSON(m core.ResolverMatch) (string, error) {
 		XcloudAvailable: m.XcloudAvailable,
 		StoreProductID:  m.StoreProductID,
 		XcloudURL:       m.XcloudURL,
+		Media:           m.Media,
 	}
 	b, err := json.Marshal(extra)
 	if err != nil {
@@ -4842,6 +4869,12 @@ func parseMetadataJSON(s string, m *core.ResolverMatch) {
 	m.XcloudAvailable = extra.XcloudAvailable
 	m.StoreProductID = extra.StoreProductID
 	m.XcloudURL = extra.XcloudURL
+	// Restore media only when the stored list is non-empty; older rows that
+	// pre-date this field will have an empty/missing array and should not
+	// overwrite media that was already populated from another source.
+	if len(extra.Media) > 0 {
+		m.Media = extra.Media
+	}
 }
 
 func boolToInt(b bool) int {
