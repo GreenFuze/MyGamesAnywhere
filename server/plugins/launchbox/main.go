@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1176,7 +1177,10 @@ func buildResult(index int, ge *gameEntry, idx *launchBoxIndex) *lookupResult {
 		Index:       index,
 		Title:       ge.Name,
 		ExternalID:  fmt.Sprintf("%d", ge.DatabaseID),
-		URL:         fmt.Sprintf("https://gamesdb.launchbox-app.com/games/details/%d", ge.DatabaseID),
+		// The LaunchBox Metadata.xml DatabaseID does NOT map to the website's game-page
+		// URL scheme (gamesdb.launchbox-app.com/games/details/{id}), so we generate a
+		// title-based search URL instead to avoid linking to the wrong game.
+		URL: "https://gamesdb.launchbox-app.com/games/results?id=" + url.QueryEscape(ge.Name),
 		Description: ge.Overview,
 		Developer:   ge.Developer,
 		Publisher:   ge.Publisher,

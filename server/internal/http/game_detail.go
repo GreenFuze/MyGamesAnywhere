@@ -231,29 +231,16 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 
 func externalIDURL(cg *core.CanonicalGame, eid core.ExternalID) string {
 	if eid.Source == "metadata-launchbox" {
-		// ExternalID is the numeric LaunchBox DatabaseID — link directly to the game page.
-		if isNumericID(eid.ExternalID) {
-			return "https://gamesdb.launchbox-app.com/games/details/" + eid.ExternalID
-		}
-		// Fallback for legacy or non-numeric IDs: search by title.
+		// The numeric DatabaseID in LaunchBox's Metadata.xml does NOT correspond to
+		// the ID used in gamesdb.launchbox-app.com/games/details/{id} URLs — the two
+		// numbering systems are independent.  Always fall back to a title-based search
+		// URL so we never link to the wrong game.
 		if title := launchBoxTitleForExternalID(cg, eid.ExternalID); title != "" {
 			return launchBoxSearchURL(title)
 		}
+		// No title available: return the stored URL as-is.
 	}
 	return eid.URL
-}
-
-// isNumericID reports whether s is a non-empty string of ASCII digits.
-func isNumericID(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func launchBoxTitleForExternalID(cg *core.CanonicalGame, externalID string) string {
