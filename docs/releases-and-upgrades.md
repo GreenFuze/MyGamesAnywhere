@@ -41,7 +41,7 @@ Every tagged release should include:
 
 The current public release flow is:
 
-1. choose the release version, for example `0.0.13`
+1. choose the release version, for example `0.1.1`
 2. build the portable package locally with `./server/package-portable.ps1 -Version <version>`
 3. build the Windows installer and update manifest with `./server/package-installer.ps1 -Version <version> -SkipBuild -ReleaseBaseUrl https://github.com/GreenFuze/MyGamesAnywhere/releases/download/v<version>`
 4. publish the GitHub Release manually with `gh release create v<version>` and upload the generated artifacts
