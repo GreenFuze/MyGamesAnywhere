@@ -25,6 +25,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private readonly GameCacheService?         _gameCache;
     private readonly MediaCacheService?        _mediaCache;
     private readonly EmulatorService?          _emulatorService;
+    private readonly GameStateService?         _gameStateService;
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -90,7 +91,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         RecentPlayedService?      recentPlayed     = null,
         GameCacheService?         gameCache        = null,
         MediaCacheService?        mediaCache       = null,
-        EmulatorService?          emulatorService  = null)
+        EmulatorService?          emulatorService  = null,
+        GameStateService?         gameStateService = null)
     {
         _config          = config;
         _serverConn      = serverConn;
@@ -101,7 +103,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         _recentPlayed    = recentPlayed;
         _gameCache       = gameCache;
         _mediaCache      = mediaCache;
-        _emulatorService = emulatorService;
+        _emulatorService  = emulatorService;
+        _gameStateService = gameStateService;
 
         // Restore persisted shell state.
         SidebarCollapsed = config.Config.SidebarCollapsed;
@@ -221,7 +224,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         _nav.NavigateTo(new LibraryViewModel(
             _serverConn, _nav, _toast, _config,
             initialSearch: query, installDetector: _installDetector,
-            recentPlayed: _recentPlayed, gameCache: _gameCache, mediaCache: _mediaCache));
+            recentPlayed: _recentPlayed, gameCache: _gameCache, mediaCache: _mediaCache,
+            gameStateService: _gameStateService));
 
         // Clear the search box after navigation.
         GlobalSearchText = string.Empty;
@@ -259,8 +263,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     private ViewModelBase? CreatePageViewModel(string pageId) => pageId switch
     {
-        "play"         => new PlayViewModel(_serverConn, _nav, _toast, _config, _installDetector, _recentPlayed, _gameCache, _mediaCache),
-        "library"      => new LibraryViewModel(_serverConn, _nav, _toast, _config, installDetector: _installDetector, recentPlayed: _recentPlayed, gameCache: _gameCache, mediaCache: _mediaCache),
+        "play"         => new PlayViewModel(_serverConn, _nav, _toast, _config, _installDetector, _recentPlayed, _gameCache, _mediaCache, _gameStateService),
+        "library"      => new LibraryViewModel(_serverConn, _nav, _toast, _config, installDetector: _installDetector, recentPlayed: _recentPlayed, gameCache: _gameCache, mediaCache: _mediaCache, gameStateService: _gameStateService),
         "achievements" => new AchievementsViewModel(_serverConn, _toast),
         "stats"        => new StatsViewModel(_serverConn, _toast),
         "settings"     => _emulatorService is not null

@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MGA.Desktop.ViewModels"
+             xmlns:svc="using:MGA.Desktop.Services"
              xmlns:controls="using:MGA.Desktop.Controls"
              xmlns:asyncImage="using:AsyncImageLoader"
              x:Class="MGA.Desktop.Views.GameDetailView"
@@ -167,92 +168,170 @@
                         Spacing="8"
                         VerticalAlignment="Center">
 
-              <!-- "Detecting…" spinner while detection is running -->
-              <Border VerticalAlignment="Center"
-                      IsVisible="{Binding IsDetectingInstall}">
-                <TextBlock Text="Detecting install…"
-                           Classes="muted"
-                           FontSize="{DynamicResource MgaFontSizeXs}"
-                           VerticalAlignment="Center"/>
-              </Border>
+              <!-- ── EMULATED GAME PATH (platform requires native emulation) ─── -->
+              <StackPanel Orientation="Horizontal"
+                          Spacing="8"
+                          VerticalAlignment="Center"
+                          IsVisible="{Binding IsEmulatedGame}">
 
-              <!-- Launch button -->
-              <Button Classes="primary"
-                      Command="{Binding LaunchGameCommand}"
-                      IsVisible="{Binding IsInstalled}"
-                      ToolTip.Tip="{Binding InstallStatus.ExePath}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                  <TextBlock Text="▶" FontSize="13" VerticalAlignment="Center"/>
-                  <TextBlock Text="Launch" VerticalAlignment="Center"/>
+                <!-- Computing state spinner -->
+                <controls:LoadingSpinner Width="16" Height="16"
+                                         IsVisible="{Binding IsComputingEmulationState}"/>
+
+                <!-- Play via emulator (emulator is ready) -->
+                <StackPanel Orientation="Horizontal" Spacing="6"
+                            IsVisible="{Binding CanPlayViaEmulator}">
+
+                  <!-- Primary play button -->
+                  <Button Classes="primary"
+                          Command="{Binding LaunchWithEmulatorCommand}"
+                          ToolTip.Tip="{Binding PrimaryEmulatorLabel}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <TextBlock Text="▶" FontSize="13" VerticalAlignment="Center"/>
+                      <TextBlock Text="{Binding PrimaryEmulatorLabel}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                  </Button>
+
+                  <!-- Config picker ComboBox — only visible when >1 config available -->
+                  <ComboBox ItemsSource="{Binding EmulatorConfigs}"
+                            SelectedItem="{Binding SelectedEmulatorConfig, Mode=TwoWay}"
+                            IsVisible="{Binding HasMultipleEmulatorConfigs}"
+                            VerticalAlignment="Center"
+                            MinWidth="150"
+                            ToolTip.Tip="Choose emulator configuration">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate DataType="{x:Type svc:EmulatorConfig}">
+                        <TextBlock Text="{Binding DisplayName}"/>
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+
                 </StackPanel>
-              </Button>
 
-              <!-- Install button -->
-              <Button Classes="primary"
-                      Command="{Binding InstallGameCommand}"
-                      IsVisible="{Binding CanInstallGame}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                  <TextBlock Text="⬇" FontSize="13" VerticalAlignment="Center"/>
-                  <TextBlock Text="Install" VerticalAlignment="Center"/>
-                </StackPanel>
-              </Button>
+                <!-- Locate/Install button (packed game, not yet located on device) -->
+                <Button Classes="primary"
+                        Command="{Binding LocateEmulatedGameCommand}"
+                        IsVisible="{Binding NeedsEmulatedInstall}"
+                        ToolTip.Tip="Point to where this game is installed on this device">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="📂" FontSize="13" VerticalAlignment="Center"/>
+                    <TextBlock Text="Locate Install" VerticalAlignment="Center"/>
+                  </StackPanel>
+                </Button>
 
-              <!-- Install client -->
-              <Button Classes="ghost"
-                      Command="{Binding OpenClientDownloadCommand}"
-                      IsVisible="{Binding NeedsClientInstall}"
-                      ToolTip.Tip="{Binding ClientDownloadUrl}">
-                <TextBlock>
-                  <Run Text="⬇ "/>
-                  <Run Text="{Binding ClientMissingMessage}"/>
-                </TextBlock>
-              </Button>
+                <!-- Setup Emulator button (no emulator configured for this platform) -->
+                <Button Classes="ghost"
+                        Command="{Binding SetupEmulatorCommand}"
+                        IsVisible="{Binding NeedsEmulatorSetup}"
+                        ToolTip.Tip="No emulator configured for this platform. Go to Settings → Emulators.">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="⚙" FontSize="13" VerticalAlignment="Center"
+                               Foreground="{DynamicResource MgaWarningBrush}"/>
+                    <TextBlock Text="Setup Emulator" VerticalAlignment="Center"
+                               Foreground="{DynamicResource MgaWarningBrush}"/>
+                  </StackPanel>
+                </Button>
 
-              <!-- Browse for exe -->
-              <Button Classes="ghost"
-                      Command="{Binding PickExePathCommand}"
-                      Content="📂 Browse exe"
-                      IsVisible="{Binding NeedsManualBind}"/>
+                <!-- BIOS Missing button -->
+                <Button Classes="ghost"
+                        Command="{Binding OpenBiosManagerCommand}"
+                        IsVisible="{Binding NeedsBiosSetup}"
+                        ToolTip.Tip="{Binding MissingBiosMessage}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="⚠" FontSize="13" VerticalAlignment="Center"
+                               Foreground="{DynamicResource MgaWarningBrush}"/>
+                    <TextBlock Text="BIOS Missing" VerticalAlignment="Center"
+                               Foreground="{DynamicResource MgaWarningBrush}"/>
+                  </StackPanel>
+                </Button>
 
-              <!-- Open install folder -->
-              <Button Classes="ghost"
-                      Command="{Binding OpenInstallFolderCommand}"
-                      Content="📁 Folder"
-                      IsVisible="{Binding IsInstalled}"
-                      ToolTip.Tip="{Binding InstallStatus.InstallPath}"/>
+                <!-- Uninstall button (MGA-managed install only) -->
+                <Button Classes="ghost"
+                        Command="{Binding UninstallEmulatedGameCommand}"
+                        IsVisible="{Binding CanUninstallEmulatedGame}"
+                        ToolTip.Tip="Remove this game from this device">
+                  <TextBlock Text="✕ Uninstall"
+                             FontSize="{DynamicResource MgaFontSizeSm}"
+                             Foreground="{DynamicResource MgaMutedBrush}"/>
+                </Button>
 
-              <!-- Installed badge -->
-              <Border Background="#1A3db8ff"
-                      BorderBrush="#443db8ff"
-                      BorderThickness="1"
-                      CornerRadius="{DynamicResource MgaRadiusFull}"
-                      Padding="10,4"
-                      VerticalAlignment="Center"
-                      IsVisible="{Binding IsInstalled}">
-                <TextBlock Text="✓ Installed"
-                           Foreground="{DynamicResource MgaAccentBrush}"
-                           FontSize="{DynamicResource MgaFontSizeXs}"
-                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-              </Border>
+              </StackPanel>
 
-              <!-- Separator — only visible when emulator button follows -->
-              <Border Width="1"
-                      Background="{DynamicResource MgaBorderBrush}"
-                      Margin="4,0"
-                      Height="20"
-                      VerticalAlignment="Center"
-                      IsVisible="{Binding CanLaunchWithEmulator}"/>
+              <!-- ── STOREFRONT / WINDOWS NATIVE PATH ──────────────────────── -->
+              <StackPanel Orientation="Horizontal"
+                          Spacing="8"
+                          VerticalAlignment="Center"
+                          IsVisible="{Binding !IsEmulatedGame}">
 
-              <!-- Emulator launch -->
-              <Button Classes="primary"
-                      Command="{Binding LaunchWithEmulatorCommand}"
-                      IsVisible="{Binding CanLaunchWithEmulator}"
-                      ToolTip.Tip="{Binding EmulatorName}">
-                <TextBlock>
-                  <Run Text="▶ "/>
-                  <Run Text="{Binding EmulatorName}"/>
-                </TextBlock>
-              </Button>
+                <!-- "Detecting…" spinner while detection is running -->
+                <Border VerticalAlignment="Center"
+                        IsVisible="{Binding IsDetectingInstall}">
+                  <TextBlock Text="Detecting install…"
+                             Classes="muted"
+                             FontSize="{DynamicResource MgaFontSizeXs}"
+                             VerticalAlignment="Center"/>
+                </Border>
+
+                <!-- Launch button -->
+                <Button Classes="primary"
+                        Command="{Binding LaunchGameCommand}"
+                        IsVisible="{Binding IsInstalled}"
+                        ToolTip.Tip="{Binding InstallStatus.ExePath}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="▶" FontSize="13" VerticalAlignment="Center"/>
+                    <TextBlock Text="Launch" VerticalAlignment="Center"/>
+                  </StackPanel>
+                </Button>
+
+                <!-- Install button -->
+                <Button Classes="primary"
+                        Command="{Binding InstallGameCommand}"
+                        IsVisible="{Binding CanInstallGame}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="⬇" FontSize="13" VerticalAlignment="Center"/>
+                    <TextBlock Text="Install" VerticalAlignment="Center"/>
+                  </StackPanel>
+                </Button>
+
+                <!-- Install client -->
+                <Button Classes="ghost"
+                        Command="{Binding OpenClientDownloadCommand}"
+                        IsVisible="{Binding NeedsClientInstall}"
+                        ToolTip.Tip="{Binding ClientDownloadUrl}">
+                  <TextBlock>
+                    <Run Text="⬇ "/>
+                    <Run Text="{Binding ClientMissingMessage}"/>
+                  </TextBlock>
+                </Button>
+
+                <!-- Browse for exe -->
+                <Button Classes="ghost"
+                        Command="{Binding PickExePathCommand}"
+                        Content="📂 Browse exe"
+                        IsVisible="{Binding NeedsManualBind}"/>
+
+                <!-- Open install folder -->
+                <Button Classes="ghost"
+                        Command="{Binding OpenInstallFolderCommand}"
+                        Content="📁 Folder"
+                        IsVisible="{Binding IsInstalled}"
+                        ToolTip.Tip="{Binding InstallStatus.InstallPath}"/>
+
+                <!-- Installed badge -->
+                <Border Background="#1A3db8ff"
+                        BorderBrush="#443db8ff"
+                        BorderThickness="1"
+                        CornerRadius="{DynamicResource MgaRadiusFull}"
+                        Padding="10,4"
+                        VerticalAlignment="Center"
+                        IsVisible="{Binding IsInstalled}">
+                  <TextBlock Text="✓ Installed"
+                             Foreground="{DynamicResource MgaAccentBrush}"
+                             FontSize="{DynamicResource MgaFontSizeXs}"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                </Border>
+
+              </StackPanel>
 
             </StackPanel>
 

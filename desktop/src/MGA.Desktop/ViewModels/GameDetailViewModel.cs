@@ -278,9 +278,13 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     private readonly InstallDetectionService?   _installDetector;
     private readonly RecentPlayedService?       _recentPlayed;
     private readonly EmulatorService?           _emulatorService;
+    private readonly GameStateService?          _gameStateService;
 
     // Cached for re-detection after manual binding changes.
-    private IReadOnlyList<SourceGameInfo> _sourcesForDetection = [];
+    private IReadOnlyList<SourceGameInfo>            _sourcesForDetection = [];
+
+    // Raw source-game list stored at load time for GameStateService computation.
+    private IReadOnlyList<MGA.Api.SourceGameSummary> _rawSourceGames      = [];
 
     // ---------------------------------------------------------------------------
     // Identity
@@ -316,6 +320,16 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(FormattedPlatform));
         OnPropertyChanged(nameof(PlatformBadgeColor));
+        OnPropertyChanged(nameof(IsEmulatedGame));
+    }
+
+    partial void OnPrimaryPlayStateChanged(SourceGamePlayState? value)
+    {
+        // Auto-select the highest-priority config when state changes.
+        OnPropertyChanged(nameof(EmulatorConfigs));
+        SelectedEmulatorConfig = value?.AvailableConfigs?.Count > 0
+            ? value.AvailableConfigs[0]
+            : null;
     }
 
     [ObservableProperty]
@@ -403,14 +417,116 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     private bool _isRefreshingMetadata;
 
     // ---------------------------------------------------------------------------
-    // Emulator launch
+    // Emulator / emulation-state (Phase 2)
     // ---------------------------------------------------------------------------
 
+    /// <summary>Legacy: true when an emulator config covers this platform (used when GameStateService absent).</summary>
     [ObservableProperty]
     private bool _canLaunchWithEmulator;
 
+    /// <summary>Legacy: emulator display name (used when GameStateService absent).</summary>
     [ObservableProperty]
     private string _emulatorName = string.Empty;
+
+    /// <summary>
+    /// Full emulation play state for the best source game on this device.
+    /// Null until <see cref="ComputeEmulationStateAsync"/> completes.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanPlayViaEmulator))]
+    [NotifyPropertyChangedFor(nameof(NeedsEmulatedInstall))]
+    [NotifyPropertyChangedFor(nameof(NeedsEmulatorSetup))]
+    [NotifyPropertyChangedFor(nameof(NeedsBiosSetup))]
+    [NotifyPropertyChangedFor(nameof(HasMultipleEmulatorConfigs))]
+    [NotifyPropertyChangedFor(nameof(PrimaryEmulatorLabel))]
+    [NotifyPropertyChangedFor(nameof(MissingBiosMessage))]
+    [NotifyPropertyChangedFor(nameof(CanUninstallEmulatedGame))]
+    [NotifyPropertyChangedFor(nameof(CanHardDeleteEmulated))]
+    private SourceGamePlayState? _primaryPlayState;
+
+    /// <summary>True while emulation state is being computed (BIOS I/O in background).</summary>
+    [ObservableProperty]
+    private bool _isComputingEmulationState;
+
+    // ── Derived from PrimaryPlayState ────────────────────────────────────────
+
+    /// <summary>True when this game's canonical platform maps to the emulation path.</summary>
+    public bool IsEmulatedGame => GameStateService.IsEmulatedPlatform(Platform ?? string.Empty);
+
+    /// <summary>Emulator is configured and ready — show the primary Play button.</summary>
+    public bool CanPlayViaEmulator =>
+        PrimaryPlayState?.EmulatorState == EmulatorAvailability.Ready
+        && PrimaryPlayState.Kind is GamePlayStateKind.PlainEmulated
+                                 or GamePlayStateKind.InstalledEmulated;
+
+    /// <summary>Packed game with no install record on this device — show Install/Locate button.</summary>
+    public bool NeedsEmulatedInstall => PrimaryPlayState?.Kind == GamePlayStateKind.NotInstalled;
+
+    /// <summary>No emulator is configured for this platform — show Setup Emulator button.</summary>
+    public bool NeedsEmulatorSetup =>
+        PrimaryPlayState?.EmulatorState == EmulatorAvailability.NotConfigured;
+
+    /// <summary>Emulator configured but required BIOS files missing — show BIOS warning button.</summary>
+    public bool NeedsBiosSetup =>
+        PrimaryPlayState?.EmulatorState == EmulatorAvailability.BiosMissing;
+
+    /// <summary>True when the primary config is an MGA-managed install that can be uninstalled.</summary>
+    public bool CanUninstallEmulatedGame => PrimaryPlayState?.CanUninstall ?? false;
+
+    /// <summary>True when a hard-delete of source files is eligible.</summary>
+    public bool CanHardDeleteEmulated => PrimaryPlayState?.CanHardDelete ?? false;
+
+    /// <summary>
+    /// More than one emulator config covers this platform — show chevron for config picker.
+    /// </summary>
+    public bool HasMultipleEmulatorConfigs =>
+        (PrimaryPlayState?.AvailableConfigs?.Count ?? 0) > 1;
+
+    /// <summary>
+    /// Label for the primary Play button, e.g. "RetroArch" or "PCSX2".
+    /// Empty string when no emulator is configured.
+    /// </summary>
+    public string PrimaryEmulatorLabel
+    {
+        get
+        {
+            var configs = PrimaryPlayState?.AvailableConfigs;
+            if (configs is null || configs.Count == 0)
+                return string.Empty;
+
+            var install = _emulatorService?.GetInstall(configs[0].InstallId);
+            return install?.Name ?? configs[0].DisplayName;
+        }
+    }
+
+    /// <summary>
+    /// Comma-separated list of missing required BIOS file names.
+    /// Shown as a tooltip on the "BIOS Missing" button.
+    /// </summary>
+    public string MissingBiosMessage
+    {
+        get
+        {
+            var missing = PrimaryPlayState?.BiosCheck?.Missing;
+            if (missing is null || missing.Count == 0)
+                return "Required BIOS files are missing.";
+
+            return "Missing BIOS: " + string.Join(", ", missing.Select(b => b.Filename));
+        }
+    }
+
+    /// <summary>
+    /// All available emulator configs for the platform — bound to the config-picker ComboBox.
+    /// </summary>
+    public IReadOnlyList<EmulatorConfig> EmulatorConfigs =>
+        PrimaryPlayState?.AvailableConfigs ?? [];
+
+    /// <summary>
+    /// The config chosen in the multi-config picker.
+    /// Defaults to the first (highest-priority) config when PrimaryPlayState changes.
+    /// </summary>
+    [ObservableProperty]
+    private EmulatorConfig? _selectedEmulatorConfig;
 
     // ---------------------------------------------------------------------------
     // Install detection
@@ -474,18 +590,20 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         NavigationService        nav,
         ToastService             toast,
         AppConfigService         config,
-        InstallDetectionService? installDetector = null,
-        RecentPlayedService?     recentPlayed    = null,
-        EmulatorService?         emulatorService = null)
+        InstallDetectionService? installDetector  = null,
+        RecentPlayedService?     recentPlayed     = null,
+        EmulatorService?         emulatorService  = null,
+        GameStateService?        gameStateService = null)
     {
-        GameId           = gameId;
-        _server          = server;
-        _nav             = nav;
-        _toast           = toast;
-        _config          = config;
-        _installDetector = installDetector;
-        _recentPlayed    = recentPlayed;
-        _emulatorService = emulatorService;
+        GameId            = gameId;
+        _server           = server;
+        _nav              = nav;
+        _toast            = toast;
+        _config           = config;
+        _installDetector  = installDetector;
+        _recentPlayed     = recentPlayed;
+        _emulatorService  = emulatorService;
+        _gameStateService = gameStateService;
 
         _ = LoadAsync();
     }
@@ -709,10 +827,13 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     private void OpenMediaManager()
     {
         _nav.NavigateTo(new MediaManagerViewModel(
-            GameId, _server, _nav, _toast, _config, _installDetector));
+            GameId, _server, _nav, _toast, _config,
+            _installDetector, _gameStateService));
     }
 
-    /// <summary>Launches the game using the highest-priority configured emulator for its platform.</summary>
+    /// <summary>
+    /// Launches the game using the selected emulator config (or highest-priority if none selected).
+    /// </summary>
     [RelayCommand]
     private void LaunchWithEmulator()
     {
@@ -723,7 +844,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             return;
         }
 
-        // Pick the highest-priority config for this platform.
+        // Use the user-selected config from the picker, or fall back to highest-priority.
         var configs = _emulatorService.GetConfigsForPlatform(Platform);
         if (configs.Count == 0)
         {
@@ -732,7 +853,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             return;
         }
 
-        var config  = configs[0];
+        var config  = SelectedEmulatorConfig ?? configs[0];
         var install = _emulatorService.GetInstall(config.InstallId);
         if (install is null || string.IsNullOrEmpty(install.ExecutablePath))
         {
@@ -777,6 +898,147 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         {
             _toast.Error("Launch failed", ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Launches the game with a specific emulator config (from the multi-config picker).
+    /// </summary>
+    [RelayCommand]
+    private void LaunchWithEmulatorConfig(EmulatorConfig config)
+    {
+        if (_emulatorService is null) return;
+
+        var install = _emulatorService.GetInstall(config.InstallId);
+        if (install is null || string.IsNullOrEmpty(install.ExecutablePath))
+        {
+            _toast.Error("Emulator not found",
+                $"The emulator \"{config.DisplayName}\" has no executable path.");
+            return;
+        }
+
+        // Find the primary ROM file path.
+        var romPath = SourceGames
+            .SelectMany(sg => sg.FilePaths)
+            .FirstOrDefault();
+
+        if (string.IsNullOrEmpty(romPath))
+        {
+            _toast.Error("No files", "This game has no local files available for launch.");
+            return;
+        }
+
+        try
+        {
+            var template = !string.IsNullOrWhiteSpace(config.ArgsTemplate)
+                ? config.ArgsTemplate
+                : "\"{rom}\"";
+            var args = template.Replace("{rom}", $"\"{romPath}\"");
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName        = install.ExecutablePath,
+                Arguments       = args,
+                UseShellExecute = true,
+            });
+
+            _toast.Success("Launched", $"Started \"{Title}\" with {install.Name}.");
+            _recentPlayed?.RecordPlay(GameId, Title, CoverUrl);
+        }
+        catch (Exception ex)
+        {
+            _toast.Error("Launch failed", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Opens a folder picker so the user can locate an existing install
+    /// of this packed/emulated game (e.g., a pre-extracted ROM folder).
+    /// Saves the result as a <see cref="GameInstallRecord"/>.
+    /// </summary>
+    [RelayCommand]
+    private async Task LocateEmulatedGameAsync()
+    {
+        if (_emulatorService is null) return;
+
+        var lifetime = Avalonia.Application.Current?.ApplicationLifetime
+            as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+        var mainWindow = lifetime?.MainWindow;
+        if (mainWindow is null) return;
+
+        // Open a file picker — for emulated games the "install" is usually a single ROM file.
+        var options = new Avalonia.Platform.Storage.FilePickerOpenOptions
+        {
+            Title         = $"Locate game files for \"{Title}\"",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new Avalonia.Platform.Storage.FilePickerFileType("All files") { Patterns = ["*"] },
+            ],
+        };
+
+        var result   = await mainWindow.StorageProvider.OpenFilePickerAsync(options)
+                           .ConfigureAwait(true);
+        var selected = result.FirstOrDefault();
+        if (selected is null) return;
+
+        var filePath = selected.Path.IsFile
+            ? selected.Path.LocalPath
+            : selected.Path.AbsolutePath;
+
+        // Save install record — parent directory is the "install" root.
+        var installPath = Path.GetDirectoryName(filePath) ?? filePath;
+        _emulatorService.SetGameInstall(
+            sourceGameId:   SourceGames.FirstOrDefault()?.SourceGameId ?? GameId,
+            installPath:    installPath,
+            detectedExePath: filePath,
+            userLocated:    true);
+
+        _toast.Success("Install located", $"Saved: {filePath}");
+
+        // Recompute play state to reflect the new install record.
+        _ = ComputeEmulationStateAsync();
+    }
+
+    /// <summary>
+    /// Removes the install record for this emulated game from this device.
+    /// Only available for MGA-managed installs (CanUninstallEmulatedGame).
+    /// </summary>
+    [RelayCommand]
+    private void UninstallEmulatedGame()
+    {
+        if (_emulatorService is null) return;
+
+        var sgId = SourceGames.FirstOrDefault()?.SourceGameId ?? GameId;
+        _emulatorService.RemoveGameInstall(sgId);
+
+        _toast.Success("Uninstalled", $"\"{Title}\" removed from this device.");
+
+        // Recompute state — game should move back to NotInstalled.
+        _ = ComputeEmulationStateAsync();
+    }
+
+    /// <summary>
+    /// Navigates to Settings → Emulators tab so the user can add an emulator
+    /// for this platform.
+    /// </summary>
+    [RelayCommand]
+    private void SetupEmulator()
+    {
+        _toast.Info(
+            "Setup emulator",
+            $"Go to Settings → Emulators to add an emulator for \"{FormattedPlatform}\".");
+    }
+
+    /// <summary>
+    /// Navigates to Settings → Emulators → BIOS section so the user can
+    /// add the required BIOS files.
+    /// </summary>
+    [RelayCommand]
+    private void OpenBiosManager()
+    {
+        _toast.Info(
+            "BIOS files needed",
+            $"{MissingBiosMessage}\n\nGo to Settings → Emulators to add BIOS files.");
     }
 
     /// <summary>Opens an external link in the system browser.</summary>
@@ -1014,7 +1276,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             {
                 _nav.NavigateTo(new GameDetailViewModel(
                     result.CanonicalGameId, _server, _nav, _toast, _config,
-                    _installDetector, _recentPlayed, _emulatorService));
+                    _installDetector, _recentPlayed, _emulatorService, _gameStateService));
             }
             else
             {
@@ -1113,7 +1375,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             HasScreenshots = Screenshots.Count > 0;
             HasMedia       = game.Media.Count > 0;
 
-            // Check for configured emulator.
+            // Legacy emulator availability (used as fallback when GameStateService absent).
             CheckEmulatorAvailability();
 
             // Achievement summary.
@@ -1125,9 +1387,11 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             }
 
             // Source games — each SourceGameRowViewModel maps its own SourceGameSummary.
-            SourceGames    = new ObservableCollection<SourceGameRowViewModel>(
+            // Also keep the raw records for GameStateService emulation state computation.
+            _rawSourceGames = game.SourceGames;
+            SourceGames     = new ObservableCollection<SourceGameRowViewModel>(
                 game.SourceGames.Select(sg => new SourceGameRowViewModel(sg)));
-            HasSourceGames = SourceGames.Count > 0;
+            HasSourceGames  = SourceGames.Count > 0;
 
             // External links — filtered to entries that have a resolvable URL.
             ExternalLinks    = new ObservableCollection<ExternalLinkViewModel>(
@@ -1150,6 +1414,11 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             // Result arrives via InstallStatus property update on the UI thread.
             if (_installDetector is not null)
                 _ = RunInstallDetectionAsync();
+
+            // Kick off emulation-state computation in the background (BIOS I/O).
+            // Result arrives via PrimaryPlayState property update on the UI thread.
+            if (_gameStateService is not null && GameStateService.IsEmulatedPlatform(Platform))
+                _ = ComputeEmulationStateAsync();
         }
         catch (Exception ex)
         {
@@ -1203,4 +1472,102 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             // Non-fatal — install state remains null (shows "Detecting…").
         }
     }
+
+    // ---------------------------------------------------------------------------
+    // Private — emulation state computation
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Computes <see cref="SourceGamePlayState"/> for all source games of this
+    /// emulated game, picks the "best" state, and updates <see cref="PrimaryPlayState"/>.
+    ///
+    /// "Best" = highest play readiness (Ready > BiosMissing > NotConfigured > NotInstalled > Extras).
+    /// </summary>
+    private async Task ComputeEmulationStateAsync()
+    {
+        if (_gameStateService is null || _rawSourceGames.Count == 0)
+            return;
+
+        IsComputingEmulationState = true;
+
+        try
+        {
+            SourceGamePlayState? best = null;
+            var ct = CancellationToken.None; // page is alive; no cancellation token needed here
+
+            // Run state computation off the UI thread (may involve BIOS file I/O).
+            best = await Task.Run(async () =>
+            {
+                SourceGamePlayState? best = null;
+
+                foreach (var sg in _rawSourceGames)
+                {
+                    var state = await _gameStateService.ComputeAsync(sg, Platform, ct)
+                        .ConfigureAwait(false);
+
+                    if (IsStateBetter(state, best))
+                        best = state;
+                }
+
+                return best;
+            }).ConfigureAwait(false);
+
+            // Apply result on the UI thread.
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                PrimaryPlayState = best;
+            });
+        }
+        catch
+        {
+            // Non-fatal — emulation state panel stays hidden on error.
+        }
+        finally
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                IsComputingEmulationState = false;
+            });
+        }
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="candidate"/> is a better play state than
+    /// <paramref name="current"/> (or <paramref name="current"/> is null).
+    /// </summary>
+    private static bool IsStateBetter(SourceGamePlayState candidate, SourceGamePlayState? current)
+    {
+        if (current is null) return true;
+        return StateRank(candidate) > StateRank(current);
+    }
+
+    private static int StateRank(SourceGamePlayState state) => state.Kind switch
+    {
+        GamePlayStateKind.PlainDirect or
+        GamePlayStateKind.InstalledDirect
+            => 10,
+
+        GamePlayStateKind.PlainEmulated or
+        GamePlayStateKind.InstalledEmulated
+            when state.EmulatorState == EmulatorAvailability.Ready
+            => 9,
+
+        GamePlayStateKind.PlainEmulated or
+        GamePlayStateKind.InstalledEmulated
+            when state.EmulatorState == EmulatorAvailability.BiosMissing
+            => 7,
+
+        GamePlayStateKind.PlainEmulated or
+        GamePlayStateKind.InstalledEmulated
+            when state.EmulatorState == EmulatorAvailability.NotConfigured
+            => 5,
+
+        GamePlayStateKind.NotInstalled
+            => 3,
+
+        GamePlayStateKind.Extras
+            => 1,
+
+        _ => 0,
+    };
 }

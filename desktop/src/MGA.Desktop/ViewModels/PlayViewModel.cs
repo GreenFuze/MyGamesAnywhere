@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Desktop.Services;
 using MGA.Desktop.Services.Install;
+using MGA.Desktop.Services.Emulation;
 
 namespace MGA.Desktop.ViewModels;
 
@@ -22,6 +23,7 @@ public sealed partial class PlayViewModel : ViewModelBase
     private readonly RecentPlayedService?       _recentPlayed;
     private readonly GameCacheService?          _gameCache;
     private readonly MediaCacheService?         _mediaCache;
+    private readonly GameStateService?          _gameStateService;
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -59,8 +61,9 @@ public sealed partial class PlayViewModel : ViewModelBase
         AppConfigService         config,
         InstallDetectionService? installDetector = null,
         RecentPlayedService?     recentPlayed    = null,
-        GameCacheService?        gameCache       = null,
-        MediaCacheService?       mediaCache      = null)
+        GameCacheService?        gameCache        = null,
+        MediaCacheService?       mediaCache       = null,
+        GameStateService?        gameStateService = null)
     {
         _server          = server;
         _nav             = nav;
@@ -68,8 +71,9 @@ public sealed partial class PlayViewModel : ViewModelBase
         _config          = config;
         _installDetector = installDetector;
         _recentPlayed    = recentPlayed;
-        _gameCache       = gameCache;
-        _mediaCache      = mediaCache;
+        _gameCache        = gameCache;
+        _mediaCache       = mediaCache;
+        _gameStateService = gameStateService;
 
         // Start loading immediately — fire-and-forget with error handling inside.
         _ = LoadAsync();
@@ -105,7 +109,8 @@ public sealed partial class PlayViewModel : ViewModelBase
     private void OpenGame(string gameId)
     {
         _nav.NavigateTo(new GameDetailViewModel(
-            gameId, _server, _nav, _toast, _config, _installDetector, _recentPlayed));
+            gameId, _server, _nav, _toast, _config,
+            _installDetector, _recentPlayed, gameStateService: _gameStateService));
     }
 
     /// <summary>Removes an entry from the recent-played history and reloads the shelf.</summary>

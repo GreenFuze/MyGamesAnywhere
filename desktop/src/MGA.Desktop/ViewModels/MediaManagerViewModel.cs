@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Api;
 using MGA.Desktop.Services;
+using MGA.Desktop.Services.Emulation;
 using MGA.Desktop.Services.Install;
 
 namespace MGA.Desktop.ViewModels;
@@ -90,6 +91,7 @@ public sealed partial class MediaManagerViewModel : ViewModelBase
     private readonly ToastService             _toast;
     private readonly AppConfigService         _config;
     private readonly InstallDetectionService? _installDetector;
+    private readonly GameStateService?        _gameStateService;
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -127,14 +129,16 @@ public sealed partial class MediaManagerViewModel : ViewModelBase
         NavigationService        nav,
         ToastService             toast,
         AppConfigService         config,
-        InstallDetectionService? installDetector = null)
+        InstallDetectionService? installDetector  = null,
+        GameStateService?        gameStateService = null)
     {
         _gameId          = gameId;
         _server          = server;
         _nav             = nav;
         _toast           = toast;
         _config          = config;
-        _installDetector = installDetector;
+        _installDetector  = installDetector;
+        _gameStateService = gameStateService;
 
         _ = LoadAsync();
     }
@@ -147,7 +151,8 @@ public sealed partial class MediaManagerViewModel : ViewModelBase
     [RelayCommand]
     private void Back() =>
         _nav.NavigateTo(new GameDetailViewModel(
-            _gameId, _server, _nav, _toast, _config, _installDetector));
+            _gameId, _server, _nav, _toast, _config,
+            _installDetector, gameStateService: _gameStateService));
 
     /// <summary>Selects an asset and shows it in the preview panel.</summary>
     [RelayCommand]

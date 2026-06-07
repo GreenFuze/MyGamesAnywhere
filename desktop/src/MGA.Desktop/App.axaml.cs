@@ -72,7 +72,7 @@ public partial class App : Application
             _mainVm = new MainWindowViewModel(
                 _config, _serverConn, _theme, _nav, _toast,
                 _installDetector, _recentPlayed, _gameCache, _mediaCache,
-                _emulatorService);
+                _emulatorService, _gameStateService);
 
             // Deep link service — single-instance pipe server + mga:// URI handler.
             _deepLink = new DeepLinkService(_nav, _serverConn, _toast, _config, _recentPlayed);

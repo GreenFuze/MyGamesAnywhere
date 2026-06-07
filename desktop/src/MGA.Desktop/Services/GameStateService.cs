@@ -153,6 +153,14 @@ public sealed class GameStateService
     // ---------------------------------------------------------------------------
 
     /// <summary>
+    /// Returns true when the given platform requires native emulation rather
+    /// than a direct OS launch.  Mirrors the server-side <c>emulatedPlatforms</c>
+    /// map in <c>classify.go</c>.
+    /// </summary>
+    public static bool IsEmulatedPlatform(string platform) =>
+        s_emulatedPlatforms.Contains(platform);
+
+    /// <summary>
     /// Asynchronously computes the play state for one source game on this device.
     ///
     /// This involves file-system I/O for BIOS verification; results should be
