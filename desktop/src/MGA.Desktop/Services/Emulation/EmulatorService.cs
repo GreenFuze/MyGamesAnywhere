@@ -43,6 +43,31 @@ public sealed class BiosVerifyResult
 }
 
 /// <summary>
+/// Aggregated BIOS check result for one emulator install + platform combination.
+/// Returned by <see cref="EmulatorService.CheckBiosForAllInstallsAsync"/>.
+/// </summary>
+public sealed class BiosInstallCheckResult
+{
+    public string          InstallId    { get; init; } = string.Empty;
+    public string          EmulatorName { get; init; } = string.Empty;
+    public string          Platform     { get; init; } = string.Empty;
+    public BiosCheckResult Check        { get; init; } = new();
+}
+
+/// <summary>
+/// Result returned by <see cref="EmulatorService.TryIdentifyBiosFileAsync"/> when
+/// a dropped / imported file matches a known BIOS catalog entry.
+/// </summary>
+public sealed class BiosIdentifyResult
+{
+    public string          EmulatorId   { get; init; } = string.Empty;
+    public string          EmulatorName { get; init; } = string.Empty;
+    public string          Platform     { get; init; } = string.Empty;
+    public BiosCatalogEntry BiosEntry   { get; init; } = null!;
+    public string          ComputedHash { get; init; } = string.Empty;
+}
+
+/// <summary>
 /// Manages MGA-owned emulator installs, launch configurations, BIOS files,
 /// and game install records on this device.
 ///
@@ -242,6 +267,110 @@ public sealed class EmulatorService
     public void RemoveGameInstall(string sourceGameId)
     {
         _config.Update(c => c.GameInstalls.RemoveAll(r => r.SourceGameId == sourceGameId));
+    }
+
+    // ---------------------------------------------------------------------------
+    // Directory configuration setters
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Persists a custom BIOS directory path. Pass an empty string to restore the default.</summary>
+    public void SetBiosDirectory(string path)
+    {
+        _config.Update(c => c.BiosDirectory = path.Trim());
+    }
+
+    /// <summary>Persists a custom library directory path. Pass an empty string to restore the default.</summary>
+    public void SetLibraryDirectory(string path)
+    {
+        _config.Update(c => c.LibraryDirectory = path.Trim());
+    }
+
+    // ---------------------------------------------------------------------------
+    // Catalog lookup helpers
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Returns the catalog entry for an emulator install, or null when the install
+    /// has no catalog ID or the catalog entry cannot be found.
+    /// </summary>
+    public EmulatorCatalogEntry? GetCatalogEntryForInstall(string installId)
+    {
+        var install = GetInstall(installId);
+        return install?.CatalogId is not null ? _catalog.GetById(install.CatalogId) : null;
+    }
+
+    /// <summary>
+    /// Runs BIOS checks for every installed emulator that has a catalog entry and
+    /// at least one BIOS requirement.  Returns one result per (install, platform) pair.
+    /// </summary>
+    public async Task<IReadOnlyList<BiosInstallCheckResult>> CheckBiosForAllInstallsAsync(
+        CancellationToken ct = default)
+    {
+        var results = new List<BiosInstallCheckResult>();
+
+        foreach (var install in Installs)
+        {
+            if (install.CatalogId is null) continue;
+            var entry = _catalog.GetById(install.CatalogId);
+            if (entry is null) continue;
+            if (entry.BiosRequirements is null || entry.BiosRequirements.Count == 0) continue;
+
+            foreach (var platform in entry.BiosRequirements.Keys)
+            {
+                ct.ThrowIfCancellationRequested();
+                var check = await CheckBiosAsync(entry, platform, ct).ConfigureAwait(false);
+
+                results.Add(new BiosInstallCheckResult
+                {
+                    InstallId    = install.Id,
+                    EmulatorName = install.Name,
+                    Platform     = platform,
+                    Check        = check,
+                });
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Scans all emulator catalog entries and tries to match a BIOS stream by SHA-256.
+    /// Returns the first match found, or null when the file is not recognised.
+    /// </summary>
+    public async Task<BiosIdentifyResult?> TryIdentifyBiosFileAsync(
+        Stream            fileStream,
+        CancellationToken ct = default)
+    {
+        // Compute the hash once, then compare against all known entries.
+        using var sha    = System.Security.Cryptography.SHA256.Create();
+        var hashBytes    = await sha.ComputeHashAsync(fileStream, ct).ConfigureAwait(false);
+        var hash         = Convert.ToHexString(hashBytes).ToLowerInvariant();
+
+        foreach (var entry in _catalog.All)
+        {
+            if (entry.BiosRequirements is null) continue;
+
+            foreach (var (platform, bioses) in entry.BiosRequirements)
+            {
+                foreach (var bios in bioses)
+                {
+                    if (string.IsNullOrEmpty(bios.Sha256)) continue;
+                    if (string.Equals(bios.Sha256, hash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new BiosIdentifyResult
+                        {
+                            EmulatorId   = entry.Id,
+                            EmulatorName = entry.DisplayName,
+                            Platform     = platform,
+                            BiosEntry    = bios,
+                            ComputedHash = hash,
+                        };
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     // ---------------------------------------------------------------------------

@@ -1556,65 +1556,230 @@
               </StackPanel>
             </Border>
 
-            <!-- ── Emulator list ── -->
+            <!-- ── Scrollable content: directories + BIOS + emulator list ── -->
             <ScrollViewer>
-              <ItemsControl ItemsSource="{Binding Emulators}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="settingsVm:EmulatorRowViewModel">
-                    <Border Classes="card"
-                            Margin="0,0,0,8"
-                            MaxWidth="560"
-                            HorizontalAlignment="Left">
-                      <Grid ColumnDefinitions="*,Auto">
+              <StackPanel Spacing="20" MaxWidth="600" HorizontalAlignment="Left">
 
-                        <!-- Emulator info -->
-                        <StackPanel Grid.Column="0" Spacing="4">
-                          <TextBlock Text="{Binding Name}"
-                                     FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-                          <TextBlock Text="{Binding ExecutablePath}"
-                                     Classes="muted"
-                                     FontSize="{DynamicResource MgaFontSizeXs}"
-                                     TextTrimming="CharacterEllipsis"/>
-                          <TextBlock Classes="muted" FontSize="{DynamicResource MgaFontSizeXs}"
-                                     IsVisible="{Binding Platforms,
-                                                 Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                            <Run Text="Platforms: "/>
-                            <Run Text="{Binding Platforms}"/>
-                          </TextBlock>
-                        </StackPanel>
+                <!-- ─ Storage Directories ──────────────────────────────────── -->
+                <Border Classes="card">
+                  <StackPanel Spacing="14">
 
-                        <!-- Row action buttons -->
-                        <StackPanel Grid.Column="1"
-                                    Orientation="Horizontal"
-                                    Spacing="6"
-                                    VerticalAlignment="Center"
-                                    Margin="12,0,0,0">
-                          <!-- Test spinner (replaces Test button while running) -->
-                          <Border VerticalAlignment="Center" IsVisible="{Binding IsTesting}">
-                            <controls:LoadingSpinner Width="18" Height="18"/>
-                          </Border>
-                          <Button Classes="ghost"
-                                  Content="Test"
-                                  IsVisible="{Binding !IsTesting}"
-                                  Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).TestEmulatorCommand}"
-                                  CommandParameter="{Binding}"/>
-                          <Button Classes="ghost"
-                                  Content="Edit"
-                                  IsEnabled="{Binding !IsTesting}"
-                                  Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).EditEmulatorCommand}"
-                                  CommandParameter="{Binding}"/>
-                          <Button Classes="danger"
-                                  Content="✕ Delete"
-                                  IsEnabled="{Binding !IsTesting}"
-                                  Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).DeleteEmulatorCommand}"
-                                  CommandParameter="{Binding}"/>
-                        </StackPanel>
+                    <TextBlock Text="Storage Directories"
+                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
 
+                    <!-- BIOS Directory row -->
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="BIOS Directory" Classes="muted"
+                                 FontSize="{DynamicResource MgaFontSizeXs}"/>
+                      <Grid ColumnDefinitions="*,Auto,Auto">
+                        <TextBox Grid.Column="0"
+                                 Classes="mga"
+                                 Text="{Binding BiosDirectory}"
+                                 IsReadOnly="True"
+                                 FontSize="{DynamicResource MgaFontSizeXs}"/>
+                        <Button Grid.Column="1"
+                                Classes="ghost"
+                                Content="Browse…"
+                                Margin="6,0,0,0"
+                                Command="{Binding BrowseBiosDirectoryCommand}"/>
+                        <Button Grid.Column="2"
+                                Classes="ghost"
+                                Content="Open"
+                                Margin="4,0,0,0"
+                                Command="{Binding OpenBiosDirectoryCommand}"/>
                       </Grid>
+                    </StackPanel>
+
+                    <!-- Library Directory row -->
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="Library Directory" Classes="muted"
+                                 FontSize="{DynamicResource MgaFontSizeXs}"/>
+                      <Grid ColumnDefinitions="*,Auto,Auto">
+                        <TextBox Grid.Column="0"
+                                 Classes="mga"
+                                 Text="{Binding LibraryDirectory}"
+                                 IsReadOnly="True"
+                                 FontSize="{DynamicResource MgaFontSizeXs}"/>
+                        <Button Grid.Column="1"
+                                Classes="ghost"
+                                Content="Browse…"
+                                Margin="6,0,0,0"
+                                Command="{Binding BrowseLibraryDirectoryCommand}"/>
+                        <Button Grid.Column="2"
+                                Classes="ghost"
+                                Content="Open"
+                                Margin="4,0,0,0"
+                                Command="{Binding OpenLibraryDirectoryCommand}"/>
+                      </Grid>
+                    </StackPanel>
+
+                  </StackPanel>
+                </Border>
+
+                <!-- ─ BIOS Status ───────────────────────────────────────────── -->
+                <Border Classes="card">
+                  <StackPanel Spacing="14">
+
+                    <!-- Section header + Refresh button -->
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock Grid.Column="0"
+                                 Text="BIOS Status"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                 VerticalAlignment="Center"/>
+                      <StackPanel Grid.Column="1"
+                                  Orientation="Horizontal"
+                                  Spacing="8"
+                                  VerticalAlignment="Center">
+                        <Border IsVisible="{Binding IsBiosCheckInProgress}"
+                                VerticalAlignment="Center">
+                          <controls:LoadingSpinner Width="16" Height="16"/>
+                        </Border>
+                        <Button Classes="ghost"
+                                Content="↺ Refresh"
+                                IsEnabled="{Binding !IsBiosCheckInProgress}"
+                                Command="{Binding RefreshBiosStatusCommand}"/>
+                      </StackPanel>
+                    </Grid>
+
+                    <!-- Empty state — shown when no emulators have BIOS requirements -->
+                    <TextBlock Text="No emulators with BIOS requirements detected. Install an emulator above and click Refresh."
+                               Classes="muted"
+                               TextWrapping="Wrap"
+                               FontSize="{DynamicResource MgaFontSizeXs}"
+                               IsVisible="{Binding !HasBiosStatusRows}"/>
+
+                    <!-- Status rows -->
+                    <ItemsControl ItemsSource="{Binding BiosStatusRows}"
+                                  IsVisible="{Binding HasBiosStatusRows}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="settingsVm:BiosStatusRowViewModel">
+                          <Border Padding="12,8"
+                                  Margin="0,0,0,4"
+                                  CornerRadius="6"
+                                  Background="{DynamicResource MgaElevatedBrush}">
+                            <Grid ColumnDefinitions="Auto,*">
+
+                              <!-- Status icon -->
+                              <TextBlock Grid.Column="0"
+                                         Text="{Binding StatusIcon}"
+                                         FontSize="18"
+                                         Margin="0,0,12,0"
+                                         VerticalAlignment="Center"/>
+
+                              <!-- Emulator name · platform + detail text -->
+                              <StackPanel Grid.Column="1" Spacing="2">
+                                <TextBlock FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                           FontSize="{DynamicResource MgaFontSizeSm}">
+                                  <Run Text="{Binding EmulatorName}"/>
+                                  <Run Text=" · "/>
+                                  <Run Text="{Binding Platform}"/>
+                                </TextBlock>
+                                <TextBlock Text="{Binding StatusText}"
+                                           Classes="muted"
+                                           FontSize="{DynamicResource MgaFontSizeXs}"
+                                           TextWrapping="Wrap"/>
+                              </StackPanel>
+
+                            </Grid>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Drag-and-drop BIOS file zone -->
+                    <Border x:Name="BiosDropZone"
+                            Background="{DynamicResource MgaSurfaceBrush}"
+                            BorderBrush="{DynamicResource MgaBorderBrush}"
+                            BorderThickness="2"
+                            CornerRadius="8"
+                            Padding="16,20"
+                            MinHeight="80"
+                            HorizontalAlignment="Stretch">
+                      <StackPanel HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
+                                  Spacing="6">
+                        <TextBlock Text="Drop a BIOS file here to identify and install it"
+                                   Classes="muted"
+                                   FontSize="{DynamicResource MgaFontSizeXs}"
+                                   HorizontalAlignment="Center"/>
+                        <!-- Drop result feedback -->
+                        <TextBlock HorizontalAlignment="Center"
+                                   FontSize="{DynamicResource MgaFontSizeXs}"
+                                   TextWrapping="Wrap"
+                                   IsVisible="{Binding BiosDropMessage,
+                                               Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                          <TextBlock.Text>
+                            <Binding Path="BiosDropMessage"/>
+                          </TextBlock.Text>
+                        </TextBlock>
+                      </StackPanel>
                     </Border>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
+
+                  </StackPanel>
+                </Border>
+
+                <!-- ─ Installed Emulators ────────────────────────────────────── -->
+                <TextBlock Text="Installed Emulators"
+                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+
+                <ItemsControl ItemsSource="{Binding Emulators}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="settingsVm:EmulatorRowViewModel">
+                      <Border Classes="card"
+                              Margin="0,0,0,8">
+                        <Grid ColumnDefinitions="*,Auto">
+
+                          <!-- Emulator info -->
+                          <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="{Binding Name}"
+                                       FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                            <TextBlock Text="{Binding ExecutablePath}"
+                                       Classes="muted"
+                                       FontSize="{DynamicResource MgaFontSizeXs}"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Classes="muted"
+                                       FontSize="{DynamicResource MgaFontSizeXs}"
+                                       IsVisible="{Binding Platforms,
+                                                   Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                              <Run Text="Platforms: "/>
+                              <Run Text="{Binding Platforms}"/>
+                            </TextBlock>
+                          </StackPanel>
+
+                          <!-- Row action buttons -->
+                          <StackPanel Grid.Column="1"
+                                      Orientation="Horizontal"
+                                      Spacing="6"
+                                      VerticalAlignment="Center"
+                                      Margin="12,0,0,0">
+                            <!-- Test spinner while running -->
+                            <Border VerticalAlignment="Center" IsVisible="{Binding IsTesting}">
+                              <controls:LoadingSpinner Width="18" Height="18"/>
+                            </Border>
+                            <Button Classes="ghost"
+                                    Content="Test"
+                                    IsVisible="{Binding !IsTesting}"
+                                    Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).TestEmulatorCommand}"
+                                    CommandParameter="{Binding}"/>
+                            <Button Classes="ghost"
+                                    Content="Edit"
+                                    IsEnabled="{Binding !IsTesting}"
+                                    Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).EditEmulatorCommand}"
+                                    CommandParameter="{Binding}"/>
+                            <Button Classes="danger"
+                                    Content="✕ Delete"
+                                    IsEnabled="{Binding !IsTesting}"
+                                    Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).DeleteEmulatorCommand}"
+                                    CommandParameter="{Binding}"/>
+                          </StackPanel>
+
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+              </StackPanel>
             </ScrollViewer>
 
           </DockPanel>
