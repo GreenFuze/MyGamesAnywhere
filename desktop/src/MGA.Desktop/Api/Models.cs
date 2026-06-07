@@ -119,11 +119,33 @@ public sealed record SourceGameSummary
     [JsonPropertyName("status")]
     public string Status { get; init; } = string.Empty;
 
+    /// <summary>
+    /// How the game's files are packaged: "self_contained", "packed", "extras", or "unknown".
+    /// "self_contained" = files are the game, usable directly.
+    /// "packed" = installer or archive; needs install step before play.
+    /// </summary>
+    [JsonPropertyName("group_kind")]
+    public string? GroupKind { get; init; }
+
+    /// <summary>Whether this source game's files can be hard-deleted from this device.</summary>
+    [JsonPropertyName("hard_delete")]
+    public SourceGameHardDeleteInfo? HardDelete { get; init; }
+
     [JsonPropertyName("files")]
     public List<GameFileDto> Files { get; init; } = [];
 
     [JsonPropertyName("resolver_matches")]
     public List<SourceResolverMatch> ResolverMatches { get; init; } = [];
+}
+
+/// <summary>Hard-delete eligibility for a source game's files.</summary>
+public sealed record SourceGameHardDeleteInfo
+{
+    [JsonPropertyName("eligible")]
+    public bool Eligible { get; init; }
+
+    [JsonPropertyName("reason")]
+    public string? Reason { get; init; }
 }
 
 /// <summary>Achievement summary statistics for a game.</summary>

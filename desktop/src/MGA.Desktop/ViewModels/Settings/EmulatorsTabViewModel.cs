@@ -3,6 +3,7 @@ using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Desktop.Services;
+using MGA.Desktop.Services.Emulation;
 
 namespace MGA.Desktop.ViewModels.Settings;
 
@@ -10,10 +11,15 @@ namespace MGA.Desktop.ViewModels.Settings;
 // Row view-model
 // ---------------------------------------------------------------------------
 
-/// <summary>Editable row view-model for one emulator in the list.</summary>
+/// <summary>
+/// Displays one <see cref="EmulatorInstallRecord"/> in the emulator list.
+/// </summary>
 public sealed partial class EmulatorRowViewModel : ObservableObject
 {
     public string Id { get; init; } = string.Empty;
+
+    /// <summary>Catalog ID, or null for user-defined installs.</summary>
+    public string? CatalogId { get; init; }
 
     [ObservableProperty]
     private string _name = string.Empty;
@@ -22,23 +28,31 @@ public sealed partial class EmulatorRowViewModel : ObservableObject
     private string _executablePath = string.Empty;
 
     [ObservableProperty]
-    private string _platforms = string.Empty;
+    private bool _mgaManaged;
 
     [ObservableProperty]
-    private string _argsTemplate = "{rom}";
+    private string _version = string.Empty;
 
-    /// <summary>True while this row's executable is being tested.</summary>
+    /// <summary>
+    /// Comma-separated platform IDs covered by this install's configs, e.g. "gba, nes, snes".
+    /// Derived at load time from the EmulatorService; empty when no config has been created yet.
+    /// </summary>
+    [ObservableProperty]
+    private string _platforms = string.Empty;
+
+    /// <summary>True while this row's executable is being test-launched.</summary>
     [ObservableProperty]
     private bool _isTesting;
 
-    /// <summary>Converts this row back to a plain EmulatorEntry for persistence.</summary>
-    public EmulatorEntry ToEntry() => new()
+    /// <summary>Maps this row back to a config-compatible record.</summary>
+    internal EmulatorInstallRecord ToRecord() => new()
     {
         Id             = Id,
+        CatalogId      = CatalogId,
         Name           = Name,
         ExecutablePath = ExecutablePath,
-        Platforms      = Platforms,
-        ArgsTemplate   = ArgsTemplate,
+        MgaManaged     = MgaManaged,
+        Version        = Version,
     };
 }
 
@@ -47,13 +61,16 @@ public sealed partial class EmulatorRowViewModel : ObservableObject
 // ---------------------------------------------------------------------------
 
 /// <summary>
-/// Emulators tab — purely local config for mapping platforms to emulator executables.
-/// No server calls; all data is stored in AppConfigService (config.json).
+/// Emulators settings tab — shows installed emulators and allows manual add/edit/remove.
+///
+/// Phase 1 scope: install record management (add by locating an executable,
+/// remove, test launch). The full catalog-browsing and BIOS management UI
+/// is a separate Phase 2/3 deliverable.
 /// </summary>
 public sealed partial class EmulatorsTabViewModel : ViewModelBase
 {
-    private readonly AppConfigService _config;
-    private readonly ToastService     _toast;
+    private readonly EmulatorService _emulatorService;
+    private readonly ToastService    _toast;
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -68,18 +85,20 @@ public sealed partial class EmulatorsTabViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isEditing;
 
-    // Edit form fields (bound to the panel that appears below the list)
+    // Edit form fields
     [ObservableProperty]
     private string _editName = string.Empty;
 
     [ObservableProperty]
     private string _editExecutablePath = string.Empty;
 
+    /// <summary>Comma-separated platform IDs for the emulator being added/edited, e.g. "nes,snes,gba".</summary>
     [ObservableProperty]
     private string _editPlatforms = string.Empty;
 
+    /// <summary>Optional launch arguments template for the emulator being added/edited, e.g. "{rom}".</summary>
     [ObservableProperty]
-    private string _editArgsTemplate = "{rom}";
+    private string _editArgsTemplate = string.Empty;
 
     [ObservableProperty]
     private string? _editingId;
@@ -88,12 +107,12 @@ public sealed partial class EmulatorsTabViewModel : ViewModelBase
     // Constructor
     // ---------------------------------------------------------------------------
 
-    public EmulatorsTabViewModel(AppConfigService config, ToastService toast)
+    public EmulatorsTabViewModel(EmulatorService emulatorService, ToastService toast)
     {
-        _config = config;
-        _toast  = toast;
+        _emulatorService = emulatorService;
+        _toast           = toast;
 
-        LoadFromConfig();
+        LoadFromService();
     }
 
     // ---------------------------------------------------------------------------
@@ -103,12 +122,11 @@ public sealed partial class EmulatorsTabViewModel : ViewModelBase
     [RelayCommand]
     private void AddEmulator()
     {
-        // Open empty edit panel.
         EditingId          = null;
         EditName           = string.Empty;
         EditExecutablePath = string.Empty;
         EditPlatforms      = string.Empty;
-        EditArgsTemplate   = "{rom}";
+        EditArgsTemplate   = string.Empty;
         SelectedEmulator   = null;
         IsEditing          = true;
     }
@@ -116,11 +134,21 @@ public sealed partial class EmulatorsTabViewModel : ViewModelBase
     [RelayCommand]
     private void EditEmulator(EmulatorRowViewModel row)
     {
+        // Load existing config data for this install so the user can edit platforms + args.
+        var configs       = _emulatorService.Configs
+                               .Where(c => string.Equals(c.InstallId, row.Id, StringComparison.Ordinal))
+                               .OrderBy(c => c.Priority)
+                               .ToList();
+        var primaryConfig = configs.FirstOrDefault();
+
         EditingId          = row.Id;
         EditName           = row.Name;
         EditExecutablePath = row.ExecutablePath;
-        EditPlatforms      = row.Platforms;
-        EditArgsTemplate   = row.ArgsTemplate;
+        EditPlatforms      = string.Join(", ",
+                                 configs.SelectMany(c => c.Platforms)
+                                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                                        .OrderBy(p => p));
+        EditArgsTemplate   = primaryConfig?.ArgsTemplate ?? string.Empty;
         SelectedEmulator   = row;
         IsEditing          = true;
     }
@@ -128,9 +156,11 @@ public sealed partial class EmulatorsTabViewModel : ViewModelBase
     [RelayCommand]
     private void CancelEdit()
     {
-        IsEditing        = false;
-        SelectedEmulator = null;
-        EditingId        = null;
+        IsEditing          = false;
+        SelectedEmulator   = null;
+        EditingId          = null;
+        EditPlatforms      = string.Empty;
+        EditArgsTemplate   = string.Empty;
     }
 
     [RelayCommand]
@@ -148,56 +178,103 @@ public sealed partial class EmulatorsTabViewModel : ViewModelBase
             return;
         }
 
+        // Parse the comma-separated platform list from the form field.
+        var platforms = EditPlatforms
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+        var argsTemplate = string.IsNullOrWhiteSpace(EditArgsTemplate)
+            ? null
+            : EditArgsTemplate.Trim();
+
         if (EditingId is null)
         {
-            // New emulator.
-            var row = new EmulatorRowViewModel
+            // ── Add new user-located install ─────────────────────────────────
+            var newId = _emulatorService.AddInstall(
+                catalogId:      null,
+                displayName:    EditName.Trim(),
+                executablePath: EditExecutablePath.Trim(),
+                mgaManaged:     false);
+
+            // Create a companion launch config when the user specified platforms.
+            if (platforms.Count > 0)
             {
-                Id             = Guid.NewGuid().ToString(),
-                Name           = EditName,
-                ExecutablePath = EditExecutablePath,
-                Platforms      = EditPlatforms,
-                ArgsTemplate   = EditArgsTemplate,
-            };
-            Emulators.Add(row);
+                _emulatorService.AddConfig(
+                    installId:    newId,
+                    displayName:  EditName.Trim(),
+                    platforms:    platforms,
+                    argsTemplate: argsTemplate);
+            }
+
+            var record = _emulatorService.GetInstall(newId)!;
+            Emulators.Add(MapRow(record, _emulatorService));
         }
         else
         {
-            // Update existing.
+            // ── Update existing install ──────────────────────────────────────
+            // EmulatorInstallRecord is not directly mutable; remove and re-add.
             var existing = Emulators.FirstOrDefault(e => e.Id == EditingId);
             if (existing is not null)
             {
-                existing.Name           = EditName;
-                existing.ExecutablePath = EditExecutablePath;
-                existing.Platforms      = EditPlatforms;
-                existing.ArgsTemplate   = EditArgsTemplate;
+                var idx = Emulators.IndexOf(existing);
+
+                // Drop any configs that referenced the old install ID before removing the install.
+                foreach (var cfg in _emulatorService.Configs
+                             .Where(c => string.Equals(c.InstallId, EditingId, StringComparison.Ordinal))
+                             .Select(c => c.Id)
+                             .ToList())
+                {
+                    _emulatorService.RemoveConfig(cfg);
+                }
+
+                _emulatorService.RemoveInstall(EditingId);
+
+                var newId = _emulatorService.AddInstall(
+                    catalogId:      existing.CatalogId,
+                    displayName:    EditName.Trim(),
+                    executablePath: EditExecutablePath.Trim(),
+                    mgaManaged:     existing.MgaManaged);
+
+                if (platforms.Count > 0)
+                {
+                    _emulatorService.AddConfig(
+                        installId:    newId,
+                        displayName:  EditName.Trim(),
+                        platforms:    platforms,
+                        argsTemplate: argsTemplate);
+                }
+
+                var updated = _emulatorService.GetInstall(newId)!;
+                Emulators[idx] = MapRow(updated, _emulatorService);
             }
         }
 
-        PersistToConfig();
-        IsEditing        = false;
-        SelectedEmulator = null;
-        EditingId        = null;
+        IsEditing          = false;
+        SelectedEmulator   = null;
+        EditingId          = null;
+        EditPlatforms      = string.Empty;
+        EditArgsTemplate   = string.Empty;
         _toast.Success("Saved", "Emulator configuration saved.");
     }
 
     [RelayCommand]
     private void DeleteEmulator(EmulatorRowViewModel row)
     {
+        _emulatorService.RemoveInstall(row.Id);
         Emulators.Remove(row);
+
         if (SelectedEmulator == row)
         {
             SelectedEmulator = null;
             IsEditing        = false;
         }
-        PersistToConfig();
+
         _toast.Success("Deleted", $"Emulator \"{row.Name}\" removed.");
     }
 
     /// <summary>
-    /// Verifies the emulator executable exists on disk and can be started.
-    /// Launches the process with no arguments and immediately terminates it —
-    /// this proves the binary is valid without opening any game UI.
+    /// Verifies the emulator executable exists and can be launched.
+    /// Starts the process with no arguments, waits briefly, then kills it.
     /// </summary>
     [RelayCommand]
     private async Task TestEmulatorAsync(EmulatorRowViewModel row)
@@ -206,7 +283,6 @@ public sealed partial class EmulatorsTabViewModel : ViewModelBase
 
         var path = row.ExecutablePath.Trim();
 
-        // Step 1: check the file exists on disk.
         if (!File.Exists(path))
         {
             _toast.Error("Test failed", $"File not found:\n{path}");
@@ -217,15 +293,11 @@ public sealed partial class EmulatorsTabViewModel : ViewModelBase
 
         try
         {
-            // Step 2: launch the process with no arguments.
-            // We give it a short window (500 ms) to start, then kill it
-            // immediately — this confirms the binary is executable without
-            // waiting for full initialisation.
             var psi = new ProcessStartInfo(path)
             {
-                UseShellExecute  = false,
-                CreateNoWindow   = true,
-                WindowStyle      = ProcessWindowStyle.Hidden,
+                UseShellExecute = false,
+                CreateNoWindow  = true,
+                WindowStyle     = ProcessWindowStyle.Hidden,
             };
 
             using var proc = Process.Start(psi);
@@ -235,9 +307,7 @@ public sealed partial class EmulatorsTabViewModel : ViewModelBase
                 return;
             }
 
-            // Wait briefly, then kill — we don't want to keep it open.
             await Task.Delay(500).ConfigureAwait(true);
-
             if (!proc.HasExited) proc.Kill(entireProcessTree: true);
 
             _toast.Success("Test passed", $"\"{row.Name}\" launched successfully.");
@@ -253,27 +323,38 @@ public sealed partial class EmulatorsTabViewModel : ViewModelBase
     }
 
     // ---------------------------------------------------------------------------
-    // Private — config persistence
+    // Private helpers
     // ---------------------------------------------------------------------------
 
-    private void LoadFromConfig()
+    private void LoadFromService()
     {
-        var entries = _config.GetEmulators();
         Emulators = new ObservableCollection<EmulatorRowViewModel>(
-            entries.Select(c => new EmulatorRowViewModel
-            {
-                Id             = c.Id,
-                Name           = c.Name,
-                ExecutablePath = c.ExecutablePath,
-                Platforms      = c.Platforms,
-                ArgsTemplate   = c.ArgsTemplate,
-            }));
+            _emulatorService.Installs.Select(r => MapRow(r, _emulatorService)));
     }
 
-    private void PersistToConfig()
+    /// <summary>
+    /// Maps an install record to a row view-model, deriving the Platforms display string
+    /// from any launch configs that reference this install.
+    /// </summary>
+    private static EmulatorRowViewModel MapRow(EmulatorInstallRecord record, EmulatorService svc)
     {
-        var entries = Emulators.Select(e => e.ToEntry()).ToList();
-        _config.SetEmulators(entries);
-        _config.Save();
+        // Collect all unique platforms across configs for this install, sorted alphabetically.
+        var allPlatforms = svc.Configs
+            .Where(c => string.Equals(c.InstallId, record.Id, StringComparison.Ordinal))
+            .SelectMany(c => c.Platforms)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(p => p)
+            .ToList();
+
+        return new EmulatorRowViewModel
+        {
+            Id             = record.Id,
+            CatalogId      = record.CatalogId,
+            Name           = record.Name,
+            ExecutablePath = record.ExecutablePath,
+            MgaManaged     = record.MgaManaged,
+            Version        = record.Version,
+            Platforms      = allPlatforms.Count > 0 ? string.Join(", ", allPlatforms) : string.Empty,
+        };
     }
 }

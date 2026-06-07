@@ -1,0 +1,226 @@
+{
+  "schema_version": 1,
+  "emulators": [
+    {
+      "id": "retroarch",
+      "displayName": "RetroArch",
+      "description": "Multi-system emulator frontend supporting hundreds of platforms via loadable cores.",
+      "platforms": [
+        "nes", "snes", "gb", "gbc", "gba", "n64",
+        "genesis", "sega_master_system", "game_gear", "sega_cd", "sega_32x",
+        "ps1", "ps2", "psp",
+        "arcade", "ms_dos", "scummvm"
+      ],
+      "license": "GPL-3.0",
+      "websiteUrl": "https://www.retroarch.com",
+      "canAutoInstall": true,
+      "supportsRetroAchievements": true,
+      "defaultArgsTemplate": "-L \"{core}\" \"{rom}\"",
+      "downloadUrls": {
+        "windows_x64": "https://buildbot.libretro.com/stable/1.19.1/windows/x86_64/RetroArch_x86_64_setup.exe"
+      },
+      "coreMapping": {
+        "nes":               { "filename": "nestopia_libretro.dll",          "displayName": "Nestopia UE" },
+        "snes":              { "filename": "snes9x_libretro.dll",            "displayName": "Snes9x" },
+        "gb":                { "filename": "gambatte_libretro.dll",          "displayName": "Gambatte" },
+        "gbc":               { "filename": "gambatte_libretro.dll",          "displayName": "Gambatte" },
+        "gba":               { "filename": "mgba_libretro.dll",              "displayName": "mGBA" },
+        "n64":               { "filename": "mupen64plus_next_libretro.dll",  "displayName": "Mupen64Plus-Next" },
+        "genesis":           { "filename": "genesis_plus_gx_libretro.dll",   "displayName": "Genesis Plus GX" },
+        "sega_master_system":{ "filename": "genesis_plus_gx_libretro.dll",   "displayName": "Genesis Plus GX" },
+        "game_gear":         { "filename": "genesis_plus_gx_libretro.dll",   "displayName": "Genesis Plus GX" },
+        "sega_cd":           { "filename": "genesis_plus_gx_libretro.dll",   "displayName": "Genesis Plus GX" },
+        "sega_32x":          { "filename": "picodrive_libretro.dll",         "displayName": "PicoDrive" },
+        "ps1":               { "filename": "mednafen_psx_hw_libretro.dll",   "displayName": "Beetle PSX HW" },
+        "ps2":               { "filename": "pcsx2_libretro.dll",             "displayName": "PCSX2" },
+        "psp":               { "filename": "ppsspp_libretro.dll",            "displayName": "PPSSPP" },
+        "arcade":            { "filename": "mame_libretro.dll",              "displayName": "MAME" },
+        "ms_dos":            { "filename": "dosbox_pure_libretro.dll",       "displayName": "DOSBox Pure" },
+        "scummvm":           { "filename": "scummvm_libretro.dll",           "displayName": "ScummVM" }
+      },
+      "biosRequirements": {
+        "ps1": [
+          {
+            "filename": "scph5501.bin",
+            "sha256": "9c0421858e217805f4abe18698afea8d5aa36ff0ce2b8f00c9f28f4ccc71e3e0",
+            "description": "PlayStation BIOS v3.0 (NTSC-U/C) — recommended",
+            "required": true
+          },
+          {
+            "filename": "scph1001.bin",
+            "sha256": "10155d8d6e6e832d6ea66db9bc098321fb5e8ebf0f5df78e4c8f5db22e34a24e",
+            "description": "PlayStation BIOS v2.2 (NTSC-U/C) — alternative",
+            "required": false
+          }
+        ],
+        "sega_cd": [
+          {
+            "filename": "bios_CD_U.bin",
+            "sha256": "2efd74e3232ff260e371b99f84024f7f7e71d6c5e55c5d62ec53e7da6d2fd61f",
+            "description": "Sega CD Model 1 BIOS (US)",
+            "required": true
+          },
+          {
+            "filename": "bios_CD_E.bin",
+            "sha256": "e66fa1dc5820d254611fdcdba0662372588ac3b4c6f9082df7b26264c8b1546c",
+            "description": "Sega CD Model 1 BIOS (EU) — for EU games",
+            "required": false
+          },
+          {
+            "filename": "bios_CD_J.bin",
+            "sha256": "278a9397d192149e84e820ac621a8edd295df2fef2db3978ed9fb73ef1c7c49a",
+            "description": "Sega CD Model 1 BIOS (JP) — for JP games",
+            "required": false
+          }
+        ],
+        "arcade": [
+          {
+            "filename": "neogeo.zip",
+            "sha256": "",
+            "description": "NeoGeo BIOS — required for NeoGeo games only",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "pcsx2",
+      "displayName": "PCSX2",
+      "description": "Standalone PlayStation 2 emulator. Best compatibility and performance for PS2 titles.",
+      "platforms": ["ps2"],
+      "license": "GPL-3.0",
+      "websiteUrl": "https://pcsx2.net",
+      "canAutoInstall": false,
+      "supportsRetroAchievements": false,
+      "defaultArgsTemplate": "\"{rom}\"",
+      "downloadUrls": {
+        "windows_x64": "https://pcsx2.net/downloads"
+      },
+      "coreMapping": {},
+      "biosRequirements": {
+        "ps2": [
+          {
+            "filename": "SCPH-70012.bin",
+            "sha256": "",
+            "description": "PlayStation 2 BIOS (NA, v12) — required; dumped from your own PS2",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "rpcs3",
+      "displayName": "RPCS3",
+      "description": "PlayStation 3 emulator.",
+      "platforms": ["ps3"],
+      "license": "GPL-2.0",
+      "websiteUrl": "https://rpcs3.net",
+      "canAutoInstall": false,
+      "supportsRetroAchievements": false,
+      "defaultArgsTemplate": "\"{rom}\"",
+      "downloadUrls": {
+        "windows_x64": "https://rpcs3.net/download"
+      },
+      "coreMapping": {},
+      "biosRequirements": {
+        "ps3": [
+          {
+            "filename": "PS3UPDAT.PUP",
+            "sha256": "",
+            "description": "PS3 firmware — install via RPCS3 File → Install Firmware",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "ppsspp",
+      "displayName": "PPSSPP",
+      "description": "PlayStation Portable emulator.",
+      "platforms": ["psp"],
+      "license": "GPL-2.0",
+      "websiteUrl": "https://www.ppsspp.org",
+      "canAutoInstall": false,
+      "supportsRetroAchievements": false,
+      "defaultArgsTemplate": "\"{rom}\"",
+      "downloadUrls": {
+        "windows_x64": "https://www.ppsspp.org/downloads.html"
+      },
+      "coreMapping": {},
+      "biosRequirements": {}
+    },
+    {
+      "id": "xenia",
+      "displayName": "Xenia",
+      "description": "Xbox 360 emulator.",
+      "platforms": ["xbox_360"],
+      "license": "MIT",
+      "websiteUrl": "https://xenia.jp",
+      "canAutoInstall": false,
+      "supportsRetroAchievements": false,
+      "defaultArgsTemplate": "\"{rom}\"",
+      "downloadUrls": {
+        "windows_x64": "https://xenia.jp"
+      },
+      "coreMapping": {},
+      "biosRequirements": {}
+    },
+    {
+      "id": "scummvm-standalone",
+      "displayName": "ScummVM",
+      "description": "Classic adventure game engine supporting hundreds of point-and-click games.",
+      "platforms": ["scummvm"],
+      "license": "GPL-2.0",
+      "websiteUrl": "https://www.scummvm.org",
+      "canAutoInstall": false,
+      "supportsRetroAchievements": false,
+      "defaultArgsTemplate": "--auto-detect --path=\"{gamedir}\"",
+      "downloadUrls": {
+        "windows_x64": "https://www.scummvm.org/downloads"
+      },
+      "coreMapping": {},
+      "biosRequirements": {}
+    },
+    {
+      "id": "dosbox-staging",
+      "displayName": "DOSBox Staging",
+      "description": "Modern DOSBox fork for MS-DOS games. Highly compatible.",
+      "platforms": ["ms_dos"],
+      "license": "GPL-2.0",
+      "websiteUrl": "https://dosbox-staging.github.io",
+      "canAutoInstall": false,
+      "supportsRetroAchievements": false,
+      "defaultArgsTemplate": "\"{rom}\"",
+      "downloadUrls": {
+        "windows_x64": "https://dosbox-staging.github.io/downloads"
+      },
+      "coreMapping": {},
+      "biosRequirements": {}
+    },
+    {
+      "id": "mame",
+      "displayName": "MAME",
+      "description": "Multiple Arcade Machine Emulator — the reference arcade emulator.",
+      "platforms": ["arcade"],
+      "license": "GPL-2.0",
+      "websiteUrl": "https://www.mamedev.org",
+      "canAutoInstall": false,
+      "supportsRetroAchievements": false,
+      "defaultArgsTemplate": "\"{rom}\"",
+      "downloadUrls": {
+        "windows_x64": "https://www.mamedev.org/release.html"
+      },
+      "coreMapping": {},
+      "biosRequirements": {
+        "arcade": [
+          {
+            "filename": "neogeo.zip",
+            "sha256": "",
+            "description": "NeoGeo BIOS — required for NeoGeo titles only",
+            "required": false
+          }
+        ]
+      }
+    }
+  ]
+}

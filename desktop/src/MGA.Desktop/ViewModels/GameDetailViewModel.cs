@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Api;
 using MGA.Desktop.Services;
+using MGA.Desktop.Services.Emulation;
 using MGA.Desktop.Services.Install;
 
 namespace MGA.Desktop.ViewModels;
@@ -276,6 +277,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
     private readonly AppConfigService           _config;
     private readonly InstallDetectionService?   _installDetector;
     private readonly RecentPlayedService?       _recentPlayed;
+    private readonly EmulatorService?           _emulatorService;
 
     // Cached for re-detection after manual binding changes.
     private IReadOnlyList<SourceGameInfo> _sourcesForDetection = [];
@@ -473,7 +475,8 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         ToastService             toast,
         AppConfigService         config,
         InstallDetectionService? installDetector = null,
-        RecentPlayedService?     recentPlayed    = null)
+        RecentPlayedService?     recentPlayed    = null,
+        EmulatorService?         emulatorService = null)
     {
         GameId           = gameId;
         _server          = server;
@@ -482,6 +485,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         _config          = config;
         _installDetector = installDetector;
         _recentPlayed    = recentPlayed;
+        _emulatorService = emulatorService;
 
         _ = LoadAsync();
     }
@@ -708,21 +712,36 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             GameId, _server, _nav, _toast, _config, _installDetector));
     }
 
-    /// <summary>Launches the game using the configured emulator for its platform.</summary>
+    /// <summary>Launches the game using the highest-priority configured emulator for its platform.</summary>
     [RelayCommand]
     private void LaunchWithEmulator()
     {
-        var emulators = _config.GetEmulators();
-        var emulator  = FindEmulatorForPlatform(Platform, emulators);
-
-        if (emulator is null)
+        if (_emulatorService is null)
         {
             _toast.Error("No emulator",
                 $"No emulator configured for platform \"{Platform}\". Add one in Settings → Emulators.");
             return;
         }
 
-        // Find the primary ROM file path.
+        // Pick the highest-priority config for this platform.
+        var configs = _emulatorService.GetConfigsForPlatform(Platform);
+        if (configs.Count == 0)
+        {
+            _toast.Error("No emulator",
+                $"No emulator configured for platform \"{Platform}\". Add one in Settings → Emulators.");
+            return;
+        }
+
+        var config  = configs[0];
+        var install = _emulatorService.GetInstall(config.InstallId);
+        if (install is null || string.IsNullOrEmpty(install.ExecutablePath))
+        {
+            _toast.Error("Emulator not found",
+                $"The emulator \"{config.DisplayName}\" has no executable path. Edit it in Settings → Emulators.");
+            return;
+        }
+
+        // Find the primary ROM file path from any source game with local files.
         var romPath = SourceGames
             .SelectMany(sg => sg.FilePaths)
             .FirstOrDefault();
@@ -735,14 +754,21 @@ public sealed partial class GameDetailViewModel : ViewModelBase
 
         try
         {
-            var args = emulator.ArgsTemplate.Replace("{rom}", $"\"{romPath}\"");
+            // Build args: prefer the config's custom template, then the install's default template.
+            var template = !string.IsNullOrWhiteSpace(config.ArgsTemplate)
+                ? config.ArgsTemplate
+                : "\"{rom}\"";
+
+            var args = template.Replace("{rom}", $"\"{romPath}\"");
+
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
-                FileName        = emulator.ExecutablePath,
+                FileName        = install.ExecutablePath,
                 Arguments       = args,
                 UseShellExecute = true,
             });
-            _toast.Success("Launched", $"Started \"{Title}\" with {emulator.Name}.");
+
+            _toast.Success("Launched", $"Started \"{Title}\" with {install.Name}.");
 
             // Record in recent-played history after a successful emulator launch.
             _recentPlayed?.RecordPlay(GameId, Title, CoverUrl);
@@ -987,7 +1013,8 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             if (result.CanonicalGameId != GameId)
             {
                 _nav.NavigateTo(new GameDetailViewModel(
-                    result.CanonicalGameId, _server, _nav, _toast, _config, _installDetector, _recentPlayed));
+                    result.CanonicalGameId, _server, _nav, _toast, _config,
+                    _installDetector, _recentPlayed, _emulatorService));
             }
             else
             {
@@ -1019,22 +1046,28 @@ public sealed partial class GameDetailViewModel : ViewModelBase
 
     private void CheckEmulatorAvailability()
     {
-        var emulators = _config.GetEmulators();
-        var matched   = FindEmulatorForPlatform(Platform, emulators);
+        if (_emulatorService is null || string.IsNullOrEmpty(Platform))
+        {
+            CanLaunchWithEmulator = false;
+            EmulatorName          = string.Empty;
+            return;
+        }
 
-        CanLaunchWithEmulator = matched is not null;
-        EmulatorName          = matched?.Name ?? string.Empty;
-    }
+        // Find configs for the current platform, ordered by priority.
+        var configs = _emulatorService.GetConfigsForPlatform(Platform);
 
-    private static EmulatorEntry? FindEmulatorForPlatform(string platform, List<EmulatorEntry> emulators)
-    {
-        if (string.IsNullOrEmpty(platform))
-            return null;
+        if (configs.Count == 0)
+        {
+            CanLaunchWithEmulator = false;
+            EmulatorName          = string.Empty;
+            return;
+        }
 
-        return emulators.FirstOrDefault(e =>
-            e.Platforms
-             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-             .Any(p => p.Equals(platform, StringComparison.OrdinalIgnoreCase)));
+        // Use the highest-priority config's display name as the label.
+        var primaryConfig    = configs[0];
+        var install          = _emulatorService.GetInstall(primaryConfig.InstallId);
+        CanLaunchWithEmulator = install is not null && !string.IsNullOrEmpty(install.ExecutablePath);
+        EmulatorName          = install?.Name ?? primaryConfig.DisplayName;
     }
 
     // ---------------------------------------------------------------------------

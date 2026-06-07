@@ -11,7 +11,9 @@
 
   <ItemGroup>
     <Folder Include="Models\" />
-    <AvaloniaResource Include="Assets\**" />
+    <AvaloniaResource Include="Assets\**" Exclude="Assets\Data\**" />
+    <!-- Data files embedded as assembly resources (no Avalonia dependency on load path) -->
+    <EmbeddedResource Include="Assets\Data\**" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Desktop.Services;
+using MGA.Desktop.Services.Emulation;
 using MGA.Desktop.Services.Install;
 using System.Reactive.Linq;
 
@@ -23,6 +24,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private readonly RecentPlayedService?      _recentPlayed;
     private readonly GameCacheService?         _gameCache;
     private readonly MediaCacheService?        _mediaCache;
+    private readonly EmulatorService?          _emulatorService;
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -84,10 +86,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ThemeService              theme,
         NavigationService         nav,
         ToastService              toast,
-        InstallDetectionService?  installDetector = null,
-        RecentPlayedService?      recentPlayed    = null,
-        GameCacheService?         gameCache       = null,
-        MediaCacheService?        mediaCache      = null)
+        InstallDetectionService?  installDetector  = null,
+        RecentPlayedService?      recentPlayed     = null,
+        GameCacheService?         gameCache        = null,
+        MediaCacheService?        mediaCache       = null,
+        EmulatorService?          emulatorService  = null)
     {
         _config          = config;
         _serverConn      = serverConn;
@@ -98,6 +101,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         _recentPlayed    = recentPlayed;
         _gameCache       = gameCache;
         _mediaCache      = mediaCache;
+        _emulatorService = emulatorService;
 
         // Restore persisted shell state.
         SidebarCollapsed = config.Config.SidebarCollapsed;
@@ -259,7 +263,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         "library"      => new LibraryViewModel(_serverConn, _nav, _toast, _config, installDetector: _installDetector, recentPlayed: _recentPlayed, gameCache: _gameCache, mediaCache: _mediaCache),
         "achievements" => new AchievementsViewModel(_serverConn, _toast),
         "stats"        => new StatsViewModel(_serverConn, _toast),
-        "settings"     => new SettingsViewModel(_serverConn, _theme, _config, _toast),
+        "settings"     => _emulatorService is not null
+                              ? new SettingsViewModel(_serverConn, _theme, _config, _toast, _emulatorService)
+                              : new SettingsViewModel(_serverConn, _theme, _config, _toast,
+                                    new EmulatorService(_config, new EmulatorCatalogService())),
         "about"        => new AboutViewModel(_serverConn),
         _              => null,
     };

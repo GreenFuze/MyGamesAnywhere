@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using MGA.Desktop.Services;
+using MGA.Desktop.Services.Emulation;
 using MGA.Desktop.Services.Install;
 using MGA.Desktop.ViewModels;
 using MGA.Desktop.Views;
@@ -24,6 +25,9 @@ public partial class App : Application
     private RecentPlayedService?       _recentPlayed;
     private GameCacheService?          _gameCache;
     private MediaCacheService?         _mediaCache;
+    private EmulatorCatalogService?    _emulatorCatalog;
+    private EmulatorService?           _emulatorService;
+    private GameStateService?          _gameStateService;
     private DeepLinkService?           _deepLink;
     private MainWindowViewModel?       _mainVm;
 
@@ -49,6 +53,11 @@ public partial class App : Application
             _gameCache    = new GameCacheService();
             _mediaCache   = new MediaCacheService();
 
+            // Emulation services — catalog is loaded from embedded JSON (fail-fast).
+            _emulatorCatalog  = new EmulatorCatalogService();
+            _emulatorService  = new EmulatorService(_config, _emulatorCatalog);
+            _gameStateService = new GameStateService(_emulatorService, _emulatorCatalog);
+
             // Install detection — wires all storefront + ARP detectors.
             var bindings = new InstallBindingService();
             _installDetector = new InstallDetectionService(
@@ -62,7 +71,8 @@ public partial class App : Application
             // Root ViewModel drives the whole shell (also creates OnboardingViewModel if needed).
             _mainVm = new MainWindowViewModel(
                 _config, _serverConn, _theme, _nav, _toast,
-                _installDetector, _recentPlayed, _gameCache, _mediaCache);
+                _installDetector, _recentPlayed, _gameCache, _mediaCache,
+                _emulatorService);
 
             // Deep link service — single-instance pipe server + mga:// URI handler.
             _deepLink = new DeepLinkService(_nav, _serverConn, _toast, _config, _recentPlayed);

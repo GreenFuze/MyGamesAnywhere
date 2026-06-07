@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using MGA.Desktop.Services;
+using MGA.Desktop.Services.Emulation;
 using MGA.Desktop.ViewModels.Settings;
 
 namespace MGA.Desktop.ViewModels;
@@ -29,7 +30,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ServerConnectionService server,
         ThemeService            theme,
         AppConfigService        config,
-        ToastService            toast)
+        ToastService            toast,
+        EmulatorService         emulatorService)
     {
         Integrations    = new IntegrationsTabViewModel(server, toast);
         Update          = new UpdateTabViewModel(server, toast);
@@ -40,7 +42,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Appearance      = new AppearanceTabViewModel(theme);
         Connection      = new ConnectionTabViewModel(config, server, toast);
         UndetectedGames = new UndetectedGamesTabViewModel(server, toast);
-        Emulators       = new EmulatorsTabViewModel(config, toast);
+        Emulators       = new EmulatorsTabViewModel(emulatorService, toast);
     }
 
     public override void Dispose()
