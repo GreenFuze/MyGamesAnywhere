@@ -213,26 +213,26 @@
       <StackPanel Margin="32,0,32,32">
 
         <!-- Column header row -->
-        <Border Padding="8,8" Background="{DynamicResource MgaElevatedBrush}">
-          <Grid ColumnDefinitions="Auto,*,140,160,60">
+        <Border Padding="0,8" Background="{DynamicResource MgaElevatedBrush}">
+          <Grid ColumnDefinitions="Auto,*,180,60" Margin="8,0">
             <Border Grid.Column="0" Width="32" IsVisible="{Binding IsBulkSelectMode}"/>
             <TextBlock Grid.Column="1" Text="Title"     Classes="muted" FontWeight="SemiBold"/>
-            <TextBlock Grid.Column="2" Text="Platform"  Classes="muted" FontWeight="SemiBold"/>
-            <TextBlock Grid.Column="3" Text="Developer" Classes="muted" FontWeight="SemiBold"/>
-            <TextBlock Grid.Column="4" Text="Year"      Classes="muted" FontWeight="SemiBold"/>
+            <TextBlock Grid.Column="2" Text="Developer" Classes="muted" FontWeight="SemiBold" Margin="8,0,0,0"/>
+            <TextBlock Grid.Column="3" Text="Year"      Classes="muted" FontWeight="SemiBold" Margin="8,0,0,0"/>
           </Grid>
         </Border>
 
         <!-- List rows -->
-        <ItemsControl ItemsSource="{Binding FilteredGames}">
+        <ItemsControl ItemsSource="{Binding FilteredGames}"
+                      HorizontalAlignment="Stretch">
           <ItemsControl.ItemsPanel>
             <ItemsPanelTemplate>
-              <StackPanel/>
+              <StackPanel HorizontalAlignment="Stretch"/>
             </ItemsPanelTemplate>
           </ItemsControl.ItemsPanel>
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:GameCardModel">
-              <Grid ColumnDefinitions="Auto,*">
+              <Grid ColumnDefinitions="Auto,*" HorizontalAlignment="Stretch">
                 <!-- Checkbox column (only visible in bulk mode) -->
                 <CheckBox Grid.Column="0"
                           IsChecked="{Binding IsSelected}"
@@ -242,28 +242,43 @@
                 <!-- Row content — navigates when NOT in bulk mode -->
                 <Button Grid.Column="1"
                         Background="Transparent" BorderThickness="0" Padding="0"
+                        HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Stretch"
                         Command="{Binding $parent[ItemsControl].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
                         CommandParameter="{Binding Id}"
                         IsEnabled="{Binding $parent[ItemsControl].((vm:LibraryViewModel)DataContext).IsBulkSelectMode, Converter={x:Static BoolConverters.Not}}"
                         Cursor="Hand">
-                  <Border Padding="8,10" Background="Transparent">
-                    <Grid ColumnDefinitions="*,140,160,60">
-                      <TextBlock Grid.Column="0" Text="{Binding Title}"
-                                 TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                      <TextBlock Grid.Column="1" Text="{Binding Platform}"
-                                 Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                      <TextBlock Grid.Column="2" Text="{Binding Developer}"
-                                 Classes="muted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                      <TextBlock Grid.Column="3"
-                                 Classes="muted" VerticalAlignment="Center">
-                        <TextBlock.Text>
-                          <Binding Path="ReleaseYear"
-                                   StringFormat="{}{0}"
-                                   FallbackValue="–"
-                                   TargetNullValue="–"/>
-                        </TextBlock.Text>
-                      </TextBlock>
+                  <Border Padding="8,10"
+                          Background="Transparent"
+                          HorizontalAlignment="Stretch">
+                    <!-- 3-column data grid: Title+badge | Developer | Year -->
+                    <Grid ColumnDefinitions="*,180,60" HorizontalAlignment="Stretch">
+
+                      <!-- Title with inline platform badge, badge right-aligned so title truncates cleanly -->
+                      <Grid Grid.Column="0" ColumnDefinitions="*,Auto" Margin="0,0,8,0">
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding Title}"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center"/>
+                        <Border Grid.Column="1"
+                                Background="{Binding PlatformBadgeColor}"
+                                CornerRadius="4"
+                                Padding="7,2"
+                                Margin="8,0,0,0"
+                                VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Platform}"
+                                     FontSize="10" FontWeight="Bold"
+                                     Foreground="#FFFFFF"
+                                     TextTrimming="CharacterEllipsis" MaxWidth="90"/>
+                        </Border>
+                      </Grid>
+
+                      <TextBlock Grid.Column="1" Text="{Binding Developer}"
+                                 Classes="muted" TextTrimming="CharacterEllipsis"
+                                 VerticalAlignment="Center" Margin="8,0,0,0"/>
+                      <TextBlock Grid.Column="2" Text="{Binding ReleaseYearDisplay}"
+                                 Classes="muted" VerticalAlignment="Center"
+                                 Margin="8,0,0,0"/>
                     </Grid>
                   </Border>
                 </Button>
@@ -308,7 +323,7 @@
                 <ItemsControl ItemsSource="{Binding Games}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                      <WrapPanel Orientation="Horizontal" ItemWidth="160" ItemHeight="220"/>
+                      <WrapPanel Orientation="Horizontal" ItemWidth="184" ItemHeight="254"/>
                     </ItemsPanelTemplate>
                   </ItemsControl.ItemsPanel>
                   <ItemsControl.ItemTemplate>
@@ -316,36 +331,93 @@
                       <Button Classes="game-card"
                               Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
                               CommandParameter="{Binding Id}"
-                              Width="160" Height="220" Margin="0,0,12,12"
+                              Width="170" Height="240" Margin="0,0,14,14"
                               Background="Transparent" BorderThickness="0" Padding="0"
                               Cursor="Hand">
-                        <Border CornerRadius="{DynamicResource MgaRadiusLg}"
-                                Background="{DynamicResource MgaSurfaceBrush}"
-                                ClipToBounds="True">
-                          <Grid>
-                            <!-- Placeholder shown when cover art is absent -->
-                            <Border Background="{DynamicResource MgaElevatedBrush}">
-                              <TextBlock Text="{Binding Title}"
-                                         TextWrapping="Wrap"
-                                         HorizontalAlignment="Center"
-                                         VerticalAlignment="Center"
-                                         Margin="8"
-                                         Classes="muted"/>
-                            </Border>
-                            <!-- Cover art -->
-                            <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
-                                                     Stretch="UniformToFill"/>
-                            <!-- Title overlay at bottom -->
-                            <Border VerticalAlignment="Bottom"
-                                    Background="#CC000000"
-                                    Padding="8,6">
-                              <TextBlock Text="{Binding Title}"
-                                         FontSize="12"
-                                         TextTrimming="CharacterEllipsis"
-                                         Foreground="#FFFFFF"/>
-                            </Border>
-                          </Grid>
-                        </Border>
+                        <Panel>
+                          <!-- Accent glow shadow -->
+                          <Border Classes="card-glow"
+                                  CornerRadius="{DynamicResource MgaRadiusLg}"
+                                  BoxShadow="0 0 28 6 #703db8ff"
+                                  Background="Transparent"/>
+                          <!-- Card surface -->
+                          <Border CornerRadius="{DynamicResource MgaRadiusLg}"
+                                  Background="{DynamicResource MgaSurfaceBrush}"
+                                  ClipToBounds="True">
+                            <Grid>
+                              <!-- Gradient placeholder background -->
+                              <Border>
+                                <Border.Background>
+                                  <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                                    <GradientStop Color="{DynamicResource MgaElevatedColor}" Offset="0"/>
+                                    <GradientStop Color="{DynamicResource MgaBgColor}" Offset="1"/>
+                                  </LinearGradientBrush>
+                                </Border.Background>
+                                <TextBlock Text="{Binding Title}"
+                                           TextWrapping="NoWrap"
+                                           FontSize="80"
+                                           FontWeight="Bold"
+                                           Opacity="0.06"
+                                           VerticalAlignment="Center"
+                                           HorizontalAlignment="Center"
+                                           Foreground="{DynamicResource MgaAccentBrush}"
+                                           Margin="-20,0"/>
+                              </Border>
+                              <!-- Cover art -->
+                              <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
+                                                       Stretch="UniformToFill"/>
+                              <!-- Platform badge — top-right corner -->
+                              <Border VerticalAlignment="Top"
+                                      HorizontalAlignment="Right"
+                                      Background="{Binding PlatformBadgeColor}"
+                                      CornerRadius="0,12,0,8"
+                                      Padding="6,3">
+                                <TextBlock Text="{Binding Platform}"
+                                           FontSize="9"
+                                           FontWeight="Bold"
+                                           Foreground="#FFFFFF"
+                                           TextTrimming="CharacterEllipsis"
+                                           MaxWidth="72"/>
+                              </Border>
+                              <!-- Gradient title overlay -->
+                              <Border Classes="card-title"
+                                      VerticalAlignment="Bottom"
+                                      Padding="8,36,8,9">
+                                <Border.Background>
+                                  <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                    <GradientStop Color="#00000000" Offset="0"/>
+                                    <GradientStop Color="#CC000000" Offset="0.6"/>
+                                    <GradientStop Color="#EE000000" Offset="1"/>
+                                  </LinearGradientBrush>
+                                </Border.Background>
+                                <TextBlock Text="{Binding Title}"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="#FFFFFF"/>
+                              </Border>
+                              <!-- Hover overlay: action buttons appear on hover -->
+                              <Border Classes="card-hover-overlay"
+                                      VerticalAlignment="Stretch"
+                                      HorizontalAlignment="Stretch"
+                                      IsHitTestVisible="False">
+                                <Border VerticalAlignment="Bottom"
+                                        Padding="7,0,7,8">
+                                  <StackPanel Spacing="4">
+                                    <Border Background="#AA000000"
+                                            CornerRadius="6"
+                                            Padding="0,5">
+                                      <TextBlock Text="▶  Play"
+                                                 FontSize="11" FontWeight="SemiBold"
+                                                 Foreground="#FFFFFF"
+                                                 HorizontalAlignment="Center"/>
+                                    </Border>
+                                  </StackPanel>
+                                </Border>
+                              </Border>
+                            </Grid>
+                          </Border>
+                        </Panel>
                       </Button>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
@@ -375,11 +447,20 @@
             <DataTemplate x:DataType="vm:ShelfRowViewModel">
               <StackPanel Spacing="10">
 
-                <!-- Row heading -->
-                <TextBlock Text="{Binding Title}"
-                           FontSize="16"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource MgaTextBrush}"/>
+                <!-- Row heading with accent bar -->
+                <Grid ColumnDefinitions="3,Auto">
+                  <Border Grid.Column="0"
+                          Background="{DynamicResource MgaAccentBrush}"
+                          CornerRadius="2"
+                          Width="3"
+                          Margin="0,3,0,3"/>
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding Title}"
+                             FontSize="16"
+                             FontWeight="SemiBold"
+                             Foreground="{DynamicResource MgaTextBrush}"
+                             Margin="10,0,0,0"/>
+                </Grid>
 
                 <!-- Horizontal scroll strip of game cards -->
                 <ScrollViewer HorizontalScrollBarVisibility="Auto"
@@ -395,36 +476,87 @@
                         <Button Classes="game-card"
                                 Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
                                 CommandParameter="{Binding Id}"
-                                Width="160" Height="220"
+                                Width="170" Height="240"
                                 Background="Transparent" BorderThickness="0" Padding="0"
                                 Cursor="Hand">
-                          <Border CornerRadius="{DynamicResource MgaRadiusLg}"
-                                  Background="{DynamicResource MgaSurfaceBrush}"
-                                  ClipToBounds="True">
-                            <Grid>
-                              <!-- Placeholder when no cover art -->
-                              <Border Background="{DynamicResource MgaElevatedBrush}">
-                                <TextBlock Text="{Binding Title}"
-                                           TextWrapping="Wrap"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Margin="8"
-                                           Classes="muted"/>
-                              </Border>
-                              <!-- Cover art -->
-                              <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
-                                                       Stretch="UniformToFill"/>
-                              <!-- Title overlay -->
-                              <Border VerticalAlignment="Bottom"
-                                      Background="#CC000000"
-                                      Padding="8,6">
-                                <TextBlock Text="{Binding Title}"
-                                           FontSize="12"
-                                           TextTrimming="CharacterEllipsis"
-                                           Foreground="#FFFFFF"/>
-                              </Border>
-                            </Grid>
-                          </Border>
+                          <Panel>
+                            <Border Classes="card-glow"
+                                    CornerRadius="{DynamicResource MgaRadiusLg}"
+                                    BoxShadow="0 0 28 6 #703db8ff"
+                                    Background="Transparent"/>
+                            <Border CornerRadius="{DynamicResource MgaRadiusLg}"
+                                    Background="{DynamicResource MgaSurfaceBrush}"
+                                    ClipToBounds="True">
+                              <Grid>
+                                <Border>
+                                  <Border.Background>
+                                    <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                                      <GradientStop Color="{DynamicResource MgaElevatedColor}" Offset="0"/>
+                                      <GradientStop Color="{DynamicResource MgaBgColor}" Offset="1"/>
+                                    </LinearGradientBrush>
+                                  </Border.Background>
+                                  <TextBlock Text="{Binding Title}"
+                                             TextWrapping="NoWrap"
+                                             FontSize="80"
+                                             FontWeight="Bold"
+                                             Opacity="0.06"
+                                             VerticalAlignment="Center"
+                                             HorizontalAlignment="Center"
+                                             Foreground="{DynamicResource MgaAccentBrush}"
+                                             Margin="-20,0"/>
+                                </Border>
+                                <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
+                                                         Stretch="UniformToFill"/>
+                                <Border VerticalAlignment="Top"
+                                        HorizontalAlignment="Right"
+                                        Background="{Binding PlatformBadgeColor}"
+                                        CornerRadius="0,12,0,8"
+                                        Padding="6,3">
+                                  <TextBlock Text="{Binding Platform}"
+                                             FontSize="9"
+                                             FontWeight="Bold"
+                                             Foreground="#FFFFFF"
+                                             TextTrimming="CharacterEllipsis"
+                                             MaxWidth="72"/>
+                                </Border>
+                                <Border Classes="card-title"
+                                        VerticalAlignment="Bottom"
+                                        Padding="8,36,8,9">
+                                  <Border.Background>
+                                    <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                      <GradientStop Color="#00000000" Offset="0"/>
+                                      <GradientStop Color="#CC000000" Offset="0.6"/>
+                                      <GradientStop Color="#EE000000" Offset="1"/>
+                                    </LinearGradientBrush>
+                                  </Border.Background>
+                                  <TextBlock Text="{Binding Title}"
+                                             FontSize="12"
+                                             FontWeight="SemiBold"
+                                             TextTrimming="CharacterEllipsis"
+                                             Foreground="#FFFFFF"/>
+                                </Border>
+                                <!-- Hover overlay: action buttons appear on hover -->
+                                <Border Classes="card-hover-overlay"
+                                        VerticalAlignment="Stretch"
+                                        HorizontalAlignment="Stretch"
+                                        IsHitTestVisible="False">
+                                  <Border VerticalAlignment="Bottom"
+                                          Padding="7,0,7,8">
+                                    <StackPanel Spacing="4">
+                                      <Border Background="#AA000000"
+                                              CornerRadius="6"
+                                              Padding="0,5">
+                                        <TextBlock Text="▶  Play"
+                                                   FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="#FFFFFF"
+                                                   HorizontalAlignment="Center"/>
+                                      </Border>
+                                    </StackPanel>
+                                  </Border>
+                                </Border>
+                              </Grid>
+                            </Border>
+                          </Panel>
                         </Button>
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -446,66 +578,139 @@
       <ac:ItemsRepeater ItemsSource="{Binding FilteredGames}"
                      Margin="32,0,32,32">
         <ac:ItemsRepeater.Layout>
-          <al:UniformGridLayout MinItemWidth="160" MinItemHeight="220"
-                             MinColumnSpacing="12" MinRowSpacing="12"/>
+          <al:UniformGridLayout MinItemWidth="170" MinItemHeight="240"
+                             MinColumnSpacing="14" MinRowSpacing="14"/>
         </ac:ItemsRepeater.Layout>
         <ac:ItemsRepeater.ItemTemplate>
           <DataTemplate x:DataType="vm:GameCardModel">
-            <Grid Width="160" Height="220">
-              <!-- Game card button (navigates when not in bulk mode) -->
+            <Grid Width="170" Height="240">
+
+              <!-- Normal navigation card — hidden in bulk-select mode -->
               <Button Classes="game-card"
                       Command="{Binding $parent[ac:ItemsRepeater].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
                       CommandParameter="{Binding Id}"
-                      Width="160" Height="220"
+                      Width="170" Height="240"
                       Background="Transparent" BorderThickness="0" Padding="0"
                       Cursor="Hand"
                       IsVisible="{Binding $parent[ac:ItemsRepeater].((vm:LibraryViewModel)DataContext).IsBulkSelectMode, Converter={x:Static BoolConverters.Not}}">
-                <Border CornerRadius="{DynamicResource MgaRadiusLg}"
-                        Background="{DynamicResource MgaSurfaceBrush}"
-                        ClipToBounds="True">
-                  <Grid>
-                    <Border Background="{DynamicResource MgaElevatedBrush}">
-                      <TextBlock Text="{Binding Title}"
-                                 TextWrapping="Wrap"
-                                 HorizontalAlignment="Center"
-                                 VerticalAlignment="Center"
-                                 Margin="8"
-                                 Classes="muted"/>
-                    </Border>
-                    <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
-                                             Stretch="UniformToFill"/>
-                    <Border VerticalAlignment="Bottom"
-                            Background="#CC000000"
-                            Padding="8,6">
-                      <TextBlock Text="{Binding Title}"
-                                 FontSize="12"
-                                 TextTrimming="CharacterEllipsis"
-                                 Foreground="#FFFFFF"/>
-                    </Border>
-                  </Grid>
-                </Border>
+                <Panel>
+                  <Border Classes="card-glow"
+                          CornerRadius="{DynamicResource MgaRadiusLg}"
+                          BoxShadow="0 0 28 6 #703db8ff"
+                          Background="Transparent"/>
+                  <Border CornerRadius="{DynamicResource MgaRadiusLg}"
+                          Background="{DynamicResource MgaSurfaceBrush}"
+                          ClipToBounds="True">
+                    <Grid>
+                      <Border>
+                        <Border.Background>
+                          <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                            <GradientStop Color="{DynamicResource MgaElevatedColor}" Offset="0"/>
+                            <GradientStop Color="{DynamicResource MgaBgColor}" Offset="1"/>
+                          </LinearGradientBrush>
+                        </Border.Background>
+                        <TextBlock Text="{Binding Title}"
+                                   TextWrapping="NoWrap"
+                                   FontSize="80"
+                                   FontWeight="Bold"
+                                   Opacity="0.06"
+                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource MgaAccentBrush}"
+                                   Margin="-20,0"/>
+                      </Border>
+                      <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
+                                               Stretch="UniformToFill"/>
+                      <Border VerticalAlignment="Top"
+                              HorizontalAlignment="Right"
+                              Background="{Binding PlatformBadgeColor}"
+                              CornerRadius="0,12,0,8"
+                              Padding="6,3">
+                        <TextBlock Text="{Binding Platform}"
+                                   FontSize="9"
+                                   FontWeight="Bold"
+                                   Foreground="#FFFFFF"
+                                   TextTrimming="CharacterEllipsis"
+                                   MaxWidth="72"/>
+                      </Border>
+                      <Border Classes="card-title"
+                              VerticalAlignment="Bottom"
+                              Padding="8,36,8,9">
+                        <Border.Background>
+                          <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                            <GradientStop Color="#00000000" Offset="0"/>
+                            <GradientStop Color="#CC000000" Offset="0.6"/>
+                            <GradientStop Color="#EE000000" Offset="1"/>
+                          </LinearGradientBrush>
+                        </Border.Background>
+                        <TextBlock Text="{Binding Title}"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="#FFFFFF"/>
+                      </Border>
+                      <!-- Hover overlay: action buttons appear on hover -->
+                      <Border Classes="card-hover-overlay"
+                              VerticalAlignment="Stretch"
+                              HorizontalAlignment="Stretch"
+                              IsHitTestVisible="False">
+                        <Border VerticalAlignment="Bottom"
+                                Padding="7,0,7,8">
+                          <StackPanel Spacing="4">
+                            <Border Background="#AA000000"
+                                    CornerRadius="6"
+                                    Padding="0,5">
+                              <TextBlock Text="▶  Play"
+                                         FontSize="11" FontWeight="SemiBold"
+                                         Foreground="#FFFFFF"
+                                         HorizontalAlignment="Center"/>
+                            </Border>
+                          </StackPanel>
+                        </Border>
+                      </Border>
+                    </Grid>
+                  </Border>
+                </Panel>
               </Button>
-              <!-- Bulk-select overlay: card + checkbox (visible in bulk mode) -->
+
+              <!-- Bulk-select overlay — visible in bulk-select mode (card + checkbox) -->
               <Border CornerRadius="{DynamicResource MgaRadiusLg}"
                       Background="{DynamicResource MgaSurfaceBrush}"
                       ClipToBounds="True"
                       IsVisible="{Binding $parent[ac:ItemsRepeater].((vm:LibraryViewModel)DataContext).IsBulkSelectMode}">
                 <Grid>
-                  <Border Background="{DynamicResource MgaElevatedBrush}">
+                  <!-- Gradient placeholder -->
+                  <Border>
+                    <Border.Background>
+                      <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                        <GradientStop Color="{DynamicResource MgaElevatedColor}" Offset="0"/>
+                        <GradientStop Color="{DynamicResource MgaBgColor}" Offset="1"/>
+                      </LinearGradientBrush>
+                    </Border.Background>
                     <TextBlock Text="{Binding Title}"
-                               TextWrapping="Wrap"
-                               HorizontalAlignment="Center"
+                               TextWrapping="NoWrap"
+                               FontSize="80"
+                               FontWeight="Bold"
+                               Opacity="0.06"
                                VerticalAlignment="Center"
-                               Margin="8"
-                               Classes="muted"/>
+                               HorizontalAlignment="Center"
+                               Foreground="{DynamicResource MgaAccentBrush}"
+                               Margin="-20,0"/>
                   </Border>
                   <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
                                            Stretch="UniformToFill"/>
-                  <Border VerticalAlignment="Bottom"
-                          Background="#CC000000"
-                          Padding="8,6">
+                  <!-- Gradient title overlay -->
+                  <Border VerticalAlignment="Bottom" Padding="8,36,8,9">
+                    <Border.Background>
+                      <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                        <GradientStop Color="#00000000" Offset="0"/>
+                        <GradientStop Color="#CC000000" Offset="0.6"/>
+                        <GradientStop Color="#EE000000" Offset="1"/>
+                      </LinearGradientBrush>
+                    </Border.Background>
                     <TextBlock Text="{Binding Title}"
                                FontSize="12"
+                               FontWeight="SemiBold"
                                TextTrimming="CharacterEllipsis"
                                Foreground="#FFFFFF"/>
                   </Border>
@@ -519,6 +724,7 @@
                             Margin="6"/>
                 </Grid>
               </Border>
+
             </Grid>
           </DataTemplate>
         </ac:ItemsRepeater.ItemTemplate>

@@ -36,7 +36,7 @@
            ================================================================== -->
       <TabItem Header="Library">
         <ScrollViewer Margin="0,16,0,0">
-          <StackPanel Spacing="28">
+          <StackPanel Spacing="28" Margin="0,0,20,0">
 
             <!-- ── Stat tiles row ── -->
             <ItemsControl ItemsSource="{Binding StatTiles}">
@@ -77,7 +77,10 @@
 
             <!-- ── Platform breakdown ── -->
             <StackPanel Spacing="8">
-              <TextBlock Text="By Platform" Classes="subheading"/>
+              <Grid ColumnDefinitions="3,Auto">
+                <Border Grid.Column="0" Background="{DynamicResource MgaAccentBrush}" CornerRadius="2" Width="3" Margin="0,3,0,3"/>
+                <TextBlock Grid.Column="1" Text="By Platform" Classes="subheading" Margin="10,0,0,0"/>
+              </Grid>
               <ItemsControl ItemsSource="{Binding PlatformBreakdown}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:CountStatModel">
@@ -108,7 +111,10 @@
 
             <!-- ── Kind breakdown ── -->
             <StackPanel Spacing="8">
-              <TextBlock Text="By Kind" Classes="subheading"/>
+              <Grid ColumnDefinitions="3,Auto">
+                <Border Grid.Column="0" Background="{DynamicResource MgaAccentBrush}" CornerRadius="2" Width="3" Margin="0,3,0,3"/>
+                <TextBlock Grid.Column="1" Text="By Kind" Classes="subheading" Margin="10,0,0,0"/>
+              </Grid>
               <ItemsControl ItemsSource="{Binding KindBreakdown}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:CountStatModel">
@@ -139,7 +145,10 @@
 
             <!-- ── Genre breakdown ── -->
             <StackPanel Spacing="8">
-              <TextBlock Text="By Genre" Classes="subheading"/>
+              <Grid ColumnDefinitions="3,Auto">
+                <Border Grid.Column="0" Background="{DynamicResource MgaAccentBrush}" CornerRadius="2" Width="3" Margin="0,3,0,3"/>
+                <TextBlock Grid.Column="1" Text="By Genre" Classes="subheading" Margin="10,0,0,0"/>
+              </Grid>
               <ItemsControl ItemsSource="{Binding GenreBreakdown}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:CountStatModel">
@@ -171,7 +180,10 @@
             <!-- ── Integration / Source breakdown ── -->
             <StackPanel Spacing="8"
                         IsVisible="{Binding HasIntegrationBreakdown}">
-              <TextBlock Text="By Source" Classes="subheading"/>
+              <Grid ColumnDefinitions="3,Auto">
+                <Border Grid.Column="0" Background="{DynamicResource MgaAccentBrush}" CornerRadius="2" Width="3" Margin="0,3,0,3"/>
+                <TextBlock Grid.Column="1" Text="By Source" Classes="subheading" Margin="10,0,0,0"/>
+              </Grid>
               <ItemsControl ItemsSource="{Binding IntegrationBreakdown}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:CountStatModel">
@@ -203,7 +215,10 @@
             <!-- ── Metadata coverage ── -->
             <StackPanel Spacing="8"
                         IsVisible="{Binding HasCoverage}">
-              <TextBlock Text="Metadata Coverage" Classes="subheading"/>
+              <Grid ColumnDefinitions="3,Auto">
+                <Border Grid.Column="0" Background="{DynamicResource MgaAccentBrush}" CornerRadius="2" Width="3" Margin="0,3,0,3"/>
+                <TextBlock Grid.Column="1" Text="Metadata Coverage" Classes="subheading" Margin="10,0,0,0"/>
+              </Grid>
               <TextBlock Text="Percentage of games that have each metadata field populated."
                          Classes="muted"
                          FontSize="{DynamicResource MgaFontSizeSm}"
@@ -255,7 +270,7 @@
            ================================================================== -->
       <TabItem Header="Gamer">
         <ScrollViewer Margin="0,16,0,0">
-          <StackPanel Spacing="24">
+          <StackPanel Spacing="24" Margin="0,0,20,0">
 
             <!-- Favorite games -->
             <StackPanel Spacing="4">
@@ -268,7 +283,10 @@
             <!-- Achievement unlock summary -->
             <Border Classes="card">
               <StackPanel Spacing="8">
-                <TextBlock Text="Achievements" Classes="subheading"/>
+                <Grid ColumnDefinitions="3,Auto">
+                  <Border Grid.Column="0" Background="{DynamicResource MgaAccentBrush}" CornerRadius="2" Width="3" Margin="0,3,0,3"/>
+                  <TextBlock Grid.Column="1" Text="Achievements" Classes="subheading" Margin="10,0,0,0"/>
+                </Grid>
                 <TextBlock Classes="muted">
                   <Run Text="{Binding UnlockedAchievements}"/>
                   <Run Text=" / "/>
@@ -289,7 +307,10 @@
 
             <!-- Achievement systems breakdown -->
             <StackPanel Spacing="8">
-              <TextBlock Text="By Source" Classes="subheading"/>
+              <Grid ColumnDefinitions="3,Auto">
+                <Border Grid.Column="0" Background="{DynamicResource MgaAccentBrush}" CornerRadius="2" Width="3" Margin="0,3,0,3"/>
+                <TextBlock Grid.Column="1" Text="By Source" Classes="subheading" Margin="10,0,0,0"/>
+              </Grid>
               <ItemsControl ItemsSource="{Binding AchievementSystems}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:AchievementSystemRowModel">
@@ -331,11 +352,14 @@
            ================================================================== -->
       <TabItem Header="Scans">
         <ScrollViewer Margin="0,16,0,0">
-          <StackPanel Spacing="24">
+          <StackPanel Spacing="24" Margin="0,0,20,0">
 
             <Border Classes="card" IsVisible="{Binding HasScanReports}">
               <StackPanel Spacing="8">
-                <TextBlock Text="Recent Scans" Classes="subheading"/>
+                <Grid ColumnDefinitions="3,Auto">
+                  <Border Grid.Column="0" Background="{DynamicResource MgaAccentBrush}" CornerRadius="2" Width="3" Margin="0,3,0,3"/>
+                  <TextBlock Grid.Column="1" Text="Recent Scans" Classes="subheading" Margin="10,0,0,0"/>
+                </Grid>
                 <ItemsControl ItemsSource="{Binding ScanReports}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:ScanReportRowViewModel">

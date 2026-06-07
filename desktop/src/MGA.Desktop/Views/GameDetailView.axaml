@@ -20,17 +20,64 @@
     </Border>
 
     <!-- ======================================================================
+         Sticky page header — always visible, docked at top
+         ====================================================================== -->
+    <Border DockPanel.Dock="Top"
+            IsVisible="{Binding !IsLoading}"
+            Background="#0a0810"
+            BorderBrush="{DynamicResource MgaBorderBrush}"
+            BorderThickness="0,0,0,1"
+            Height="48"
+            Padding="8,0">
+      <Grid ColumnDefinitions="Auto,*,Auto"
+            VerticalAlignment="Center">
+
+        <!-- Left: back button with arrow and accent glow -->
+        <Button Grid.Column="0"
+                Classes="ghost"
+                Command="{Binding GoBackCommand}"
+                VerticalAlignment="Center"
+                Padding="10,6">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="←"
+                       FontSize="16"
+                       Foreground="{DynamicResource MgaAccentBrush}"
+                       VerticalAlignment="Center"/>
+            <TextBlock Text="Back"
+                       FontSize="{DynamicResource MgaFontSizeSm}"
+                       Foreground="{DynamicResource MgaTextBrush}"
+                       VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
+
+        <!-- Centre: game title (truncated) -->
+        <TextBlock Grid.Column="1"
+                   Text="{Binding Title}"
+                   FontSize="{DynamicResource MgaFontSizeSm}"
+                   FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                   Foreground="{DynamicResource MgaTextBrush}"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   TextTrimming="CharacterEllipsis"
+                   Margin="0,0,80,0"/>
+
+      </Grid>
+    </Border>
+
+    <!-- ======================================================================
          Main content (hidden while loading)
          ====================================================================== -->
-    <ScrollViewer IsVisible="{Binding !IsLoading}">
-      <StackPanel>
+    <ScrollViewer Name="ContentScroller"
+                  IsVisible="{Binding !IsLoading}"
+                  HorizontalScrollBarVisibility="Disabled">
+      <StackPanel HorizontalAlignment="Stretch">
 
         <!-- ================================================================
-             Hero image area with frosted overlay
+             Hero image area with cinematic frosted overlay
              ================================================================ -->
-        <Grid Height="300">
+        <Grid Height="340">
 
-          <!-- Hero background image (async-loaded; background media or cover fallback) -->
+          <!-- Hero background image (full-bleed, async-loaded) -->
           <Border ClipToBounds="True"
                   Background="{DynamicResource MgaElevatedBrush}">
             <asyncImage:AdvancedImage Source="{Binding HeroImageUrl}"
@@ -39,20 +86,30 @@
                                       VerticalAlignment="Center"/>
           </Border>
 
-          <!-- Frosted gradient overlay at the bottom of the hero -->
-          <Border VerticalAlignment="Bottom"
-                  Height="140">
+          <!-- Top vignette (subtle dark from top) -->
+          <Border VerticalAlignment="Top" Height="80">
+            <Border.Background>
+              <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                <GradientStop Color="#88000000" Offset="0"/>
+                <GradientStop Color="#00000000" Offset="1"/>
+              </LinearGradientBrush>
+            </Border.Background>
+          </Border>
+
+          <!-- Bottom frosted gradient overlay -->
+          <Border VerticalAlignment="Bottom" Height="180">
             <Border.Background>
               <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
                 <GradientStop Color="#00000000" Offset="0"/>
-                <GradientStop Color="#CC000000" Offset="1"/>
+                <GradientStop Color="#AA0c0a10" Offset="0.5"/>
+                <GradientStop Color="#EE0c0a10" Offset="1"/>
               </LinearGradientBrush>
             </Border.Background>
 
             <!-- Title, platform badge, and favorite indicator inside the overlay -->
             <StackPanel VerticalAlignment="Bottom"
-                        Margin="24,0,24,16"
-                        Spacing="6">
+                        Margin="24,0,24,20"
+                        Spacing="8">
 
               <!-- Title -->
               <TextBlock Text="{Binding Title}"
@@ -63,24 +120,30 @@
                          MaxLines="2"/>
 
               <!-- Platform badge + favorite row -->
-              <StackPanel Orientation="Horizontal" Spacing="12">
+              <StackPanel Orientation="Horizontal" Spacing="10">
 
-                <!-- Platform badge -->
-                <Border Background="{DynamicResource MgaAccentMutedBrush}"
+                <!-- Platform badge with dynamic platform color -->
+                <Border Background="{Binding PlatformBadgeColor}"
                         CornerRadius="{DynamicResource MgaRadiusFull}"
-                        Padding="10,3">
-                  <TextBlock Text="{Binding Platform}"
+                        Padding="10,4">
+                  <TextBlock Text="{Binding FormattedPlatform}"
                              FontSize="{DynamicResource MgaFontSizeXs}"
                              FontWeight="{DynamicResource MgaFontWeightSemiBold}"
-                             Foreground="#FFFFFF"/>
+                             Foreground="#FFFFFF"
+                             IsVisible="{Binding FormattedPlatform,
+                                         Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                 </Border>
 
                 <!-- Favorite indicator -->
-                <TextBlock Text="★ Favorite"
-                           FontSize="{DynamicResource MgaFontSizeSm}"
-                           Foreground="{DynamicResource MgaWarningBrush}"
-                           IsVisible="{Binding Favorite}"
-                           VerticalAlignment="Center"/>
+                <Border Background="#33F5C518"
+                        CornerRadius="{DynamicResource MgaRadiusFull}"
+                        Padding="10,4"
+                        IsVisible="{Binding Favorite}">
+                  <TextBlock Text="★ Favorite"
+                             FontSize="{DynamicResource MgaFontSizeXs}"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                             Foreground="{DynamicResource MgaWarningBrush}"/>
+                </Border>
 
               </StackPanel>
             </StackPanel>
@@ -89,142 +152,191 @@
         </Grid>
 
         <!-- ================================================================
-             Action bar — Play button + Back button
+             Action bar — styled row with primary action + secondary actions
              ================================================================ -->
-        <StackPanel Orientation="Horizontal"
-                    Spacing="12"
-                    Margin="24,16,24,0">
+        <Border Margin="0,0,0,0"
+                Background="{DynamicResource MgaSurfaceBrush}"
+                BorderBrush="{DynamicResource MgaBorderBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="20,12">
+          <Grid ColumnDefinitions="*,Auto">
 
-          <!-- ============================================================
-               Install detection section
-               ============================================================ -->
+            <!-- LEFT: Primary / install actions -->
+            <StackPanel Grid.Column="0"
+                        Orientation="Horizontal"
+                        Spacing="8"
+                        VerticalAlignment="Center">
 
-          <!-- "Detecting…" label shown while detection is running -->
-          <Border VerticalAlignment="Center"
-                  IsVisible="{Binding IsDetectingInstall}">
-            <TextBlock Text="Detecting…"
-                       Classes="muted"
-                       FontSize="{DynamicResource MgaFontSizeXs}"
-                       VerticalAlignment="Center"/>
-          </Border>
+              <!-- "Detecting…" spinner while detection is running -->
+              <Border VerticalAlignment="Center"
+                      IsVisible="{Binding IsDetectingInstall}">
+                <TextBlock Text="Detecting install…"
+                           Classes="muted"
+                           FontSize="{DynamicResource MgaFontSizeXs}"
+                           VerticalAlignment="Center"/>
+              </Border>
 
-          <!-- Launch button — shown when game exe is known and installed -->
-          <Button Classes="primary"
-                  Command="{Binding LaunchGameCommand}"
-                  IsVisible="{Binding IsInstalled}"
-                  ToolTip.Tip="{Binding InstallStatus.ExePath}">
-            <TextBlock Text="▶ Launch"/>
-          </Button>
+              <!-- Launch button -->
+              <Button Classes="primary"
+                      Command="{Binding LaunchGameCommand}"
+                      IsVisible="{Binding IsInstalled}"
+                      ToolTip.Tip="{Binding InstallStatus.ExePath}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="▶" FontSize="13" VerticalAlignment="Center"/>
+                  <TextBlock Text="Launch" VerticalAlignment="Center"/>
+                </StackPanel>
+              </Button>
 
-          <!-- Install button — shown when game is in library but not downloaded -->
-          <Button Classes="primary"
-                  Command="{Binding InstallGameCommand}"
-                  Content="⬇ Install"
-                  IsVisible="{Binding CanInstallGame}"/>
+              <!-- Install button -->
+              <Button Classes="primary"
+                      Command="{Binding InstallGameCommand}"
+                      IsVisible="{Binding CanInstallGame}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="⬇" FontSize="13" VerticalAlignment="Center"/>
+                  <TextBlock Text="Install" VerticalAlignment="Center"/>
+                </StackPanel>
+              </Button>
 
-          <!-- Install client — shown when the storefront client is missing -->
-          <Button Classes="ghost"
-                  Command="{Binding OpenClientDownloadCommand}"
-                  IsVisible="{Binding NeedsClientInstall}"
-                  ToolTip.Tip="{Binding ClientDownloadUrl}">
-            <TextBlock>
-              <Run Text="⬇ "/>
-              <Run Text="{Binding ClientMissingMessage}"/>
-            </TextBlock>
-          </Button>
+              <!-- Install client -->
+              <Button Classes="ghost"
+                      Command="{Binding OpenClientDownloadCommand}"
+                      IsVisible="{Binding NeedsClientInstall}"
+                      ToolTip.Tip="{Binding ClientDownloadUrl}">
+                <TextBlock>
+                  <Run Text="⬇ "/>
+                  <Run Text="{Binding ClientMissingMessage}"/>
+                </TextBlock>
+              </Button>
 
-          <!-- Browse for exe — shown when installed but exe could not be resolved -->
-          <Button Classes="ghost"
-                  Command="{Binding PickExePathCommand}"
-                  Content="📂 Browse exe"
-                  IsVisible="{Binding NeedsManualBind}"/>
+              <!-- Browse for exe -->
+              <Button Classes="ghost"
+                      Command="{Binding PickExePathCommand}"
+                      Content="📂 Browse exe"
+                      IsVisible="{Binding NeedsManualBind}"/>
 
-          <!-- Open install folder — shown alongside Launch when path is known -->
-          <Button Classes="ghost"
-                  Command="{Binding OpenInstallFolderCommand}"
-                  Content="📁 Folder"
-                  IsVisible="{Binding IsInstalled}"
-                  ToolTip.Tip="{Binding InstallStatus.InstallPath}"/>
+              <!-- Open install folder -->
+              <Button Classes="ghost"
+                      Command="{Binding OpenInstallFolderCommand}"
+                      Content="📁 Folder"
+                      IsVisible="{Binding IsInstalled}"
+                      ToolTip.Tip="{Binding InstallStatus.InstallPath}"/>
 
-          <!-- Installed state badge -->
-          <Border Background="#223db8ff"
-                  CornerRadius="{DynamicResource MgaRadiusFull}"
-                  Padding="8,3"
-                  VerticalAlignment="Center"
-                  IsVisible="{Binding IsInstalled}">
-            <TextBlock Text="✓ Installed"
-                       Foreground="{DynamicResource MgaAccentBrush}"
-                       FontSize="{DynamicResource MgaFontSizeXs}"
-                       FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-          </Border>
+              <!-- Installed badge -->
+              <Border Background="#1A3db8ff"
+                      BorderBrush="#443db8ff"
+                      BorderThickness="1"
+                      CornerRadius="{DynamicResource MgaRadiusFull}"
+                      Padding="10,4"
+                      VerticalAlignment="Center"
+                      IsVisible="{Binding IsInstalled}">
+                <TextBlock Text="✓ Installed"
+                           Foreground="{DynamicResource MgaAccentBrush}"
+                           FontSize="{DynamicResource MgaFontSizeXs}"
+                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+              </Border>
 
-          <!-- Separator between install section and standard actions -->
-          <Border Width="1"
-                  Background="{DynamicResource MgaBorderBrush}"
-                  Margin="4,4"
-                  VerticalAlignment="Stretch"/>
+              <!-- Separator — only visible when emulator button follows -->
+              <Border Width="1"
+                      Background="{DynamicResource MgaBorderBrush}"
+                      Margin="4,0"
+                      Height="20"
+                      VerticalAlignment="Center"
+                      IsVisible="{Binding CanLaunchWithEmulator}"/>
 
-          <!-- Emulator launch button — visible only when emulator is configured -->
-          <Button Classes="primary"
-                  Command="{Binding LaunchWithEmulatorCommand}"
-                  IsVisible="{Binding CanLaunchWithEmulator}"
-                  ToolTip.Tip="{Binding EmulatorName}">
-            <TextBlock>
-              <Run Text="▶ Launch with "/>
-              <Run Text="{Binding EmulatorName}"/>
-            </TextBlock>
-          </Button>
+              <!-- Emulator launch -->
+              <Button Classes="primary"
+                      Command="{Binding LaunchWithEmulatorCommand}"
+                      IsVisible="{Binding CanLaunchWithEmulator}"
+                      ToolTip.Tip="{Binding EmulatorName}">
+                <TextBlock>
+                  <Run Text="▶ "/>
+                  <Run Text="{Binding EmulatorName}"/>
+                </TextBlock>
+              </Button>
 
-          <Button Classes="primary"
-                  Command="{Binding PlayInBrowserCommand}"
-                  Content="🌐 Open Web Page"/>
+              <!-- Open Web Page -->
+              <Button Classes="ghost"
+                      Command="{Binding PlayInBrowserCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="🌐" FontSize="13" VerticalAlignment="Center"/>
+                  <TextBlock Text="Web Page" VerticalAlignment="Center"/>
+                </StackPanel>
+              </Button>
 
-          <!-- Favorite toggle — label swaps based on current state -->
-          <Button Classes="ghost"
-                  Command="{Binding ToggleFavoriteCommand}"
-                  Content="★ Unfavorite"
-                  IsVisible="{Binding Favorite}"/>
-          <Button Classes="ghost"
-                  Command="{Binding ToggleFavoriteCommand}"
-                  Content="☆ Add to Favorites"
-                  IsVisible="{Binding !Favorite}"/>
+            </StackPanel>
 
-          <Button Classes="ghost"
-                  Command="{Binding RefreshMetadataCommand}"
-                  Content="↻ Metadata"
-                  IsEnabled="{Binding !IsRefreshingMetadata}"
-                  ToolTip.Tip="Refresh metadata from online providers"/>
+            <!-- RIGHT: secondary actions -->
+            <StackPanel Grid.Column="1"
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        VerticalAlignment="Center">
 
-          <Button Classes="ghost"
-                  Command="{Binding OpenMediaManagerCommand}"
-                  Content="🖼 Media"
-                  ToolTip.Tip="Manage cover art and media overrides"
-                  IsVisible="{Binding HasMedia}"/>
+              <!-- Favorite toggle -->
+              <Button Classes="ghost"
+                      Command="{Binding ToggleFavoriteCommand}"
+                      ToolTip.Tip="Remove from favorites"
+                      IsVisible="{Binding Favorite}"
+                      Padding="8,6">
+                <TextBlock Text="★" FontSize="16" Foreground="{DynamicResource MgaWarningBrush}"/>
+              </Button>
+              <Button Classes="ghost"
+                      Command="{Binding ToggleFavoriteCommand}"
+                      ToolTip.Tip="Add to favorites"
+                      IsVisible="{Binding !Favorite}"
+                      Padding="8,6">
+                <TextBlock Text="☆" FontSize="16" Foreground="{DynamicResource MgaMutedBrush}"/>
+              </Button>
 
-          <Button Classes="ghost"
-                  Command="{Binding GoBackCommand}"
-                  Content="← Back"/>
+              <!-- Metadata refresh -->
+              <Button Classes="ghost"
+                      Command="{Binding RefreshMetadataCommand}"
+                      ToolTip.Tip="Refresh metadata from online providers"
+                      IsEnabled="{Binding !IsRefreshingMetadata}"
+                      Padding="8,6">
+                <TextBlock Text="↻" FontSize="14" Foreground="{DynamicResource MgaMutedBrush}"/>
+              </Button>
 
-        </StackPanel>
+              <!-- Media manager -->
+              <Button Classes="ghost"
+                      Command="{Binding OpenMediaManagerCommand}"
+                      ToolTip.Tip="Manage cover art and media"
+                      IsVisible="{Binding HasMedia}"
+                      Padding="8,6">
+                <TextBlock Text="🖼" FontSize="13"/>
+              </Button>
+
+            </StackPanel>
+          </Grid>
+        </Border>
 
         <!-- ================================================================
              Media carousel — screenshots and header images
              ================================================================ -->
-        <Border Margin="0,12,0,0"
+        <Border Margin="0,16,0,0"
                 IsVisible="{Binding HasScreenshots}">
-          <StackPanel Spacing="8">
+          <StackPanel Spacing="10">
 
-            <TextBlock Text="Media"
-                       Classes="subheading"
-                       Margin="24,0"/>
+            <!-- Section label -->
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="24,0">
+              <Border Width="3" Height="14"
+                      Background="{DynamicResource MgaAccentBrush}"
+                      CornerRadius="2"
+                      VerticalAlignment="Center"/>
+              <TextBlock Text="Media"
+                         FontSize="{DynamicResource MgaFontSizeSm}"
+                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                         Foreground="{DynamicResource MgaTextBrush}"
+                         VerticalAlignment="Center"/>
+            </StackPanel>
 
+            <!-- Horizontal scrollable carousel -->
             <ScrollViewer HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled"
-                          Margin="24,0">
+                          Padding="24,0,24,4">
               <ItemsControl ItemsSource="{Binding Screenshots}">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate>
-                    <StackPanel Orientation="Horizontal" Spacing="8"/>
+                    <StackPanel Orientation="Horizontal" Spacing="10"/>
                   </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
@@ -232,7 +344,9 @@
                     <Border CornerRadius="{DynamicResource MgaRadiusMd}"
                             ClipToBounds="True"
                             Background="{DynamicResource MgaElevatedBrush}"
-                            Width="280" Height="158">
+                            BorderBrush="{DynamicResource MgaBorderBrush}"
+                            BorderThickness="1"
+                            Width="288" Height="162">
                       <asyncImage:AdvancedImage Source="{Binding Url}"
                                                Stretch="UniformToFill"/>
                     </Border>
@@ -262,62 +376,134 @@
         </Border>
 
         <!-- ================================================================
-             Metadata panel
+             Metadata panel — description + key/value grid
              ================================================================ -->
-        <Border Margin="24,12,24,12"
+        <Border Margin="24,16,24,0"
                 Classes="card">
-          <StackPanel Spacing="12">
+          <StackPanel Spacing="16">
 
             <!-- Description -->
-            <StackPanel Spacing="4"
+            <StackPanel Spacing="8"
                         IsVisible="{Binding Description,
                                     Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-              <TextBlock Text="Description"
-                         Classes="subheading"/>
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Border Width="3" Height="13"
+                        Background="{DynamicResource MgaAccentBrush}"
+                        CornerRadius="2"
+                        VerticalAlignment="Center"/>
+                <TextBlock Text="Description"
+                           FontSize="{DynamicResource MgaFontSizeSm}"
+                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                           Foreground="{DynamicResource MgaTextBrush}"
+                           VerticalAlignment="Center"/>
+              </StackPanel>
               <TextBlock Text="{Binding Description}"
                          TextWrapping="Wrap"
-                         Classes="muted"/>
+                         LineHeight="22"
+                         Foreground="{DynamicResource MgaMutedBrush}"
+                         FontSize="{DynamicResource MgaFontSizeSm}"/>
             </StackPanel>
 
-            <!-- Genres -->
-            <StackPanel Spacing="4"
-                        IsVisible="{Binding GenresText,
-                                    Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-              <TextBlock Text="Genres" Classes="subheading"/>
-              <TextBlock Text="{Binding GenresText}" Classes="muted"/>
-            </StackPanel>
+            <!-- Divider -->
+            <Border Height="1"
+                    Background="{DynamicResource MgaBorderBrush}"
+                    IsVisible="{Binding Description,
+                                Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
 
-            <!-- Release date -->
-            <StackPanel Spacing="4"
-                        IsVisible="{Binding ReleaseDate,
-                                    Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-              <TextBlock Text="Release Date" Classes="subheading"/>
-              <TextBlock Text="{Binding ReleaseDate}" Classes="muted"/>
-            </StackPanel>
+            <!-- Key-value metadata grid — label column is uppercase muted, value is full text -->
+            <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
 
-            <!-- Developer -->
-            <StackPanel Spacing="4"
-                        IsVisible="{Binding Developer,
-                                    Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-              <TextBlock Text="Developer" Classes="subheading"/>
-              <TextBlock Text="{Binding Developer}" Classes="muted"/>
-            </StackPanel>
+              <!-- Genres -->
+              <TextBlock Grid.Row="0" Grid.Column="0"
+                         Text="GENRES"
+                         FontSize="{DynamicResource MgaFontSizeXs}"
+                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                         Foreground="{DynamicResource MgaMutedBrush}"
+                         Margin="0,0,0,10"
+                         VerticalAlignment="Top"
+                         IsVisible="{Binding GenresText,
+                                     Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+              <TextBlock Grid.Row="0" Grid.Column="1"
+                         Text="{Binding GenresText}"
+                         FontSize="{DynamicResource MgaFontSizeSm}"
+                         Foreground="{DynamicResource MgaTextBrush}"
+                         TextWrapping="Wrap"
+                         Margin="0,0,0,10"
+                         IsVisible="{Binding GenresText,
+                                     Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
 
-            <!-- Publisher -->
-            <StackPanel Spacing="4"
-                        IsVisible="{Binding Publisher,
-                                    Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-              <TextBlock Text="Publisher" Classes="subheading"/>
-              <TextBlock Text="{Binding Publisher}" Classes="muted"/>
-            </StackPanel>
+              <!-- Release Date -->
+              <TextBlock Grid.Row="1" Grid.Column="0"
+                         Text="RELEASED"
+                         FontSize="{DynamicResource MgaFontSizeXs}"
+                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                         Foreground="{DynamicResource MgaMutedBrush}"
+                         Margin="0,0,0,10"
+                         IsVisible="{Binding ReleaseDate,
+                                     Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+              <TextBlock Grid.Row="1" Grid.Column="1"
+                         Text="{Binding ReleaseDate}"
+                         FontSize="{DynamicResource MgaFontSizeSm}"
+                         Foreground="{DynamicResource MgaTextBrush}"
+                         Margin="0,0,0,10"
+                         IsVisible="{Binding ReleaseDate,
+                                     Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
 
-            <!-- Rating -->
-            <StackPanel Spacing="4"
-                        IsVisible="{Binding HasRating}">
-              <TextBlock Text="Rating" Classes="subheading"/>
-              <TextBlock Text="{Binding Rating, StringFormat='{}{0:0.0}'}"
-                         Classes="muted"/>
-            </StackPanel>
+              <!-- Developer -->
+              <TextBlock Grid.Row="2" Grid.Column="0"
+                         Text="DEVELOPER"
+                         FontSize="{DynamicResource MgaFontSizeXs}"
+                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                         Foreground="{DynamicResource MgaMutedBrush}"
+                         Margin="0,0,0,10"
+                         IsVisible="{Binding Developer,
+                                     Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+              <TextBlock Grid.Row="2" Grid.Column="1"
+                         Text="{Binding Developer}"
+                         FontSize="{DynamicResource MgaFontSizeSm}"
+                         Foreground="{DynamicResource MgaTextBrush}"
+                         Margin="0,0,0,10"
+                         IsVisible="{Binding Developer,
+                                     Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+              <!-- Publisher -->
+              <TextBlock Grid.Row="3" Grid.Column="0"
+                         Text="PUBLISHER"
+                         FontSize="{DynamicResource MgaFontSizeXs}"
+                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                         Foreground="{DynamicResource MgaMutedBrush}"
+                         Margin="0,0,0,10"
+                         IsVisible="{Binding Publisher,
+                                     Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+              <TextBlock Grid.Row="3" Grid.Column="1"
+                         Text="{Binding Publisher}"
+                         FontSize="{DynamicResource MgaFontSizeSm}"
+                         Foreground="{DynamicResource MgaTextBrush}"
+                         Margin="0,0,0,10"
+                         IsVisible="{Binding Publisher,
+                                     Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+              <!-- Rating -->
+              <TextBlock Grid.Row="4" Grid.Column="0"
+                         Text="RATING"
+                         FontSize="{DynamicResource MgaFontSizeXs}"
+                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                         Foreground="{DynamicResource MgaMutedBrush}"
+                         IsVisible="{Binding HasRating}"/>
+              <StackPanel Grid.Row="4" Grid.Column="1"
+                          Orientation="Horizontal" Spacing="6"
+                          IsVisible="{Binding HasRating}">
+                <TextBlock Text="{Binding Rating, StringFormat='{}{0:0.0}'}"
+                           FontSize="{DynamicResource MgaFontSizeSm}"
+                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                           Foreground="{DynamicResource MgaWarningBrush}"/>
+                <TextBlock Text="/ 10"
+                           FontSize="{DynamicResource MgaFontSizeXs}"
+                           Foreground="{DynamicResource MgaMutedBrush}"
+                           VerticalAlignment="Center"/>
+              </StackPanel>
+
+            </Grid>
 
           </StackPanel>
         </Border>
@@ -325,11 +511,21 @@
         <!-- ================================================================
              External Links
              ================================================================ -->
-        <Border Margin="24,0,24,12"
+        <Border Margin="24,12,24,0"
                 Classes="card"
                 IsVisible="{Binding HasExternalLinks}">
-          <StackPanel Spacing="8">
-            <TextBlock Text="External Links" Classes="subheading"/>
+          <StackPanel Spacing="10">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Border Width="3" Height="13"
+                      Background="{DynamicResource MgaAccentBrush}"
+                      CornerRadius="2"
+                      VerticalAlignment="Center"/>
+              <TextBlock Text="External Links"
+                         FontSize="{DynamicResource MgaFontSizeSm}"
+                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                         Foreground="{DynamicResource MgaTextBrush}"
+                         VerticalAlignment="Center"/>
+            </StackPanel>
             <ItemsControl ItemsSource="{Binding ExternalLinks}">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
@@ -344,7 +540,7 @@
                           CommandParameter="{Binding .}"
                           IsEnabled="{Binding HasUrl}">
                     <TextBlock>
-                      <Run Text="{Binding Source}"/>
+                      <Run Text="{Binding DisplaySource}"/>
                       <Run Text=" ↗" Foreground="{DynamicResource MgaAccentBrush}"/>
                     </TextBlock>
                   </Button>
@@ -357,11 +553,21 @@
         <!-- ================================================================
              Source Games
              ================================================================ -->
-        <Border Margin="24,0,24,24"
+        <Border Margin="24,12,24,24"
                 Classes="card"
                 IsVisible="{Binding HasSourceGames}">
-          <StackPanel Spacing="8">
-            <TextBlock Text="Sources" Classes="subheading"/>
+          <StackPanel Spacing="10">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Border Width="3" Height="13"
+                      Background="{DynamicResource MgaAccentBrush}"
+                      CornerRadius="2"
+                      VerticalAlignment="Center"/>
+              <TextBlock Text="Sources"
+                         FontSize="{DynamicResource MgaFontSizeSm}"
+                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                         Foreground="{DynamicResource MgaTextBrush}"
+                         VerticalAlignment="Center"/>
+            </StackPanel>
             <ItemsControl ItemsSource="{Binding SourceGames}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:SourceGameRowViewModel">
@@ -465,6 +671,41 @@
                         </StackPanel>
                       </Grid>
 
+                      <!-- ── File paths — shown when source has local files ── -->
+                      <Border Margin="0,4,0,0"
+                              Background="{DynamicResource MgaElevatedBrush}"
+                              CornerRadius="4"
+                              Padding="8,6"
+                              IsVisible="{Binding HasFiles}">
+                        <StackPanel Spacing="4">
+
+                          <!-- File count badge -->
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Border Background="{DynamicResource MgaAccentMutedBrush}"
+                                    CornerRadius="3"
+                                    Padding="5,1">
+                              <TextBlock FontSize="9" FontWeight="SemiBold" Foreground="#FFFFFF">
+                                <Run Text="{Binding FileCount}"/>
+                                <Run Text=" file(s)"/>
+                              </TextBlock>
+                            </Border>
+                          </StackPanel>
+
+                          <!-- File path list -->
+                          <TextBox Text="{Binding FormattedFilePaths}"
+                                   IsReadOnly="True"
+                                   FontFamily="Cascadia Mono,Consolas,Courier New"
+                                   FontSize="10"
+                                   Background="Transparent"
+                                   BorderThickness="0"
+                                   Padding="0"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource MgaMutedBrush}"
+                                   MaxHeight="120"/>
+
+                        </StackPanel>
+                      </Border>
+
                       <!-- ── Inline merge-target search panel ── -->
                       <StackPanel Spacing="6"
                                   Margin="0,8,0,0"
@@ -558,7 +799,7 @@
                                   <Border Background="{DynamicResource MgaAccentMutedBrush}"
                                           CornerRadius="{DynamicResource MgaRadiusSm}"
                                           Padding="4,1">
-                                    <TextBlock Text="{Binding PluginId}"
+                                    <TextBlock Text="{Binding DisplayPluginId}"
                                                FontSize="9"
                                                Foreground="#FFFFFF"/>
                                   </Border>

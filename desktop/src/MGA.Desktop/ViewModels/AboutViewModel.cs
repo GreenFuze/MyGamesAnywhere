@@ -53,10 +53,18 @@ public sealed partial class AboutViewModel : ViewModelBase
 
         // Pull client version from the assembly attribute.
         var asm = Assembly.GetExecutingAssembly();
-        ClientVersion   = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        var rawVersion  = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
                           ?? asm.GetName().Version?.ToString()
                           ?? "0.0.0";
-        ClientBuildDate = new DateTimeOffset(File.GetLastWriteTimeUtc(asm.Location)).ToString("yyyy-MM-dd");
+
+        // Trim build metadata (the +<hash> suffix from NuGet semantic versioning).
+        var plusIdx = rawVersion.IndexOf('+');
+        ClientVersion   = plusIdx > 0 ? rawVersion[..plusIdx] : rawVersion;
+
+        // Format the build date as human-readable (e.g. "June 7, 2026").
+        var buildTime   = File.GetLastWriteTimeUtc(asm.Location);
+        ClientBuildDate = new DateTimeOffset(buildTime, TimeSpan.Zero)
+            .ToString("MMMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
 
         _ = LoadServerInfoAsync();
     }
@@ -74,6 +82,16 @@ public sealed partial class AboutViewModel : ViewModelBase
     }
 
     // ---------------------------------------------------------------------------
+    // Private helpers
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Delegates to the shared <see cref="DateTimeFormatter.FormatDate"/> helper.
+    /// Kept as a private wrapper so call-sites inside this class stay concise.
+    /// </summary>
+    private static string FormatDate(string? raw) => DateTimeFormatter.FormatDate(raw);
+
+    // ---------------------------------------------------------------------------
     // Private — data loading
     // ---------------------------------------------------------------------------
 
@@ -89,7 +107,7 @@ public sealed partial class AboutViewModel : ViewModelBase
             var info = await _server.Api.GetAboutInfoAsync().ConfigureAwait(true);
 
             ServerVersion   = info.Version;
-            ServerBuildDate = info.BuildDate;
+            ServerBuildDate = FormatDate(info.BuildDate);
             ServerCommit    = info.Commit.Length > 8 ? info.Commit[..8] : info.Commit;
             HasServerInfo   = true;
 

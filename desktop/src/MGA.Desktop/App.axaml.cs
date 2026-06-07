@@ -22,6 +22,8 @@ public partial class App : Application
     private ToastService?              _toast;
     private InstallDetectionService?   _installDetector;
     private RecentPlayedService?       _recentPlayed;
+    private GameCacheService?          _gameCache;
+    private MediaCacheService?         _mediaCache;
     private DeepLinkService?           _deepLink;
     private MainWindowViewModel?       _mainVm;
 
@@ -44,6 +46,8 @@ public partial class App : Application
             _nav          = new NavigationService();
             _toast        = new ToastService();
             _recentPlayed = new RecentPlayedService(_config);
+            _gameCache    = new GameCacheService();
+            _mediaCache   = new MediaCacheService();
 
             // Install detection — wires all storefront + ARP detectors.
             var bindings = new InstallBindingService();
@@ -57,7 +61,8 @@ public partial class App : Application
 
             // Root ViewModel drives the whole shell (also creates OnboardingViewModel if needed).
             _mainVm = new MainWindowViewModel(
-                _config, _serverConn, _theme, _nav, _toast, _installDetector, _recentPlayed);
+                _config, _serverConn, _theme, _nav, _toast,
+                _installDetector, _recentPlayed, _gameCache, _mediaCache);
 
             // Deep link service — single-instance pipe server + mga:// URI handler.
             _deepLink = new DeepLinkService(_nav, _serverConn, _toast, _config, _recentPlayed);
@@ -70,6 +75,10 @@ public partial class App : Application
             {
                 _deepLink.StartServer();
                 _deepLink.HandleStartupUri(Program.StartupUri);
+
+                // Eagerly warm the game cache in the background so Play/Library
+                // are instant on first navigation — no spinner, no wait.
+                _ = WarmGameCacheAsync();
             };
 
             // Dispose services when the window closes (RAII cleanup).
@@ -79,6 +88,91 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    // ---------------------------------------------------------------------------
+    // Eager cache warmup
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Proactively warms both the game list cache and the media (cover art) cache
+    /// immediately after the window opens, so Play/Library render instantly on first
+    /// navigation — no spinner, no remote image round-trips.
+    ///
+    /// Two phases:
+    ///   1. Game list — skip if already warm (disk cache survives restarts);
+    ///      otherwise fetch from server and persist via GameCacheService.
+    ///   2. Media — always run regardless of game-cache state so cover art is
+    ///      pre-fetched even when the game list came from disk.  Downloads all
+    ///      cover images plus the first 30 preview (screenshot/header) images
+    ///      used by the recently-played shelf.
+    ///
+    /// Silently swallows any network error — pages fall back to their own
+    /// cold-load paths if the cache is empty when they open.
+    /// </summary>
+    private async Task WarmGameCacheAsync()
+    {
+        if (_serverConn?.Api is null || _gameCache is null)
+            return;
+
+        var serverUrl = _serverConn.ActiveUrl;
+        if (string.IsNullOrWhiteSpace(serverUrl))
+            return;
+
+        var api = _serverConn.Api;
+
+        try
+        {
+            // ── Phase 1: game list ────────────────────────────────────────────
+            IReadOnlyList<MGA.Api.GameDetail> games;
+
+            if (_gameCache.TryGet(serverUrl, out var cached))
+            {
+                // Disk / memory cache is warm — use it directly.
+                games = cached;
+            }
+            else
+            {
+                // Cold start — fetch and persist (must update cache on UI thread).
+                var response = await api.ListGamesAsync(page: 0, pageSize: 500)
+                                        .ConfigureAwait(false);
+
+                await Avalonia.Threading.Dispatcher.UIThread
+                    .InvokeAsync(() => _gameCache.Update(serverUrl, response.Games));
+
+                games = response.Games;
+            }
+
+            // ── Phase 2: media — always run ──────────────────────────────────
+            if (_mediaCache is null || games.Count == 0)
+                return;
+
+            // All cover images (small, essential for every grid/list tile).
+            var coverUrls = games
+                .SelectMany(g => g.Media.Where(m => m.Type == "cover")
+                                        .Select(m => api.GetMediaUrl(m.Url)))
+                .Where(u => !string.IsNullOrEmpty(u));
+
+            // First 30 preview (screenshot / header) images — used by the hero
+            // banner and card hover overlays on the Play page.
+            var previewUrls = games
+                .SelectMany(g => g.Media.Where(m => m.Type == "screenshot" || m.Type == "header")
+                                        .Take(1)              // one preview per game
+                                        .Select(m => api.GetMediaUrl(m.Url)))
+                .Where(u => !string.IsNullOrEmpty(u))
+                .Take(30);
+
+            // Fire both warm jobs concurrently; they share the semaphore throttle.
+            await Task.WhenAll(
+                _mediaCache.WarmAsync(coverUrls),
+                _mediaCache.WarmAsync(previewUrls)
+            ).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Background warmup — swallow failures silently.
+            // The individual page VMs handle their own error toasts on cold load.
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -93,6 +187,7 @@ public partial class App : Application
         _nav?.Dispose();
         _theme?.Dispose();
         _serverConn?.Dispose();
+        _mediaCache?.Dispose();
         // AppConfigService, ToastService, RecentPlayedService, and InstallBindingService
         // have no unmanaged resources.
     }

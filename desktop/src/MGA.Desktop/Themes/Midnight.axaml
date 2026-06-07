@@ -20,8 +20,8 @@
   <Color x:Key="MgaWarningColor">#f59e0b</Color>
 
   <!-- Sidebar -->
-  <Color x:Key="MgaSidebarBgColor">#0f0d16</Color>
-  <Color x:Key="MgaSidebarActiveColor">#1e1a2e</Color>
+  <Color x:Key="MgaSidebarBgColor">#09080f</Color>
+  <Color x:Key="MgaSidebarActiveColor">#221e36</Color>
 
   <!-- Overlay / scrim -->
   <Color x:Key="MgaOverlayColor">#800c0a10</Color>

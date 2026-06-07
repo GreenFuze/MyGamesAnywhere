@@ -1075,18 +1075,30 @@
               <ItemsControl ItemsSource="{Binding KnownServers}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="services:ServerProfile">
-                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
-                      <TextBlock Text="{Binding Name}"
-                                 VerticalAlignment="Center"
-                                 MinWidth="100"/>
-                      <TextBlock Text="{Binding Url}"
-                                 Classes="muted"
-                                 VerticalAlignment="Center"/>
-                      <Button Classes="ghost"
+
+                    <!-- Server row: name+URL stacked on the left, Switch button on the right -->
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+
+                      <StackPanel Grid.Column="0" Spacing="1" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Name}"
+                                   FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Url}"
+                                   Classes="muted"
+                                   FontSize="{DynamicResource MgaFontSizeXs}"
+                                   TextTrimming="CharacterEllipsis"/>
+                      </StackPanel>
+
+                      <Button Grid.Column="1"
+                              Classes="ghost"
                               Content="Switch"
+                              VerticalAlignment="Center"
+                              Margin="12,0,0,0"
                               Command="{Binding $parent[ItemsControl].((settingsVm:AppearanceTabViewModel)DataContext).SwitchToServerCommand}"
                               CommandParameter="{Binding}"/>
-                    </StackPanel>
+
+                    </Grid>
+
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>

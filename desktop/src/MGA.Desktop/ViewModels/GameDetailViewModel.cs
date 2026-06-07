@@ -8,6 +8,51 @@ using MGA.Desktop.Services.Install;
 namespace MGA.Desktop.ViewModels;
 
 // ---------------------------------------------------------------------------
+// Shared slug formatting utility
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Converts raw API plugin-ID slugs to human-readable brand names.
+/// Shared by <see cref="ExternalLinkViewModel"/> and <see cref="SourceResolverMatchViewModel"/>.
+/// </summary>
+internal static class PluginSlugFormatter
+{
+    /// <summary>
+    /// Strips known prefixes ("metadata-", "game-source-") and applies
+    /// well-known acronym/brand casing so raw API slugs display nicely.
+    /// e.g. "metadata-launchbox" → "LaunchBox", "metadata-igdb" → "IGDB".
+    /// </summary>
+    public static string Prettify(string slug)
+    {
+        if (string.IsNullOrEmpty(slug)) return slug;
+
+        // Strip known plugin-category prefixes.
+        string name = slug;
+        if (name.StartsWith("metadata-",    StringComparison.OrdinalIgnoreCase))
+            name = name["metadata-".Length..];
+        else if (name.StartsWith("game-source-", StringComparison.OrdinalIgnoreCase))
+            name = name["game-source-".Length..];
+
+        // Well-known brand/acronym overrides (lowercased slug → display name).
+        return name.ToLowerInvariant() switch
+        {
+            "igdb"               => "IGDB",
+            "rawg"               => "RAWG",
+            "gog"                => "GOG",
+            "steam"              => "Steam",
+            "launchbox"          => "LaunchBox",
+            "retroachievements"  => "RetroAchievements",
+            "xbox"               => "Xbox",
+            "psn"                => "PSN",
+            "epic"               => "Epic Games",
+            "itchio"             => "itch.io",
+            _ => System.Globalization.CultureInfo.CurrentCulture.TextInfo
+                     .ToTitleCase(name.Replace('-', ' ').Replace('_', ' '))
+        };
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Display models — each handles its own mapping from API types
 // ---------------------------------------------------------------------------
 
@@ -47,6 +92,12 @@ public sealed partial class SourceGameRowViewModel : ObservableObject
 
     /// <summary>Absolute file paths for ROM launch — first entry is the primary ROM.</summary>
     public List<string> FilePaths { get; }
+
+    /// <summary>True when this source has at least one local file; drives the file-path panel.</summary>
+    public bool HasFiles => FileCount > 0;
+
+    /// <summary>All file paths joined by newlines; used for the read-only file-path TextBox.</summary>
+    public string FormattedFilePaths => string.Join(Environment.NewLine, FilePaths);
 
     // ---------------------------------------------------------------------------
     // Delete confirmation state
@@ -134,6 +185,9 @@ public sealed class SourceResolverMatchViewModel
     public bool    IsOutvoted        { get; }
     public bool    IsManualSelection { get; }
 
+    /// <summary>Human-readable plugin name — strips prefixes and applies brand casing.</summary>
+    public string DisplayPluginId => PluginSlugFormatter.Prettify(PluginId);
+
     /// <summary>"Manual" when manually pinned; "Outvoted" when overridden; "Active" otherwise.</summary>
     public string StatusLabel =>
         IsManualSelection ? "Manual"   :
@@ -189,6 +243,13 @@ public sealed class ExternalLinkViewModel
 
     public bool HasUrl => !string.IsNullOrEmpty(Url);
 
+    /// <summary>
+    /// Human-readable source name for display.
+    /// Strips common plugin-ID prefixes and applies known acronym mappings.
+    /// e.g. "metadata-launchbox" → "LaunchBox", "metadata-igdb" → "IGDB".
+    /// </summary>
+    public string DisplaySource => PluginSlugFormatter.Prettify(Source);
+
     public ExternalLinkViewModel(ExternalIdDto e)
     {
         Source     = e.Source;
@@ -242,6 +303,18 @@ public sealed partial class GameDetailViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _platform = string.Empty;
+
+    /// <summary>Human-readable platform label, e.g. "DOS" instead of "ms_dos".</summary>
+    public string FormattedPlatform => PlatformHelper.FormatPlatform(Platform);
+
+    /// <summary>Platform badge accent color hex, e.g. "#334155" for PC.</summary>
+    public string PlatformBadgeColor => PlatformHelper.GetBadgeColor(Platform);
+
+    partial void OnPlatformChanged(string value)
+    {
+        OnPropertyChanged(nameof(FormattedPlatform));
+        OnPropertyChanged(nameof(PlatformBadgeColor));
+    }
 
     [ObservableProperty]
     private string? _description;
@@ -984,7 +1057,7 @@ public sealed partial class GameDetailViewModel : ViewModelBase
             Title       = game.Title;
             Platform    = game.Platform;
             Description = game.Description;
-            ReleaseDate = game.ReleaseDate;
+            ReleaseDate = FormatReleaseDate(game.ReleaseDate);
             Developer   = game.Developer;
             Publisher   = game.Publisher;
             Rating      = game.Rating;
@@ -1053,6 +1126,21 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         {
             IsLoading = false;
         }
+    }
+
+    /// <summary>
+    /// Parses an ISO-8601 date string from the API and returns a short "d MMM yyyy"
+    /// display string (e.g. "5 Apr 2017").  Returns the raw value unchanged if parsing fails.
+    /// </summary>
+    private static string? FormatReleaseDate(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+
+        // Try ISO-8601 / RFC-3339 first (e.g. "2017-04-05T04:00:00Z").
+        if (DateTimeOffset.TryParse(raw, out var dto))
+            return dto.ToString("d MMM yyyy");
+
+        return raw;
     }
 
     /// <summary>

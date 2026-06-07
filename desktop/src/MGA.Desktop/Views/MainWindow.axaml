@@ -48,7 +48,9 @@
           Content is driven by CurrentPage via NavigationService.
         -->
         <TransitioningContentControl Content="{Binding CurrentPage}"
-                                     Name="PageHost"/>
+                                     Name="PageHost"
+                                     HorizontalContentAlignment="Stretch"
+                                     VerticalContentAlignment="Stretch"/>
       </Border>
 
     </Grid>

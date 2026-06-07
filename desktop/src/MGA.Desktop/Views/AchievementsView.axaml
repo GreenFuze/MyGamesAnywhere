@@ -100,7 +100,10 @@
 
           <!-- By Source -->
           <StackPanel Spacing="8">
-            <TextBlock Text="By Source" Classes="subheading"/>
+            <Grid ColumnDefinitions="3,Auto">
+              <Border Grid.Column="0" Background="{DynamicResource MgaAccentBrush}" CornerRadius="2" Width="3" Margin="0,3,0,3"/>
+              <TextBlock Grid.Column="1" Text="By Source" Classes="subheading" Margin="10,0,0,0"/>
+            </Grid>
 
             <ItemsControl ItemsSource="{Binding Systems}">
               <ItemsControl.ItemTemplate>
@@ -154,7 +157,10 @@
 
           <!-- By Game -->
           <StackPanel Spacing="8">
-            <TextBlock Text="By Game" Classes="subheading"/>
+            <Grid ColumnDefinitions="3,Auto">
+              <Border Grid.Column="0" Background="{DynamicResource MgaAccentBrush}" CornerRadius="2" Width="3" Margin="0,3,0,3"/>
+              <TextBlock Grid.Column="1" Text="By Game" Classes="subheading" Margin="10,0,0,0"/>
+            </Grid>
 
             <ItemsControl ItemsSource="{Binding Games}">
               <ItemsControl.ItemTemplate>

@@ -201,17 +201,18 @@
   <Style Selector="Button.game-card">
     <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
     <Setter Property="ZIndex"               Value="0"/>
+    <Setter Property="ClipToBounds"         Value="False"/>
     <Setter Property="Transitions">
       <Transitions>
         <TransformOperationsTransition Property="RenderTransform"
-                                       Duration="0:0:0.15"
+                                       Duration="0:0:0.18"
                                        Easing="CubicEaseOut"/>
       </Transitions>
     </Setter>
   </Style>
   <Style Selector="Button.game-card:pointerover">
-    <Setter Property="RenderTransform" Value="scale(1.05)"/>
-    <Setter Property="ZIndex"          Value="1"/>
+    <Setter Property="RenderTransform" Value="scale(1.06)"/>
+    <Setter Property="ZIndex"          Value="2"/>
   </Style>
   <Style Selector="Button.game-card:pressed">
     <Setter Property="RenderTransform" Value="scale(0.97)"/>
@@ -219,6 +220,118 @@
   <!-- Suppress the default button hover chrome inside the card -->
   <Style Selector="Button.game-card:pointerover /template/ ContentPresenter">
     <Setter Property="Background" Value="Transparent"/>
+  </Style>
+
+  <!-- Accent glow overlay — fades in on hover -->
+  <Style Selector="Button.game-card Border.card-glow">
+    <Setter Property="Opacity" Value="0"/>
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.2" Easing="CubicEaseOut"/>
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.game-card:pointerover Border.card-glow">
+    <Setter Property="Opacity" Value="1"/>
+  </Style>
+
+  <!-- Title gradient overlay — slightly dimmer at rest, full on hover -->
+  <Style Selector="Button.game-card Border.card-title">
+    <Setter Property="Opacity" Value="0.85"/>
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.18" Easing="CubicEaseOut"/>
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.game-card:pointerover Border.card-title">
+    <Setter Property="Opacity" Value="1"/>
+  </Style>
+
+  <!-- Hover action overlay — slides in on hover -->
+  <Style Selector="Button.game-card Border.card-hover-overlay">
+    <Setter Property="Opacity" Value="0"/>
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.2" Easing="CubicEaseOut"/>
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.game-card:pointerover Border.card-hover-overlay">
+    <Setter Property="Opacity" Value="1"/>
+  </Style>
+
+  <!-- =========================================================
+       TransitioningContentControl — force pages to fill full width/height
+       The default template's ContentPresenters have HorizontalAlignment=Left;
+       this override stretches them so every hosted UserControl fills the pane.
+       ========================================================= -->
+  <Style Selector="TransitioningContentControl /template/ ContentPresenter">
+    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+    <Setter Property="VerticalAlignment"   Value="Stretch"/>
+  </Style>
+
+  <!-- =========================================================
+       CheckBox — dark-themed
+       ========================================================= -->
+  <Style Selector="CheckBox">
+    <Setter Property="Foreground" Value="{DynamicResource MgaTextBrush}"/>
+    <Setter Property="Cursor"     Value="Hand"/>
+  </Style>
+  <Style Selector="CheckBox /template/ Border#NormalRectangle">
+    <Setter Property="BorderBrush"     Value="{DynamicResource MgaBorderBrush}"/>
+    <Setter Property="Background"      Value="{DynamicResource MgaElevatedBrush}"/>
+    <Setter Property="CornerRadius"    Value="4"/>
+  </Style>
+  <Style Selector="CheckBox:checked /template/ Border#NormalRectangle">
+    <Setter Property="Background"  Value="{DynamicResource MgaAccentBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource MgaAccentBrush}"/>
+  </Style>
+  <Style Selector="CheckBox:pointerover /template/ Border#NormalRectangle">
+    <Setter Property="BorderBrush" Value="{DynamicResource MgaAccentBrush}"/>
+  </Style>
+
+  <!-- =========================================================
+       ComboBox — dark-themed dropdown
+       ========================================================= -->
+  <Style Selector="ComboBox">
+    <Setter Property="Background"      Value="{DynamicResource MgaElevatedBrush}"/>
+    <Setter Property="Foreground"      Value="{DynamicResource MgaTextBrush}"/>
+    <Setter Property="BorderBrush"     Value="{DynamicResource MgaBorderBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius"    Value="{DynamicResource MgaRadiusMd}"/>
+    <Setter Property="Padding"         Value="12,8"/>
+    <Setter Property="MinHeight"       Value="36"/>
+  </Style>
+  <Style Selector="ComboBox:pointerover /template/ Border#Background">
+    <Setter Property="Background" Value="{DynamicResource MgaSurfaceBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource MgaAccentBrush}"/>
+  </Style>
+  <Style Selector="ComboBox:focus /template/ Border#Background">
+    <Setter Property="BorderBrush" Value="{DynamicResource MgaAccentBrush}"/>
+  </Style>
+
+  <!-- ComboBox popup dropdown background -->
+  <Style Selector="ComboBox /template/ Popup > Border">
+    <Setter Property="Background"      Value="{DynamicResource MgaElevatedBrush}"/>
+    <Setter Property="BorderBrush"     Value="{DynamicResource MgaBorderBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius"    Value="{DynamicResource MgaRadiusMd}"/>
+    <Setter Property="BoxShadow"       Value="0 4 20 0 #90000000"/>
+  </Style>
+
+  <!-- ComboBoxItem styling -->
+  <Style Selector="ComboBoxItem">
+    <Setter Property="Foreground" Value="{DynamicResource MgaTextBrush}"/>
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Padding"    Value="10,7"/>
+    <Setter Property="Cursor"     Value="Hand"/>
+  </Style>
+  <Style Selector="ComboBoxItem:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource MgaAccentMutedBrush}"/>
+  </Style>
+  <Style Selector="ComboBoxItem:selected /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource MgaAccentMutedBrush}"/>
   </Style>
 
   <!-- =========================================================

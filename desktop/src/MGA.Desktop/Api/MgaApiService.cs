@@ -572,11 +572,22 @@ public sealed class MgaApiService
     // ---------------------------------------------------------------------------
 
     /// <summary>
-    /// Converts a relative media path (e.g. "/api/media/123") to an absolute URL
-    /// using the HttpClient's base address.
+    /// Converts a media URL to an absolute URL.
+    /// If the URL is already absolute (starts with http:// or https://) it is
+    /// returned as-is — external CDN URLs from LaunchBox, IGDB, etc. must not
+    /// have the server base address prepended to them.
+    /// Relative paths (e.g. "/api/media/123") are prefixed with the server base address.
     /// </summary>
     public string GetMediaUrl(string relativeUrl)
     {
+        if (string.IsNullOrEmpty(relativeUrl))
+            return relativeUrl;
+
+        // Already an absolute URL — return unchanged.
+        if (relativeUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            relativeUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            return relativeUrl;
+
         var baseAddress = _http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
         return baseAddress + relativeUrl;
     }

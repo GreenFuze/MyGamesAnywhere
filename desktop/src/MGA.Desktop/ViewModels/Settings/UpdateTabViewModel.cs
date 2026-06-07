@@ -121,10 +121,10 @@ public sealed partial class UpdateTabViewModel : ViewModelBase
 
             await Task.WhenAll(aboutTask, statusTask).ConfigureAwait(true);
 
-            // Apply server build metadata.
+            // Apply server build metadata — format raw ISO build date for display.
             var about = await aboutTask;
             ServerVersion   = about.Version;
-            ServerBuildDate = about.BuildDate;
+            ServerBuildDate = DateTimeFormatter.FormatDate(about.BuildDate);
 
             // Apply update status.
             ApplyStatus(await statusTask);

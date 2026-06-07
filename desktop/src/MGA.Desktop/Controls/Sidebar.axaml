@@ -7,118 +7,167 @@
   <!--
     Collapsible sidebar navigation.
     Width animates between 220px (full) and 56px (icon-only) in MainWindow code-behind.
-    Nav items use IsActive to show the accent-bar indicator.
+    Nav items use IsActive to show the accent-bar + glow indicator.
   -->
-  <Border Background="{DynamicResource MgaSidebarBgBrush}"
-          BorderBrush="{DynamicResource MgaBorderBrush}"
-          BorderThickness="0,0,1,0">
 
-    <DockPanel LastChildFill="True">
+  <!-- Gradient background panel — creates depth vs the flat content area -->
+  <Panel>
+    <Border BorderBrush="{DynamicResource MgaBorderBrush}"
+            BorderThickness="0,0,1,0">
+      <Border.Background>
+        <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+          <GradientStop Color="#0f0c1a" Offset="0"/>
+          <GradientStop Color="#09080f" Offset="1"/>
+        </LinearGradientBrush>
+      </Border.Background>
 
-      <!-- Collapse / expand toggle -->
-      <Button DockPanel.Dock="Top"
-              Command="{Binding ToggleSidebarCommand}"
-              Classes="ghost"
-              HorizontalAlignment="Stretch"
-              Height="48"
-              ToolTip.Tip="Toggle sidebar">
-        <TextBlock Text="☰"
-                   FontSize="16"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"/>
-      </Button>
+      <DockPanel LastChildFill="True">
 
-      <!-- Nav item list -->
-      <ItemsControl DockPanel.Dock="Top"
-                    ItemsSource="{Binding NavItems}"
-                    Margin="6,4">
-        <ItemsControl.ItemTemplate>
-          <DataTemplate x:DataType="vm:NavItem">
-            <Button Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).NavigateToCommand}"
-                    CommandParameter="{Binding PageId}"
-                    HorizontalAlignment="Stretch"
-                    HorizontalContentAlignment="Left"
-                    Height="44"
-                    Margin="0,1"
-                    Padding="0"
-                    BorderThickness="0"
-                    Cursor="Hand"
-                    Classes.active="{Binding IsActive}">
+        <!-- Collapse / expand toggle -->
+        <Button DockPanel.Dock="Top"
+                Command="{Binding ToggleSidebarCommand}"
+                Classes="ghost"
+                HorizontalAlignment="Stretch"
+                Height="48"
+                ToolTip.Tip="Toggle sidebar">
+          <TextBlock Text="☰"
+                     FontSize="16"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center"/>
+        </Button>
 
-              <!-- Style based on IsActive state -->
-              <Button.Styles>
-                <Style Selector="Button">
-                  <Setter Property="Background"   Value="Transparent"/>
-                  <Setter Property="Foreground"   Value="{DynamicResource MgaMutedBrush}"/>
-                  <Setter Property="CornerRadius" Value="{DynamicResource MgaRadiusMd}"/>
-                </Style>
-                <Style Selector="Button:pointerover /template/ ContentPresenter">
-                  <Setter Property="Background" Value="{DynamicResource MgaElevatedBrush}"/>
-                </Style>
-                <!-- Active nav item: brighter text + subtle filled background -->
-                <Style Selector="Button.active">
-                  <Setter Property="Foreground" Value="{DynamicResource MgaTextBrush}"/>
-                </Style>
-                <Style Selector="Button.active /template/ ContentPresenter">
-                  <Setter Property="Background" Value="{DynamicResource MgaSidebarActiveBrush}"/>
-                </Style>
-              </Button.Styles>
+        <!-- Nav item list -->
+        <ItemsControl DockPanel.Dock="Top"
+                      ItemsSource="{Binding NavItems}"
+                      Margin="6,4">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:NavItem">
+              <Button Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).NavigateToCommand}"
+                      CommandParameter="{Binding PageId}"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Left"
+                      Height="44"
+                      Margin="0,1"
+                      Padding="0"
+                      BorderThickness="0"
+                      Cursor="Hand"
+                      Classes.active="{Binding IsActive}">
 
-              <Grid ColumnDefinitions="4,32,*">
+                <!-- Per-item button styles -->
+                <Button.Styles>
+                  <Style Selector="Button">
+                    <Setter Property="Background"   Value="Transparent"/>
+                    <Setter Property="Foreground"   Value="{DynamicResource MgaMutedBrush}"/>
+                    <Setter Property="CornerRadius" Value="{DynamicResource MgaRadiusMd}"/>
+                    <Setter Property="Transitions">
+                      <Transitions>
+                        <BrushTransition Property="Foreground" Duration="0:0:0.15"/>
+                      </Transitions>
+                    </Setter>
+                  </Style>
+                  <Style Selector="Button:pointerover /template/ ContentPresenter">
+                    <Setter Property="Background" Value="{DynamicResource MgaElevatedBrush}"/>
+                  </Style>
+                  <!-- Active: accent text + filled background -->
+                  <Style Selector="Button.active">
+                    <Setter Property="Foreground" Value="{DynamicResource MgaAccentBrush}"/>
+                  </Style>
+                  <Style Selector="Button.active /template/ ContentPresenter">
+                    <Setter Property="Background" Value="{DynamicResource MgaSidebarActiveBrush}"/>
+                  </Style>
+                </Button.Styles>
 
-                <!-- Left accent bar — visible only when active -->
-                <Border Grid.Column="0"
-                        CornerRadius="0,2,2,0"
-                        Background="{DynamicResource MgaAccentBrush}"
-                        IsVisible="{Binding IsActive}"
-                        Width="3"
-                        Margin="-6,8,0,8"/>
+                <Grid ColumnDefinitions="4,32,*">
 
-                <!-- Icon -->
-                <TextBlock Grid.Column="1"
-                           Text="{Binding Icon}"
-                           FontSize="16"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Center"/>
+                  <!-- Left accent bar with glow — visible only when active -->
+                  <Panel Grid.Column="0" Margin="-6,0,0,0">
+                    <!-- Soft glow behind the bar -->
+                    <Border IsVisible="{Binding IsActive}"
+                            Width="8"
+                            HorizontalAlignment="Left">
+                      <Border.Background>
+                        <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+                          <GradientStop Color="#603db8ff" Offset="0"/>
+                          <GradientStop Color="#003db8ff" Offset="1"/>
+                        </LinearGradientBrush>
+                      </Border.Background>
+                    </Border>
+                    <!-- Solid accent bar on top -->
+                    <Border IsVisible="{Binding IsActive}"
+                            CornerRadius="0,2,2,0"
+                            Background="{DynamicResource MgaAccentBrush}"
+                            Width="3"
+                            Margin="0,8,0,8"
+                            HorizontalAlignment="Left"/>
+                  </Panel>
 
-                <!-- Label + optional badge pill (clipped when sidebar is collapsed) -->
-                <Grid Grid.Column="2"
-                      ColumnDefinitions="*,Auto"
-                      Margin="6,0,0,0">
-
-                  <TextBlock Grid.Column="0"
-                             Text="{Binding Label}"
+                  <!-- Icon — rendered in Segoe MDL2 Assets for crisp glyph icons -->
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding Icon}"
+                             FontFamily="Segoe MDL2 Assets,Segoe Fluent Icons"
+                             FontSize="16"
                              VerticalAlignment="Center"
-                             FontSize="{DynamicResource MgaFontSizeSm}"
-                             FontWeight="{DynamicResource MgaFontWeightMedium}"
-                             TextTrimming="CharacterEllipsis"/>
+                             HorizontalAlignment="Center"/>
 
-                  <!-- Badge pill — visible only when count > 0 -->
-                  <Border Grid.Column="1"
-                          Background="{DynamicResource MgaAccentMutedBrush}"
-                          CornerRadius="8"
-                          IsVisible="{Binding HasBadge}"
-                          Padding="5,1"
-                          Margin="4,0,8,0">
-                    <TextBlock Text="{Binding BadgeCount}"
-                               FontSize="10"
-                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"
-                               Foreground="{DynamicResource MgaTextBrush}"
+                  <!-- Label + optional badge pill -->
+                  <Grid Grid.Column="2"
+                        ColumnDefinitions="*,Auto"
+                        Margin="6,0,0,0">
+
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding Label}"
                                VerticalAlignment="Center"
-                               HorizontalAlignment="Center"/>
-                  </Border>
+                               FontSize="{DynamicResource MgaFontSizeSm}"
+                               FontWeight="{DynamicResource MgaFontWeightMedium}"
+                               TextTrimming="CharacterEllipsis"/>
+
+                    <!-- Badge pill — visible only when count > 0 -->
+                    <Border Grid.Column="1"
+                            CornerRadius="8"
+                            IsVisible="{Binding HasBadge}"
+                            Padding="5,1"
+                            Margin="4,0,8,0">
+                      <Border.Background>
+                        <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                          <GradientStop Color="#3db8ff" Offset="0"/>
+                          <GradientStop Color="#1e6faf" Offset="1"/>
+                        </LinearGradientBrush>
+                      </Border.Background>
+                      <TextBlock Text="{Binding BadgeCount}"
+                                 FontSize="10"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                 Foreground="#FFFFFF"
+                                 VerticalAlignment="Center"
+                                 HorizontalAlignment="Center"/>
+                    </Border>
+
+                  </Grid>
 
                 </Grid>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
 
-              </Grid>
-            </Button>
-          </DataTemplate>
-        </ItemsControl.ItemTemplate>
-      </ItemsControl>
+        <!-- Spacer fills remaining space -->
+        <Border/>
 
-      <!-- Spacer fills remaining space -->
-      <Border/>
+      </DockPanel>
+    </Border>
 
-    </DockPanel>
-  </Border>
+    <!-- Subtle bottom accent line — the "floor" of the sidebar -->
+    <Border VerticalAlignment="Bottom"
+            Height="1"
+            Margin="0,0,1,0"
+            HorizontalAlignment="Stretch">
+      <Border.Background>
+        <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,0%">
+          <GradientStop Color="#003db8ff" Offset="0"/>
+          <GradientStop Color="#603db8ff" Offset="0.5"/>
+          <GradientStop Color="#003db8ff" Offset="1"/>
+        </LinearGradientBrush>
+      </Border.Background>
+    </Border>
+
+  </Panel>
 </UserControl>

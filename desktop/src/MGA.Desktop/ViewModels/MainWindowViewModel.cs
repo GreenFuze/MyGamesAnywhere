@@ -21,6 +21,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private readonly ToastService              _toast;
     private readonly InstallDetectionService?  _installDetector;
     private readonly RecentPlayedService?      _recentPlayed;
+    private readonly GameCacheService?         _gameCache;
+    private readonly MediaCacheService?        _mediaCache;
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -80,7 +82,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         NavigationService         nav,
         ToastService              toast,
         InstallDetectionService?  installDetector = null,
-        RecentPlayedService?      recentPlayed    = null)
+        RecentPlayedService?      recentPlayed    = null,
+        GameCacheService?         gameCache       = null,
+        MediaCacheService?        mediaCache      = null)
     {
         _config          = config;
         _serverConn      = serverConn;
@@ -89,20 +93,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         _toast           = toast;
         _installDetector = installDetector;
         _recentPlayed    = recentPlayed;
+        _gameCache       = gameCache;
+        _mediaCache      = mediaCache;
 
         // Restore persisted shell state.
         SidebarCollapsed = config.Config.SidebarCollapsed;
         CurrentTheme     = theme.Current;
 
         // Build the sidebar nav list.
+        // Icons are Segoe MDL2 Assets glyphs rendered via FontFamily="Segoe MDL2 Assets"
+        // in Sidebar.axaml.  Glyphs: Play=, Library=, Trophy=,
+        // BarChart=, Settings=, Info=.
         NavItems = new NavItem[]
         {
-            new("play",         "Play",         "▶"),
-            new("library",      "Library",      "▤"),
-            new("achievements", "Achievements", "★"),
-            new("stats",        "Stats",        "╪"),
-            new("settings",     "Settings",     "⚙"),
-            new("about",        "About",        "ℹ"),
+            new("play",         "Play",         ""),
+            new("library",      "Library",      ""),
+            new("achievements", "Achievements", ""),
+            new("stats",        "Stats",        ""),
+            new("settings",     "Settings",     ""),
+            new("about",        "About",        ""),
         };
 
         // Cache the Library item so badge updates don't scan the list each time.
@@ -202,7 +211,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Navigate to Library with the search query pre-filled.
         _nav.NavigateTo(new LibraryViewModel(
             _serverConn, _nav, _toast, _config,
-            initialSearch: query, installDetector: _installDetector, recentPlayed: _recentPlayed));
+            initialSearch: query, installDetector: _installDetector,
+            recentPlayed: _recentPlayed, gameCache: _gameCache, mediaCache: _mediaCache));
 
         // Clear the search box after navigation.
         GlobalSearchText = string.Empty;
@@ -240,8 +250,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     private ViewModelBase? CreatePageViewModel(string pageId) => pageId switch
     {
-        "play"         => new PlayViewModel(_serverConn, _nav, _toast, _config, _installDetector, _recentPlayed),
-        "library"      => new LibraryViewModel(_serverConn, _nav, _toast, _config, installDetector: _installDetector, recentPlayed: _recentPlayed),
+        "play"         => new PlayViewModel(_serverConn, _nav, _toast, _config, _installDetector, _recentPlayed, _gameCache, _mediaCache),
+        "library"      => new LibraryViewModel(_serverConn, _nav, _toast, _config, installDetector: _installDetector, recentPlayed: _recentPlayed, gameCache: _gameCache, mediaCache: _mediaCache),
         "achievements" => new AchievementsViewModel(_serverConn, _toast),
         "stats"        => new StatsViewModel(_serverConn, _toast),
         "settings"     => new SettingsViewModel(_serverConn, _theme, _config, _toast),

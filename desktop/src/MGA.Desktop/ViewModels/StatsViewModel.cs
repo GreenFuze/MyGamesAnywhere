@@ -35,7 +35,7 @@ public sealed class ScanReportRowViewModel
             : $"{span.Seconds}s";
 
         Id           = r.Id;
-        StartedAt    = r.StartedAt;
+        StartedAt    = DateTimeFormatter.FormatDateTime(r.StartedAt);
         Duration     = durationStr;
         GamesAdded   = r.GamesAdded;
         GamesRemoved = r.GamesRemoved;
@@ -250,10 +250,14 @@ public sealed partial class StatsViewModel : ViewModelBase
             int genreMax    = library.Genres.Count    > 0 ? library.Genres.Max(g => g.Count)    : 1;
 
             PlatformBreakdown = new ObservableCollection<CountStatModel>(
-                library.Platforms.Select(p => new CountStatModel(p, platformMax)));
+                library.Platforms.Select(p => new CountStatModel(
+                    new CountStat { Label = PlatformHelper.FormatPlatform(p.Label), Count = p.Count },
+                    platformMax)));
 
             KindBreakdown = new ObservableCollection<CountStatModel>(
-                library.Kinds.Select(k => new CountStatModel(k, kindMax)));
+                library.Kinds.Select(k => new CountStatModel(
+                    new CountStat { Label = PrettifyLabel(k.Label), Count = k.Count },
+                    kindMax)));
 
             GenreBreakdown = new ObservableCollection<CountStatModel>(
                 library.Genres.Select(g => new CountStatModel(g, genreMax)));
@@ -280,7 +284,7 @@ public sealed partial class StatsViewModel : ViewModelBase
                     simpleStats.ByIntegration
                         .OrderByDescending(kv => kv.Value)
                         .Select(kv => new CountStatModel(
-                            new CountStat { Label = kv.Key, Count = kv.Value }, intMax)));
+                            new CountStat { Label = PrettifyLabel(kv.Key), Count = kv.Value }, intMax)));
             }
             HasIntegrationBreakdown = IntegrationBreakdown.Count > 0;
         }
@@ -297,6 +301,16 @@ public sealed partial class StatsViewModel : ViewModelBase
     // ---------------------------------------------------------------------------
     // Private helpers
     // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Converts raw API slug labels (e.g. "base_game", "xbox_360") to
+    /// human-readable title-case strings (e.g. "Base Game", "Xbox 360").
+    /// </summary>
+    private static string PrettifyLabel(string? label) =>
+        string.IsNullOrEmpty(label)
+            ? string.Empty
+            : System.Globalization.CultureInfo.CurrentCulture.TextInfo
+                  .ToTitleCase(label.Replace('_', ' '));
 
     /// <summary>
     /// Builds the four summary stat tiles from combined library + gamer data.

@@ -8,150 +8,377 @@
              x:Class="MGA.Desktop.Views.PlayView"
              x:DataType="vm:PlayViewModel">
 
-  <DockPanel>
+  <!-- Single root ScrollViewer so hero + shelves + game grid all scroll together -->
+  <Panel>
 
-    <!-- =====================================================================
-         Fixed top section — header, spinner, recent shelf, grid heading
-         ===================================================================== -->
-    <StackPanel DockPanel.Dock="Top" Spacing="0">
+    <!-- Loading indicator — covers the page during initial fetch -->
+    <Border IsVisible="{Binding IsLoading}"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center">
+      <controls:LoadingSpinner/>
+    </Border>
 
-      <!-- Page header -->
-      <Border Padding="32,32,32,16">
-        <TextBlock Text="Play" Classes="heading"/>
-      </Border>
+    <!-- Full-page scroll container — visible once data is ready -->
+    <ScrollViewer IsVisible="{Binding !IsLoading}">
+      <StackPanel>
 
-      <!-- Loading indicator -->
-      <Border IsVisible="{Binding IsLoading}"
-              HorizontalAlignment="Center"
-              Margin="0,16,0,0">
-        <controls:LoadingSpinner/>
-      </Border>
+        <!-- =================================================================
+             HERO BANNER — cinematic featured-game spotlight
+             ================================================================= -->
+        <Border Height="360"
+                ClipToBounds="True">
+          <Grid>
 
-      <!-- Recently Played shelf -->
-      <StackPanel IsVisible="{Binding !IsLoading}"
-                  Spacing="12"
-                  Margin="32,0,32,24">
+            <!-- Atmospheric background: screenshot/header art for cinematic drama -->
+            <asyncImage:AdvancedImage Source="{Binding FeaturedGame.PreviewUrl}"
+                                      Stretch="UniformToFill"
+                                      Opacity="0.50"/>
+            <!-- Fallback cover art behind preview, dimmer -->
+            <asyncImage:AdvancedImage Source="{Binding FeaturedGame.CoverUrl}"
+                                      Stretch="UniformToFill"
+                                      Opacity="0.22"/>
 
-        <TextBlock Text="Recently Played" Classes="subheading"/>
+            <!-- Blue ambient glow — left-edge accent bloom -->
+            <Border HorizontalAlignment="Left" Width="520">
+              <Border.Background>
+                <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+                  <GradientStop Color="#1C3db8ff" Offset="0"/>
+                  <GradientStop Color="#003db8ff" Offset="1"/>
+                </LinearGradientBrush>
+              </Border.Background>
+            </Border>
 
-        <!-- Empty state -->
+            <!-- Top vignette — merges with title bar -->
+            <Border VerticalAlignment="Top" Height="72">
+              <Border.Background>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                  <GradientStop Color="#FF0c0a10" Offset="0"/>
+                  <GradientStop Color="#000c0a10" Offset="1"/>
+                </LinearGradientBrush>
+              </Border.Background>
+            </Border>
+
+            <!-- Bottom scrim — smooth bleed into page background -->
+            <Border VerticalAlignment="Bottom" Height="150">
+              <Border.Background>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                  <GradientStop Color="#000c0a10" Offset="0"/>
+                  <GradientStop Color="#FF0c0a10" Offset="1"/>
+                </LinearGradientBrush>
+              </Border.Background>
+            </Border>
+
+            <!-- Right fade — keeps art from feeling cropped -->
+            <Border HorizontalAlignment="Right" Width="220">
+              <Border.Background>
+                <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+                  <GradientStop Color="#000c0a10" Offset="0"/>
+                  <GradientStop Color="#CC0c0a10" Offset="1"/>
+                </LinearGradientBrush>
+              </Border.Background>
+            </Border>
+
+            <!-- Content: cover art card + game info — pinned to bottom -->
+            <Grid ColumnDefinitions="Auto,*"
+                  VerticalAlignment="Bottom"
+                  Margin="32,0,32,32">
+
+              <!-- Cover art with glow shadow -->
+              <Border Grid.Column="0"
+                      CornerRadius="10"
+                      Width="148" Height="211"
+                      ClipToBounds="True"
+                      BoxShadow="0 8 40 14 #603db8ff, 0 4 20 0 #70000000">
+                <asyncImage:AdvancedImage Source="{Binding FeaturedGame.CoverUrl}"
+                                          Stretch="UniformToFill"/>
+              </Border>
+
+              <!-- Title block + play button -->
+              <StackPanel Grid.Column="1"
+                          VerticalAlignment="Bottom"
+                          Margin="24,0,0,4"
+                          Spacing="6">
+
+                <!-- Platform chip — platform-branded color -->
+                <Border HorizontalAlignment="Left"
+                        Background="{Binding FeaturedGame.PlatformBadgeColor}"
+                        CornerRadius="4"
+                        Padding="10,4">
+                  <TextBlock Text="{Binding FeaturedGame.Platform}"
+                             FontSize="10"
+                             FontWeight="Bold"
+                             Foreground="#FFFFFF"
+                             LetterSpacing="0.8"/>
+                </Border>
+
+                <!-- Game title -->
+                <TextBlock Text="{Binding FeaturedGame.Title}"
+                           FontSize="32"
+                           FontWeight="Bold"
+                           Foreground="#FFFFFF"
+                           TextTrimming="CharacterEllipsis"
+                           MaxLines="2"
+                           TextWrapping="Wrap"/>
+
+                <!-- Play Now -->
+                <Button Classes="primary"
+                        Content="▶  Play Now"
+                        Width="132"
+                        Height="38"
+                        Margin="0,8,0,0"
+                        Padding="0"
+                        HorizontalContentAlignment="Center"
+                        Command="{Binding OpenGameCommand}"
+                        CommandParameter="{Binding FeaturedGame.Id}"/>
+              </StackPanel>
+            </Grid>
+
+            <!-- Page label overlay — top-left, subtly branded -->
+            <TextBlock Text="Play"
+                       Margin="32,18,0,0"
+                       VerticalAlignment="Top"
+                       HorizontalAlignment="Left"
+                       FontSize="11"
+                       FontWeight="SemiBold"
+                       Opacity="0.45"
+                       Foreground="{DynamicResource MgaTextBrush}"/>
+          </Grid>
+        </Border>
+
+        <!-- =================================================================
+             RECENTLY PLAYED shelf
+             ================================================================= -->
+        <StackPanel IsVisible="{Binding !HasNoRecentGames}"
+                    Spacing="10"
+                    Margin="32,8,32,20">
+
+          <!-- Section heading with accent bar -->
+          <Grid ColumnDefinitions="3,Auto">
+            <Border Grid.Column="0"
+                    Background="{DynamicResource MgaAccentBrush}"
+                    CornerRadius="2"
+                    Width="3"
+                    Margin="0,3,0,3"/>
+            <TextBlock Grid.Column="1"
+                       Text="Recently Played"
+                       Classes="subheading"
+                       Margin="10,0,0,0"/>
+          </Grid>
+
+          <!-- Horizontal card strip -->
+          <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                        VerticalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding RecentGames}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Orientation="Horizontal" Spacing="12"/>
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:GameCardModel">
+                  <Button Classes="game-card"
+                          Command="{Binding $parent[ItemsControl].((vm:PlayViewModel)DataContext).OpenGameCommand}"
+                          CommandParameter="{Binding Id}"
+                          Width="170" Height="240"
+                          Background="Transparent" BorderThickness="0" Padding="0"
+                          Cursor="Hand">
+                    <Panel>
+                      <Border Classes="card-glow"
+                              CornerRadius="{DynamicResource MgaRadiusLg}"
+                              BoxShadow="0 0 28 6 #703db8ff"
+                              Background="Transparent"/>
+                      <Border CornerRadius="{DynamicResource MgaRadiusLg}"
+                              Background="{DynamicResource MgaSurfaceBrush}"
+                              ClipToBounds="True">
+                        <Grid>
+                          <Border>
+                            <Border.Background>
+                              <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                                <GradientStop Color="{DynamicResource MgaElevatedColor}" Offset="0"/>
+                                <GradientStop Color="{DynamicResource MgaBgColor}" Offset="1"/>
+                              </LinearGradientBrush>
+                            </Border.Background>
+                            <TextBlock Text="{Binding Title}"
+                                       TextWrapping="NoWrap"
+                                       FontSize="80" FontWeight="Bold"
+                                       Opacity="0.06"
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{DynamicResource MgaAccentBrush}"
+                                       Margin="-20,0"/>
+                          </Border>
+                          <asyncImage:AdvancedImage Source="{Binding CoverUrl}" Stretch="UniformToFill"/>
+                          <Border VerticalAlignment="Top" HorizontalAlignment="Right"
+                                  Background="{Binding PlatformBadgeColor}" CornerRadius="0,12,0,8" Padding="6,3">
+                            <TextBlock Text="{Binding Platform}"
+                                       FontSize="9" FontWeight="Bold"
+                                       Foreground="#FFFFFF"
+                                       TextTrimming="CharacterEllipsis" MaxWidth="72"/>
+                          </Border>
+                          <Border Classes="card-title" VerticalAlignment="Bottom" Padding="8,36,8,9">
+                            <Border.Background>
+                              <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                <GradientStop Color="#00000000" Offset="0"/>
+                                <GradientStop Color="#CC000000" Offset="0.6"/>
+                                <GradientStop Color="#EE000000" Offset="1"/>
+                              </LinearGradientBrush>
+                            </Border.Background>
+                            <TextBlock Text="{Binding Title}"
+                                       FontSize="12" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="#FFFFFF"/>
+                          </Border>
+                          <!-- Hover overlay -->
+                          <Border Classes="card-hover-overlay"
+                                  VerticalAlignment="Stretch"
+                                  HorizontalAlignment="Stretch"
+                                  IsHitTestVisible="False">
+                            <Border VerticalAlignment="Bottom"
+                                    Padding="7,0,7,8">
+                              <StackPanel Spacing="4">
+                                <Border Background="#AA000000"
+                                        CornerRadius="6"
+                                        Padding="0,5">
+                                  <TextBlock Text="▶  Play"
+                                             FontSize="11" FontWeight="SemiBold"
+                                             Foreground="#FFFFFF"
+                                             HorizontalAlignment="Center"/>
+                                </Border>
+                              </StackPanel>
+                            </Border>
+                          </Border>
+                        </Grid>
+                      </Border>
+                    </Panel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </StackPanel>
+
+        <!-- Empty recently-played message -->
         <TextBlock Text="No recently played games."
                    Classes="muted"
-                   IsVisible="{Binding HasNoRecentGames}"/>
+                   IsVisible="{Binding HasNoRecentGames}"
+                   Margin="32,8,32,20"/>
 
-        <!-- Horizontal card strip -->
-        <ScrollViewer HorizontalScrollBarVisibility="Auto"
-                      VerticalScrollBarVisibility="Disabled"
-                      IsVisible="{Binding !HasNoRecentGames}">
-          <ItemsControl ItemsSource="{Binding RecentGames}">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate>
-                <StackPanel Orientation="Horizontal" Spacing="12"/>
-              </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:GameCardModel">
-                <Button Classes="game-card"
-                        Command="{Binding $parent[ItemsControl].((vm:PlayViewModel)DataContext).OpenGameCommand}"
-                        CommandParameter="{Binding Id}"
-                        Width="160" Height="220"
-                        Background="Transparent" BorderThickness="0" Padding="0"
-                        Cursor="Hand">
+        <!-- =================================================================
+             ALL GAMES — section heading
+             ================================================================= -->
+        <Border Padding="32,0,32,12">
+          <Grid ColumnDefinitions="3,Auto,Auto,*">
+            <Border Grid.Column="0"
+                    Background="{DynamicResource MgaAccentBrush}"
+                    CornerRadius="2"
+                    Width="3"
+                    Margin="0,3,0,3"/>
+            <TextBlock Grid.Column="1"
+                       Text="All Games"
+                       Classes="subheading"
+                       Margin="10,0,0,0"/>
+            <TextBlock Grid.Column="2"
+                       Text="{Binding GameCount, StringFormat='{}{0} games'}"
+                       Classes="muted"
+                       VerticalAlignment="Center"
+                       Margin="8,0,0,0"/>
+          </Grid>
+        </Border>
+
+        <!-- =================================================================
+             GAME GRID — uniform card grid, all games
+             Items render in a wrapping grid; cover images come from local cache.
+             ================================================================= -->
+        <ac:ItemsRepeater ItemsSource="{Binding Games}"
+                          Margin="32,0,32,32">
+          <ac:ItemsRepeater.Layout>
+            <al:UniformGridLayout MinItemWidth="170" MinItemHeight="240"
+                               MinColumnSpacing="14" MinRowSpacing="14"/>
+          </ac:ItemsRepeater.Layout>
+          <ac:ItemsRepeater.ItemTemplate>
+            <DataTemplate x:DataType="vm:GameCardModel">
+              <Button Classes="game-card"
+                      Command="{Binding $parent[ac:ItemsRepeater].((vm:PlayViewModel)DataContext).OpenGameCommand}"
+                      CommandParameter="{Binding Id}"
+                      Width="170" Height="240"
+                      Background="Transparent" BorderThickness="0" Padding="0"
+                      Cursor="Hand">
+                <Panel>
+                  <Border Classes="card-glow"
+                          CornerRadius="{DynamicResource MgaRadiusLg}"
+                          BoxShadow="0 0 28 6 #703db8ff"
+                          Background="Transparent"/>
                   <Border CornerRadius="{DynamicResource MgaRadiusLg}"
                           Background="{DynamicResource MgaSurfaceBrush}"
                           ClipToBounds="True">
                     <Grid>
-                      <!-- Placeholder shown when cover art is absent -->
-                      <Border Background="{DynamicResource MgaElevatedBrush}">
+                      <Border>
+                        <Border.Background>
+                          <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                            <GradientStop Color="{DynamicResource MgaElevatedColor}" Offset="0"/>
+                            <GradientStop Color="{DynamicResource MgaBgColor}" Offset="1"/>
+                          </LinearGradientBrush>
+                        </Border.Background>
                         <TextBlock Text="{Binding Title}"
-                                   TextWrapping="Wrap"
-                                   HorizontalAlignment="Center"
+                                   TextWrapping="NoWrap"
+                                   FontSize="80" FontWeight="Bold"
+                                   Opacity="0.06"
                                    VerticalAlignment="Center"
-                                   Margin="8"
-                                   Classes="muted"/>
+                                   HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource MgaAccentBrush}"
+                                   Margin="-20,0"/>
                       </Border>
-                      <!-- Cover art — AdvancedImage renders nothing when Source is null -->
-                      <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
-                                               Stretch="UniformToFill"/>
-                      <!-- Title overlay at bottom -->
-                      <Border VerticalAlignment="Bottom"
-                              Background="#CC000000"
-                              Padding="8,6">
+                      <asyncImage:AdvancedImage Source="{Binding CoverUrl}" Stretch="UniformToFill"/>
+                      <Border VerticalAlignment="Top" HorizontalAlignment="Right"
+                              Background="{Binding PlatformBadgeColor}" CornerRadius="0,12,0,8" Padding="6,3">
+                        <TextBlock Text="{Binding Platform}"
+                                   FontSize="9" FontWeight="Bold"
+                                   Foreground="#FFFFFF"
+                                   TextTrimming="CharacterEllipsis" MaxWidth="72"/>
+                      </Border>
+                      <Border Classes="card-title" VerticalAlignment="Bottom" Padding="8,36,8,9">
+                        <Border.Background>
+                          <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                            <GradientStop Color="#00000000" Offset="0"/>
+                            <GradientStop Color="#CC000000" Offset="0.6"/>
+                            <GradientStop Color="#EE000000" Offset="1"/>
+                          </LinearGradientBrush>
+                        </Border.Background>
                         <TextBlock Text="{Binding Title}"
-                                   FontSize="12"
+                                   FontSize="12" FontWeight="SemiBold"
                                    TextTrimming="CharacterEllipsis"
                                    Foreground="#FFFFFF"/>
                       </Border>
+                      <!-- Hover overlay -->
+                      <Border Classes="card-hover-overlay"
+                              VerticalAlignment="Stretch"
+                              HorizontalAlignment="Stretch"
+                              IsHitTestVisible="False">
+                        <Border VerticalAlignment="Bottom"
+                                Padding="7,0,7,8">
+                          <StackPanel Spacing="4">
+                            <Border Background="#AA000000"
+                                    CornerRadius="6"
+                                    Padding="0,5">
+                              <TextBlock Text="▶  Play"
+                                         FontSize="11" FontWeight="SemiBold"
+                                         Foreground="#FFFFFF"
+                                         HorizontalAlignment="Center"/>
+                            </Border>
+                          </StackPanel>
+                        </Border>
+                      </Border>
                     </Grid>
                   </Border>
-                </Button>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </ScrollViewer>
+                </Panel>
+              </Button>
+            </DataTemplate>
+          </ac:ItemsRepeater.ItemTemplate>
+        </ac:ItemsRepeater>
+
       </StackPanel>
-
-      <!-- Launchable Games section heading -->
-      <Border Padding="32,0,32,12"
-              IsVisible="{Binding !IsLoading}">
-        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-          <TextBlock Text="Launchable Games" Classes="subheading"/>
-          <TextBlock Text="{Binding LaunchableCount, StringFormat='{}{0} games'}"
-                     Classes="muted"
-                     VerticalAlignment="Center"/>
-        </StackPanel>
-      </Border>
-
-    </StackPanel>
-
-    <!-- =====================================================================
-         Virtualized game grid — fills remaining vertical space
-         ===================================================================== -->
-    <ScrollViewer IsVisible="{Binding !IsLoading}">
-      <ac:ItemsRepeater ItemsSource="{Binding Games}"
-                     Margin="32,0,32,32">
-        <ac:ItemsRepeater.Layout>
-          <al:UniformGridLayout MinItemWidth="160" MinItemHeight="220"
-                             MinColumnSpacing="12" MinRowSpacing="12"/>
-        </ac:ItemsRepeater.Layout>
-        <ac:ItemsRepeater.ItemTemplate>
-          <DataTemplate x:DataType="vm:GameCardModel">
-            <Button Classes="game-card"
-                    Command="{Binding $parent[ac:ItemsRepeater].((vm:PlayViewModel)DataContext).OpenGameCommand}"
-                    CommandParameter="{Binding Id}"
-                    Width="160" Height="220"
-                    Background="Transparent" BorderThickness="0" Padding="0"
-                    Cursor="Hand">
-              <Border CornerRadius="{DynamicResource MgaRadiusLg}"
-                      Background="{DynamicResource MgaSurfaceBrush}"
-                      ClipToBounds="True">
-                <Grid>
-                  <Border Background="{DynamicResource MgaElevatedBrush}">
-                    <TextBlock Text="{Binding Title}"
-                               TextWrapping="Wrap"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               Margin="8"
-                               Classes="muted"/>
-                  </Border>
-                  <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
-                                           Stretch="UniformToFill"/>
-                  <Border VerticalAlignment="Bottom"
-                          Background="#CC000000"
-                          Padding="8,6">
-                    <TextBlock Text="{Binding Title}"
-                               FontSize="12"
-                               TextTrimming="CharacterEllipsis"
-                               Foreground="#FFFFFF"/>
-                  </Border>
-                </Grid>
-              </Border>
-            </Button>
-          </DataTemplate>
-        </ac:ItemsRepeater.ItemTemplate>
-      </ac:ItemsRepeater>
     </ScrollViewer>
 
-  </DockPanel>
+  </Panel>
 
 </UserControl>

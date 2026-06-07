@@ -17,7 +17,9 @@ public sealed class TimelineYearGroupViewModel
 
     public TimelineYearGroupViewModel(int year, IEnumerable<GameCardModel> games)
     {
-        YearLabel = year == 0 ? "Unknown" : year.ToString();
+        // Treat 0 (missing) and implausibly large sentinel values (e.g. 9998, 9999
+        // used by some sources for "unknown release year") as "Unknown".
+        YearLabel = (year <= 0 || year >= 3000) ? "Unknown" : year.ToString();
         Games     = new ObservableCollection<GameCardModel>(games);
     }
 }

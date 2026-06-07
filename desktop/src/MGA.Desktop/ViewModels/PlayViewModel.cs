@@ -20,6 +20,8 @@ public sealed partial class PlayViewModel : ViewModelBase
     private readonly AppConfigService           _config;
     private readonly InstallDetectionService?   _installDetector;
     private readonly RecentPlayedService?       _recentPlayed;
+    private readonly GameCacheService?          _gameCache;
+    private readonly MediaCacheService?         _mediaCache;
 
     // ---------------------------------------------------------------------------
     // Observable state
@@ -28,12 +30,16 @@ public sealed partial class PlayViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isLoading;
 
+    /// <summary>First game in the full list — drives the hero banner at the top of Play.</summary>
+    [ObservableProperty]
+    private GameCardModel? _featuredGame;
+
     /// <summary>Only games with CanPlay = true — drives the main grid.</summary>
     [ObservableProperty]
     private ObservableCollection<GameCardModel> _games = [];
 
     [ObservableProperty]
-    private int _launchableCount;
+    private int _gameCount;
 
     [ObservableProperty]
     private ObservableCollection<GameCardModel> _recentGames = [];
@@ -52,7 +58,9 @@ public sealed partial class PlayViewModel : ViewModelBase
         ToastService             toast,
         AppConfigService         config,
         InstallDetectionService? installDetector = null,
-        RecentPlayedService?     recentPlayed    = null)
+        RecentPlayedService?     recentPlayed    = null,
+        GameCacheService?        gameCache       = null,
+        MediaCacheService?       mediaCache      = null)
     {
         _server          = server;
         _nav             = nav;
@@ -60,6 +68,8 @@ public sealed partial class PlayViewModel : ViewModelBase
         _config          = config;
         _installDetector = installDetector;
         _recentPlayed    = recentPlayed;
+        _gameCache       = gameCache;
+        _mediaCache      = mediaCache;
 
         // Start loading immediately — fire-and-forget with error handling inside.
         _ = LoadAsync();
@@ -117,55 +127,26 @@ public sealed partial class PlayViewModel : ViewModelBase
         if (_server.Api is null)
             return;
 
+        var serverUrl = _server.ActiveUrl;
+
+        // ── Cache-first: render immediately if we have a warm cache ──────────
+        if (_gameCache is not null && _gameCache.TryGet(serverUrl, out var cached))
+        {
+            ApplyGames(cached);
+            // Still refresh in the background (don't show spinner for cache hits).
+            _ = RefreshFromServerAsync(serverUrl);
+            return;
+        }
+
+        // ── Cold load: show spinner while we fetch ─────────────────────────
         IsLoading = true;
 
         try
         {
-            // Fetch full game list (up to 500 for the initial view).
             var response = await _server.Api.ListGamesAsync(page: 0, pageSize: 500)
                                             .ConfigureAwait(true);
-
-            // Map API models → display models, keeping only launchable games.
-            var allCards      = response.Games.Select(g => ToCard(g)).ToList();
-            var launchable    = allCards.Where(c => c.CanPlay).ToList();
-
-            Games           = new ObservableCollection<GameCardModel>(launchable);
-            LaunchableCount = launchable.Count;
-
-            // Recent shelf: use actual play history, fall back to first 10 launchable.
-            if (_recentPlayed is not null)
-            {
-                var history  = _recentPlayed.GetEntries();
-                var byId     = allCards.ToDictionary(c => c.Id);
-                var recentFromHistory = history
-                    .Select(e => byId.GetValueOrDefault(e.GameId))
-                    .OfType<GameCardModel>()
-                    .Take(10)
-                    .ToList();
-
-                if (recentFromHistory.Count > 0)
-                {
-                    RecentGames      = new ObservableCollection<GameCardModel>(recentFromHistory);
-                    HasNoRecentGames = false;
-                }
-                else
-                {
-                    // No history yet — fall back to first 10 launchable.
-                    var fallback = launchable.Take(10).ToList();
-                    RecentGames      = new ObservableCollection<GameCardModel>(fallback);
-                    HasNoRecentGames = fallback.Count == 0;
-                }
-            }
-            else
-            {
-                var recent = launchable.Take(10).ToList();
-                RecentGames      = new ObservableCollection<GameCardModel>(recent);
-                HasNoRecentGames = recent.Count == 0;
-            }
-
-            // Kick off install detection in the background for all launchable games.
-            // Each card's InstallStatus is updated individually as results arrive.
-            StartDetectionAsync(launchable);
+            _gameCache?.Update(serverUrl, response.Games);
+            ApplyGames(response.Games);
         }
         catch (Exception ex)
         {
@@ -177,11 +158,81 @@ public sealed partial class PlayViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Silently refreshes from the server without showing a loading spinner.
+    /// Used when the cache was served immediately; runs in the background.
+    /// </summary>
+    private async Task RefreshFromServerAsync(string serverUrl)
+    {
+        if (_server.Api is null)
+            return;
+
+        try
+        {
+            var response = await _server.Api.ListGamesAsync(page: 0, pageSize: 500)
+                                            .ConfigureAwait(true);
+            _gameCache?.Update(serverUrl, response.Games);
+            ApplyGames(response.Games);
+        }
+        catch
+        {
+            // Background refresh — silently ignore transient failures.
+            // The user already sees cached data; no need for an error toast.
+        }
+    }
+
+    /// <summary>
+    /// Maps a raw game list onto the observable properties and kicks off
+    /// install detection.  Safe to call from both cold-load and cache paths.
+    /// </summary>
+    private void ApplyGames(IReadOnlyList<MGA.Api.GameDetail> games)
+    {
+        var allCards = games.Select(g => ToCard(g)).ToList();
+
+        // Show the full game collection — all titles are "playable" in the
+        // sense that they can be launched (PC exe, emulated ROM, or browser).
+        Games        = new ObservableCollection<GameCardModel>(allCards);
+        GameCount    = allCards.Count;
+        FeaturedGame = allCards.FirstOrDefault();
+
+        // Recent shelf: use actual play history, fall back to first 10 games.
+        if (_recentPlayed is not null)
+        {
+            var history  = _recentPlayed.GetEntries();
+            var byId     = allCards.ToDictionary(c => c.Id);
+            var fromHistory = history
+                .Select(e => byId.GetValueOrDefault(e.GameId))
+                .OfType<GameCardModel>()
+                .Take(10)
+                .ToList();
+
+            if (fromHistory.Count > 0)
+            {
+                RecentGames      = new ObservableCollection<GameCardModel>(fromHistory);
+                HasNoRecentGames = false;
+            }
+            else
+            {
+                var fallback = allCards.Take(10).ToList();
+                RecentGames      = new ObservableCollection<GameCardModel>(fallback);
+                HasNoRecentGames = fallback.Count == 0;
+            }
+        }
+        else
+        {
+            var recent = allCards.Take(10).ToList();
+            RecentGames      = new ObservableCollection<GameCardModel>(recent);
+            HasNoRecentGames = recent.Count == 0;
+        }
+
+        StartDetectionAsync(allCards);
+    }
+
     // ---------------------------------------------------------------------------
     // Private helpers
     // ---------------------------------------------------------------------------
 
-    private GameCardModel ToCard(MGA.Api.GameDetail g) => new(g, _server.Api);
+    private GameCardModel ToCard(MGA.Api.GameDetail g) => new(g, _server.Api, mediaCache: _mediaCache);
 
     /// <summary>
     /// Starts background install detection for the given cards.

@@ -23,6 +23,8 @@ public sealed partial class LibraryViewModel : ViewModelBase
     private readonly AppConfigService           _config;
     private readonly InstallDetectionService?   _installDetector;
     private readonly RecentPlayedService?       _recentPlayed;
+    private readonly GameCacheService?          _gameCache;
+    private readonly MediaCacheService?         _mediaCache;
 
     // ---------------------------------------------------------------------------
     // Sort options
@@ -189,7 +191,9 @@ public sealed partial class LibraryViewModel : ViewModelBase
         AppConfigService         config,
         string?                  initialSearch    = null,
         InstallDetectionService? installDetector  = null,
-        RecentPlayedService?     recentPlayed     = null)
+        RecentPlayedService?     recentPlayed     = null,
+        GameCacheService?        gameCache        = null,
+        MediaCacheService?       mediaCache       = null)
     {
         _server          = server;
         _nav             = nav;
@@ -197,6 +201,8 @@ public sealed partial class LibraryViewModel : ViewModelBase
         _config          = config;
         _installDetector = installDetector;
         _recentPlayed    = recentPlayed;
+        _gameCache       = gameCache;
+        _mediaCache      = mediaCache;
 
         if (!string.IsNullOrEmpty(initialSearch))
             SearchText = initialSearch;
@@ -215,6 +221,7 @@ public sealed partial class LibraryViewModel : ViewModelBase
                     .Subscribe(__ =>
                     {
                         IsScanning = false;
+                        _gameCache?.Invalidate();  // Force re-fetch after scan.
                         _toast.Success("Scan complete", "Library updated.");
                         _ = LoadAsync();
                     }));
@@ -483,16 +490,26 @@ public sealed partial class LibraryViewModel : ViewModelBase
     {
         if (_server.Api is null) return;
 
+        var serverUrl = _server.ActiveUrl;
+
+        // ── Cache-first: render instantly if warm cache exists ──────────────
+        if (_gameCache is not null && _gameCache.TryGet(serverUrl, out var cached))
+        {
+            ApplyGames(cached, cached.Count);
+            // Refresh silently in the background.
+            _ = RefreshFromServerAsync(serverUrl);
+            return;
+        }
+
+        // ── Cold load: show spinner ─────────────────────────────────────────
         IsLoading = true;
 
         try
         {
             var response = await _server.Api.ListGamesAsync(page: 0, pageSize: 500)
                                             .ConfigureAwait(true);
-
-            var cards = response.Games.Select(ToCard).ToList();
-            Games      = new ObservableCollection<GameCardModel>(cards);
-            TotalCount = response.Total;
+            _gameCache?.Update(serverUrl, response.Games);
+            ApplyGames(response.Games, response.Total);
         }
         catch (Exception ex)
         {
@@ -502,6 +519,30 @@ public sealed partial class LibraryViewModel : ViewModelBase
         {
             IsLoading = false;
         }
+    }
+
+    private async Task RefreshFromServerAsync(string serverUrl)
+    {
+        if (_server.Api is null) return;
+
+        try
+        {
+            var response = await _server.Api.ListGamesAsync(page: 0, pageSize: 500)
+                                            .ConfigureAwait(true);
+            _gameCache?.Update(serverUrl, response.Games);
+            ApplyGames(response.Games, response.Total);
+        }
+        catch
+        {
+            // Background refresh — silently ignore transient failures.
+        }
+    }
+
+    private void ApplyGames(IReadOnlyList<MGA.Api.GameDetail> games, int total)
+    {
+        var cards = games.Select(ToCard).ToList();
+        Games      = new ObservableCollection<GameCardModel>(cards);
+        TotalCount = total;
     }
 
     // ---------------------------------------------------------------------------
@@ -661,11 +702,11 @@ public sealed partial class LibraryViewModel : ViewModelBase
     {
         TimelineGroups.Clear();
 
-        // Group by release year descending; year == 0 (unknown) sinks to the bottom
-        // because 0 is less than any real year in descending order.
+        // Group by release year descending; sentinel / unknown years (0 or ≥ 3000)
+        // are normalised to -1 so they sort below all real years.
         var groups = source
             .GroupBy(g => g.ReleaseYear)
-            .OrderByDescending(g => g.Key);
+            .OrderByDescending(g => (g.Key > 0 && g.Key < 3000) ? g.Key : -1);
 
         foreach (var grp in groups)
             TimelineGroups.Add(new TimelineYearGroupViewModel(grp.Key, grp));
@@ -698,5 +739,5 @@ public sealed partial class LibraryViewModel : ViewModelBase
     // Private — DTO mapping
     // ---------------------------------------------------------------------------
 
-    private GameCardModel ToCard(MGA.Api.GameDetail g) => new(g, _server.Api, RefreshBulkCounters);
+    private GameCardModel ToCard(MGA.Api.GameDetail g) => new(g, _server.Api, RefreshBulkCounters, _mediaCache);
 }

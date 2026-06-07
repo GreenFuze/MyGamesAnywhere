@@ -33,7 +33,7 @@ public sealed class AchievementSystemRowModel
     /// </summary>
     public AchievementSystemRowModel(AchievementSystemStat s)
     {
-        Source       = s.Source;
+        Source       = FormatSource(s.Source);
         Total        = s.TotalCount;
         Unlocked     = s.UnlockedCount;
         PercentText  = PercentFormatter.Format(s.UnlockedCount, s.TotalCount);
@@ -47,9 +47,36 @@ public sealed class AchievementSystemRowModel
     /// </summary>
     public AchievementSystemRowModel(AchievementSystem s)
     {
-        Source      = s.Source;
+        Source      = FormatSource(s.Source);
         Total       = s.TotalCount;
         Unlocked    = s.UnlockedCount;
         PercentText = PercentFormatter.Format(s.UnlockedCount, s.TotalCount);
     }
+
+    // ---------------------------------------------------------------------------
+    // Private helpers
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Maps raw API source identifiers to human-readable branded names.
+    /// Handles irregular casing (e.g. "RetroAchievements", "GOG").
+    /// </summary>
+    private static string FormatSource(string? raw) =>
+        (raw ?? string.Empty).ToLowerInvariant() switch
+        {
+            "retroachievements"                => "RetroAchievements",
+            "xbox"                             => "Xbox",
+            "steam"                            => "Steam",
+            "gog"                              => "GOG",
+            "epic" or "epicgames"              => "Epic Games",
+            "playnite"                         => "Playnite",
+            "launchbox"                        => "LaunchBox",
+            "emulationstation"                 => "EmulationStation",
+            "origin" or "ea" or "eaapp"        => "EA App",
+            "uplay" or "ubisoft"               => "Ubisoft Connect",
+            "battlenet" or "battle.net"        => "Battle.net",
+            "" => string.Empty,
+            var other => System.Globalization.CultureInfo.CurrentCulture.TextInfo
+                             .ToTitleCase(other.Replace('_', ' ')),
+        };
 }
