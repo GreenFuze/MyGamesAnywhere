@@ -29,6 +29,18 @@ public sealed partial class GameCardModel : ObservableObject
     /// </summary>
     public string? PreviewUrl { get; init; }
 
+    /// <summary>Explicit hover-overlay image (type="hover") — overrides screenshot when present.</summary>
+    public string? HoverUrl { get; init; }
+
+    /// <summary>Background art (type="background") — used for hero banners and card hover backgrounds.</summary>
+    public string? BackgroundUrl { get; init; }
+
+    /// <summary>
+    /// Best image for the hover overlay: explicit hover override > background art >
+    /// screenshot/header > cover art.
+    /// </summary>
+    public string? BestPreviewUrl => HoverUrl ?? PreviewUrl ?? CoverUrl;
+
     /// <summary>Platform-specific accent color for the platform badge chip.</summary>
     public string PlatformBadgeColor { get; init; } = "#334155";
 
@@ -126,11 +138,25 @@ public sealed partial class GameCardModel : ObservableObject
                           ? api.GetMediaUrl(coverMedia.Url)
                           : null;
 
-        // Find the first screenshot or header for the hover-preview background.
-        var previewMedia = g.Media.FirstOrDefault(m => m.Type == "screenshot" || m.Type == "header");
+        // Find explicit hover-override and background media.
+        var hoverMedia  = g.Media.FirstOrDefault(m => m.Type == "hover");
+        var bgMedia     = g.Media.FirstOrDefault(m => m.Type == "background");
+
+        // Preview prefers hover > background > screenshot/header.
+        var previewMedia = hoverMedia
+                           ?? bgMedia
+                           ?? g.Media.FirstOrDefault(m => m.Type == "screenshot" || m.Type == "header");
         var rawPreviewUrl = previewMedia is not null && api is not null
                             ? api.GetMediaUrl(previewMedia.Url)
                             : null;
+
+        // Resolve hover and background URLs.
+        var rawHoverUrl = hoverMedia is not null && api is not null
+                          ? api.GetMediaUrl(hoverMedia.Url)
+                          : null;
+        var rawBgUrl    = bgMedia is not null && api is not null
+                          ? api.GetMediaUrl(bgMedia.Url)
+                          : null;
 
         Id                 = g.Id;
         Title              = g.Title;
@@ -142,6 +168,12 @@ public sealed partial class GameCardModel : ObservableObject
         PreviewUrl         = rawPreviewUrl is not null && mediaCache is not null
                              ? mediaCache.GetLocalOrRemoteUrl(rawPreviewUrl)
                              : rawPreviewUrl;
+        HoverUrl           = rawHoverUrl is not null && mediaCache is not null
+                             ? mediaCache.GetLocalOrRemoteUrl(rawHoverUrl)
+                             : rawHoverUrl;
+        BackgroundUrl      = rawBgUrl is not null && mediaCache is not null
+                             ? mediaCache.GetLocalOrRemoteUrl(rawBgUrl)
+                             : rawBgUrl;
         Favorite           = g.Favorite;
         CanPlay            = g.Kind == "game";
         Kind               = g.Kind;

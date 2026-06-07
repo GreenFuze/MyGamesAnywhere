@@ -254,15 +254,6 @@
                 </TextBlock>
               </Button>
 
-              <!-- Open Web Page -->
-              <Button Classes="ghost"
-                      Command="{Binding PlayInBrowserCommand}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                  <TextBlock Text="🌐" FontSize="13" VerticalAlignment="Center"/>
-                  <TextBlock Text="Web Page" VerticalAlignment="Center"/>
-                </StackPanel>
-              </Button>
-
             </StackPanel>
 
             <!-- RIGHT: secondary actions -->

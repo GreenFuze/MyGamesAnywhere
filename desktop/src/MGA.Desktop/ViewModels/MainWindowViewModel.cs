@@ -68,6 +68,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     public IReadOnlyList<NavItem> NavItems { get; }
 
+    /// <summary>Exposes the NavigationService so MainWindow can wire the mouse back button.</summary>
+    public NavigationService Nav => _nav;
+
     // Reference kept for badge-count updates without list lookup on every event.
     private NavItem _libraryNavItem = null!;
 
@@ -118,12 +121,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         _libraryNavItem = NavItems.First(n => n.PageId == "library");
 
         // Mirror NavigationService → CurrentPage (with old-VM disposal).
+        // When navigating back, the outgoing page was restored from history and must NOT be
+        // disposed — it is still alive and referenced by the history stack.
         Disposables.Add(
             nav.CurrentPage.Subscribe(vm =>
             {
                 var old = CurrentPage;
                 CurrentPage = vm;
-                if (!ReferenceEquals(old, vm))
+                if (!ReferenceEquals(old, vm) && !_nav.IsNavigatingBack)
                     old?.Dispose();
             }));
 

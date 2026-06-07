@@ -542,6 +542,9 @@ public sealed partial class AchievementsViewModel : ViewModelBase
         RefreshWaitingMessage = string.Empty;
         _explorerCache        = null;
 
+        // Invalidate the dashboard cache so the next LoadAsync() fetches fresh data.
+        _dashboardCache = null;
+
         var warnSuffix = RefreshWarnings.Count > 0
             ? $" ({RefreshWarnings.Count} warning(s))"
             : string.Empty;
@@ -574,6 +577,14 @@ public sealed partial class AchievementsViewModel : ViewModelBase
     }
 
     // ---------------------------------------------------------------------------
+    // Static dashboard cache — shared across ViewModel instances (data is server-wide)
+    // ---------------------------------------------------------------------------
+
+    private static AchievementsDashboard? _dashboardCache;
+    private static DateTime _dashboardCachedAt = DateTime.MinValue;
+    private static readonly TimeSpan DashboardCacheTime = TimeSpan.FromMinutes(3);
+
+    // ---------------------------------------------------------------------------
     // Private — data loading
     // ---------------------------------------------------------------------------
 
@@ -582,23 +593,24 @@ public sealed partial class AchievementsViewModel : ViewModelBase
         if (_server.Api is null)
             return;
 
+        // Cache-first: render immediately when data is fresh (< 3 minutes old).
+        if (_dashboardCache is not null && DateTime.UtcNow - _dashboardCachedAt < DashboardCacheTime)
+        {
+            ApplyDashboard(_dashboardCache);
+            return;
+        }
+
         IsLoading = true;
 
         try
         {
             var dashboard = await _server.Api.GetAchievementsDashboardAsync().ConfigureAwait(true);
 
-            TotalAchievements    = dashboard.Totals.TotalCount;
-            UnlockedAchievements = dashboard.Totals.UnlockedCount;
-            UnlockPercent        = PercentFormatter.Format(dashboard.Totals.UnlockedCount, dashboard.Totals.TotalCount);
+            // Update the shared cache.
+            _dashboardCache   = dashboard;
+            _dashboardCachedAt = DateTime.UtcNow;
 
-            // Each AchievementSystemRowModel maps its own AchievementSystemStat.
-            Systems = new ObservableCollection<AchievementSystemRowModel>(
-                dashboard.Systems.Select(s => new AchievementSystemRowModel(s)));
-
-            // Each AchievementGameRowModel maps its own AchievementGameEntry.
-            Games = new ObservableCollection<AchievementGameRowModel>(
-                dashboard.Games.Select(entry => new AchievementGameRowModel(entry, _server.Api)));
+            ApplyDashboard(dashboard);
         }
         catch (Exception ex)
         {
@@ -608,6 +620,22 @@ public sealed partial class AchievementsViewModel : ViewModelBase
         {
             IsLoading = false;
         }
+    }
+
+    /// <summary>Applies a dashboard response to all observable state properties.</summary>
+    private void ApplyDashboard(AchievementsDashboard dashboard)
+    {
+        TotalAchievements    = dashboard.Totals.TotalCount;
+        UnlockedAchievements = dashboard.Totals.UnlockedCount;
+        UnlockPercent        = PercentFormatter.Format(dashboard.Totals.UnlockedCount, dashboard.Totals.TotalCount);
+
+        // Each AchievementSystemRowModel maps its own AchievementSystemStat.
+        Systems = new ObservableCollection<AchievementSystemRowModel>(
+            dashboard.Systems.Select(s => new AchievementSystemRowModel(s)));
+
+        // Each AchievementGameRowModel maps its own AchievementGameEntry.
+        Games = new ObservableCollection<AchievementGameRowModel>(
+            dashboard.Games.Select(entry => new AchievementGameRowModel(entry, _server.Api)));
     }
 
     // ---------------------------------------------------------------------------

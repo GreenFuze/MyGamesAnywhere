@@ -1039,88 +1039,122 @@
         </Border>
       </TabItem>
 
-      <!-- Appearance — FUNCTIONAL: theme switcher -->
+      <!-- Appearance — theme switcher only -->
       <TabItem Header="Appearance">
         <Border Padding="0,20,0,0"
-                DataContext="{Binding Appearance}">
+                DataContext="{Binding Appearance}"
+                x:DataType="settingsVm:AppearanceTabViewModel">
           <StackPanel Spacing="20" MaxWidth="480" HorizontalAlignment="Left">
 
-            <!-- Theme selector -->
-            <StackPanel Spacing="8">
-              <TextBlock Text="Theme"
-                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-              <TextBlock Text="Choose between dark (Midnight) and light (Daylight) modes."
+            <!-- Theme selector — wrapped in a card for visual containment -->
+            <Border Classes="card">
+              <StackPanel Spacing="12">
+                <StackPanel Spacing="4">
+                  <TextBlock Text="Theme"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                  <TextBlock Text="Choose between dark (Midnight) and light (Daylight) modes."
+                             Classes="muted"/>
+                </StackPanel>
+                <ComboBox ItemsSource="{Binding AvailableThemes}"
+                          SelectedItem="{Binding SelectedTheme}"
+                          MinWidth="200"
+                          HorizontalAlignment="Left"/>
+              </StackPanel>
+            </Border>
+
+          </StackPanel>
+        </Border>
+      </TabItem>
+
+      <!-- Connection — server management -->
+      <TabItem Header="Connection">
+        <Border Padding="0,20,0,0"
+                DataContext="{Binding Connection}"
+                x:DataType="settingsVm:ConnectionTabViewModel">
+          <StackPanel Spacing="20" MaxWidth="520" HorizontalAlignment="Left">
+
+            <!-- Header -->
+            <StackPanel Spacing="4">
+              <TextBlock Text="Connection" Classes="subheading"/>
+              <TextBlock Text="Manage server connections. Switch between servers or add a new one."
                          Classes="muted"/>
-              <ComboBox ItemsSource="{Binding AvailableThemes}"
-                        SelectedItem="{Binding SelectedTheme}"
-                        MinWidth="200"/>
             </StackPanel>
 
-            <!-- Server management -->
-            <StackPanel Spacing="8">
-              <TextBlock Text="Connection"
-                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
-
-              <!-- Active server -->
+            <!-- Active server — accent-border card for prominent status display -->
+            <Border Background="{DynamicResource MgaElevatedBrush}"
+                    BorderBrush="{DynamicResource MgaAccentBrush}"
+                    BorderThickness="3,0,0,0"
+                    CornerRadius="{DynamicResource MgaRadiusSm}"
+                    Padding="16,14"
+                    IsVisible="{Binding ActiveServerUrl,
+                                Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
               <StackPanel Spacing="4">
-                <TextBlock Text="Active server" Classes="muted"/>
+                <TextBlock Text="ACTIVE SERVER"
+                           Classes="muted"
+                           FontSize="10"
+                           LetterSpacing="1.5"/>
                 <TextBlock Text="{Binding ActiveServerUrl}"
                            Classes="accent"
-                           IsVisible="{Binding ActiveServerUrl,
-                                       Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                           FontSize="15"
+                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
               </StackPanel>
+            </Border>
 
-              <!-- Known servers list -->
-              <TextBlock Text="Saved servers" Classes="muted" Margin="0,4,0,0"/>
+            <!-- Saved servers list — each row in a card -->
+            <StackPanel Spacing="10">
+              <TextBlock Text="Saved Servers"
+                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
               <ItemsControl ItemsSource="{Binding KnownServers}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="services:ServerProfile">
-
-                    <!-- Server row: name+URL stacked on the left, Switch button on the right -->
-                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
-
-                      <StackPanel Grid.Column="0" Spacing="1" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding Name}"
-                                   FontWeight="{DynamicResource MgaFontWeightSemiBold}"
-                                   TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding Url}"
-                                   Classes="muted"
-                                   FontSize="{DynamicResource MgaFontSizeXs}"
-                                   TextTrimming="CharacterEllipsis"/>
-                      </StackPanel>
-
-                      <Button Grid.Column="1"
-                              Classes="ghost"
-                              Content="Switch"
-                              VerticalAlignment="Center"
-                              Margin="12,0,0,0"
-                              Command="{Binding $parent[ItemsControl].((settingsVm:AppearanceTabViewModel)DataContext).SwitchToServerCommand}"
-                              CommandParameter="{Binding}"/>
-
-                    </Grid>
-
+                    <Border Classes="card"
+                            Margin="0,0,0,6">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Name}"
+                                     FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                     TextTrimming="CharacterEllipsis"/>
+                          <TextBlock Text="{Binding Url}"
+                                     Classes="muted"
+                                     FontSize="{DynamicResource MgaFontSizeXs}"
+                                     TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                Classes="ghost"
+                                Content="Switch"
+                                VerticalAlignment="Center"
+                                Margin="12,0,0,0"
+                                Command="{Binding $parent[ItemsControl].((settingsVm:ConnectionTabViewModel)DataContext).SwitchToServerCommand}"
+                                CommandParameter="{Binding}"/>
+                      </Grid>
+                    </Border>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
-
-              <!-- Add new server form -->
-              <TextBlock Text="Add server" Classes="muted" Margin="0,8,0,0"/>
-              <TextBox Classes="mga"
-                       PlaceholderText="Name (optional)"
-                       Text="{Binding NewServerName}"
-                       MaxWidth="400"
-                       HorizontalAlignment="Left"/>
-              <TextBox Classes="mga"
-                       PlaceholderText="http://hostname:8900"
-                       Text="{Binding NewServerUrl}"
-                       MaxWidth="400"
-                       HorizontalAlignment="Left"/>
-              <Button Classes="primary"
-                      Content="Connect"
-                      Command="{Binding AddServerCommand}"
-                      IsEnabled="{Binding !IsConnecting}"
-                      HorizontalAlignment="Left"/>
             </StackPanel>
+
+            <!-- Add server — contained card form -->
+            <Border Classes="card">
+              <StackPanel Spacing="12">
+                <TextBlock Text="Add Server"
+                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                <TextBox Classes="mga"
+                         PlaceholderText="Name (optional)"
+                         Text="{Binding NewServerName}"/>
+                <TextBox Classes="mga"
+                         PlaceholderText="http://hostname:8900"
+                         Text="{Binding NewServerUrl}"/>
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                  <Button Classes="primary"
+                          Content="Connect"
+                          Command="{Binding AddServerCommand}"
+                          IsEnabled="{Binding !IsConnecting}"/>
+                  <Border IsVisible="{Binding IsConnecting}" VerticalAlignment="Center">
+                    <controls:LoadingSpinner Width="20" Height="20"/>
+                  </Border>
+                </StackPanel>
+              </StackPanel>
+            </Border>
 
           </StackPanel>
         </Border>

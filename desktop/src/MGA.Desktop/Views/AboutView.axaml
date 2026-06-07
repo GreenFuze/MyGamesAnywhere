@@ -91,6 +91,51 @@
                      TextWrapping="Wrap"/>
         </StackPanel>
 
+        <!-- Separator -->
+        <Border Height="1"
+                Background="{DynamicResource MgaBorderBrush}"
+                Margin="0,24,0,0"/>
+
+        <!-- Third-party credits -->
+        <TextBlock Text="Powered By"
+                   FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                   Margin="0,24,0,4"/>
+        <TextBlock Text="External services, data providers, and runtimes that power MyGamesAnywhere."
+                   Classes="muted"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,16"/>
+
+        <ItemsControl ItemsSource="{Binding ThirdPartyCredits}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ThirdPartyCredit">
+              <Border Padding="0,8"
+                      BorderThickness="0,0,0,1"
+                      BorderBrush="{DynamicResource MgaBorderBrush}">
+                <Grid ColumnDefinitions="*,Auto">
+
+                  <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Text="{Binding Name}"
+                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                    <TextBlock Text="{Binding Description}"
+                               Classes="muted"
+                               TextWrapping="Wrap"/>
+                  </StackPanel>
+
+                  <Button Grid.Column="1"
+                          Classes="ghost"
+                          Content="Visit ↗"
+                          VerticalAlignment="Center"
+                          Margin="12,0,0,0"
+                          IsVisible="{Binding WebsiteUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                          Command="{Binding $parent[ItemsControl].((vm:AboutViewModel)DataContext).OpenUrlCommand}"
+                          CommandParameter="{Binding WebsiteUrl}"/>
+
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
       </StackPanel>
     </Border>
   </ScrollViewer>

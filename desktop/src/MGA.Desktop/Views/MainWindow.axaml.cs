@@ -1,6 +1,7 @@
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
+using Avalonia.Input;
 using MGA.Desktop.Controls;
 using MGA.Desktop.ViewModels;
 
@@ -45,6 +46,24 @@ public partial class MainWindow : Window
                 AnimateSidebarWidth(sidebar,
                     vm.SidebarCollapsed ? SidebarIconOnlyWidth : SidebarFullWidth);
         };
+    }
+
+    // ---------------------------------------------------------------------------
+    // Mouse back-button (XButton1) — navigate back
+    // ---------------------------------------------------------------------------
+
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        base.OnPointerPressed(e);
+
+        // XButton1 is the mouse "back" thumb button (button 4 on most mice).
+        if (e.GetCurrentPoint(null).Properties.PointerUpdateKind == PointerUpdateKind.XButton1Pressed
+            && DataContext is MainWindowViewModel vm
+            && vm.Nav.CanGoBack)
+        {
+            vm.Nav.NavigateBack();
+            e.Handled = true;
+        }
     }
 
     // ---------------------------------------------------------------------------

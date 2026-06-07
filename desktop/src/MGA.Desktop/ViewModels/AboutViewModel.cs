@@ -6,6 +6,21 @@ using MGA.Desktop.Services;
 
 namespace MGA.Desktop.ViewModels;
 
+// ---------------------------------------------------------------------------
+// ThirdPartyCredit — one external service/library entry in the "Powered By" list
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Describes a third-party service, data provider, or runtime that powers MyGamesAnywhere.
+/// Exposed as an immutable record-like class for binding in AboutView.axaml.
+/// </summary>
+public sealed class ThirdPartyCredit
+{
+    public string  Name        { get; init; } = string.Empty;
+    public string  Description { get; init; } = string.Empty;
+    public string? WebsiteUrl  { get; init; }
+}
+
 /// <summary>
 /// About page — desktop client version, server version, open-source licenses.
 /// Server info is fetched from GET /api/about on construction.
@@ -44,6 +59,32 @@ public sealed partial class AboutViewModel : ViewModelBase
     private ObservableCollection<string> _authorCredits = [];
 
     // ---------------------------------------------------------------------------
+    // Third-party credits (static — never changes at runtime)
+    // ---------------------------------------------------------------------------
+
+    public IReadOnlyList<ThirdPartyCredit> ThirdPartyCredits { get; } = new ThirdPartyCredit[]
+    {
+        new() { Name = "Steam",             Description = "Storefront, source, metadata and achievement provider.",            WebsiteUrl = "https://store.steampowered.com/" },
+        new() { Name = "Xbox",              Description = "Source integration and platform ecosystem for Xbox library records.", WebsiteUrl = "https://www.xbox.com/" },
+        new() { Name = "GOG",               Description = "Storefront and metadata source for GOG-linked games.",               WebsiteUrl = "https://www.gog.com/" },
+        new() { Name = "Epic Games",        Description = "Storefront/source integration for Epic-linked games.",               WebsiteUrl = "https://store.epicgames.com/" },
+        new() { Name = "IGDB",              Description = "Metadata provider for descriptions, release facts, and game info.",  WebsiteUrl = "https://www.igdb.com/" },
+        new() { Name = "RAWG",              Description = "Metadata provider used for game facts when available.",              WebsiteUrl = "https://rawg.io/" },
+        new() { Name = "LaunchBox",         Description = "Metadata provider for cover art, descriptions, and game facts.",     WebsiteUrl = "https://www.launchbox-app.com/" },
+        new() { Name = "HowLongToBeat",     Description = "Completion-time provider for story and completionist estimates.",    WebsiteUrl = "https://howlongtobeat.com/" },
+        new() { Name = "RetroAchievements", Description = "Achievement provider for supported retro platforms.",                WebsiteUrl = "https://retroachievements.org/" },
+        new() { Name = "MobyGames",         Description = "External reference site for game pages and release metadata.",       WebsiteUrl = "https://www.mobygames.com/" },
+        new() { Name = "PCGamingWiki",      Description = "External reference for platform-specific compatibility details.",    WebsiteUrl = "https://www.pcgamingwiki.com/" },
+        new() { Name = "MAME",              Description = "Arcade metadata/catalog source through MAME DAT integration.",      WebsiteUrl = "https://www.mamedev.org/" },
+        new() { Name = "EmulatorJS",        Description = "Browser runtime for cartridge and console playback.",               WebsiteUrl = "https://emulatorjs.org/" },
+        new() { Name = "js-dos",            Description = "Browser runtime used for DOS playback in the embedded player.",     WebsiteUrl = "https://js-dos.com/" },
+        new() { Name = "DOSBox",            Description = "DOS emulation core used behind the js-dos browser runtime.",        WebsiteUrl = "https://www.dosbox.com/" },
+        new() { Name = "ScummVM",           Description = "Platform mark for ScummVM-compatible adventure titles.",            WebsiteUrl = "https://www.scummvm.org/" },
+        new() { Name = "SMB File Share",    Description = "Network file-share integration for local and NAS libraries.",       WebsiteUrl = null },
+        new() { Name = "Google Drive",      Description = "Source and sync integration for cloud-backed libraries.",           WebsiteUrl = "https://drive.google.com/" },
+    };
+
+    // ---------------------------------------------------------------------------
     // Constructor
     // ---------------------------------------------------------------------------
 
@@ -79,6 +120,17 @@ public sealed partial class AboutViewModel : ViewModelBase
     {
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
             "https://github.com/GreenFuze/MyGamesAnywhere") { UseShellExecute = true });
+    }
+
+    /// <summary>Opens an arbitrary URL in the system browser (used by the credits list).</summary>
+    [RelayCommand]
+    private void OpenUrl(string? url)
+    {
+        if (string.IsNullOrEmpty(url))
+            return;
+
+        System.Diagnostics.Process.Start(
+            new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
     }
 
     // ---------------------------------------------------------------------------

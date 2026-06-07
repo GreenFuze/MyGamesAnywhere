@@ -29,8 +29,8 @@
                 ClipToBounds="True">
           <Grid>
 
-            <!-- Atmospheric background: screenshot/header art for cinematic drama -->
-            <asyncImage:AdvancedImage Source="{Binding FeaturedGame.PreviewUrl}"
+            <!-- Atmospheric background: best available preview (hover > background > screenshot/header) -->
+            <asyncImage:AdvancedImage Source="{Binding FeaturedGame.BestPreviewUrl}"
                                       Stretch="UniformToFill"
                                       Opacity="0.50"/>
             <!-- Fallback cover art behind preview, dimmer -->

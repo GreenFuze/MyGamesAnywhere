@@ -21,6 +21,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     public CacheTabViewModel           Cache           { get; }
     public DuplicatesTabViewModel      Duplicates      { get; }
     public AppearanceTabViewModel      Appearance      { get; }
+    public ConnectionTabViewModel      Connection      { get; }
     public UndetectedGamesTabViewModel UndetectedGames { get; }
     public EmulatorsTabViewModel       Emulators       { get; }
 
@@ -36,7 +37,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Plugins         = new PluginsTabViewModel(server, toast);
         Cache           = new CacheTabViewModel(server, toast);
         Duplicates      = new DuplicatesTabViewModel(server, toast);
-        Appearance      = new AppearanceTabViewModel(theme, config, server, toast);
+        Appearance      = new AppearanceTabViewModel(theme);
+        Connection      = new ConnectionTabViewModel(config, server, toast);
         UndetectedGames = new UndetectedGamesTabViewModel(server, toast);
         Emulators       = new EmulatorsTabViewModel(config, toast);
     }
@@ -51,6 +53,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Cache.Dispose();
         Duplicates.Dispose();
         Appearance.Dispose();
+        Connection.Dispose();
         UndetectedGames.Dispose();
         Emulators.Dispose();
         base.Dispose();
