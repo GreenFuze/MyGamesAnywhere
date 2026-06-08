@@ -137,44 +137,21 @@
                                VerticalAlignment="Center"
                                HorizontalAlignment="Center"/>
 
-                    <!-- Label + badge -->
-                    <Grid Grid.Column="2"
-                          ColumnDefinitions="*,Auto"
-                          Margin="4,0,8,0">
-
-                      <!-- Label — SemiBold when active via local class style -->
-                      <TextBlock Grid.Column="0"
-                                 Text="{Binding Label}"
-                                 Foreground="{Binding CurrentForeground}"
-                                 VerticalAlignment="Center"
-                                 FontSize="13"
-                                 TextTrimming="CharacterEllipsis"
-                                 Classes.navBold="{Binding IsActive}">
-                        <TextBlock.Styles>
-                          <Style Selector="TextBlock.navBold">
-                            <Setter Property="FontWeight" Value="SemiBold"/>
-                          </Style>
-                        </TextBlock.Styles>
-                      </TextBlock>
-
-                      <!-- Badge pill — uses nav item's own accent color -->
-                      <Border Grid.Column="1"
-                              CornerRadius="8"
-                              IsVisible="{Binding HasBadge}"
-                              Padding="5,1"
-                              Margin="4,0,0,0">
-                        <Border.Background>
-                          <SolidColorBrush Color="{Binding AccentColor}"/>
-                        </Border.Background>
-                        <TextBlock Text="{Binding BadgeCount}"
-                                   FontSize="10"
-                                   FontWeight="SemiBold"
-                                   Foreground="White"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"/>
-                      </Border>
-
-                    </Grid>
+                    <!-- Label -->
+                    <TextBlock Grid.Column="2"
+                               Text="{Binding Label}"
+                               Foreground="{Binding CurrentForeground}"
+                               VerticalAlignment="Center"
+                               FontSize="13"
+                               Margin="4,0,8,0"
+                               TextTrimming="CharacterEllipsis"
+                               Classes.navBold="{Binding IsActive}">
+                      <TextBlock.Styles>
+                        <Style Selector="TextBlock.navBold">
+                          <Setter Property="FontWeight" Value="SemiBold"/>
+                        </Style>
+                      </TextBlock.Styles>
+                    </TextBlock>
                   </Grid>
                 </Panel>
               </Button>
