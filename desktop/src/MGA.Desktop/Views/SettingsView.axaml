@@ -659,15 +659,18 @@
       <!-- Profiles -->
       <TabItem Header="Profiles">
         <Border Padding="0,20,0,0"
-                DataContext="{Binding Profiles}">
+                DataContext="{Binding Profiles}"
+                x:DataType="settingsVm:ProfilesTabViewModel">
           <DockPanel>
 
+            <!-- ── Header ── -->
             <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
               <TextBlock Text="Profiles" Classes="subheading"/>
-              <TextBlock Text="User profiles configured on the connected server."
+              <TextBlock Text="User profiles on the connected server. Click Switch to change active profile."
                          Classes="muted"/>
             </StackPanel>
 
+            <!-- ── Loading spinner ── -->
             <Border DockPanel.Dock="Top"
                     HorizontalAlignment="Left"
                     Margin="0,8,0,0"
@@ -675,30 +678,100 @@
               <controls:LoadingSpinner Width="32" Height="32"/>
             </Border>
 
-            <ItemsControl ItemsSource="{Binding Profiles}"
-                          IsVisible="{Binding !IsLoading}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="mga:Profile">
-                  <Border Classes="card"
-                          Margin="0,0,0,8"
-                          MaxWidth="480"
-                          HorizontalAlignment="Left">
-                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                      <TextBlock Text="{Binding DisplayName}"
-                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"
-                                 VerticalAlignment="Center"/>
-                      <Border Background="{DynamicResource MgaAccentMutedBrush}"
-                              CornerRadius="{DynamicResource MgaRadiusSm}"
-                              Padding="8,3">
-                        <TextBlock Text="{Binding Role}"
-                                   FontSize="{DynamicResource MgaFontSizeXs}"
-                                   Foreground="#FFFFFF"/>
-                      </Border>
-                    </StackPanel>
-                  </Border>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
+            <!-- ── Profile list ── -->
+            <ScrollViewer IsVisible="{Binding !IsLoading}">
+              <ItemsControl ItemsSource="{Binding Profiles}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="settingsVm:ProfileRowViewModel">
+                    <Border Margin="0,0,0,8"
+                            MaxWidth="520"
+                            HorizontalAlignment="Left"
+                            CornerRadius="{DynamicResource MgaRadiusMd}"
+                            BorderThickness="1"
+                            Padding="16,12">
+                      <Border.Background>
+                        <SolidColorBrush Color="{DynamicResource MgaElevatedColor}"/>
+                      </Border.Background>
+                      <Border.BorderBrush>
+                        <!-- Active profile gets accent border; others get normal border -->
+                        <SolidColorBrush Color="{DynamicResource MgaBorderColor}"/>
+                      </Border.BorderBrush>
+
+                      <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+
+                        <!-- Left: avatar circle + name + role badge -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12"
+                                    VerticalAlignment="Center">
+
+                          <!-- Avatar circle with initial -->
+                          <Border Width="38" Height="38"
+                                  CornerRadius="19"
+                                  Background="{DynamicResource MgaAccentMutedBrush}">
+                            <TextBlock Text="{Binding DisplayName[0]}"
+                                       FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                       FontSize="16"
+                                       Foreground="{DynamicResource MgaAccentBrush}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                          </Border>
+
+                          <!-- Name + role -->
+                          <StackPanel Spacing="4" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding DisplayName}"
+                                       FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                            <Border Background="{DynamicResource MgaElevatedBrush}"
+                                    BorderBrush="{DynamicResource MgaBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="{DynamicResource MgaRadiusSm}"
+                                    Padding="8,3"
+                                    HorizontalAlignment="Left">
+                              <TextBlock Text="{Binding DisplayRole}"
+                                         FontSize="{DynamicResource MgaFontSizeXs}"
+                                         Foreground="{DynamicResource MgaMutedBrush}"/>
+                            </Border>
+                          </StackPanel>
+                        </StackPanel>
+
+                        <!-- Right: Active indicator or Switch button -->
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+
+                          <!-- Active checkmark -->
+                          <Border Background="{DynamicResource MgaAccentMutedBrush}"
+                                  BorderBrush="{DynamicResource MgaAccentBrush}"
+                                  BorderThickness="1"
+                                  CornerRadius="{DynamicResource MgaRadiusMd}"
+                                  Padding="12,6"
+                                  IsVisible="{Binding IsActive}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                              <TextBlock Text="✓" FontSize="11"
+                                         Foreground="{DynamicResource MgaAccentBrush}"
+                                         VerticalAlignment="Center"/>
+                              <TextBlock Text="Active"
+                                         FontSize="{DynamicResource MgaFontSizeSm}"
+                                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                         Foreground="{DynamicResource MgaAccentBrush}"
+                                         VerticalAlignment="Center"/>
+                            </StackPanel>
+                          </Border>
+
+                          <!-- Switch button (inactive profiles) -->
+                          <Button Classes="ghost"
+                                  IsVisible="{Binding !IsActive}"
+                                  Command="{Binding $parent[ItemsControl].((settingsVm:ProfilesTabViewModel)DataContext).SwitchProfileCommand}"
+                                  CommandParameter="{Binding}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                              <TextBlock Text="⇄" FontSize="13" VerticalAlignment="Center"/>
+                              <TextBlock Text="Switch" VerticalAlignment="Center"/>
+                            </StackPanel>
+                          </Button>
+
+                        </StackPanel>
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
 
           </DockPanel>
         </Border>
@@ -1327,178 +1400,223 @@
                 x:DataType="settingsVm:EmulatorsTabViewModel">
           <DockPanel>
 
-            <!-- ── Header ── -->
-            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,12">
+            <!-- ── Page header ── -->
+            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
               <TextBlock Text="Emulators" Classes="subheading"/>
               <TextBlock Text="Configure local emulator executables for running ROM-based games."
                          Classes="muted"/>
             </StackPanel>
 
-            <!-- ── Action bar ── -->
-            <StackPanel DockPanel.Dock="Top"
-                        Orientation="Horizontal"
-                        Spacing="8"
-                        Margin="0,0,0,12"
-                        IsVisible="{Binding !IsEditing}">
-              <Button Classes="primary"
-                      Content="+ Add Emulator"
-                      Command="{Binding AddEmulatorCommand}"/>
-            </StackPanel>
-
-            <!-- ── Edit panel ── -->
+            <!-- ── Edit / Add inline form ── -->
             <Border DockPanel.Dock="Top"
                     Classes="card"
-                    Margin="0,0,0,12"
-                    MaxWidth="520"
+                    Margin="0,0,0,16"
+                    MaxWidth="560"
                     HorizontalAlignment="Left"
                     IsVisible="{Binding IsEditing}">
-              <StackPanel Spacing="12">
+              <StackPanel Spacing="16">
 
-                <TextBlock Text="Add Emulator"
-                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"
-                           IsVisible="{Binding EditingId, Converter={x:Static ObjectConverters.IsNull}}"/>
-                <TextBlock Text="Edit Emulator"
-                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"
-                           IsVisible="{Binding EditingId, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <!-- Form header with accent icon -->
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Border Width="32" Height="32" CornerRadius="8"
+                          Background="{DynamicResource MgaAccentMutedBrush}"
+                          VerticalAlignment="Center">
+                    <TextBlock Text="✎" FontSize="14"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Foreground="{DynamicResource MgaAccentBrush}"/>
+                  </Border>
+                  <TextBlock Text="Add Emulator"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                             FontSize="{DynamicResource MgaFontSizeMd}"
+                             VerticalAlignment="Center"
+                             IsVisible="{Binding EditingId, Converter={x:Static ObjectConverters.IsNull}}"/>
+                  <TextBlock Text="Edit Emulator"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                             FontSize="{DynamicResource MgaFontSizeMd}"
+                             VerticalAlignment="Center"
+                             IsVisible="{Binding EditingId, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                </StackPanel>
 
-                <StackPanel Spacing="4">
-                  <TextBlock Text="Name *" Classes="muted"/>
-                  <TextBox Classes="mga"
+                <!-- Name row -->
+                <Grid ColumnDefinitions="110,*" RowDefinitions="Auto">
+                  <TextBlock Grid.Column="0" Text="Name *"
+                             VerticalAlignment="Center"
+                             FontSize="{DynamicResource MgaFontSizeSm}"
+                             Foreground="{DynamicResource MgaMutedBrush}"/>
+                  <TextBox Grid.Column="1" Classes="mga"
                            PlaceholderText="e.g. RetroArch"
-                           Text="{Binding EditName}"
-                           MaxWidth="400"
-                           HorizontalAlignment="Left"/>
-                </StackPanel>
+                           Text="{Binding EditName}"/>
+                </Grid>
 
-                <StackPanel Spacing="4">
-                  <TextBlock Text="Executable Path *" Classes="muted"/>
-                  <TextBox Classes="mga"
+                <!-- Executable row -->
+                <Grid ColumnDefinitions="110,*">
+                  <TextBlock Grid.Column="0" Text="Executable *"
+                             VerticalAlignment="Center"
+                             FontSize="{DynamicResource MgaFontSizeSm}"
+                             Foreground="{DynamicResource MgaMutedBrush}"/>
+                  <TextBox Grid.Column="1" Classes="mga"
                            PlaceholderText="C:\RetroArch\retroarch.exe"
-                           Text="{Binding EditExecutablePath}"
-                           MaxWidth="400"
-                           HorizontalAlignment="Left"/>
-                </StackPanel>
+                           Text="{Binding EditExecutablePath}"/>
+                </Grid>
 
-                <StackPanel Spacing="4">
-                  <TextBlock Text="Platforms (comma-separated)" Classes="muted"/>
-                  <TextBox Classes="mga"
-                           PlaceholderText="nes,snes,gba"
-                           Text="{Binding EditPlatforms}"
-                           MaxWidth="400"
-                           HorizontalAlignment="Left"/>
-                </StackPanel>
+                <!-- Platforms row -->
+                <Grid ColumnDefinitions="110,*">
+                  <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="Platforms"
+                               FontSize="{DynamicResource MgaFontSizeSm}"
+                               Foreground="{DynamicResource MgaMutedBrush}"/>
+                    <TextBlock Text="comma-separated"
+                               FontSize="{DynamicResource MgaFontSizeXs}"
+                               Foreground="{DynamicResource MgaMutedBrush}"
+                               Opacity="0.6"/>
+                  </StackPanel>
+                  <TextBox Grid.Column="1" Classes="mga"
+                           PlaceholderText="nes, snes, gba"
+                           Text="{Binding EditPlatforms}"/>
+                </Grid>
 
-                <StackPanel Spacing="4">
-                  <TextBlock Text="Arguments Template" Classes="muted"/>
-                  <TextBox Classes="mga"
+                <!-- Args Template row -->
+                <Grid ColumnDefinitions="110,*">
+                  <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="Args Template"
+                               FontSize="{DynamicResource MgaFontSizeSm}"
+                               Foreground="{DynamicResource MgaMutedBrush}"/>
+                    <TextBlock Text="{}{rom} = ROM path"
+                               FontSize="{DynamicResource MgaFontSizeXs}"
+                               Foreground="{DynamicResource MgaMutedBrush}"
+                               Opacity="0.6"/>
+                  </StackPanel>
+                  <TextBox Grid.Column="1" Classes="mga"
                            PlaceholderText="{}{rom}"
-                           Text="{Binding EditArgsTemplate}"
-                           MaxWidth="400"
-                           HorizontalAlignment="Left"/>
-                  <TextBlock Text="Use {{rom}} as a placeholder for the ROM file path."
-                             Classes="muted"
-                             FontSize="{DynamicResource MgaFontSizeXs}"/>
-                </StackPanel>
+                           Text="{Binding EditArgsTemplate}"/>
+                </Grid>
 
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                  <Button Classes="primary"
-                          Content="Save"
+                <!-- Action buttons -->
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="110,0,0,0">
+                  <Button Classes="primary" Content="Save"
                           Command="{Binding SaveEmulatorCommand}"/>
-                  <Button Classes="ghost"
-                          Content="Cancel"
+                  <Button Classes="ghost" Content="Cancel"
                           Command="{Binding CancelEditCommand}"/>
                 </StackPanel>
 
               </StackPanel>
             </Border>
 
-            <!-- ── Scrollable content: directories + BIOS + emulator list ── -->
+            <!-- ── Scrollable content ── -->
             <ScrollViewer>
-              <StackPanel Spacing="20" MaxWidth="600" HorizontalAlignment="Left">
+              <StackPanel Spacing="16" MaxWidth="640" HorizontalAlignment="Left">
 
-                <!-- ─ Storage Directories ──────────────────────────────────── -->
+                <!-- ─ Storage Directories ──────────────────────────────── -->
                 <Border Classes="card">
-                  <StackPanel Spacing="14">
+                  <StackPanel Spacing="0">
 
                     <TextBlock Text="Storage Directories"
-                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                               Margin="0,0,0,16"/>
 
                     <!-- BIOS Directory row -->
-                    <StackPanel Spacing="4">
-                      <TextBlock Text="BIOS Directory" Classes="muted"
-                                 FontSize="{DynamicResource MgaFontSizeXs}"/>
-                      <Grid ColumnDefinitions="*,Auto,Auto">
-                        <TextBox Grid.Column="0"
-                                 Classes="mga"
-                                 Text="{Binding BiosDirectory}"
-                                 IsReadOnly="True"
-                                 FontSize="{DynamicResource MgaFontSizeXs}"/>
-                        <Button Grid.Column="1"
-                                Classes="ghost"
-                                Content="Browse…"
-                                Margin="6,0,0,0"
+                    <Border BorderBrush="{DynamicResource MgaBorderBrush}"
+                            BorderThickness="0,0,0,1"
+                            Padding="0,0,0,14"
+                            Margin="0,0,0,14">
+                      <Grid ColumnDefinitions="40,*,Auto,Auto" ColumnSpacing="10">
+
+                        <!-- Icon circle -->
+                        <Border Grid.Column="0" Width="36" Height="36" CornerRadius="8"
+                                Background="{DynamicResource MgaElevatedBrush}"
+                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                          <TextBlock Text="📁" FontSize="17"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+
+                        <!-- Label + path -->
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                          <TextBlock Text="BIOS Directory"
+                                     FontWeight="{DynamicResource MgaFontWeightMedium}"
+                                     FontSize="{DynamicResource MgaFontSizeSm}"/>
+                          <TextBlock Text="{Binding BiosDirectory}"
+                                     Classes="muted"
+                                     FontSize="{DynamicResource MgaFontSizeXs}"
+                                     TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+
+                        <!-- Browse -->
+                        <Button Grid.Column="2" Classes="ghost" Content="Browse…"
+                                VerticalAlignment="Center"
                                 Command="{Binding BrowseBiosDirectoryCommand}"/>
-                        <Button Grid.Column="2"
-                                Classes="ghost"
-                                Content="Open"
-                                Margin="4,0,0,0"
+
+                        <!-- Open -->
+                        <Button Grid.Column="3" Classes="ghost" Content="Open ↗"
+                                VerticalAlignment="Center"
                                 Command="{Binding OpenBiosDirectoryCommand}"/>
+
                       </Grid>
-                    </StackPanel>
+                    </Border>
 
                     <!-- Library Directory row -->
-                    <StackPanel Spacing="4">
-                      <TextBlock Text="Library Directory" Classes="muted"
-                                 FontSize="{DynamicResource MgaFontSizeXs}"/>
-                      <Grid ColumnDefinitions="*,Auto,Auto">
-                        <TextBox Grid.Column="0"
-                                 Classes="mga"
-                                 Text="{Binding LibraryDirectory}"
-                                 IsReadOnly="True"
-                                 FontSize="{DynamicResource MgaFontSizeXs}"/>
-                        <Button Grid.Column="1"
-                                Classes="ghost"
-                                Content="Browse…"
-                                Margin="6,0,0,0"
-                                Command="{Binding BrowseLibraryDirectoryCommand}"/>
-                        <Button Grid.Column="2"
-                                Classes="ghost"
-                                Content="Open"
-                                Margin="4,0,0,0"
-                                Command="{Binding OpenLibraryDirectoryCommand}"/>
-                      </Grid>
-                    </StackPanel>
+                    <Grid ColumnDefinitions="40,*,Auto,Auto" ColumnSpacing="10">
+
+                      <!-- Icon circle -->
+                      <Border Grid.Column="0" Width="36" Height="36" CornerRadius="8"
+                              Background="{DynamicResource MgaElevatedBrush}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <TextBlock Text="🎮" FontSize="17"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                      </Border>
+
+                      <!-- Label + path -->
+                      <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Text="Library Directory"
+                                   FontWeight="{DynamicResource MgaFontWeightMedium}"
+                                   FontSize="{DynamicResource MgaFontSizeSm}"/>
+                        <TextBlock Text="{Binding LibraryDirectory}"
+                                   Classes="muted"
+                                   FontSize="{DynamicResource MgaFontSizeXs}"
+                                   TextTrimming="CharacterEllipsis"/>
+                      </StackPanel>
+
+                      <!-- Browse -->
+                      <Button Grid.Column="2" Classes="ghost" Content="Browse…"
+                              VerticalAlignment="Center"
+                              Command="{Binding BrowseLibraryDirectoryCommand}"/>
+
+                      <!-- Open -->
+                      <Button Grid.Column="3" Classes="ghost" Content="Open ↗"
+                              VerticalAlignment="Center"
+                              Command="{Binding OpenLibraryDirectoryCommand}"/>
+
+                    </Grid>
 
                   </StackPanel>
                 </Border>
 
-                <!-- ─ BIOS Status ───────────────────────────────────────────── -->
+                <!-- ─ BIOS Status ────────────────────────────────────── -->
                 <Border Classes="card">
-                  <StackPanel Spacing="14">
+                  <StackPanel Spacing="16">
 
-                    <!-- Section header + Refresh button -->
+                    <!-- Section header -->
                     <Grid ColumnDefinitions="*,Auto">
-                      <TextBlock Grid.Column="0"
-                                 Text="BIOS Status"
-                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"
-                                 VerticalAlignment="Center"/>
-                      <StackPanel Grid.Column="1"
-                                  Orientation="Horizontal"
-                                  Spacing="8"
-                                  VerticalAlignment="Center">
+                      <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="BIOS Status"
+                                   FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                        <TextBlock Text="Required firmware files for emulator-backed platforms"
+                                   Classes="muted"
+                                   FontSize="{DynamicResource MgaFontSizeXs}"/>
+                      </StackPanel>
+                      <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                  Spacing="8" VerticalAlignment="Center">
                         <Border IsVisible="{Binding IsBiosCheckInProgress}"
                                 VerticalAlignment="Center">
                           <controls:LoadingSpinner Width="16" Height="16"/>
                         </Border>
-                        <Button Classes="ghost"
-                                Content="↺ Refresh"
+                        <Button Classes="ghost" Content="↺  Refresh"
                                 IsEnabled="{Binding !IsBiosCheckInProgress}"
                                 Command="{Binding RefreshBiosStatusCommand}"/>
                       </StackPanel>
                     </Grid>
 
-                    <!-- Empty state — shown when no emulators have BIOS requirements -->
-                    <TextBlock Text="No emulators with BIOS requirements detected. Install an emulator above and click Refresh."
+                    <!-- Empty state -->
+                    <TextBlock Text="No emulators with BIOS requirements detected. Add an emulator below, then click Refresh."
                                Classes="muted"
                                TextWrapping="Wrap"
                                FontSize="{DynamicResource MgaFontSizeXs}"
@@ -1509,25 +1627,34 @@
                                   IsVisible="{Binding HasBiosStatusRows}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="settingsVm:BiosStatusRowViewModel">
-                          <Border Padding="12,8"
-                                  Margin="0,0,0,4"
+                          <Border Padding="12,10" Margin="0,0,0,4"
                                   CornerRadius="6"
                                   Background="{DynamicResource MgaElevatedBrush}">
                             <Grid ColumnDefinitions="Auto,*">
 
-                              <!-- Status icon -->
-                              <TextBlock Grid.Column="0"
-                                         Text="{Binding StatusIcon}"
-                                         FontSize="18"
-                                         Margin="0,0,12,0"
-                                         VerticalAlignment="Center"/>
+                              <!-- Coloured status icon — green tick or red cross -->
+                              <Panel Grid.Column="0" Width="28" Margin="0,0,12,0"
+                                     VerticalAlignment="Center">
+                                <TextBlock Text="✓"
+                                           FontSize="16"
+                                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                           Foreground="#4ade80"
+                                           HorizontalAlignment="Center"
+                                           IsVisible="{Binding AllPresent}"/>
+                                <TextBlock Text="✗"
+                                           FontSize="16"
+                                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                           Foreground="#f87171"
+                                           HorizontalAlignment="Center"
+                                           IsVisible="{Binding !AllPresent}"/>
+                              </Panel>
 
-                              <!-- Emulator name · platform + detail text -->
-                              <StackPanel Grid.Column="1" Spacing="2">
+                              <!-- Emulator · platform + detail -->
+                              <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
                                 <TextBlock FontWeight="{DynamicResource MgaFontWeightSemiBold}"
                                            FontSize="{DynamicResource MgaFontSizeSm}">
                                   <Run Text="{Binding EmulatorName}"/>
-                                  <Run Text=" · "/>
+                                  <Run Text=" · " Foreground="{DynamicResource MgaMutedBrush}"/>
                                   <Run Text="{Binding Platform}"/>
                                 </TextBlock>
                                 <TextBlock Text="{Binding StatusText}"
@@ -1542,89 +1669,185 @@
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <!-- Drag-and-drop BIOS file zone -->
+                    <!-- ── BIOS Drop Zone ── prominent upload area ── -->
                     <Border x:Name="BiosDropZone"
                             Background="{DynamicResource MgaSurfaceBrush}"
-                            BorderBrush="{DynamicResource MgaBorderBrush}"
-                            BorderThickness="2"
-                            CornerRadius="8"
-                            Padding="16,20"
-                            MinHeight="80"
+                            BorderBrush="{DynamicResource MgaAccentMutedBrush}"
+                            BorderThickness="1.5"
+                            CornerRadius="10"
+                            Padding="20,28"
+                            MinHeight="110"
                             HorizontalAlignment="Stretch">
                       <StackPanel HorizontalAlignment="Center"
                                   VerticalAlignment="Center"
-                                  Spacing="6">
-                        <TextBlock Text="Drop a BIOS file here to identify and install it"
+                                  Spacing="10">
+
+                        <!-- Upload icon circle -->
+                        <Border Width="48" Height="48" CornerRadius="24"
+                                Background="{DynamicResource MgaElevatedBrush}"
+                                HorizontalAlignment="Center">
+                          <TextBlock Text="↓" FontSize="22"
+                                     FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center"
+                                     Foreground="{DynamicResource MgaAccentBrush}"/>
+                        </Border>
+
+                        <!-- Primary instruction -->
+                        <TextBlock Text="Drop a BIOS file here"
+                                   HorizontalAlignment="Center"
+                                   FontWeight="{DynamicResource MgaFontWeightMedium}"
+                                   FontSize="{DynamicResource MgaFontSizeSm}"/>
+
+                        <!-- Hint -->
+                        <TextBlock Text="Files are identified by SHA-256 hash and copied to the BIOS directory"
                                    Classes="muted"
                                    FontSize="{DynamicResource MgaFontSizeXs}"
-                                   HorizontalAlignment="Center"/>
-                        <!-- Drop result feedback -->
-                        <TextBlock HorizontalAlignment="Center"
-                                   FontSize="{DynamicResource MgaFontSizeXs}"
+                                   HorizontalAlignment="Center"
                                    TextWrapping="Wrap"
-                                   IsVisible="{Binding BiosDropMessage,
-                                               Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                          <TextBlock.Text>
-                            <Binding Path="BiosDropMessage"/>
-                          </TextBlock.Text>
-                        </TextBlock>
+                                   TextAlignment="Center"
+                                   MaxWidth="380"/>
+
+                        <!-- Success feedback pill -->
+                        <Border CornerRadius="6" Padding="12,6"
+                                Background="#0f2a1a"
+                                HorizontalAlignment="Center"
+                                IsVisible="{Binding BiosDropSuccess}">
+                          <TextBlock Text="{Binding BiosDropMessage}"
+                                     Foreground="#4ade80"
+                                     FontSize="{DynamicResource MgaFontSizeXs}"
+                                     TextWrapping="Wrap"
+                                     TextAlignment="Center"/>
+                        </Border>
+
+                        <!-- Error feedback pill -->
+                        <Border CornerRadius="6" Padding="12,6"
+                                Background="#2a0f0f"
+                                HorizontalAlignment="Center"
+                                IsVisible="{Binding BiosDropError}">
+                          <TextBlock Text="{Binding BiosDropMessage}"
+                                     Foreground="#f87171"
+                                     FontSize="{DynamicResource MgaFontSizeXs}"
+                                     TextWrapping="Wrap"
+                                     TextAlignment="Center"/>
+                        </Border>
+
+                        <!-- Verifying… — message set but neither success nor error yet -->
+                        <TextBlock Classes="muted"
+                                   FontSize="{DynamicResource MgaFontSizeXs}"
+                                   HorizontalAlignment="Center"
+                                   Text="{Binding BiosDropMessage}"
+                                   IsVisible="{Binding IsBiosDropVerifying}"/>
+
                       </StackPanel>
                     </Border>
 
                   </StackPanel>
                 </Border>
 
-                <!-- ─ Installed Emulators ────────────────────────────────────── -->
-                <TextBlock Text="Installed Emulators"
-                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                <!-- ─ Installed Emulators ─────────────────────────── -->
+                <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                  <TextBlock Grid.Column="0"
+                             Text="Installed Emulators"
+                             FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                             VerticalAlignment="Center"/>
+                  <Button Grid.Column="1"
+                          Classes="primary"
+                          Content="＋  Add Emulator"
+                          IsVisible="{Binding !IsEditing}"
+                          Command="{Binding AddEmulatorCommand}"/>
+                </Grid>
 
                 <ItemsControl ItemsSource="{Binding Emulators}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="settingsVm:EmulatorRowViewModel">
-                      <Border Classes="card"
-                              Margin="0,0,0,8">
-                        <Grid ColumnDefinitions="*,Auto">
+                      <Border Classes="card" Margin="0,0,0,8">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+
+                          <!-- Avatar circle with name initial -->
+                          <Border Grid.Column="0"
+                                  Width="42" Height="42" CornerRadius="21"
+                                  Margin="0,0,14,0" VerticalAlignment="Center">
+                            <Border.Background>
+                              <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                                <GradientStop Color="#1e3a5f" Offset="0"/>
+                                <GradientStop Color="#0f2040" Offset="1"/>
+                              </LinearGradientBrush>
+                            </Border.Background>
+                            <TextBlock Text="{Binding NameInitial}"
+                                       FontSize="18"
+                                       FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource MgaAccentBrush}"/>
+                          </Border>
 
                           <!-- Emulator info -->
-                          <StackPanel Grid.Column="0" Spacing="4">
-                            <TextBlock Text="{Binding Name}"
-                                       FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                          <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+
+                            <!-- Name + badges row -->
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                              <TextBlock Text="{Binding Name}"
+                                         FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                              <!-- MGA-managed badge -->
+                              <Border CornerRadius="4" Padding="6,2"
+                                      Background="{DynamicResource MgaAccentMutedBrush}"
+                                      IsVisible="{Binding MgaManaged}"
+                                      VerticalAlignment="Center">
+                                <TextBlock Text="MGA"
+                                           FontSize="10"
+                                           Foreground="{DynamicResource MgaAccentBrush}"
+                                           FontWeight="{DynamicResource MgaFontWeightSemiBold}"/>
+                              </Border>
+                              <!-- Version badge -->
+                              <Border CornerRadius="4" Padding="6,2"
+                                      Background="{DynamicResource MgaElevatedBrush}"
+                                      VerticalAlignment="Center"
+                                      IsVisible="{Binding Version,
+                                        Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                <TextBlock Text="{Binding Version}"
+                                           FontSize="10"
+                                           Classes="muted"/>
+                              </Border>
+                            </StackPanel>
+
+                            <!-- Executable path -->
                             <TextBlock Text="{Binding ExecutablePath}"
                                        Classes="muted"
                                        FontSize="{DynamicResource MgaFontSizeXs}"
                                        TextTrimming="CharacterEllipsis"/>
+
+                            <!-- Platforms -->
                             <TextBlock Classes="muted"
                                        FontSize="{DynamicResource MgaFontSizeXs}"
                                        IsVisible="{Binding Platforms,
-                                                   Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                         Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                               <Run Text="Platforms: "/>
                               <Run Text="{Binding Platforms}"/>
                             </TextBlock>
+
                           </StackPanel>
 
-                          <!-- Row action buttons -->
-                          <StackPanel Grid.Column="1"
+                          <!-- Row actions -->
+                          <StackPanel Grid.Column="2"
                                       Orientation="Horizontal"
                                       Spacing="6"
                                       VerticalAlignment="Center"
                                       Margin="12,0,0,0">
-                            <!-- Test spinner while running -->
+                            <!-- Spinner while testing -->
                             <Border VerticalAlignment="Center" IsVisible="{Binding IsTesting}">
                               <controls:LoadingSpinner Width="18" Height="18"/>
                             </Border>
-                            <Button Classes="ghost"
-                                    Content="Test"
+                            <Button Classes="ghost" Content="▶  Test"
                                     IsVisible="{Binding !IsTesting}"
                                     Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).TestEmulatorCommand}"
                                     CommandParameter="{Binding}"/>
-                            <Button Classes="ghost"
-                                    Content="Edit"
+                            <Button Classes="ghost" Content="Edit"
                                     IsEnabled="{Binding !IsTesting}"
                                     Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).EditEmulatorCommand}"
                                     CommandParameter="{Binding}"/>
-                            <Button Classes="danger"
-                                    Content="✕ Delete"
+                            <Button Classes="danger" Content="✕"
                                     IsEnabled="{Binding !IsTesting}"
+                                    ToolTip.Tip="Remove this emulator"
                                     Command="{Binding $parent[ItemsControl].((settingsVm:EmulatorsTabViewModel)DataContext).DeleteEmulatorCommand}"
                                     CommandParameter="{Binding}"/>
                           </StackPanel>

@@ -27,6 +27,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private readonly EmulatorService?          _emulatorService;
     private readonly GameStateService?         _gameStateService;
 
+    // Pre-loaded page ViewModels — created eagerly so their data fetches run
+    // in the background while the user is still on the Play page.
+    // Each is consumed (set to null) on first navigation; after that a fresh
+    // VM is created normally.
+    private AchievementsViewModel? _preloadedAchievements;
+    private StatsViewModel?        _preloadedStats;
+
     // ---------------------------------------------------------------------------
     // Observable state
     // ---------------------------------------------------------------------------
@@ -60,6 +67,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty]
     private string _activeServerUrl = string.Empty;
+
+    /// <summary>
+    /// Display name for the active gamer profile shown in the sidebar pill.
+    /// Falls back to the raw ID when no friendly name is known, or "No Profile"
+    /// when nothing is selected.  Updated reactively via <see cref="ServerConnectionService.ProfileIdChanged"/>.
+    /// </summary>
+    [ObservableProperty]
+    private string _activeProfileDisplay = "No Profile";
 
     // ---------------------------------------------------------------------------
     // Nav items
@@ -144,6 +159,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Disposables.Add(
             serverConn.UrlChanged.Subscribe(url => ActiveServerUrl = url));
 
+        // Keep the sidebar profile pill up-to-date whenever the active profile changes.
+        // Seed with the persisted display name (or ID if name not yet cached) on startup.
+        // Subsequent switches fire ProfileIdChanged with the friendly display name.
+        var storedName = serverConn.ActiveProfileDisplayName;
+        var storedId   = serverConn.ActiveProfileId;
+        ActiveProfileDisplay = !string.IsNullOrWhiteSpace(storedName)
+            ? storedName
+            : !string.IsNullOrWhiteSpace(storedId)
+                ? storedId
+                : "No Profile";
+
+        Disposables.Add(
+            serverConn.ProfileIdChanged.Subscribe(label =>
+                ActiveProfileDisplay = string.IsNullOrWhiteSpace(label) ? "No Profile" : label));
+
         // When the server is switched at runtime, GamerProfileId has been cleared.
         // Re-open onboarding so the user picks a profile on the new server.
         // Skip(1) skips the BehaviorSubject's initial replay on subscribe.
@@ -174,6 +204,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
             // Populate the Library badge immediately on startup.
             _ = RefreshLibraryCountAsync();
+
+            // Pre-warm Achievements and Stats so they're instant on first navigation.
+            // These VMs start their data fetch in their constructors; by the time
+            // the user clicks either nav item the response should already be cached.
+            _preloadedAchievements = new AchievementsViewModel(_serverConn, _toast);
+            _preloadedStats        = new StatsViewModel(_serverConn, _toast);
         }
     }
 
@@ -236,8 +272,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         "play"         => new PlayViewModel(_serverConn, _nav, _toast, _config, _installDetector, _recentPlayed, _gameCache, _mediaCache, _gameStateService),
         "library"      => new LibraryViewModel(_serverConn, _nav, _toast, _config, installDetector: _installDetector, recentPlayed: _recentPlayed, gameCache: _gameCache, mediaCache: _mediaCache, gameStateService: _gameStateService),
-        "achievements" => new AchievementsViewModel(_serverConn, _toast),
-        "stats"        => new StatsViewModel(_serverConn, _toast),
+        "achievements" => ConsumePreloaded(ref _preloadedAchievements) ?? new AchievementsViewModel(_serverConn, _toast),
+        "stats"        => ConsumePreloaded(ref _preloadedStats)         ?? new StatsViewModel(_serverConn, _toast),
         "settings"     => _emulatorService is not null
                               ? new SettingsViewModel(_serverConn, _theme, _config, _toast, _emulatorService)
                               : new SettingsViewModel(_serverConn, _theme, _config, _toast,
@@ -277,7 +313,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         OnboardingVm?.Dispose();
         CurrentPage?.Dispose();
+        // Dispose any pre-loaded VMs that were never navigated to.
+        _preloadedAchievements?.Dispose();
+        _preloadedStats?.Dispose();
         base.Dispose();
+    }
+
+    /// <summary>
+    /// Returns the pre-loaded ViewModel and sets the field to null so a subsequent
+    /// call (after navigate-away + navigate-back) falls through to a fresh instance.
+    /// </summary>
+    private static T? ConsumePreloaded<T>(ref T? field) where T : class
+    {
+        var vm = field;
+        field  = null;
+        return vm;
     }
 }
 

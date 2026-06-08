@@ -152,6 +152,55 @@
         <!-- Spacer fills remaining space -->
         <Border/>
 
+        <!-- ── Active profile pill ── Bottom of sidebar, above the accent line -->
+        <Button DockPanel.Dock="Bottom"
+                Command="{Binding NavigateToCommand}"
+                CommandParameter="settings"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Left"
+                Margin="6,0,6,8"
+                Padding="10,8"
+                BorderThickness="0"
+                Cursor="Hand"
+                ToolTip.Tip="Switch profile in Settings">
+          <Button.Styles>
+            <Style Selector="Button">
+              <Setter Property="Background"   Value="{DynamicResource MgaElevatedBrush}"/>
+              <Setter Property="CornerRadius" Value="{DynamicResource MgaRadiusMd}"/>
+            </Style>
+            <Style Selector="Button:pointerover /template/ ContentPresenter">
+              <Setter Property="Background" Value="{DynamicResource MgaBorderBrush}"/>
+            </Style>
+          </Button.Styles>
+          <Grid ColumnDefinitions="32,*">
+
+            <!-- Avatar/icon circle -->
+            <Border Grid.Column="0"
+                    Width="28" Height="28"
+                    CornerRadius="14"
+                    Background="{DynamicResource MgaAccentMutedBrush}"
+                    HorizontalAlignment="Center">
+              <TextBlock Text="👤"
+                         FontSize="13"
+                         HorizontalAlignment="Center"
+                         VerticalAlignment="Center"/>
+            </Border>
+
+            <!-- Profile name (hidden when sidebar is collapsed) -->
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,0,0">
+              <TextBlock Text="{Binding ActiveProfileDisplay}"
+                         FontSize="{DynamicResource MgaFontSizeSm}"
+                         FontWeight="{DynamicResource MgaFontWeightMedium}"
+                         TextTrimming="CharacterEllipsis"
+                         Foreground="{DynamicResource MgaTextBrush}"/>
+              <TextBlock Text="Profile"
+                         FontSize="10"
+                         Foreground="{DynamicResource MgaMutedBrush}"/>
+            </StackPanel>
+
+          </Grid>
+        </Button>
+
       </DockPanel>
     </Border>
 

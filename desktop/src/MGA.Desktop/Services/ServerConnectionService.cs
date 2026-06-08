@@ -21,6 +21,7 @@ public sealed class ServerConnectionService : IDisposable
     private SseEventBus _events = null!;
 
     private readonly BehaviorSubject<string> _urlSubject;
+    private readonly Subject<string>         _profileSubject = new();
 
     public ServerConnectionService(AppConfigService appConfig)
     {
@@ -53,13 +54,32 @@ public sealed class ServerConnectionService : IDisposable
     public IObservable<string> UrlChanged => _urlSubject.AsObservable();
 
     /// <summary>
+    /// Fires each time the active gamer profile changes (including the initial selection).
+    /// Subscribe in ViewModels that need to react to profile switches.
+    /// </summary>
+    public IObservable<string> ProfileIdChanged => _profileSubject.AsObservable();
+
+    /// <summary>The cached display name of the active gamer profile (e.g. "TCs"), or empty.</summary>
+    public string ActiveProfileDisplayName => _appConfig.Config.GamerProfileDisplayName;
+
+    /// <summary>
     /// Sets the active gamer profile and applies the <c>X-MGA-Profile-ID</c> header to the
     /// live HttpClient so every subsequent API call carries it automatically.
-    /// Also persists the profile ID to config.
+    /// Also persists the profile ID and optional display name to config.
     /// </summary>
-    public void SetActiveProfile(string profileId)
+    /// <param name="profileId">The profile's server-side UUID.</param>
+    /// <param name="displayName">
+    /// Human-readable name (e.g. "TCs") to cache for the sidebar pill.
+    /// Pass null or empty to leave the cached name unchanged.
+    /// </param>
+    public void SetActiveProfile(string profileId, string? displayName = null)
     {
-        _appConfig.Update(cfg => cfg.GamerProfileId = profileId);
+        _appConfig.Update(cfg =>
+        {
+            cfg.GamerProfileId = profileId;
+            if (!string.IsNullOrWhiteSpace(displayName))
+                cfg.GamerProfileDisplayName = displayName;
+        });
 
         // Update the HttpClient default header so all in-flight and future requests include it.
         if (_http is not null)
@@ -68,6 +88,13 @@ public sealed class ServerConnectionService : IDisposable
             if (!string.IsNullOrWhiteSpace(profileId))
                 _http.DefaultRequestHeaders.Add("X-MGA-Profile-ID", profileId);
         }
+
+        // Notify observers (e.g. sidebar profile pill) that the active profile changed.
+        // Fire the display name so subscribers never need to look it up separately.
+        var label = string.IsNullOrWhiteSpace(displayName)
+            ? profileId
+            : displayName;
+        _profileSubject.OnNext(label);
     }
 
     /// <summary>
@@ -153,5 +180,7 @@ public sealed class ServerConnectionService : IDisposable
         DisposeConnection();
         _urlSubject.OnCompleted();
         _urlSubject.Dispose();
+        _profileSubject.OnCompleted();
+        _profileSubject.Dispose();
     }
 }

@@ -146,6 +146,13 @@ public sealed class AppConfig
     /// </summary>
     public string GamerProfileId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Cached display name of the active gamer profile (e.g. "TCs").
+    /// Stored alongside the ID so the sidebar pill can show a friendly name without
+    /// an extra API call on startup.  Empty when no profile is selected.
+    /// </summary>
+    public string GamerProfileDisplayName { get; set; } = string.Empty;
+
     // ── Library paths (device-local, not profile-shared) ─────────────────────
     /// <summary>
     /// Default directory where packed games are installed on this device.

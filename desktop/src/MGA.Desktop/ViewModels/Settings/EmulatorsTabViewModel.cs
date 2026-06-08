@@ -23,7 +23,13 @@ public sealed partial class EmulatorRowViewModel : ObservableObject
     public string? CatalogId { get; init; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(NameInitial))]
     private string _name = string.Empty;
+
+    /// <summary>First character of <see cref="Name"/> for the avatar circle.</summary>
+    public string NameInitial => Name.Length > 0
+        ? Name[0].ToString().ToUpperInvariant()
+        : "E";
 
     [ObservableProperty]
     private string _executablePath = string.Empty;
@@ -155,15 +161,25 @@ public sealed partial class EmulatorsTabViewModel : ViewModelBase
 
     /// <summary>Feedback message shown below the drop zone after a file is processed.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBiosDropVerifying))]
     private string _biosDropMessage = string.Empty;
 
     /// <summary>True when the last drop operation succeeded (drives green styling).</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBiosDropVerifying))]
     private bool _biosDropSuccess;
 
     /// <summary>True when the last drop operation failed (drives red styling).</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBiosDropVerifying))]
     private bool _biosDropError;
+
+    /// <summary>
+    /// True while a drop is being processed — message is set but neither success nor error
+    /// flag has been raised yet. Drives a neutral "Verifying…" hint in the drop zone.
+    /// </summary>
+    public bool IsBiosDropVerifying =>
+        !string.IsNullOrEmpty(BiosDropMessage) && !BiosDropSuccess && !BiosDropError;
 
     // ── StorageProvider (set by View code-behind after attachment) ───────────
 
