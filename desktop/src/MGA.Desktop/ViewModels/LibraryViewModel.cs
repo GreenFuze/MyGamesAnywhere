@@ -500,8 +500,9 @@ public sealed partial class LibraryViewModel : ViewModelBase
         // ── Cache-first: render instantly if warm cache exists ──────────────
         if (_gameCache is not null && _gameCache.TryGet(serverUrl, out var cached))
         {
+            // pageSize: 0 means "all games" — cached.Count equals the true server total.
             ApplyGames(cached, cached.Count);
-            // Refresh silently in the background.
+            // Refresh silently in the background to pick up any new/removed games.
             _ = RefreshFromServerAsync(serverUrl);
             return;
         }
@@ -511,7 +512,10 @@ public sealed partial class LibraryViewModel : ViewModelBase
 
         try
         {
-            var response = await _server.Api.ListGamesAsync(page: 0, pageSize: 500)
+            // pageSize: 0 = "all games" (server cap: 20 000). Avoids silent truncation
+            // and keeps cached.Count == response.Total so the header always shows the
+            // correct total even on cache-first renders.
+            var response = await _server.Api.ListGamesAsync(page: 0, pageSize: 0)
                                             .ConfigureAwait(true);
             _gameCache?.Update(serverUrl, response.Games);
             ApplyGames(response.Games, response.Total);
@@ -532,7 +536,7 @@ public sealed partial class LibraryViewModel : ViewModelBase
 
         try
         {
-            var response = await _server.Api.ListGamesAsync(page: 0, pageSize: 500)
+            var response = await _server.Api.ListGamesAsync(page: 0, pageSize: 0)
                                             .ConfigureAwait(true);
             _gameCache?.Update(serverUrl, response.Games);
             ApplyGames(response.Games, response.Total);
