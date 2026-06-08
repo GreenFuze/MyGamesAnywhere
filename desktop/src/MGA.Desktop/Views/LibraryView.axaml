@@ -32,24 +32,30 @@
                MaxWidth="480"
                HorizontalAlignment="Left"/>
 
-      <!-- ── Row 1: multi-select filters + year range ── -->
+      <!-- ── Row 1: filter chips ── -->
       <WrapPanel Orientation="Horizontal">
 
-        <!-- Platform multi-select flyout -->
-        <Button Classes="ghost" Margin="0,0,6,6">
+        <!-- Platform multi-select chip -->
+        <Button Classes="filter" Margin="0,0,6,6">
           <Button.Content>
-            <TextBlock Text="{Binding SelectedPlatformsText}"/>
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <TextBlock Text="{Binding SelectedPlatformsText}" VerticalAlignment="Center"/>
+              <TextBlock Text="▾" FontSize="9" VerticalAlignment="Center" Margin="0,1,0,0" Opacity="0.7"/>
+            </StackPanel>
           </Button.Content>
           <Button.Flyout>
-            <Flyout Placement="Bottom">
-              <Border MaxHeight="240" MinWidth="180">
+            <Flyout Placement="BottomEdgeAlignedLeft">
+              <Border MaxHeight="260" MinWidth="200"
+                      Background="{DynamicResource MgaSurfaceBrush}"
+                      CornerRadius="8"
+                      Padding="8">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                   <ItemsControl ItemsSource="{Binding PlatformOptions}">
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:FilterOptionModel">
                         <CheckBox Content="{Binding Name}"
                                   IsChecked="{Binding IsSelected}"
-                                  Margin="4,2"/>
+                                  Margin="4,3"/>
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
@@ -59,21 +65,27 @@
           </Button.Flyout>
         </Button>
 
-        <!-- Genre multi-select flyout -->
-        <Button Classes="ghost" Margin="0,0,6,6">
+        <!-- Genre multi-select chip -->
+        <Button Classes="filter" Margin="0,0,6,6">
           <Button.Content>
-            <TextBlock Text="{Binding SelectedGenresText}"/>
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <TextBlock Text="{Binding SelectedGenresText}" VerticalAlignment="Center"/>
+              <TextBlock Text="▾" FontSize="9" VerticalAlignment="Center" Margin="0,1,0,0" Opacity="0.7"/>
+            </StackPanel>
           </Button.Content>
           <Button.Flyout>
-            <Flyout Placement="Bottom">
-              <Border MaxHeight="240" MinWidth="180">
+            <Flyout Placement="BottomEdgeAlignedLeft">
+              <Border MaxHeight="260" MinWidth="200"
+                      Background="{DynamicResource MgaSurfaceBrush}"
+                      CornerRadius="8"
+                      Padding="8">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                   <ItemsControl ItemsSource="{Binding GenreOptions}">
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:FilterOptionModel">
                         <CheckBox Content="{Binding Name}"
                                   IsChecked="{Binding IsSelected}"
-                                  Margin="4,2"/>
+                                  Margin="4,3"/>
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
@@ -87,79 +99,142 @@
         <ComboBox ItemsSource="{Binding Developers}"
                   SelectedItem="{Binding SelectedDeveloper}"
                   MinWidth="160"
+                  Height="32"
                   Margin="0,0,6,6"/>
 
         <!-- Publisher dropdown -->
         <ComboBox ItemsSource="{Binding Publishers}"
                   SelectedItem="{Binding SelectedPublisher}"
                   MinWidth="160"
+                  Height="32"
                   Margin="0,0,6,6"/>
 
         <!-- Integration / source dropdown -->
         <ComboBox ItemsSource="{Binding Integrations}"
                   SelectedItem="{Binding SelectedIntegration}"
                   MinWidth="140"
+                  Height="32"
                   Margin="0,0,6,6"/>
 
-        <!-- Year from / to -->
-        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="0,0,6,6">
-          <TextBlock Text="Year" VerticalAlignment="Center" Classes="muted"/>
-          <TextBox Classes="mga"
-                   PlaceholderText="From"
-                   Text="{Binding YearFrom}"
-                   Width="70"/>
-          <TextBlock Text="–" VerticalAlignment="Center" Classes="muted"/>
-          <TextBox Classes="mga"
-                   PlaceholderText="To"
-                   Text="{Binding YearTo}"
-                   Width="70"/>
-        </StackPanel>
+        <!-- Year range inputs -->
+        <Border Background="{DynamicResource MgaElevatedBrush}"
+                BorderBrush="{DynamicResource MgaBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="{DynamicResource MgaRadiusFull}"
+                Height="32"
+                Margin="0,0,6,6"
+                Padding="12,0">
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="Year" VerticalAlignment="Center"
+                       FontSize="{DynamicResource MgaFontSizeSm}"
+                       Foreground="{DynamicResource MgaMutedBrush}"/>
+            <TextBox PlaceholderText="From"
+                     Text="{Binding YearFrom}"
+                     Width="52"
+                     Height="24"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Padding="4,0"
+                     VerticalContentAlignment="Center"
+                     FontSize="{DynamicResource MgaFontSizeSm}"/>
+            <TextBlock Text="–" VerticalAlignment="Center"
+                       Foreground="{DynamicResource MgaMutedBrush}"/>
+            <TextBox PlaceholderText="To"
+                     Text="{Binding YearTo}"
+                     Width="52"
+                     Height="24"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Padding="4,0"
+                     VerticalContentAlignment="Center"
+                     FontSize="{DynamicResource MgaFontSizeSm}"/>
+          </StackPanel>
+        </Border>
 
       </WrapPanel>
 
-      <!-- ── Row 2: sort + toggles + actions ── -->
-      <StackPanel Orientation="Horizontal" Spacing="8">
+      <!-- ── Row 2: sort + view + actions ── -->
+      <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
 
         <!-- Sort dropdown -->
         <ComboBox ItemsSource="{Binding SortOptions}"
                   SelectedIndex="{Binding SelectedSortIndex}"
-                  MinWidth="160"/>
+                  MinWidth="160"
+                  Height="32"/>
+
+        <!-- Divider -->
+        <Border Width="1" Height="20" Background="{DynamicResource MgaBorderBrush}"
+                VerticalAlignment="Center" Margin="4,0"/>
 
         <!-- Favorites toggle -->
-        <Button Classes="primary"
-                Content="★ Favorites"
+        <Button Classes="filter active"
                 Command="{Binding ToggleFavoritesOnlyCommand}"
-                IsVisible="{Binding ShowFavoritesOnly}"/>
-        <Button Classes="ghost"
-                Content="☆ Favorites"
+                IsVisible="{Binding ShowFavoritesOnly}">
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="★" FontSize="12" VerticalAlignment="Center"/>
+            <TextBlock Text="Favorites" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
+        <Button Classes="filter"
                 Command="{Binding ToggleFavoritesOnlyCommand}"
-                IsVisible="{Binding !ShowFavoritesOnly}"/>
+                IsVisible="{Binding !ShowFavoritesOnly}">
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="☆" FontSize="12" VerticalAlignment="Center"/>
+            <TextBlock Text="Favorites" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
 
-        <!-- View mode cycle button — label shows the NEXT mode -->
-        <Button Classes="ghost"
-                Content="{Binding ViewModeNextLabel}"
-                Command="{Binding ToggleViewModeCommand}"/>
+        <!-- View mode cycle -->
+        <Button Classes="filter"
+                Command="{Binding ToggleViewModeCommand}">
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="{Binding ViewModeNextLabel}" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
 
-        <!-- Clear all filters -->
-        <Button Classes="ghost"
-                Content="✕ Clear Filters"
-                Command="{Binding ClearFiltersCommand}"/>
+        <!-- Divider -->
+        <Border Width="1" Height="20" Background="{DynamicResource MgaBorderBrush}"
+                VerticalAlignment="Center" Margin="4,0"/>
 
         <!-- Bulk-select mode toggle -->
-        <Button Classes="primary"
-                Content="☑ Select"
+        <Button Classes="filter active"
                 Command="{Binding ToggleBulkSelectModeCommand}"
-                IsVisible="{Binding IsBulkSelectMode}"/>
-        <Button Classes="ghost"
-                Content="☐ Select"
+                IsVisible="{Binding IsBulkSelectMode}">
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="☑" FontSize="12" VerticalAlignment="Center"/>
+            <TextBlock Text="Select" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
+        <Button Classes="filter"
                 Command="{Binding ToggleBulkSelectModeCommand}"
-                IsVisible="{Binding !IsBulkSelectMode}"/>
+                IsVisible="{Binding !IsBulkSelectMode}">
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="☐" FontSize="12" VerticalAlignment="Center"/>
+            <TextBlock Text="Select" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
 
-        <!-- Scan trigger -->
+        <!-- Clear filters -->
+        <Button Classes="filter"
+                Command="{Binding ClearFiltersCommand}">
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="✕" FontSize="10" VerticalAlignment="Center"/>
+            <TextBlock Text="Clear Filters" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
+
+        <!-- Spacer -->
+        <Border HorizontalAlignment="Stretch" Width="8"/>
+
+        <!-- Scan Library — right edge -->
         <Button Classes="ghost"
-                Content="↻ Scan Library"
                 Command="{Binding ScanCommand}"
-                IsEnabled="{Binding !IsScanning}"/>
+                IsEnabled="{Binding !IsScanning}">
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="↻" FontSize="13" VerticalAlignment="Center"/>
+            <TextBlock Text="Scan Library" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
 
       </StackPanel>
 

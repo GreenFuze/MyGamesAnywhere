@@ -15,11 +15,10 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private int _selectedTabIndex;
 
     // One ViewModel per tab — constructed eagerly so tabs are ready immediately.
+    // Plugins and Cache tabs are server-admin concerns handled via the web client.
     public IntegrationsTabViewModel    Integrations    { get; }
     public UpdateTabViewModel          Update          { get; }
     public ProfilesTabViewModel        Profiles        { get; }
-    public PluginsTabViewModel         Plugins         { get; }
-    public CacheTabViewModel           Cache           { get; }
     public DuplicatesTabViewModel      Duplicates      { get; }
     public AppearanceTabViewModel      Appearance      { get; }
     public ConnectionTabViewModel      Connection      { get; }
@@ -36,8 +35,6 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Integrations    = new IntegrationsTabViewModel(server, toast);
         Update          = new UpdateTabViewModel(server, toast);
         Profiles        = new ProfilesTabViewModel(server, toast);
-        Plugins         = new PluginsTabViewModel(server, toast);
-        Cache           = new CacheTabViewModel(server, toast);
         Duplicates      = new DuplicatesTabViewModel(server, toast);
         Appearance      = new AppearanceTabViewModel(theme);
         Connection      = new ConnectionTabViewModel(config, server, toast);
@@ -51,8 +48,6 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Integrations.Dispose();
         Update.Dispose();
         Profiles.Dispose();
-        Plugins.Dispose();
-        Cache.Dispose();
         Duplicates.Dispose();
         Appearance.Dispose();
         Connection.Dispose();

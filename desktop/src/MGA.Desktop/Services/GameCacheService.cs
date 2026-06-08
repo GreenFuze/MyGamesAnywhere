@@ -23,10 +23,8 @@ public sealed class GameCacheService
     // Staleness windows
     // -------------------------------------------------------------------------
 
-    private static readonly TimeSpan MemoryStaleness = TimeSpan.FromMinutes(3);
-
     // Disk cache survives for 24 h — games rarely change; a background refresh
-    // always runs after the disk hit to pull the latest data silently.
+    // always runs silently on every cache hit to keep the data current.
     private static readonly TimeSpan DiskStaleness = TimeSpan.FromHours(24);
 
     // -------------------------------------------------------------------------
@@ -65,15 +63,17 @@ public sealed class GameCacheService
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Returns true and the cached game list when a fresh entry exists for
-    /// <paramref name="serverUrl"/>.  Returns false when the cache is empty,
-    /// stale, or belongs to a different server.
+    /// Returns true and the cached game list when any entry exists for
+    /// <paramref name="serverUrl"/>, regardless of staleness (stale-while-revalidate).
+    ///
+    /// Callers that get a hit always fire a silent background refresh via
+    /// <c>RefreshFromServerAsync</c>, so the data stays current without ever
+    /// blocking the UI with a loading spinner.
+    /// Returns false only when there is no entry at all for this server (cold start).
     /// </summary>
     public bool TryGet(string serverUrl, out IReadOnlyList<GameDetail> games)
     {
-        if (_cached is not null
-            && _serverUrl == serverUrl
-            && DateTime.UtcNow - _fetchedAt < MemoryStaleness)
+        if (_cached is not null && _serverUrl == serverUrl)
         {
             games = _cached;
             return true;

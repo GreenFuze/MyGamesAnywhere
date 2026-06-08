@@ -120,16 +120,25 @@
                            MaxLines="2"
                            TextWrapping="Wrap"/>
 
-                <!-- Play Now -->
+                <!-- Play Now — StackPanel keeps icon + text pixel-perfect aligned -->
                 <Button Classes="primary"
-                        Content="▶  Play Now"
-                        Width="132"
-                        Height="38"
+                        Width="148"
+                        Height="40"
                         Margin="0,8,0,0"
-                        Padding="0"
-                        HorizontalContentAlignment="Center"
+                        Padding="18,0"
+                        VerticalContentAlignment="Center"
                         Command="{Binding OpenGameCommand}"
-                        CommandParameter="{Binding FeaturedGame.Id}"/>
+                        CommandParameter="{Binding FeaturedGame.Id}">
+                  <StackPanel Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+                    <TextBlock Text="▶"
+                               FontSize="10"
+                               VerticalAlignment="Center"
+                               Margin="0,1,0,0"/>
+                    <TextBlock Text="Play Now"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+                  </StackPanel>
+                </Button>
               </StackPanel>
             </Grid>
 

@@ -168,6 +168,31 @@
     <Setter Property="Background" Value="{DynamicResource MgaAccentMutedBrush}"/>
   </Style>
 
+  <!-- Button — filter chip (Library filter bar) -->
+  <Style Selector="Button.filter">
+    <Setter Property="Background"      Value="{DynamicResource MgaElevatedBrush}"/>
+    <Setter Property="Foreground"      Value="{DynamicResource MgaTextBrush}"/>
+    <Setter Property="BorderBrush"     Value="{DynamicResource MgaBorderBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius"    Value="{DynamicResource MgaRadiusFull}"/>
+    <Setter Property="Padding"         Value="14,0"/>
+    <Setter Property="Height"          Value="32"/>
+    <Setter Property="Cursor"          Value="Hand"/>
+    <Setter Property="FontSize"        Value="{DynamicResource MgaFontSizeSm}"/>
+  </Style>
+  <Style Selector="Button.filter:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource MgaBorderBrush}"/>
+  </Style>
+  <!-- filter.active — accent highlight when the filter has selections -->
+  <Style Selector="Button.filter.active">
+    <Setter Property="Background"  Value="{DynamicResource MgaAccentMutedBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource MgaAccentBrush}"/>
+    <Setter Property="Foreground"  Value="{DynamicResource MgaAccentBrush}"/>
+  </Style>
+  <Style Selector="Button.filter.active:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource MgaAccentMutedBrush}"/>
+  </Style>
+
   <!-- Button — danger -->
   <Style Selector="Button.danger">
     <Setter Property="Background"      Value="{DynamicResource MgaDangerBrush}"/>

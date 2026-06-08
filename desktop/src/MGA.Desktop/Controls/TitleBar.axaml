@@ -8,7 +8,7 @@
   <!--
     Fixed-width column layout:
       Col 0: 220px — logo + app name
-      Col 1: *     — search box (fills remaining space)
+      Col 1: *     — drag region (search removed; use Library search instead)
       Col 2: 138px — chrome buttons (3 × 46px)
 
     DragRegion sits behind all interactive controls (IsHitTestVisible on logo
@@ -30,28 +30,6 @@
                  FontSize="{DynamicResource MgaFontSizeMd}"
                  VerticalAlignment="Center"/>
     </StackPanel>
-
-    <!-- ── Col 1: Search box ────────────────────────────────────── -->
-    <Border Grid.Column="1"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center"
-            Width="400"
-            Height="36"
-            Background="{DynamicResource MgaElevatedBrush}"
-            CornerRadius="{DynamicResource MgaRadiusFull}">
-      <TextBox Name="GlobalSearchBox"
-               Text="{Binding GlobalSearchText}"
-               PlaceholderText="Search games…"
-               Background="Transparent"
-               BorderThickness="0"
-               VerticalContentAlignment="Center"
-               FontSize="{DynamicResource MgaFontSizeSm}"
-               Padding="14,0">
-        <TextBox.KeyBindings>
-          <KeyBinding Gesture="Return" Command="{Binding GlobalSearchCommand}"/>
-        </TextBox.KeyBindings>
-      </TextBox>
-    </Border>
 
     <!-- ── Full-width drag region (Col 0-2) — declared before chrome buttons
          so that buttons render on top (higher Z-order) and receive clicks ── -->

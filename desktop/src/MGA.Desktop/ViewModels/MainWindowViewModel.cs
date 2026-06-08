@@ -61,10 +61,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string _activeServerUrl = string.Empty;
 
-    /// <summary>Text bound to the TitleBar search box. Press Enter to search.</summary>
-    [ObservableProperty]
-    private string _globalSearchText = string.Empty;
-
     // ---------------------------------------------------------------------------
     // Nav items
     // ---------------------------------------------------------------------------
@@ -206,31 +202,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Executes a global search: navigates to Library and pre-fills the search text.
-    /// Called when the user presses Enter in the TitleBar search box.
-    /// </summary>
-    [RelayCommand]
-    private void GlobalSearch()
-    {
-        var query = GlobalSearchText.Trim();
-        if (string.IsNullOrEmpty(query))
-            return;
-
-        // Mark Library as active in the sidebar.
-        foreach (var item in NavItems)
-            item.IsActive = item.PageId == "library";
-
-        // Navigate to Library with the search query pre-filled.
-        _nav.NavigateTo(new LibraryViewModel(
-            _serverConn, _nav, _toast, _config,
-            initialSearch: query, installDetector: _installDetector,
-            recentPlayed: _recentPlayed, gameCache: _gameCache, mediaCache: _mediaCache,
-            gameStateService: _gameStateService));
-
-        // Clear the search box after navigation.
-        GlobalSearchText = string.Empty;
-    }
-
     // ---------------------------------------------------------------------------
     // Onboarding
     // ---------------------------------------------------------------------------
