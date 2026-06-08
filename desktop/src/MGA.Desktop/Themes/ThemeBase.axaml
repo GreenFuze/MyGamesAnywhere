@@ -93,7 +93,21 @@
 
   <Style Selector="TextBlock.subheading">
     <Setter Property="FontSize"   Value="{DynamicResource MgaFontSizeLg}"/>
-    <Setter Property="FontWeight" Value="{DynamicResource MgaFontWeightMedium}"/>
+    <Setter Property="FontWeight" Value="{DynamicResource MgaFontWeightBold}"/>
+  </Style>
+
+  <!-- heading.page — large page title with accent gradient foreground -->
+  <Style Selector="TextBlock.heading.page">
+    <Setter Property="FontSize"   Value="{DynamicResource MgaFontSize2xl}"/>
+    <Setter Property="FontWeight" Value="{DynamicResource MgaFontWeightBold}"/>
+    <Setter Property="Foreground">
+      <Setter.Value>
+        <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,0%">
+          <GradientStop Color="{DynamicResource MgaTextColor}"   Offset="0"/>
+          <GradientStop Color="{DynamicResource MgaAccentColor}" Offset="1"/>
+        </LinearGradientBrush>
+      </Setter.Value>
+    </Setter>
   </Style>
 
   <Style Selector="TextBlock.accent">

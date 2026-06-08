@@ -5,38 +5,78 @@
              x:DataType="vm:MainWindowViewModel">
 
   <!--
-    Collapsible sidebar navigation.
+    Collapsible sidebar navigation — gaming-launcher aesthetic.
     Width animates between 220px (full) and 56px (icon-only) in MainWindow code-behind.
-    Nav items use IsActive to show the accent-bar + glow indicator.
+    Each nav item has its own accent color: active state shows a colored pill + icon + left strip.
   -->
 
-  <!-- Gradient background panel — creates depth vs the flat content area -->
   <Panel>
+
+    <!-- Deep purple → near-black gradient background — richer than flat bg -->
     <Border BorderBrush="{DynamicResource MgaBorderBrush}"
             BorderThickness="0,0,1,0">
       <Border.Background>
         <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-          <GradientStop Color="#0f0c1a" Offset="0"/>
-          <GradientStop Color="#09080f" Offset="1"/>
+          <GradientStop Color="#1a082e" Offset="0"/>
+          <GradientStop Color="#0e0620" Offset="0.40"/>
+          <GradientStop Color="#080412" Offset="1"/>
         </LinearGradientBrush>
       </Border.Background>
 
       <DockPanel LastChildFill="True">
 
-        <!-- Collapse / expand toggle -->
+        <!-- ── Brand header + collapse toggle ── -->
         <Button DockPanel.Dock="Top"
                 Command="{Binding ToggleSidebarCommand}"
                 Classes="ghost"
                 HorizontalAlignment="Stretch"
-                Height="48"
+                Height="56"
+                Padding="8,0"
                 ToolTip.Tip="Toggle sidebar">
-          <TextBlock Text="☰"
-                     FontSize="16"
-                     HorizontalAlignment="Center"
-                     VerticalAlignment="Center"/>
+          <DockPanel>
+            <!-- Gradient logo mark — always visible and acts as collapse toggle hit target -->
+            <Border DockPanel.Dock="Left"
+                    Width="32" Height="32" CornerRadius="9"
+                    VerticalAlignment="Center">
+              <Border.Background>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                  <GradientStop Color="#7c3aed" Offset="0"/>
+                  <GradientStop Color="#3db8ff" Offset="1"/>
+                </LinearGradientBrush>
+              </Border.Background>
+              <TextBlock Text="M"
+                         FontSize="15"
+                         FontWeight="ExtraBold"
+                         Foreground="White"
+                         HorizontalAlignment="Center"
+                         VerticalAlignment="Center"
+                         Margin="0,1,0,0"/>
+            </Border>
+
+            <!-- Collapse indicator (right edge, expanded only) -->
+            <TextBlock DockPanel.Dock="Right"
+                       Text="‹"
+                       FontSize="14"
+                       Foreground="{DynamicResource MgaMutedBrush}"
+                       VerticalAlignment="Center"
+                       Margin="0,0,6,0"
+                       Opacity="0.45"
+                       IsVisible="{Binding SidebarExpanded}"/>
+
+            <!-- Brand name (expanded only) -->
+            <TextBlock Text="MyGamesAnywhere"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center"
+                       Margin="10,0,4,0"
+                       Opacity="0.80"
+                       TextTrimming="CharacterEllipsis"
+                       Foreground="{DynamicResource MgaTextBrush}"
+                       IsVisible="{Binding SidebarExpanded}"/>
+          </DockPanel>
         </Button>
 
-        <!-- Nav item list -->
+        <!-- ── Nav item list ── -->
         <ItemsControl DockPanel.Dock="Top"
                       ItemsSource="{Binding NavItems}"
                       Margin="6,4">
@@ -45,174 +85,207 @@
               <Button Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).NavigateToCommand}"
                       CommandParameter="{Binding PageId}"
                       HorizontalAlignment="Stretch"
-                      HorizontalContentAlignment="Left"
+                      HorizontalContentAlignment="Stretch"
                       Height="44"
                       Margin="0,1"
                       Padding="0"
                       BorderThickness="0"
                       Cursor="Hand"
-                      Classes.active="{Binding IsActive}">
+                      CornerRadius="8"
+                      ClipToBounds="True">
 
-                <!-- Per-item button styles -->
+                <!-- Per-item button styles: transparent bg, subtle white hover tint -->
                 <Button.Styles>
                   <Style Selector="Button">
-                    <Setter Property="Background"   Value="Transparent"/>
-                    <Setter Property="Foreground"   Value="{DynamicResource MgaMutedBrush}"/>
-                    <Setter Property="CornerRadius" Value="{DynamicResource MgaRadiusMd}"/>
-                    <Setter Property="Transitions">
-                      <Transitions>
-                        <BrushTransition Property="Foreground" Duration="0:0:0.15"/>
-                      </Transitions>
-                    </Setter>
+                    <Setter Property="Background" Value="Transparent"/>
                   </Style>
                   <Style Selector="Button:pointerover /template/ ContentPresenter">
-                    <Setter Property="Background" Value="{DynamicResource MgaElevatedBrush}"/>
-                  </Style>
-                  <!-- Active: accent text + filled background -->
-                  <Style Selector="Button.active">
-                    <Setter Property="Foreground" Value="{DynamicResource MgaAccentBrush}"/>
-                  </Style>
-                  <Style Selector="Button.active /template/ ContentPresenter">
-                    <Setter Property="Background" Value="{DynamicResource MgaSidebarActiveBrush}"/>
+                    <Setter Property="Background" Value="#0cffffff"/>
                   </Style>
                 </Button.Styles>
 
-                <Grid ColumnDefinitions="4,32,*">
+                <Panel>
+                  <!-- Active pill background layer — accent color at 14% opacity -->
+                  <Border CornerRadius="8"
+                          IsVisible="{Binding IsActive}">
+                    <Border.Background>
+                      <SolidColorBrush Color="{Binding AccentColor}" Opacity="0.14"/>
+                    </Border.Background>
+                  </Border>
 
-                  <!-- Left accent bar with glow — visible only when active -->
-                  <Panel Grid.Column="0" Margin="-6,0,0,0">
-                    <!-- Soft glow behind the bar -->
-                    <Border IsVisible="{Binding IsActive}"
-                            Width="8"
+                  <!-- Content row -->
+                  <Grid ColumnDefinitions="4,36,*">
+
+                    <!-- Left accent strip — full accent color, visible only when active -->
+                    <Border Grid.Column="0"
+                            IsVisible="{Binding IsActive}"
+                            CornerRadius="0,3,3,0"
+                            Width="3"
+                            Margin="0,9,0,9"
                             HorizontalAlignment="Left">
                       <Border.Background>
-                        <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
-                          <GradientStop Color="#603db8ff" Offset="0"/>
-                          <GradientStop Color="#003db8ff" Offset="1"/>
-                        </LinearGradientBrush>
+                        <SolidColorBrush Color="{Binding AccentColor}"/>
                       </Border.Background>
                     </Border>
-                    <!-- Solid accent bar on top -->
-                    <Border IsVisible="{Binding IsActive}"
-                            CornerRadius="0,2,2,0"
-                            Background="{DynamicResource MgaAccentBrush}"
-                            Width="3"
-                            Margin="0,8,0,8"
-                            HorizontalAlignment="Left"/>
-                  </Panel>
 
-                  <!-- Icon — rendered in Segoe MDL2 Assets for crisp glyph icons -->
-                  <TextBlock Grid.Column="1"
-                             Text="{Binding Icon}"
-                             FontFamily="Segoe MDL2 Assets,Segoe Fluent Icons"
-                             FontSize="16"
-                             VerticalAlignment="Center"
-                             HorizontalAlignment="Center"/>
-
-                  <!-- Label + optional badge pill -->
-                  <Grid Grid.Column="2"
-                        ColumnDefinitions="*,Auto"
-                        Margin="6,0,0,0">
-
-                    <TextBlock Grid.Column="0"
-                               Text="{Binding Label}"
+                    <!-- Icon — lit up in accent when active, muted at rest -->
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding Icon}"
+                               FontFamily="Segoe MDL2 Assets,Segoe Fluent Icons"
+                               FontSize="17"
+                               Foreground="{Binding CurrentForeground}"
                                VerticalAlignment="Center"
-                               FontSize="{DynamicResource MgaFontSizeSm}"
-                               FontWeight="{DynamicResource MgaFontWeightMedium}"
-                               TextTrimming="CharacterEllipsis"/>
+                               HorizontalAlignment="Center"/>
 
-                    <!-- Badge pill — visible only when count > 0 -->
-                    <Border Grid.Column="1"
-                            CornerRadius="8"
-                            IsVisible="{Binding HasBadge}"
-                            Padding="5,1"
-                            Margin="4,0,8,0">
-                      <Border.Background>
-                        <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
-                          <GradientStop Color="#3db8ff" Offset="0"/>
-                          <GradientStop Color="#1e6faf" Offset="1"/>
-                        </LinearGradientBrush>
-                      </Border.Background>
-                      <TextBlock Text="{Binding BadgeCount}"
-                                 FontSize="10"
-                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"
-                                 Foreground="#FFFFFF"
+                    <!-- Label + badge -->
+                    <Grid Grid.Column="2"
+                          ColumnDefinitions="*,Auto"
+                          Margin="4,0,8,0">
+
+                      <!-- Label — SemiBold when active via local class style -->
+                      <TextBlock Grid.Column="0"
+                                 Text="{Binding Label}"
+                                 Foreground="{Binding CurrentForeground}"
                                  VerticalAlignment="Center"
-                                 HorizontalAlignment="Center"/>
-                    </Border>
+                                 FontSize="13"
+                                 TextTrimming="CharacterEllipsis"
+                                 Classes.navBold="{Binding IsActive}">
+                        <TextBlock.Styles>
+                          <Style Selector="TextBlock.navBold">
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                          </Style>
+                        </TextBlock.Styles>
+                      </TextBlock>
 
+                      <!-- Badge pill — uses nav item's own accent color -->
+                      <Border Grid.Column="1"
+                              CornerRadius="8"
+                              IsVisible="{Binding HasBadge}"
+                              Padding="5,1"
+                              Margin="4,0,0,0">
+                        <Border.Background>
+                          <SolidColorBrush Color="{Binding AccentColor}"/>
+                        </Border.Background>
+                        <TextBlock Text="{Binding BadgeCount}"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="White"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                      </Border>
+
+                    </Grid>
                   </Grid>
-
-                </Grid>
+                </Panel>
               </Button>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
 
-        <!-- Spacer fills remaining space -->
+        <!-- ── Profile pill — gradient-border ring wrapping a dark button ── -->
+        <!--
+          Outer Border: 2px gradient ring (purple→cyan).
+          Inner Button: dark background for the contrast "border" effect.
+          Clicking navigates to Settings > Profiles tab.
+          NOTE: profile pill comes BEFORE the spacer so DockPanel docks it to
+          the Bottom edge first, then the spacer fills the gap in between.
+        -->
+        <Border DockPanel.Dock="Bottom"
+                Margin="6,0,6,10"
+                CornerRadius="11"
+                Padding="1.5">
+          <Border.Background>
+            <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+              <GradientStop Color="#7c3aed" Offset="0"/>
+              <GradientStop Color="#3db8ff" Offset="1"/>
+            </LinearGradientBrush>
+          </Border.Background>
+
+          <Button Command="{Binding NavigateToCommand}"
+                  CommandParameter="settings"
+                  HorizontalAlignment="Stretch"
+                  HorizontalContentAlignment="Stretch"
+                  Padding="8,7"
+                  BorderThickness="0"
+                  Cursor="Hand"
+                  CornerRadius="9"
+                  ToolTip.Tip="Switch profile in Settings">
+            <Button.Styles>
+              <Style Selector="Button">
+                <Setter Property="Background" Value="#1c1230"/>
+              </Style>
+              <Style Selector="Button:pointerover /template/ ContentPresenter">
+                <Setter Property="Background" Value="#281840"/>
+              </Style>
+            </Button.Styles>
+
+            <Grid ColumnDefinitions="32,*">
+
+              <!-- Avatar circle with gradient fill -->
+              <Border Grid.Column="0"
+                      Width="28" Height="28"
+                      CornerRadius="14"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center">
+                <Border.Background>
+                  <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                    <GradientStop Color="#7c3aed" Offset="0"/>
+                    <GradientStop Color="#3db8ff" Offset="1"/>
+                  </LinearGradientBrush>
+                </Border.Background>
+                <TextBlock Text="👤"
+                           FontSize="12"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"/>
+              </Border>
+
+              <!-- Profile name + subtitle (hidden when collapsed) -->
+              <StackPanel Grid.Column="1"
+                          VerticalAlignment="Center"
+                          Margin="6,0,0,0"
+                          IsVisible="{Binding SidebarExpanded}">
+                <TextBlock Text="{Binding ActiveProfileDisplay}"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource MgaTextBrush}"/>
+                <TextBlock Text="Active Profile"
+                           FontSize="10"
+                           Foreground="{DynamicResource MgaMutedBrush}"/>
+              </StackPanel>
+            </Grid>
+          </Button>
+        </Border>
+
+        <!-- Spacer fills remaining height between nav items and the profile pill -->
         <Border/>
-
-        <!-- ── Active profile pill ── Bottom of sidebar, above the accent line -->
-        <Button DockPanel.Dock="Bottom"
-                Command="{Binding NavigateToCommand}"
-                CommandParameter="settings"
-                HorizontalAlignment="Stretch"
-                HorizontalContentAlignment="Left"
-                Margin="6,0,6,8"
-                Padding="10,8"
-                BorderThickness="0"
-                Cursor="Hand"
-                ToolTip.Tip="Switch profile in Settings">
-          <Button.Styles>
-            <Style Selector="Button">
-              <Setter Property="Background"   Value="{DynamicResource MgaElevatedBrush}"/>
-              <Setter Property="CornerRadius" Value="{DynamicResource MgaRadiusMd}"/>
-            </Style>
-            <Style Selector="Button:pointerover /template/ ContentPresenter">
-              <Setter Property="Background" Value="{DynamicResource MgaBorderBrush}"/>
-            </Style>
-          </Button.Styles>
-          <Grid ColumnDefinitions="32,*">
-
-            <!-- Avatar/icon circle -->
-            <Border Grid.Column="0"
-                    Width="28" Height="28"
-                    CornerRadius="14"
-                    Background="{DynamicResource MgaAccentMutedBrush}"
-                    HorizontalAlignment="Center">
-              <TextBlock Text="👤"
-                         FontSize="13"
-                         HorizontalAlignment="Center"
-                         VerticalAlignment="Center"/>
-            </Border>
-
-            <!-- Profile name (hidden when sidebar is collapsed) -->
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,0,0">
-              <TextBlock Text="{Binding ActiveProfileDisplay}"
-                         FontSize="{DynamicResource MgaFontSizeSm}"
-                         FontWeight="{DynamicResource MgaFontWeightMedium}"
-                         TextTrimming="CharacterEllipsis"
-                         Foreground="{DynamicResource MgaTextBrush}"/>
-              <TextBlock Text="Profile"
-                         FontSize="10"
-                         Foreground="{DynamicResource MgaMutedBrush}"/>
-            </StackPanel>
-
-          </Grid>
-        </Button>
 
       </DockPanel>
     </Border>
 
-    <!-- Subtle bottom accent line — the "floor" of the sidebar -->
+    <!-- Atmospheric purple glow at the top — adds depth/atmosphere (non-interactive) -->
+    <Border VerticalAlignment="Top"
+            Height="100"
+            IsHitTestVisible="False">
+      <Border.Background>
+        <RadialGradientBrush GradientOrigin="50%,0%" Center="50%,0%"
+                             RadiusX="60%" RadiusY="80%">
+          <GradientStop Color="#2e7c3aed" Offset="0"/>
+          <GradientStop Color="#00000000" Offset="1"/>
+        </RadialGradientBrush>
+      </Border.Background>
+    </Border>
+
+    <!-- Bottom accent line — vivid purple-to-cyan gradient "floor" -->
     <Border VerticalAlignment="Bottom"
             Height="1"
             Margin="0,0,1,0"
             HorizontalAlignment="Stretch">
       <Border.Background>
         <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,0%">
-          <GradientStop Color="#003db8ff" Offset="0"/>
-          <GradientStop Color="#603db8ff" Offset="0.5"/>
+          <GradientStop Color="#007c3aed" Offset="0"/>
+          <GradientStop Color="#bf7c3aed" Offset="0.35"/>
+          <GradientStop Color="#bf3db8ff" Offset="0.65"/>
           <GradientStop Color="#003db8ff" Offset="1"/>
         </LinearGradientBrush>
       </Border.Background>

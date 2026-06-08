@@ -1,3 +1,4 @@
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MGA.Desktop.Services;
@@ -55,7 +56,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Whether the sidebar is in icon-only mode.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SidebarExpanded))]
     private bool _sidebarCollapsed;
+
+    /// <summary>Inverse of <see cref="SidebarCollapsed"/>; used in AXAML visibility bindings.</summary>
+    public bool SidebarExpanded => !SidebarCollapsed;
 
     /// <summary>Active theme ID ("midnight" | "daylight").</summary>
     [ObservableProperty]
@@ -123,16 +128,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // Build the sidebar nav list.
         // Icons are Segoe MDL2 Assets glyphs rendered via FontFamily="Segoe MDL2 Assets"
-        // in Sidebar.axaml.  Glyphs: Play=, Library=, Trophy=,
-        // BarChart=, Settings=, Info=.
+        // in Sidebar.axaml.  Glyphs: Play=, Library=, Trophy=,
+        // BarChart=, Settings=, Info=.
+        // Each item gets its own accent color so the active pill/icon feel
+        // personal to that section — gaming green, electric blue, trophy gold, etc.
         NavItems = new NavItem[]
         {
-            new("play",         "Play",         ""),
-            new("library",      "Library",      ""),
-            new("achievements", "Achievements", ""),
-            new("stats",        "Stats",        ""),
-            new("settings",     "Settings",     ""),
-            new("about",        "About",        ""),
+            new("play",         "Play",         "", Color.Parse("#22c55e")),
+            new("library",      "Library",      "", Color.Parse("#60a5fa")),
+            new("achievements", "Achievements", "", Color.Parse("#fbbf24")),
+            new("stats",        "Stats",        "", Color.Parse("#c084fc")),
+            new("settings",     "Settings",     "", Color.Parse("#94a3b8")),
+            new("about",        "About",        "", Color.Parse("#94a3b8")),
         };
 
         // Cache the Library item so badge updates don't scan the list each time.
@@ -337,17 +344,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
 /// <summary>
 /// Represents a single navigation entry in the sidebar.
-/// IsActive is observable so the sidebar style can highlight the selected item.
+/// IsActive drives the per-nav colored pill, icon color, and left accent strip.
+/// AccentColor is per-nav so each section has its own visual identity.
 /// </summary>
 public sealed partial class NavItem : ObservableObject
 {
-    public string PageId { get; }
-    public string Label  { get; }
+    public string PageId     { get; }
+    public string Label      { get; }
 
     /// <summary>Icon character — Unicode symbol or Segoe MDL2 codepoint.</summary>
-    public string Icon   { get; }
+    public string Icon       { get; }
+
+    /// <summary>Per-nav accent color (e.g. gaming green, trophy gold).</summary>
+    public Color  AccentColor { get; init; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CurrentForeground))]
     private bool _isActive;
 
     /// <summary>Numeric badge shown beside the label (e.g. total game count). 0 = hidden.</summary>
@@ -359,10 +371,22 @@ public sealed partial class NavItem : ObservableObject
 
     partial void OnBadgeCountChanged(int value) => OnPropertyChanged(nameof(HasBadge));
 
-    public NavItem(string pageId, string label, string icon)
+    /// <summary>
+    /// Foreground brush: full accent when this item is active, muted grey at rest.
+    /// Bound to the nav icon and label so both light up in the item's unique color.
+    /// </summary>
+    public IBrush CurrentForeground =>
+        IsActive ? new SolidColorBrush(AccentColor)
+                 : new SolidColorBrush(Color.Parse("#8f8aa3"));
+
+    /// <summary>Full-opacity accent brush for the left strip and badge background.</summary>
+    public SolidColorBrush AccentBrush => new SolidColorBrush(AccentColor);
+
+    public NavItem(string pageId, string label, string icon, Color accentColor)
     {
-        PageId = pageId;
-        Label  = label;
-        Icon   = icon;
+        PageId      = pageId;
+        Label       = label;
+        Icon        = icon;
+        AccentColor = accentColor;
     }
 }
