@@ -97,6 +97,16 @@ public sealed partial class ProfilesTabViewModel : ViewModelBase
 
             Profiles = new ObservableCollection<ProfileRowViewModel>(
                 list.Select(p => new ProfileRowViewModel(p, isActive: p.Id == activeId)));
+
+            // Cache the active profile's display name on first load so the sidebar
+            // pill can show "TCs" instead of the raw UUID without requiring a switch.
+            if (string.IsNullOrWhiteSpace(_server.ActiveProfileDisplayName))
+            {
+                var active = list.FirstOrDefault(p =>
+                    string.Equals(p.Id, activeId, StringComparison.Ordinal));
+                if (active is not null)
+                    _server.SetActiveProfile(active.Id, active.DisplayName);
+            }
         }
         catch (Exception ex)
         {
