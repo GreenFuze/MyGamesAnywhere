@@ -19,16 +19,64 @@
         </TextBlock>
       </StackPanel>
 
-      <!-- Action row -->
-      <StackPanel Orientation="Horizontal" Spacing="8">
-        <Button Classes="danger"
-                Content="✕ Clear Cover Override"
-                Command="{Binding ClearCoverCommand}"
-                IsVisible="{Binding HasCoverOverride}"
-                ToolTip.Tip="Remove the cover override; the server will auto-select a cover again"/>
+      <!-- Action row: back + active override chips + clear buttons -->
+      <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
         <Button Classes="ghost"
                 Content="← Back"
                 Command="{Binding BackCommand}"/>
+
+        <!-- Divider -->
+        <Border Width="1" Height="18" Background="{DynamicResource MgaBorderBrush}"
+                VerticalAlignment="Center" Margin="4,0"/>
+
+        <!-- Cover override chip + clear -->
+        <StackPanel Orientation="Horizontal" Spacing="6"
+                    IsVisible="{Binding HasCoverOverride}"
+                    VerticalAlignment="Center">
+          <Border Background="#1A3db8ff"
+                  BorderBrush="#443db8ff"
+                  BorderThickness="1"
+                  CornerRadius="{DynamicResource MgaRadiusFull}"
+                  Padding="10,4"
+                  VerticalAlignment="Center">
+            <TextBlock Text="🎨 Cover override active"
+                       FontSize="{DynamicResource MgaFontSizeXs}"
+                       Foreground="{DynamicResource MgaAccentBrush}"/>
+          </Border>
+          <Button Classes="ghost"
+                  Content="✕ Clear"
+                  Command="{Binding ClearCoverCommand}"
+                  ToolTip.Tip="Remove the cover override; the server will auto-select a cover again"
+                  FontSize="{DynamicResource MgaFontSizeXs}"
+                  Padding="8,4"/>
+        </StackPanel>
+
+        <!-- Hover override chip (read-only indicator; no server clear endpoint yet) -->
+        <Border Background="#1Afbbf24"
+                BorderBrush="#44fbbf24"
+                BorderThickness="1"
+                CornerRadius="{DynamicResource MgaRadiusFull}"
+                Padding="10,4"
+                VerticalAlignment="Center"
+                IsVisible="{Binding HasHoverOverride}">
+          <TextBlock Text="🖱 Hover override active"
+                     FontSize="{DynamicResource MgaFontSizeXs}"
+                     Foreground="{DynamicResource MgaWarningBrush}"/>
+        </Border>
+
+        <!-- Background override chip (read-only indicator) -->
+        <Border Background="#1Ac084fc"
+                BorderBrush="#44c084fc"
+                BorderThickness="1"
+                CornerRadius="{DynamicResource MgaRadiusFull}"
+                Padding="10,4"
+                VerticalAlignment="Center"
+                IsVisible="{Binding HasBackgroundOverride}">
+          <TextBlock Text="🌄 Background override active"
+                     FontSize="{DynamicResource MgaFontSizeXs}"
+                     Foreground="#c084fc"/>
+        </Border>
+
       </StackPanel>
     </StackPanel>
 
@@ -68,73 +116,181 @@
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:MediaAssetModel">
               <Border Classes="card"
-                      Width="200"
+                      Width="220"
                       Margin="0,0,16,16"
-                      Padding="12">
-                <StackPanel Spacing="8">
+                      Padding="0"
+                      ClipToBounds="True"
+                      CornerRadius="{DynamicResource MgaRadiusLg}">
+                <StackPanel Spacing="0">
 
-                  <!-- Thumbnail -->
-                  <Border CornerRadius="{DynamicResource MgaRadiusMd}"
-                          ClipToBounds="True"
-                          Height="120">
+                  <!-- Thumbnail — larger, fills the card width -->
+                  <Border ClipToBounds="True"
+                          Height="148">
                     <Grid>
-                      <!-- Placeholder background -->
-                      <Border Background="{DynamicResource MgaElevatedBrush}">
+                      <!-- Placeholder gradient background -->
+                      <Border>
+                        <Border.Background>
+                          <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                            <GradientStop Color="{DynamicResource MgaElevatedColor}" Offset="0"/>
+                            <GradientStop Color="{DynamicResource MgaBgColor}" Offset="1"/>
+                          </LinearGradientBrush>
+                        </Border.Background>
                         <TextBlock Text="{Binding TypeBadge}"
                                    Classes="muted"
+                                   FontSize="28"
+                                   FontWeight="Bold"
+                                   Opacity="0.08"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"/>
                       </Border>
                       <!-- Actual image -->
                       <asyncImage:AdvancedImage Source="{Binding ImageUrl}"
-                                               Stretch="UniformToFill"/>
+                                               Stretch="UniformToFill"
+                                               VerticalAlignment="Center"
+                                               HorizontalAlignment="Center"/>
+                      <!-- Active override badges (top-left stack) -->
+                      <StackPanel VerticalAlignment="Top"
+                                  HorizontalAlignment="Left"
+                                  Margin="8,8,0,0"
+                                  Spacing="4">
+                        <Border Background="#CC000000"
+                                CornerRadius="4"
+                                Padding="6,3"
+                                IsVisible="{Binding IsCoverNow}">
+                          <TextBlock Text="🎨 Cover"
+                                     FontSize="10" FontWeight="SemiBold"
+                                     Foreground="{DynamicResource MgaAccentBrush}"/>
+                        </Border>
+                        <Border Background="#CC000000"
+                                CornerRadius="4"
+                                Padding="6,3"
+                                IsVisible="{Binding IsBackgroundNow}">
+                          <TextBlock Text="🌄 Background"
+                                     FontSize="10" FontWeight="SemiBold"
+                                     Foreground="#c084fc"/>
+                        </Border>
+                        <Border Background="#CC000000"
+                                CornerRadius="4"
+                                Padding="6,3"
+                                IsVisible="{Binding IsHoverNow}">
+                          <TextBlock Text="🖱 Hover"
+                                     FontSize="10" FontWeight="SemiBold"
+                                     Foreground="{DynamicResource MgaWarningBrush}"/>
+                        </Border>
+                      </StackPanel>
                     </Grid>
                   </Border>
 
-                  <!-- Type badge + dimensions -->
-                  <StackPanel Spacing="2">
-                    <TextBlock Text="{Binding TypeBadge}"
-                               FontWeight="{DynamicResource MgaFontWeightSemiBold}"
-                               FontSize="{DynamicResource MgaFontSizeSm}"/>
-                    <TextBlock Text="{Binding Dimensions}"
-                               Classes="muted"
-                               FontSize="{DynamicResource MgaFontSizeXs}"
-                               IsVisible="{Binding Dimensions, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                    <!-- "Current cover" indicator -->
-                    <TextBlock Text="★ Current cover"
-                               Foreground="{DynamicResource MgaAccentBrush}"
-                               FontSize="{DynamicResource MgaFontSizeXs}"
-                               IsVisible="{Binding IsCoverNow}"/>
-                  </StackPanel>
+                  <!-- Info + actions -->
+                  <StackPanel Spacing="8" Margin="12,10,12,12">
 
-                  <!-- Override action buttons -->
-                  <StackPanel Spacing="4">
-                    <Button Classes="ghost"
-                            Content="▶ Preview"
-                            Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SelectAssetCommand}"
-                            CommandParameter="{Binding}"
-                            FontSize="{DynamicResource MgaFontSizeXs}"
-                            HorizontalAlignment="Stretch"/>
-                    <Button Classes="primary"
-                            Content="Set as Cover"
-                            Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetCoverCommand}"
-                            CommandParameter="{Binding}"
-                            FontSize="{DynamicResource MgaFontSizeXs}"
-                            HorizontalAlignment="Stretch"/>
-                    <Button Classes="ghost"
-                            Content="Set as Background"
-                            Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetBackgroundCommand}"
-                            CommandParameter="{Binding}"
-                            FontSize="{DynamicResource MgaFontSizeXs}"
-                            HorizontalAlignment="Stretch"/>
-                    <Button Classes="ghost"
-                            Content="Set as Hover"
-                            Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetHoverCommand}"
-                            CommandParameter="{Binding}"
-                            FontSize="{DynamicResource MgaFontSizeXs}"
-                            HorizontalAlignment="Stretch"/>
-                  </StackPanel>
+                    <!-- Type + dimensions row -->
+                    <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                      <TextBlock Grid.Column="0"
+                                 Text="{Binding TypeBadge}"
+                                 FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                 FontSize="{DynamicResource MgaFontSizeSm}"/>
+                      <TextBlock Grid.Column="1"
+                                 Text="{Binding Dimensions}"
+                                 Classes="muted"
+                                 FontSize="{DynamicResource MgaFontSizeXs}"
+                                 VerticalAlignment="Center"
+                                 IsVisible="{Binding Dimensions, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                    </Grid>
 
+                    <!-- Action buttons -->
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+
+                      <!-- Preview button — always visible -->
+                      <Button Grid.Column="0"
+                              Classes="ghost"
+                              Content="Preview"
+                              Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SelectAssetCommand}"
+                              CommandParameter="{Binding}"
+                              FontSize="{DynamicResource MgaFontSizeXs}"
+                              HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Center"/>
+
+                      <!-- Set as Cover — hidden when already the cover -->
+                      <Button Grid.Column="1"
+                              Classes="primary"
+                              Content="Set as Cover"
+                              Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetCoverCommand}"
+                              CommandParameter="{Binding}"
+                              FontSize="{DynamicResource MgaFontSizeXs}"
+                              HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Center"
+                              IsVisible="{Binding !IsCoverNow}"/>
+
+                      <!-- "Current cover" label when it IS the cover -->
+                      <Border Grid.Column="1"
+                              Background="{DynamicResource MgaAccentMutedBrush}"
+                              CornerRadius="{DynamicResource MgaRadiusSm}"
+                              HorizontalAlignment="Stretch"
+                              IsVisible="{Binding IsCoverNow}">
+                        <TextBlock Text="✓ Cover"
+                                   FontSize="{DynamicResource MgaFontSizeXs}"
+                                   FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                   Foreground="{DynamicResource MgaAccentBrush}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Padding="8,6"/>
+                      </Border>
+
+                    </Grid>
+
+                    <!-- Background + Hover row -->
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                      <Button Grid.Column="0"
+                              Classes="ghost"
+                              Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetBackgroundCommand}"
+                              CommandParameter="{Binding}"
+                              FontSize="{DynamicResource MgaFontSizeXs}"
+                              HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Center"
+                              IsVisible="{Binding !IsBackgroundNow}">
+                        <TextBlock Text="Background" TextTrimming="CharacterEllipsis"/>
+                      </Button>
+                      <Border Grid.Column="0"
+                              Background="#22c084fc"
+                              CornerRadius="{DynamicResource MgaRadiusSm}"
+                              HorizontalAlignment="Stretch"
+                              IsVisible="{Binding IsBackgroundNow}">
+                        <TextBlock Text="✓ Background"
+                                   FontSize="{DynamicResource MgaFontSizeXs}"
+                                   FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                   Foreground="#c084fc"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Padding="8,6"/>
+                      </Border>
+
+                      <Button Grid.Column="1"
+                              Classes="ghost"
+                              Command="{Binding $parent[ItemsControl].((vm:MediaManagerViewModel)DataContext).SetHoverCommand}"
+                              CommandParameter="{Binding}"
+                              FontSize="{DynamicResource MgaFontSizeXs}"
+                              HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Center"
+                              IsVisible="{Binding !IsHoverNow}">
+                        <TextBlock Text="Hover" TextTrimming="CharacterEllipsis"/>
+                      </Button>
+                      <Border Grid.Column="1"
+                              Background="#22fbbf24"
+                              CornerRadius="{DynamicResource MgaRadiusSm}"
+                              HorizontalAlignment="Stretch"
+                              IsVisible="{Binding IsHoverNow}">
+                        <TextBlock Text="✓ Hover"
+                                   FontSize="{DynamicResource MgaFontSizeXs}"
+                                   FontWeight="{DynamicResource MgaFontWeightSemiBold}"
+                                   Foreground="{DynamicResource MgaWarningBrush}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Padding="8,6"/>
+                      </Border>
+                    </Grid>
+
+                  </StackPanel>
                 </StackPanel>
               </Border>
             </DataTemplate>

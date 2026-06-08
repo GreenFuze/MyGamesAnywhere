@@ -203,6 +203,12 @@ public sealed record GameDetail
     [JsonPropertyName("cover_override")]
     public GameMedia? CoverOverride { get; init; }
 
+    [JsonPropertyName("hover_override")]
+    public GameMedia? HoverOverride { get; init; }
+
+    [JsonPropertyName("background_override")]
+    public GameMedia? BackgroundOverride { get; init; }
+
     [JsonPropertyName("achievement_summary")]
     public AchievementSummary? AchievementSummary { get; init; }
 

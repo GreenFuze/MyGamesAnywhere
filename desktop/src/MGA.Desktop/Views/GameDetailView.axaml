@@ -346,15 +346,21 @@
                       Command="{Binding ToggleFavoriteCommand}"
                       ToolTip.Tip="Remove from favorites"
                       IsVisible="{Binding Favorite}"
-                      Padding="8,6">
-                <TextBlock Text="★" FontSize="16" Foreground="{DynamicResource MgaWarningBrush}"/>
+                      Padding="10,6">
+                <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                  <TextBlock Text="★" FontSize="14" Foreground="{DynamicResource MgaWarningBrush}" VerticalAlignment="Center"/>
+                  <TextBlock Text="Favorite" FontSize="12" Foreground="{DynamicResource MgaWarningBrush}" VerticalAlignment="Center"/>
+                </StackPanel>
               </Button>
               <Button Classes="ghost"
                       Command="{Binding ToggleFavoriteCommand}"
                       ToolTip.Tip="Add to favorites"
                       IsVisible="{Binding !Favorite}"
-                      Padding="8,6">
-                <TextBlock Text="☆" FontSize="16" Foreground="{DynamicResource MgaMutedBrush}"/>
+                      Padding="10,6">
+                <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                  <TextBlock Text="☆" FontSize="14" Foreground="{DynamicResource MgaMutedBrush}" VerticalAlignment="Center"/>
+                  <TextBlock Text="Favorite" FontSize="12" Foreground="{DynamicResource MgaMutedBrush}" VerticalAlignment="Center"/>
+                </StackPanel>
               </Button>
 
               <!-- Metadata refresh -->
@@ -362,8 +368,11 @@
                       Command="{Binding RefreshMetadataCommand}"
                       ToolTip.Tip="Refresh metadata from online providers"
                       IsEnabled="{Binding !IsRefreshingMetadata}"
-                      Padding="8,6">
-                <TextBlock Text="↻" FontSize="14" Foreground="{DynamicResource MgaMutedBrush}"/>
+                      Padding="10,6">
+                <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                  <TextBlock Text="↻" FontSize="14" Foreground="{DynamicResource MgaMutedBrush}" VerticalAlignment="Center"/>
+                  <TextBlock Text="Refresh" FontSize="12" Foreground="{DynamicResource MgaMutedBrush}" VerticalAlignment="Center"/>
+                </StackPanel>
               </Button>
 
               <!-- Media manager -->
@@ -371,8 +380,11 @@
                       Command="{Binding OpenMediaManagerCommand}"
                       ToolTip.Tip="Manage cover art and media"
                       IsVisible="{Binding HasMedia}"
-                      Padding="8,6">
-                <TextBlock Text="🖼" FontSize="13"/>
+                      Padding="10,6">
+                <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                  <TextBlock Text="🖼" FontSize="13" VerticalAlignment="Center"/>
+                  <TextBlock Text="Media" FontSize="12" Foreground="{DynamicResource MgaMutedBrush}" VerticalAlignment="Center"/>
+                </StackPanel>
               </Button>
 
             </StackPanel>

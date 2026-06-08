@@ -30,7 +30,13 @@ public sealed class MediaAssetModel
     public string  Dimensions   { get; } = string.Empty;
 
     /// <summary>True when this asset is the current cover override.</summary>
-    public bool   IsCoverNow   { get; }
+    public bool   IsCoverNow        { get; }
+
+    /// <summary>True when this asset is the current hover-image override.</summary>
+    public bool   IsHoverNow        { get; }
+
+    /// <summary>True when this asset is the current background-art override.</summary>
+    public bool   IsBackgroundNow   { get; }
 
     /// <summary>True when this asset is used as cover by any source (not necessarily overridden).</summary>
     public bool   IsDefaultCover { get; }
@@ -56,8 +62,10 @@ public sealed class MediaAssetModel
                        : "Media";
         ImageUrl     = api?.GetMediaUrl(m.Url) ?? m.Url;
         Dimensions   = m.Width > 0 && m.Height > 0 ? $"{m.Width}×{m.Height}" : string.Empty;
-        IsCoverNow   = game.CoverOverride?.AssetId == m.AssetId;
-        IsDefaultCover = m.Type == "cover" && game.CoverOverride is null;
+        IsCoverNow      = game.CoverOverride?.AssetId    == m.AssetId;
+        IsHoverNow      = game.HoverOverride?.AssetId      == m.AssetId;
+        IsBackgroundNow = game.BackgroundOverride?.AssetId == m.AssetId;
+        IsDefaultCover  = m.Type == "cover" && game.CoverOverride is null;
 
         // Derive media-kind flags from type and URL.
         var url = ImageUrl ?? string.Empty;
@@ -114,6 +122,14 @@ public sealed partial class MediaManagerViewModel : ViewModelBase
     /// <summary>True when a cover override is currently set (enables the Clear button).</summary>
     [ObservableProperty]
     private bool _hasCoverOverride;
+
+    /// <summary>True when a hover-image override is currently set.</summary>
+    [ObservableProperty]
+    private bool _hasHoverOverride;
+
+    /// <summary>True when a background-art override is currently set.</summary>
+    [ObservableProperty]
+    private bool _hasBackgroundOverride;
 
     /// <summary>The currently selected asset for the preview panel; null when none.</summary>
     [ObservableProperty]
@@ -282,8 +298,10 @@ public sealed partial class MediaManagerViewModel : ViewModelBase
             // Game detail already includes the full media array.
             var detail = await _server.Api.GetGameAsync(_gameId).ConfigureAwait(true);
 
-            GameTitle      = detail.Title;
-            HasCoverOverride = detail.CoverOverride is not null;
+            GameTitle           = detail.Title;
+            HasCoverOverride      = detail.CoverOverride      is not null;
+            HasHoverOverride      = detail.HoverOverride      is not null;
+            HasBackgroundOverride = detail.BackgroundOverride is not null;
 
             // Sort by type priority: covers first, then backgrounds, then others.
             var sorted = detail.Media

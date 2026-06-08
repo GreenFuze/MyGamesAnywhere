@@ -440,7 +440,8 @@
                               </Border>
                               <!-- Cover art -->
                               <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
-                                                       Stretch="UniformToFill"/>
+                                                       Stretch="UniformToFill"
+                                                       VerticalAlignment="Top"/>
                               <!-- Platform badge — top-right corner -->
                               <Border VerticalAlignment="Top"
                                       HorizontalAlignment="Right"
