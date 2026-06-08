@@ -455,10 +455,10 @@
                                            TextTrimming="CharacterEllipsis"
                                            MaxWidth="72"/>
                               </Border>
-                              <!-- Gradient title overlay -->
+                              <!-- Gradient title + source overlay -->
                               <Border Classes="card-title"
                                       VerticalAlignment="Bottom"
-                                      Padding="8,36,8,9">
+                                      Padding="8,32,8,9">
                                 <Border.Background>
                                   <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
                                     <GradientStop Color="#00000000" Offset="0"/>
@@ -466,11 +466,24 @@
                                     <GradientStop Color="#EE000000" Offset="1"/>
                                   </LinearGradientBrush>
                                 </Border.Background>
-                                <TextBlock Text="{Binding Title}"
-                                           FontSize="12"
-                                           FontWeight="SemiBold"
-                                           TextTrimming="CharacterEllipsis"
-                                           Foreground="#FFFFFF"/>
+                                <StackPanel Spacing="3">
+                                  <!-- Source integration chip -->
+                                  <Border Background="#22FFFFFF"
+                                          CornerRadius="3"
+                                          Padding="5,2"
+                                          HorizontalAlignment="Left"
+                                          IsVisible="{Binding SourceBadge, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                    <TextBlock Text="{Binding SourceBadge}"
+                                               FontSize="8"
+                                               FontWeight="Bold"
+                                               Foreground="#BBFFFFFF"/>
+                                  </Border>
+                                  <TextBlock Text="{Binding Title}"
+                                             FontSize="12"
+                                             FontWeight="SemiBold"
+                                             TextTrimming="CharacterEllipsis"
+                                             Foreground="#FFFFFF"/>
+                                </StackPanel>
                               </Border>
                               <!-- Hover overlay: action buttons appear on hover -->
                               <Border Classes="card-hover-overlay"
@@ -582,7 +595,8 @@
                                              Margin="-20,0"/>
                                 </Border>
                                 <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
-                                                         Stretch="UniformToFill"/>
+                                                         Stretch="UniformToFill"
+                                                         VerticalAlignment="Top"/>
                                 <Border VerticalAlignment="Top"
                                         HorizontalAlignment="Right"
                                         Background="{Binding PlatformBadgeColor}"
@@ -597,7 +611,7 @@
                                 </Border>
                                 <Border Classes="card-title"
                                         VerticalAlignment="Bottom"
-                                        Padding="8,36,8,9">
+                                        Padding="8,32,8,9">
                                   <Border.Background>
                                     <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
                                       <GradientStop Color="#00000000" Offset="0"/>
@@ -605,11 +619,24 @@
                                       <GradientStop Color="#EE000000" Offset="1"/>
                                     </LinearGradientBrush>
                                   </Border.Background>
-                                  <TextBlock Text="{Binding Title}"
-                                             FontSize="12"
-                                             FontWeight="SemiBold"
-                                             TextTrimming="CharacterEllipsis"
-                                             Foreground="#FFFFFF"/>
+                                  <StackPanel Spacing="3">
+                                    <!-- Source integration chip -->
+                                    <Border Background="#22FFFFFF"
+                                            CornerRadius="3"
+                                            Padding="5,2"
+                                            HorizontalAlignment="Left"
+                                            IsVisible="{Binding SourceBadge, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                      <TextBlock Text="{Binding SourceBadge}"
+                                                 FontSize="8"
+                                                 FontWeight="Bold"
+                                                 Foreground="#BBFFFFFF"/>
+                                    </Border>
+                                    <TextBlock Text="{Binding Title}"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="#FFFFFF"/>
+                                  </StackPanel>
                                 </Border>
                                 <!-- Hover overlay: action buttons appear on hover -->
                                 <Border Classes="card-hover-overlay"
@@ -648,27 +675,35 @@
     </ScrollViewer>
 
     <!-- ==========================================================================
-         Virtualized game grid — shown in Grid mode
+         Justified game grid — shown in Grid mode (Google-Photos-style layout)
          ========================================================================== -->
     <ScrollViewer IsVisible="{Binding ShowGridView}">
-      <ac:ItemsRepeater ItemsSource="{Binding FilteredGames}"
-                     Margin="32,0,32,32">
-        <ac:ItemsRepeater.Layout>
-          <al:UniformGridLayout MinItemWidth="170" MinItemHeight="240"
-                             MinColumnSpacing="14" MinRowSpacing="14"/>
-        </ac:ItemsRepeater.Layout>
-        <ac:ItemsRepeater.ItemTemplate>
+      <ItemsControl ItemsSource="{Binding FilteredGames}"
+                    Margin="32,0,32,32">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <controls:JustifiedPanel TargetRowHeight="210" Spacing="12"/>
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="vm:GameCardModel">
-            <Grid Width="170" Height="240">
+            <!--
+              AspectRatio tells JustifiedPanel how wide this card wants to be at the target row height.
+              The panel reads this attached property from the DataTemplate root (Grid) via ContentPresenter.Child.
+            -->
+            <Grid controls:JustifiedPanel.AspectRatio="{Binding CoverAspectRatio}"
+                  HorizontalAlignment="Stretch"
+                  VerticalAlignment="Stretch">
 
               <!-- Normal navigation card — hidden in bulk-select mode -->
               <Button Classes="game-card"
-                      Command="{Binding $parent[ac:ItemsRepeater].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
+                      Command="{Binding $parent[ItemsControl].((vm:LibraryViewModel)DataContext).OpenGameCommand}"
                       CommandParameter="{Binding Id}"
-                      Width="170" Height="240"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch"
                       Background="Transparent" BorderThickness="0" Padding="0"
                       Cursor="Hand"
-                      IsVisible="{Binding $parent[ac:ItemsRepeater].((vm:LibraryViewModel)DataContext).IsBulkSelectMode, Converter={x:Static BoolConverters.Not}}">
+                      IsVisible="{Binding $parent[ItemsControl].((vm:LibraryViewModel)DataContext).IsBulkSelectMode, Converter={x:Static BoolConverters.Not}}">
                 <Panel>
                   <Border Classes="card-glow"
                           CornerRadius="{DynamicResource MgaRadiusLg}"
@@ -678,6 +713,7 @@
                           Background="{DynamicResource MgaSurfaceBrush}"
                           ClipToBounds="True">
                     <Grid>
+                      <!-- Gradient placeholder background with faint title watermark -->
                       <Border>
                         <Border.Background>
                           <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
@@ -695,8 +731,11 @@
                                    Foreground="{DynamicResource MgaAccentBrush}"
                                    Margin="-20,0"/>
                       </Border>
+                      <!-- Cover art — top-anchored so title/logo is preserved -->
                       <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
-                                               Stretch="UniformToFill"/>
+                                               Stretch="UniformToFill"
+                                               VerticalAlignment="Top"/>
+                      <!-- Platform badge — top-right corner -->
                       <Border VerticalAlignment="Top"
                               HorizontalAlignment="Right"
                               Background="{Binding PlatformBadgeColor}"
@@ -709,9 +748,10 @@
                                    TextTrimming="CharacterEllipsis"
                                    MaxWidth="72"/>
                       </Border>
+                      <!-- Gradient title + source overlay -->
                       <Border Classes="card-title"
                               VerticalAlignment="Bottom"
-                              Padding="8,36,8,9">
+                              Padding="8,32,8,9">
                         <Border.Background>
                           <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
                             <GradientStop Color="#00000000" Offset="0"/>
@@ -719,13 +759,26 @@
                             <GradientStop Color="#EE000000" Offset="1"/>
                           </LinearGradientBrush>
                         </Border.Background>
-                        <TextBlock Text="{Binding Title}"
-                                   FontSize="12"
-                                   FontWeight="SemiBold"
-                                   TextTrimming="CharacterEllipsis"
-                                   Foreground="#FFFFFF"/>
+                        <StackPanel Spacing="3">
+                          <!-- Source integration chip -->
+                          <Border Background="#22FFFFFF"
+                                  CornerRadius="3"
+                                  Padding="5,2"
+                                  HorizontalAlignment="Left"
+                                  IsVisible="{Binding SourceBadge, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                            <TextBlock Text="{Binding SourceBadge}"
+                                       FontSize="8"
+                                       FontWeight="Bold"
+                                       Foreground="#BBFFFFFF"/>
+                          </Border>
+                          <TextBlock Text="{Binding Title}"
+                                     FontSize="12"
+                                     FontWeight="SemiBold"
+                                     TextTrimming="CharacterEllipsis"
+                                     Foreground="#FFFFFF"/>
+                        </StackPanel>
                       </Border>
-                      <!-- Hover overlay: action buttons appear on hover -->
+                      <!-- Hover overlay: Play button on hover -->
                       <Border Classes="card-hover-overlay"
                               VerticalAlignment="Stretch"
                               HorizontalAlignment="Stretch"
@@ -749,11 +802,13 @@
                 </Panel>
               </Button>
 
-              <!-- Bulk-select overlay — visible in bulk-select mode (card + checkbox) -->
+              <!-- Bulk-select overlay — visible in bulk-select mode -->
               <Border CornerRadius="{DynamicResource MgaRadiusLg}"
                       Background="{DynamicResource MgaSurfaceBrush}"
                       ClipToBounds="True"
-                      IsVisible="{Binding $parent[ac:ItemsRepeater].((vm:LibraryViewModel)DataContext).IsBulkSelectMode}">
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch"
+                      IsVisible="{Binding $parent[ItemsControl].((vm:LibraryViewModel)DataContext).IsBulkSelectMode}">
                 <Grid>
                   <!-- Gradient placeholder -->
                   <Border>
@@ -774,9 +829,10 @@
                                Margin="-20,0"/>
                   </Border>
                   <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
-                                           Stretch="UniformToFill"/>
-                  <!-- Gradient title overlay -->
-                  <Border VerticalAlignment="Bottom" Padding="8,36,8,9">
+                                           Stretch="UniformToFill"
+                                           VerticalAlignment="Top"/>
+                  <!-- Gradient title + source overlay -->
+                  <Border VerticalAlignment="Bottom" Padding="8,32,8,9">
                     <Border.Background>
                       <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
                         <GradientStop Color="#00000000" Offset="0"/>
@@ -784,16 +840,28 @@
                         <GradientStop Color="#EE000000" Offset="1"/>
                       </LinearGradientBrush>
                     </Border.Background>
-                    <TextBlock Text="{Binding Title}"
-                               FontSize="12"
-                               FontWeight="SemiBold"
-                               TextTrimming="CharacterEllipsis"
-                               Foreground="#FFFFFF"/>
+                    <StackPanel Spacing="3">
+                      <Border Background="#22FFFFFF"
+                              CornerRadius="3"
+                              Padding="5,2"
+                              HorizontalAlignment="Left"
+                              IsVisible="{Binding SourceBadge, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <TextBlock Text="{Binding SourceBadge}"
+                                   FontSize="8"
+                                   FontWeight="Bold"
+                                   Foreground="#BBFFFFFF"/>
+                      </Border>
+                      <TextBlock Text="{Binding Title}"
+                                 FontSize="12"
+                                 FontWeight="SemiBold"
+                                 TextTrimming="CharacterEllipsis"
+                                 Foreground="#FFFFFF"/>
+                    </StackPanel>
                   </Border>
                   <!-- Selection tint when checked -->
                   <Border Background="#553db8ff"
                           IsVisible="{Binding IsSelected}"/>
-                  <!-- Checkbox in top-left corner -->
+                  <!-- Checkbox — top-left corner -->
                   <CheckBox IsChecked="{Binding IsSelected}"
                             HorizontalAlignment="Left"
                             VerticalAlignment="Top"
@@ -803,8 +871,8 @@
 
             </Grid>
           </DataTemplate>
-        </ac:ItemsRepeater.ItemTemplate>
-      </ac:ItemsRepeater>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
     </ScrollViewer>
 
   </DockPanel>

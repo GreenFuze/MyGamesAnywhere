@@ -64,6 +64,20 @@ public sealed partial class GameCardModel : ObservableObject
     public string IntegrationLabel { get; init; } = string.Empty;
 
     /// <summary>
+    /// Short abbreviated display label for the primary source integration,
+    /// shown as a badge chip on the game card (e.g. "STEAM", "XBOX", "GDRIVE").
+    /// Empty string when no source is known.
+    /// </summary>
+    public string SourceBadge { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Natural aspect ratio of the cover image (width ÷ height).
+    /// Used by <see cref="Controls.JustifiedPanel"/> to size card tiles.
+    /// Defaults to 2/3 (portrait game cover) when cover dimensions are unknown.
+    /// </summary>
+    public double CoverAspectRatio { get; init; } = 2.0 / 3.0;
+
+    /// <summary>
     /// Full source-game info for each source attached to this canonical game.
     /// Carries PluginId + ExternalId for client-side install detection,
     /// and SourceGameId for bulk hard-delete operations.
@@ -112,6 +126,33 @@ public sealed partial class GameCardModel : ObservableObject
     private static string GetPlatformBadgeColor(string? slug) =>
         PlatformHelper.GetBadgeColor(slug);
 
+    /// <summary>
+    /// Converts an integration label into a short uppercase badge string
+    /// suitable for display on a game card (max ~8 characters).
+    /// </summary>
+    private static string FormatSourceBadge(string label)
+    {
+        if (string.IsNullOrWhiteSpace(label)) return string.Empty;
+        var upper = label.Trim().ToUpperInvariant();
+        return upper switch
+        {
+            _ when upper.StartsWith("STEAM",           StringComparison.Ordinal) => "STEAM",
+            _ when upper.StartsWith("XBOX",            StringComparison.Ordinal) => "XBOX",
+            _ when upper.StartsWith("GOOGLE DRIVE",    StringComparison.Ordinal) => "GDRIVE",
+            _ when upper.StartsWith("GDRIVE",          StringComparison.Ordinal) => "GDRIVE",
+            _ when upper.StartsWith("NETWORK SHARE",   StringComparison.Ordinal) => "SMB",
+            _ when upper.StartsWith("SMB",             StringComparison.Ordinal) => "SMB",
+            _ when upper.StartsWith("RETROACHIEVEMENTS", StringComparison.Ordinal) => "RETRO",
+            _ when upper.StartsWith("ITCH",            StringComparison.Ordinal) => "ITCH.IO",
+            _ when upper.StartsWith("EPIC GAMES",      StringComparison.Ordinal) => "EPIC",
+            _ when upper.StartsWith("EPIC",            StringComparison.Ordinal) => "EPIC",
+            _ when upper.StartsWith("GOG",             StringComparison.Ordinal) => "GOG",
+            _ when upper.StartsWith("PLAYSTATION",     StringComparison.Ordinal) => "PSN",
+            _ when upper.Length <= 8                                              => upper,
+            _                                                                     => upper[..8],
+        };
+    }
+
     // ---------------------------------------------------------------------------
     // Constructors
     // ---------------------------------------------------------------------------
@@ -158,6 +199,13 @@ public sealed partial class GameCardModel : ObservableObject
                           ? api.GetMediaUrl(bgMedia.Url)
                           : null;
 
+        // Cover aspect ratio from actual media dimensions (falls back to 2:3 portrait).
+        var coverW = coverMedia?.Width  ?? 0;
+        var coverH = coverMedia?.Height ?? 0;
+        CoverAspectRatio = (coverW > 0 && coverH > 0)
+                           ? (double)coverW / coverH
+                           : 2.0 / 3.0;
+
         Id                 = g.Id;
         Title              = g.Title;
         Platform           = FormatPlatform(g.Platform);
@@ -180,9 +228,9 @@ public sealed partial class GameCardModel : ObservableObject
         Developer          = g.Developer ?? string.Empty;
         Publisher          = g.Publisher ?? string.Empty;
         Genres             = g.Genres;
-        IntegrationLabel   = g.SourceGames.FirstOrDefault()?.IntegrationLabel
-                             ?? g.SourceGames.FirstOrDefault()?.IntegrationId
-                             ?? string.Empty;
+        var firstSg        = g.SourceGames.FirstOrDefault();
+        IntegrationLabel   = firstSg?.IntegrationLabel ?? firstSg?.IntegrationId ?? string.Empty;
+        SourceBadge        = FormatSourceBadge(IntegrationLabel);
 
         // Build SourceGameInfo list for client-side install detection.
         Sources = g.SourceGames.Select(sg => new SourceGameInfo
