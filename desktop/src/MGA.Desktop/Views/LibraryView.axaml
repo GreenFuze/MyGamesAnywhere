@@ -468,7 +468,7 @@
                                 </Border.Background>
                                 <StackPanel Spacing="3">
                                   <!-- Source integration chip -->
-                                  <Border Background="#22FFFFFF"
+                                  <Border Background="{Binding SourceBadgeBackground}"
                                           CornerRadius="3"
                                           Padding="5,2"
                                           HorizontalAlignment="Left"
@@ -476,7 +476,7 @@
                                     <TextBlock Text="{Binding SourceBadge}"
                                                FontSize="8"
                                                FontWeight="Bold"
-                                               Foreground="#BBFFFFFF"/>
+                                               Foreground="{Binding SourceBadgeForeground}"/>
                                   </Border>
                                   <TextBlock Text="{Binding Title}"
                                              FontSize="12"
@@ -621,7 +621,7 @@
                                   </Border.Background>
                                   <StackPanel Spacing="3">
                                     <!-- Source integration chip -->
-                                    <Border Background="#22FFFFFF"
+                                    <Border Background="{Binding SourceBadgeBackground}"
                                             CornerRadius="3"
                                             Padding="5,2"
                                             HorizontalAlignment="Left"
@@ -629,7 +629,7 @@
                                       <TextBlock Text="{Binding SourceBadge}"
                                                  FontSize="8"
                                                  FontWeight="Bold"
-                                                 Foreground="#BBFFFFFF"/>
+                                                 Foreground="{Binding SourceBadgeForeground}"/>
                                     </Border>
                                     <TextBlock Text="{Binding Title}"
                                                FontSize="12"
@@ -731,9 +731,11 @@
                                    Foreground="{DynamicResource MgaAccentBrush}"
                                    Margin="-20,0"/>
                       </Border>
-                      <!-- Cover art — top-anchored so title/logo is preserved -->
+                      <!-- Cover art — Stretch=Uniform so the full image is visible without cropping.
+                           JustifiedPanel sizes each cell to the cover's natural aspect ratio,
+                           so there should be no letterboxing for games with known dimensions. -->
                       <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
-                                               Stretch="UniformToFill"
+                                               Stretch="Uniform"
                                                VerticalAlignment="Top"/>
                       <!-- Platform badge — top-right corner -->
                       <Border VerticalAlignment="Top"
@@ -761,7 +763,7 @@
                         </Border.Background>
                         <StackPanel Spacing="3">
                           <!-- Source integration chip -->
-                          <Border Background="#22FFFFFF"
+                          <Border Background="{Binding SourceBadgeBackground}"
                                   CornerRadius="3"
                                   Padding="5,2"
                                   HorizontalAlignment="Left"
@@ -769,7 +771,7 @@
                             <TextBlock Text="{Binding SourceBadge}"
                                        FontSize="8"
                                        FontWeight="Bold"
-                                       Foreground="#BBFFFFFF"/>
+                                       Foreground="{Binding SourceBadgeForeground}"/>
                           </Border>
                           <TextBlock Text="{Binding Title}"
                                      FontSize="12"
@@ -829,7 +831,7 @@
                                Margin="-20,0"/>
                   </Border>
                   <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
-                                           Stretch="UniformToFill"
+                                           Stretch="Uniform"
                                            VerticalAlignment="Top"/>
                   <!-- Gradient title + source overlay -->
                   <Border VerticalAlignment="Bottom" Padding="8,32,8,9">
@@ -841,7 +843,7 @@
                       </LinearGradientBrush>
                     </Border.Background>
                     <StackPanel Spacing="3">
-                      <Border Background="#22FFFFFF"
+                      <Border Background="{Binding SourceBadgeBackground}"
                               CornerRadius="3"
                               Padding="5,2"
                               HorizontalAlignment="Left"
@@ -849,7 +851,7 @@
                         <TextBlock Text="{Binding SourceBadge}"
                                    FontSize="8"
                                    FontWeight="Bold"
-                                   Foreground="#BBFFFFFF"/>
+                                   Foreground="{Binding SourceBadgeForeground}"/>
                       </Border>
                       <TextBlock Text="{Binding Title}"
                                  FontSize="12"

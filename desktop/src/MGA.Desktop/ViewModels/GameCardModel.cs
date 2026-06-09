@@ -70,6 +70,12 @@ public sealed partial class GameCardModel : ObservableObject
     /// </summary>
     public string SourceBadge { get; init; } = string.Empty;
 
+    /// <summary>Source-tinted ARGB hex color for the source badge chip background (e.g. "#33107C10").</summary>
+    public string SourceBadgeBackground { get; init; } = "#33FFFFFF";
+
+    /// <summary>Source-tinted ARGB hex color for the source badge chip text (e.g. "#BB52C440").</summary>
+    public string SourceBadgeForeground { get; init; } = "#BBFFFFFF";
+
     /// <summary>
     /// Natural aspect ratio of the cover image (width ÷ height).
     /// Used by <see cref="Controls.JustifiedPanel"/> to size card tiles.
@@ -127,31 +133,75 @@ public sealed partial class GameCardModel : ObservableObject
         PlatformHelper.GetBadgeColor(slug);
 
     /// <summary>
-    /// Converts an integration label into a short uppercase badge string
+    /// Converts an integration label (or plugin ID) into a short uppercase badge string
     /// suitable for display on a game card (max ~8 characters).
+    /// Plugin ID is checked first as it is more canonical than the display label.
     /// </summary>
-    private static string FormatSourceBadge(string label)
+    private static string FormatSourceBadge(string label, string pluginId)
     {
+        // PluginId-based matching — more reliable than display labels which vary by plugin author.
+        if (!string.IsNullOrWhiteSpace(pluginId))
+        {
+            var pid = pluginId.Trim().ToLowerInvariant();
+            if (pid.Contains("steam",       StringComparison.Ordinal)) return "STEAM";
+            if (pid.Contains("xbox",        StringComparison.Ordinal) ||
+                pid.Contains("gamepass",    StringComparison.Ordinal) ||
+                pid.Contains("game_pass",   StringComparison.Ordinal)) return "XBOX";
+            if (pid.Contains("googl",       StringComparison.Ordinal) ||
+                pid.Contains("gdrive",      StringComparison.Ordinal) ||
+                pid.Contains("drive",       StringComparison.Ordinal)) return "GDRIVE";
+            if (pid.Contains("smb",         StringComparison.Ordinal) ||
+                pid.Contains("network",     StringComparison.Ordinal) ||
+                pid.Contains("share",       StringComparison.Ordinal)) return "SMB";
+            if (pid.Contains("retroachiev", StringComparison.Ordinal) ||
+                pid.Contains("retro_ach",   StringComparison.Ordinal)) return "RETRO";
+            if (pid.Contains("itch",        StringComparison.Ordinal)) return "ITCH.IO";
+            if (pid.Contains("epic",        StringComparison.Ordinal)) return "EPIC";
+            if (pid.Contains("gog",         StringComparison.Ordinal)) return "GOG";
+        }
+
+        // Label-based fallback — handles cases where PluginId is absent or unknown.
         if (string.IsNullOrWhiteSpace(label)) return string.Empty;
         var upper = label.Trim().ToUpperInvariant();
         return upper switch
         {
-            _ when upper.StartsWith("STEAM",           StringComparison.Ordinal) => "STEAM",
-            _ when upper.StartsWith("XBOX",            StringComparison.Ordinal) => "XBOX",
-            _ when upper.StartsWith("GOOGLE DRIVE",    StringComparison.Ordinal) => "GDRIVE",
-            _ when upper.StartsWith("GDRIVE",          StringComparison.Ordinal) => "GDRIVE",
-            _ when upper.StartsWith("NETWORK SHARE",   StringComparison.Ordinal) => "SMB",
-            _ when upper.StartsWith("SMB",             StringComparison.Ordinal) => "SMB",
+            _ when upper.StartsWith("STEAM",             StringComparison.Ordinal) => "STEAM",
+            _ when upper.StartsWith("XBOX",              StringComparison.Ordinal) => "XBOX",
+            _ when upper.StartsWith("GOOGLE DRIVE",      StringComparison.Ordinal) => "GDRIVE",
+            _ when upper.StartsWith("GDRIVE",            StringComparison.Ordinal) => "GDRIVE",
+            _ when upper.Contains("GOOGL",               StringComparison.Ordinal) => "GDRIVE",
+            _ when upper.StartsWith("NETWORK SHARE",     StringComparison.Ordinal) => "SMB",
+            _ when upper.StartsWith("SMB",               StringComparison.Ordinal) => "SMB",
             _ when upper.StartsWith("RETROACHIEVEMENTS", StringComparison.Ordinal) => "RETRO",
-            _ when upper.StartsWith("ITCH",            StringComparison.Ordinal) => "ITCH.IO",
-            _ when upper.StartsWith("EPIC GAMES",      StringComparison.Ordinal) => "EPIC",
-            _ when upper.StartsWith("EPIC",            StringComparison.Ordinal) => "EPIC",
-            _ when upper.StartsWith("GOG",             StringComparison.Ordinal) => "GOG",
-            _ when upper.StartsWith("PLAYSTATION",     StringComparison.Ordinal) => "PSN",
-            _ when upper.Length <= 8                                              => upper,
-            _                                                                     => upper[..8],
+            _ when upper.StartsWith("ITCH",              StringComparison.Ordinal) => "ITCH.IO",
+            _ when upper.StartsWith("EPIC GAMES",        StringComparison.Ordinal) => "EPIC",
+            _ when upper.StartsWith("EPIC",              StringComparison.Ordinal) => "EPIC",
+            _ when upper.StartsWith("GOG",               StringComparison.Ordinal) => "GOG",
+            _ when upper.StartsWith("PLAYSTATION",       StringComparison.Ordinal) => "PSN",
+            _ when upper.Length <= 8                                                => upper,
+            _                                                                       => upper[..8],
         };
     }
+
+    /// <summary>
+    /// Returns per-source (background, foreground) ARGB hex color pairs for a badge chip.
+    /// Backgrounds use 20 % opacity to tint without overwhelming the card art;
+    /// foregrounds use 73 % opacity so the label reads cleanly over any cover.
+    /// </summary>
+    private static (string background, string foreground) GetSourceBadgeColors(string badge) =>
+        badge switch
+        {
+            "STEAM"   => ("#33162D50", "#BB64B5D6"),  // Steam slate-blue bg + teal text
+            "XBOX"    => ("#33107C10", "#BB52C440"),  // Xbox green bg + bright-green text
+            "GDRIVE"  => ("#334285F4", "#BB80B4FF"),  // Google blue bg + light-blue text
+            "SMB"     => ("#3364748B", "#BB94A3B8"),  // Slate bg + slate text
+            "RETRO"   => ("#33B45309", "#BBFCD34D"),  // Amber bg + yellow text
+            "ITCH.IO" => ("#33CC2444", "#BBF87171"),  // Itch.io red bg + pink text
+            "EPIC"    => ("#332563EB", "#BB93C5FD"),  // Epic blue bg + light-blue text
+            "GOG"     => ("#33CC7722", "#BBF97316"),  // GOG orange bg + orange text
+            "PSN"     => ("#330066CC", "#BB60A5FA"),  // PlayStation blue bg + light-blue text
+            _         => ("#33FFFFFF", "#BBFFFFFF"),  // Default: white translucent
+        };
 
     // ---------------------------------------------------------------------------
     // Constructors
@@ -230,7 +280,8 @@ public sealed partial class GameCardModel : ObservableObject
         Genres             = g.Genres;
         var firstSg        = g.SourceGames.FirstOrDefault();
         IntegrationLabel   = firstSg?.IntegrationLabel ?? firstSg?.IntegrationId ?? string.Empty;
-        SourceBadge        = FormatSourceBadge(IntegrationLabel);
+        SourceBadge        = FormatSourceBadge(IntegrationLabel, firstSg?.PluginId ?? string.Empty);
+        (SourceBadgeBackground, SourceBadgeForeground) = GetSourceBadgeColors(SourceBadge);
 
         // Build SourceGameInfo list for client-side install detection.
         Sources = g.SourceGames.Select(sg => new SourceGameInfo
