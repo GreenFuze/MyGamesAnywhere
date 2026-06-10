@@ -515,7 +515,7 @@ public sealed class MgaApiService
     /// <summary>Sets the cover-art override for a game via PUT /api/games/{id}/cover-override.</summary>
     public async Task SetCoverOverrideAsync(string gameId, int assetId, CancellationToken ct = default)
     {
-        var body = new { asset_id = assetId };
+        var body = new { media_asset_id = assetId };
         var resp = await _http.PutAsJsonAsync(
             $"/api/games/{Uri.EscapeDataString(gameId)}/cover-override", body, JsonOptions, ct).ConfigureAwait(false);
         await EnsureSuccess(resp, ct).ConfigureAwait(false);
@@ -532,7 +532,7 @@ public sealed class MgaApiService
     /// <summary>Sets the background-art override via PUT /api/games/{id}/background-override.</summary>
     public async Task SetBackgroundOverrideAsync(string gameId, int assetId, CancellationToken ct = default)
     {
-        var body = new { asset_id = assetId };
+        var body = new { media_asset_id = assetId };
         var resp = await _http.PutAsJsonAsync(
             $"/api/games/{Uri.EscapeDataString(gameId)}/background-override", body, JsonOptions, ct).ConfigureAwait(false);
         await EnsureSuccess(resp, ct).ConfigureAwait(false);
@@ -541,7 +541,7 @@ public sealed class MgaApiService
     /// <summary>Sets the hover-image override via PUT /api/games/{id}/hover-override.</summary>
     public async Task SetHoverOverrideAsync(string gameId, int assetId, CancellationToken ct = default)
     {
-        var body = new { asset_id = assetId };
+        var body = new { media_asset_id = assetId };
         var resp = await _http.PutAsJsonAsync(
             $"/api/games/{Uri.EscapeDataString(gameId)}/hover-override", body, JsonOptions, ct).ConfigureAwait(false);
         await EnsureSuccess(resp, ct).ConfigureAwait(false);

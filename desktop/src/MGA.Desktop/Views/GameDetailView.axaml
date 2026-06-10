@@ -382,7 +382,9 @@
                       IsVisible="{Binding HasMedia}"
                       Padding="10,6">
                 <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
-                  <TextBlock Text="🖼" FontSize="13" VerticalAlignment="Center"/>
+                  <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets"
+                             FontSize="13" VerticalAlignment="Center"
+                             Foreground="{DynamicResource MgaMutedBrush}"/>
                   <TextBlock Text="Media" FontSize="12" Foreground="{DynamicResource MgaMutedBrush}" VerticalAlignment="Center"/>
                 </StackPanel>
               </Button>
