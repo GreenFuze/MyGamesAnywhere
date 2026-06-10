@@ -552,6 +552,28 @@ public sealed partial class LibraryViewModel : ViewModelBase
         var cards = games.Select(ToCard).ToList();
         Games      = new ObservableCollection<GameCardModel>(cards);
         TotalCount = total;
+
+        // Pre-warm the media cache in background: covers + preview art for all games.
+        // On the next visit (or next launch) images come from disk instead of the network.
+        if (_mediaCache is not null)
+            _ = _mediaCache.WarmAsync(games.SelectMany(CollectMediaUrls).OfType<string>());
+    }
+
+    /// <summary>
+    /// Collects raw remote media URLs (cover + preview) for a game.
+    /// Used to pre-warm <see cref="MediaCacheService"/> after each game list load.
+    /// </summary>
+    private IEnumerable<string?> CollectMediaUrls(MGA.Api.GameDetail g)
+    {
+        if (_server.Api is null) yield break;
+        var api = _server.Api;
+
+        var cover = g.CoverOverride ?? g.Media.FirstOrDefault(m => m.Type == "cover");
+        if (cover is not null) yield return api.GetMediaUrl(cover.Url);
+
+        var preview = g.Media.FirstOrDefault(m =>
+            m.Type is "hover" or "background" or "screenshot" or "header");
+        if (preview is not null) yield return api.GetMediaUrl(preview.Url);
     }
 
     // ---------------------------------------------------------------------------

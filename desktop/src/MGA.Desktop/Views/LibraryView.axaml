@@ -679,6 +679,7 @@
          ========================================================================== -->
     <ScrollViewer IsVisible="{Binding ShowGridView}">
       <ItemsControl ItemsSource="{Binding FilteredGames}"
+                    Classes="game-grid"
                     Margin="32,0,32,32">
         <ItemsControl.ItemsPanel>
           <ItemsPanelTemplate>
@@ -691,7 +692,13 @@
               AspectRatio tells JustifiedPanel how wide this card wants to be at the target row height.
               The panel reads this attached property from the DataTemplate root (Grid) via ContentPresenter.Child.
             -->
+            <!--
+              "justified-cell" class is read by JustifiedImage: once the bitmap loads it
+              walks up to this Grid and updates AspectRatio to the actual image dimensions,
+              causing JustifiedPanel to re-measure and show the true proportions.
+            -->
             <Grid controls:JustifiedPanel.AspectRatio="{Binding CoverAspectRatio}"
+                  Classes="justified-cell"
                   HorizontalAlignment="Stretch"
                   VerticalAlignment="Stretch">
 
@@ -704,6 +711,7 @@
                       Background="Transparent" BorderThickness="0" Padding="0"
                       Cursor="Hand"
                       IsVisible="{Binding $parent[ItemsControl].((vm:LibraryViewModel)DataContext).IsBulkSelectMode, Converter={x:Static BoolConverters.Not}}">
+
                 <Panel>
                   <Border Classes="card-glow"
                           CornerRadius="{DynamicResource MgaRadiusLg}"
@@ -731,12 +739,14 @@
                                    Foreground="{DynamicResource MgaAccentBrush}"
                                    Margin="-20,0"/>
                       </Border>
-                      <!-- Cover art — Stretch=Uniform so the full image is visible without cropping.
-                           JustifiedPanel sizes each cell to the cover's natural aspect ratio,
-                           so there should be no letterboxing for games with known dimensions. -->
-                      <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
-                                               Stretch="Uniform"
-                                               VerticalAlignment="Top"/>
+                      <!-- Cover art — using Image+ImageLoader.Source so TrackBitmapSize receives
+                           an Image directly (not a wrapped TemplatedControl), guaranteeing
+                           that the SourceProperty observable fires for aspect-ratio correction. -->
+                      <Image asyncImage:ImageLoader.Source="{Binding CoverUrl}"
+                             Stretch="Uniform"
+                             VerticalAlignment="Center"
+                             HorizontalAlignment="Center"
+                             controls:JustifiedPanel.TrackBitmapSize="True"/>
                       <!-- Platform badge — top-right corner -->
                       <Border VerticalAlignment="Top"
                               HorizontalAlignment="Right"
@@ -750,7 +760,7 @@
                                    TextTrimming="CharacterEllipsis"
                                    MaxWidth="72"/>
                       </Border>
-                      <!-- Gradient title + source overlay -->
+                      <!-- Gradient title overlay -->
                       <Border Classes="card-title"
                               VerticalAlignment="Bottom"
                               Padding="8,32,8,9">
@@ -761,17 +771,26 @@
                             <GradientStop Color="#EE000000" Offset="1"/>
                           </LinearGradientBrush>
                         </Border.Background>
-                        <StackPanel Spacing="3">
-                          <!-- Source integration chip -->
+                        <StackPanel Spacing="4">
+                          <!-- Source integration badge — icon when available, text fallback -->
                           <Border Background="{Binding SourceBadgeBackground}"
-                                  CornerRadius="3"
-                                  Padding="5,2"
+                                  CornerRadius="5"
+                                  Padding="4,2,6,2"
                                   HorizontalAlignment="Left"
                                   IsVisible="{Binding SourceBadge, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                            <TextBlock Text="{Binding SourceBadge}"
-                                       FontSize="8"
-                                       FontWeight="Bold"
-                                       Foreground="{Binding SourceBadgeForeground}"/>
+                            <StackPanel Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+                              <!-- Brand icon (shown when server icon URL is known) -->
+                              <asyncImage:AdvancedImage Source="{Binding SourceBadgeIconUrl}"
+                                                        Width="12" Height="12"
+                                                        Stretch="Uniform"
+                                                        IsVisible="{Binding HasSourceIcon}"/>
+                              <!-- Text label (fallback when no icon available) -->
+                              <TextBlock Text="{Binding SourceBadge}"
+                                         FontSize="8"
+                                         FontWeight="Bold"
+                                         Foreground="{Binding SourceBadgeForeground}"
+                                         IsVisible="{Binding !HasSourceIcon}"/>
+                            </StackPanel>
                           </Border>
                           <TextBlock Text="{Binding Title}"
                                      FontSize="12"
@@ -780,23 +799,30 @@
                                      Foreground="#FFFFFF"/>
                         </StackPanel>
                       </Border>
-                      <!-- Hover overlay: Play button on hover -->
+                      <!-- Hover overlay: action buttons fade in at the bottom on hover.
+                           No preview image overlay — the card already shows the cover.
+                           Clicking navigates to game detail; no inline play from grid. -->
                       <Border Classes="card-hover-overlay"
                               VerticalAlignment="Stretch"
                               HorizontalAlignment="Stretch"
                               IsHitTestVisible="False">
-                        <Border VerticalAlignment="Bottom"
-                                Padding="7,0,7,8">
-                          <StackPanel Spacing="4">
-                            <Border Background="#AA000000"
-                                    CornerRadius="6"
-                                    Padding="0,5">
+                        <Border VerticalAlignment="Bottom" Padding="7,0,7,8">
+                          <Border Background="#AA000000" CornerRadius="6" Padding="6,5">
+                            <StackPanel Orientation="Horizontal"
+                                        HorizontalAlignment="Center"
+                                        Spacing="10">
                               <TextBlock Text="▶  Play"
                                          FontSize="11" FontWeight="SemiBold"
                                          Foreground="#FFFFFF"
-                                         HorizontalAlignment="Center"/>
-                            </Border>
-                          </StackPanel>
+                                         IsVisible="{Binding CanPlay}"/>
+                              <TextBlock Text="·"
+                                         FontSize="11" Foreground="#55FFFFFF"
+                                         IsVisible="{Binding CanPlay}"/>
+                              <TextBlock Text="Details"
+                                         FontSize="11" FontWeight="Medium"
+                                         Foreground="#BBFFFFFF"/>
+                            </StackPanel>
+                          </Border>
                         </Border>
                       </Border>
                     </Grid>
@@ -830,9 +856,10 @@
                                Foreground="{DynamicResource MgaAccentBrush}"
                                Margin="-20,0"/>
                   </Border>
-                  <asyncImage:AdvancedImage Source="{Binding CoverUrl}"
-                                           Stretch="Uniform"
-                                           VerticalAlignment="Top"/>
+                  <Image asyncImage:ImageLoader.Source="{Binding CoverUrl}"
+                         Stretch="Uniform"
+                         VerticalAlignment="Top"
+                         controls:JustifiedPanel.TrackBitmapSize="True"/>
                   <!-- Gradient title + source overlay -->
                   <Border VerticalAlignment="Bottom" Padding="8,32,8,9">
                     <Border.Background>

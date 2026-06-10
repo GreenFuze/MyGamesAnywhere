@@ -24,9 +24,11 @@
 
         <!-- =================================================================
              HERO BANNER — cinematic featured-game spotlight
+             Hidden once detection is done and no games are playable.
              ================================================================= -->
         <Border Height="360"
-                ClipToBounds="True">
+                ClipToBounds="True"
+                IsVisible="{Binding !IsEmptyAfterDetection}">
           <Grid>
 
             <!-- Atmospheric background: best available preview (hover > background > screenshot/header) -->
@@ -273,9 +275,10 @@
                    Margin="32,8,32,20"/>
 
         <!-- =================================================================
-             ALL GAMES — section heading
+             ALL GAMES — section heading (hidden when empty after detection)
              ================================================================= -->
-        <Border Padding="32,0,32,12">
+        <Border Padding="32,0,32,12"
+                IsVisible="{Binding !IsEmptyAfterDetection}">
           <Grid ColumnDefinitions="3,Auto,Auto,*">
             <Border Grid.Column="0"
                     Background="{DynamicResource MgaAccentBrush}"
@@ -299,7 +302,8 @@
              Items render in a wrapping grid; cover images come from local cache.
              ================================================================= -->
         <ac:ItemsRepeater ItemsSource="{Binding Games}"
-                          Margin="32,0,32,32">
+                          Margin="32,0,32,32"
+                          IsVisible="{Binding !IsEmptyAfterDetection}">
           <ac:ItemsRepeater.Layout>
             <al:UniformGridLayout MinItemWidth="170" MinItemHeight="240"
                                MinColumnSpacing="14" MinRowSpacing="14"/>
@@ -384,6 +388,30 @@
             </DataTemplate>
           </ac:ItemsRepeater.ItemTemplate>
         </ac:ItemsRepeater>
+
+        <!-- =================================================================
+             EMPTY STATE — shown after detection completes with 0 playable games
+             ================================================================= -->
+        <Border IsVisible="{Binding IsEmptyAfterDetection}"
+                HorizontalAlignment="Center"
+                Margin="32,80,32,80">
+          <StackPanel HorizontalAlignment="Center" Spacing="16">
+            <TextBlock Text="😢"
+                       FontSize="72"
+                       HorizontalAlignment="Center"/>
+            <TextBlock Text="No playable games found"
+                       FontSize="22"
+                       FontWeight="SemiBold"
+                       HorizontalAlignment="Center"
+                       Foreground="{DynamicResource MgaTextBrush}"/>
+            <TextBlock Text="None of the games in your library are detected as installed on this machine."
+                       Classes="muted"
+                       TextAlignment="Center"
+                       TextWrapping="Wrap"
+                       MaxWidth="380"
+                       HorizontalAlignment="Center"/>
+          </StackPanel>
+        </Border>
 
       </StackPanel>
     </ScrollViewer>

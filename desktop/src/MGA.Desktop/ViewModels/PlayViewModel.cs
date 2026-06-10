@@ -41,7 +41,16 @@ public sealed partial class PlayViewModel : ViewModelBase
     private ObservableCollection<GameCardModel> _games = [];
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEmptyAfterDetection))]
     private int _gameCount;
+
+    /// <summary>True once install detection has finished (or was skipped because no detector is wired up).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEmptyAfterDetection))]
+    private bool _isDetectionComplete;
+
+    /// <summary>True when detection is done and no playable games were found — drives the empty-state panel.</summary>
+    public bool IsEmptyAfterDetection => IsDetectionComplete && GameCount == 0;
 
     [ObservableProperty]
     private ObservableCollection<GameCardModel> _recentGames = [];
@@ -194,11 +203,16 @@ public sealed partial class PlayViewModel : ViewModelBase
     {
         var allCards = games.Select(g => ToCard(g)).ToList();
 
-        // Show the full game collection — all titles are "playable" in the
-        // sense that they can be launched (PC exe, emulated ROM, or browser).
-        Games        = new ObservableCollection<GameCardModel>(allCards);
-        GameCount    = allCards.Count;
-        FeaturedGame = allCards.FirstOrDefault();
+        // Initial population: only show CanPlay games (kind == "game").
+        // After install detection runs, this is further filtered to IsInstalled games.
+        var playableCards = allCards.Where(c => c.CanPlay).ToList();
+        Games        = new ObservableCollection<GameCardModel>(playableCards);
+        GameCount    = playableCards.Count;
+        FeaturedGame = playableCards.FirstOrDefault();
+
+        // Pre-warm the media cache in background so images are on disk for next session.
+        if (_mediaCache is not null)
+            _ = _mediaCache.WarmAsync(games.SelectMany(CollectMediaUrls).OfType<string>());
 
         // Recent shelf: use actual play history, fall back to first 10 games.
         if (_recentPlayed is not null)
@@ -240,13 +254,40 @@ public sealed partial class PlayViewModel : ViewModelBase
     private GameCardModel ToCard(MGA.Api.GameDetail g) => new(g, _server.Api, mediaCache: _mediaCache);
 
     /// <summary>
+    /// Collects raw remote media URLs for a game so the media cache can be warmed
+    /// before the AdvancedImage controls try to render them.
+    /// Returns the cover URL and the best preview (hover/background/screenshot) URL.
+    /// </summary>
+    private IEnumerable<string?> CollectMediaUrls(MGA.Api.GameDetail g)
+    {
+        if (_server.Api is null) yield break;
+        var api = _server.Api;
+
+        var cover = g.CoverOverride ?? g.Media.FirstOrDefault(m => m.Type == "cover");
+        if (cover is not null) yield return api.GetMediaUrl(cover.Url);
+
+        var preview = g.Media.FirstOrDefault(m =>
+            m.Type is "hover" or "background" or "screenshot" or "header");
+        if (preview is not null) yield return api.GetMediaUrl(preview.Url);
+    }
+
+    /// <summary>
     /// Starts background install detection for the given cards.
     /// Subscribes to <see cref="InstallDetectionService.StatusUpdated"/> so that
     /// each result is marshalled back to the UI thread and applied to the correct card.
+    ///
+    /// After ALL games are checked the Play grid is re-filtered to only games that are
+    /// confirmed as installed (or whose state is still unknown/undetected).
+    /// Games with <see cref="InstallState.EmulatorMissing"/>, <see cref="InstallState.EmulatorNotConfigured"/>,
+    /// <see cref="InstallState.ClientMissing"/>, etc. are hidden from the Play page.
     /// </summary>
     private void StartDetectionAsync(List<GameCardModel> cards)
     {
-        if (_installDetector is null) return;
+        if (_installDetector is null)
+        {
+            IsDetectionComplete = true;
+            return;
+        }
 
         // Build lookup: gameId → card for O(1) updates.
         var cardById = cards.ToDictionary(c => c.Id);
@@ -261,8 +302,27 @@ public sealed partial class PlayViewModel : ViewModelBase
                         () => card.InstallStatus = evt.Status);
                 }));
 
-        // Fire off detection; results arrive via the subscription above.
-        var gameInfos = cards.Select(c => (c.Id, c.Title, c.Sources));
-        _ = Task.Run(() => _installDetector.DetectAllAsync(gameInfos));
+        // Fire off detection; once ALL games are resolved, re-filter the Play grid
+        // to only games that are ready to launch on this machine.
+        var gameInfos = cards.Select(c => (c.Id, c.Title, c.Sources)).ToList();
+        _ = Task.Run(async () =>
+        {
+            await _installDetector.DetectAllAsync(gameInfos).ConfigureAwait(false);
+
+            // Re-filter on the UI thread: show only installed games (or unknown —
+            // detection had no match, not the same as "not installed").
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var ready = cards
+                    .Where(c => c.CanPlay &&
+                                (c.InstallStatus == null || c.InstallStatus.IsInstalled))
+                    .ToList();
+
+                Games               = new ObservableCollection<GameCardModel>(ready);
+                GameCount           = ready.Count;
+                FeaturedGame        = ready.FirstOrDefault();
+                IsDetectionComplete = true;
+            });
+        });
     }
 }

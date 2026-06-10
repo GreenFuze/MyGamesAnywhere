@@ -235,6 +235,29 @@
   </Style>
 
   <!-- =========================================================
+       ToolTip — strip default chrome so custom game-card hover popup
+       renders without the system tooltip border/padding/background.
+       ========================================================= -->
+  <Style Selector="ToolTip">
+    <Setter Property="Padding"         Value="0"/>
+    <Setter Property="Background"      Value="Transparent"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="CornerRadius"    Value="0"/>
+  </Style>
+
+  <!-- =========================================================
+       Game grid — elevate the hovered cell's ContentPresenter above
+       its siblings in JustifiedPanel so scale(1.06) overflow renders
+       on top of neighbouring cards (mirrors the web client's z-30).
+       ========================================================= -->
+  <Style Selector="ItemsControl.game-grid > ContentPresenter">
+    <Setter Property="ZIndex" Value="0"/>
+  </Style>
+  <Style Selector="ItemsControl.game-grid > ContentPresenter:pointerover">
+    <Setter Property="ZIndex" Value="100"/>
+  </Style>
+
+  <!-- =========================================================
        Button — game card (scale + depth on hover)
        ========================================================= -->
   <Style Selector="Button.game-card">

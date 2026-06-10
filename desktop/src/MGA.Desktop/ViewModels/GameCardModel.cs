@@ -77,6 +77,16 @@ public sealed partial class GameCardModel : ObservableObject
     public string SourceBadgeForeground { get; init; } = "#BBFFFFFF";
 
     /// <summary>
+    /// Absolute URL to the brand/source icon image served by the MGA server (e.g. http://tv2:8900/brands/xbox.png).
+    /// Null when no icon is available for the source or the API client is unknown.
+    /// Used to show a recognisable logo instead of a plain text chip.
+    /// </summary>
+    public string? SourceBadgeIconUrl { get; init; }
+
+    /// <summary>True when a brand icon URL is available for the source badge.</summary>
+    public bool HasSourceIcon => SourceBadgeIconUrl is not null;
+
+    /// <summary>
     /// Natural aspect ratio of the cover image (width ÷ height).
     /// Used by <see cref="Controls.JustifiedPanel"/> to size card tiles.
     /// Defaults to 2/3 (portrait game cover) when cover dimensions are unknown.
@@ -203,6 +213,24 @@ public sealed partial class GameCardModel : ObservableObject
             _         => ("#33FFFFFF", "#BBFFFFFF"),  // Default: white translucent
         };
 
+    /// <summary>
+    /// Maps a source badge label to the server-relative path of its brand icon.
+    /// Icons are the same files served by the web frontend at /brands/*.
+    /// Returns null when no matching icon exists so callers can fall back to text.
+    /// </summary>
+    private static string? GetSourceBadgeIconPath(string badge) =>
+        badge switch
+        {
+            "STEAM"   => "/brands/steam.svg",
+            "XBOX"    => "/brands/xbox.png",
+            "GDRIVE"  => "/brands/google-drive.png",
+            "SMB"     => "/brands/smb.png",
+            "RETRO"   => "/brands/retroachievements.png",
+            "EPIC"    => "/brands/epic-games.svg",
+            "GOG"     => "/brands/gog.png",
+            _         => null,
+        };
+
     // ---------------------------------------------------------------------------
     // Constructors
     // ---------------------------------------------------------------------------
@@ -282,6 +310,12 @@ public sealed partial class GameCardModel : ObservableObject
         IntegrationLabel   = firstSg?.IntegrationLabel ?? firstSg?.IntegrationId ?? string.Empty;
         SourceBadge        = FormatSourceBadge(IntegrationLabel, firstSg?.PluginId ?? string.Empty);
         (SourceBadgeBackground, SourceBadgeForeground) = GetSourceBadgeColors(SourceBadge);
+
+        // Resolve icon URL — points to the brand image served by the MGA server at /brands/*.
+        var iconRelPath = GetSourceBadgeIconPath(SourceBadge);
+        SourceBadgeIconUrl = iconRelPath is not null && api is not null
+            ? api.GetMediaUrl(iconRelPath)
+            : null;
 
         // Build SourceGameInfo list for client-side install detection.
         Sources = g.SourceGames.Select(sg => new SourceGameInfo
