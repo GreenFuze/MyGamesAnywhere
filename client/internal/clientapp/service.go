@@ -34,6 +34,12 @@ type PairOptions struct {
 	DisplayName string
 }
 
+type StartOptions struct {
+	ServerURL string
+	LaunchID  string
+	Token     string
+}
+
 type Status struct {
 	Paired           bool
 	ServerURL        string
@@ -226,6 +232,67 @@ func (s *Service) RunAgent(ctx context.Context) error {
 	return agent.Run(ctx)
 }
 
+// Start acknowledges a browser launch challenge before ensuring the per-user
+// agent is running. An existing agent is success: the acknowledgement still
+// lets the browser associate itself with the correct endpoint.
+func (s *Service) Start(ctx context.Context, options StartOptions) error {
+	if err := s.acknowledgeLaunch(ctx, options); err != nil {
+		return err
+	}
+	if err := s.RunAgent(ctx); err != nil && !errors.Is(err, singleinstance.ErrAlreadyRunning) {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) acknowledgeLaunch(ctx context.Context, options StartOptions) error {
+	config, err := s.configs.Load()
+	if err != nil {
+		return err
+	}
+	serverURL, err := validateServerURL(options.ServerURL)
+	if err != nil {
+		return err
+	}
+	if serverURL != config.ServerURL {
+		return errors.New("launch server does not match the paired MGA Server")
+	}
+	privateKey, err := s.identities.Load()
+	if err != nil {
+		return fmt.Errorf("load endpoint identity: %w", err)
+	}
+	launchRequest := devicev1.ClientLaunchRequest{
+		LaunchID:   strings.TrimSpace(options.LaunchID),
+		Token:      strings.TrimSpace(options.Token),
+		EndpointID: config.EndpointID,
+	}
+	signingBytes, err := launchRequest.SigningBytes()
+	if err != nil {
+		return err
+	}
+	launchRequest.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, signingBytes))
+	body, err := json.Marshal(launchRequest)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, serverURL+"/api/devices/client-launches/redeem", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	response, err := s.httpClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("acknowledge MGA Client launch: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		message, _ := io.ReadAll(io.LimitReader(response.Body, 8*1024))
+		return fmt.Errorf("acknowledge MGA Client launch: %s: %s", response.Status, strings.TrimSpace(string(message)))
+	}
+	return nil
+}
+
 func (s *Service) Unpair() error {
 	config, err := s.configs.Load()
 	if errors.Is(err, clientconfig.ErrNotPaired) {
@@ -293,6 +360,7 @@ func localMetadata(displayName string) (devicev1.EndpointMetadata, error) {
 		Capabilities: []string{
 			devicev1.CapabilityEndpointPing,
 			devicev1.CapabilityEndpointRefresh,
+			devicev1.CapabilityEndpointStop,
 		},
 	}
 	if err := metadata.Validate(); err != nil {

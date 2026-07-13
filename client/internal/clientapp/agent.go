@@ -18,6 +18,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var errStopRequested = errors.New("MGA Client stop requested")
+
 type Agent struct {
 	config     clientconfig.Config
 	privateKey ed25519.PrivateKey
@@ -38,7 +40,9 @@ func NewAgent(config clientconfig.Config, privateKey ed25519.PrivateKey, info bu
 func (a *Agent) Run(ctx context.Context) error {
 	delay := time.Second
 	for {
-		if err := a.runConnection(ctx); err != nil && ctx.Err() == nil {
+		if err := a.runConnection(ctx); errors.Is(err, errStopRequested) {
+			return nil
+		} else if err != nil && ctx.Err() == nil {
 			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
@@ -191,25 +195,39 @@ func (a *Agent) handleCommand(ctx context.Context, writer *deviceWriter, request
 	if err := writer.WriteMessage(ctx, devicev1.MessageCommandProgress, uuid.NewString(), correlationID, progress); err != nil {
 		return err
 	}
-	var payload any
-	switch request.Name {
-	case devicev1.CapabilityEndpointPing:
-		payload = map[string]any{"pong": true, "time": time.Now().UTC()}
-	case devicev1.CapabilityEndpointRefresh:
-		metadata, err := localMetadata(a.config.DisplayName)
-		if err != nil {
-			return a.writeFailedResult(ctx, writer, request.CommandID, correlationID, "metadata_failed", err)
-		}
-		payload = metadata
-	default:
-		return a.writeFailedResult(ctx, writer, request.CommandID, correlationID, "unsupported_command", fmt.Errorf("unsupported command %s", request.Name))
+	payload, stopAgent, errorCode, commandErr := a.executeEndpointCommand(request.Name)
+	if commandErr != nil {
+		return a.writeFailedResult(ctx, writer, request.CommandID, correlationID, errorCode, commandErr)
 	}
 	rawPayload, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
 	result := devicev1.CommandResult{CommandID: request.CommandID, Status: devicev1.CommandSucceeded, Payload: rawPayload}
-	return writer.WriteMessage(ctx, devicev1.MessageCommandResult, uuid.NewString(), correlationID, result)
+	if err := writer.WriteMessage(ctx, devicev1.MessageCommandResult, uuid.NewString(), correlationID, result); err != nil {
+		return err
+	}
+	if stopAgent {
+		return errStopRequested
+	}
+	return nil
+}
+
+func (a *Agent) executeEndpointCommand(name string) (payload any, stopAgent bool, errorCode string, err error) {
+	switch name {
+	case devicev1.CapabilityEndpointPing:
+		return map[string]any{"pong": true, "time": time.Now().UTC()}, false, "", nil
+	case devicev1.CapabilityEndpointRefresh:
+		metadata, err := localMetadata(a.config.DisplayName)
+		if err != nil {
+			return nil, false, "metadata_failed", err
+		}
+		return metadata, false, "", nil
+	case devicev1.CapabilityEndpointStop:
+		return map[string]any{"stopping": true}, true, "", nil
+	default:
+		return nil, false, "unsupported_command", fmt.Errorf("unsupported command %s", name)
+	}
 }
 
 func (a *Agent) writeFailedResult(ctx context.Context, writer *deviceWriter, commandID, correlationID, code string, commandErr error) error {

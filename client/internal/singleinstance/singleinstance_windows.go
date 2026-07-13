@@ -29,7 +29,7 @@ func Acquire(name string) (*Lock, error) {
 	}
 	if windows.GetLastError() == windows.ERROR_ALREADY_EXISTS {
 		_ = windows.CloseHandle(handle)
-		return nil, errors.New("MGA Client agent is already running for this OS user")
+		return nil, ErrAlreadyRunning
 	}
 	return &Lock{handle: handle}, nil
 }

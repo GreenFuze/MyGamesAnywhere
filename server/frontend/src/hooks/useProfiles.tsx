@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { FolderBrowser } from '@/components/settings/FolderBrowser'
 import { OAuthCallbackPanel } from '@/components/settings/OAuthCallbackPanel'
 import { Input } from '@/components/ui/input'
+import { SecretInput } from '@/components/ui/secret-input'
 import { cn } from '@/lib/utils'
 import { useSSE } from '@/hooks/useSSE'
 import { pluginLabel } from '@/lib/gameUtils'
@@ -458,9 +459,8 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
                   }}
                 />
               ) : null}
-              <Input
+              <SecretInput
                 label="Step 3: Encryption key"
-                type="password"
                 value={passphrase}
                 onChange={(event) => setPassphrase(event.target.value)}
                 className="h-11"

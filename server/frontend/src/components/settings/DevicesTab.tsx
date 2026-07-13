@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import {
   Activity,
   Check,
+  ChevronDown,
+  ChevronRight,
   Clipboard,
   Download,
   KeyRound,
@@ -11,27 +14,22 @@ import {
   RefreshCw,
   Save,
   Send,
-  ShieldAlert,
   Trash2,
   UserRound,
 } from 'lucide-react'
 import {
-  changeOwnCredential,
   createDevicePairingChallenge,
   dispatchDeviceCommand,
   getAuthSession,
   getCredentialStatus,
-  initializeCredential,
   deleteDeviceGrant,
   getDeviceClientDownload,
   listDeviceCommands,
   listDeviceGrants,
   listDevices,
-  removeOwnCredential,
   renameDevice,
   revokeDevice,
   setDeviceGrant,
-  type CredentialKind,
   type DeviceAccessLevel,
   type DeviceEndpoint,
   type DevicePairingChallenge,
@@ -52,8 +50,8 @@ const statePresentation = {
 
 export function DevicesTab() {
   const { currentProfile } = useProfiles()
+  const navigate = useNavigate()
   const [pairing, setPairing] = useState<DevicePairingChallenge | null>(null)
-  const [changingCredential, setChangingCredential] = useState(false)
   const sessionQuery = useQuery({ queryKey: ['auth-session'], queryFn: getAuthSession, retry: false })
   const credentialQuery = useQuery({
     queryKey: ['credential-status', currentProfile?.id],
@@ -82,13 +80,23 @@ export function DevicesTab() {
   if (!currentProfile) return null
   if (sessionQuery.isLoading || credentialQuery.isLoading) return <PanelMessage text="Checking device-management session…" />
   if (credentialQuery.data && !credentialQuery.data.configured) {
-    return <InitializeCredentialPanel profileId={currentProfile.id} />
+    return (
+      <section className="mx-auto max-w-xl rounded-mga border border-mga-border bg-mga-surface p-6 shadow-xl">
+        <KeyRound className="h-9 w-9 text-mga-accent" />
+        <h2 className="mt-3 text-xl font-black text-mga-text">Protected profile required</h2>
+        <p className="mt-2 text-sm leading-6 text-mga-muted">
+          Device authority requires this profile to have a password or PIN. Profile credentials are managed only in Settings → Profiles.
+        </p>
+        <Button onClick={() => navigate('/settings?tab=profiles')} className="mt-5 w-full">
+          <UserRound className="h-4 w-4" /> Open Profile Settings
+        </Button>
+      </section>
+    )
   }
   if (!authorized) return <PanelMessage text="Sign out and sign in to this profile again to manage devices." />
 
   return (
     <div className="space-y-5">
-      {changingCredential ? <ChangeCredentialPanel optional onClose={() => setChangingCredential(false)} /> : null}
       <section className="rounded-mga border border-mga-border bg-mga-surface p-5 shadow-lg">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -110,9 +118,6 @@ export function DevicesTab() {
             </Button>
             <Button onClick={() => createPairing.mutate()} disabled={createPairing.isPending}>
               <Plus className="h-4 w-4" /> Add Device
-            </Button>
-            <Button variant="outline" onClick={() => setChangingCredential((value) => !value)}>
-              <KeyRound className="h-4 w-4" /> Credential
             </Button>
           </div>
         </div>
@@ -136,95 +141,6 @@ export function DevicesTab() {
         ))}
       </div>
     </div>
-  )
-}
-
-function InitializeCredentialPanel({ profileId }: { profileId: string }) {
-  const queryClient = useQueryClient()
-  const [kind, setKind] = useState<CredentialKind>('password')
-  const [next, setNext] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const initialize = useMutation({
-    mutationFn: () => initializeCredential(next, kind),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['credential-status', profileId] })
-      await queryClient.invalidateQueries({ queryKey: ['auth-session'] })
-    },
-  })
-  const valid = next === confirm && (kind === 'password' ? next.length >= 8 : /^\d{6,12}$/.test(next))
-  return (
-    <section className="mx-auto max-w-xl rounded-mga border border-mga-border bg-mga-surface p-6 shadow-xl">
-      <KeyRound className="h-9 w-9 text-mga-accent" />
-      <h2 className="mt-3 text-xl font-black text-mga-text">Set up a password or PIN</h2>
-      <p className="mt-2 text-sm leading-6 text-mga-muted">This profile can use MGA normally without one. Device pairing and control require a real credential.</p>
-      <div className="mt-5 space-y-3">
-        <Select label="Credential type" value={kind} onChange={(event) => setKind(event.target.value as CredentialKind)} options={[{ value: 'password', label: 'Password' }, { value: 'pin', label: 'PIN' }]} />
-        <Input label={kind === 'pin' ? 'New PIN (6–12 digits)' : 'New password (8+ characters)'} type="password" value={next} onChange={(event) => setNext(event.target.value)} />
-        <Input label="Confirm credential" type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
-        <Button onClick={() => initialize.mutate()} disabled={!valid || initialize.isPending} className="w-full"><KeyRound className="h-4 w-4" /> Enable Device Management</Button>
-        {next !== confirm && confirm ? <p className="text-sm text-red-400">Credentials do not match.</p> : null}
-        {initialize.error ? <ErrorText error={initialize.error} /> : null}
-        <p className="text-xs text-mga-muted">Initial setup is intentionally limited to the computer running MGA Server.</p>
-      </div>
-    </section>
-  )
-}
-
-function ChangeCredentialPanel({ optional = false, onClose }: { optional?: boolean; onClose?: () => void }) {
-  const queryClient = useQueryClient()
-  const [current, setCurrent] = useState('')
-  const [next, setNext] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [kind, setKind] = useState<CredentialKind>('password')
-  const change = useMutation({
-    mutationFn: () => changeOwnCredential(current, next, kind),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['auth-session'] })
-      onClose?.()
-    },
-  })
-  const disable = useMutation({
-    mutationFn: removeOwnCredential,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['auth-session'] })
-      await queryClient.invalidateQueries({ queryKey: ['credential-status'] })
-      onClose?.()
-    },
-  })
-  const valid = current && next === confirm && (kind === 'password' ? next.length >= 8 : /^\d{6,12}$/.test(next))
-  return (
-    <section className="mx-auto max-w-xl rounded-mga border border-amber-500/30 bg-mga-surface p-6 shadow-xl">
-      <ShieldAlert className="h-9 w-9 text-amber-300" />
-      <h2 className="mt-3 text-xl font-black text-mga-text">{optional ? 'Change profile credential' : 'Replace the bootstrap password'}</h2>
-      <p className="mt-2 text-sm leading-6 text-mga-muted">{optional ? 'Changing it invalidates other signed-in sessions for this profile.' : 'Device control stays disabled until the public default is replaced.'}</p>
-      <div className="mt-5 space-y-3">
-        <Select
-          label="Credential type"
-          value={kind}
-          onChange={(event) => setKind(event.target.value as CredentialKind)}
-          options={[{ value: 'password', label: 'Password' }, { value: 'pin', label: 'PIN' }]}
-        />
-        <Input label="Current password" type="password" value={current} onChange={(event) => setCurrent(event.target.value)} />
-        <Input label={kind === 'pin' ? 'New PIN (6–12 digits)' : 'New password (8+ characters)'} type="password" value={next} onChange={(event) => setNext(event.target.value)} />
-        <Input label="Confirm new credential" type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
-        <Button onClick={() => change.mutate()} disabled={!valid || change.isPending} className="w-full">
-          <Save className="h-4 w-4" /> {optional ? 'Save Credential' : 'Save And Unlock'}
-        </Button>
-        {optional && onClose ? <Button variant="outline" onClick={onClose} className="w-full">Cancel</Button> : null}
-        {optional ? (
-          <Button
-            variant="outline"
-            onClick={() => window.confirm('Disable this profile credential? Device management will remain locked until a new password or PIN is configured.') && disable.mutate()}
-            disabled={disable.isPending}
-            className="w-full text-red-300"
-          >
-            <Trash2 className="h-4 w-4" /> Disable Credential
-          </Button>
-        ) : null}
-        {next !== confirm && confirm ? <p className="text-sm text-red-400">Credentials do not match.</p> : null}
-        {change.error || disable.error ? <ErrorText error={change.error || disable.error} /> : null}
-      </div>
-    </section>
   )
 }
 
@@ -257,11 +173,13 @@ function PairingPanel({ pairing, onClose }: { pairing: DevicePairingChallenge; o
 function DeviceCard({ device }: { device: DeviceEndpoint }) {
   const queryClient = useQueryClient()
   const state = statePresentation[device.status]
+  const [expanded, setExpanded] = useState(false)
   const [name, setName] = useState(device.display_name)
   const commandsQuery = useQuery({
     queryKey: ['device-commands', device.id],
     queryFn: () => listDeviceCommands(device.id),
-    refetchInterval: device.status === 'offline' ? false : 2000,
+    enabled: expanded,
+    refetchInterval: expanded && device.status !== 'offline' ? 2000 : false,
   })
   const action = useMutation({
     mutationFn: (command: 'endpoint.ping' | 'endpoint.refresh') => dispatchDeviceCommand(device.id, command),
@@ -283,47 +201,64 @@ function DeviceCard({ device }: { device: DeviceEndpoint }) {
   const isOwner = device.access_level === 'owner'
   return (
     <article className={cn('overflow-hidden rounded-mga border bg-mga-surface shadow-lg', state.border)}>
-      <div className="p-5">
-        <div className="flex items-start justify-between gap-3">
+      <div className="p-4">
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="flex w-full items-start justify-between gap-3 rounded-mga text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-mga-accent"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${device.display_name}`}
+        >
           <div className="flex min-w-0 items-center gap-3">
             <div className="grid h-11 w-11 shrink-0 place-items-center rounded-mga bg-mga-bg"><Laptop className="h-5 w-5 text-mga-accent" /></div>
             <div className="min-w-0">
               <h3 className="truncate text-lg font-black text-mga-text">{device.display_name}</h3>
               <div className="mt-1 flex items-center gap-2 text-sm text-mga-muted"><UserRound className="h-3.5 w-3.5" />{device.os_user} on {device.host_name}</div>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-mga-muted">
+                <span>{device.platform} / {device.arch}</span>
+                <span>Access: <span className="font-semibold text-mga-text">{accessLevelLabel(device.access_level)}</span></span>
+              </div>
             </div>
           </div>
-          <div className={cn('inline-flex items-center gap-2 rounded-full border bg-black/20 px-2.5 py-1 text-xs font-bold', state.border, state.text)}>
-            <span className={cn('h-2 w-2 rounded-full', state.dot)} />{state.label}
+          <div className="flex shrink-0 items-center gap-2">
+            <div className={cn('inline-flex items-center gap-2 rounded-full border bg-black/20 px-2.5 py-1 text-xs font-bold', state.border, state.text)}>
+              <span className={cn('h-2 w-2 rounded-full', state.dot)} />{state.label}
+            </div>
+            {expanded ? <ChevronDown className="h-5 w-5 text-mga-muted" /> : <ChevronRight className="h-5 w-5 text-mga-muted" />}
           </div>
-        </div>
+        </button>
         {device.status_reason ? <p className="mt-3 text-sm text-red-300">{device.status_reason}</p> : null}
-        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <DeviceFact label="Platform" value={`${device.platform} / ${device.arch}`} />
-          <DeviceFact label="Client" value={device.client_version} />
-          <DeviceFact label="Protocol" value={`v${device.protocol_version}`} />
-          <DeviceFact label="Access" value={device.access_level} />
-          <DeviceFact label="Last seen" value={device.last_seen_at ? new Date(device.last_seen_at).toLocaleString() : 'Never'} />
-          <DeviceFact label="Capabilities" value={String(device.capabilities.length)} />
-        </dl>
-        {isOwner ? (
-          <div className="mt-4 flex gap-2">
-            <Input aria-label="Device name" value={name} onChange={(event) => setName(event.target.value)} />
-            <Button variant="outline" size="sm" onClick={() => rename.mutate()} disabled={!name.trim() || name === device.display_name || rename.isPending}><Save className="h-4 w-4" /> Rename</Button>
+        {expanded ? (
+          <div className="mt-4 border-t border-mga-border pt-4">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <DeviceFact label="Platform" value={`${device.platform} / ${device.arch}`} />
+              <DeviceFact label="Client" value={device.client_version} />
+              <DeviceFact label="Protocol" value={`v${device.protocol_version}`} />
+              <DeviceFact label="Access" value={accessLevelLabel(device.access_level)} />
+              <DeviceFact label="Last seen" value={device.last_seen_at ? new Date(device.last_seen_at).toLocaleString() : 'Never'} />
+              <DeviceFact label="Capabilities" value={String(device.capabilities.length)} />
+            </dl>
+            {isOwner ? (
+              <div className="mt-4 flex gap-2">
+                <Input aria-label="Device name" value={name} onChange={(event) => setName(event.target.value)} />
+                <Button variant="outline" size="sm" onClick={() => rename.mutate()} disabled={!name.trim() || name === device.display_name || rename.isPending}><Save className="h-4 w-4" /> Rename</Button>
+              </div>
+            ) : null}
+            <div className="mt-4 flex flex-wrap gap-2 border-t border-mga-border pt-4">
+              <Button size="sm" title="Check that the client can receive and answer a command." onClick={() => action.mutate('endpoint.ping')} disabled={device.status === 'offline' || !device.capabilities.includes('endpoint.ping') || action.isPending}><Send className="h-4 w-4" /> Ping</Button>
+              <Button variant="outline" size="sm" title="Ask the client to re-read its local endpoint metadata and capabilities." onClick={() => action.mutate('endpoint.refresh')} disabled={device.status === 'offline' || !canManage || !device.capabilities.includes('endpoint.refresh') || action.isPending}><RefreshCw className="h-4 w-4" /> Refresh info</Button>
+              {isOwner ? <Button variant="outline" size="sm" onClick={() => window.confirm(`Revoke ${device.display_name}? The client must run "mga-client unpair" before it can pair again.`) && revoke.mutate()} disabled={revoke.isPending} className="ml-auto"><Trash2 className="h-4 w-4" /> Revoke</Button> : null}
+            </div>
+            {latest ? (
+              <div className="mt-3 rounded-mga bg-mga-bg px-3 py-2 text-xs text-mga-muted">
+                Latest: <span className="font-mono text-mga-text">{latest.name}</span> · <span className={latest.status === 'succeeded' ? 'text-emerald-300' : latest.status === 'failed' || latest.status === 'rejected' ? 'text-red-300' : 'text-amber-300'}>{latest.status}</span>
+                {latest.error_message ? ` · ${latest.error_message}` : ''}
+              </div>
+            ) : null}
+            {action.error || rename.error || revoke.error ? <ErrorText error={action.error || rename.error || revoke.error} /> : null}
+            {isOwner ? <DeviceAccessPanel device={device} /> : null}
           </div>
         ) : null}
-        <div className="mt-4 flex flex-wrap gap-2 border-t border-mga-border pt-4">
-          <Button size="sm" onClick={() => action.mutate('endpoint.ping')} disabled={device.status === 'offline' || !device.capabilities.includes('endpoint.ping') || action.isPending}><Send className="h-4 w-4" /> Ping</Button>
-          <Button variant="outline" size="sm" onClick={() => action.mutate('endpoint.refresh')} disabled={device.status === 'offline' || !canManage || !device.capabilities.includes('endpoint.refresh') || action.isPending}><RefreshCw className="h-4 w-4" /> Refresh</Button>
-          {isOwner ? <Button variant="outline" size="sm" onClick={() => window.confirm(`Revoke ${device.display_name}? The client must run "mga-client unpair" before it can pair again.`) && revoke.mutate()} disabled={revoke.isPending} className="ml-auto"><Trash2 className="h-4 w-4" /> Revoke</Button> : null}
-        </div>
-        {latest ? (
-          <div className="mt-3 rounded-mga bg-mga-bg px-3 py-2 text-xs text-mga-muted">
-            Latest: <span className="font-mono text-mga-text">{latest.name}</span> · <span className={latest.status === 'succeeded' ? 'text-emerald-300' : latest.status === 'failed' || latest.status === 'rejected' ? 'text-red-300' : 'text-amber-300'}>{latest.status}</span>
-            {latest.error_message ? ` · ${latest.error_message}` : ''}
-          </div>
-        ) : null}
-        {action.error || rename.error || revoke.error ? <ErrorText error={action.error || rename.error || revoke.error} /> : null}
-        {isOwner ? <DeviceAccessPanel device={device} /> : null}
       </div>
     </article>
   )
@@ -361,7 +296,10 @@ function DeviceAccessPanel({ device }: { device: DeviceEndpoint }) {
 
   return (
     <div className="mt-4 border-t border-mga-border pt-4">
-      <h4 className="text-xs font-bold uppercase tracking-[0.18em] text-mga-muted">Profile access</h4>
+      <h4 className="text-xs font-bold uppercase tracking-[0.18em] text-mga-muted">Profile permissions</h4>
+      <p className="mt-2 text-xs leading-5 text-mga-muted">
+        Controls which MGA web profiles may use this specific device / OS-user client. View can inspect and ping; Play is reserved for game launches; Manage allows device operations; Owner can rename, revoke, and share access.
+      </p>
       <div className="mt-3 space-y-2">
         {grants.data?.map((grant) => (
           <div key={grant.profile_id} className="flex flex-wrap items-center gap-2 rounded-mga bg-mga-bg px-3 py-2">
@@ -396,6 +334,10 @@ function DeviceAccessPanel({ device }: { device: DeviceEndpoint }) {
 function accessAllows(granted: DeviceAccessLevel, required: DeviceAccessLevel): boolean {
   const rank: Record<DeviceAccessLevel, number> = { view: 1, play: 2, manage: 3, owner: 4 }
   return rank[granted] >= rank[required]
+}
+
+function accessLevelLabel(level: DeviceAccessLevel): string {
+  return level.charAt(0).toUpperCase() + level.slice(1)
 }
 
 function DeviceFact({ label, value }: { label: string; value: string }) {

@@ -7,8 +7,9 @@ interface and does not import server implementation packages.
 The current v1 foundation implements per-user pairing, a DPAPI-protected
 Ed25519 identity on Windows, an authenticated outbound WebSocket, heartbeat
 presence, typed endpoint commands, diagnostics, single-instance enforcement,
-`mga://pair` handling, and per-user installer registration. Game installation,
-launch/stop, emulator management, inventory, and client self-update commands
+`mga://pair` and signed `mga://start` handling, and per-user installer
+registration. Stopping the client itself is implemented; game installation,
+game launch/stop, emulator management, inventory, and client self-update commands
 remain later command families; no unrestricted shell command will be added.
 
 ## Security boundary
@@ -37,6 +38,7 @@ go run ./cmd/mga-client status
 go run ./cmd/mga-client doctor
 go run ./cmd/mga-client unpair
 go run ./cmd/mga-client protocol "mga://pair?server=...&code=..."
+go run ./cmd/mga-client protocol "mga://start?server=...&launch_id=...&token=..."
 ```
 
 `pair` creates the local per-user identity. `agent` holds the outbound
@@ -56,7 +58,8 @@ Build the per-user Inno Setup installer with:
 .\package-installer.ps1
 ```
 
-The installer registers `mga://` and the current-user startup entry under HKCU;
+The installer registers `mga://` and starts the agent at current-user login via
+an HKCU startup entry;
 it requests no elevation. Packaging fails fast when `ISCC.exe` is unavailable.
 MGA Server serves a packaged installer from
 `<app-dir>/downloads/mga-client-windows-amd64-installer.exe`, or from the

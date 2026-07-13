@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -86,6 +87,7 @@ type serverOptions struct {
 	service                    bool
 	noTray                     bool
 	migrateOnly                bool
+	resetCredentialProfile     string
 	migrationBackupDir         string
 	skipStartupMigrationBackup bool
 }
@@ -100,6 +102,7 @@ func parseOptions() (serverOptions, error) {
 	flag.BoolVar(&opts.service, "service", envBool("MGA_SERVICE", false), "Run as a Windows service.")
 	flag.BoolVar(&opts.noTray, "no-tray", envBool("MGA_NO_TRAY", false), "Disable the tray companion from this server process.")
 	flag.BoolVar(&opts.migrateOnly, "migrate-only", envBool("MGA_MIGRATE_ONLY", false), "Run database migrations and exit without starting MGA.")
+	flag.StringVar(&opts.resetCredentialProfile, "reset-profile-credential", envString("MGA_RESET_PROFILE_CREDENTIAL", ""), "Reset one profile credential to changeme and require an immediate change, then exit.")
 	flag.StringVar(&opts.migrationBackupDir, "migration-backup-dir", envString("MGA_MIGRATION_BACKUP_DIR", ""), "Directory for database migration backups.")
 	flag.BoolVar(&opts.skipStartupMigrationBackup, "skip-startup-migration-backup", envBool("MGA_SKIP_STARTUP_MIGRATION_BACKUP", false), "Skip the pre-migration database backup.")
 	flag.Parse()
@@ -154,6 +157,33 @@ func runServer(ctx context.Context, opts serverOptions) error {
 		BackupDir:           opts.migrationBackupDir,
 	}
 	dbSvc := db.NewSQLiteDatabaseWithMigrationOptions(logSvc, configSvc, migrationOptions)
+	if strings.TrimSpace(opts.resetCredentialProfile) != "" {
+		dbPath := strings.TrimSpace(configSvc.Get("DB_PATH"))
+		if dbPath == "" {
+			return errors.New("credential recovery requires DB_PATH")
+		}
+		if !filepath.IsAbs(dbPath) {
+			dbPath = filepath.Join(layout.AppDir, dbPath)
+		}
+		if _, err := os.Stat(dbPath); err != nil {
+			return fmt.Errorf("credential recovery database %s: %w", dbPath, err)
+		}
+		if err := dbSvc.Connect(); err != nil {
+			return fmt.Errorf("credential recovery database connection failed: %w", err)
+		}
+		defer dbSvc.Close()
+		profileRepo := db.NewProfileRepository(dbSvc)
+		authSvc, err := auth.NewService(db.NewAuthStore(dbSvc), profileRepo)
+		if err != nil {
+			return fmt.Errorf("configure credential recovery: %w", err)
+		}
+		profileID := strings.TrimSpace(opts.resetCredentialProfile)
+		if err := authSvc.ResetCredentialToBootstrap(ctx, profileID); err != nil {
+			return fmt.Errorf("reset profile credential: %w", err)
+		}
+		logSvc.Info("profile credential reset; changeme must be replaced at next sign-in", "profile_id", profileID)
+		return nil
+	}
 	if opts.migrateOnly {
 		if err := dbSvc.Connect(); err != nil {
 			return fmt.Errorf("database connection failed: %w", err)

@@ -13,6 +13,7 @@ import (
 const (
 	CapabilityEndpointPing    = "endpoint.ping"
 	CapabilityEndpointRefresh = "endpoint.refresh"
+	CapabilityEndpointStop    = "endpoint.stop"
 )
 
 // EndpointMetadata describes one OS-user client installation. These fields are

@@ -25,6 +25,7 @@ type Dependencies struct {
 
 type ClientService interface {
 	Pair(ctx context.Context, options clientapp.PairOptions) (clientconfig.Config, error)
+	Start(ctx context.Context, options clientapp.StartOptions) error
 	RunAgent(ctx context.Context) error
 	Status() (clientapp.Status, error)
 	Doctor(ctx context.Context) (clientapp.DoctorResult, error)
@@ -93,7 +94,17 @@ func newProtocolCommand(service ClientService) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			parsed, err := url.Parse(args[0])
-			if err != nil || parsed.Scheme != "mga" || parsed.Host != "pair" {
+			if err != nil || parsed.Scheme != "mga" {
+				return errors.New("unsupported MGA protocol URI")
+			}
+			if parsed.Host == "start" {
+				return service.Start(command.Context(), clientapp.StartOptions{
+					ServerURL: parsed.Query().Get("server"),
+					LaunchID:  parsed.Query().Get("launch_id"),
+					Token:     parsed.Query().Get("token"),
+				})
+			}
+			if parsed.Host != "pair" {
 				return errors.New("unsupported MGA protocol URI")
 			}
 			config, err := service.Pair(command.Context(), clientapp.PairOptions{

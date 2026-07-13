@@ -6,6 +6,7 @@ import { useTheme } from '@/theme/ThemeProvider'
 import { useSearch } from '@/hooks/useSearchContext'
 import { ProfileAvatar, useProfiles } from '@/hooks/useProfiles'
 import { cn } from '@/lib/utils'
+import { ClientStatusControl } from '@/components/devices/ClientStatusControl'
 
 const nav = [
   { to: '/play', label: 'Play' },
@@ -101,6 +102,7 @@ export function AppLayout() {
               aria-label="Search"
             />
           </div>
+          <ClientStatusControl />
           <label className="flex items-center gap-2 text-xs text-mga-muted">
             <span className="hidden sm:inline">Theme</span>
             <select

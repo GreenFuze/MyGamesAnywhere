@@ -402,6 +402,15 @@ export type DevicePairingChallenge = {
   pair_uri: string;
 };
 
+export type DeviceClientLaunch = {
+  id: string;
+  status: "waiting" | "acknowledged" | "expired";
+  endpoint_id?: string;
+  created_at?: string;
+  expires_at: string;
+  launch_uri?: string;
+};
+
 export type DeviceGrant = {
   endpoint_id: string;
   profile_id: string;
@@ -431,6 +440,14 @@ export async function listDevices(): Promise<DeviceEndpoint[]> {
 
 export async function createDevicePairingChallenge(): Promise<DevicePairingChallenge> {
   return postJson<DevicePairingChallenge>("/api/devices/pairing-challenges", {}) as Promise<DevicePairingChallenge>;
+}
+
+export async function createDeviceClientLaunch(): Promise<DeviceClientLaunch> {
+  return postJson<DeviceClientLaunch>("/api/devices/client-launches", {}) as Promise<DeviceClientLaunch>;
+}
+
+export async function getDeviceClientLaunch(id: string): Promise<DeviceClientLaunch> {
+  return getJson<DeviceClientLaunch>(`/api/devices/client-launches/${encodeURIComponent(id)}`);
 }
 
 export async function renameDevice(id: string, displayName: string): Promise<void> {
@@ -465,7 +482,7 @@ export async function deleteDeviceGrant(id: string, profileId: string): Promise<
   return deleteRequest(`/api/devices/${encodeURIComponent(id)}/grants/${encodeURIComponent(profileId)}`);
 }
 
-export async function dispatchDeviceCommand(id: string, name: "endpoint.ping" | "endpoint.refresh"): Promise<DeviceCommand> {
+export async function dispatchDeviceCommand(id: string, name: "endpoint.ping" | "endpoint.refresh" | "endpoint.stop"): Promise<DeviceCommand> {
   return postJson<DeviceCommand>(`/api/devices/${encodeURIComponent(id)}/commands`, { name, payload: {} }) as Promise<DeviceCommand>;
 }
 

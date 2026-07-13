@@ -2,6 +2,7 @@ package devices
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -30,9 +31,10 @@ var (
 const pairingLifetime = 10 * time.Minute
 
 type Service struct {
-	store Store
-	hub   *Hub
-	now   func() time.Time
+	store    Store
+	hub      *Hub
+	launches *ClientLaunchRegistry
+	now      func() time.Time
 }
 
 func NewService(store Store, hub *Hub) (*Service, error) {
@@ -42,7 +44,45 @@ func NewService(store Store, hub *Hub) (*Service, error) {
 	if hub == nil {
 		return nil, errors.New("device connection hub is required")
 	}
-	return &Service{store: store, hub: hub, now: time.Now}, nil
+	return &Service{store: store, hub: hub, launches: NewClientLaunchRegistry(), now: time.Now}, nil
+}
+
+func (s *Service) CreateClientLaunch(profileID string) (string, ClientLaunch, error) {
+	return s.launches.Create(profileID, s.now())
+}
+
+func (s *Service) GetClientLaunch(id, profileID string) (ClientLaunch, error) {
+	return s.launches.Get(id, profileID, s.now())
+}
+
+func (s *Service) RedeemClientLaunch(ctx context.Context, request devicev1.ClientLaunchRequest) (ClientLaunch, error) {
+	if err := request.Validate(); err != nil {
+		return ClientLaunch{}, err
+	}
+	launch, err := s.launches.GetForRedemption(request.LaunchID, s.now())
+	if err != nil {
+		return ClientLaunch{}, err
+	}
+	if err := s.requireAccess(ctx, request.EndpointID, launch.ProfileID, devicev1.AccessView); err != nil {
+		return ClientLaunch{}, ErrClientLaunchNotFound
+	}
+	endpoint, err := s.EndpointForConnection(ctx, request.EndpointID)
+	if err != nil {
+		return ClientLaunch{}, ErrClientLaunchNotFound
+	}
+	publicKey, err := base64.RawURLEncoding.DecodeString(endpoint.PublicKey)
+	if err != nil || len(publicKey) != ed25519.PublicKeySize {
+		return ClientLaunch{}, errors.New("paired endpoint has an invalid public key")
+	}
+	signingBytes, err := request.SigningBytes()
+	if err != nil {
+		return ClientLaunch{}, err
+	}
+	signature, _ := base64.RawURLEncoding.DecodeString(request.Signature)
+	if !ed25519.Verify(ed25519.PublicKey(publicKey), signingBytes, signature) {
+		return ClientLaunch{}, ErrClientLaunchNotFound
+	}
+	return s.launches.Redeem(request.LaunchID, request.Token, request.EndpointID, s.now())
 }
 
 func (s *Service) CreatePairingChallenge(ctx context.Context, profileID string) (string, PairingChallenge, error) {
@@ -303,6 +343,8 @@ func requiredAccessForCommand(name string) (devicev1.AccessLevel, error) {
 	case devicev1.CapabilityEndpointPing:
 		return devicev1.AccessView, nil
 	case devicev1.CapabilityEndpointRefresh:
+		return devicev1.AccessManage, nil
+	case devicev1.CapabilityEndpointStop:
 		return devicev1.AccessManage, nil
 	default:
 		return "", fmt.Errorf("unsupported device command %q", name)

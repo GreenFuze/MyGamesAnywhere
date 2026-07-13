@@ -60,6 +60,22 @@ func TestProfileAuthenticationBootstrapAndCredentialChange(t *testing.T) {
 	if _, _, err := service.Login(context.Background(), profile.ID, "246810"); err != nil {
 		t.Fatalf("Login(new PIN) error = %v", err)
 	}
+	if err := service.ResetCredentialToBootstrap(context.Background(), profile.ID); err != nil {
+		t.Fatalf("ResetCredentialToBootstrap() error = %v", err)
+	}
+	if _, err := service.Authenticate(context.Background(), newToken); !errors.Is(err, auth.ErrUnauthenticated) {
+		t.Fatalf("Authenticate(pre-recovery session) error = %v, want ErrUnauthenticated", err)
+	}
+	_, recoveredSession, err := service.Login(context.Background(), profile.ID, auth.BootstrapPassword)
+	if err != nil {
+		t.Fatalf("Login(recovered bootstrap) error = %v", err)
+	}
+	if !recoveredSession.MustChange {
+		t.Fatalf("recovered session = %+v, want MustChange", recoveredSession)
+	}
+	if err := service.ResetCredentialToBootstrap(context.Background(), "missing-profile"); !errors.Is(err, auth.ErrProfileNotFound) {
+		t.Fatalf("ResetCredentialToBootstrap(missing) error = %v, want ErrProfileNotFound", err)
+	}
 }
 
 func TestOptionalProfileCredentialCanBeInitializedAndRemoved(t *testing.T) {

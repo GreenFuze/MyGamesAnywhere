@@ -76,6 +76,51 @@ func (c *DeviceController) CreatePairingChallenge(w http.ResponseWriter, r *http
 	})
 }
 
+func (c *DeviceController) CreateClientLaunch(w http.ResponseWriter, r *http.Request) {
+	token, launch, err := c.service.CreateClientLaunch(core.ProfileIDFromContext(r.Context()))
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	launchURI := &url.URL{Scheme: "mga", Host: "start"}
+	query := launchURI.Query()
+	query.Set("server", requestBaseURL(r))
+	query.Set("launch_id", launch.ID)
+	query.Set("token", token)
+	launchURI.RawQuery = query.Encode()
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"id":         launch.ID,
+		"status":     launch.Status,
+		"expires_at": launch.ExpiresAt,
+		"launch_uri": launchURI.String(),
+	})
+}
+
+func (c *DeviceController) GetClientLaunch(w http.ResponseWriter, r *http.Request) {
+	launch, err := c.service.GetClientLaunch(chi.URLParam(r, "id"), core.ProfileIDFromContext(r.Context()))
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, launch)
+}
+
+func (c *DeviceController) RedeemClientLaunch(w http.ResponseWriter, r *http.Request) {
+	if !secureOrLoopback(r) {
+		http.Error(w, "MGA Client launch acknowledgement requires HTTPS outside loopback", http.StatusUpgradeRequired)
+		return
+	}
+	var request devicev1.ClientLaunchRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
+		return
+	}
+	if _, err := c.service.RedeemClientLaunch(r.Context(), request); err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (c *DeviceController) Pair(w http.ResponseWriter, r *http.Request) {
 	if !secureOrLoopback(r) {
 		http.Error(w, "device pairing requires HTTPS outside loopback", http.StatusUpgradeRequired)
@@ -406,6 +451,10 @@ func writeDeviceError(w http.ResponseWriter, err error) {
 		status = http.StatusNotFound
 	case errors.Is(err, devices.ErrClientAlreadyPaired):
 		status = http.StatusConflict
+	case errors.Is(err, devices.ErrClientLaunchNotFound):
+		status = http.StatusNotFound
+	case errors.Is(err, devices.ErrClientLaunchExpired), errors.Is(err, devices.ErrClientLaunchUsed):
+		status = http.StatusGone
 	case strings.Contains(strings.ToLower(err.Error()), "database"):
 		status = http.StatusInternalServerError
 	}

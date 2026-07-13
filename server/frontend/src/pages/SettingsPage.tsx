@@ -39,7 +39,7 @@ export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
   const normalizedTabParam = tabParam === 'settings' ? 'update' : tabParam
-  const availableTabs = currentProfile?.role === 'admin_player' ? TABS : TABS.filter((tab) => tab.id === 'devices' || tab.id === 'appearance')
+  const availableTabs = currentProfile?.role === 'admin_player' ? TABS : TABS.filter((tab) => tab.id === 'profiles' || tab.id === 'devices' || tab.id === 'appearance')
   const fallbackTab = currentProfile?.role === 'admin_player' ? 'integrations' : 'devices'
   const activeTab = normalizedTabParam && availableTabs.some((tab) => tab.id === normalizedTabParam) ? normalizedTabParam : fallbackTab
 

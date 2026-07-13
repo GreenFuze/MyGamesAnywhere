@@ -21,10 +21,11 @@ The current development implementation includes:
   DPAPI key storage
 - heartbeat presence, endpoint/user metadata, explicit profile grants, and the
   ready/busy/offline/update-required/error UI mapping
-- allow-listed `endpoint.ping` and `endpoint.refresh` commands with persisted
+- allow-listed `endpoint.ping`, `endpoint.refresh`, and `endpoint.stop` commands with persisted
   lifecycle/results, endpoint-bound result validation, and capability checks
-- per-user Windows build/installer scripts, `mga://pair`, diagnostics,
-  single-instance enforcement, and local unpairing
+- per-user Windows build/installer scripts, `mga://pair`, signed short-lived
+  `mga://start` browser association, login startup, diagnostics, single-instance
+  enforcement, and local unpairing
 
 This is the secure control-plane vertical slice. Mutating game, emulator,
 inventory, elevation-helper, durable idempotency, cancellation, and client
@@ -65,6 +66,21 @@ typed payloads and platform behavior are designed.
 Host name, OS user display name, platform, architecture, and installation facts
 are endpoint metadata. They are not credentials and do not replace
 `endpoint_id`.
+
+## Browser launch and endpoint association
+
+The custom protocol wakes or identifies the client; it is not a presence test
+and is never the command transport. An authenticated web profile creates a
+two-minute, process-local launch challenge. The web interface opens
+`mga://start` with the server URL, challenge ID, and single-use random token.
+The installed per-user client rejects a server different from its paired
+server, signs the challenge with its endpoint key, and redeems it over HTTPS.
+The server verifies both the signature and the profile's endpoint grant before
+revealing the endpoint ID to that browser flow. Live WebSocket state—not custom
+protocol invocation—then controls the top-bar status color.
+
+Launch challenges intentionally do not survive a server restart. The URI has no
+reusable credential and cannot carry an arbitrary executable or device command.
 
 ## Pairing
 
@@ -189,6 +205,7 @@ reserves these typed families:
 | Family | Examples | Minimum grant |
 |---|---|---|
 | Endpoint | refresh capabilities, collect diagnostics | `View` or `Manage`, depending on sensitivity |
+| Client process | stop the current per-user agent | `Manage` |
 | Inventory | scan, refresh, validate local availability | `Manage` |
 | Game | launch, stop | `Play` |
 | Game management | install, uninstall, repair | `Manage` |

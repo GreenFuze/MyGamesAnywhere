@@ -41,6 +41,7 @@ var (
 	ErrCredentialRequired   = errors.New("profile credential is not configured")
 	ErrCredentialChange     = errors.New("profile credential must be changed")
 	ErrCredentialConfigured = errors.New("profile credential is already configured")
+	ErrProfileNotFound      = errors.New("profile not found")
 )
 
 type Credential struct {
@@ -199,6 +200,37 @@ func (s *Service) RemoveOwnCredential(ctx context.Context, session *Session, pro
 		return err
 	}
 	return s.store.DeleteCredential(ctx, session.ProfileID)
+}
+
+// ResetCredentialToBootstrap is an offline/local-administration recovery path.
+// It deliberately resets any profile to the public bootstrap password and marks
+// it for an immediate forced change. Callers must enforce the local OS boundary.
+func (s *Service) ResetCredentialToBootstrap(ctx context.Context, profileID string) error {
+	profileID = strings.TrimSpace(profileID)
+	if profileID == "" {
+		return ErrProfileNotFound
+	}
+	profile, err := s.profiles.GetByID(ctx, profileID)
+	if err != nil {
+		return err
+	}
+	if profile == nil {
+		return ErrProfileNotFound
+	}
+	hash, err := hashCredential(BootstrapPassword)
+	if err != nil {
+		return fmt.Errorf("hash recovery credential: %w", err)
+	}
+	if err := s.store.SetCredential(ctx, Credential{
+		ProfileID:  profileID,
+		Kind:       CredentialPassword,
+		Hash:       hash,
+		MustChange: true,
+		UpdatedAt:  s.now(),
+	}); err != nil {
+		return err
+	}
+	return s.store.DeleteSessionsByProfile(ctx, profileID)
 }
 
 func (s *Service) Authenticate(ctx context.Context, token string) (*Session, error) {

@@ -36,6 +36,26 @@ type PairingChallenge struct {
 	ExpiresAt time.Time
 }
 
+type ClientLaunchStatus string
+
+const (
+	ClientLaunchWaiting      ClientLaunchStatus = "waiting"
+	ClientLaunchAcknowledged ClientLaunchStatus = "acknowledged"
+	ClientLaunchExpired      ClientLaunchStatus = "expired"
+)
+
+// ClientLaunch is an ephemeral browser-to-client association challenge. The
+// raw token is returned only once and is never stored.
+type ClientLaunch struct {
+	ID         string             `json:"id"`
+	ProfileID  string             `json:"-"`
+	TokenHash  string             `json:"-"`
+	EndpointID string             `json:"endpoint_id,omitempty"`
+	Status     ClientLaunchStatus `json:"status"`
+	CreatedAt  time.Time          `json:"created_at"`
+	ExpiresAt  time.Time          `json:"expires_at"`
+}
+
 type Grant struct {
 	EndpointID         string               `json:"endpoint_id"`
 	ProfileID          string               `json:"profile_id"`

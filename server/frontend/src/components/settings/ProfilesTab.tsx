@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, KeyRound, Plus, Save, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
-import { createProfile, deleteProfile, getCredentialStatus, initializeCredential, updateProfile, type CredentialKind, type Profile, type ProfileRole } from '@/api/client'
+import { changeOwnCredential, createProfile, deleteProfile, getCredentialStatus, initializeCredential, removeOwnCredential, updateProfile, type CredentialKind, type Profile, type ProfileRole } from '@/api/client'
 import { AvatarChooser, ProfileAvatar, profileAvatarFor, useProfiles, type ProfileAvatarKey } from '@/hooks/useProfiles'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { SecretInput } from '@/components/ui/secret-input'
 import { Select } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 
@@ -97,6 +98,7 @@ export function ProfilesTab() {
 function ProfileCredentialPanel({ profile }: { profile: Profile }) {
   const queryClient = useQueryClient()
   const [kind, setKind] = useState<CredentialKind>('password')
+  const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
   const status = useQuery({
@@ -112,7 +114,35 @@ function ProfileCredentialPanel({ profile }: { profile: Profile }) {
       await queryClient.invalidateQueries({ queryKey: ['auth-session'] })
     },
   })
-  const valid = next === confirm && (kind === 'password' ? next.length >= 8 : /^\d{6,12}$/.test(next))
+  const change = useMutation({
+    mutationFn: () => changeOwnCredential(current, next, kind),
+    onSuccess: async () => {
+      clearFields()
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['credential-status', profile.id] }),
+        queryClient.invalidateQueries({ queryKey: ['auth-session'] }),
+      ])
+    },
+  })
+  const disable = useMutation({
+    mutationFn: removeOwnCredential,
+    onSuccess: async () => {
+      clearFields()
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['credential-status', profile.id] }),
+        queryClient.invalidateQueries({ queryKey: ['auth-session'] }),
+      ])
+    },
+  })
+  const clearFields = () => {
+    setCurrent('')
+    setNext('')
+    setConfirm('')
+  }
+  const nextValid = next === confirm && (kind === 'password' ? next.length >= 8 : /^\d{6,12}$/.test(next))
+  const initializeValid = nextValid
+  const changeValid = Boolean(current) && nextValid
+  const mutationError = status.error || initialize.error || change.error || disable.error
 
   return (
     <section className="rounded-mga border border-mga-border bg-mga-surface p-5 shadow-lg">
@@ -127,9 +157,35 @@ function ProfileCredentialPanel({ profile }: { profile: Profile }) {
       </div>
       {status.isLoading ? <p className="mt-4 text-sm text-mga-muted">Checking credential status…</p> : null}
       {status.data?.configured ? (
-        <div className="mt-4 rounded-mga border border-emerald-500/25 bg-emerald-500/5 px-4 py-3 text-sm text-mga-muted">
-          <span className="font-bold text-emerald-300">{status.data.kind === 'pin' ? 'PIN' : 'Password'} configured.</span>
-          {status.data.must_change ? ' The bootstrap password must be replaced at the next profile sign-in.' : ' Use the Devices tab to change or disable it.'}
+        <div className="mt-4 space-y-4">
+          <div className="rounded-mga border border-emerald-500/25 bg-emerald-500/5 px-4 py-3 text-sm text-mga-muted">
+            <span className="font-bold text-emerald-300">{status.data.kind === 'pin' ? 'PIN' : 'Password'} configured.</span>
+            {status.data.must_change ? ' The bootstrap password must be replaced at the next profile sign-in.' : ' This profile is protected at sign-in.'}
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Select
+              label="New credential type"
+              value={kind}
+              onChange={(event) => setKind(event.target.value as CredentialKind)}
+              options={[{ value: 'password', label: 'Password' }, { value: 'pin', label: 'PIN' }]}
+            />
+            <SecretInput label="Current password or PIN" value={current} onChange={(event) => setCurrent(event.target.value)} />
+            <SecretInput label={kind === 'pin' ? 'New PIN (6–12 digits)' : 'New password (8+ characters)'} value={next} onChange={(event) => setNext(event.target.value)} />
+            <SecretInput label="Confirm new credential" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => change.mutate()} disabled={!changeValid || change.isPending}>
+              <Save className="h-4 w-4" /> Change Credential
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => window.confirm('Disable this profile password or PIN? The profile will become passwordless and all signed-in sessions will be invalidated.') && disable.mutate()}
+              disabled={disable.isPending}
+              className="text-red-300"
+            >
+              <Trash2 className="h-4 w-4" /> Disable Credential
+            </Button>
+          </div>
         </div>
       ) : status.data ? (
         <div className="mt-4 grid gap-3 lg:grid-cols-[12rem_1fr_1fr_auto] lg:items-end">
@@ -139,13 +195,13 @@ function ProfileCredentialPanel({ profile }: { profile: Profile }) {
             onChange={(event) => setKind(event.target.value as CredentialKind)}
             options={[{ value: 'password', label: 'Password' }, { value: 'pin', label: 'PIN' }]}
           />
-          <Input label={kind === 'pin' ? 'New PIN (6–12 digits)' : 'New password (8+ characters)'} type="password" value={next} onChange={(event) => setNext(event.target.value)} />
-          <Input label="Confirm credential" type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
-          <Button onClick={() => initialize.mutate()} disabled={!valid || initialize.isPending}><KeyRound className="h-4 w-4" /> Enable</Button>
+          <SecretInput label={kind === 'pin' ? 'New PIN (6–12 digits)' : 'New password (8+ characters)'} value={next} onChange={(event) => setNext(event.target.value)} />
+          <SecretInput label="Confirm credential" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+          <Button onClick={() => initialize.mutate()} disabled={!initializeValid || initialize.isPending}><KeyRound className="h-4 w-4" /> Enable</Button>
         </div>
       ) : null}
       {next !== confirm && confirm ? <p className="mt-3 text-sm text-red-400">Credentials do not match.</p> : null}
-      {status.error || initialize.error ? <p className="mt-3 text-sm text-red-400">{errorText(status.error || initialize.error, 'Credential setup failed')}</p> : null}
+      {mutationError ? <p className="mt-3 text-sm text-red-400">{errorText(mutationError, 'Credential update failed')}</p> : null}
       {!status.data?.configured ? <p className="mt-3 text-xs text-mga-muted">Initial setup is intentionally limited to the computer running MGA Server.</p> : null}
     </section>
   )
@@ -219,7 +275,7 @@ function ManagedProfileCard({
   isCurrent: boolean
   onChanged: () => void
 }) {
-  const [editing, setEditing] = useState(isCurrent)
+  const [editing, setEditing] = useState(false)
   const avatar = profileAvatarFor(profile.avatar_key)
 
   return (

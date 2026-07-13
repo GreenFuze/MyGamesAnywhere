@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, KeyRound, Save, ShieldAlert } from 'lucide-react'
+import { ArrowLeft, Check, Clipboard, KeyRound, LifeBuoy, Save, ShieldAlert } from 'lucide-react'
 import {
   changeOwnCredential,
   getAuthSession,
@@ -10,7 +10,7 @@ import {
   type Profile,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { SecretInput } from '@/components/ui/secret-input'
 import { Select } from '@/components/ui/select'
 
 type ProfileSignInGateProps = {
@@ -23,6 +23,7 @@ export function ProfileSignInGate({ profile, onCancel, children }: ProfileSignIn
   const queryClient = useQueryClient()
   const [credential, setCredential] = useState('')
   const [verifiedCredential, setVerifiedCredential] = useState('')
+  const [recoveryOpen, setRecoveryOpen] = useState(false)
   const credentialQuery = useQuery({
     queryKey: ['credential-status', profile.id],
     queryFn: getCredentialStatus,
@@ -62,9 +63,8 @@ export function ProfileSignInGate({ profile, onCancel, children }: ProfileSignIn
         This {roleLabel.toLowerCase()} profile is protected with a password or PIN.
       </p>
       <div className="mt-5 space-y-3">
-        <Input
+        <SecretInput
           label="Password or PIN"
-          type="password"
           autoFocus
           value={credential}
           onChange={(event) => setCredential(event.target.value)}
@@ -73,6 +73,10 @@ export function ProfileSignInGate({ profile, onCancel, children }: ProfileSignIn
         <Button onClick={() => login.mutate()} disabled={!credential || login.isPending} className="w-full">
           <KeyRound className="h-4 w-4" /> Sign In
         </Button>
+        <Button variant="outline" onClick={() => setRecoveryOpen((current) => !current)} className="w-full">
+          <LifeBuoy className="h-4 w-4" /> Forgot password or PIN?
+        </Button>
+        {recoveryOpen ? <RecoveryInstructions profile={profile} /> : null}
         {credentialQuery.data.must_change && profile.role === 'admin_player' ? (
           <p className="text-xs leading-5 text-mga-muted">
             The first administrator starts with <span className="font-mono text-mga-text">changeme</span> and must replace it at first sign-in.
@@ -113,11 +117,11 @@ function BootstrapCredentialChange({
     <SignInShell profile={profile} title="Replace the bootstrap password" onCancel={onCancel}>
       <div className="flex items-start gap-3 rounded-mga border border-amber-500/30 bg-amber-500/10 p-3 text-sm leading-6 text-amber-100">
         <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
-        <p>The public default must be replaced before this administrator profile can enter MGA.</p>
+        <p>The public recovery password must be replaced before this profile can enter MGA.</p>
       </div>
       <div className="mt-5 space-y-3">
         {!currentCredential ? (
-          <Input label="Current password" type="password" autoFocus value={current} onChange={(event) => setCurrent(event.target.value)} />
+          <SecretInput label="Current password" autoFocus value={current} onChange={(event) => setCurrent(event.target.value)} />
         ) : null}
         <Select
           label="New credential type"
@@ -125,14 +129,13 @@ function BootstrapCredentialChange({
           onChange={(event) => setKind(event.target.value as CredentialKind)}
           options={[{ value: 'password', label: 'Password' }, { value: 'pin', label: 'PIN' }]}
         />
-        <Input
+        <SecretInput
           label={kind === 'pin' ? 'New PIN (6–12 digits)' : 'New password (8+ characters)'}
-          type="password"
           autoFocus={Boolean(currentCredential)}
           value={next}
           onChange={(event) => setNext(event.target.value)}
         />
-        <Input label="Confirm new credential" type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+        <SecretInput label="Confirm new credential" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
         <Button onClick={() => change.mutate()} disabled={!valid || change.isPending} className="w-full">
           <Save className="h-4 w-4" /> Save And Sign In
         </Button>
@@ -140,6 +143,48 @@ function BootstrapCredentialChange({
         {change.error ? <p className="text-sm text-red-400">{errorText(change.error)}</p> : null}
       </div>
     </SignInShell>
+  )
+}
+
+function RecoveryInstructions({ profile }: { profile: Profile }) {
+  const [copied, setCopied] = useState('')
+  const commands = [
+    { mode: 'Portable', command: `.\\mga_server.exe --reset-profile-credential "${profile.id}"` },
+    { mode: 'Per-user install', command: `.\\mga_server.exe --runtime-mode user --reset-profile-credential "${profile.id}"` },
+    { mode: 'All-users service', command: `.\\mga_server.exe --runtime-mode machine --reset-profile-credential "${profile.id}"` },
+  ]
+
+  const copy = async (command: string) => {
+    await navigator.clipboard.writeText(command)
+    setCopied(command)
+  }
+
+  return (
+    <div className="space-y-3 rounded-mga border border-mga-border bg-mga-bg/70 p-4">
+      <p className="text-sm leading-6 text-mga-muted">
+        Recovery is intentionally performed on the MGA Server machine, under its OS permissions—not by an unauthenticated web reset. Open a terminal in the MGA application directory and run the command matching the installation.
+      </p>
+      {commands.map(({ mode, command }) => (
+        <div key={mode} className="space-y-1">
+          <div className="text-xs font-bold uppercase tracking-[0.14em] text-mga-muted">{mode}</div>
+          <div className="flex items-center gap-2 rounded-mga border border-mga-border bg-mga-surface p-2">
+            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-xs text-mga-text">{command}</code>
+            <button
+              type="button"
+              onClick={() => void copy(command)}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-mga text-mga-muted hover:bg-mga-elevated hover:text-mga-text focus:outline-none focus-visible:ring-2 focus-visible:ring-mga-accent"
+              aria-label={`Copy ${mode} recovery command`}
+              title={`Copy ${mode} recovery command`}
+            >
+              {copied === command ? <Check className="h-4 w-4 text-emerald-300" /> : <Clipboard className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+      ))}
+      <p className="text-xs leading-5 text-mga-muted">
+        Run the all-users command from an elevated terminal. Recovery invalidates this profile’s sessions, resets it to <span className="font-mono text-mga-text">changeme</span>, and requires an immediate replacement at sign-in.
+      </p>
+    </div>
   )
 }
 

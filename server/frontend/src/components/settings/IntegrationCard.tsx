@@ -12,7 +12,7 @@ import { IntegrationGamesList } from "./IntegrationGamesList";
 import { StatusDot } from "@/components/ui/status-dot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SecretInput } from "@/components/ui/secret-input";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Loader2, ChevronDown, ChevronRight } from "lucide-react";
@@ -508,18 +508,16 @@ export function IntegrationCard({
         <div className="space-y-3 pt-2 border-t border-mga-border/50">
           <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] md:items-end">
             {syncStatus?.has_stored_key && (
-              <Input
+              <SecretInput
                 label="Current Passphrase"
-                type="password"
                 value={currentPassphrase}
                 onChange={(e) => setCurrentPassphrase(e.target.value)}
                 placeholder="Required to replace stored key"
               />
             )}
             <div className={syncStatus?.has_stored_key ? "" : "md:col-span-2"}>
-              <Input
+              <SecretInput
                 label={syncStatus?.has_stored_key ? "New Passphrase" : "Encryption Passphrase"}
-                type="password"
                 value={passphrase}
                 onChange={(e) => setPassphrase(e.target.value)}
                 placeholder={syncStatus?.has_stored_key ? "Enter replacement passphrase..." : "Enter passphrase..."}

@@ -16,8 +16,9 @@ type fakeClientService struct{}
 func (fakeClientService) Pair(context.Context, clientapp.PairOptions) (clientconfig.Config, error) {
 	return clientconfig.Config{}, nil
 }
-func (fakeClientService) RunAgent(context.Context) error    { return nil }
-func (fakeClientService) Status() (clientapp.Status, error) { return clientapp.Status{}, nil }
+func (fakeClientService) Start(context.Context, clientapp.StartOptions) error { return nil }
+func (fakeClientService) RunAgent(context.Context) error                      { return nil }
+func (fakeClientService) Status() (clientapp.Status, error)                   { return clientapp.Status{}, nil }
 func (fakeClientService) Doctor(context.Context) (clientapp.DoctorResult, error) {
 	return clientapp.DoctorResult{}, nil
 }

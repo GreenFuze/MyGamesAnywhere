@@ -385,6 +385,36 @@ paths:
         500:
           description: Error response
 
+  /api/devices/client-launches:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/client-launches/redeem:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/client-launches/{id}:
+    get:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/devices/connect:
     get:
       responses:

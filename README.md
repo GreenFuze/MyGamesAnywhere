@@ -86,8 +86,10 @@ only with the server.
 
 The first development vertical slice is implemented: optional password/PIN
 sessions, endpoint grants, pairing, authenticated outbound presence, a compiled
-per-user Windows client, and typed ping/refresh commands are available from the
-Settings Devices tab. Game installation, launch/stop, emulator management, and
+per-user Windows client, and typed ping/refresh/client-stop commands are
+available. The top bar uses signed `mga://start` challenges to identify and wake
+the current per-user client while server presence drives its status. Game
+installation, game launch/stop, emulator management, and
 client self-update command families remain later work and are not claimed as
 shipped release capabilities. The component, identity, authorization, and
 technology decisions are recorded in
@@ -304,6 +306,14 @@ MGA ships Windows portable and installer builds. It runs as a local server plus 
 3. For the installer, choose **For me only** for a login process under your Windows profile, or **All users** for an administrator-approved Windows service
 4. Open [http://127.0.0.1:8900](http://127.0.0.1:8900)
 5. On first run, create the first administrator profile or use the profile picker if profiles already exist. Profiles without credentials enter immediately; protected profiles request their password or PIN at this point.
+
+If a profile credential is forgotten, choose **Forgot password or PIN?** on the
+sign-in screen. MGA shows a recovery command for portable, per-user, and
+all-users installations. Run the matching command on the MGA Server machine;
+the all-users command requires an elevated terminal. Recovery resets that
+profile to `changeme`, invalidates its sessions, and forces a replacement at the
+next sign-in. This deliberately cannot be triggered by an unauthenticated web
+request because a single server machine may host multiple OS users.
 
 The current portable runtime stores config, database, plugins, media, logs, update cache, and local state beside the runtime folder. Avoid extracting it under `Program Files`. The shipped `config.json` includes `LISTEN_IP: "127.0.0.1"` and `PORT: "8900"`; LAN exposure is opt-in by editing the server config. Installed **For me only** mode stores app files under `%LOCALAPPDATA%\Programs\MyGamesAnywhere` and mutable data/logs under `%LOCALAPPDATA%\MyGamesAnywhere`. Installed **All users** mode stores app files under `%ProgramFiles%\MyGamesAnywhere`, mutable data/logs under `%ProgramData%\MyGamesAnywhere`, runs as a Windows service, and intentionally writes `LISTEN_IP: "0.0.0.0"` because it is the service/LAN mode.
 
