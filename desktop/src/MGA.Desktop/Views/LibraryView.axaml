@@ -485,24 +485,32 @@
                                              Foreground="#FFFFFF"/>
                                 </StackPanel>
                               </Border>
-                              <!-- Hover overlay: action buttons appear on hover -->
+                              <!-- Hover overlay: preview image + play button fade in on hover -->
                               <Border Classes="card-hover-overlay"
                                       VerticalAlignment="Stretch"
                                       HorizontalAlignment="Stretch"
                                       IsHitTestVisible="False">
-                                <Border VerticalAlignment="Bottom"
-                                        Padding="7,0,7,8">
-                                  <StackPanel Spacing="4">
-                                    <Border Background="#AA000000"
-                                            CornerRadius="6"
-                                            Padding="0,5">
+                                <Grid>
+                                  <Image asyncImage:ImageLoader.Source="{Binding BestPreviewUrl}"
+                                         Stretch="UniformToFill"
+                                         IsVisible="{Binding BestPreviewUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                  <Border>
+                                    <Border.Background>
+                                      <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                        <GradientStop Color="#00000000" Offset="0.3"/>
+                                        <GradientStop Color="#CC000000" Offset="1"/>
+                                      </LinearGradientBrush>
+                                    </Border.Background>
+                                  </Border>
+                                  <Border VerticalAlignment="Bottom" Padding="7,0,7,8">
+                                    <Border Background="#AA000000" CornerRadius="6" Padding="0,5">
                                       <TextBlock Text="▶  Play"
                                                  FontSize="11" FontWeight="SemiBold"
                                                  Foreground="#FFFFFF"
                                                  HorizontalAlignment="Center"/>
                                     </Border>
-                                  </StackPanel>
-                                </Border>
+                                  </Border>
+                                </Grid>
                               </Border>
                             </Grid>
                           </Border>
@@ -638,24 +646,32 @@
                                                Foreground="#FFFFFF"/>
                                   </StackPanel>
                                 </Border>
-                                <!-- Hover overlay: action buttons appear on hover -->
+                                <!-- Hover overlay: preview image + play button fade in on hover -->
                                 <Border Classes="card-hover-overlay"
                                         VerticalAlignment="Stretch"
                                         HorizontalAlignment="Stretch"
                                         IsHitTestVisible="False">
-                                  <Border VerticalAlignment="Bottom"
-                                          Padding="7,0,7,8">
-                                    <StackPanel Spacing="4">
-                                      <Border Background="#AA000000"
-                                              CornerRadius="6"
-                                              Padding="0,5">
+                                  <Grid>
+                                    <Image asyncImage:ImageLoader.Source="{Binding BestPreviewUrl}"
+                                           Stretch="UniformToFill"
+                                           IsVisible="{Binding BestPreviewUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                    <Border>
+                                      <Border.Background>
+                                        <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                          <GradientStop Color="#00000000" Offset="0.3"/>
+                                          <GradientStop Color="#CC000000" Offset="1"/>
+                                        </LinearGradientBrush>
+                                      </Border.Background>
+                                    </Border>
+                                    <Border VerticalAlignment="Bottom" Padding="7,0,7,8">
+                                      <Border Background="#AA000000" CornerRadius="6" Padding="0,5">
                                         <TextBlock Text="▶  Play"
                                                    FontSize="11" FontWeight="SemiBold"
                                                    Foreground="#FFFFFF"
                                                    HorizontalAlignment="Center"/>
                                       </Border>
-                                    </StackPanel>
-                                  </Border>
+                                    </Border>
+                                  </Grid>
                                 </Border>
                               </Grid>
                             </Border>
@@ -799,31 +815,42 @@
                                      Foreground="#FFFFFF"/>
                         </StackPanel>
                       </Border>
-                      <!-- Hover overlay: action buttons fade in at the bottom on hover.
-                           No preview image overlay — the card already shows the cover.
-                           Clicking navigates to game detail; no inline play from grid. -->
+                      <!-- Hover overlay: preview art + action buttons fade in on hover -->
                       <Border Classes="card-hover-overlay"
                               VerticalAlignment="Stretch"
                               HorizontalAlignment="Stretch"
                               IsHitTestVisible="False">
-                        <Border VerticalAlignment="Bottom" Padding="7,0,7,8">
-                          <Border Background="#AA000000" CornerRadius="6" Padding="6,5">
-                            <StackPanel Orientation="Horizontal"
-                                        HorizontalAlignment="Center"
-                                        Spacing="10">
-                              <TextBlock Text="▶  Play"
-                                         FontSize="11" FontWeight="SemiBold"
-                                         Foreground="#FFFFFF"
-                                         IsVisible="{Binding CanPlay}"/>
-                              <TextBlock Text="·"
-                                         FontSize="11" Foreground="#55FFFFFF"
-                                         IsVisible="{Binding CanPlay}"/>
-                              <TextBlock Text="Details"
-                                         FontSize="11" FontWeight="Medium"
-                                         Foreground="#BBFFFFFF"/>
-                            </StackPanel>
+                        <Grid>
+                          <Image asyncImage:ImageLoader.Source="{Binding BestPreviewUrl}"
+                                 Stretch="UniformToFill"
+                                 IsVisible="{Binding BestPreviewUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                          <Border>
+                            <Border.Background>
+                              <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                <GradientStop Color="#00000000" Offset="0.3"/>
+                                <GradientStop Color="#CC000000" Offset="1"/>
+                              </LinearGradientBrush>
+                            </Border.Background>
                           </Border>
-                        </Border>
+                          <Border VerticalAlignment="Bottom" Padding="7,0,7,8">
+                            <Border Background="#AA000000" CornerRadius="6" Padding="6,5">
+                              <StackPanel Orientation="Horizontal"
+                                          HorizontalAlignment="Center"
+                                          Spacing="10">
+                                <TextBlock Text="▶  Play"
+                                           FontSize="11" FontWeight="SemiBold"
+                                           Foreground="#FFFFFF"
+                                           IsVisible="{Binding CanPlay}"/>
+                                <TextBlock Text="·"
+                                           FontSize="11" Foreground="#55FFFFFF"
+                                           IsVisible="{Binding CanPlay}"/>
+                                <TextBlock Text="Details"
+                                           FontSize="11" FontWeight="Medium"
+                                           Foreground="#BBFFFFFF"/>
+                              </StackPanel>
+                            </Border>
+                          </Border>
+                        </Grid>
                       </Border>
                     </Grid>
                   </Border>

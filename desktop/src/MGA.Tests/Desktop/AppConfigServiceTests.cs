@@ -120,7 +120,7 @@ public sealed class AppConfigServiceTests : IDisposable
     // ---------------------------------------------------------------------------
 
     [Fact]
-    public void IsFirstRun_false_when_servers_and_active_server_set()
+    public void IsFirstRun_false_when_server_and_gamer_profile_are_set()
     {
         var svc = new AppConfigService(_tempPath);
 
@@ -128,6 +128,7 @@ public sealed class AppConfigServiceTests : IDisposable
         {
             c.Servers.Add(new ServerProfile { Name = "Main", Url = "http://server" });
             c.ActiveServer = "http://server";
+            c.GamerProfileId = "profile-1";
         });
 
         Assert.False(svc.Config.IsFirstRun);

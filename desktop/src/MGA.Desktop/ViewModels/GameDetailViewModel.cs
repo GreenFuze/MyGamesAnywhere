@@ -814,12 +814,22 @@ public sealed partial class GameDetailViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Navigates back to the library.</summary>
+    /// <summary>Navigates back — restores the prior page from history when available.</summary>
     [RelayCommand]
     private void GoBack()
     {
+        if (_nav.CanGoBack)
+        {
+            _nav.NavigateBack();
+            return;
+        }
+
+        // Fallback: no history (e.g. deep-linked directly), create a fresh Library.
         _nav.NavigateTo(new LibraryViewModel(
-            _server, _nav, _toast, _config, installDetector: _installDetector, recentPlayed: _recentPlayed));
+            _server, _nav, _toast, _config,
+            installDetector:  _installDetector,
+            recentPlayed:     _recentPlayed,
+            gameStateService: _gameStateService));
     }
 
     /// <summary>Opens the Media Manager page for this game.</summary>
@@ -1125,9 +1135,15 @@ public sealed partial class GameDetailViewModel : ViewModelBase
 
             if (!result.CanonicalExists)
             {
-                // The canonical game itself was deleted — navigate back.
-                _nav.NavigateTo(new LibraryViewModel(
-            _server, _nav, _toast, _config, installDetector: _installDetector, recentPlayed: _recentPlayed));
+                // The canonical game itself was deleted — go back (history preferred).
+                if (_nav.CanGoBack)
+                    _nav.NavigateBack();
+                else
+                    _nav.NavigateTo(new LibraryViewModel(
+                        _server, _nav, _toast, _config,
+                        installDetector:  _installDetector,
+                        recentPlayed:     _recentPlayed,
+                        gameStateService: _gameStateService));
             }
             else
             {

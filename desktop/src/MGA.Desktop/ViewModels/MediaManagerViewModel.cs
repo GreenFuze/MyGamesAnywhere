@@ -163,12 +163,20 @@ public sealed partial class MediaManagerViewModel : ViewModelBase
     // Commands
     // ---------------------------------------------------------------------------
 
-    /// <summary>Navigates back to Game Detail for this game.</summary>
+    /// <summary>Navigates back — restores GameDetail from history when available.</summary>
     [RelayCommand]
-    private void Back() =>
+    private void Back()
+    {
+        if (_nav.CanGoBack)
+        {
+            _nav.NavigateBack();
+            return;
+        }
+
         _nav.NavigateTo(new GameDetailViewModel(
             _gameId, _server, _nav, _toast, _config,
             _installDetector, gameStateService: _gameStateService));
+    }
 
     /// <summary>Selects an asset and shows it in the preview panel.</summary>
     [RelayCommand]
