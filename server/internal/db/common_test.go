@@ -22,7 +22,7 @@ func (c testDBConfig) Validate() error         { return nil }
 // testLogger implements core.Logger for tests (no-op).
 type testLogger struct{}
 
-func (testLogger) Info(msg string, args ...any)   {}
+func (testLogger) Info(msg string, args ...any)             {}
 func (testLogger) Error(msg string, err error, args ...any) {}
-func (testLogger) Debug(msg string, args ...any)  {}
-func (testLogger) Warn(msg string, args ...any)   {}
+func (testLogger) Debug(msg string, args ...any)            {}
+func (testLogger) Warn(msg string, args ...any)             {}

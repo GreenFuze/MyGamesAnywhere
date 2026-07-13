@@ -1,0 +1,274 @@
+# MGA Device Protocol v1
+
+- **Status:** Accepted; foundation implemented
+- **Date:** 2026-07-13
+- **Depends on:** [ADR-0001](0001-mga-client-architecture.md)
+
+This document defines the first server-to-client contract. The shared Go wire
+types live in `protocol/device/v1`; the server and client import that module
+without importing each other's implementation packages.
+
+## Implemented foundation
+
+The current development implementation includes:
+
+- optional password/PIN profile credentials, HttpOnly sessions, the forced
+  `changeme` bootstrap change, and local-only initial credential setup
+- migrations 11 and 12 for credentials, sessions, endpoints, grants, pairing
+  challenges, and command audit records
+- single-use ten-minute pairing codes and atomic Owner-grant creation
+- Ed25519 challenge/response WebSocket authentication and per-user Windows
+  DPAPI key storage
+- heartbeat presence, endpoint/user metadata, explicit profile grants, and the
+  ready/busy/offline/update-required/error UI mapping
+- allow-listed `endpoint.ping` and `endpoint.refresh` commands with persisted
+  lifecycle/results, endpoint-bound result validation, and capability checks
+- per-user Windows build/installer scripts, `mga://pair`, diagnostics,
+  single-instance enforcement, and local unpairing
+
+This is the secure control-plane vertical slice. Mutating game, emulator,
+inventory, elevation-helper, durable idempotency, cancellation, and client
+self-update command families remain intentionally unimplemented until their
+typed payloads and platform behavior are designed.
+
+## Goals
+
+- Pair one per-user MGA Client endpoint with an authenticated MGA profile.
+- Let the server accurately show whether an authorized endpoint is connected,
+  ready, busy, incompatible, or in error.
+- Dispatch only typed and authorized machine-local operations.
+- Return acknowledgement, progress, cancellation, and terminal results.
+- Survive connection loss without duplicating a mutating operation.
+- Allow server and client releases to remain compatible across a documented
+  protocol range.
+
+## Non-goals
+
+- Arbitrary shell or executable commands.
+- Permanent administrative execution.
+- Direct browser-to-client networking.
+- Offline command queues or scheduling in v1.
+- Treating a host name or hardware fingerprint as an authorization identity.
+
+## Identifiers
+
+| Identifier | Created by | Purpose |
+|---|---|---|
+| `profile_id` | Server | Authenticated MGA identity requesting or receiving access |
+| `endpoint_id` | Server during pairing | Authoritative command target |
+| `client_instance_id` | Client installation | Correlates local state before and after pairing |
+| `connection_id` | Server per WebSocket | Identifies one live connection |
+| `message_id` | Message sender | Deduplicates protocol messages |
+| `command_id` | Server | Correlates the complete command lifecycle |
+| `idempotency_key` | Server | Prevents duplicate local mutation after retry/reconnect |
+
+Host name, OS user display name, platform, architecture, and installation facts
+are endpoint metadata. They are not credentials and do not replace
+`endpoint_id`.
+
+## Pairing
+
+1. An authenticated profile asks the server to create a single-use pairing
+   challenge with a short expiry.
+2. The web interface invokes `mga://pair` with an opaque challenge reference or
+   shows a manual code. No reusable endpoint credential is placed in the URI.
+3. The client displays the target server and profile and requires local user
+   confirmation.
+4. The client generates an Ed25519 key pair. On Windows, its private key is
+   stored using current-user DPAPI protection.
+5. The client sends the challenge reference, public key, instance ID, and basic
+   endpoint metadata to the server over HTTPS.
+6. The server atomically consumes the challenge, creates the endpoint, and gives
+   the pairing profile an `Owner` grant.
+7. The server returns the endpoint ID and protocol compatibility policy. The
+   private key never leaves the endpoint.
+
+Pairing fails fast if the challenge is expired, already consumed, belongs to a
+different authenticated pairing flow, or requests an unsupported protocol.
+Re-pairing creates or explicitly replaces an endpoint; it must not silently
+take over an existing endpoint identity.
+
+## Connection authentication
+
+1. The client opens an outbound WSS connection and sends a `hello` containing
+   endpoint ID, client version, protocol range, and capabilities.
+2. The server returns a fresh random authentication challenge.
+3. The client signs the challenge plus connection context with its endpoint
+   private key.
+4. The server verifies the signature against the paired public key and either
+   accepts the connection or closes it with a typed reason.
+5. The server returns the selected protocol version, heartbeat interval,
+   compatibility status, server time, and connection ID.
+
+Only one authoritative live connection is allowed per endpoint. A replacement
+connection supersedes the old connection explicitly; simultaneous connections
+must never execute the same command independently.
+
+## Common message envelope
+
+Every WebSocket message uses a versioned JSON envelope:
+
+```json
+{
+  "protocol_version": 1,
+  "type": "command.request",
+  "message_id": "01J...",
+  "correlation_id": "01J...",
+  "sent_at": "2026-07-13T12:00:00Z",
+  "payload": {}
+}
+```
+
+Required envelope fields are validated strictly. Unsupported protocol versions,
+unknown message types, malformed timestamps, duplicate message IDs with
+different content, and payloads that fail their typed schema produce protocol
+errors. Secret material and raw local credentials are never valid payloads.
+
+## Heartbeat and presence
+
+The client sends a heartbeat at the server-selected interval. A heartbeat
+contains:
+
+- current client and protocol versions
+- readiness and active-command count
+- capabilities and capability revisions
+- update status
+- summarized local-action requirements
+- last processed command/message positions needed for recovery
+
+The server owns the externally visible presence decision. Missing enough
+heartbeats closes the logical connection and marks the endpoint offline. The UI
+uses the accepted state mapping from ADR-0001: green ready, amber busy, gray
+offline, purple update required, and red error.
+
+## Command lifecycle
+
+```mermaid
+stateDiagram-v2
+  [*] --> Authorized
+  Authorized --> Dispatched
+  Authorized --> Canceled
+  Authorized --> Expired
+  Dispatched --> Accepted
+  Dispatched --> Rejected
+  Dispatched --> Canceled
+  Dispatched --> Expired
+  Accepted --> Running
+  Accepted --> Canceled
+  Accepted --> Expired
+  Running --> Succeeded
+  Running --> Failed
+  Running --> Canceled
+  Running --> Expired
+```
+
+The server creates a command only after checking the authenticated profile's
+endpoint grant and the endpoint's advertised capability. The request contains:
+
+- command ID and idempotency key
+- typed command name and schema version
+- issuing profile and validated authorization context
+- creation and expiry timestamps
+- normalized parameters
+- whether local interaction or elevation may be requested
+
+The client first validates the envelope, expiry, command schema, authorization
+context, local capability, and idempotency record. It then returns `accepted` or
+a typed rejection before performing work. Progress messages are monotonic and
+terminal results are durable enough to be replayed after reconnect.
+
+An endpoint that is offline causes an interactive request to fail immediately.
+The server may record that failed attempt for audit purposes, but it does not
+dispatch it later. Scheduled/offline queues require a future protocol decision.
+
+## Initial command families
+
+Exact payloads remain part of the protocol-contract implementation, but v1
+reserves these typed families:
+
+| Family | Examples | Minimum grant |
+|---|---|---|
+| Endpoint | refresh capabilities, collect diagnostics | `View` or `Manage`, depending on sensitivity |
+| Inventory | scan, refresh, validate local availability | `Manage` |
+| Game | launch, stop | `Play` |
+| Game management | install, uninstall, repair | `Manage` |
+| Emulator | install, uninstall, configure, validate | `Manage` |
+| Client | check update, apply update, restart | `Owner` |
+
+Each concrete command is independently allow-listed. A generic `shell`, `exec`,
+or unrestricted process-start command is forbidden.
+
+## Local interaction and elevation
+
+A command may return `user_action_required` with a safe, typed reason such as
+confirmation, closing a running application, or approving UAC. The web
+interface can explain that state, but it cannot simulate local consent.
+
+If elevation is required, the non-elevated agent starts a narrowly scoped,
+signed helper for that one operation and the OS user must approve it locally.
+The helper receives a constrained operation description, not a shell command or
+general client credential. The precise helper design requires its own security
+review before implementation.
+
+## Cancellation, reconnect, and deduplication
+
+- Cancellation is best effort and produces a terminal result describing what
+  was or was not rolled back.
+- Reconnection never makes an unknown command safe to repeat automatically.
+- The client stores idempotency outcomes for mutating commands for a bounded,
+  protocol-defined period.
+- The server can request the terminal result for a known command after
+  reconnect.
+- A duplicate idempotency key with different command content is a hard protocol
+  error.
+- Commands stop or fail explicitly when their expiry or local safety boundary
+  is reached.
+
+## Compatibility and update-required mode
+
+Both sides advertise minimum and maximum protocol versions. The server selects
+the highest mutually supported version. With no overlap, the client may remain
+connected only in restricted update/recovery mode.
+
+The server can set `update_required` when a client is below the supported client
+version even if the transport protocol still overlaps. In that mode:
+
+- presence remains visible as purple
+- heartbeat, diagnostics, unpair, and update/recovery messages remain available
+- ordinary game, inventory, installation, and emulator commands are rejected
+- the UI displays the required version and actionable reason
+
+## Audit and sensitive data
+
+The server records the profile, endpoint, command type, timestamps, lifecycle,
+and sanitized result. The client records enough local history for diagnostics
+and idempotency. Neither side logs private keys, pairing secrets, access tokens,
+store credentials, full environment dumps, or command payload fields marked as
+sensitive.
+
+## Deferred decisions
+
+1. Exact schemas and local safety rules for game install/uninstall/repair,
+   launch/stop, inventory, and emulator commands.
+2. Durable client idempotency retention and reconnect replay for mutating
+   commands.
+3. Cancellation and rollback semantics for each mutating command.
+4. The narrowly scoped elevation-helper design and signing policy.
+5. Signed client update manifests, minimum-client-version policy, Authenticode,
+   and restricted update/recovery mode.
+6. Whether non-authoritative physical-host display grouping is useful.
+
+## Migration impact
+
+Server migration 11 adds `profile_credentials` and `auth_sessions`. Server
+migration 12 adds `device_endpoints`, `device_grants`,
+`device_pairing_challenges`, and `device_commands`. Both are additive and leave
+existing profiles, libraries, integrations, and settings intact. The first
+profile with the administrator role receives the `changeme` bootstrap credential
+only when no credential exists, independent of its display name. Profiles
+without a credential remain passwordless. Protected profiles verify their
+password or PIN during profile selection, before the web interface opens.
+
+The new client has no legacy installation state. Its initial persisted JSON is
+explicitly schema version 1; unknown future versions fail fast. No existing MGA
+server JSON/config format is changed.

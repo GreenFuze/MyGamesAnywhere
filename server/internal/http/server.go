@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/auth"
 	appconfig "github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
@@ -35,6 +36,9 @@ type httpServer struct {
 	oauthCtrl              *OAuthController
 	profileCtrl            *ProfileController
 	profileRepo            core.ProfileRepository
+	authCtrl               *AuthController
+	authService            *auth.Service
+	deviceCtrl             *DeviceController
 }
 
 func NewHttpServer(
@@ -58,6 +62,9 @@ func NewHttpServer(
 	oauthCtrl *OAuthController,
 	profileCtrl *ProfileController,
 	profileRepo core.ProfileRepository,
+	authCtrl *AuthController,
+	authService *auth.Service,
+	deviceCtrl *DeviceController,
 ) core.Server {
 	return &httpServer{
 		logger:                 logger,
@@ -80,6 +87,9 @@ func NewHttpServer(
 		oauthCtrl:              oauthCtrl,
 		profileCtrl:            profileCtrl,
 		profileRepo:            profileRepo,
+		authCtrl:               authCtrl,
+		authService:            authService,
+		deviceCtrl:             deviceCtrl,
 	}
 }
 
@@ -118,6 +128,9 @@ func (h *httpServer) Start(ctx context.Context) error {
 		OAuthCtrl:              h.oauthCtrl,
 		ProfileCtrl:            h.profileCtrl,
 		ProfileRepo:            h.profileRepo,
+		AuthCtrl:               h.authCtrl,
+		AuthService:            h.authService,
+		DeviceCtrl:             h.deviceCtrl,
 	}, 60*time.Second, spaDir)
 
 	h.server = &http.Server{

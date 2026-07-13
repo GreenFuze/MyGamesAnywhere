@@ -8,11 +8,14 @@ import { CacheTab } from '@/components/settings/CacheTab'
 import { DuplicatesTab } from '@/components/settings/DuplicatesTab'
 import { ProfilesTab } from '@/components/settings/ProfilesTab'
 import { UpdateTab } from '@/components/settings/SettingsTab'
+import { DevicesTab } from '@/components/settings/DevicesTab'
+import { useProfiles } from '@/hooks/useProfiles'
 
 const TABS: Tab[] = [
   { id: 'integrations', label: 'Integrations' },
   { id: 'update', label: 'Update' },
   { id: 'profiles', label: 'Profiles' },
+  { id: 'devices', label: 'Devices' },
   { id: 'plugins', label: 'Plugins' },
   { id: 'cache', label: 'Cache' },
   { id: 'duplicates', label: 'Duplicates' },
@@ -23,6 +26,7 @@ const TABS: Tab[] = [
 const TAB_COMPONENTS: Record<string, React.FC> = {
   update: UpdateTab,
   profiles: ProfilesTab,
+  devices: DevicesTab,
   plugins: PluginsTab,
   cache: CacheTab,
   duplicates: DuplicatesTab,
@@ -31,10 +35,13 @@ const TAB_COMPONENTS: Record<string, React.FC> = {
 }
 
 export function SettingsPage() {
+  const { currentProfile } = useProfiles()
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
   const normalizedTabParam = tabParam === 'settings' ? 'update' : tabParam
-  const activeTab = normalizedTabParam && (normalizedTabParam === 'integrations' || TAB_COMPONENTS[normalizedTabParam]) ? normalizedTabParam : 'integrations'
+  const availableTabs = currentProfile?.role === 'admin_player' ? TABS : TABS.filter((tab) => tab.id === 'devices' || tab.id === 'appearance')
+  const fallbackTab = currentProfile?.role === 'admin_player' ? 'integrations' : 'devices'
+  const activeTab = normalizedTabParam && availableTabs.some((tab) => tab.id === normalizedTabParam) ? normalizedTabParam : fallbackTab
 
   const handleTabChange = (id: string) => {
     const next = new URLSearchParams(searchParams)
@@ -49,11 +56,11 @@ export function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold text-mga-text">Settings</h1>
         <p className="text-sm text-mga-muted mt-1">
-          Manage integrations, updates, cached source data, plugins, and appearance
+          Manage integrations, devices, updates, cached source data, plugins, and appearance
         </p>
       </div>
 
-      <Tabs tabs={TABS} active={activeTab} onChange={handleTabChange} />
+      <Tabs tabs={availableTabs} active={activeTab} onChange={handleTabChange} />
 
       <div className="pb-8">
         {activeTab === 'integrations' ? (

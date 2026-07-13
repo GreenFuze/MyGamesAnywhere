@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/auth"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -30,6 +31,9 @@ type RouteBuilder struct {
 	OAuthCtrl              *OAuthController
 	ProfileCtrl            *ProfileController
 	ProfileRepo            core.ProfileRepository
+	AuthCtrl               *AuthController
+	AuthService            *auth.Service
+	DeviceCtrl             *DeviceController
 }
 
 func noopHandler() http.HandlerFunc {
@@ -57,6 +61,18 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 
 	r.Route("/api", func(api chi.Router) {
 		if b != nil {
+			api.Get("/auth/session", b.AuthCtrl.Session)
+			api.Post("/auth/login", b.AuthCtrl.Login)
+			api.Post("/auth/logout", b.AuthCtrl.Logout)
+			api.Put("/auth/credential", b.AuthCtrl.ChangeCredential)
+			api.With(ProfileContextMiddleware(b.ProfileRepo)).Get("/auth/credential", b.AuthCtrl.CredentialStatus)
+			api.With(ProfileContextMiddleware(b.ProfileRepo)).Post("/auth/credential", b.AuthCtrl.InitializeCredential)
+			api.With(ProfileContextMiddleware(b.ProfileRepo)).Delete("/auth/credential", b.AuthCtrl.RemoveCredential)
+			api.Post("/devices/pair", b.DeviceCtrl.Pair)
+			api.Get("/devices/connect", b.DeviceCtrl.Connect)
+			api.Get("/devices/client-download", b.DeviceCtrl.ClientDownload)
+			api.Get("/devices/client-installer", b.DeviceCtrl.ServeClientInstaller)
+			api.Head("/devices/client-installer", b.DeviceCtrl.ServeClientInstaller)
 			api.Get("/setup/status", b.ProfileCtrl.SetupStatus)
 			api.Post("/setup/start-fresh", b.ProfileCtrl.StartFresh)
 			api.Post("/setup/restore-sync/check", b.ProfileCtrl.CheckRestoreSync)
@@ -76,6 +92,20 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			}
 
 			api.With(ProfileContextMiddleware(b.ProfileRepo)).Post("/games/sources/delete-batch", adminOnly(b.GameCtrl.DeleteSourceGames))
+
+			api.Group(func(r chi.Router) {
+				r.Use(ProfileContextMiddleware(b.ProfileRepo))
+				r.Use(RequireDeviceSession(b.AuthService))
+				r.Get("/devices", b.DeviceCtrl.List)
+				r.Post("/devices/pairing-challenges", b.DeviceCtrl.CreatePairingChallenge)
+				r.Put("/devices/{id}", b.DeviceCtrl.Rename)
+				r.Delete("/devices/{id}", b.DeviceCtrl.Revoke)
+				r.Get("/devices/{id}/grants", b.DeviceCtrl.ListGrants)
+				r.Put("/devices/{id}/grants/{profile_id}", b.DeviceCtrl.SetGrant)
+				r.Delete("/devices/{id}/grants/{profile_id}", b.DeviceCtrl.DeleteGrant)
+				r.Post("/devices/{id}/commands", b.DeviceCtrl.DispatchCommand)
+				r.Get("/devices/{id}/commands", b.DeviceCtrl.ListCommands)
+			})
 
 			// Routes with standard middleware timeout.
 			api.Group(func(r chi.Router) {
@@ -203,6 +233,27 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Get("/scan/reports/{id}", b.DiscoCtrl.GetScanReport)
 			})
 		} else {
+			api.Get("/auth/session", noopHandler())
+			api.Post("/auth/login", noopHandler())
+			api.Post("/auth/logout", noopHandler())
+			api.Put("/auth/credential", noopHandler())
+			api.Get("/auth/credential", noopHandler())
+			api.Post("/auth/credential", noopHandler())
+			api.Delete("/auth/credential", noopHandler())
+			api.Post("/devices/pair", noopHandler())
+			api.Get("/devices/connect", noopHandler())
+			api.Get("/devices/client-download", noopHandler())
+			api.Get("/devices/client-installer", noopHandler())
+			api.Head("/devices/client-installer", noopHandler())
+			api.Get("/devices", noopHandler())
+			api.Post("/devices/pairing-challenges", noopHandler())
+			api.Put("/devices/{id}", noopHandler())
+			api.Delete("/devices/{id}", noopHandler())
+			api.Get("/devices/{id}/grants", noopHandler())
+			api.Put("/devices/{id}/grants/{profile_id}", noopHandler())
+			api.Delete("/devices/{id}/grants/{profile_id}", noopHandler())
+			api.Post("/devices/{id}/commands", noopHandler())
+			api.Get("/devices/{id}/commands", noopHandler())
 			api.Get("/setup/status", noopHandler())
 			api.Post("/setup/start-fresh", noopHandler())
 			api.Post("/setup/restore-sync/check", noopHandler())

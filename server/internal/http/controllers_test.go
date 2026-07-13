@@ -1285,6 +1285,7 @@ func (f *fakeGameStore) ClearCanonicalMediaOverrides(_ context.Context, canonica
 }
 
 type fakePluginHost struct {
+	mu                     sync.Mutex
 	provides               map[string][]string
 	results                map[string]rawAchievementPluginResult
 	metadataResults        map[string]reviewMetadataLookupResponse
@@ -1299,12 +1300,14 @@ func (f *fakePluginHost) Call(_ context.Context, pluginID, method string, params
 	case map[string]any:
 		if externalGameID, ok := payload["external_game_id"].(string); ok {
 			configMap, _ := payload["config"].(map[string]any)
+			f.mu.Lock()
 			f.calls = append(f.calls, fakePluginCall{
 				pluginID:       pluginID,
 				method:         method,
 				externalGameID: externalGameID,
 				config:         configMap,
 			})
+			f.mu.Unlock()
 		}
 	}
 	switch method {
@@ -1327,7 +1330,9 @@ func (f *fakePluginHost) Call(_ context.Context, pluginID, method string, params
 		if err := json.Unmarshal(data, &req); err != nil {
 			return err
 		}
+		f.mu.Lock()
 		f.metadataLookupRequests = append(f.metadataLookupRequests, req)
+		f.mu.Unlock()
 		if err, ok := f.metadataCallError[pluginID]; ok {
 			return err
 		}
@@ -1558,6 +1563,28 @@ func TestPluginControllerCheckPluginConfigReturnsConfigUpdates(t *testing.T) {
 	}
 	if _, ok := body["config_updates"].(map[string]any); !ok {
 		t.Fatalf("config_updates missing from response: %#v", body)
+	}
+}
+
+func TestPluginControllerListReturnsEmptyArray(t *testing.T) {
+	controller := NewPluginController(
+		&fakeControllerIntegrationRepo{},
+		nil,
+		nil,
+		staticConfig{},
+		noopLogger{},
+		nil,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/integrations", nil)
+	rec := httptest.NewRecorder()
+	controller.List(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != "[]" {
+		t.Fatalf("body = %q, want []", got)
 	}
 }
 

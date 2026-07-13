@@ -331,6 +331,152 @@ export async function deleteProfile(id: string): Promise<void> {
   return deleteRequest(`/api/profiles/${encodeURIComponent(id)}`);
 }
 
+export type CredentialKind = "password" | "pin";
+
+export type AuthStatus = {
+  authenticated: boolean;
+  profile?: Profile;
+  must_change: boolean;
+};
+
+export type CredentialStatus = {
+  configured: boolean;
+  kind?: CredentialKind;
+  must_change: boolean;
+};
+
+export async function getAuthSession(): Promise<AuthStatus> {
+  return getJson<AuthStatus>("/api/auth/session");
+}
+
+export async function loginProfile(profileId: string, credential: string): Promise<AuthStatus> {
+  return postJson<AuthStatus>("/api/auth/login", { profile_id: profileId, credential }) as Promise<AuthStatus>;
+}
+
+export async function changeOwnCredential(current: string, next: string, kind: CredentialKind): Promise<AuthStatus> {
+  return putJson<AuthStatus>("/api/auth/credential", { current, new: next, kind });
+}
+
+export async function getCredentialStatus(): Promise<CredentialStatus> {
+  return getJson<CredentialStatus>("/api/auth/credential");
+}
+
+export async function initializeCredential(next: string, kind: CredentialKind): Promise<CredentialStatus> {
+  return postJson<CredentialStatus>("/api/auth/credential", { new: next, kind }) as Promise<CredentialStatus>;
+}
+
+export async function removeOwnCredential(): Promise<void> {
+  return deleteRequest("/api/auth/credential");
+}
+
+export async function logoutProfile(): Promise<void> {
+  await postJson<void>("/api/auth/logout", {});
+}
+
+export type DeviceAccessLevel = "view" | "play" | "manage" | "owner";
+export type DeviceState = "ready" | "busy" | "offline" | "update_required" | "error";
+
+export type DeviceEndpoint = {
+  id: string;
+  client_instance_id: string;
+  display_name: string;
+  host_name: string;
+  os_user: string;
+  platform: string;
+  arch: string;
+  client_version: string;
+  protocol_version: number;
+  capabilities: string[];
+  status: DeviceState;
+  status_reason?: string;
+  last_seen_at?: string;
+  created_at: string;
+  updated_at: string;
+  access_level: DeviceAccessLevel;
+};
+
+export type DevicePairingChallenge = {
+  code: string;
+  expires_at: string;
+  pair_command: string;
+  pair_uri: string;
+};
+
+export type DeviceGrant = {
+  endpoint_id: string;
+  profile_id: string;
+  profile_display_name: string;
+  profile_role: ProfileRole;
+  access_level: DeviceAccessLevel;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DeviceCommand = {
+  id: string;
+  endpoint_id: string;
+  profile_id: string;
+  name: string;
+  status: "authorized" | "dispatched" | "accepted" | "running" | "succeeded" | "failed" | "rejected" | "canceled" | "expired";
+  result?: unknown;
+  error_code?: string;
+  error_message?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function listDevices(): Promise<DeviceEndpoint[]> {
+  return getJson<DeviceEndpoint[]>("/api/devices");
+}
+
+export async function createDevicePairingChallenge(): Promise<DevicePairingChallenge> {
+  return postJson<DevicePairingChallenge>("/api/devices/pairing-challenges", {}) as Promise<DevicePairingChallenge>;
+}
+
+export async function renameDevice(id: string, displayName: string): Promise<void> {
+  const path = `/api/devices/${encodeURIComponent(id)}`;
+  const response = await apiFetch(path, {
+    method: "PUT",
+    headers: withProfileHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ display_name: displayName }),
+  });
+  if (!response.ok) throw await buildApiError(path, response);
+}
+
+export async function revokeDevice(id: string): Promise<void> {
+  return deleteRequest(`/api/devices/${encodeURIComponent(id)}`);
+}
+
+export async function listDeviceGrants(id: string): Promise<DeviceGrant[]> {
+  return getJson<DeviceGrant[]>(`/api/devices/${encodeURIComponent(id)}/grants`);
+}
+
+export async function setDeviceGrant(id: string, profileId: string, accessLevel: DeviceAccessLevel): Promise<void> {
+  const path = `/api/devices/${encodeURIComponent(id)}/grants/${encodeURIComponent(profileId)}`;
+  const response = await apiFetch(path, {
+    method: "PUT",
+    headers: withProfileHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ access_level: accessLevel }),
+  });
+  if (!response.ok) throw await buildApiError(path, response);
+}
+
+export async function deleteDeviceGrant(id: string, profileId: string): Promise<void> {
+  return deleteRequest(`/api/devices/${encodeURIComponent(id)}/grants/${encodeURIComponent(profileId)}`);
+}
+
+export async function dispatchDeviceCommand(id: string, name: "endpoint.ping" | "endpoint.refresh"): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(`/api/devices/${encodeURIComponent(id)}/commands`, { name, payload: {} }) as Promise<DeviceCommand>;
+}
+
+export async function listDeviceCommands(id: string): Promise<DeviceCommand[]> {
+  return getJson<DeviceCommand[]>(`/api/devices/${encodeURIComponent(id)}/commands`);
+}
+
+export async function getDeviceClientDownload(): Promise<{ platform: string; download_url: string }> {
+  return getJson<{ platform: string; download_url: string }>("/api/devices/client-download");
+}
+
 /** Lightweight row used in scan/report contexts (not used for GET /api/games/{id}). */
 export type GameSummary = {
   id: string;

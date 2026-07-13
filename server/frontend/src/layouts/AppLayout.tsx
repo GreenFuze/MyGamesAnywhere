@@ -147,7 +147,7 @@ export function AppLayout() {
                           type="button"
                           onClick={() => {
                             if (!selected) {
-                              selectProfile(profile.id)
+                              void selectProfile(profile.id)
                             }
                             setProfileMenuOpen(false)
                           }}
@@ -160,7 +160,7 @@ export function AppLayout() {
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-sm font-semibold">{profile.display_name}</span>
                             <span className="block text-xs text-mga-muted">
-                              {profile.role === 'admin_player' ? 'Admin Player' : 'Player'}
+                              {profile.role === 'admin_player' ? 'Administrator' : 'Player'}
                             </span>
                           </span>
                           {selected ? <Check className="h-4 w-4 text-mga-accent" /> : null}
@@ -173,7 +173,7 @@ export function AppLayout() {
                       type="button"
                       onClick={() => {
                         setProfileMenuOpen(false)
-                        clearProfile()
+                        void clearProfile()
                       }}
                       className="flex w-full items-center gap-3 rounded-mga px-2 py-2 text-left text-sm font-semibold text-mga-muted transition-colors hover:bg-mga-elevated hover:text-mga-text focus:outline-none focus-visible:ring-2 focus-visible:ring-mga-accent"
                     >
@@ -188,9 +188,7 @@ export function AppLayout() {
         </div>
         <nav className="overflow-x-auto border-t border-mga-border/70 px-3 md:px-4">
           <div className="flex min-w-max gap-1 py-2">
-            {nav
-              .filter(({ to }) => to !== '/settings' || currentProfile?.role === 'admin_player')
-              .map(({ to, label }) => (
+            {nav.map(({ to, label }) => (
               <NavLink
                 key={to}
                 to={to}

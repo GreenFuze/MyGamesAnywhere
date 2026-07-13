@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Check, Plus, Save, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
-import { createProfile, deleteProfile, updateProfile, type Profile, type ProfileRole } from '@/api/client'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Check, KeyRound, Plus, Save, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
+import { createProfile, deleteProfile, getCredentialStatus, initializeCredential, updateProfile, type CredentialKind, type Profile, type ProfileRole } from '@/api/client'
 import { AvatarChooser, ProfileAvatar, profileAvatarFor, useProfiles, type ProfileAvatarKey } from '@/hooks/useProfiles'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,7 +9,7 @@ import { Select } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 
 const roles: Array<{ value: ProfileRole; label: string }> = [
-  { value: 'admin_player', label: 'Admin Player' },
+  { value: 'admin_player', label: 'Administrator' },
   { value: 'player', label: 'Player' },
 ]
 
@@ -55,6 +55,8 @@ export function ProfilesTab() {
         </section>
       ) : null}
 
+      {currentProfile ? <ProfileCredentialPanel profile={currentProfile} /> : null}
+
       <section className="rounded-mga border border-mga-border bg-mga-surface p-4 shadow-lg">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -89,6 +91,63 @@ export function ProfilesTab() {
         </div>
       </section>
     </div>
+  )
+}
+
+function ProfileCredentialPanel({ profile }: { profile: Profile }) {
+  const queryClient = useQueryClient()
+  const [kind, setKind] = useState<CredentialKind>('password')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const status = useQuery({
+    queryKey: ['credential-status', profile.id],
+    queryFn: getCredentialStatus,
+  })
+  const initialize = useMutation({
+    mutationFn: () => initializeCredential(next, kind),
+    onSuccess: async () => {
+      setNext('')
+      setConfirm('')
+      await queryClient.invalidateQueries({ queryKey: ['credential-status', profile.id] })
+      await queryClient.invalidateQueries({ queryKey: ['auth-session'] })
+    },
+  })
+  const valid = next === confirm && (kind === 'password' ? next.length >= 8 : /^\d{6,12}$/.test(next))
+
+  return (
+    <section className="rounded-mga border border-mga-border bg-mga-surface p-5 shadow-lg">
+      <div className="flex items-start gap-3">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-mga bg-mga-bg"><KeyRound className="h-5 w-5 text-mga-accent" /></div>
+        <div>
+          <h2 className="text-lg font-bold text-mga-text">Optional password or PIN</h2>
+          <p className="mt-1 text-sm leading-6 text-mga-muted">
+            Profiles without credentials remain passwordless. Once a password or PIN is configured, MGA requests it when that profile is selected.
+          </p>
+        </div>
+      </div>
+      {status.isLoading ? <p className="mt-4 text-sm text-mga-muted">Checking credential status…</p> : null}
+      {status.data?.configured ? (
+        <div className="mt-4 rounded-mga border border-emerald-500/25 bg-emerald-500/5 px-4 py-3 text-sm text-mga-muted">
+          <span className="font-bold text-emerald-300">{status.data.kind === 'pin' ? 'PIN' : 'Password'} configured.</span>
+          {status.data.must_change ? ' The bootstrap password must be replaced at the next profile sign-in.' : ' Use the Devices tab to change or disable it.'}
+        </div>
+      ) : status.data ? (
+        <div className="mt-4 grid gap-3 lg:grid-cols-[12rem_1fr_1fr_auto] lg:items-end">
+          <Select
+            label="Credential type"
+            value={kind}
+            onChange={(event) => setKind(event.target.value as CredentialKind)}
+            options={[{ value: 'password', label: 'Password' }, { value: 'pin', label: 'PIN' }]}
+          />
+          <Input label={kind === 'pin' ? 'New PIN (6–12 digits)' : 'New password (8+ characters)'} type="password" value={next} onChange={(event) => setNext(event.target.value)} />
+          <Input label="Confirm credential" type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+          <Button onClick={() => initialize.mutate()} disabled={!valid || initialize.isPending}><KeyRound className="h-4 w-4" /> Enable</Button>
+        </div>
+      ) : null}
+      {next !== confirm && confirm ? <p className="mt-3 text-sm text-red-400">Credentials do not match.</p> : null}
+      {status.error || initialize.error ? <p className="mt-3 text-sm text-red-400">{errorText(status.error || initialize.error, 'Credential setup failed')}</p> : null}
+      {!status.data?.configured ? <p className="mt-3 text-xs text-mga-muted">Initial setup is intentionally limited to the computer running MGA Server.</p> : null}
+    </section>
   )
 }
 
@@ -308,7 +367,7 @@ function draftFromProfile(profile: Profile): ProfileDraft {
 }
 
 function roleLabel(role: ProfileRole): string {
-  return role === 'admin_player' ? 'Admin Player' : 'Player'
+  return role === 'admin_player' ? 'Administrator' : 'Player'
 }
 
 function errorText(err: unknown, fallback: string): string {

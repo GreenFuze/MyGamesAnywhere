@@ -1414,6 +1414,9 @@ func (c *PluginController) List(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if integrations == nil {
+		integrations = make([]*core.Integration, 0)
+	}
 	json.NewEncoder(w).Encode(integrations)
 }
 

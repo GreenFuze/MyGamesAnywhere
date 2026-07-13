@@ -19,7 +19,7 @@ type App struct {
 	config             core.Configuration
 	db                 core.Database
 	server             core.Server
-	authSvc            auth.AuthService
+	authSvc            *auth.Service
 	pluginHost         plugins.PluginHost
 	eventBus           *events.EventBus
 	backgroundServices []core.BackgroundService
@@ -30,7 +30,7 @@ func NewApp(
 	config core.Configuration,
 	db core.Database,
 	server core.Server,
-	authSvc auth.AuthService,
+	authSvc *auth.Service,
 	pluginHost plugins.PluginHost,
 	eventBus *events.EventBus,
 	backgroundServices ...core.BackgroundService,
@@ -69,10 +69,8 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	if a.authSvc != nil {
-		if err := a.authSvc.CreateInitialAdmin(context.Background(), "admin", "admin"); err != nil {
-			a.logger.Error("Failed to create initial admin", err)
-		} else {
-			a.logger.Warn("Initial admin user created or already exists (admin:admin). Change password immediately!")
+		if err := a.authSvc.EnsureBootstrapCredential(context.Background()); err != nil {
+			return fmt.Errorf("ensure bootstrap profile credential: %w", err)
 		}
 	}
 

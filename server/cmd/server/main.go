@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/app"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/auth"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/devices"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/gamesvc"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/http"
@@ -166,6 +168,17 @@ func runServer(ctx context.Context, opts serverOptions) error {
 
 	settingRepo := db.NewSettingRepository(dbSvc)
 	profileRepo := db.NewProfileRepository(dbSvc)
+	authStore := db.NewAuthStore(dbSvc)
+	authSvc, err := auth.NewService(authStore, profileRepo)
+	if err != nil {
+		return fmt.Errorf("configure profile authentication: %w", err)
+	}
+	deviceStore := db.NewDeviceStore(dbSvc)
+	deviceHub := devices.NewHub()
+	deviceSvc, err := devices.NewService(deviceStore, deviceHub)
+	if err != nil {
+		return fmt.Errorf("configure device service: %w", err)
+	}
 	integrationRepo := db.NewIntegrationRepository(dbSvc)
 	gameStore := db.NewGameStore(dbSvc, logSvc)
 	cacheStore := db.NewSourceCacheStore(dbSvc)
@@ -207,10 +220,32 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	oauthCtrl := http.NewOAuthController(pluginHost, configSvc, logSvc, eventBus, integrationRepo)
 	oauthCtrl.SetGameStore(gameStore)
 	profileCtrl := http.NewProfileController(profileRepo, syncSvc, discoCtrl, configSvc, logSvc)
+	profileCtrl.SetAuthService(authSvc)
+	authCtrl, err := http.NewAuthController(authSvc, profileRepo, logSvc)
+	if err != nil {
+		return fmt.Errorf("configure auth controller: %w", err)
+	}
+	clientInstallerPath := envString("MGA_CLIENT_INSTALLER_PATH", "")
+	if clientInstallerPath == "" {
+		candidate := filepath.Join(layout.AppDir, "downloads", "mga-client-windows-amd64-installer.exe")
+		if info, statErr := os.Stat(candidate); statErr == nil && info.Mode().IsRegular() {
+			clientInstallerPath = candidate
+		}
+	}
+	if clientInstallerPath != "" {
+		clientInstallerPath, err = filepath.Abs(clientInstallerPath)
+		if err != nil {
+			return fmt.Errorf("resolve MGA Client installer path: %w", err)
+		}
+	}
+	deviceCtrl, err := http.NewDeviceController(deviceSvc, deviceHub, logSvc, clientInstallerPath)
+	if err != nil {
+		return fmt.Errorf("configure device controller: %w", err)
+	}
 
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
 
-	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, nil, pluginHost, eventBus, mediaSvc)
+	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, mediaSvc)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

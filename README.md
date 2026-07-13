@@ -76,6 +76,25 @@ The pipeline is straightforward:
 4. Runtime availability, metadata, media, achievements, and files attach to that canonical game.
 5. If the result is uncertain, MGA exposes the record for manual review instead of silently burying it.
 
+## Architecture Direction
+
+MGA is standardizing on the web interface as its product UI. Machine-local work
+that a browser cannot safely perform will be handled by a standalone, per-user
+**MGA Client** device agent under [`client/`](client/README.md). The client will
+connect outbound to the MGA Server; the browser will continue to communicate
+only with the server.
+
+The first development vertical slice is implemented: optional password/PIN
+sessions, endpoint grants, pairing, authenticated outbound presence, a compiled
+per-user Windows client, and typed ping/refresh commands are available from the
+Settings Devices tab. Game installation, launch/stop, emulator management, and
+client self-update command families remain later work and are not claimed as
+shipped release capabilities. The component, identity, authorization, and
+technology decisions are recorded in
+[`docs/architecture/0001-mga-client-architecture.md`](docs/architecture/0001-mga-client-architecture.md),
+with the first wire contract in
+[`docs/architecture/mga-device-protocol-v1.md`](docs/architecture/mga-device-protocol-v1.md).
+
 ## Source-Backed Canonical Game Pages
 
 The game page is the centerpiece of MGA. A good canonical game page should tell you:
@@ -215,6 +234,7 @@ Additional screenshot coverage is tracked in the public docs, but the committed 
 
 ## In Active Development
 
+- MGA Client command-family expansion beyond the implemented authenticated endpoint/presence foundation
 - Packaging hardening beyond the first Windows installer and portable updater release
 - Game page and card UX iteration
 - More metadata and runtime coverage
@@ -223,7 +243,7 @@ Additional screenshot coverage is tracked in the public docs, but the committed 
 
 ## Planned Later
 
-- Deeper multi-user flows with passwords/PINs and stronger access boundaries
+- Deeper multi-user account recovery and remote credential-provisioning flows
 - Cross-source user file and profile view
 - Cross-platform installers
 - Mobile client
@@ -283,7 +303,7 @@ MGA ships Windows portable and installer builds. It runs as a local server plus 
 2. For portable, extract it to a writable folder such as `C:\Games\MGA` and run `Start MGA.cmd`
 3. For the installer, choose **For me only** for a login process under your Windows profile, or **All users** for an administrator-approved Windows service
 4. Open [http://127.0.0.1:8900](http://127.0.0.1:8900)
-5. On first run, create the first Admin Player profile or use the profile picker if profiles already exist
+5. On first run, create the first administrator profile or use the profile picker if profiles already exist. Profiles without credentials enter immediately; protected profiles request their password or PIN at this point.
 
 The current portable runtime stores config, database, plugins, media, logs, update cache, and local state beside the runtime folder. Avoid extracting it under `Program Files`. The shipped `config.json` includes `LISTEN_IP: "127.0.0.1"` and `PORT: "8900"`; LAN exposure is opt-in by editing the server config. Installed **For me only** mode stores app files under `%LOCALAPPDATA%\Programs\MyGamesAnywhere` and mutable data/logs under `%LOCALAPPDATA%\MyGamesAnywhere`. Installed **All users** mode stores app files under `%ProgramFiles%\MyGamesAnywhere`, mutable data/logs under `%ProgramData%\MyGamesAnywhere`, runs as a Windows service, and intentionally writes `LISTEN_IP: "0.0.0.0"` because it is the service/LAN mode.
 
@@ -340,7 +360,9 @@ Yes. MGA exposes a local REST API and a React frontend over the same local libra
 
 ## Roadmap
 
-The short public roadmap lives in [docs/public-roadmap.md](docs/public-roadmap.md). The detailed engineering log remains in [roadmap.md](roadmap.md).
+The public roadmap lives in [docs/public-roadmap.md](docs/public-roadmap.md).
+Cross-component technical decisions live in
+[docs/architecture](docs/architecture/README.md).
 
 The important split is:
 

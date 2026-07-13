@@ -179,6 +179,56 @@ paths:
         500:
           description: Internal server error
 
+  /api/auth/credential:
+    delete:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    put:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/auth/login:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/auth/logout:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/auth/session:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/cache/clear:
     post:
       summary: Clear all cached source entries
@@ -304,6 +354,162 @@ paths:
           description: Invalid body
         500:
           description: Internal server error
+
+  /api/devices:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/client-download:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/client-installer:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    head:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/connect:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/pair:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/pairing-challenges:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/{id}:
+    delete:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    put:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/{id}/commands:
+    get:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/{id}/grants:
+    get:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/{id}/grants/{profile_id}:
+    delete:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: profile_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    put:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: profile_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
 
   /api/duplicates/games:
     get:

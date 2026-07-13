@@ -10,6 +10,7 @@ import {
   isRestoreSyncOAuthRequired,
   listRestoreSyncPoints,
   listProfiles,
+  logoutProfile,
   restoreSyncSetup,
   SELECTED_PROFILE_STORAGE_KEY,
   startFreshSetup,
@@ -25,13 +26,14 @@ import { cn } from '@/lib/utils'
 import { useSSE } from '@/hooks/useSSE'
 import { pluginLabel } from '@/lib/gameUtils'
 import { writeStoredScanJobId } from '@/lib/scanJobStorage'
+import { ProfileSignInGate } from '@/components/auth/ProfileSignInGate'
 
 type ProfileContextValue = {
   profiles: Profile[]
   currentProfile: Profile | null
   setupRequired: boolean
-  selectProfile: (id: string) => void
-  clearProfile: () => void
+  selectProfile: (id: string) => Promise<void>
+  clearProfile: () => Promise<void>
   refreshProfiles: () => void
 }
 
@@ -90,13 +92,15 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     }
   }, [currentProfile, profiles.length, selectedProfileId])
 
-  const selectProfile = useCallback((id: string) => {
+  const selectProfile = useCallback(async (id: string) => {
+    await logoutProfile()
     writeSelectedProfileId(id)
     setSelectedProfileId(id)
     queryClient.invalidateQueries()
   }, [queryClient])
 
-  const clearProfile = useCallback(() => {
+  const clearProfile = useCallback(async () => {
+    await logoutProfile()
     writeSelectedProfileId('')
     setSelectedProfileId('')
     queryClient.invalidateQueries()
@@ -129,7 +133,13 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       </ProfileContext.Provider>
     )
   }
-  return <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>
+  return (
+    <ProfileContext.Provider value={value}>
+      <ProfileSignInGate profile={currentProfile} onCancel={clearProfile}>
+        {children}
+      </ProfileSignInGate>
+    </ProfileContext.Provider>
+  )
 }
 
 function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
@@ -573,7 +583,21 @@ function apiErrorText(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback
 }
 
-function ProfilePicker({ profiles, onSelect }: { profiles: Profile[]; onSelect: (id: string) => void }) {
+function ProfilePicker({ profiles, onSelect }: { profiles: Profile[]; onSelect: (id: string) => Promise<void> }) {
+  const [selectingProfileId, setSelectingProfileId] = useState('')
+  const [selectionError, setSelectionError] = useState('')
+
+  const select = async (profileId: string) => {
+    setSelectingProfileId(profileId)
+    setSelectionError('')
+    try {
+      await onSelect(profileId)
+    } catch (error) {
+      setSelectionError(apiErrorText(error, 'Could not start the profile sign-in.'))
+      setSelectingProfileId('')
+    }
+  }
+
   return (
     <ProfileGateShell eyebrow="Profile Select" title="Choose Your Player">
       <div className="grid gap-3 sm:grid-cols-2">
@@ -581,7 +605,8 @@ function ProfilePicker({ profiles, onSelect }: { profiles: Profile[]; onSelect: 
           <button
             key={profile.id}
             type="button"
-            onClick={() => onSelect(profile.id)}
+            onClick={() => void select(profile.id)}
+            disabled={Boolean(selectingProfileId)}
             className="group relative min-h-32 overflow-hidden rounded-mga border border-mga-border bg-mga-bg p-4 text-left shadow-lg transition hover:-translate-y-0.5 hover:border-mga-accent/70 hover:bg-mga-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-mga-accent"
           >
             <div className="absolute inset-x-0 top-0 h-1 bg-mga-accent opacity-75" />
@@ -594,13 +619,14 @@ function ProfilePicker({ profiles, onSelect }: { profiles: Profile[]; onSelect: 
             <div className="mt-5 min-w-0">
               <div className="truncate text-xl font-bold text-mga-text">{profile.display_name}</div>
               <div className="mt-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-mga-accent">
-                <span>Enter</span>
+                <span>{selectingProfileId === profile.id ? 'Opening…' : 'Enter'}</span>
                 <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-1" />
               </div>
             </div>
           </button>
         ))}
       </div>
+      {selectionError ? <p className="mt-4 text-sm text-red-400">{selectionError}</p> : null}
     </ProfileGateShell>
   )
 }

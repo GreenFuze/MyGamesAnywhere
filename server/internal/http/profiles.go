@@ -23,6 +23,11 @@ type ProfileController struct {
 	scanStarter firstRunScanStarter
 	config      core.Configuration
 	logger      core.Logger
+	auth        interface{ EnsureBootstrapCredential(context.Context) error }
+}
+
+func (c *ProfileController) SetAuthService(service interface{ EnsureBootstrapCredential(context.Context) error }) {
+	c.auth = service
 }
 
 type firstRunScanStarter interface {
@@ -94,6 +99,13 @@ func (c *ProfileController) StartFresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if c.auth != nil {
+		if err := c.auth.EnsureBootstrapCredential(r.Context()); err != nil {
+			c.logger.Error("create bootstrap profile credential", err)
+			http.Error(w, "profile created but bootstrap credential setup failed", http.StatusInternalServerError)
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(profile)
@@ -137,6 +149,13 @@ func (c *ProfileController) RestoreSync(w http.ResponseWriter, r *http.Request) 
 		c.logger.Error("restore first-run sync", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if result != nil && result.Status == "ok" && c.auth != nil {
+		if err := c.auth.EnsureBootstrapCredential(r.Context()); err != nil {
+			c.logger.Error("create restored bootstrap profile credential", err)
+			http.Error(w, "restore completed but bootstrap credential setup failed", http.StatusInternalServerError)
+			return
+		}
 	}
 	c.decorateRestoreOAuthResult(r, result, body.PluginID, redirectURI)
 	c.startFirstRunScan(r.Context(), result)

@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 10
+const latestMigrationVersion = 12
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -175,6 +175,88 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 					}
 				}
 				return nil
+			},
+		},
+		{
+			Version: 11,
+			Name:    "optional_profile_credentials",
+			SQL: []string{
+				`CREATE TABLE IF NOT EXISTS profile_credentials (
+					profile_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+					kind TEXT NOT NULL CHECK(kind IN ('password','pin')),
+					hash TEXT NOT NULL,
+					must_change INTEGER NOT NULL DEFAULT 0,
+					updated_at INTEGER NOT NULL
+				);`,
+				`CREATE TABLE IF NOT EXISTS auth_sessions (
+					id TEXT PRIMARY KEY,
+					token_hash TEXT NOT NULL UNIQUE,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					created_at INTEGER NOT NULL,
+					expires_at INTEGER NOT NULL
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_auth_sessions_profile ON auth_sessions(profile_id);`,
+				`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);`,
+			},
+		},
+		{
+			Version: 12,
+			Name:    "device_endpoints_and_commands",
+			SQL: []string{
+				`CREATE TABLE IF NOT EXISTS device_endpoints (
+					id TEXT PRIMARY KEY,
+					client_instance_id TEXT NOT NULL UNIQUE,
+					public_key TEXT NOT NULL,
+					display_name TEXT NOT NULL,
+					host_name TEXT NOT NULL,
+					os_user TEXT NOT NULL,
+					platform TEXT NOT NULL,
+					arch TEXT NOT NULL,
+					client_version TEXT NOT NULL,
+					protocol_version INTEGER NOT NULL,
+					capabilities_json TEXT NOT NULL,
+					status TEXT NOT NULL,
+					status_reason TEXT,
+					last_seen_at INTEGER,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL
+				);`,
+				`CREATE TABLE IF NOT EXISTS device_grants (
+					endpoint_id TEXT NOT NULL REFERENCES device_endpoints(id) ON DELETE CASCADE,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					access_level TEXT NOT NULL CHECK(access_level IN ('view','play','manage','owner')),
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					PRIMARY KEY(endpoint_id, profile_id)
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_device_grants_profile ON device_grants(profile_id);`,
+				`CREATE TABLE IF NOT EXISTS device_pairing_challenges (
+					id TEXT PRIMARY KEY,
+					code_hash TEXT NOT NULL UNIQUE,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					created_at INTEGER NOT NULL,
+					expires_at INTEGER NOT NULL,
+					consumed_at INTEGER
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_device_pairing_expiry ON device_pairing_challenges(expires_at);`,
+				`CREATE TABLE IF NOT EXISTS device_commands (
+					id TEXT PRIMARY KEY,
+					endpoint_id TEXT NOT NULL REFERENCES device_endpoints(id) ON DELETE CASCADE,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					name TEXT NOT NULL,
+					schema_version INTEGER NOT NULL,
+					idempotency_key TEXT NOT NULL UNIQUE,
+					status TEXT NOT NULL,
+					payload_json TEXT NOT NULL,
+					result_json TEXT,
+					error_code TEXT,
+					error_message TEXT,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					expires_at INTEGER NOT NULL
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_device_commands_endpoint ON device_commands(endpoint_id, created_at DESC);`,
+				`CREATE INDEX IF NOT EXISTS idx_device_commands_profile ON device_commands(profile_id, created_at DESC);`,
 			},
 		},
 	}
