@@ -226,7 +226,6 @@ Additional screenshot coverage is tracked in the public docs, but the committed 
 - Deeper multi-user flows with passwords/PINs and stronger access boundaries
 - Cross-source user file and profile view
 - Cross-platform installers
-- Windows desktop client
 - Mobile client
 
 ## Integrations
@@ -347,7 +346,7 @@ The important split is:
 
 - **Available now**: canonical game merge, local-first runtime, source-backed pages, profile-owned favorites, local profiles, profile-owned integrations/library data, statistics pages, platform-aware manual review with numeral-aware manual search, canonical split/merge controls, source-backed achievements with background refresh, browser-play surfaces, EmulatorJS save-sync, nested source-scan excludes, compact source-file inventories, safer duplicate hard-delete review, configurable listen IP, Windows portable/installer packaging, and auto-update v1
 - **In active development**: packaging hardening, UX refinement, broader metadata/runtime coverage, and better public proof/docs
-- **Planned later**: Linux packaging, desktop shell, mobile client, and deeper multi-user flows
+- **Planned later**: Linux packaging, mobile client, and deeper multi-user flows
 
 ## Release And Upgrade Safety
 

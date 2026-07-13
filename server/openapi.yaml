@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: MyGamesAnywhere Server API
-  description: Public HTTP API for the MyGamesAnywhere desktop app server.
+  description: Public HTTP API for the MyGamesAnywhere server and web interface.
   version: 1.0.0
 paths:
 

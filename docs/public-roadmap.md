@@ -20,7 +20,6 @@ This is the product-facing roadmap. The detailed engineering history remains in 
 ## Later
 
 - Cross-platform installers.
-- Windows desktop client.
 - Mobile companion client.
 - Password/PIN-backed user management beyond local convenience profiles.
 - Cross-source user file and profile view.

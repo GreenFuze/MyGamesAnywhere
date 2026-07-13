@@ -44,7 +44,7 @@ func BuildOpenAPI(routes []RouteEntry, docs []OperationDoc) ([]byte, error) {
 
 	var b bytes.Buffer
 	b.WriteString("openapi: 3.0.3\n")
-	b.WriteString("info:\n  title: MyGamesAnywhere Server API\n  description: Public HTTP API for the MyGamesAnywhere desktop app server.\n  version: 1.0.0\n")
+	b.WriteString("info:\n  title: MyGamesAnywhere Server API\n  description: Public HTTP API for the MyGamesAnywhere server and web interface.\n  version: 1.0.0\n")
 	b.WriteString("paths:\n")
 
 	// Sort routes for stable output
