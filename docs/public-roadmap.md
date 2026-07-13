@@ -5,7 +5,7 @@ the [`architecture`](architecture/README.md) documentation.
 
 ## Now
 
-- Monitor the v0.2.1 server, standalone client, migrations, and auto-update flow on clean machines.
+- Monitor the v0.2.2 server, standalone client, migrations, and auto-update flow on clean machines.
 - Keep improving the Play-first library, statistics, achievements, and game detail experience.
 - Expand integration reliability for Steam, Xbox, RetroAchievements, LaunchBox, Google Drive, SMB, browser-play materialization, and local save sync.
 - Continue cleanup around metadata detection, source provenance, duplicate review, canonical split/merge, local profiles, and profile-owned integration behavior.
