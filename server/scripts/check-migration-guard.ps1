@@ -59,8 +59,13 @@ try {
         exit 0
     }
 
+    $releaseNoteChanges = @($changed | Where-Object {
+        $_ -match '^docs/releases/.*\.md$' -or
+        $_ -eq 'docs/releases-and-upgrades.md'
+    })
+    $noteCandidates = @($dbOwnedChanged + $releaseNoteChanges | Sort-Object -Unique)
     $noteFound = $false
-    foreach ($path in $dbOwnedChanged) {
+    foreach ($path in $noteCandidates) {
         if (Test-Path -LiteralPath $path) {
             $content = Get-Content -LiteralPath $path -Raw -ErrorAction SilentlyContinue
             if ($content -match 'NO_MIGRATION_NEEDED') {

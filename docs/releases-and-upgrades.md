@@ -36,16 +36,18 @@ Every tagged release should include:
 5. packaged artifacts:
    - `mga-vX.Y.Z[-prerelease]-windows-amd64-portable.zip`
    - `mga-vX.Y.Z[-prerelease]-windows-amd64-installer.exe`
+   - `mga-client-windows-amd64-installer.exe`
    - `mga-update.json`
    - `SHA256SUMS.txt`
 
 The current public release flow is:
 
-1. choose the release version, for example `0.1.2`
-2. build the portable package locally with `./server/package-portable.ps1 -Version <version>`
-3. build the Windows installer and update manifest with `./server/package-installer.ps1 -Version <version> -SkipBuild -ReleaseBaseUrl https://github.com/GreenFuze/MyGamesAnywhere/releases/download/v<version>`
-4. publish the GitHub Release manually with `gh release create v<version>` and upload the generated artifacts
-5. mark beta builds as prereleases and stable builds as latest
+1. choose the release version, for example `0.2.0`
+2. build the standalone client with `./client/package-installer.ps1 -Version <version>`
+3. build the portable package locally with `./server/package-portable.ps1 -Version <version>`
+4. build the Windows installer and update manifest with `./server/package-installer.ps1 -Version <version> -SkipBuild -ReleaseBaseUrl https://github.com/GreenFuze/MyGamesAnywhere/releases/download/v<version>`
+5. publish the GitHub Release manually with `gh release create v<version>` and upload the server artifacts plus `client/release/mga-client-windows-amd64-installer.exe`
+6. mark beta builds as prereleases and stable builds as latest
 
 GitHub Actions packaging workflows have been removed. Releases are built locally and published manually with `gh`.
 

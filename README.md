@@ -10,7 +10,7 @@ Most launchers start from a storefront or a folder. MGA starts from the game ide
 
 [Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest) · [View screenshots](#screenshots) · [GitHub Pages](https://greenfuze.github.io/MyGamesAnywhere/) · [GitHub](https://github.com/GreenFuze/MyGamesAnywhere) · [Public roadmap](docs/public-roadmap.md)
 
-**Current release line:** `v0.1.2`
+**Current release line:** `v0.2.0`
 **Status:** pre-1.0, actively moving, local-first by design
 
 ![A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation](docs/screenshots/canonical-game-page.png)
@@ -382,7 +382,7 @@ The important split is:
 
 ## Release And Upgrade Safety
 
-MGA carries a repository version source at [`VERSION`](VERSION). The current stable line is **`0.1.1`**.
+MGA carries a repository version source at [`VERSION`](VERSION). The current stable line is **`0.2.0`**.
 
 Upgrade policy:
 
