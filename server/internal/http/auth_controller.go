@@ -101,10 +101,6 @@ func (c *AuthController) InitializeCredential(w http.ResponseWriter, r *http.Req
 }
 
 func (c *AuthController) RemoveCredential(w http.ResponseWriter, r *http.Request) {
-	if !secureOrLoopback(r) {
-		http.Error(w, "credential changes require HTTPS outside loopback", http.StatusUpgradeRequired)
-		return
-	}
 	session, err := c.service.Authenticate(r.Context(), sessionToken(r))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
@@ -122,10 +118,6 @@ func (c *AuthController) RemoveCredential(w http.ResponseWriter, r *http.Request
 }
 
 func (c *AuthController) Login(w http.ResponseWriter, r *http.Request) {
-	if !secureOrLoopback(r) {
-		http.Error(w, "profile login requires HTTPS outside loopback", http.StatusUpgradeRequired)
-		return
-	}
 	var body struct {
 		ProfileID  string `json:"profile_id"`
 		Credential string `json:"credential"`
@@ -158,10 +150,6 @@ func (c *AuthController) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *AuthController) ChangeCredential(w http.ResponseWriter, r *http.Request) {
-	if !secureOrLoopback(r) {
-		http.Error(w, "credential changes require HTTPS outside loopback", http.StatusUpgradeRequired)
-		return
-	}
 	session, err := c.service.Authenticate(r.Context(), sessionToken(r))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
@@ -214,10 +202,6 @@ func (c *AuthController) Logout(w http.ResponseWriter, r *http.Request) {
 func RequireDeviceSession(service *auth.Service) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !secureOrLoopback(r) {
-				http.Error(w, "device management requires HTTPS outside loopback", http.StatusUpgradeRequired)
-				return
-			}
 			session, err := service.Authenticate(r.Context(), sessionToken(r))
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusUnauthorized)
@@ -272,14 +256,6 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expi
 		Expires:  expiresAt,
 		MaxAge:   int(time.Until(expiresAt).Seconds()),
 	})
-}
-
-func secureOrLoopback(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
-	}
-	ip := net.ParseIP(remoteIP(r))
-	return ip != nil && ip.IsLoopback()
 }
 
 func isLoopbackRequest(r *http.Request) bool {

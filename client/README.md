@@ -17,7 +17,11 @@ remain later command families; no unrestricted shell command will be added.
 - The endpoint identity is one physical host context + OS user + client
   installation. Another OS user gets a separate endpoint.
 - The agent runs without permanent administrator or service privileges.
-- Non-loopback servers require HTTPS/WSS.
+- HTTP/WS is supported for trusted LAN installations so MGA does not require a
+  locally trusted certificate. HTTPS/WSS remains supported and is strongly
+  recommended outside a trusted LAN; never expose an HTTP MGA Server directly
+  to the internet because credentials and session tokens are not transport
+  encrypted.
 - The private key is protected with current-user DPAPI and never leaves the
   endpoint.
 - The browser talks only to MGA Server. It does not expose or call a local client

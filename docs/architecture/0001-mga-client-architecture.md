@@ -36,9 +36,9 @@ as another application shell.
 
 ```mermaid
 flowchart LR
-  W["MGA Web Interface"] -->|"authenticated HTTPS"| S["MGA Server"]
-  C1["MGA Client: PC / Alice"] -->|"outbound WSS"| S
-  C2["MGA Client: PC / Bob"] -->|"outbound WSS"| S
+  W["MGA Web Interface"] -->|"authenticated HTTP or HTTPS"| S["MGA Server"]
+  C1["MGA Client: PC / Alice"] -->|"outbound WS or WSS"| S
+  C2["MGA Client: PC / Bob"] -->|"outbound WS or WSS"| S
   S --> D["Server database and audit history"]
   C1 --> L1["Alice's local games, emulators, and processes"]
   C2 --> L2["Bob's local games, emulators, and processes"]
@@ -110,7 +110,11 @@ signal.
 ## Transport and command model
 
 - The client establishes an outbound WebSocket connection to the server.
-- Non-loopback communication requires HTTPS/WSS with certificate validation.
+- HTTP/WS is supported on a trusted LAN to avoid requiring locally trusted
+  certificates on every browser and client host. HTTPS/WSS remains supported
+  and is strongly recommended on any network that is not fully trusted. MGA
+  must not be exposed directly to the internet over HTTP because credentials,
+  session cookies, pairing data, and device traffic are not transport encrypted.
 - The browser never connects directly to the client.
 - `mga://` is limited to pairing, wake-up, and recovery entry points. It is not
   the normal command transport and never carries a reusable credential.

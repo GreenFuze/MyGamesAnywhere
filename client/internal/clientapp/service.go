@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -323,19 +322,8 @@ func validateServerURL(value string) (string, error) {
 	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return "", errors.New("server URL must not contain credentials, query, or fragment")
 	}
-	if parsed.Scheme == "http" && !isLoopbackHost(parsed.Hostname()) {
-		return "", errors.New("non-loopback MGA Server connections require HTTPS")
-	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
 	return strings.TrimRight(parsed.String(), "/"), nil
-}
-
-func isLoopbackHost(host string) bool {
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 func localMetadata(displayName string) (devicev1.EndpointMetadata, error) {

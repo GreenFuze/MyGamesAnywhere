@@ -106,10 +106,6 @@ func (c *DeviceController) GetClientLaunch(w http.ResponseWriter, r *http.Reques
 }
 
 func (c *DeviceController) RedeemClientLaunch(w http.ResponseWriter, r *http.Request) {
-	if !secureOrLoopback(r) {
-		http.Error(w, "MGA Client launch acknowledgement requires HTTPS outside loopback", http.StatusUpgradeRequired)
-		return
-	}
 	var request devicev1.ClientLaunchRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
 		return
@@ -122,10 +118,6 @@ func (c *DeviceController) RedeemClientLaunch(w http.ResponseWriter, r *http.Req
 }
 
 func (c *DeviceController) Pair(w http.ResponseWriter, r *http.Request) {
-	if !secureOrLoopback(r) {
-		http.Error(w, "device pairing requires HTTPS outside loopback", http.StatusUpgradeRequired)
-		return
-	}
 	var request devicev1.PairingRequest
 	if err := decodeJSONBody(w, r, &request); err != nil {
 		return
@@ -246,10 +238,6 @@ func (c *DeviceController) clientInstallerAvailable() bool {
 }
 
 func (c *DeviceController) Connect(w http.ResponseWriter, r *http.Request) {
-	if !secureOrLoopback(r) {
-		http.Error(w, "device connections require WSS outside loopback", http.StatusUpgradeRequired)
-		return
-	}
 	connection, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
 		return

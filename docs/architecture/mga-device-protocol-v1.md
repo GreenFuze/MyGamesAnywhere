@@ -74,7 +74,8 @@ and is never the command transport. An authenticated web profile creates a
 two-minute, process-local launch challenge. The web interface opens
 `mga://start` with the server URL, challenge ID, and single-use random token.
 The installed per-user client rejects a server different from its paired
-server, signs the challenge with its endpoint key, and redeems it over HTTPS.
+server, signs the challenge with its endpoint key, and redeems it over HTTP or
+HTTPS, according to the server URL selected during pairing.
 The server verifies both the signature and the profile's endpoint grant before
 revealing the endpoint ID to that browser flow. Live WebSocket state—not custom
 protocol invocation—then controls the top-bar status color.
@@ -93,7 +94,8 @@ reusable credential and cannot carry an arbitrary executable or device command.
 4. The client generates an Ed25519 key pair. On Windows, its private key is
    stored using current-user DPAPI protection.
 5. The client sends the challenge reference, public key, instance ID, and basic
-   endpoint metadata to the server over HTTPS.
+   endpoint metadata to the server over HTTP or HTTPS. HTTP is intended only
+   for trusted LAN deployments.
 6. The server atomically consumes the challenge, creates the endpoint, and gives
    the pairing profile an `Owner` grant.
 7. The server returns the endpoint ID and protocol compatibility policy. The
@@ -106,7 +108,7 @@ take over an existing endpoint identity.
 
 ## Connection authentication
 
-1. The client opens an outbound WSS connection and sends a `hello` containing
+1. The client opens an outbound WS or WSS connection and sends a `hello` containing
    endpoint ID, client version, protocol range, and capabilities.
 2. The server returns a fresh random authentication challenge.
 3. The client signs the challenge plus connection context with its endpoint
