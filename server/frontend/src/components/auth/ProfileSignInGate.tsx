@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { SecretInput } from '@/components/ui/secret-input'
 import { Select } from '@/components/ui/select'
+import { credentialPolicy } from '@/components/auth/credentialPolicy'
 
 type ProfileSignInGateProps = {
   profile: Profile
@@ -111,7 +112,7 @@ function BootstrapCredentialChange({
       ])
     },
   })
-  const valid = Boolean(current) && next === confirm && (kind === 'password' ? next.length >= 8 : /^\d{6,12}$/.test(next))
+  const valid = Boolean(current) && next === confirm && credentialPolicy.isValid(kind, next)
 
   return (
     <SignInShell profile={profile} title="Replace the bootstrap password" onCancel={onCancel}>
@@ -130,7 +131,7 @@ function BootstrapCredentialChange({
           options={[{ value: 'password', label: 'Password' }, { value: 'pin', label: 'PIN' }]}
         />
         <SecretInput
-          label={kind === 'pin' ? 'New PIN (6–12 digits)' : 'New password (8+ characters)'}
+          label={credentialPolicy.label(kind)}
           autoFocus={Boolean(currentCredential)}
           value={next}
           onChange={(event) => setNext(event.target.value)}

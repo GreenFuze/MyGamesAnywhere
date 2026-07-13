@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { SecretInput } from '@/components/ui/secret-input'
 import { Select } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { credentialPolicy } from '@/components/auth/credentialPolicy'
 
 const roles: Array<{ value: ProfileRole; label: string }> = [
   { value: 'admin_player', label: 'Administrator' },
@@ -139,7 +140,7 @@ function ProfileCredentialPanel({ profile }: { profile: Profile }) {
     setNext('')
     setConfirm('')
   }
-  const nextValid = next === confirm && (kind === 'password' ? next.length >= 8 : /^\d{6,12}$/.test(next))
+  const nextValid = next === confirm && credentialPolicy.isValid(kind, next)
   const initializeValid = nextValid
   const changeValid = Boolean(current) && nextValid
   const mutationError = status.error || initialize.error || change.error || disable.error
@@ -170,7 +171,7 @@ function ProfileCredentialPanel({ profile }: { profile: Profile }) {
               options={[{ value: 'password', label: 'Password' }, { value: 'pin', label: 'PIN' }]}
             />
             <SecretInput label="Current password or PIN" value={current} onChange={(event) => setCurrent(event.target.value)} />
-            <SecretInput label={kind === 'pin' ? 'New PIN (6–12 digits)' : 'New password (8+ characters)'} value={next} onChange={(event) => setNext(event.target.value)} />
+            <SecretInput label={credentialPolicy.label(kind)} value={next} onChange={(event) => setNext(event.target.value)} />
             <SecretInput label="Confirm new credential" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
           </div>
           <div className="flex flex-wrap gap-2">
@@ -195,7 +196,7 @@ function ProfileCredentialPanel({ profile }: { profile: Profile }) {
             onChange={(event) => setKind(event.target.value as CredentialKind)}
             options={[{ value: 'password', label: 'Password' }, { value: 'pin', label: 'PIN' }]}
           />
-          <SecretInput label={kind === 'pin' ? 'New PIN (6–12 digits)' : 'New password (8+ characters)'} value={next} onChange={(event) => setNext(event.target.value)} />
+          <SecretInput label={credentialPolicy.label(kind)} value={next} onChange={(event) => setNext(event.target.value)} />
           <SecretInput label="Confirm credential" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
           <Button onClick={() => initialize.mutate()} disabled={!initializeValid || initialize.isPending}><KeyRound className="h-4 w-4" /> Enable</Button>
         </div>

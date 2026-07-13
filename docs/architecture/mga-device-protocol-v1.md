@@ -287,6 +287,9 @@ profile with the administrator role receives the `changeme` bootstrap credential
 only when no credential exists, independent of its display name. Profiles
 without a credential remain passwordless. Protected profiles verify their
 password or PIN during profile selection, before the web interface opens.
+The trusted-LAN credential policy is intentionally simple: passwords accept any
+four or more characters, while PINs accept four or more digits with no maximum
+length or additional composition rules.
 
 The new client has no legacy installation state. Its initial persisted JSON is
 explicitly schema version 1; unknown future versions fail fast. No existing MGA

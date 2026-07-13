@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/google/uuid"
@@ -339,12 +340,12 @@ func (s *Service) createSession(ctx context.Context, profileID string, mustChang
 func validateNewCredential(kind CredentialKind, value string) error {
 	switch kind {
 	case CredentialPassword:
-		if len(value) < 8 {
-			return errors.New("password must contain at least 8 characters")
+		if utf8.RuneCountInString(value) < 4 {
+			return errors.New("password must contain at least 4 characters")
 		}
 	case CredentialPIN:
-		if len(value) < 6 || len(value) > 12 {
-			return errors.New("PIN must contain 6 to 12 digits")
+		if len(value) < 4 {
+			return errors.New("PIN must contain at least 4 digits")
 		}
 		for _, char := range value {
 			if char < '0' || char > '9' {
