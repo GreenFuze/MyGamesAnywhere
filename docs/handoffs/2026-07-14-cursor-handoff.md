@@ -36,8 +36,8 @@ Additional user constraints:
 
 - Work locally. **Do not publish a GitHub release, deploy to TV2, commit, push,
   reset, clean, or discard changes unless the user asks.**
-- Never overwrite an existing profile password. The user's password was
-  `mga-e2e-2026`; `changeme` is only a bootstrap default for the first admin when
+- Never overwrite an existing profile password. Credentials are supplied
+  out-of-band; `changeme` is only a bootstrap default for the first admin when
   no credential exists.
 - Passwords/PINs are optional. PIN: at least 4 digits. Password: at least 4
   characters, no other complexity rule. Trusted LAN HTTP login is intentionally
