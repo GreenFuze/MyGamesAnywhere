@@ -15,13 +15,13 @@ import { platformLabel, selectCoverUrl } from '@/lib/gameUtils'
 const MODES: Array<{ id: DuplicateGameMode; label: string; description: string }> = [
   {
     id: 'loose',
-    label: 'Possible duplicates',
-    description: 'Groups matching titles across sources and platforms.',
+    label: 'Possible copies',
+    description: 'Similar names across connections and platforms.',
   },
   {
     id: 'strict',
-    label: 'Exact variants',
-    description: 'Groups same-title source records inside the same canonical game.',
+    label: 'Same-game copies',
+    description: 'Multiple entries already shown under one game.',
   },
 ]
 
@@ -200,9 +200,9 @@ export function DuplicatesTab() {
       <section className="rounded-mga border border-mga-border bg-mga-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-lg font-semibold text-mga-text">Duplicate Games</h2>
+            <h2 className="text-lg font-semibold text-mga-text">Review copies</h2>
             <p className="mt-1 text-sm text-mga-muted">
-              Review duplicate-looking source records and hard delete unwanted file-backed entries.
+              Review similar entries and remove files you no longer want.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={() => void duplicates.refetch()} disabled={duplicates.isFetching}>
@@ -249,10 +249,10 @@ export function DuplicatesTab() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-medium text-red-100">
-                {selectedDeleteableSources.length} duplicate source record{selectedDeleteableSources.length === 1 ? '' : 's'} marked for deletion
+                {selectedDeleteableSources.length} item{selectedDeleteableSources.length === 1 ? '' : 's'} marked for deletion
               </p>
               <p className="mt-1 text-xs text-red-100/80">
-                Build a preview to review every backing file before applying the hard delete.
+                Review the files before deleting them.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -267,7 +267,7 @@ export function DuplicatesTab() {
                 className="border-red-500/30 text-red-200 hover:bg-red-500/10"
               >
                 <Trash2 size={14} />
-                Preview and Apply
+                Review deletion
               </Button>
             </div>
           </div>
@@ -287,7 +287,7 @@ export function DuplicatesTab() {
         </div>
       ) : groups.length === 0 ? (
         <div className="rounded-mga border border-mga-border bg-mga-surface px-4 py-8 text-center text-sm text-mga-muted">
-          No duplicate groups found in this mode.
+          Nothing to review here.
         </div>
       ) : (
         <div className="space-y-4">
@@ -308,10 +308,10 @@ export function DuplicatesTab() {
                 <table className="min-w-full text-left text-sm">
                   <thead className="text-xs uppercase tracking-wide text-mga-muted">
                     <tr className="border-b border-mga-border">
-                      <th className="py-2 pr-4 font-medium">Source</th>
+                      <th className="py-2 pr-4 font-medium">Connection</th>
                       <th className="py-2 pr-4 font-medium">Game</th>
                       <th className="py-2 pr-4 font-medium">Files</th>
-                      <th className="py-2 pr-4 font-medium">Signals</th>
+                      <th className="py-2 pr-4 font-medium">Available</th>
                       <th className="py-2 font-medium">Action</th>
                     </tr>
                   </thead>
@@ -380,7 +380,7 @@ export function DuplicatesTab() {
                               }
                             >
                               <Trash2 size={14} />
-                              {selectedIds.has(sourceKey(source)) ? 'Marked' : 'Mark Delete'}
+                              {selectedIds.has(sourceKey(source)) ? 'Marked' : 'Mark'}
                             </Button>
                             {!eligible && source.source.hard_delete?.reason ? (
                               <p className="mt-2 max-w-52 text-xs text-amber-300">{source.source.hard_delete.reason}</p>

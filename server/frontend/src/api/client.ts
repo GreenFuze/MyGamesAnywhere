@@ -3,9 +3,13 @@ import type {
   GamerStatistics,
   GamePlayDTO,
   GameFileDTO,
+  GameIdentityDTO,
   IntegrationGameItem,
   IntegrationStatusEntry,
   LibraryStatistics,
+  LibraryScanScheduleConfig,
+  LibraryScanScheduleStatus,
+  LibraryPrefs,
   ManualReviewApplyRequest,
   ManualReviewCandidateDetail,
   ManualReviewCandidateSummary,
@@ -31,6 +35,7 @@ import type {
 export type {
   CollectionSectionConfig,
   CollectionSectionField,
+  CollectionGroupMode,
   CollectionViewMode,
   DateFormat,
   DateTimePrefs,
@@ -40,10 +45,13 @@ export type {
   GameLaunchSourceDTO,
   GamePlayDTO,
   GameFileDTO,
+  GameIdentityDTO,
   GamerStatistics,
   IntegrationGameItem,
   IntegrationStatusEntry,
   LibraryStatistics,
+  LibraryScanScheduleConfig,
+  LibraryScanScheduleStatus,
   LibraryPrefs,
   ManualReviewApplyRequest,
   ManualReviewCandidateDetail,
@@ -376,6 +384,40 @@ export async function logoutProfile(): Promise<void> {
 export type DeviceAccessLevel = "view" | "play" | "manage" | "owner";
 export type DeviceState = "ready" | "busy" | "offline" | "update_required" | "error";
 
+export type DeviceStorageInventory = {
+  id: string;
+  root: string;
+  total_bytes: number;
+  free_bytes: number;
+};
+
+export type DeviceRuntimeInventory = {
+  id: string;
+  name: string;
+  version?: string;
+  path?: string;
+};
+
+export type DeviceInventory = {
+  schema_version: number;
+  captured_at: string;
+  storage: DeviceStorageInventory[];
+  runtimes: DeviceRuntimeInventory[];
+};
+
+export type DeviceGameInstallation = {
+  endpoint_id: string;
+  game_id: string;
+  source_game_id: string;
+  profile_id: string;
+  install_root: string;
+  install_path: string;
+  archive_sha256: string;
+  archive_bytes: number;
+  installed_at: string;
+  updated_at: string;
+};
+
 export type DeviceEndpoint = {
   id: string;
   client_instance_id: string;
@@ -393,6 +435,8 @@ export type DeviceEndpoint = {
   created_at: string;
   updated_at: string;
   access_level: DeviceAccessLevel;
+  inventory?: DeviceInventory;
+  installations?: DeviceGameInstallation[];
 };
 
 export type DevicePairingChallenge = {
@@ -430,6 +474,12 @@ export type DeviceCommand = {
   result?: unknown;
   error_code?: string;
   error_message?: string;
+  progress_sequence?: number;
+  progress_phase?: string;
+  progress_percent?: number;
+	progress_stage?: "download" | "install" | string;
+	progress_stage_percent?: number;
+  progress_message?: string;
   created_at: string;
   updated_at: string;
 };
@@ -482,12 +532,52 @@ export async function deleteDeviceGrant(id: string, profileId: string): Promise<
   return deleteRequest(`/api/devices/${encodeURIComponent(id)}/grants/${encodeURIComponent(profileId)}`);
 }
 
-export async function dispatchDeviceCommand(id: string, name: "endpoint.ping" | "endpoint.refresh" | "endpoint.stop"): Promise<DeviceCommand> {
+export async function dispatchDeviceCommand(id: string, name: "endpoint.ping" | "endpoint.refresh" | "endpoint.stop" | "inventory.refresh"): Promise<DeviceCommand> {
   return postJson<DeviceCommand>(`/api/devices/${encodeURIComponent(id)}/commands`, { name, payload: {} }) as Promise<DeviceCommand>;
 }
 
 export async function listDeviceCommands(id: string): Promise<DeviceCommand[]> {
   return getJson<DeviceCommand[]>(`/api/devices/${encodeURIComponent(id)}/commands`);
+}
+
+export async function installArchiveOnDevice(
+  endpointId: string,
+  gameId: string,
+  sourceGameId: string,
+  destinationRoot?: string,
+): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(
+    `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/install-archive`,
+    { source_game_id: sourceGameId, destination_root: destinationRoot?.trim() || undefined },
+  ) as Promise<DeviceCommand>;
+}
+
+export async function uninstallGameFromDevice(
+  endpointId: string,
+  gameId: string,
+  sourceGameId: string,
+): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(
+    `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/uninstall`,
+    {},
+  ) as Promise<DeviceCommand>;
+}
+
+export async function launchGameOnDevice(endpointId: string, gameId: string, sourceGameId: string): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(
+    `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/launch`,
+    {},
+  ) as Promise<DeviceCommand>;
+}
+
+export async function setDeviceGameLaunchTarget(endpointId: string, gameId: string, sourceGameId: string, launchTarget: string): Promise<void> {
+  const path = `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/launch-target`;
+  const response = await apiFetch(path, {
+    method: "PUT",
+    headers: withProfileHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ launch_target: launchTarget }),
+  });
+  if (!response.ok) throw await buildApiError(path, response);
 }
 
 export async function getDeviceClientDownload(): Promise<{ platform: string; download_url: string }> {
@@ -621,9 +711,36 @@ export type GameDetailResponse = {
   xcloud_url?: string;
   play?: GamePlayDTO;
   achievement_summary?: AchievementSummaryDTO;
+  identity?: GameIdentityDTO;
+  devices?: GameDeviceAvailabilityDTO[];
   source_games: SourceGameDetailDTO[];
   /** Non-fatal provider warnings from a forced refresh (absent on regular game reads). */
   metadata_warnings?: string[];
+};
+
+export type GameDeviceAvailabilityDTO = {
+  device_id: string;
+  display_name: string;
+  os_user: string;
+  status: "ready_for_setup" | "needs_runtime" | "not_scanned" | "offline" | "update_required" | "unsupported" | string;
+  connected: boolean;
+  can_manage: boolean;
+	can_play: boolean;
+  platform_supported: boolean;
+  required_runtime_id?: string;
+  required_runtime?: string;
+  runtime_available: boolean;
+  free_bytes?: number;
+  total_bytes?: number;
+  inventory_captured_at?: string;
+  installed: boolean;
+  installed_source_id?: string;
+  install_path?: string;
+  archive_install_supported: boolean;
+  uninstall_supported: boolean;
+	launch_supported: boolean;
+	launch_target?: string;
+	launch_candidates?: string[];
 };
 
 export type AchievementDTO = {
@@ -796,11 +913,15 @@ export type ListGamesResponse = {
 export async function listGames(params?: {
   page?: number;
   page_size?: number;
+  sort_by?: LibraryPrefs["sortBy"];
+  sort_dir?: LibraryPrefs["sortDir"];
 }): Promise<ListGamesResponse> {
   const q = new URLSearchParams();
   if (params?.page !== undefined) q.set("page", String(params.page));
   if (params?.page_size !== undefined)
     q.set("page_size", String(params.page_size));
+  if (params?.sort_by) q.set("sort_by", params.sort_by);
+  if (params?.sort_dir) q.set("sort_dir", params.sort_dir);
   const qs = q.toString();
   return getJson<ListGamesResponse>(qs ? `/api/games?${qs}` : "/api/games");
 }
@@ -1607,6 +1728,25 @@ export async function triggerScan(
 
 export async function getScanJob(jobId: string): Promise<ScanJobStatus> {
   return getJson<ScanJobStatus>(`/api/scan/jobs/${encodeURIComponent(jobId)}`);
+}
+
+export async function getBackgroundScanStatus(): Promise<LibraryScanScheduleStatus> {
+  return getJson<LibraryScanScheduleStatus>("/api/scan/background");
+}
+
+export async function setBackgroundScanConfig(
+  config: LibraryScanScheduleConfig,
+): Promise<LibraryScanScheduleStatus> {
+  const path = "/api/scan/background";
+  const res = await apiFetch(`${base}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) {
+    throw await buildApiError(path, res);
+  }
+  return res.json() as Promise<LibraryScanScheduleStatus>;
 }
 
 export async function cancelScanJob(jobId: string): Promise<CancelScanResult> {

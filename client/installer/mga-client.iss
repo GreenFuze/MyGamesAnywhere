@@ -1,6 +1,7 @@
 #define AppName "MGA Client"
 #define AppPublisher "GreenFuze"
 #define AppExeName "mga-client.exe"
+#define AgentExeName "mga-client-agent.exe"
 
 [Setup]
 AppId={{8BD5321B-C2BA-45C8-91BA-B22F1945964A}
@@ -21,6 +22,7 @@ WizardStyle=modern
 
 [Files]
 Source: "{#ClientExe}"; DestDir: "{app}"; DestName: "{#AppExeName}"; Flags: ignoreversion
+Source: "{#AgentExe}"; DestDir: "{app}"; DestName: "{#AgentExeName}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\MGA Client Status"; Filename: "{app}\{#AppExeName}"; Parameters: "status"
@@ -29,6 +31,9 @@ Name: "{group}\MGA Client Doctor"; Filename: "{app}\{#AppExeName}"; Parameters: 
 [Registry]
 Root: HKCU; Subkey: "Software\Classes\mga"; ValueType: string; ValueName: ""; ValueData: "URL:MGA Protocol"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\mga"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\mga\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExeName},0"
-Root: HKCU; Subkey: "Software\Classes\mga\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" protocol ""%1"""
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MGA Client"; ValueData: """{app}\{#AppExeName}"" agent"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\mga\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AgentExeName},0"
+Root: HKCU; Subkey: "Software\Classes\mga\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AgentExeName}"" protocol ""%1"""
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MGA Client"; ValueData: """{app}\{#AgentExeName}"" agent"; Flags: uninsdeletevalue
+
+[Run]
+Filename: "{app}\{#AgentExeName}"; Parameters: "agent"; Flags: nowait

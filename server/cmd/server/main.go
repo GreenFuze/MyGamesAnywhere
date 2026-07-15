@@ -234,8 +234,14 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	achievementRefreshCtrl := http.NewAchievementRefreshController(achievementRefreshSvc, eventBus, logSvc)
 	gameCtrl := http.NewGameController(gameStore, orchestrator, deletionSvc, integrationRepo, cacheSvc, logSvc)
 	gameCtrl.SetCanonicalGroupingService(groupingSvc)
+	gameCtrl.SetDeviceEndpointLister(deviceSvc)
 	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc, mediaSvc)
 	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc, eventBus, achievementRefreshCtrl)
+	backgroundScanSvc, err := http.NewBackgroundScanService(discoCtrl, profileRepo, settingRepo, logSvc, eventBus)
+	if err != nil {
+		return fmt.Errorf("configure background library scans: %w", err)
+	}
+	discoCtrl.SetBackgroundScanService(backgroundScanSvc)
 	aboutCtrl := http.NewAboutController(logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, gameStore, configSvc, logSvc, eventBus, syncSvc)
@@ -272,10 +278,11 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	if err != nil {
 		return fmt.Errorf("configure device controller: %w", err)
 	}
+	deviceCtrl.SetArchiveInstallDependencies(gameStore, integrationRepo, envString("MGA_GOOGLE_DRIVE_DESKTOP_ROOT", ""))
 
 	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
 
-	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, mediaSvc)
+	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, mediaSvc, backgroundScanSvc)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

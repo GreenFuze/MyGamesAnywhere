@@ -11,7 +11,7 @@ import {
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-type ToastTone = 'info' | 'success' | 'error'
+export type ToastTone = 'info' | 'success' | 'error'
 
 type Toast = {
   id: number
@@ -22,9 +22,19 @@ type Toast = {
 
 type ToastInput = Omit<Toast, 'id'>
 
+export type NotificationHistoryItem = ToastInput & {
+  id: string
+  createdAt: string
+  read: boolean
+}
+
 type ToastContextValue = {
   notify: (toast: ToastInput) => void
   dismiss: (id: number) => void
+  notifications: NotificationHistoryItem[]
+  unreadCount: number
+  markAllRead: () => void
+  clearHistory: () => void
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null)
@@ -41,8 +51,58 @@ const toneIcons = {
   error: AlertCircle,
 } satisfies Record<ToastTone, typeof Info>
 
-export function ToastProvider({ children }: { children: ReactNode }) {
+const MAX_NOTIFICATION_HISTORY = 100
+const NOTIFICATION_HISTORY_VERSION = 1
+
+class BrowserNotificationHistoryStore {
+  private readonly storageKey: string
+
+  constructor(scope: string) {
+    const normalizedScope = scope.trim()
+    if (!normalizedScope) {
+      throw new Error('Notification history requires a non-empty profile scope')
+    }
+    this.storageKey = `mga.notification-history.v${NOTIFICATION_HISTORY_VERSION}:${normalizedScope}`
+  }
+
+  read(): NotificationHistoryItem[] {
+    try {
+      const raw = localStorage.getItem(this.storageKey)
+      if (!raw) return []
+      const parsed: unknown = JSON.parse(raw)
+      if (!Array.isArray(parsed)) return []
+      return parsed.filter(isNotificationHistoryItem).slice(0, MAX_NOTIFICATION_HISTORY)
+    } catch {
+      return []
+    }
+  }
+
+  write(items: NotificationHistoryItem[]) {
+    try {
+      localStorage.setItem(this.storageKey, JSON.stringify(items.slice(0, MAX_NOTIFICATION_HISTORY)))
+    } catch {
+      // Browser storage can be unavailable in private or embedded contexts.
+    }
+  }
+}
+
+function isNotificationHistoryItem(value: unknown): value is NotificationHistoryItem {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Partial<NotificationHistoryItem>
+  return (
+    typeof item.id === 'string' &&
+    typeof item.title === 'string' &&
+    (item.description === undefined || typeof item.description === 'string') &&
+    (item.tone === 'info' || item.tone === 'success' || item.tone === 'error') &&
+    typeof item.createdAt === 'string' &&
+    typeof item.read === 'boolean'
+  )
+}
+
+export function ToastProvider({ children, historyScope }: { children: ReactNode; historyScope: string }) {
+  const historyStoreRef = useRef(new BrowserNotificationHistoryStore(historyScope))
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [notifications, setNotifications] = useState<NotificationHistoryItem[]>(() => historyStoreRef.current.read())
   const nextIdRef = useRef(1)
   const timersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>())
 
@@ -59,11 +119,34 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     ({ title, description, tone }: ToastInput) => {
       const id = nextIdRef.current++
       setToasts((prev) => [...prev, { id, title, description, tone }])
+      setNotifications((prev) => [
+        {
+          id: `${Date.now()}-${id}`,
+          title,
+          description,
+          tone,
+          createdAt: new Date().toISOString(),
+          read: false,
+        },
+        ...prev,
+      ].slice(0, MAX_NOTIFICATION_HISTORY))
       const timer = setTimeout(() => dismiss(id), 5000)
       timersRef.current.set(id, timer)
     },
     [dismiss],
   )
+
+  const markAllRead = useCallback(() => {
+    setNotifications((prev) => prev.map((item) => item.read ? item : { ...item, read: true }))
+  }, [])
+
+  const clearHistory = useCallback(() => {
+    setNotifications([])
+  }, [])
+
+  useEffect(() => {
+    historyStoreRef.current.write(notifications)
+  }, [notifications])
 
   useEffect(() => {
     return () => {
@@ -74,7 +157,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const value = useMemo(() => ({ notify, dismiss }), [dismiss, notify])
+  const unreadCount = useMemo(
+    () => notifications.reduce((count, item) => count + Number(!item.read), 0),
+    [notifications],
+  )
+  const value = useMemo(
+    () => ({ notify, dismiss, notifications, unreadCount, markAllRead, clearHistory }),
+    [clearHistory, dismiss, markAllRead, notifications, notify, unreadCount],
+  )
 
   return (
     <ToastContext.Provider value={value}>

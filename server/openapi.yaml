@@ -355,6 +355,20 @@ paths:
         500:
           description: Internal server error
 
+  /api/device-transfers/archive:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    head:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/devices:
     get:
       responses:
@@ -578,7 +592,7 @@ paths:
           description: Internal server error
     get:
       summary: List games (paginated)
-      description: 'Returns total, page, page_size and games[] as full detail objects (same shape as GET /api/games/{id}/detail) for library grids/tables. Query: page (0-based, default 0), page_size (default 100, max 2000). page_size=0 requests all games in one response (rejected if library exceeds 20000 games; use pagination). Totals also available via GET /api/stats (canonical_game_count).'
+      description: 'Returns total, page, page_size and games[] as full detail objects (same shape as GET /api/games/{id}/detail). Query: page (0-based, default 0), page_size (default 100, max 2000), sort_by (title, release_date, platform, rating), and sort_dir (asc, desc). Sorting is applied before pagination. page_size=0 requests all games in one response (rejected if library exceeds 20000 games; use pagination). Totals also available via GET /api/stats (canonical_game_count).'
       responses:
         200:
           description: 'ListGamesResponse: total, page, page_size, games (GameDetailResponse[])'
@@ -1718,6 +1732,28 @@ paths:
           description: Another scan job is already active; returns the active ScanJobStatus
         500:
           description: Internal server error
+
+  /api/scan/background:
+    get:
+      summary: Get automatic library scan status
+      description: Returns the active profile's automatic scan schedule, next run, latest outcome, and active background job when one is running.
+      responses:
+        200:
+          description: LibraryScanScheduleStatus JSON
+        400:
+          description: Error response
+        500:
+          description: Internal server error
+    put:
+      summary: Configure automatic library scans
+      description: Enables or disables profile-scoped automatic source scans and sets their interval in minutes. Automatic and manual scans use the same scan job coordinator and reconciliation pipeline.
+      responses:
+        200:
+          description: Updated LibraryScanScheduleStatus JSON
+        400:
+          description: Invalid JSON or interval
+        500:
+          description: Error response
 
   /api/scan/jobs/{job_id}:
     get:

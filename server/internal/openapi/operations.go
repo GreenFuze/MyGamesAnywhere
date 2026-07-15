@@ -28,7 +28,7 @@ func Operations() []OperationDoc {
 			Method:      "GET",
 			Path:        "/api/games",
 			Summary:     "List games (paginated)",
-			Description: "Returns total, page, page_size and games[] as full detail objects (same shape as GET /api/games/{id}/detail) for library grids/tables. Query: page (0-based, default 0), page_size (default 100, max 2000). page_size=0 requests all games in one response (rejected if library exceeds 20000 games; use pagination). Totals also available via GET /api/stats (canonical_game_count).",
+			Description: "Returns total, page, page_size and games[] as full detail objects (same shape as GET /api/games/{id}/detail). Query: page (0-based, default 0), page_size (default 100, max 2000), sort_by (title, release_date, platform, rating), and sort_dir (asc, desc). Sorting is applied before pagination. page_size=0 requests all games in one response (rejected if library exceeds 20000 games; use pagination). Totals also available via GET /api/stats (canonical_game_count).",
 			ResponseDocs: map[string]string{
 				"200": "ListGamesResponse: total, page, page_size, games (GameDetailResponse[])",
 				"400": "Invalid query or library too large for page_size=0",
@@ -364,6 +364,28 @@ func Operations() []OperationDoc {
 				"404": "Unknown job id",
 				"409": "ScanJobStatus JSON; job is already completed or failed",
 				"500": "Internal server error",
+			},
+		},
+		{
+			Method:      "GET",
+			Path:        "/api/scan/background",
+			Summary:     "Get automatic library scan status",
+			Description: "Returns the active profile's automatic scan schedule, next run, latest outcome, and active background job when one is running.",
+			ResponseDocs: map[string]string{
+				"200": "LibraryScanScheduleStatus JSON",
+				"500": "Internal server error",
+				"503": "Background scanning is unavailable",
+			},
+		},
+		{
+			Method:      "PUT",
+			Path:        "/api/scan/background",
+			Summary:     "Configure automatic library scans",
+			Description: "Enables or disables profile-scoped automatic source scans and sets their interval in minutes. Automatic and manual scans use the same scan job coordinator and reconciliation pipeline.",
+			ResponseDocs: map[string]string{
+				"200": "Updated LibraryScanScheduleStatus JSON",
+				"400": "Invalid JSON or interval",
+				"503": "Background scanning is unavailable",
 			},
 		},
 		{

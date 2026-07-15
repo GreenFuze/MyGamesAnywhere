@@ -6,44 +6,183 @@ import (
 	"strings"
 	"time"
 
+	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/devices"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcegames"
 )
 
 // GameDetailResponse is the body for GET /api/games/{id}/detail.
 type GameDetailResponse struct {
-	ID                 string                 `json:"id"`
-	Title              string                 `json:"title"`
-	Favorite           bool                   `json:"favorite"`
-	Platform           string                 `json:"platform"`
-	Kind               string                 `json:"kind"`
-	GroupKind          string                 `json:"group_kind,omitempty"`
-	RootPath           string                 `json:"root_path,omitempty"`
-	Files              []GameFileDTO          `json:"files,omitempty"`
-	ExternalIDs        []ExternalIDDTO        `json:"external_ids,omitempty"`
-	Description        string                 `json:"description,omitempty"`
-	ReleaseDate        string                 `json:"release_date,omitempty"`
-	Genres             []string               `json:"genres,omitempty"`
-	Developer          string                 `json:"developer,omitempty"`
-	Publisher          string                 `json:"publisher,omitempty"`
-	Rating             float64                `json:"rating,omitempty"`
-	MaxPlayers         int                    `json:"max_players,omitempty"`
-	CompletionTime     *core.CompletionTime   `json:"completion_time,omitempty"`
-	Media              []GameMediaDetailDTO   `json:"media,omitempty"`
-	CoverOverride      *GameMediaDetailDTO    `json:"cover_override,omitempty"`
-	HoverOverride      *GameMediaDetailDTO    `json:"hover_override,omitempty"`
-	BackgroundOverride *GameMediaDetailDTO    `json:"background_override,omitempty"`
-	IsGamePass         bool                   `json:"is_game_pass,omitempty"`
-	XcloudAvailable    bool                   `json:"xcloud_available,omitempty"`
-	StoreProductID     string                 `json:"store_product_id,omitempty"`
-	XcloudURL          string                 `json:"xcloud_url,omitempty"`
-	Play               *GamePlayDTO           `json:"play,omitempty"`
-	AchievementSummary *AchievementSummaryDTO `json:"achievement_summary,omitempty"`
-	SourceGames        []SourceGameDetailDTO  `json:"source_games"`
+	ID                 string                      `json:"id"`
+	Title              string                      `json:"title"`
+	Favorite           bool                        `json:"favorite"`
+	Platform           string                      `json:"platform"`
+	Kind               string                      `json:"kind"`
+	GroupKind          string                      `json:"group_kind,omitempty"`
+	RootPath           string                      `json:"root_path,omitempty"`
+	Files              []GameFileDTO               `json:"files,omitempty"`
+	ExternalIDs        []ExternalIDDTO             `json:"external_ids,omitempty"`
+	Description        string                      `json:"description,omitempty"`
+	ReleaseDate        string                      `json:"release_date,omitempty"`
+	Genres             []string                    `json:"genres,omitempty"`
+	Developer          string                      `json:"developer,omitempty"`
+	Publisher          string                      `json:"publisher,omitempty"`
+	Rating             float64                     `json:"rating,omitempty"`
+	MaxPlayers         int                         `json:"max_players,omitempty"`
+	CompletionTime     *core.CompletionTime        `json:"completion_time,omitempty"`
+	Media              []GameMediaDetailDTO        `json:"media,omitempty"`
+	CoverOverride      *GameMediaDetailDTO         `json:"cover_override,omitempty"`
+	HoverOverride      *GameMediaDetailDTO         `json:"hover_override,omitempty"`
+	BackgroundOverride *GameMediaDetailDTO         `json:"background_override,omitempty"`
+	IsGamePass         bool                        `json:"is_game_pass,omitempty"`
+	XcloudAvailable    bool                        `json:"xcloud_available,omitempty"`
+	StoreProductID     string                      `json:"store_product_id,omitempty"`
+	XcloudURL          string                      `json:"xcloud_url,omitempty"`
+	Play               *GamePlayDTO                `json:"play,omitempty"`
+	AchievementSummary *AchievementSummaryDTO      `json:"achievement_summary,omitempty"`
+	Identity           *core.GameIdentity          `json:"identity,omitempty"`
+	Devices            []GameDeviceAvailabilityDTO `json:"devices,omitempty"`
+	SourceGames        []SourceGameDetailDTO       `json:"source_games"`
 	// MetadataWarnings lists metadata providers that were skipped during a forced refresh
 	// due to non-fatal errors (e.g. timeout). Only present in refresh responses; empty on
 	// regular game-detail reads.
 	MetadataWarnings []string `json:"metadata_warnings,omitempty"`
+}
+
+type DeviceEndpointLister interface {
+	ListEndpoints(context.Context, string) ([]devices.Endpoint, error)
+}
+
+type GameDeviceAvailabilityDTO struct {
+	DeviceID                string   `json:"device_id"`
+	DisplayName             string   `json:"display_name"`
+	OSUser                  string   `json:"os_user"`
+	Status                  string   `json:"status"`
+	Connected               bool     `json:"connected"`
+	CanManage               bool     `json:"can_manage"`
+	CanPlay                 bool     `json:"can_play"`
+	PlatformSupported       bool     `json:"platform_supported"`
+	RequiredRuntimeID       string   `json:"required_runtime_id,omitempty"`
+	RequiredRuntime         string   `json:"required_runtime,omitempty"`
+	RuntimeAvailable        bool     `json:"runtime_available"`
+	FreeBytes               uint64   `json:"free_bytes,omitempty"`
+	TotalBytes              uint64   `json:"total_bytes,omitempty"`
+	InventoryCapturedAt     string   `json:"inventory_captured_at,omitempty"`
+	Installed               bool     `json:"installed"`
+	InstalledSourceID       string   `json:"installed_source_id,omitempty"`
+	InstallPath             string   `json:"install_path,omitempty"`
+	ArchiveInstallSupported bool     `json:"archive_install_supported"`
+	UninstallSupported      bool     `json:"uninstall_supported"`
+	LaunchSupported         bool     `json:"launch_supported"`
+	LaunchTarget            string   `json:"launch_target,omitempty"`
+	LaunchCandidates        []string `json:"launch_candidates,omitempty"`
+}
+
+func (c *GameController) attachDeviceAvailability(ctx context.Context, response *GameDetailResponse, game *core.CanonicalGame) {
+	if c == nil || c.deviceLister == nil || response == nil || game == nil {
+		return
+	}
+	profileID := core.ProfileIDFromContext(ctx)
+	if profileID == "" {
+		return
+	}
+	endpoints, err := c.deviceLister.ListEndpoints(ctx, profileID)
+	if err != nil {
+		c.logger.Warn("list devices for game availability failed", "error", err, "game_id", game.ID)
+		return
+	}
+	requiredID, requiredName, knownPlatform := localRuntimeRequirement(game.Platform)
+	for _, endpoint := range endpoints {
+		allowed, _ := endpoint.AccessLevel.Allows(devicev1.AccessManage)
+		canPlay, _ := endpoint.AccessLevel.Allows(devicev1.AccessPlay)
+		item := GameDeviceAvailabilityDTO{
+			DeviceID:          endpoint.ID,
+			DisplayName:       endpoint.DisplayName,
+			OSUser:            endpoint.OSUser,
+			Connected:         endpoint.Status == devicev1.EndpointReady || endpoint.Status == devicev1.EndpointBusy,
+			CanManage:         allowed,
+			CanPlay:           canPlay,
+			PlatformSupported: knownPlatform && endpoint.Platform == "windows",
+			RequiredRuntimeID: requiredID,
+			RequiredRuntime:   requiredName,
+		}
+		for _, capability := range endpoint.Capabilities {
+			switch capability {
+			case devicev1.CapabilityGameInstallArchive:
+				item.ArchiveInstallSupported = true
+			case devicev1.CapabilityGameUninstall:
+				item.UninstallSupported = true
+			case devicev1.CapabilityGameLaunch:
+				item.LaunchSupported = true
+			}
+		}
+		for _, installation := range endpoint.Installations {
+			if installation.GameID == game.ID {
+				item.Installed = true
+				item.InstalledSourceID = installation.SourceGameID
+				item.InstallPath = installation.InstallPath
+				item.LaunchTarget = installation.LaunchTarget
+				item.LaunchCandidates = installation.LaunchCandidates
+				break
+			}
+		}
+		switch {
+		case item.Installed:
+			item.Status = "installed"
+		case endpoint.Status == devicev1.EndpointUpdateRequired:
+			item.Status = "update_required"
+		case !item.Connected:
+			item.Status = "offline"
+		case !item.PlatformSupported:
+			item.Status = "unsupported"
+		case endpoint.Inventory == nil:
+			item.Status = "not_scanned"
+		default:
+			item.InventoryCapturedAt = endpoint.Inventory.CapturedAt.UTC().Format(time.RFC3339Nano)
+			for _, storage := range endpoint.Inventory.Storage {
+				item.FreeBytes += storage.FreeBytes
+				item.TotalBytes += storage.TotalBytes
+			}
+			if requiredID == "" {
+				item.RuntimeAvailable = true
+			} else {
+				for _, runtime := range endpoint.Inventory.Runtimes {
+					if runtime.ID == requiredID {
+						item.RuntimeAvailable = true
+						break
+					}
+				}
+			}
+			if item.RuntimeAvailable {
+				item.Status = "ready_for_setup"
+			} else {
+				item.Status = "needs_runtime"
+			}
+		}
+		response.Devices = append(response.Devices, item)
+	}
+}
+
+func localRuntimeRequirement(platform core.Platform) (string, string, bool) {
+	switch platform {
+	case core.PlatformWindowsPC:
+		return "", "", true
+	case core.PlatformScummVM:
+		return "scummvm", "ScummVM", true
+	case core.PlatformMSDOS:
+		return "dosbox", "DOSBox", true
+	case core.PlatformPS1:
+		return "duckstation", "DuckStation", true
+	case core.PlatformPS2:
+		return "pcsx2", "PCSX2", true
+	case core.PlatformArcade, core.PlatformNES, core.PlatformSNES, core.PlatformGB, core.PlatformGBC,
+		core.PlatformGBA, core.PlatformN64, core.PlatformGenesis, core.PlatformSegaMasterSystem,
+		core.PlatformGameGear, core.PlatformSegaCD, core.PlatformSega32X:
+		return "retroarch", "RetroArch", true
+	default:
+		return "", "", false
+	}
 }
 
 type AchievementSummaryDTO struct {
@@ -138,6 +277,7 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 		XcloudAvailable: cg.XcloudAvailable,
 		StoreProductID:  cg.StoreProductID,
 		XcloudURL:       cg.XcloudURL,
+		Identity:        cg.Identity,
 		Play: &GamePlayDTO{
 			PlatformSupported: supportsBrowserPlayPlatform(cg.Platform),
 		},

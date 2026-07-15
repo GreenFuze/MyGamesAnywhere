@@ -12,15 +12,15 @@ import { DevicesTab } from '@/components/settings/DevicesTab'
 import { useProfiles } from '@/hooks/useProfiles'
 
 const TABS: Tab[] = [
-  { id: 'integrations', label: 'Integrations' },
-  { id: 'update', label: 'Update' },
-  { id: 'profiles', label: 'Profiles' },
+  { id: 'integrations', label: 'Connections' },
   { id: 'devices', label: 'Devices' },
-  { id: 'plugins', label: 'Plugins' },
-  { id: 'cache', label: 'Cache' },
-  { id: 'duplicates', label: 'Duplicates' },
+  { id: 'profiles', label: 'Profiles' },
+  { id: 'cache', label: 'Storage' },
   { id: 'appearance', label: 'Appearance' },
-  { id: 'undetected', label: 'Undetected Games' },
+  { id: 'update', label: 'Updates' },
+  { id: 'duplicates', label: 'Copies' },
+  { id: 'undetected', label: 'Unidentified' },
+  { id: 'plugins', label: 'Advanced' },
 ]
 
 const TAB_COMPONENTS: Record<string, React.FC> = {
@@ -55,9 +55,6 @@ export function SettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-mga-text">Settings</h1>
-        <p className="text-sm text-mga-muted mt-1">
-          Manage integrations, devices, updates, cached source data, plugins, and appearance
-        </p>
       </div>
 
       <Tabs tabs={availableTabs} active={activeTab} onChange={handleTabChange} />

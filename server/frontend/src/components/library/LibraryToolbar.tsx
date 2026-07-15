@@ -17,9 +17,17 @@ const SORT_OPTIONS: { value: LibraryPrefs['sortBy']; label: string }[] = [
 type ViewModeOption = { value: LibraryPrefs['viewMode']; label: string }
 
 const DEFAULT_VIEW_OPTIONS: ViewModeOption[] = [
-  { value: 'shelf', label: 'Shelf' },
-  { value: 'grid', label: 'Grid' },
-  { value: 'timeline', label: 'Timeline' },
+  { value: 'shelf', label: 'Shelves' },
+  { value: 'grid', label: 'Covers' },
+]
+
+const GROUP_OPTIONS: Array<{ value: LibraryPrefs['groupBy']; label: string }> = [
+  { value: 'none', label: 'No grouping' },
+  { value: 'platform', label: 'Platform' },
+  { value: 'integration', label: 'Connection' },
+  { value: 'play_method', label: 'Play option' },
+  { value: 'achievements', label: 'Achievements' },
+  { value: 'year', label: 'Release year' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -34,6 +42,8 @@ interface LibraryToolbarProps {
   isLoading?: boolean
   viewMode: LibraryPrefs['viewMode']
   onViewModeChange: (mode: LibraryPrefs['viewMode']) => void
+  groupBy: LibraryPrefs['groupBy']
+  onGroupByChange: (groupBy: LibraryPrefs['groupBy']) => void
   sortBy: LibraryPrefs['sortBy']
   sortDir: LibraryPrefs['sortDir']
   onSortChange: (by: LibraryPrefs['sortBy'], dir: LibraryPrefs['sortDir']) => void
@@ -44,6 +54,7 @@ interface LibraryToolbarProps {
   onFilterBarToggle: () => void
   activeFilterCount: number
   showViewToggle?: boolean
+  showGrouping?: boolean
   viewModeOptions?: ViewModeOption[]
 }
 
@@ -55,16 +66,19 @@ export function LibraryToolbar({
   isLoading = false,
   viewMode,
   onViewModeChange,
+  groupBy,
+  onGroupByChange,
   sortBy,
   sortDir,
   onSortChange,
-  addButtonLabel = 'Add Section',
+  addButtonLabel = 'Add shelf',
   showAddButton = true,
   onAddButtonClick,
   filterBarOpen,
   onFilterBarToggle,
   activeFilterCount,
   showViewToggle = true,
+  showGrouping = true,
   viewModeOptions = DEFAULT_VIEW_OPTIONS,
 }: LibraryToolbarProps) {
   return (
@@ -88,6 +102,7 @@ export function LibraryToolbar({
       {/* Sort */}
       <div className="flex items-center gap-1.5">
         <select
+          aria-label="Sort games"
           value={sortBy}
           onChange={(e) => onSortChange(e.target.value as LibraryPrefs['sortBy'], sortDir)}
           className="rounded-mga border border-mga-border bg-mga-bg px-2 py-1.5 text-xs text-mga-text"
@@ -100,6 +115,7 @@ export function LibraryToolbar({
         </select>
         <button
           type="button"
+          aria-label={sortDir === 'asc' ? 'Sort ascending' : 'Sort descending'}
           onClick={() => onSortChange(sortBy, sortDir === 'asc' ? 'desc' : 'asc')}
           className="rounded-mga border border-mga-border bg-mga-bg px-2 py-1.5 text-xs text-mga-muted hover:text-mga-text"
           title={sortDir === 'asc' ? 'Ascending' : 'Descending'}
@@ -107,6 +123,21 @@ export function LibraryToolbar({
           {sortDir === 'asc' ? '\u25B2' : '\u25BC'}
         </button>
       </div>
+
+      {showGrouping ? (
+        <select
+          value={groupBy}
+          onChange={(event) => onGroupByChange(event.target.value as LibraryPrefs['groupBy'])}
+          aria-label="Group games"
+          className="rounded-mga border border-mga-border bg-mga-bg px-2 py-1.5 text-xs text-mga-text"
+        >
+          {GROUP_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ) : null}
 
       {/* View mode toggle */}
       {showViewToggle && (

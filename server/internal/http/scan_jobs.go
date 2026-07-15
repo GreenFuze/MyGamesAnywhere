@@ -73,6 +73,14 @@ func (m *scanJobManager) Start(parent context.Context, req ScanRequest) (*core.S
 
 	jobID := uuid.NewString()
 	bg := scan.WithScanJobID(context.Background(), jobID)
+	trigger := req.Trigger
+	if trigger == "" {
+		trigger = "manual"
+	}
+	bg = scan.WithScanTrigger(bg, trigger)
+	if trigger == "background" {
+		bg = scan.WithSourceOnlyScan(bg)
+	}
 	if profile, ok := core.ProfileFromContext(parent); ok {
 		bg = core.WithProfile(bg, profile)
 	}
@@ -81,6 +89,7 @@ func (m *scanJobManager) Start(parent context.Context, req ScanRequest) (*core.S
 	job := &core.ScanJobStatus{
 		JobID:          jobID,
 		Status:         "queued",
+		Trigger:        trigger,
 		MetadataOnly:   req.MetadataOnly,
 		IntegrationIDs: append([]string(nil), req.GameSources...),
 		StartedAt:      now,
@@ -224,7 +233,9 @@ func (m *scanJobManager) run(jobID string, req ScanRequest, ctx context.Context)
 			record.status.FinishedAt = finishedAt
 			record.cancel = nil
 		})
-		m.startAchievementRefreshAfterScan(jobID, ctx)
+		if req.Trigger != "background" {
+			m.startAchievementRefreshAfterScan(jobID, ctx)
+		}
 	}
 
 	if cancelled {

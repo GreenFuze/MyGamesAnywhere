@@ -144,19 +144,16 @@ export function CacheTab() {
   const recentMediaErrors = media?.recent_errors ?? []
   const mediaLine = media
     ? media.items_left > 0
-      ? `Downloading media: ${media.items_left} items left`
-      : 'Media downloads idle'
-    : 'Loading media downloads...'
+      ? `Downloading ${media.items_left} item${media.items_left === 1 ? '' : 's'}`
+      : 'Artwork is up to date'
+    : 'Loading artwork…'
 
   return (
     <div className="space-y-6">
       <section className="rounded-mga border border-mga-border bg-mga-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-lg font-semibold text-mga-text">Media Cache</h2>
-            <p className="mt-1 text-sm text-mga-muted">
-              Downloaded artwork and videos used by library and game detail views.
-            </p>
+            <h2 className="text-lg font-semibold text-mga-text">Artwork and videos</h2>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => void refreshMedia()} disabled={mediaStatus.isFetching}>
@@ -168,10 +165,10 @@ export function CacheTab() {
               onClick={() => void handleRetryMedia()}
               disabled={busyMediaRetry || !media || media.retry_waiting === 0}
             >
-              {busyMediaRetry ? 'Retrying...' : 'Retry Failed'}
+              {busyMediaRetry ? 'Retrying…' : 'Retry failed'}
             </Button>
             <Button variant="outline" size="sm" onClick={() => void handleClearMedia()} disabled={busyMediaClear || !media || media.total === 0}>
-              {busyMediaClear ? 'Clearing...' : 'Clear Media Cache'}
+              {busyMediaClear ? 'Clearing…' : 'Clear'}
             </Button>
           </div>
         </div>
@@ -199,9 +196,12 @@ export function CacheTab() {
         )}
 
         {recentMediaErrors.length > 0 && (
-          <div className="mt-4 rounded-mga border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <details className="mt-4 rounded-mga border border-red-500/30 bg-red-500/10 px-4 py-3">
+            <summary className="cursor-pointer text-sm font-semibold text-red-200">
+              {recentMediaErrors.length} recent download problem{recentMediaErrors.length === 1 ? '' : 's'}
+            </summary>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-red-200">Recent media download errors</p>
+              <p className="mt-3 text-sm font-semibold text-red-200">Technical details</p>
               <p className="text-xs text-mga-muted">Showing {recentMediaErrors.length} of last 10</p>
             </div>
             <div className="mt-3 space-y-2">
@@ -218,7 +218,7 @@ export function CacheTab() {
                 </div>
               ))}
             </div>
-          </div>
+          </details>
         )}
 
         <div className="mt-4 grid gap-3 md:grid-cols-4">
@@ -253,9 +253,9 @@ export function CacheTab() {
       <section className="rounded-mga border border-mga-border bg-mga-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-lg font-semibold text-mga-text">Source Cache</h2>
+            <h2 className="text-lg font-semibold text-mga-text">Prepared game files</h2>
             <p className="mt-1 text-sm text-mga-muted">
-              Reusable materialized source files for remote integrations such as Google Drive.
+              Temporary downloads used to start remote games faster or play them in your browser.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -263,7 +263,7 @@ export function CacheTab() {
               Refresh
             </Button>
             <Button variant="outline" size="sm" onClick={() => void handleClear()} disabled={busyClear || totals.entries === 0}>
-              {busyClear ? 'Clearing...' : 'Clear All'}
+              {busyClear ? 'Clearing…' : 'Clear all'}
             </Button>
           </div>
         </div>
@@ -289,15 +289,14 @@ export function CacheTab() {
       <section className="rounded-mga border border-mga-border bg-mga-surface p-5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-base font-semibold text-mga-text">Recent Jobs</h3>
-            <p className="mt-1 text-sm text-mga-muted">Persisted prepare jobs for source materialization.</p>
+            <h3 className="text-base font-semibold text-mga-text">Recent activity</h3>
           </div>
         </div>
 
         <div className="mt-4 space-y-3">
           {jobs.isLoading && <p className="text-sm text-mga-muted">Loading cache jobs...</p>}
           {!jobs.isLoading && (jobs.data ?? []).length === 0 && (
-            <p className="text-sm text-mga-muted">No cache jobs have been recorded yet.</p>
+            <p className="text-sm text-mga-muted">No games have needed preparation yet.</p>
           )}
           {(jobs.data ?? []).map((job) => (
             <div key={job.job_id} className="rounded-mga border border-mga-border bg-mga-bg px-4 py-3">
@@ -322,14 +321,13 @@ export function CacheTab() {
 
       <section className="rounded-mga border border-mga-border bg-mga-surface p-5">
         <div>
-          <h3 className="text-base font-semibold text-mga-text">Entries</h3>
-          <p className="mt-1 text-sm text-mga-muted">Ready and failed cache entries managed by source game and profile.</p>
+          <h3 className="text-base font-semibold text-mga-text">Prepared games</h3>
         </div>
 
         <div className="mt-4 space-y-3">
           {entries.isLoading && <p className="text-sm text-mga-muted">Loading cache entries...</p>}
           {!entries.isLoading && (entries.data ?? []).length === 0 && (
-            <p className="text-sm text-mga-muted">No cached source entries are stored yet.</p>
+            <p className="text-sm text-mga-muted">No prepared game files are stored.</p>
           )}
           {(entries.data ?? []).map((entry) => (
             <div key={entry.id} className="rounded-mga border border-mga-border bg-mga-bg px-4 py-3">
@@ -354,7 +352,7 @@ export function CacheTab() {
                   onClick={() => void handleDeleteEntry(entry.id)}
                   disabled={busyEntryId === entry.id}
                 >
-                  {busyEntryId === entry.id ? 'Removing...' : 'Evict'}
+                  {busyEntryId === entry.id ? 'Removing…' : 'Remove'}
                 </Button>
               </div>
             </div>

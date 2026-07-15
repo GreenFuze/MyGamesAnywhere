@@ -1,6 +1,7 @@
 package devices
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -14,8 +15,10 @@ import (
 )
 
 type launchTestStore struct {
-	endpoint Endpoint
-	grant    devicev1.AccessLevel
+	endpoint      Endpoint
+	grant         devicev1.AccessLevel
+	installations []GameInstallation
+	updatedTarget string
 }
 
 func (s *launchTestStore) GetEndpoint(_ context.Context, endpointID string) (*Endpoint, error) {
@@ -24,6 +27,32 @@ func (s *launchTestStore) GetEndpoint(_ context.Context, endpointID string) (*En
 	}
 	endpoint := s.endpoint
 	return &endpoint, nil
+}
+
+func TestCommandPayloadForAuditRedactsArchiveDownloadToken(t *testing.T) {
+	t.Parallel()
+	payload, err := json.Marshal(devicev1.ArchiveInstallRequest{
+		GameID: "game-1", SourceGameID: "source-1", Title: "Game", ArchiveName: "game.zip",
+		ArchiveFormat: "zip", ArchiveSize: 10, DownloadURL: "http://server/archive",
+		DownloadToken: "secret-grant", DestinationRoot: `%USERPROFILE%\Games`, DestinationName: "Game",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	redacted, err := commandPayloadForAudit(devicev1.CapabilityGameInstallArchive, payload)
+	if err != nil {
+		t.Fatalf("commandPayloadForAudit() error = %v", err)
+	}
+	if string(redacted) == string(payload) || string(redacted) == "" {
+		t.Fatalf("redacted payload = %s", redacted)
+	}
+	var request devicev1.ArchiveInstallRequest
+	if err := json.Unmarshal(redacted, &request); err != nil {
+		t.Fatal(err)
+	}
+	if request.DownloadToken != "[redacted]" || bytes.Contains(redacted, []byte("secret-grant")) {
+		t.Fatalf("download token was not redacted: %s", redacted)
+	}
 }
 
 func (s *launchTestStore) GetGrant(_ context.Context, endpointID, profileID string) (devicev1.AccessLevel, error) {
@@ -69,8 +98,27 @@ func (*launchTestStore) CreateCommand(context.Context, Command) error {
 func (*launchTestStore) UpdateCommandStatus(context.Context, string, string, devicev1.CommandStatus, json.RawMessage, *devicev1.ProtocolError, time.Time) error {
 	return errors.New("unexpected call")
 }
+func (*launchTestStore) RecordCommandProgress(context.Context, string, devicev1.CommandProgress, time.Time) error {
+	return errors.New("unexpected call")
+}
+func (*launchTestStore) CompleteCommand(context.Context, string, devicev1.CommandResult, time.Time) error {
+	return errors.New("unexpected call")
+}
 func (*launchTestStore) ListCommands(context.Context, string, string, int) ([]Command, error) {
 	return nil, errors.New("unexpected call")
+}
+func (*launchTestStore) GetInventory(context.Context, string) (*devicev1.DeviceInventory, error) {
+	return nil, errors.New("unexpected call")
+}
+func (*launchTestStore) SaveInventory(context.Context, string, devicev1.DeviceInventory, time.Time) error {
+	return errors.New("unexpected call")
+}
+func (s *launchTestStore) ListInstallations(context.Context, string, string) ([]GameInstallation, error) {
+	return s.installations, nil
+}
+func (s *launchTestStore) UpdateInstallationLaunchTarget(_ context.Context, _, _, _, _, launchTarget string, _ time.Time) error {
+	s.updatedTarget = launchTarget
+	return nil
 }
 
 func TestServiceRedeemsSignedClientLaunch(t *testing.T) {
@@ -119,5 +167,45 @@ func TestClientStopRequiresManageAccess(t *testing.T) {
 	}
 	if level != devicev1.AccessManage {
 		t.Fatalf("requiredAccessForCommand() = %q, want %q", level, devicev1.AccessManage)
+	}
+}
+
+func TestGameLaunchRequiresPlayAccess(t *testing.T) {
+	t.Parallel()
+	level, err := requiredAccessForCommand(devicev1.CapabilityGameLaunch)
+	if err != nil {
+		t.Fatalf("requiredAccessForCommand() error = %v", err)
+	}
+	if level != devicev1.AccessPlay {
+		t.Fatalf("requiredAccessForCommand() = %q, want %q", level, devicev1.AccessPlay)
+	}
+}
+
+func TestServiceSelectsOnlyRecordedLaunchCandidate(t *testing.T) {
+	t.Parallel()
+	store := &launchTestStore{
+		endpoint: Endpoint{ID: "endpoint-1"},
+		grant:    devicev1.AccessManage,
+		installations: []GameInstallation{{
+			EndpointID: "endpoint-1", GameID: "game-1", SourceGameID: "source-1", ProfileID: "profile-1",
+			LaunchCandidates: []string{"Game/Game.exe", "Game/alternate.exe"},
+		}},
+	}
+	service, err := NewService(store, NewHub())
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	if err := service.SetInstallationLaunchTarget(context.Background(), "endpoint-1", "game-1", "source-1", "profile-1", `game\GAME.exe`); err != nil {
+		t.Fatalf("SetInstallationLaunchTarget() error = %v", err)
+	}
+	if store.updatedTarget != "Game/Game.exe" {
+		t.Fatalf("updated launch target = %q", store.updatedTarget)
+	}
+	store.updatedTarget = ""
+	if err := service.SetInstallationLaunchTarget(context.Background(), "endpoint-1", "game-1", "source-1", "profile-1", "Game/not-recorded.exe"); err == nil {
+		t.Fatal("SetInstallationLaunchTarget() accepted an unrecorded executable")
+	}
+	if store.updatedTarget != "" {
+		t.Fatalf("unrecorded target was persisted as %q", store.updatedTarget)
 	}
 }

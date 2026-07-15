@@ -443,6 +443,7 @@ type MediaRef struct {
 type CanonicalGame struct {
 	ID          string // stable canonical game id from canonical_games/canonical_source_games_link
 	SourceGames []*SourceGame
+	Identity    *GameIdentity
 
 	// Unified fields (computed, not persisted).
 	Favorite           bool
@@ -471,15 +472,75 @@ type CanonicalGame struct {
 	XcloudURL       string
 }
 
+// GameIdentity is the version-aware identity layered over the legacy
+// canonical game ID. Edition.ID intentionally equals CanonicalGame.ID so old
+// URLs, favorites, achievements, save references, and sync payloads remain
+// valid while the richer model is introduced.
+type GameIdentity struct {
+	Title    GameTitleIdentity   `json:"title"`
+	Edition  GameEditionIdentity `json:"edition"`
+	Evidence []IdentityEvidence  `json:"evidence,omitempty"`
+}
+
+type GameTitleIdentity struct {
+	ID              string    `json:"id"`
+	DisplayTitle    string    `json:"display_title"`
+	NormalizedTitle string    `json:"normalized_title,omitempty"`
+	CreatedAt       time.Time `json:"created_at,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at,omitempty"`
+}
+
+type GameEditionIdentity struct {
+	ID           string    `json:"id"`
+	TitleID      string    `json:"title_id"`
+	Platform     Platform  `json:"platform"`
+	Region       string    `json:"region,omitempty"`
+	EditionLabel string    `json:"edition_label,omitempty"`
+	Kind         GameKind  `json:"kind"`
+	State        string    `json:"state"`
+	CreatedAt    time.Time `json:"created_at,omitempty"`
+	UpdatedAt    time.Time `json:"updated_at,omitempty"`
+}
+
+type IdentityEvidence struct {
+	Provider   string `json:"provider"`
+	ExternalID string `json:"external_id"`
+}
+
+// CanonicalGameSort identifies the stable server-side order used before
+// pagination. The web client must not sort individual pages independently.
+type CanonicalGameSort string
+
+const (
+	CanonicalGameSortTitle       CanonicalGameSort = "title"
+	CanonicalGameSortReleaseDate CanonicalGameSort = "release_date"
+	CanonicalGameSortPlatform    CanonicalGameSort = "platform"
+	CanonicalGameSortRating      CanonicalGameSort = "rating"
+)
+
+type SortDirection string
+
+const (
+	SortDirectionAscending  SortDirection = "asc"
+	SortDirectionDescending SortDirection = "desc"
+)
+
+type CanonicalGameListOrder struct {
+	Field     CanonicalGameSort
+	Direction SortDirection
+}
+
 // ScanBatch holds everything produced by one scan cycle, validated in memory
 // before being written to the DB in a single transaction.
 type ScanBatch struct {
-	IntegrationID        string
-	SourceGames          []*SourceGame
-	ResolverMatches      map[string][]ResolverMatch // keyed by source_game.ID
-	MediaItems           map[string][]MediaRef      // keyed by source_game.ID
-	FilesystemScope      *FilesystemScanScope
-	SkipMissingReconcile bool // true for targeted refreshes that are not complete integration scans
+	IntegrationID                string
+	SourceGames                  []*SourceGame
+	ResolverMatches              map[string][]ResolverMatch // keyed by source_game.ID
+	MediaItems                   map[string][]MediaRef      // keyed by source_game.ID
+	FilesystemScope              *FilesystemScanScope
+	SkipMissingReconcile         bool // true for targeted refreshes that are not complete integration scans
+	PreserveOtherEnrichment      bool // source-only scans replace only RefreshedEnrichmentPluginIDs
+	RefreshedEnrichmentPluginIDs []string
 }
 
 type FilesystemIncludePath struct {
@@ -497,6 +558,9 @@ type FilesystemScanScope struct {
 func (b *ScanBatch) Validate() error {
 	if b.IntegrationID == "" {
 		return fmt.Errorf("integration_id is required")
+	}
+	if b.PreserveOtherEnrichment && len(b.RefreshedEnrichmentPluginIDs) == 0 {
+		return fmt.Errorf("refreshed enrichment plugin ids are required when preserving other enrichment")
 	}
 	for _, sg := range b.SourceGames {
 		if sg.ID == "" {
@@ -728,6 +792,7 @@ type ScanJobRecentEvent struct {
 type ScanJobStatus struct {
 	JobID                   string                     `json:"job_id"`
 	Status                  string                     `json:"status"`
+	Trigger                 string                     `json:"trigger"`
 	MetadataOnly            bool                       `json:"metadata_only"`
 	IntegrationIDs          []string                   `json:"integration_ids"`
 	StartedAt               string                     `json:"started_at,omitempty"`
@@ -1097,6 +1162,7 @@ type FoundSourceGame struct {
 // ScanReport stores the result and diff of a completed scan.
 type ScanReport struct {
 	ID             string                  `json:"id"`
+	Trigger        string                  `json:"trigger,omitempty"`
 	StartedAt      time.Time               `json:"started_at"`
 	FinishedAt     time.Time               `json:"finished_at"`
 	DurationMs     int64                   `json:"duration_ms"`
@@ -1107,6 +1173,22 @@ type ScanReport struct {
 	GamesUpdated   int                     `json:"games_updated"`
 	TotalGames     int                     `json:"total_games"`
 	Results        []ScanIntegrationResult `json:"integration_results"`
+}
+
+type LibraryScanScheduleConfig struct {
+	Enabled         bool `json:"enabled"`
+	IntervalMinutes int  `json:"interval_minutes"`
+}
+
+type LibraryScanScheduleStatus struct {
+	LibraryScanScheduleConfig
+	State          string         `json:"state"`
+	NextRunAt      string         `json:"next_run_at,omitempty"`
+	LastStartedAt  string         `json:"last_started_at,omitempty"`
+	LastFinishedAt string         `json:"last_finished_at,omitempty"`
+	LastStatus     string         `json:"last_status,omitempty"`
+	LastError      string         `json:"last_error,omitempty"`
+	ActiveJob      *ScanJobStatus `json:"active_job,omitempty"`
 }
 
 // ScanIntegrationResult is a per-integration breakdown within a ScanReport.

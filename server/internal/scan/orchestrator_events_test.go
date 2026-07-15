@@ -230,6 +230,75 @@ func TestRunScanContinuesAfterStorefrontSourceAuthError(t *testing.T) {
 	}
 }
 
+func TestRunScanReconcilesSuccessfulEmptySource(t *testing.T) {
+	ctx := context.Background()
+	store := newManualReviewTestStore(t)
+	callCount := 0
+	caller := &mockCaller{
+		callFn: func(pluginID, method string, params any) (any, error) {
+			if method != sourceGamesListMethod {
+				return nil, nil
+			}
+			callCount++
+			if callCount == 1 {
+				return map[string]any{
+					"games": []map[string]any{{
+						"external_id": "game-1",
+						"title":       "Temporary Game",
+						"platform":    "windows_pc",
+					}},
+				}, nil
+			}
+			return map[string]any{"games": []map[string]any{}}, nil
+		},
+	}
+	discovery := sourceFilterTestDiscovery{
+		plugins: map[string]*core.Plugin{
+			"game-source-test": {
+				Manifest: core.PluginManifest{
+					ID:       "game-source-test",
+					Provides: []string{sourceGamesListMethod},
+				},
+			},
+		},
+	}
+	repo := manualReviewTestIntegrationRepo{items: []*core.Integration{{
+		ID:              "source-1",
+		PluginID:        "game-source-test",
+		Label:           "Test Source",
+		IntegrationType: "source",
+		ConfigJSON:      `{}`,
+	}}}
+
+	orchestrator := NewOrchestrator(caller, discovery, repo, store, nil, eventTestLogger{})
+	first, err := orchestrator.RunScan(ctx, nil)
+	if err != nil {
+		t.Fatalf("first RunScan returned error: %v", err)
+	}
+	if len(first) != 1 {
+		t.Fatalf("first scan canonical games = %d, want 1", len(first))
+	}
+
+	second, err := orchestrator.RunScan(ctx, nil)
+	if err != nil {
+		t.Fatalf("second RunScan returned error: %v", err)
+	}
+	if len(second) != 0 {
+		t.Fatalf("second scan canonical games = %d, want 0", len(second))
+	}
+
+	reports, err := store.GetScanReports(ctx, 1)
+	if err != nil {
+		t.Fatalf("GetScanReports: %v", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("reports = %d, want 1", len(reports))
+	}
+	if reports[0].GamesRemoved != 1 {
+		t.Fatalf("games removed = %d, want 1", reports[0].GamesRemoved)
+	}
+}
+
 func TestRunScanPreparesMultipleIntegrationsConcurrently(t *testing.T) {
 	ctx := context.Background()
 	store := newManualReviewTestStore(t)

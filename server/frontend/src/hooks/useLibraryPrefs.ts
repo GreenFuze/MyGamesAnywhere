@@ -14,6 +14,7 @@ type LibraryPrefsPage = 'library' | 'play'
 
 const DEFAULTS: LibraryPrefs = {
   viewMode: 'shelf',
+  groupBy: 'none',
   sortBy: 'title',
   sortDir: 'asc',
   sections: defaultSections(),
@@ -73,9 +74,26 @@ function extractPrefs(raw: unknown): LibraryPrefs | null {
     // config contract; this only stops mapping that existing value back to grid.
     if (source.viewMode === 'accordion') {
       next.viewMode = 'shelf'
+    } else if (source.viewMode === 'timeline') {
+      next.viewMode = 'grid'
+      next.groupBy = 'year'
     } else {
       next.viewMode = source.viewMode
     }
+    found = true
+  }
+  if (
+    source.groupBy === 'none' ||
+    source.groupBy === 'platform' ||
+    source.groupBy === 'integration' ||
+    source.groupBy === 'play_method' ||
+    source.groupBy === 'achievements' ||
+    source.groupBy === 'year'
+  ) {
+    // NO_MIGRATION_NEEDED: frontend config is an extensible JSON object. Older
+    // profiles omit groupBy and safely receive "none"; legacy Timeline is
+    // represented as Covers grouped by year without changing stored DB schema.
+    next.groupBy = source.groupBy
     found = true
   }
   if (typeof source.sortBy === 'string') {
@@ -103,10 +121,7 @@ function extractPrefs(raw: unknown): LibraryPrefs | null {
 // ---------------------------------------------------------------------------
 
 export function useLibraryPrefs(page: LibraryPrefsPage) {
-  const [prefs, setPrefsState] = useState<LibraryPrefs>(() => ({
-    ...DEFAULTS,
-    ...readLocal(page),
-  }))
+  const [prefs, setPrefsState] = useState<LibraryPrefs>(() => extractPrefs(readLocal(page)) ?? { ...DEFAULTS })
 
   // On mount: fetch server config and merge library prefs over local state
   useEffect(() => {
@@ -161,6 +176,11 @@ export function useLibraryPrefs(page: LibraryPrefsPage) {
     [patchPrefs],
   )
 
+  const setGroupBy = useCallback(
+    (groupBy: LibraryPrefs['groupBy']) => patchPrefs({ groupBy }),
+    [patchPrefs],
+  )
+
   const setSortBy = useCallback(
     (sortBy: LibraryPrefs['sortBy']) => patchPrefs({ sortBy }),
     [patchPrefs],
@@ -185,11 +205,12 @@ export function useLibraryPrefs(page: LibraryPrefsPage) {
     () => ({
       prefs,
       setViewMode,
+      setGroupBy,
       setSortBy,
       setSortDir,
       setSections,
       setExpandedSectionId,
     }),
-    [prefs, setViewMode, setSortBy, setSortDir, setSections, setExpandedSectionId],
+    [prefs, setViewMode, setGroupBy, setSortBy, setSortDir, setSections, setExpandedSectionId],
   )
 }

@@ -162,11 +162,13 @@ func (r CommandRequest) ValidateAt(now time.Time) error {
 
 // CommandProgress is the typed payload of command.progress.
 type CommandProgress struct {
-	CommandID string `json:"command_id"`
-	Sequence  uint64 `json:"sequence"`
-	Phase     string `json:"phase"`
-	Percent   *uint8 `json:"percent,omitempty"`
-	Message   string `json:"message,omitempty"`
+	CommandID    string `json:"command_id"`
+	Sequence     uint64 `json:"sequence"`
+	Phase        string `json:"phase"`
+	Percent      *uint8 `json:"percent,omitempty"`
+	Stage        string `json:"stage,omitempty"`
+	StagePercent *uint8 `json:"stage_percent,omitempty"`
+	Message      string `json:"message,omitempty"`
 }
 
 // CommandStatusUpdate identifies a command acknowledgement or cancellation.
@@ -194,6 +196,14 @@ func (p CommandProgress) Validate() error {
 	}
 	if p.Percent != nil && *p.Percent > 100 {
 		return fmt.Errorf("percent must be between 0 and 100, got %d", *p.Percent)
+	}
+	if p.StagePercent != nil {
+		if strings.TrimSpace(p.Stage) == "" {
+			return errors.New("stage is required when stage_percent is provided")
+		}
+		if *p.StagePercent > 100 {
+			return fmt.Errorf("stage_percent must be between 0 and 100, got %d", *p.StagePercent)
+		}
 	}
 	return nil
 }

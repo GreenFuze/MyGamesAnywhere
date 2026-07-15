@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/client/internal/buildinfo"
 	clientconfig "github.com/GreenFuze/MyGamesAnywhere/client/internal/config"
+	"github.com/GreenFuze/MyGamesAnywhere/client/internal/desktop"
 	"github.com/GreenFuze/MyGamesAnywhere/client/internal/identity"
 	clientruntime "github.com/GreenFuze/MyGamesAnywhere/client/internal/runtime"
 	"github.com/GreenFuze/MyGamesAnywhere/client/internal/singleinstance"
@@ -59,6 +61,8 @@ type Service struct {
 	identities identity.Store
 	buildInfo  buildinfo.Info
 	httpClient *http.Client
+	logger     *log.Logger
+	logFile    *os.File
 }
 
 func New(dataDir string, info buildinfo.Info) (*Service, error) {
@@ -73,16 +77,38 @@ func New(dataDir string, info buildinfo.Info) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	logFile, err := os.OpenFile(layout.LogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open client log: %w", err)
+	}
 	return &Service{
 		layout:     layout,
 		configs:    configs,
 		identities: identity.NewStore(layout.PrivateKeyPath),
 		buildInfo:  info,
 		httpClient: &http.Client{Timeout: 15 * time.Second},
+		logger:     log.New(logFile, "", log.Ldate|log.Ltime|log.LUTC),
+		logFile:    logFile,
 	}, nil
 }
 
+// Close releases process-level client resources.
+func (s *Service) Close() error {
+	if s == nil || s.logFile == nil {
+		return nil
+	}
+	return s.logFile.Close()
+}
+
+// Logf appends a diagnostic message to the per-user client log.
+func (s *Service) Logf(format string, values ...any) {
+	if s != nil && s.logger != nil {
+		s.logger.Printf(format, values...)
+	}
+}
+
 func (s *Service) Pair(ctx context.Context, options PairOptions) (clientconfig.Config, error) {
+	s.Logf("pairing requested for server %s", strings.TrimSpace(options.ServerURL))
 	if _, err := s.configs.Load(); err == nil {
 		return clientconfig.Config{}, errors.New("MGA Client is already paired; unpair or use a separate data directory")
 	} else if !errors.Is(err, clientconfig.ErrNotPaired) {
@@ -161,6 +187,7 @@ func (s *Service) Pair(ctx context.Context, options PairOptions) (clientconfig.C
 		return clientconfig.Config{}, fmt.Errorf("save paired client config: %w", err)
 	}
 	paired = true
+	s.Logf("paired endpoint %s as %s", config.EndpointID, config.DisplayName)
 	return config, nil
 }
 
@@ -224,11 +251,26 @@ func (s *Service) RunAgent(ctx context.Context) error {
 		return err
 	}
 	defer lock.Close()
-	agent, err := NewAgent(config, privateKey, s.buildInfo)
+	agent, err := NewAgent(config, privateKey, s.buildInfo, s.logger)
 	if err != nil {
 		return err
 	}
-	return agent.Run(ctx)
+	host, err := desktop.NewHost(desktop.Options{
+		DisplayName: config.DisplayName,
+		LogPath:     s.layout.LogPath,
+		Version:     s.buildInfo.Version,
+	})
+	if err != nil {
+		return err
+	}
+	s.Logf("agent starting for endpoint %s", config.EndpointID)
+	err = host.Run(ctx, agent.Run)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		s.Logf("agent stopped with error: %v", err)
+		return err
+	}
+	s.Logf("agent stopped")
+	return nil
 }
 
 // Start acknowledges a browser launch challenge before ensuring the per-user
@@ -349,6 +391,10 @@ func localMetadata(displayName string) (devicev1.EndpointMetadata, error) {
 			devicev1.CapabilityEndpointPing,
 			devicev1.CapabilityEndpointRefresh,
 			devicev1.CapabilityEndpointStop,
+			devicev1.CapabilityGameInstallArchive,
+			devicev1.CapabilityGameUninstall,
+			devicev1.CapabilityGameLaunch,
+			devicev1.CapabilityInventoryRefresh,
 		},
 	}
 	if err := metadata.Validate(); err != nil {

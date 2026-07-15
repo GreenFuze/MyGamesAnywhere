@@ -17,15 +17,16 @@ import (
 )
 
 var (
-	ErrInvalidPairingCode  = errors.New("pairing code is invalid, expired, or already used")
-	ErrClientAlreadyPaired = errors.New("this MGA Client installation is already paired")
-	ErrEndpointNotFound    = errors.New("device endpoint not found")
-	ErrDeviceForbidden     = errors.New("profile does not have access to this device endpoint")
-	ErrEndpointOffline     = errors.New("device endpoint is offline")
-	ErrCapabilityMissing   = errors.New("device endpoint does not advertise the required capability")
-	ErrCommandNotFound     = errors.New("device command does not belong to this endpoint")
-	ErrGrantNotFound       = errors.New("device grant not found")
-	ErrLastOwner           = errors.New("device endpoint must retain at least one owner")
+	ErrInvalidPairingCode   = errors.New("pairing code is invalid, expired, or already used")
+	ErrClientAlreadyPaired  = errors.New("this MGA Client installation is already paired")
+	ErrEndpointNotFound     = errors.New("device endpoint not found")
+	ErrDeviceForbidden      = errors.New("profile does not have access to this device endpoint")
+	ErrEndpointOffline      = errors.New("device endpoint is offline")
+	ErrCapabilityMissing    = errors.New("device endpoint does not advertise the required capability")
+	ErrCommandNotFound      = errors.New("device command does not belong to this endpoint")
+	ErrGrantNotFound        = errors.New("device grant not found")
+	ErrLastOwner            = errors.New("device endpoint must retain at least one owner")
+	ErrInstallationNotFound = errors.New("device game installation not found")
 )
 
 const pairingLifetime = 10 * time.Minute
@@ -144,7 +145,23 @@ func (s *Service) Pair(ctx context.Context, request devicev1.PairingRequest, web
 }
 
 func (s *Service) ListEndpoints(ctx context.Context, profileID string) ([]Endpoint, error) {
-	return s.store.ListEndpoints(ctx, profileID)
+	endpoints, err := s.store.ListEndpoints(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	for index := range endpoints {
+		inventory, err := s.store.GetInventory(ctx, endpoints[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		endpoints[index].Inventory = inventory
+		installations, err := s.store.ListInstallations(ctx, endpoints[index].ID, profileID)
+		if err != nil {
+			return nil, err
+		}
+		endpoints[index].Installations = installations
+	}
+	return endpoints, nil
 }
 
 func (s *Service) EndpointForConnection(ctx context.Context, endpointID string) (*Endpoint, error) {
@@ -255,6 +272,13 @@ func (s *Service) DispatchCommand(ctx context.Context, endpointID, profileID, na
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
 	}
+	if err := validateCommandPayload(name, payload); err != nil {
+		return nil, err
+	}
+	auditPayload, err := commandPayloadForAudit(name, payload)
+	if err != nil {
+		return nil, err
+	}
 	now := s.now()
 	command := &Command{
 		ID:             uuid.NewString(),
@@ -264,7 +288,7 @@ func (s *Service) DispatchCommand(ctx context.Context, endpointID, profileID, na
 		SchemaVersion:  1,
 		IdempotencyKey: uuid.NewString(),
 		Status:         devicev1.CommandDispatched,
-		Payload:        payload,
+		Payload:        auditPayload,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 		ExpiresAt:      now.Add(2 * time.Minute),
@@ -305,15 +329,48 @@ func (s *Service) DispatchCommand(ctx context.Context, endpointID, profileID, na
 	return command, nil
 }
 
+func commandPayloadForAudit(name string, payload json.RawMessage) (json.RawMessage, error) {
+	if name != devicev1.CapabilityGameInstallArchive {
+		return append(json.RawMessage(nil), payload...), nil
+	}
+	var request devicev1.ArchiveInstallRequest
+	if err := json.Unmarshal(payload, &request); err != nil {
+		return nil, err
+	}
+	request.DownloadToken = "[redacted]"
+	redacted, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	return redacted, nil
+}
+
 func (s *Service) RecordCommandResult(ctx context.Context, endpointID string, result devicev1.CommandResult) error {
 	if err := result.Validate(); err != nil {
 		return err
 	}
-	return s.store.UpdateCommandStatus(ctx, endpointID, result.CommandID, result.Status, result.Payload, result.Error, s.now())
+	return s.store.CompleteCommand(ctx, endpointID, result, s.now())
 }
 
 func (s *Service) RecordCommandStatus(ctx context.Context, endpointID, commandID string, status devicev1.CommandStatus) error {
 	return s.store.UpdateCommandStatus(ctx, endpointID, commandID, status, nil, nil, s.now())
+}
+
+func (s *Service) RecordCommandProgress(ctx context.Context, endpointID string, progress devicev1.CommandProgress) error {
+	if err := progress.Validate(); err != nil {
+		return err
+	}
+	return s.store.RecordCommandProgress(ctx, endpointID, progress, s.now())
+}
+
+func (s *Service) RecordInventory(ctx context.Context, endpointID string, inventory devicev1.DeviceInventory) error {
+	if strings.TrimSpace(endpointID) == "" {
+		return errors.New("endpoint_id is required")
+	}
+	if err := inventory.Validate(); err != nil {
+		return err
+	}
+	return s.store.SaveInventory(ctx, endpointID, inventory.Normalize(), s.now())
 }
 
 func (s *Service) ListCommands(ctx context.Context, endpointID, profileID string) ([]Command, error) {
@@ -321,6 +378,33 @@ func (s *Service) ListCommands(ctx context.Context, endpointID, profileID string
 		return nil, err
 	}
 	return s.store.ListCommands(ctx, endpointID, profileID, 20)
+}
+
+func (s *Service) SetInstallationLaunchTarget(ctx context.Context, endpointID, gameID, sourceGameID, profileID, launchTarget string) error {
+	if err := s.requireAccess(ctx, endpointID, profileID, devicev1.AccessManage); err != nil {
+		return err
+	}
+	if err := devicev1.ValidateLaunchTarget(launchTarget); err != nil {
+		return err
+	}
+	installations, err := s.store.ListInstallations(ctx, endpointID, profileID)
+	if err != nil {
+		return err
+	}
+	normalized := devicev1.NormalizeLaunchTarget(launchTarget)
+	for _, installation := range installations {
+		if installation.GameID != gameID || installation.SourceGameID != sourceGameID {
+			continue
+		}
+		for _, candidate := range installation.LaunchCandidates {
+			normalizedCandidate := devicev1.NormalizeLaunchTarget(candidate)
+			if strings.EqualFold(normalizedCandidate, normalized) {
+				return s.store.UpdateInstallationLaunchTarget(ctx, endpointID, gameID, sourceGameID, profileID, normalizedCandidate, s.now())
+			}
+		}
+		return errors.New("launch target is not one of the detected executables")
+	}
+	return ErrInstallationNotFound
 }
 
 func (s *Service) requireAccess(ctx context.Context, endpointID, profileID string, required devicev1.AccessLevel) error {
@@ -346,9 +430,49 @@ func requiredAccessForCommand(name string) (devicev1.AccessLevel, error) {
 		return devicev1.AccessManage, nil
 	case devicev1.CapabilityEndpointStop:
 		return devicev1.AccessManage, nil
+	case devicev1.CapabilityInventoryRefresh:
+		return devicev1.AccessManage, nil
+	case devicev1.CapabilityGameLaunch:
+		return devicev1.AccessPlay, nil
+	case devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameUninstall:
+		return devicev1.AccessManage, nil
 	default:
 		return "", fmt.Errorf("unsupported device command %q", name)
 	}
+}
+
+func validateCommandPayload(name string, payload json.RawMessage) error {
+	if !json.Valid(payload) {
+		return errors.New("device command payload must be valid JSON")
+	}
+	if name == devicev1.CapabilityInventoryRefresh {
+		var values map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &values); err != nil || len(values) != 0 {
+			return errors.New("inventory.refresh payload must be an empty object")
+		}
+	}
+	if name == devicev1.CapabilityGameInstallArchive {
+		var request devicev1.ArchiveInstallRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode archive install payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilityGameUninstall {
+		var request devicev1.GameUninstallRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode game uninstall payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilityGameLaunch {
+		var request devicev1.GameLaunchRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode game launch payload: %w", err)
+		}
+		return request.Validate()
+	}
+	return nil
 }
 
 func hasCapability(capabilities []string, required string) bool {

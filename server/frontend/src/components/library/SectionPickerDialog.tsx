@@ -19,7 +19,7 @@ const FIELD_OPTIONS: Array<{ value: CollectionSectionField | 'all'; label: strin
   { value: 'genre', label: 'Genre' },
   { value: 'developer', label: 'Developer' },
   { value: 'publisher', label: 'Publisher' },
-  { value: 'source', label: 'Source' },
+  { value: 'source', label: 'Store or library' },
   { value: 'year', label: 'Year' },
 ]
 
@@ -82,7 +82,7 @@ export function SectionPickerDialog({
   const canConfirm = selectedField === 'all' || selectedValues.length > 0
 
   return (
-    <Dialog open={open} onClose={onClose} title="Add Section" className="max-w-2xl">
+    <Dialog open={open} onClose={onClose} title="Add shelf" className="max-w-2xl">
       <div className="space-y-6">
         <div className="space-y-2">
           <p className="text-sm font-medium text-mga-text">1. Choose a grouping</p>
@@ -150,7 +150,7 @@ export function SectionPickerDialog({
             Cancel
           </Button>
           <Button onClick={handleConfirm} disabled={!canConfirm}>
-            Add Section
+            Add shelf
           </Button>
         </div>
       </div>

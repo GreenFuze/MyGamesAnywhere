@@ -56,6 +56,11 @@ function ReportCard({ report, expanded, onToggle }: {
               <span className="text-xs font-medium text-mga-text">
                 {report.metadata_only ? 'Metadata Refresh' : 'Source Scan'}
               </span>
+              {report.trigger === 'background' && (
+                <span className="rounded-full bg-mga-accent/10 px-1.5 py-0.5 text-[10px] text-mga-accent">
+                  Automatic
+                </span>
+              )}
               <span className="text-xs text-mga-muted">{timeAgo(report.finished_at)}</span>
             </div>
 

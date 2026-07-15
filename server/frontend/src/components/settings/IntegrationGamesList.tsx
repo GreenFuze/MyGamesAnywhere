@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { getIntegrationGames, getIntegrationEnrichedGames } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { PlatformIcon } from '@/components/ui/platform-icon'
@@ -12,6 +13,9 @@ interface IntegrationGamesListProps {
 
 export function IntegrationGamesList({ integrationId, type, expanded }: IntegrationGamesListProps) {
   const fetchFn = type === 'source' ? getIntegrationGames : getIntegrationEnrichedGames
+  const libraryHref = type === 'source'
+    ? `/library?integration=${encodeURIComponent(integrationId)}`
+    : '/library'
 
   const { data: games, isLoading, error } = useQuery({
     queryKey: ['integration-games', integrationId, type],
@@ -70,12 +74,12 @@ export function IntegrationGamesList({ integrationId, type, expanded }: Integrat
       {/* Footer with count + link */}
       <div className="flex items-center justify-between px-1">
         <span className="text-[10px] text-mga-muted">{games.length} games</span>
-        <a
-          href="/library"
+        <Link
+          to={libraryHref}
           className="text-[10px] text-mga-accent hover:underline"
         >
           View in Library
-        </a>
+        </Link>
       </div>
     </div>
   )

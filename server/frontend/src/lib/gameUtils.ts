@@ -111,10 +111,10 @@ export const PLUGIN_LUCIDE_ICONS: Record<string, string> = {
 type CapabilityMeta = { label: string; icon: string; order: number }
 
 export const CAPABILITY_META: Record<string, CapabilityMeta> = {
-  source:       { label: 'Game Sources',        icon: 'Gamepad2',  order: 0 },
-  metadata:     { label: 'Metadata Providers',  icon: 'BookOpen',  order: 1 },
+  source:       { label: 'Game Connections',    icon: 'Gamepad2',  order: 0 },
+  metadata:     { label: 'Game Info',            icon: 'BookOpen',  order: 1 },
   achievements: { label: 'Achievements',        icon: 'Trophy',    order: 2 },
-  sync:         { label: 'Sync',                icon: 'RefreshCw', order: 3 },
+  sync:         { label: 'Settings Backup',     icon: 'RefreshCw', order: 3 },
   save_sync:    { label: 'Save Sync',           icon: 'HardDrive', order: 4 },
 }
 

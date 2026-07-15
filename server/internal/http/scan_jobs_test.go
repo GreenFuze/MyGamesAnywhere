@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,8 +11,49 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
 	"github.com/go-chi/chi/v5"
 )
+
+type contextCaptureScanRunner struct {
+	observed chan context.Context
+}
+
+func (r *contextCaptureScanRunner) RunScan(ctx context.Context, _ []string) ([]*core.CanonicalGame, error) {
+	r.observed <- ctx
+	return nil, nil
+}
+
+func (r *contextCaptureScanRunner) RunMetadataRefresh(ctx context.Context, _ []string) ([]*core.CanonicalGame, error) {
+	return r.RunScan(ctx, nil)
+}
+
+func TestBackgroundScanJobUsesSourceOnlySharedPipeline(t *testing.T) {
+	runner := &contextCaptureScanRunner{observed: make(chan context.Context, 1)}
+	controller := NewDiscoveryController(runner, &fakeGameStore{}, noopLogger{}, events.New())
+	profile := &core.Profile{ID: "profile-1", DisplayName: "Player"}
+	status, alreadyRunning, err := controller.StartScan(core.WithProfile(context.Background(), profile), ScanRequest{Trigger: "background"})
+	if err != nil {
+		t.Fatalf("StartScan: %v", err)
+	}
+	if alreadyRunning || status.Trigger != "background" {
+		t.Fatalf("unexpected start result: status=%+v alreadyRunning=%v", status, alreadyRunning)
+	}
+	select {
+	case observed := <-runner.observed:
+		if scan.ScanTriggerFromContext(observed) != "background" {
+			t.Fatalf("scan trigger = %q", scan.ScanTriggerFromContext(observed))
+		}
+		if !scan.SourceOnlyScanFromContext(observed) {
+			t.Fatal("background scan did not use source-only mode")
+		}
+		if core.ProfileIDFromContext(observed) != profile.ID {
+			t.Fatalf("profile id = %q, want %q", core.ProfileIDFromContext(observed), profile.ID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("scan runner did not receive background context")
+	}
+}
 
 func TestDiscoveryControllerCancelScanJobLifecycle(t *testing.T) {
 	runner := &blockingScanRunner{

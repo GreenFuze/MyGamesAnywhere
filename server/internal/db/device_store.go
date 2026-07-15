@@ -299,12 +299,231 @@ func (s *DeviceStore) UpdateCommandStatus(ctx context.Context, endpointID, comma
 	return tx.Commit()
 }
 
+func (s *DeviceStore) RecordCommandProgress(ctx context.Context, endpointID string, progress devicev1.CommandProgress, updatedAt time.Time) error {
+	if err := progress.Validate(); err != nil {
+		return err
+	}
+	percent := any(nil)
+	if progress.Percent != nil {
+		percent = int(*progress.Percent)
+	}
+	stagePercent := any(nil)
+	if progress.StagePercent != nil {
+		stagePercent = int(*progress.StagePercent)
+	}
+	result, err := s.db.GetDB().ExecContext(ctx, `UPDATE device_commands SET
+		status=?, progress_sequence=?, progress_phase=?, progress_percent=?, progress_stage=?, progress_stage_percent=?, progress_message=?, updated_at=?
+		WHERE id=? AND endpoint_id=? AND status IN (?, ?) AND progress_sequence < ?`,
+		string(devicev1.CommandRunning), progress.Sequence, progress.Phase, percent, progress.Stage, stagePercent, progress.Message, updatedAt.Unix(),
+		progress.CommandID, endpointID, string(devicev1.CommandAccepted), string(devicev1.CommandRunning), progress.Sequence)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return errors.New("device command progress is stale or command is not running")
+	}
+	return nil
+}
+
+func (s *DeviceStore) CompleteCommand(ctx context.Context, endpointID string, result devicev1.CommandResult, updatedAt time.Time) error {
+	tx, err := s.db.GetDB().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var currentStatus devicev1.CommandStatus
+	var commandName, commandPayload, profileID string
+	if err := tx.QueryRowContext(ctx, `SELECT status, name, payload_json, profile_id FROM device_commands WHERE id=? AND endpoint_id=?`, result.CommandID, endpointID).Scan(&currentStatus, &commandName, &commandPayload, &profileID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return devices.ErrCommandNotFound
+		}
+		return err
+	}
+	if err := devicev1.ValidateTransition(currentStatus, result.Status); err != nil {
+		return err
+	}
+	if commandName == devicev1.CapabilityInventoryRefresh && result.Status == devicev1.CommandSucceeded {
+		var inventory devicev1.DeviceInventory
+		if err := json.Unmarshal(result.Payload, &inventory); err != nil {
+			return fmt.Errorf("decode device inventory result: %w", err)
+		}
+		if err := inventory.Validate(); err != nil {
+			return err
+		}
+		inventory = inventory.Normalize()
+		if err := saveDeviceInventory(ctx, tx, endpointID, inventory, updatedAt); err != nil {
+			return err
+		}
+	}
+	if commandName == devicev1.CapabilityGameInstallArchive && result.Status == devicev1.CommandSucceeded {
+		var request devicev1.ArchiveInstallRequest
+		var installed devicev1.ArchiveInstallResult
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode archive install command: %w", err)
+		}
+		if err := json.Unmarshal(result.Payload, &installed); err != nil {
+			return fmt.Errorf("decode archive install result: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
+		if err := installed.Validate(); err != nil {
+			return err
+		}
+		if installed.GameID != request.GameID || installed.SourceGameID != request.SourceGameID {
+			return errors.New("archive install result does not match command")
+		}
+		launchCandidates, err := json.Marshal(installed.LaunchCandidates)
+		if err != nil {
+			return fmt.Errorf("encode launch candidates: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO device_game_installations
+			(endpoint_id, game_id, source_game_id, profile_id, install_root, install_path, archive_sha256, archive_bytes, installed_at, updated_at, launch_target, launch_candidates_json)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(endpoint_id, game_id, source_game_id) DO UPDATE SET
+				profile_id=excluded.profile_id, install_root=excluded.install_root, install_path=excluded.install_path,
+				archive_sha256=excluded.archive_sha256, archive_bytes=excluded.archive_bytes,
+				installed_at=excluded.installed_at, updated_at=excluded.updated_at,
+				launch_target=excluded.launch_target, launch_candidates_json=excluded.launch_candidates_json`,
+			endpointID, installed.GameID, installed.SourceGameID, profileID, installed.InstallRoot, installed.InstallPath,
+			installed.ArchiveSHA256, installed.ArchiveBytes, installed.InstalledAt.Unix(), updatedAt.Unix(), installed.LaunchTarget, string(launchCandidates)); err != nil {
+			return fmt.Errorf("persist device game installation: %w", err)
+		}
+	}
+	if commandName == devicev1.CapabilityGameUninstall && result.Status == devicev1.CommandSucceeded {
+		var request devicev1.GameUninstallRequest
+		var removed devicev1.GameUninstallResult
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode game uninstall command: %w", err)
+		}
+		if err := json.Unmarshal(result.Payload, &removed); err != nil {
+			return fmt.Errorf("decode game uninstall result: %w", err)
+		}
+		if !removed.Removed || removed.GameID != request.GameID || removed.SourceGameID != request.SourceGameID {
+			return errors.New("game uninstall result does not match command")
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM device_game_installations WHERE endpoint_id=? AND game_id=? AND source_game_id=?`, endpointID, request.GameID, request.SourceGameID); err != nil {
+			return fmt.Errorf("remove device game installation: %w", err)
+		}
+	}
+	if commandName == devicev1.CapabilityGameLaunch && result.Status == devicev1.CommandSucceeded {
+		var request devicev1.GameLaunchRequest
+		var launched devicev1.GameLaunchResult
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode game launch command: %w", err)
+		}
+		if err := json.Unmarshal(result.Payload, &launched); err != nil {
+			return fmt.Errorf("decode game launch result: %w", err)
+		}
+		if err := launched.Validate(); err != nil {
+			return err
+		}
+		if launched.GameID != request.GameID || launched.SourceGameID != request.SourceGameID {
+			return errors.New("game launch result does not match command")
+		}
+	}
+	var errorCode, errorMessage any
+	if result.Error != nil {
+		errorCode, errorMessage = result.Error.Code, result.Error.Message
+	}
+	var resultJSON any
+	if len(result.Payload) > 0 {
+		resultJSON = string(result.Payload)
+	}
+	update, err := tx.ExecContext(ctx, `UPDATE device_commands SET status=?, result_json=?, error_code=?, error_message=?, updated_at=?
+		WHERE id=? AND endpoint_id=? AND status=?`, string(result.Status), resultJSON, errorCode, errorMessage,
+		updatedAt.Unix(), result.CommandID, endpointID, string(currentStatus))
+	if err != nil {
+		return err
+	}
+	if rows, err := update.RowsAffected(); err != nil || rows != 1 {
+		if err != nil {
+			return err
+		}
+		return errors.New("device command status changed concurrently")
+	}
+	return tx.Commit()
+}
+
+func (s *DeviceStore) SaveInventory(ctx context.Context, endpointID string, inventory devicev1.DeviceInventory, updatedAt time.Time) error {
+	tx, err := s.db.GetDB().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := saveDeviceInventory(ctx, tx, endpointID, inventory, updatedAt); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func saveDeviceInventory(ctx context.Context, tx *sql.Tx, endpointID string, inventory devicev1.DeviceInventory, updatedAt time.Time) error {
+	if err := inventory.Validate(); err != nil {
+		return err
+	}
+	storageJSON, err := json.Marshal(inventory.Storage)
+	if err != nil {
+		return fmt.Errorf("encode device storage inventory: %w", err)
+	}
+	runtimesJSON, err := json.Marshal(inventory.Runtimes)
+	if err != nil {
+		return fmt.Errorf("encode device runtime inventory: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `INSERT INTO device_inventories
+		(endpoint_id, schema_version, captured_at, storage_json, runtimes_json, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(endpoint_id) DO UPDATE SET schema_version=excluded.schema_version,
+			captured_at=excluded.captured_at, storage_json=excluded.storage_json,
+			runtimes_json=excluded.runtimes_json, updated_at=excluded.updated_at`,
+		endpointID, inventory.SchemaVersion, inventory.CapturedAt.Unix(), string(storageJSON), string(runtimesJSON), updatedAt.Unix())
+	if err != nil {
+		return fmt.Errorf("persist device inventory: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		if err != nil {
+			return err
+		}
+		return devices.ErrEndpointNotFound
+	}
+	return nil
+}
+
+func (s *DeviceStore) GetInventory(ctx context.Context, endpointID string) (*devicev1.DeviceInventory, error) {
+	var schemaVersion uint16
+	var capturedAt int64
+	var storageJSON, runtimesJSON string
+	err := s.db.GetDB().QueryRowContext(ctx, `SELECT schema_version, captured_at, storage_json, runtimes_json
+		FROM device_inventories WHERE endpoint_id=?`, endpointID).Scan(&schemaVersion, &capturedAt, &storageJSON, &runtimesJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	inventory := &devicev1.DeviceInventory{SchemaVersion: schemaVersion, CapturedAt: time.Unix(capturedAt, 0).UTC()}
+	if err := json.Unmarshal([]byte(storageJSON), &inventory.Storage); err != nil {
+		return nil, fmt.Errorf("decode device storage inventory: %w", err)
+	}
+	if err := json.Unmarshal([]byte(runtimesJSON), &inventory.Runtimes); err != nil {
+		return nil, fmt.Errorf("decode device runtime inventory: %w", err)
+	}
+	if err := inventory.Validate(); err != nil {
+		return nil, fmt.Errorf("validate persisted device inventory: %w", err)
+	}
+	return inventory, nil
+}
+
 func (s *DeviceStore) ListCommands(ctx context.Context, endpointID, profileID string, limit int) ([]devices.Command, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
 	rows, err := s.db.GetDB().QueryContext(ctx, `SELECT id, endpoint_id, profile_id, name, schema_version, idempotency_key,
-		status, payload_json, COALESCE(result_json,''), COALESCE(error_code,''), COALESCE(error_message,''), created_at, updated_at, expires_at
+		status, payload_json, COALESCE(result_json,''), COALESCE(error_code,''), COALESCE(error_message,''),
+		progress_sequence, COALESCE(progress_phase,''), progress_percent, COALESCE(progress_stage,''), progress_stage_percent, COALESCE(progress_message,''), created_at, updated_at, expires_at
 		FROM device_commands WHERE endpoint_id=? AND profile_id=? ORDER BY created_at DESC LIMIT ?`, endpointID, profileID, limit)
 	if err != nil {
 		return nil, err
@@ -315,8 +534,10 @@ func (s *DeviceStore) ListCommands(ctx context.Context, endpointID, profileID st
 		var command devices.Command
 		var status, payload, result string
 		var createdAt, updatedAt, expiresAt int64
+		var progressPercent, progressStagePercent sql.NullInt64
 		if err := rows.Scan(&command.ID, &command.EndpointID, &command.ProfileID, &command.Name, &command.SchemaVersion,
 			&command.IdempotencyKey, &status, &payload, &result, &command.ErrorCode, &command.ErrorMessage,
+			&command.ProgressSequence, &command.ProgressPhase, &progressPercent, &command.ProgressStage, &progressStagePercent, &command.ProgressMessage,
 			&createdAt, &updatedAt, &expiresAt); err != nil {
 			return nil, err
 		}
@@ -325,12 +546,64 @@ func (s *DeviceStore) ListCommands(ctx context.Context, endpointID, profileID st
 		if result != "" {
 			command.Result = json.RawMessage(result)
 		}
+		if progressPercent.Valid {
+			value := uint8(progressPercent.Int64)
+			command.ProgressPercent = &value
+		}
+		if progressStagePercent.Valid {
+			value := uint8(progressStagePercent.Int64)
+			command.ProgressStagePercent = &value
+		}
 		command.CreatedAt = time.Unix(createdAt, 0)
 		command.UpdatedAt = time.Unix(updatedAt, 0)
 		command.ExpiresAt = time.Unix(expiresAt, 0)
 		commands = append(commands, command)
 	}
 	return commands, rows.Err()
+}
+
+func (s *DeviceStore) ListInstallations(ctx context.Context, endpointID, profileID string) ([]devices.GameInstallation, error) {
+	rows, err := s.db.GetDB().QueryContext(ctx, `SELECT endpoint_id, game_id, source_game_id, profile_id,
+		install_root, install_path, archive_sha256, archive_bytes, installed_at, updated_at, COALESCE(launch_target,''), launch_candidates_json
+		FROM device_game_installations WHERE endpoint_id=? AND profile_id=? ORDER BY installed_at DESC`, endpointID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	installations := make([]devices.GameInstallation, 0)
+	for rows.Next() {
+		var installation devices.GameInstallation
+		var installedAt, updatedAt int64
+		var launchCandidates string
+		if err := rows.Scan(&installation.EndpointID, &installation.GameID, &installation.SourceGameID, &installation.ProfileID,
+			&installation.InstallRoot, &installation.InstallPath, &installation.ArchiveSHA256, &installation.ArchiveBytes,
+			&installedAt, &updatedAt, &installation.LaunchTarget, &launchCandidates); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(launchCandidates), &installation.LaunchCandidates); err != nil {
+			return nil, fmt.Errorf("decode launch candidates: %w", err)
+		}
+		installation.InstalledAt = time.Unix(installedAt, 0).UTC()
+		installation.UpdatedAt = time.Unix(updatedAt, 0).UTC()
+		installations = append(installations, installation)
+	}
+	return installations, rows.Err()
+}
+
+func (s *DeviceStore) UpdateInstallationLaunchTarget(ctx context.Context, endpointID, gameID, sourceGameID, profileID, launchTarget string, updatedAt time.Time) error {
+	result, err := s.db.GetDB().ExecContext(ctx, `UPDATE device_game_installations SET launch_target=?, updated_at=?
+		WHERE endpoint_id=? AND game_id=? AND source_game_id=? AND profile_id=?`, launchTarget, updatedAt.Unix(), endpointID, gameID, sourceGameID, profileID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return devices.ErrEndpointNotFound
+	}
+	return nil
 }
 
 const endpointFields = `SELECT e.id, e.client_instance_id, e.public_key, e.display_name, e.host_name, e.os_user,

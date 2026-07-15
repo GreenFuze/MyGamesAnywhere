@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { listGames } from '@/api/client'
+import type { LibraryPrefs } from '@/api/client'
 
 export const LIBRARY_PAGE_SIZE = 100
 
@@ -9,11 +10,16 @@ export const LIBRARY_PAGE_SIZE = 100
  * larger profile libraries and makes upgraded installs look empty when
  * navigation cancels the long request.
  */
-export function useLibraryData() {
+export function useLibraryData(sortBy: LibraryPrefs['sortBy'], sortDir: LibraryPrefs['sortDir']) {
   const query = useInfiniteQuery({
-    queryKey: ['games', 'paged', LIBRARY_PAGE_SIZE],
+    queryKey: ['games', 'paged', LIBRARY_PAGE_SIZE, sortBy, sortDir],
     initialPageParam: 0,
-    queryFn: ({ pageParam }) => listGames({ page: pageParam, page_size: LIBRARY_PAGE_SIZE }),
+    queryFn: ({ pageParam }) => listGames({
+      page: pageParam,
+      page_size: LIBRARY_PAGE_SIZE,
+      sort_by: sortBy,
+      sort_dir: sortDir,
+    }),
     getNextPageParam: (lastPage) => {
       const loaded = (lastPage.page + 1) * lastPage.page_size
       return loaded < lastPage.total ? lastPage.page + 1 : undefined

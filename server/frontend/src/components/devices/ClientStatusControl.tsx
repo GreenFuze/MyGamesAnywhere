@@ -4,6 +4,7 @@ import { ChevronDown, Download, Laptop, LoaderCircle, Power, Settings } from 'lu
 import { useNavigate } from 'react-router-dom'
 import {
   createDeviceClientLaunch,
+  createDevicePairingChallenge,
   dispatchDeviceCommand,
   getAuthSession,
   getCredentialStatus,
@@ -101,13 +102,23 @@ export function ClientStatusControl() {
   const connected = Boolean(associated && connectedStates.has(associated.status))
   const onlineCount = devices.filter((device) => connectedStates.has(device.status)).length
 
-  const start = useMutation({
-    mutationFn: createDeviceClientLaunch,
-    onSuccess: (launch) => {
-      if (!launch.launch_uri) throw new Error('MGA Server did not return a client launch URI')
-      setPendingLaunchID(launch.id)
+  const connect = useMutation({
+    mutationFn: async () => {
+      if (devices.length === 0) {
+        return { kind: 'pair' as const, pairing: await createDevicePairingChallenge() }
+      }
+      return { kind: 'launch' as const, launch: await createDeviceClientLaunch() }
+    },
+    onSuccess: (result) => {
+      if (result.kind === 'pair') {
+        if (!result.pairing.pair_uri) throw new Error('MGA Server did not return a client pairing URI')
+        window.location.href = result.pairing.pair_uri
+        return
+      }
+      if (!result.launch.launch_uri) throw new Error('MGA Server did not return a client launch URI')
+      setPendingLaunchID(result.launch.id)
       setLaunchStartedAt(Date.now())
-      window.location.href = launch.launch_uri
+      window.location.href = result.launch.launch_uri
     },
   })
   const stop = useMutation({
@@ -195,9 +206,9 @@ export function ClientStatusControl() {
               <div className="font-bold text-mga-text">{presentation.label}</div>
               <p className="mt-0.5 text-xs leading-5 text-mga-muted">
                 {associated
-                  ? `${associated.display_name} · ${associated.os_user} on ${associated.host_name}`
+                  ? `${associated.display_name} (${associated.os_user})`
                   : deviceAuthority
-                    ? 'Start the client as this Windows user to identify this browser’s endpoint.'
+                    ? 'Open or pair MGA Client for this Windows user.'
                     : authorized
                       ? 'Add a password or PIN to this profile before controlling devices.'
                       : 'Sign in to a protected MGA profile to control its clients.'}
@@ -208,20 +219,31 @@ export function ClientStatusControl() {
           {deviceAuthority ? (
             <div className="mt-3 space-y-2">
               {!connected ? (
-                <Button className="w-full" onClick={() => start.mutate()} disabled={start.isPending || Boolean(pendingLaunchID)}>
-                  {start.isPending || pendingLaunchID ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
-                  {pendingLaunchID ? 'Waiting for MGA Client…' : 'Start MGA Client'}
+                <Button className="w-full" onClick={() => connect.mutate()} disabled={connect.isPending || Boolean(pendingLaunchID) || devicesQuery.isLoading}>
+                  {connect.isPending || pendingLaunchID ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+                  {pendingLaunchID ? 'Waiting…' : 'Connect'}
+                </Button>
+              ) : null}
+
+              {!connected ? (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  disabled={!downloadQuery.data?.download_url}
+                  onClick={() => downloadQuery.data?.download_url && window.open(downloadQuery.data.download_url, '_blank', 'noopener,noreferrer')}
+                >
+                  <Download className="h-4 w-4" /> Download
                 </Button>
               ) : null}
 
               {canStop && !confirmStop ? (
                 <Button variant="outline" className="w-full" onClick={() => setConfirmStop(true)}>
-                  <Power className="h-4 w-4" /> Stop MGA Client
+                  <Power className="h-4 w-4" /> Stop
                 </Button>
               ) : null}
               {canStop && confirmStop ? (
                 <div className="rounded-mga border border-red-500/35 bg-red-500/10 p-2.5">
-                  <p className="text-xs leading-5 text-mga-muted">The client will disconnect immediately. Start it again from this menu.</p>
+                  <p className="text-xs leading-5 text-mga-muted">Stop MGA Client on this device?</p>
                   <div className="mt-2 flex gap-2">
                     <Button variant="outline" size="sm" className="flex-1 border-red-500/40 text-red-300 hover:bg-red-500/15" onClick={() => stop.mutate()} disabled={stop.isPending}>
                       Confirm stop
@@ -231,28 +253,9 @@ export function ClientStatusControl() {
                 </div>
               ) : null}
 
-              {associated && connected && !canStop ? (
-                <div className="space-y-2">
-                  <Button variant="outline" className="w-full" disabled title="Requires Manage permission and endpoint.stop support">
-                    <Power className="h-4 w-4" /> Stop MGA Client
-                  </Button>
-                  <p className="rounded-mga border border-mga-border bg-mga-bg/60 p-2 text-xs leading-5 text-mga-muted">
-                    Stopping requires Manage permission and a client version that supports it.
-                  </p>
-                </div>
-              ) : null}
-              {launchUnanswered || launchQuery.data?.status === 'expired' || start.error || launchQuery.error ? (
+              {launchUnanswered || launchQuery.data?.status === 'expired' || connect.error || launchQuery.error ? (
                 <div className="rounded-mga border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs leading-5 text-mga-muted">
-                  The protocol handler did not respond. MGA Client may not be installed.
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-2 w-full"
-                    disabled={!downloadQuery.data?.download_url}
-                    onClick={() => downloadQuery.data?.download_url && window.open(downloadQuery.data.download_url, '_blank', 'noopener,noreferrer')}
-                  >
-                    <Download className="h-4 w-4" /> Download MGA Client
-                  </Button>
+                  Client did not respond. Open it or pair it again.
                 </div>
               ) : null}
               {stop.error ? <p className="text-xs text-red-300">{stop.error instanceof Error ? stop.error.message : 'Could not stop MGA Client.'}</p> : null}
@@ -288,14 +291,14 @@ export function ClientStatusControl() {
 }
 
 function statusPresentation(authorized: boolean, endpoint: DeviceEndpoint | undefined, connected: boolean, onlineCount: number) {
-  if (!authorized) return { label: 'MGA Client', dot: 'bg-slate-500', border: 'border-slate-500/30', text: 'text-mga-muted' }
+  if (!authorized) return { label: 'Client unavailable', dot: 'bg-slate-500', border: 'border-slate-500/30', text: 'text-mga-muted' }
   if (!endpoint) {
-    if (onlineCount > 0) return { label: `${onlineCount} MGA Clients online`, dot: 'bg-amber-400', border: 'border-amber-500/35', text: 'text-amber-300' }
-    return { label: 'Start MGA Client', dot: 'bg-red-400', border: 'border-red-500/35', text: 'text-red-300' }
+    if (onlineCount > 0) return { label: `${onlineCount} clients online`, dot: 'bg-amber-400', border: 'border-amber-500/35', text: 'text-amber-300' }
+    return { label: 'Connect client', dot: 'bg-red-400', border: 'border-red-500/35', text: 'text-red-300' }
   }
-  if (!connected) return { label: 'Start MGA Client', dot: 'bg-red-400', border: 'border-red-500/35', text: 'text-red-300' }
-  if (endpoint.status === 'update_required') return { label: 'MGA Client update required', dot: 'bg-purple-400', border: 'border-purple-500/40', text: 'text-purple-300' }
-  if (endpoint.status === 'error') return { label: 'MGA Client error', dot: 'bg-red-400', border: 'border-red-500/40', text: 'text-red-300' }
-  if (endpoint.status === 'busy') return { label: 'MGA Client busy', dot: 'bg-amber-400', border: 'border-amber-500/40', text: 'text-amber-300' }
-  return { label: 'MGA Client connected', dot: 'bg-emerald-400', border: 'border-emerald-500/35', text: 'text-emerald-300' }
+  if (!connected) return { label: 'Connect client', dot: 'bg-red-400', border: 'border-red-500/35', text: 'text-red-300' }
+  if (endpoint.status === 'update_required') return { label: 'Client needs update', dot: 'bg-purple-400', border: 'border-purple-500/40', text: 'text-purple-300' }
+  if (endpoint.status === 'error') return { label: 'Client error', dot: 'bg-red-400', border: 'border-red-500/40', text: 'text-red-300' }
+  if (endpoint.status === 'busy') return { label: 'Client busy', dot: 'bg-amber-400', border: 'border-amber-500/40', text: 'text-amber-300' }
+  return { label: 'Client ready', dot: 'bg-emerald-400', border: 'border-emerald-500/35', text: 'text-emerald-300' }
 }

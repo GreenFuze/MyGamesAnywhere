@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +33,76 @@ func TestMigrationsFreshDBReachLatestAndAreIdempotent(t *testing.T) {
 	secondSchema := schemaSnapshot(t, dbSvc.GetDB())
 	if firstSchema != secondSchema {
 		t.Fatalf("schema changed after idempotent migration\nfirst:\n%s\nsecond:\n%s", firstSchema, secondSchema)
+	}
+}
+
+func TestMigration16UpgradesVersion15RowsWithSafeLaunchDefaults(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(
+		testLogger{},
+		testDBConfig{dbPath: dbPath},
+		core.MigrationOptions{BackupBeforeMigrate: false},
+	).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.ensureSchemaMigrationsTable(); err != nil {
+		t.Fatalf("ensure migrations table: %v", err)
+	}
+	for _, migration := range dbSvc.orderedMigrations() {
+		if migration.Version > 15 {
+			break
+		}
+		if err := dbSvc.runMigration(context.Background(), migration); err != nil {
+			t.Fatalf("run migration %d: %v", migration.Version, err)
+		}
+	}
+	var version int
+	if err := dbSvc.GetDB().QueryRow(`SELECT MAX(version) FROM schema_migrations WHERE success=1`).Scan(&version); err != nil || version != 15 {
+		t.Fatalf("pre-upgrade version = %d, error = %v", version, err)
+	}
+
+	now := time.Now().Unix()
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO profiles (id, display_name, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, []any{"profile-1", "Player", "admin_player", now, now}},
+		{`INSERT INTO canonical_games (id, created_at) VALUES (?, ?)`, []any{"game-1", now}},
+		{`INSERT INTO source_games (id, profile_id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, status, review_state, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, []any{"source-1", "profile-1", "integration-1", "game-source-google-drive", "source-1", "Game", "windows_pc", "base_game", "packed", "found", "matched", now}},
+		{`INSERT INTO device_endpoints (id, client_instance_id, public_key, display_name, host_name, os_user, platform, arch, client_version, protocol_version, capabilities_json, status, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, []any{"endpoint-1", "instance-1", "key", "PC", "pc", "user", "windows", "amd64", "dev", 1, `[]`, "offline", now, now}},
+		{`INSERT INTO device_commands (id, endpoint_id, profile_id, name, schema_version, idempotency_key, status, payload_json, created_at, updated_at, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, []any{"command-1", "endpoint-1", "profile-1", "game.install_archive", 1, "idem-1", "succeeded", `{}`, now, now, now + 60}},
+		{`INSERT INTO device_game_installations (endpoint_id, game_id, source_game_id, profile_id, install_root, install_path, archive_sha256, archive_bytes, installed_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, []any{"endpoint-1", "game-1", "source-1", "profile-1", `C:\Games`, `C:\Games\Game`, strings.Repeat("a", 64), 42, now, now}},
+	} {
+		if _, err := dbSvc.GetDB().Exec(statement.query, statement.args...); err != nil {
+			t.Fatalf("seed version 15 row: %v", err)
+		}
+	}
+
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatalf("apply migration 16: %v", err)
+	}
+	assertLatestMigrationVersion(t, dbSvc.GetDB())
+	var progressStage sql.NullString
+	var progressStagePercent sql.NullInt64
+	if err := dbSvc.GetDB().QueryRow(`SELECT progress_stage, progress_stage_percent FROM device_commands WHERE id='command-1'`).Scan(&progressStage, &progressStagePercent); err != nil {
+		t.Fatalf("read migrated command columns: %v", err)
+	}
+	if progressStage.Valid || progressStagePercent.Valid {
+		t.Fatalf("migrated command stage = %#v / %#v, want NULL defaults", progressStage, progressStagePercent)
+	}
+	var launchTarget sql.NullString
+	var launchCandidates string
+	if err := dbSvc.GetDB().QueryRow(`SELECT launch_target, launch_candidates_json FROM device_game_installations WHERE endpoint_id='endpoint-1'`).Scan(&launchTarget, &launchCandidates); err != nil {
+		t.Fatalf("read migrated installation columns: %v", err)
+	}
+	if launchTarget.Valid || launchCandidates != "[]" {
+		t.Fatalf("migrated launch fields = %#v / %q", launchTarget, launchCandidates)
 	}
 }
 
@@ -121,6 +192,66 @@ func TestMigrationsCanSkipStartupBackupForTests(t *testing.T) {
 		t.Fatalf("EnsureSchema() error = %v", err)
 	}
 	assertLatestMigrationVersion(t, dbSvc.GetDB())
+}
+
+func TestVersionAwareIdentityMigrationBackfillsExistingCanonicalIDs(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.ensureSchemaMigrationsTable(); err != nil {
+		t.Fatalf("ensure migrations table: %v", err)
+	}
+	for _, migration := range dbSvc.orderedMigrations() {
+		if migration.Version >= 13 {
+			break
+		}
+		if err := dbSvc.runMigration(context.Background(), migration); err != nil {
+			t.Fatalf("run pre-identity migration %d: %v", migration.Version, err)
+		}
+	}
+
+	now := time.Now().Unix()
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO profiles (id, display_name, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, []any{"profile-identity", "Player", "admin_player", now, now}},
+		{`INSERT INTO canonical_games (id, created_at) VALUES (?, ?)`, []any{"canonical-preserved", now}},
+		{`INSERT INTO source_games (id, profile_id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, status, review_state, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, []any{"source-preserved", "profile-identity", "integration-1", "game-source-steam", "source-1", "Double Dragon", "windows_pc", "base_game", "self_contained", "found", "matched", now}},
+		{`INSERT INTO canonical_source_games_link (canonical_id, source_game_id) VALUES (?, ?)`, []any{"canonical-preserved", "source-preserved"}},
+		{`INSERT INTO metadata_resolver_matches (source_game_id, plugin_id, external_id, title, platform, outvoted, created_at)
+			VALUES (?, ?, ?, ?, ?, 0, ?)`, []any{"source-preserved", "metadata-steam", "provider-1", "Double Dragon", "windows_pc", now}},
+	} {
+		if _, err := dbSvc.GetDB().Exec(statement.query, statement.args...); err != nil {
+			t.Fatalf("seed pre-identity database: %v", err)
+		}
+	}
+
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatalf("apply identity migration: %v", err)
+	}
+	var editionID, titleID, displayTitle, state string
+	if err := dbSvc.GetDB().QueryRow(`SELECT e.id, e.title_id, t.display_title, e.identity_state
+		FROM game_editions e JOIN game_titles t ON t.id=e.title_id WHERE e.id=?`, "canonical-preserved").Scan(&editionID, &titleID, &displayTitle, &state); err != nil {
+		t.Fatalf("read migrated identity: %v", err)
+	}
+	if editionID != "canonical-preserved" {
+		t.Fatalf("edition id = %q, want preserved canonical id", editionID)
+	}
+	if titleID == "" || displayTitle != "Double Dragon" || state != "provider_confirmed" {
+		t.Fatalf("migrated identity = title_id:%q title:%q state:%q", titleID, displayTitle, state)
+	}
+	var evidenceCount int
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM game_title_external_ids WHERE title_id=? AND provider=? AND external_id=?`, titleID, "metadata-steam", "provider-1").Scan(&evidenceCount); err != nil {
+		t.Fatalf("count migrated evidence: %v", err)
+	}
+	if evidenceCount != 1 {
+		t.Fatalf("migrated evidence count = %d, want 1", evidenceCount)
+	}
 }
 
 func TestLegacyFixtureMigratesToFreshSchemaAndPreservesProfileOwnedData(t *testing.T) {

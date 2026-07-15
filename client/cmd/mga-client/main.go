@@ -19,6 +19,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "initialize MGA Client runtime: %v\n", err)
 		os.Exit(1)
 	}
+	defer clientService.Close()
 	application, err := cli.NewApplication(cli.Dependencies{
 		Out:       os.Stdout,
 		Err:       os.Stderr,
@@ -32,6 +33,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := application.Execute(ctx, os.Args[1:]); err != nil {
+		clientService.Logf("command failed: %v", err)
 		fmt.Fprintf(os.Stderr, "MGA Client: %v\n", err)
 		os.Exit(1)
 	}

@@ -222,7 +222,7 @@ func (r *integrationRepository) ListByPluginID(ctx context.Context, pluginID str
 
 func scopedSettingProfileID(ctx context.Context, key string) string {
 	switch key {
-	case "frontend", "last_sync_push", "last_sync_pull":
+	case "frontend", "last_sync_push", "last_sync_pull", "library_scan_schedule":
 		return core.ProfileIDFromContext(ctx)
 	default:
 		return ""

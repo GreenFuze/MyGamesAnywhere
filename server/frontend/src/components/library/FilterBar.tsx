@@ -191,7 +191,7 @@ export function FilterBar({
 
           {/* Source */}
           {availableSources.length > 0 && (
-            <FilterSection label="Source">
+            <FilterSection label="Store or library">
               <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
@@ -226,7 +226,7 @@ export function FilterBar({
 
           {/* Source integration */}
           {availableIntegrations.length > 0 && (
-            <FilterSection label="Integration">
+            <FilterSection label="Connection">
               <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"

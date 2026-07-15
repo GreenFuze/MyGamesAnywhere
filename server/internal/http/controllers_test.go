@@ -40,6 +40,51 @@ func TestDecodedPathParamUnescapesLegacyGameIDs(t *testing.T) {
 	}
 }
 
+func TestGameControllerListGamesSortsBeforePagination(t *testing.T) {
+	store := &fakeGameStore{
+		visibleCanonicalIDs: []string{"game-high", "game-low"},
+		gamesByID: map[string]*core.CanonicalGame{
+			"game-high": {ID: "game-high", Title: "High", Rating: 95},
+			"game-low":  {ID: "game-low", Title: "Low", Rating: 20},
+		},
+	}
+	controller := NewGameController(store, nil, nil, nil, nil, noopLogger{})
+	req := httptest.NewRequest(http.MethodGet, "/api/games?page=1&page_size=1&sort_by=rating&sort_dir=desc", nil)
+	rec := httptest.NewRecorder()
+
+	controller.ListGames(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if store.requestedListOffset != 1 || store.requestedListLimit != 1 {
+		t.Fatalf("page request = offset %d limit %d, want 1/1", store.requestedListOffset, store.requestedListLimit)
+	}
+	if store.requestedListOrder.Field != core.CanonicalGameSortRating || store.requestedListOrder.Direction != core.SortDirectionDescending {
+		t.Fatalf("sort order = %+v", store.requestedListOrder)
+	}
+	var response ListGamesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Games) != 1 || response.Games[0].ID != "game-low" {
+		t.Fatalf("games = %+v, want paged game-low", response.Games)
+	}
+}
+
+func TestGameControllerListGamesRejectsUnknownSort(t *testing.T) {
+	store := &fakeGameStore{}
+	controller := NewGameController(store, nil, nil, nil, nil, noopLogger{})
+	req := httptest.NewRequest(http.MethodGet, "/api/games?sort_by=random", nil)
+	rec := httptest.NewRecorder()
+
+	controller.ListGames(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
 type fakeGameMetadataRefreshService struct {
 	game     *core.CanonicalGame
 	warnings []string
@@ -1019,6 +1064,10 @@ type fakeGameStore struct {
 	manualReviewByID           map[string]*core.ManualReviewCandidate
 	mediaAsset                 *core.MediaAsset
 	mediaStatus                *core.MediaDownloadStatus
+	visibleCanonicalIDs        []string
+	requestedListOrder         core.CanonicalGameListOrder
+	requestedListOffset        int
+	requestedListLimit         int
 }
 
 func (f *fakeGameStore) PersistScanResults(context.Context, *core.ScanBatch) error {
@@ -1059,10 +1108,23 @@ func (f *fakeGameStore) GetCanonicalGamesByIDs(_ context.Context, ids []string) 
 	return out, nil
 }
 func (f *fakeGameStore) CountVisibleCanonicalGames(context.Context) (int, error) {
-	panic("unexpected call")
+	return len(f.visibleCanonicalIDs), nil
 }
 func (f *fakeGameStore) GetVisibleCanonicalIDs(context.Context, int, int) ([]string, error) {
 	panic("unexpected call")
+}
+func (f *fakeGameStore) GetVisibleCanonicalIDsSorted(_ context.Context, offset, limit int, order core.CanonicalGameListOrder) ([]string, error) {
+	f.requestedListOffset = offset
+	f.requestedListLimit = limit
+	f.requestedListOrder = order
+	if offset >= len(f.visibleCanonicalIDs) {
+		return []string{}, nil
+	}
+	end := len(f.visibleCanonicalIDs)
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	return append([]string(nil), f.visibleCanonicalIDs[offset:end]...), nil
 }
 func (f *fakeGameStore) GetCanonicalGameByID(context.Context, string) (*core.CanonicalGame, error) {
 	return f.game, nil

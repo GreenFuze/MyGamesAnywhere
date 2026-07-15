@@ -11,9 +11,13 @@ import (
 )
 
 const (
-	CapabilityEndpointPing    = "endpoint.ping"
-	CapabilityEndpointRefresh = "endpoint.refresh"
-	CapabilityEndpointStop    = "endpoint.stop"
+	CapabilityEndpointPing       = "endpoint.ping"
+	CapabilityEndpointRefresh    = "endpoint.refresh"
+	CapabilityEndpointStop       = "endpoint.stop"
+	CapabilityInventoryRefresh   = "inventory.refresh"
+	CapabilityGameInstallArchive = "game.install_archive"
+	CapabilityGameUninstall      = "game.uninstall"
+	CapabilityGameLaunch         = "game.launch"
 )
 
 // EndpointMetadata describes one OS-user client installation. These fields are

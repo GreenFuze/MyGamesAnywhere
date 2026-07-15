@@ -3,6 +3,14 @@
 
 export type CollectionViewMode = "shelf" | "grid" | "list" | "timeline";
 
+export type CollectionGroupMode =
+  | "none"
+  | "platform"
+  | "integration"
+  | "play_method"
+  | "achievements"
+  | "year";
+
 export type CollectionSectionField =
   | "platform"
   | "genre"
@@ -27,6 +35,7 @@ export type CollectionSectionConfig =
 
 export type LibraryPrefs = {
   viewMode: CollectionViewMode;
+  groupBy: CollectionGroupMode;
   sortBy: "title" | "release_date" | "platform" | "rating";
   sortDir: "asc" | "desc";
   sections: CollectionSectionConfig[];
@@ -157,6 +166,37 @@ export type AchievementSummaryDTO = {
   earned_points?: number;
 };
 
+export type IdentityEvidenceDTO = {
+  provider: string;
+  external_id: string;
+};
+
+export type GameTitleIdentityDTO = {
+  id: string;
+  display_title: string;
+  normalized_title?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type GameEditionIdentityDTO = {
+  id: string;
+  title_id: string;
+  platform: string;
+  region?: string;
+  edition_label?: string;
+  kind: string;
+  state: "provider_confirmed" | "manual" | "unresolved" | "legacy_review" | string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type GameIdentityDTO = {
+  title: GameTitleIdentityDTO;
+  edition: GameEditionIdentityDTO;
+  evidence?: IdentityEvidenceDTO[];
+};
+
 export type AchievementSystemSummaryDTO = {
   source: string;
   game_count: number;
@@ -266,6 +306,7 @@ export type ScanIntegrationResult = {
 
 export type ScanReport = {
   id: string;
+  trigger?: string;
   started_at: string;
   finished_at: string;
   duration_ms: number;
@@ -409,6 +450,7 @@ export type ScanJobRecentEvent = {
 export type ScanJobStatus = {
   job_id: string;
   status: string;
+  trigger: string;
   metadata_only: boolean;
   integration_ids: string[];
   started_at?: string;
@@ -422,6 +464,21 @@ export type ScanJobStatus = {
   recent_events?: ScanJobRecentEvent[];
   report_id?: string;
   error?: string;
+};
+
+export type LibraryScanScheduleConfig = {
+  enabled: boolean;
+  interval_minutes: number;
+};
+
+export type LibraryScanScheduleStatus = LibraryScanScheduleConfig & {
+  state: string;
+  next_run_at?: string;
+  last_started_at?: string;
+  last_finished_at?: string;
+  last_status?: string;
+  last_error?: string;
+  active_job?: ScanJobStatus;
 };
 
 export type SaveSyncSnapshotFile = {

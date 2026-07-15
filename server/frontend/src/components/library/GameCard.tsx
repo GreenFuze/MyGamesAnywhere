@@ -1,5 +1,5 @@
 import type { GameDetailResponse } from '@/api/client'
-import { Info, Play } from 'lucide-react'
+import { Info, Play, Trophy } from 'lucide-react'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { GameContextMenu } from '@/components/library/GameContextMenu'
 import { BrandIcon } from '@/components/ui/brand-icon'
@@ -142,6 +142,9 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
   const primaryActionLabel = playable ? 'Play' : canOpenStream ? 'Open' : 'Details'
   const isPlayVariant = variant === 'play'
   const favoriteBusy = isPendingFor(game.id)
+  const achievementLabel = game.achievement_summary && game.achievement_summary.total_count > 0
+    ? `${game.achievement_summary.unlocked_count} of ${game.achievement_summary.total_count} achievements`
+    : null
 
   const routeState = useMemo(
     () => buildGameRouteState(location.pathname, location.search),
@@ -362,7 +365,12 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
       <IconBadge label={game.platform}>
         <PlatformIcon platform={game.platform} showLabel={false} className="text-white" />
       </IconBadge>
-      {sourceIntegrations.map((source) => (
+      {achievementLabel ? (
+        <IconBadge label={achievementLabel}>
+          <Trophy size={13} />
+        </IconBadge>
+      ) : null}
+      {sourceIntegrations.slice(0, 2).map((source) => (
         <IconBadge key={source.key} label={source.label}>
           <BrandIcon brand={source.pluginId} className="h-3.5 w-3.5" />
         </IconBadge>
@@ -559,6 +567,25 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
               className="aspect-[3/4] w-full"
             />
             <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-t from-black/96 via-black/28 to-black/10" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-[3] flex items-start justify-between gap-2 p-2.5">
+              <div className="flex gap-1.5">
+                {playable ? <StatusBadge kind="playable" /> : null}
+                {game.xcloud_available ? <StatusBadge kind="xcloud" /> : null}
+                {!playable && !game.xcloud_available && game.is_game_pass ? <StatusBadge kind="gamepass" /> : null}
+              </div>
+              <div className="flex gap-1.5">
+                {achievementLabel ? (
+                  <IconBadge label={achievementLabel}>
+                    <Trophy size={13} />
+                  </IconBadge>
+                ) : null}
+                {sourceIntegrations[0] ? (
+                  <IconBadge label={sourceIntegrations[0].label}>
+                    <BrandIcon brand={sourceIntegrations[0].pluginId} className="h-3.5 w-3.5" />
+                  </IconBadge>
+                ) : null}
+              </div>
+            </div>
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] p-3 text-white">
               <div className="space-y-1.5">
                 <p className="line-clamp-2 text-[17px] font-semibold leading-tight text-white drop-shadow-[0_1px_8px_rgba(0,0,0,0.35)]">

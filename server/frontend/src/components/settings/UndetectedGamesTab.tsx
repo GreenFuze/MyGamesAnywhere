@@ -26,6 +26,7 @@ import {
   type ManualReviewSearchProviderStatus,
   type ManualReviewSearchResult,
   type PluginInfo,
+  type ResolverMatchDTO,
 } from '@/api/client'
 import { BrandBadge } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
@@ -83,13 +84,13 @@ function humanizeValue(value: string | undefined): string {
 function reviewReasonLabel(reason: string): string {
   switch (reason) {
     case 'no_metadata_matches':
-      return 'No metadata matches'
+      return 'No match found'
     case 'no_resolved_title':
-      return 'No resolved title'
+      return 'Game not identified'
     case 'unknown_platform':
       return 'Unknown platform'
     case 'unknown_grouping':
-      return 'Unknown grouping'
+      return 'Needs review'
     default:
       return humanizeValue(reason)
   }
@@ -102,7 +103,7 @@ function isAddOnContentKind(kind: string | undefined): boolean {
 function reviewStateLabel(state: ManualReviewCandidateDetail['review_state'], kind?: string): string {
   switch (state) {
     case 'matched':
-      return 'Match Applied'
+      return 'Matched'
     case 'not_a_game':
       if (isAddOnContentKind(kind)) return 'Archived as Add-on Content'
       return 'Archived as Not a Game'
@@ -156,6 +157,31 @@ function preferredSearchQuery(candidate: ManualReviewCandidateDetail | undefined
 
 function manualSearchResultKey(result: ManualReviewSearchResult): string {
   return `${result.provider_integration_id}:${result.provider_plugin_id}:${result.external_id}`
+}
+
+function resolverMatchAsSearchResult(
+  match: ResolverMatchDTO,
+  fallbackTitle: string,
+  provider?: MetadataProviderChipStatus,
+): ManualReviewSearchResult {
+  return {
+    provider_integration_id: provider?.integration_id ?? '',
+    provider_label: provider?.integration_label,
+    provider_plugin_id: match.plugin_id,
+    title: safeText(match.title).trim() || fallbackTitle,
+    platform: match.platform,
+    kind: match.kind,
+    parent_game_id: match.parent_game_id,
+    external_id: match.external_id,
+    url: match.url,
+    description: match.description,
+    release_date: match.release_date,
+    genres: match.genres,
+    developer: match.developer,
+    publisher: match.publisher,
+    rating: match.rating,
+    max_players: match.max_players,
+  }
 }
 
 function previewDescription(description: string): { text: string; truncated: boolean } {
@@ -604,21 +630,21 @@ export function UndetectedGamesTab() {
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-mga-accent">
               <ArrowRightLeft size={16} />
-              <span className="text-sm font-semibold uppercase tracking-wide">Undetected Games</span>
+              <span className="text-sm font-semibold uppercase tracking-wide">Library review</span>
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-mga-text">Manual review workflow</h2>
+              <h2 className="text-lg font-semibold text-mga-text">Games to review</h2>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-mga-muted">
-                Review unresolved source records inline, apply metadata matches, archive not-a-game items, and reopen archived decisions.
+                Match games MGA could not identify, mark add-ons, or hide files that are not games.
               </p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant={scope === 'active' ? 'default' : 'outline'} onClick={() => setScope('active')}>
-              Active Queue
+              To review
             </Button>
             <Button type="button" size="sm" variant={scope === 'archive' ? 'default' : 'outline'} onClick={() => setScope('archive')}>
-              Archive
+              Hidden
             </Button>
             {scope === 'active' ? (
               <Button
@@ -629,7 +655,7 @@ export function UndetectedGamesTab() {
                 disabled={batchRedetectMutation.isPending || (candidatesQuery.data ?? []).length === 0}
               >
                 {batchRedetectMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                Re-Detect Active Queue
+                Try all again
               </Button>
             ) : null}
             {legacyGameId && legacyTitle && scope === 'active' ? (
@@ -682,12 +708,12 @@ export function UndetectedGamesTab() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold uppercase tracking-wide text-mga-text">
-                {scope === 'archive' ? 'Archived Candidates' : 'Review Candidates'}
+                {scope === 'archive' ? 'Hidden items' : 'To review'}
               </h3>
               <p className="mt-1 text-sm text-mga-muted">
                 {scope === 'archive'
-                  ? 'Archived not-a-game decisions stay here until you reopen them.'
-                  : 'Applying a match removes a record from the active review queue.'}
+                  ? 'Items you marked as add-ons or not games.'
+                  : 'Choose an item to match it or decide what it is.'}
               </p>
             </div>
             <Badge variant="muted">{(candidatesQuery.data ?? []).length}</Badge>
@@ -763,7 +789,6 @@ export function UndetectedGamesTab() {
 
                     <div className="text-right text-xs text-mga-muted">
                       <div>{candidate.file_count} files</div>
-                      <div>{candidate.resolver_match_count} resolver matches</div>
                     </div>
                   </div>
 
@@ -840,7 +865,7 @@ export function UndetectedGamesTab() {
                       <Badge variant="muted">{humanizeValue(candidateQuery.data.kind)}</Badge>
                       <Badge variant="muted">{humanizeValue(candidateQuery.data.group_kind)}</Badge>
                       <Badge variant="muted">{candidateQuery.data.file_count} files</Badge>
-                      <Badge variant="muted">{candidateQuery.data.resolver_match_count} resolver matches</Badge>
+                      <Badge variant="muted">{candidateQuery.data.resolver_match_count} match suggestions</Badge>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {candidateReviewReasons.length > 0 ? (
@@ -861,37 +886,24 @@ export function UndetectedGamesTab() {
                     </div>
                   </div>
 
-                  <div className="space-y-2 text-sm text-mga-muted">
-                    <div>
-                      <span className="font-medium text-mga-text">Candidate ID:</span> {candidateQuery.data.id}
+                  <details className="max-w-xl text-sm text-mga-muted">
+                    <summary className="cursor-pointer hover:text-mga-text">Technical details</summary>
+                    <div className="mt-2 space-y-2">
+                      <div><span className="font-medium text-mga-text">ID:</span> {candidateQuery.data.id}</div>
+                      <div><span className="font-medium text-mga-text">Added:</span> {formatDateTime(candidateQuery.data.created_at)}</div>
+                      <div><span className="font-medium text-mga-text">Last found:</span> {formatDateTime(candidateQuery.data.last_seen_at)}</div>
+                      {candidateQuery.data.root_path ? <div className="break-all"><span className="font-medium text-mga-text">Path:</span> {candidateQuery.data.root_path}</div> : null}
+                      {candidateQuery.data.url ? (
+                        <a href={candidateQuery.data.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-mga-accent hover:underline">
+                          Open original entry <ExternalLink size={14} />
+                        </a>
+                      ) : null}
                     </div>
-                    <div>
-                      <span className="font-medium text-mga-text">Created:</span> {formatDateTime(candidateQuery.data.created_at)}
-                    </div>
-                    <div>
-                      <span className="font-medium text-mga-text">Last seen:</span> {formatDateTime(candidateQuery.data.last_seen_at)}
-                    </div>
-                    {candidateQuery.data.root_path ? (
-                      <div className="max-w-xl break-all">
-                        <span className="font-medium text-mga-text">Root path:</span> {candidateQuery.data.root_path}
-                      </div>
-                    ) : null}
-                    {candidateQuery.data.url ? (
-                      <a
-                        href={candidateQuery.data.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-mga-accent hover:underline"
-                      >
-                        Open source record
-                        <ExternalLink size={14} />
-                      </a>
-                    ) : null}
-                  </div>
+                  </details>
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-3">
-                  {candidateQuery.data.canonical_game_id ? (
+                  {candidateQuery.data.canonical_game_id && candidateReviewReasons.length === 0 ? (
                     <Button type="button" variant="outline" onClick={() => navigate(`/game/${encodeURIComponent(candidateQuery.data.canonical_game_id ?? '')}`)}>
                       Open Game
                     </Button>
@@ -904,7 +916,7 @@ export function UndetectedGamesTab() {
                       disabled={redetectMutation.isPending}
                     >
                       {redetectMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                      Try Re-Detect
+                      Try again
                     </Button>
                   ) : null}
                   {candidateQuery.data.review_state === 'not_a_game' ? (
@@ -1171,7 +1183,12 @@ export function UndetectedGamesTab() {
                     {candidateResolverMatches.length === 0 ? (
                       <p className="text-sm text-mga-muted">No resolver matches are currently attached to this candidate.</p>
                     ) : (
-                      candidateResolverMatches.map((match) => (
+                      candidateResolverMatches.map((match) => {
+                        const provider = configuredMetadataProviders.find((item) => item.plugin_id === match.plugin_id)
+                        const selection = resolverMatchAsSearchResult(match, candidateTitle, provider)
+                        const resultKey = manualSearchResultKey(selection)
+                        const isSelected = match.manual_selection === true
+                        return (
                         <div key={`${match.plugin_id}:${match.external_id}`} className="rounded-mga border border-mga-border bg-mga-bg p-3">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
@@ -1193,8 +1210,19 @@ export function UndetectedGamesTab() {
                             {match.developer ? <Badge variant="muted">{match.developer}</Badge> : null}
                             {match.publisher ? <Badge variant="muted">{match.publisher}</Badge> : null}
                           </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="mt-3"
+                            onClick={() => applyMutation.mutate({ candidateId: candidateQuery.data.id, result: selection })}
+                            disabled={applyMutation.isPending}
+                          >
+                            {applyBusyKey === resultKey ? <Loader2 size={16} className="animate-spin" /> : null}
+                            {isSelected ? 'Reapply Match' : 'Use This Match'}
+                          </Button>
                         </div>
-                      ))
+                        )
+                      })
                     )}
                   </div>
                 </div>

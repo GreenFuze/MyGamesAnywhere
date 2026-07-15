@@ -8,10 +8,10 @@ import {
   ChevronRight,
   Clipboard,
   Download,
+  HardDrive,
   KeyRound,
   Laptop,
   Plus,
-  RefreshCw,
   Save,
   Send,
   Trash2,
@@ -35,8 +35,10 @@ import {
   type DevicePairingChallenge,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
+import { ActionMenu, type ActionMenuItem } from '@/components/ui/action-menu'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { Tooltip } from '@/components/ui/tooltip'
 import { useProfiles } from '@/hooks/useProfiles'
 import { cn } from '@/lib/utils'
 
@@ -47,6 +49,13 @@ const statePresentation = {
   update_required: { label: 'Update required', dot: 'bg-purple-400', text: 'text-purple-300', border: 'border-purple-500/40' },
   error: { label: 'Error', dot: 'bg-red-400', text: 'text-red-300', border: 'border-red-500/40' },
 } as const
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1)
+  return `${(value / 1024 ** index).toFixed(index >= 3 ? 1 : 0)} ${units[index]}`
+}
 
 export function DevicesTab() {
   const { currentProfile } = useProfiles()
@@ -101,11 +110,11 @@ export function DevicesTab() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-mga-accent">
-              <Activity className="h-4 w-4" /> Device control plane
+              <Activity className="h-4 w-4" /> Connected devices
             </div>
-            <h2 className="mt-2 text-xl font-black text-mga-text">MGA Clients</h2>
+            <h2 className="mt-2 text-xl font-black text-mga-text">Devices</h2>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-mga-muted">
-              Each entry is one physical-device / OS-user / MGA Client installation. A second user on the same PC appears separately.
+              Each Windows user connects separately, even when they share the same PC.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -114,10 +123,10 @@ export function DevicesTab() {
               onClick={() => downloadQuery.data?.download_url && window.open(downloadQuery.data.download_url, '_blank', 'noopener,noreferrer')}
               disabled={!downloadQuery.data?.download_url}
             >
-              <Download className="h-4 w-4" /> Download MGA Client
+              <Download className="h-4 w-4" /> Download client
             </Button>
             <Button onClick={() => createPairing.mutate()} disabled={createPairing.isPending}>
-              <Plus className="h-4 w-4" /> Add Device
+              <Plus className="h-4 w-4" /> Pair device
             </Button>
           </div>
         </div>
@@ -131,8 +140,8 @@ export function DevicesTab() {
       {devicesQuery.data?.length === 0 ? (
         <section className="rounded-mga border border-dashed border-mga-border bg-mga-surface/70 p-10 text-center">
           <Laptop className="mx-auto h-10 w-10 text-mga-muted" />
-          <h3 className="mt-3 text-lg font-bold text-mga-text">No MGA Client paired</h3>
-          <p className="mt-1 text-sm text-mga-muted">Choose Add Device, then run the shown command from the target OS user.</p>
+          <h3 className="mt-3 text-lg font-bold text-mga-text">No devices paired</h3>
+          <p className="mt-1 text-sm text-mga-muted">Pair this PC or another device to install and launch games.</p>
         </section>
       ) : null}
       <div className="grid gap-4 xl:grid-cols-2">
@@ -154,8 +163,8 @@ function PairingPanel({ pairing, onClose }: { pairing: DevicePairingChallenge; o
     <section className="rounded-mga border border-mga-accent/40 bg-mga-accent/5 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="font-bold text-mga-text">Pair a per-user MGA Client</h3>
-          <p className="mt-1 text-sm text-mga-muted">Run this once as the OS user who should own the endpoint. Expires {new Date(pairing.expires_at).toLocaleTimeString()}.</p>
+          <h3 className="font-bold text-mga-text">Pair MGA Client</h3>
+          <p className="mt-1 text-sm text-mga-muted">Open the client as the Windows user who will play here. Expires {new Date(pairing.expires_at).toLocaleTimeString()}.</p>
         </div>
         <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
       </div>
@@ -182,7 +191,7 @@ function DeviceCard({ device }: { device: DeviceEndpoint }) {
     refetchInterval: expanded && device.status !== 'offline' ? 2000 : false,
   })
   const action = useMutation({
-    mutationFn: (command: 'endpoint.ping' | 'endpoint.refresh') => dispatchDeviceCommand(device.id, command),
+    mutationFn: (command: 'endpoint.ping' | 'endpoint.refresh' | 'inventory.refresh') => dispatchDeviceCommand(device.id, command),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['device-commands', device.id] })
       await queryClient.invalidateQueries({ queryKey: ['devices'] })
@@ -199,6 +208,30 @@ function DeviceCard({ device }: { device: DeviceEndpoint }) {
   const latest = commandsQuery.data?.[0]
   const canManage = accessAllows(device.access_level, 'manage')
   const isOwner = device.access_level === 'owner'
+  const deviceActions: ActionMenuItem[] = [
+    {
+      label: 'Scan storage and apps',
+      onSelect: () => action.mutate('inventory.refresh'),
+      disabled: device.status === 'offline' || !canManage || !device.capabilities.includes('inventory.refresh') || action.isPending,
+    },
+    {
+      label: 'Refresh device info',
+      onSelect: () => action.mutate('endpoint.refresh'),
+      disabled: device.status === 'offline' || !canManage || !device.capabilities.includes('endpoint.refresh') || action.isPending,
+    },
+  ]
+  const totalBytes = device.inventory?.storage.reduce((total, item) => total + item.total_bytes, 0) ?? 0
+  const freeBytes = device.inventory?.storage.reduce((total, item) => total + item.free_bytes, 0) ?? 0
+  if (isOwner) {
+    deviceActions.push({
+      label: 'Remove device',
+      onSelect: () => {
+        if (window.confirm(`Remove ${device.display_name}? You will need to pair the client again.`)) revoke.mutate()
+      },
+      disabled: revoke.isPending,
+      danger: true,
+    })
+  }
   return (
     <article className={cn('overflow-hidden rounded-mga border bg-mga-surface shadow-lg', state.border)}>
       <div className="p-4">
@@ -233,11 +266,40 @@ function DeviceCard({ device }: { device: DeviceEndpoint }) {
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
               <DeviceFact label="Platform" value={`${device.platform} / ${device.arch}`} />
               <DeviceFact label="Client" value={device.client_version} />
-              <DeviceFact label="Protocol" value={`v${device.protocol_version}`} />
               <DeviceFact label="Access" value={accessLevelLabel(device.access_level)} />
               <DeviceFact label="Last seen" value={device.last_seen_at ? new Date(device.last_seen_at).toLocaleString() : 'Never'} />
-              <DeviceFact label="Capabilities" value={String(device.capabilities.length)} />
+              <DeviceFact label="Free storage" value={device.inventory ? `${formatBytes(freeBytes)} of ${formatBytes(totalBytes)}` : 'Not scanned yet'} />
+              <DeviceFact label="Game apps" value={device.inventory?.runtimes.length ? device.inventory.runtimes.map((runtime) => runtime.name).join(', ') : 'None found'} />
+              <DeviceFact label="Installed by MGA" value={String(device.installations?.length ?? 0)} />
             </dl>
+			{device.inventory ? (
+			  <div className="mt-3 rounded-mga border border-mga-border bg-mga-bg/70 p-3">
+				<div className="flex items-center justify-between gap-3 text-xs text-mga-muted">
+				  <span className="inline-flex items-center gap-1.5"><HardDrive className="h-3.5 w-3.5" /> Device scan</span>
+				  <span>{new Date(device.inventory.captured_at).toLocaleString()}</span>
+				</div>
+				{device.inventory.storage.length ? (
+				  <div className="mt-2 space-y-2">
+					{device.inventory.storage.map((storage) => {
+					  const usedPercent = storage.total_bytes > 0 ? Math.round(((storage.total_bytes - storage.free_bytes) / storage.total_bytes) * 100) : 0
+					  return (
+						<div key={storage.id}>
+						  <div className="flex justify-between gap-3 text-xs"><span className="font-semibold text-mga-text">{storage.root}</span><span className="text-mga-muted">{formatBytes(storage.free_bytes)} free</span></div>
+						  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-mga-accent" style={{ width: `${Math.min(100, Math.max(0, usedPercent))}%` }} /></div>
+						</div>
+					  )
+					})}
+				  </div>
+				) : <p className="mt-2 text-xs text-mga-muted">No writable storage was reported.</p>}
+			  </div>
+			) : null}
+            <details className="mt-3 text-xs text-mga-muted">
+              <summary className="cursor-pointer select-none hover:text-mga-text">Technical details</summary>
+              <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
+                <DeviceFact label="Protocol" value={`v${device.protocol_version}`} />
+                <DeviceFact label="Features" value={String(device.capabilities.length)} />
+              </dl>
+            </details>
             {isOwner ? (
               <div className="mt-4 flex gap-2">
                 <Input aria-label="Device name" value={name} onChange={(event) => setName(event.target.value)} />
@@ -245,14 +307,17 @@ function DeviceCard({ device }: { device: DeviceEndpoint }) {
               </div>
             ) : null}
             <div className="mt-4 flex flex-wrap gap-2 border-t border-mga-border pt-4">
-              <Button size="sm" title="Check that the client can receive and answer a command." onClick={() => action.mutate('endpoint.ping')} disabled={device.status === 'offline' || !device.capabilities.includes('endpoint.ping') || action.isPending}><Send className="h-4 w-4" /> Ping</Button>
-              <Button variant="outline" size="sm" title="Ask the client to re-read its local endpoint metadata and capabilities." onClick={() => action.mutate('endpoint.refresh')} disabled={device.status === 'offline' || !canManage || !device.capabilities.includes('endpoint.refresh') || action.isPending}><RefreshCw className="h-4 w-4" /> Refresh info</Button>
-              {isOwner ? <Button variant="outline" size="sm" onClick={() => window.confirm(`Revoke ${device.display_name}? The client must run "mga-client unpair" before it can pair again.`) && revoke.mutate()} disabled={revoke.isPending} className="ml-auto"><Trash2 className="h-4 w-4" /> Revoke</Button> : null}
+              <Tooltip content="Check that MGA Client is responding">
+                <Button size="sm" onClick={() => action.mutate('endpoint.ping')} disabled={device.status === 'offline' || !device.capabilities.includes('endpoint.ping') || action.isPending}><Send className="h-4 w-4" /> Check</Button>
+              </Tooltip>
+              <ActionMenu items={deviceActions} className="ml-auto" />
             </div>
             {latest ? (
               <div className="mt-3 rounded-mga bg-mga-bg px-3 py-2 text-xs text-mga-muted">
                 Latest: <span className="font-mono text-mga-text">{latest.name}</span> · <span className={latest.status === 'succeeded' ? 'text-emerald-300' : latest.status === 'failed' || latest.status === 'rejected' ? 'text-red-300' : 'text-amber-300'}>{latest.status}</span>
                 {latest.error_message ? ` · ${latest.error_message}` : ''}
+                {latest.progress_message ? ` · ${latest.progress_message}` : ''}
+                {latest.progress_percent !== undefined ? ` (${latest.progress_percent}%)` : ''}
               </div>
             ) : null}
             {action.error || rename.error || revoke.error ? <ErrorText error={action.error || rename.error || revoke.error} /> : null}
@@ -296,9 +361,9 @@ function DeviceAccessPanel({ device }: { device: DeviceEndpoint }) {
 
   return (
     <div className="mt-4 border-t border-mga-border pt-4">
-      <h4 className="text-xs font-bold uppercase tracking-[0.18em] text-mga-muted">Profile permissions</h4>
+      <h4 className="text-xs font-bold uppercase tracking-[0.18em] text-mga-muted">Who can use this device</h4>
       <p className="mt-2 text-xs leading-5 text-mga-muted">
-        Controls which MGA web profiles may use this specific device / OS-user client. View can inspect and ping; Play is reserved for game launches; Manage allows device operations; Owner can rename, revoke, and share access.
+        Choose what each MGA profile can do here.
       </p>
       <div className="mt-3 space-y-2">
         {grants.data?.map((grant) => (

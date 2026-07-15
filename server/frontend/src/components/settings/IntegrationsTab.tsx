@@ -12,6 +12,8 @@ import {
   triggerScan,
   cancelScanJob,
   getScanJob,
+  getBackgroundScanStatus,
+  setBackgroundScanConfig,
   startIntegrationRefresh,
   getIntegrationRefreshJob,
   getAchievementsDashboard,
@@ -34,6 +36,7 @@ import {
   type ScanJobProgress,
   type ScanJobRecentEvent,
   type ScanJobStatus,
+  type LibraryScanScheduleConfig,
   type AchievementRefreshJobStatus,
   type AchievementRefreshStateDTO,
   type IntegrationRefreshJobStatus,
@@ -45,6 +48,7 @@ import { useSSE } from "@/hooks/useSSE";
 import { IntegrationGroupSection } from "./IntegrationGroupSection";
 import { LibraryStatsSummary } from "./LibraryStatsSummary";
 import { ScanSummary } from "./ScanSummary";
+import { BackgroundScanScheduleCard } from "./BackgroundScanScheduleCard";
 import { AddIntegrationWizard, EditIntegrationDialog } from "./IntegrationForm";
 import { OAuthCallbackPanel } from "./OAuthCallbackPanel";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
@@ -690,6 +694,15 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
     queryFn: getFrontendConfig,
   });
 
+  const backgroundScanQuery = useQuery({
+    queryKey: ["background-scan-status"],
+    queryFn: getBackgroundScanStatus,
+    refetchInterval: 10_000,
+  });
+
+  const [savingBackgroundScan, setSavingBackgroundScan] = useState(false);
+  const [backgroundScanError, setBackgroundScanError] = useState("");
+
   const { data: achievementsDashboard } = useQuery({
     queryKey: ["achievements-dashboard"],
     queryFn: getAchievementsDashboard,
@@ -1157,6 +1170,33 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
       setScanning(true);
     },
     [appendScanEvent, clearScanState, persistActiveScanJobId],
+  );
+
+  useEffect(() => {
+    const job = backgroundScanQuery.data?.active_job;
+    if (!job || scanJobIsTerminal(job) || activeScanJobId === job.job_id) return;
+    adoptScanJob(job, {
+      resetLog: true,
+      appendMessage: "Automatic library scan started.",
+    });
+  }, [activeScanJobId, adoptScanJob, backgroundScanQuery.data?.active_job]);
+
+  const handleBackgroundScanConfig = useCallback(
+    async (config: LibraryScanScheduleConfig) => {
+      setSavingBackgroundScan(true);
+      setBackgroundScanError("");
+      try {
+        const status = await setBackgroundScanConfig(config);
+        queryClient.setQueryData(["background-scan-status"], status);
+      } catch (err) {
+        setBackgroundScanError(
+          err instanceof Error ? err.message : "Failed to update automatic scans",
+        );
+      } finally {
+        setSavingBackgroundScan(false);
+      }
+    },
+    [queryClient],
   );
 
   useEffect(() => {
@@ -2819,7 +2859,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
   if (loadingIntegrations) {
     return (
       <div className="text-mga-muted text-sm py-8 text-center">
-        Loading integrations...
+        Loading connections…
       </div>
     );
   }
@@ -2832,10 +2872,10 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
             First Run
           </div>
           <h3 className="mt-2 text-base font-bold text-mga-text">
-            Check restored integrations
+            Check restored connections
           </h3>
           <p className="mt-1 text-sm leading-6 text-mga-muted">
-            Review the restored integrations here. If a card asks for sign-in, use Connect or Re-auth on that card. The first source scan starts here too, so you can watch progress without leaving Settings.
+            Reconnect any service that needs sign-in, then scan for games.
           </p>
         </div>
       )}
@@ -2843,10 +2883,9 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-medium text-mga-text">Integrations</h3>
+          <h3 className="text-sm font-medium text-mga-text">Connections</h3>
           <p className="text-xs text-mga-muted mt-0.5">
-            {integrations.length} integration
-            {integrations.length !== 1 ? "s" : ""} configured
+            {integrations.length} configured
           </p>
         </div>
         <div className="flex gap-2">
@@ -2862,11 +2901,11 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
               size={14}
               className={checkingAll ? "animate-spin" : ""}
             />
-            {checkingAll ? "Checking..." : "Check All"}
+            {checkingAll ? "Checking…" : "Check all"}
           </Button>
           <Button size="sm" onClick={() => setWizardOpen(true)}>
             <Plus size={14} />
-            Add Integration
+            Add connection
           </Button>
         </div>
       </div>
@@ -2880,7 +2919,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
       )}
       {scanInProgress && (
         <p className="text-xs text-mga-muted">
-          Automatic integration checks are deferred while a scan is active.
+          Connection checks will resume after the scan.
         </p>
       )}
 
@@ -2921,10 +2960,30 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
 
       {/* Library stats summary */}
       {stats && stats.canonical_game_count > 0 && (
-        <LibraryStatsSummary stats={stats} />
+        <details className="rounded-mga border border-mga-border bg-mga-surface p-3">
+          <summary className="cursor-pointer text-sm font-medium text-mga-text">
+            Library health
+          </summary>
+          <div className="mt-3">
+            <LibraryStatsSummary stats={stats} />
+          </div>
+        </details>
       )}
 
       {/* Scan summary / history */}
+      <BackgroundScanScheduleCard
+        status={backgroundScanQuery.data}
+        loading={backgroundScanQuery.isPending}
+        saving={savingBackgroundScan}
+        error={
+          backgroundScanError ||
+          (backgroundScanQuery.error instanceof Error
+            ? backgroundScanQuery.error.message
+            : undefined)
+        }
+        onChange={handleBackgroundScanConfig}
+      />
+
       {!scanning && <ScanSummary />}
 
       {/* Global scan progress */}
@@ -2934,10 +2993,10 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
             <div className="min-w-0">
               <p className="text-xs font-medium text-mga-text">
                 {scanJobStatus === "cancelling"
-                  ? "Cancelling scan..."
+                  ? "Cancelling…"
                   : scanMetadataOnly
-                    ? "Refreshing metadata..."
-                    : "Scanning sources..."}
+                    ? "Refreshing game info…"
+                    : "Scanning games…"}
                 {scanTotalCount > 0 &&
                   ` (${scanCompletedCount}/${scanTotalCount} integrations)`}
               </p>
@@ -2984,7 +3043,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
             label={
               scanTotalCount > 0
                 ? `${scanCompletedCount}/${scanTotalCount}`
-                : "Scanning..."
+                : "Scanning…"
             }
           />
           {scanStatusText && (
@@ -3091,11 +3150,11 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
       {integrations.length === 0 ? (
         <div className="text-center py-12 border border-mga-border rounded-mga bg-mga-surface">
           <p className="text-mga-muted text-sm mb-3">
-            No integrations configured yet.
+            No connections yet.
           </p>
           <Button size="sm" onClick={() => setWizardOpen(true)}>
             <Plus size={14} />
-            Add Your First Integration
+            Add connection
           </Button>
         </div>
       ) : (
@@ -3104,7 +3163,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
             <div className="border border-mga-border rounded-mga bg-mga-surface p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-medium text-mga-text">
-                  Save Sync Migration
+                  Moving save backups
                 </p>
                 <span className="text-xs text-mga-muted uppercase tracking-wide">
                   {saveSyncMigration.status}
@@ -3121,7 +3180,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
                 label={
                   saveSyncMigration.items_total > 0
                     ? `${saveSyncMigration.items_completed}/${saveSyncMigration.items_total}`
-                    : "Preparing..."
+                    : "Preparing…"
                 }
               />
               <p className="text-xs text-mga-muted">

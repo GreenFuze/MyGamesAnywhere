@@ -83,6 +83,7 @@ type GameController struct {
 	groupingSvc     core.CanonicalGroupingService
 	integrationRepo core.IntegrationRepository
 	cacheSvc        core.SourceCacheService
+	deviceLister    DeviceEndpointLister
 	logger          core.Logger
 }
 
@@ -214,6 +215,10 @@ func (c *GameController) SetCanonicalGroupingService(groupingSvc core.CanonicalG
 	c.groupingSvc = groupingSvc
 }
 
+func (c *GameController) SetDeviceEndpointLister(lister DeviceEndpointLister) {
+	c.deviceLister = lister
+}
+
 func decodedPathParam(r *http.Request, key string) (string, error) {
 	value := chi.URLParam(r, key)
 	if value == "" {
@@ -250,8 +255,8 @@ func writeActionError(w http.ResponseWriter, status int, message string) {
 }
 
 // ListGames returns a page of canonical games as full detail rows (GET /api/games).
-// Query: page (0-based, default 0), page_size (default 100, max 2000). page_size=0 means all games
-// (capped at maxGamesFetchAll); use GET /api/stats canonical_game_count for totals.
+// Query: page (0-based), page_size, sort_by, and sort_dir. Sorting is applied
+// before pagination so later pages never reorder an already-rendered library.
 func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	total, err := c.gameStore.CountVisibleCanonicalGames(ctx)
@@ -290,6 +295,26 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	sortOrder := core.CanonicalGameListOrder{
+		Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending,
+	}
+	if value := strings.TrimSpace(r.URL.Query().Get("sort_by")); value != "" {
+		sortOrder.Field = core.CanonicalGameSort(value)
+	}
+	switch sortOrder.Field {
+	case core.CanonicalGameSortTitle, core.CanonicalGameSortReleaseDate, core.CanonicalGameSortPlatform, core.CanonicalGameSortRating:
+	default:
+		http.Error(w, "invalid sort_by", http.StatusBadRequest)
+		return
+	}
+	if value := strings.TrimSpace(r.URL.Query().Get("sort_dir")); value != "" {
+		sortOrder.Direction = core.SortDirection(value)
+	}
+	if sortOrder.Direction != core.SortDirectionAscending && sortOrder.Direction != core.SortDirectionDescending {
+		http.Error(w, "invalid sort_dir", http.StatusBadRequest)
+		return
+	}
+
 	var offset, sqlLimit int
 	respPageSize := pageSize
 	if fetchAll {
@@ -313,7 +338,7 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 		sqlLimit = pageSize
 	}
 
-	ids, err := c.gameStore.GetVisibleCanonicalIDs(ctx, offset, sqlLimit)
+	ids, err := c.gameStore.GetVisibleCanonicalIDsSorted(ctx, offset, sqlLimit, sortOrder)
 	if err != nil {
 		c.logger.Error("list game ids", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -366,7 +391,9 @@ func (c *GameController) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx)))
+	response := c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx))
+	c.attachDeviceAvailability(ctx, &response, game)
+	json.NewEncoder(w).Encode(response)
 }
 
 // GetDetail returns full game metadata and per-source resolver data (GET /api/games/{id}/detail).
@@ -392,7 +419,9 @@ func (c *GameController) GetDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx)))
+	response := c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx))
+	c.attachDeviceAvailability(ctx, &response, game)
+	json.NewEncoder(w).Encode(response)
 }
 
 func (c *GameController) SetCoverOverride(w http.ResponseWriter, r *http.Request) {
@@ -1121,10 +1150,11 @@ func canonicalToSummary(cg *core.CanonicalGame) GameSummary {
 }
 
 type DiscoveryController struct {
-	orchestrator scanRunner
-	scanJobs     *scanJobManager
-	gameStore    core.GameStore
-	logger       core.Logger
+	orchestrator    scanRunner
+	scanJobs        *scanJobManager
+	backgroundScans *BackgroundScanService
+	gameStore       core.GameStore
+	logger          core.Logger
 }
 
 func NewDiscoveryController(orchestrator scanRunner, gameStore core.GameStore, logger core.Logger, eventBus *events.EventBus, achievementRefresh ...postScanAchievementRefreshStarter) *DiscoveryController {
@@ -1147,6 +1177,7 @@ func (c *DiscoveryController) StartScan(ctx context.Context, req ScanRequest) (*
 type ScanRequest struct {
 	GameSources  []string `json:"game_sources"`
 	MetadataOnly bool     `json:"metadata_only"`
+	Trigger      string   `json:"-"`
 }
 
 func (c *DiscoveryController) Scan(w http.ResponseWriter, r *http.Request) {
@@ -1164,6 +1195,7 @@ func (c *DiscoveryController) Scan(w http.ResponseWriter, r *http.Request) {
 	status, alreadyRunning, err := c.scanJobs.Start(r.Context(), ScanRequest{
 		GameSources:  integrationIDs,
 		MetadataOnly: body.MetadataOnly,
+		Trigger:      "manual",
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

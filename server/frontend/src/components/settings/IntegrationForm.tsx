@@ -27,7 +27,6 @@ import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { PluginIcon } from './PluginIcon'
 import { ConfigFieldsRenderer } from './ConfigFieldsRenderer'
 import { OAuthCallbackPanel } from './OAuthCallbackPanel'
@@ -382,12 +381,12 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
 
   // Step titles for the dialog.
   const stepTitles: Record<WizardStep, string> = {
-    category: 'Add Integration — Choose Type',
-    plugin: 'Add Integration — Choose Plugin',
-    config: 'Add Integration — Configure',
-    label: 'Add Integration — Finish',
-    oauth: 'Add Integration — Sign In',
-    browse: 'Add Integration — Select Folder',
+    category: 'Add connection — Choose type',
+    plugin: 'Add connection — Choose service',
+    config: 'Add connection — Set up',
+    label: 'Add connection — Name',
+    oauth: 'Add connection — Sign in',
+    browse: 'Add connection — Choose folder',
   }
 
   return (
@@ -415,7 +414,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
                 <PluginIcon capability={cap} size={32} className="text-mga-accent" />
                 <span className="font-medium text-mga-text">{meta?.label ?? cap}</span>
                 <span className="text-xs text-mga-muted">
-                  {count} plugin{count !== 1 ? 's' : ''} available
+                  {count} option{count !== 1 ? 's' : ''}
                 </span>
               </button>
             )
@@ -439,17 +438,13 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-mga-text">{pluginLabel(plugin.plugin_id)}</span>
-                    <Badge variant="muted">v{plugin.plugin_version}</Badge>
                   </div>
                   <p className="text-xs text-mga-muted mt-0.5">
                     {pSchema.length === 0
                       ? (plugin.provides?.includes('auth.oauth.callback') ? 'Browser sign-in required' : 'No configuration needed')
-                      : `${pSchema.length} config field${pSchema.length !== 1 ? 's' : ''}`}
+                      : 'Setup required'}
                   </p>
                 </div>
-                {plugin.capabilities.map((cap) => (
-                  <Badge key={cap} variant="accent">{cap}</Badge>
-                ))}
               </button>
             )
           })}
@@ -470,7 +465,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
             <div className="rounded-mga border border-mga-border bg-mga-surface/70 p-4">
               <p className="text-sm font-medium text-mga-text">Connect before choosing folders</p>
               <p className="mt-1 text-sm text-mga-muted">
-                MGA needs browser sign-in before it can browse your Google Drive folders. After the connection is verified, this dialog will unlock the shared folder browser so you can choose an existing save folder or create a new path.
+                Sign in so MGA can show your Google Drive folders.
               </p>
             </div>
           ) : (
@@ -511,21 +506,11 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
           </div>
 
           <Input
-            label="Label"
+            label="Name"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="Give this integration a name..."
+            placeholder="Choose a name…"
           />
-
-          {/* Integration type — auto-derived from first capability, shown read-only */}
-          <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-mga-text">Integration Type</span>
-            <div className="flex gap-1.5">
-              {selectedPlugin.capabilities.map((cap) => (
-                <Badge key={cap} variant="accent" className="w-fit">{cap}</Badge>
-              ))}
-            </div>
-          </div>
 
           {error && <p className="text-sm text-red-400">{error}</p>}
 
@@ -538,7 +523,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
               onClick={handleCreate}
               disabled={saving || !label || !integrationType}
             >
-              {saving ? 'Creating...' : 'Create Integration'}
+              {saving ? 'Adding…' : 'Add connection'}
             </Button>
           </div>
         </div>
@@ -820,7 +805,7 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
   }
 
   return (
-    <Dialog open onClose={onClose} title="Edit Integration" className="max-w-2xl">
+    <Dialog open onClose={onClose} title="Edit connection" className="max-w-2xl">
       <div className="space-y-5">
         {/* Read-only header info */}
         <div className="flex items-center gap-3 pb-3 border-b border-mga-border">
@@ -828,34 +813,25 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <span className="font-medium text-mga-text">{pluginLabel(integration.plugin_id)}</span>
-              {plugin && <Badge variant="muted">v{plugin.plugin_version}</Badge>}
             </div>
-            <p className="text-xs text-mga-muted mt-0.5 font-mono">{integration.id}</p>
           </div>
         </div>
 
-        {/* Timestamps */}
-        <div className="flex gap-6 text-xs text-mga-muted">
-          <span>Created: {formatDT(integration.created_at)}</span>
-          <span>Updated: {formatDT(integration.updated_at)}</span>
-        </div>
+        <details className="text-xs text-mga-muted">
+          <summary className="cursor-pointer hover:text-mga-text">Technical details</summary>
+          <div className="mt-2 space-y-1 font-mono">
+            <p>{integration.id}</p>
+            <p>Created {formatDT(integration.created_at)} · Updated {formatDT(integration.updated_at)}</p>
+            <p>{(plugin?.capabilities ?? [integrationType]).join(', ')}</p>
+          </div>
+        </details>
 
         {/* Editable fields */}
         <Input
-          label="Label"
+          label="Name"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
         />
-
-        {/* Integration type — read-only, shows all capabilities */}
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-mga-text">Integration Type</span>
-          <div className="flex gap-1.5">
-            {(plugin?.capabilities ?? [integrationType]).map((cap) => (
-              <Badge key={cap} variant="accent" className="w-fit">{cap}</Badge>
-            ))}
-          </div>
-        </div>
 
         {/* Config fields */}
         {schema.length > 0 && (
@@ -906,7 +882,7 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
             disabled={saving || !label || !integrationType}
           >
             <Check size={14} />
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving ? 'Saving…' : 'Save'}
           </Button>
         </div>
       </div>

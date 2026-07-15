@@ -34,6 +34,10 @@ type DeviceController struct {
 	hub                 *devices.Hub
 	logger              core.Logger
 	clientInstallerPath string
+	gameStore           core.GameStore
+	integrationRepo     core.IntegrationRepository
+	googleDriveRoot     string
+	archiveTransfers    *archiveTransferRegistry
 }
 
 func NewDeviceController(service *devices.Service, hub *devices.Hub, logger core.Logger, clientInstallerPath ...string) (*DeviceController, error) {
@@ -44,7 +48,13 @@ func NewDeviceController(service *devices.Service, hub *devices.Hub, logger core
 	if len(clientInstallerPath) > 0 {
 		installerPath = strings.TrimSpace(clientInstallerPath[0])
 	}
-	return &DeviceController{service: service, hub: hub, logger: logger, clientInstallerPath: installerPath}, nil
+	return &DeviceController{service: service, hub: hub, logger: logger, clientInstallerPath: installerPath, archiveTransfers: newArchiveTransferRegistry()}, nil
+}
+
+func (c *DeviceController) SetArchiveInstallDependencies(gameStore core.GameStore, integrationRepo core.IntegrationRepository, googleDriveDesktopRoot string) {
+	c.gameStore = gameStore
+	c.integrationRepo = integrationRepo
+	c.googleDriveRoot = strings.TrimSpace(googleDriveDesktopRoot)
 }
 
 func (c *DeviceController) List(w http.ResponseWriter, r *http.Request) {
@@ -342,6 +352,11 @@ func (c *DeviceController) readConnectedMessages(ctx context.Context, endpointID
 			if err != nil || c.service.RecordHeartbeat(ctx, endpointID, heartbeat) != nil {
 				return
 			}
+		case devicev1.MessageInventoryReport:
+			inventory, err := devicev1.DecodePayload[devicev1.DeviceInventory](envelope)
+			if err != nil || c.service.RecordInventory(ctx, endpointID, inventory) != nil {
+				return
+			}
 		case devicev1.MessageCommandAccepted:
 			update, err := devicev1.DecodePayload[devicev1.CommandStatusUpdate](envelope)
 			if err != nil || update.Validate() != nil || c.service.RecordCommandStatus(ctx, endpointID, update.CommandID, devicev1.CommandAccepted) != nil {
@@ -349,7 +364,7 @@ func (c *DeviceController) readConnectedMessages(ctx context.Context, endpointID
 			}
 		case devicev1.MessageCommandProgress:
 			progress, err := devicev1.DecodePayload[devicev1.CommandProgress](envelope)
-			if err != nil || progress.Validate() != nil || c.service.RecordCommandStatus(ctx, endpointID, progress.CommandID, devicev1.CommandRunning) != nil {
+			if err != nil || progress.Validate() != nil || c.service.RecordCommandProgress(ctx, endpointID, progress) != nil {
 				return
 			}
 		case devicev1.MessageCommandResult, devicev1.MessageCommandRejected:
@@ -426,6 +441,8 @@ func writeDeviceError(w http.ResponseWriter, err error) {
 	status := http.StatusBadRequest
 	switch {
 	case errors.Is(err, devices.ErrEndpointNotFound):
+		status = http.StatusNotFound
+	case errors.Is(err, devices.ErrInstallationNotFound):
 		status = http.StatusNotFound
 	case errors.Is(err, devices.ErrDeviceForbidden):
 		status = http.StatusForbidden

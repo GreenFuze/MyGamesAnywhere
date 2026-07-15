@@ -211,6 +211,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 	o.publishEventWithContext(ctx, "scan_started", map[string]any{
 		"integration_count": len(filteredIntegrations),
 		"metadata_only":     false,
+		"trigger":           ScanTriggerFromContext(ctx),
 		"integrations":      buildScanIntegrationPayload(filteredIntegrations),
 	})
 
@@ -255,6 +256,10 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			"source_game_count": len(item.games),
 		})
 		batch := gamesToScanBatch(item.integration.ID, item.integration.PluginID, item.games)
+		if SourceOnlyScanFromContext(ctx) {
+			batch.PreserveOtherEnrichment = true
+			batch.RefreshedEnrichmentPluginIDs = []string{item.integration.PluginID}
+		}
 		if item.filesystemScope != nil {
 			batch.FilesystemScope = item.filesystemScope
 		}
@@ -285,6 +290,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 	// Compute diff and build scan report.
 	postCounts, _ := o.gameStore.GetSourceGameCountsByIntegration(ctx)
 	report := o.buildScanReport(scanStart, false, scannedIDs, preCounts, postCounts, integResults, len(result))
+	report.Trigger = ScanTriggerFromContext(ctx)
 	if saveErr := o.gameStore.SaveScanReport(ctx, report); saveErr != nil {
 		o.logger.Warn("orchestrator: failed to save scan report", "error", saveErr)
 	}
@@ -294,6 +300,7 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		"canonical_games": len(result),
 		"duration_ms":     report.DurationMs,
 		"report_id":       report.ID,
+		"trigger":         report.Trigger,
 		"games_added":     report.GamesAdded,
 		"games_removed":   report.GamesRemoved,
 	})
@@ -359,6 +366,7 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 	o.publishEventWithContext(ctx, "scan_started", map[string]any{
 		"integration_count": len(activeIntegrations),
 		"metadata_only":     true,
+		"trigger":           ScanTriggerFromContext(ctx),
 		"integrations":      buildScanIntegrationPayload(activeIntegrations),
 	})
 
@@ -408,6 +416,7 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 		scannedIDs = append(scannedIDs, integ.ID)
 	}
 	report := o.buildScanReport(scanStart, true, scannedIDs, nil, nil, nil, len(result))
+	report.Trigger = ScanTriggerFromContext(ctx)
 	if saveErr := o.gameStore.SaveScanReport(ctx, report); saveErr != nil {
 		o.logger.Warn("orchestrator: failed to save scan report", "error", saveErr)
 	}
@@ -418,6 +427,7 @@ func (o *Orchestrator) RunMetadataRefresh(ctx context.Context, integrationIDs []
 		"duration_ms":     report.DurationMs,
 		"metadata_only":   true,
 		"report_id":       report.ID,
+		"trigger":         report.Trigger,
 	})
 	return result, nil
 }
@@ -819,19 +829,7 @@ func (o *Orchestrator) prepareScanIntegration(
 		return item, nil
 	}
 
-	if len(item.games) == 0 {
-		o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
-			"integration_id": integ.ID,
-			"plugin_id":      integ.PluginID,
-			"label":          integ.Label,
-			"reason":         "no_games",
-		})
-		item.skipped = true
-		item.result.GamesFound = 0
-		return item, nil
-	}
-
-	if len(metaSources) > 0 {
+	if len(metaSources) > 0 && !SourceOnlyScanFromContext(ctx) {
 		o.publishEventWithContext(ctx, "scan_metadata_started", map[string]any{
 			"integration_id":     integ.ID,
 			"plugin_id":          integ.PluginID,

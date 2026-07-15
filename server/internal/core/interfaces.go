@@ -134,6 +134,10 @@ type GameStore interface {
 	// limit <= 0 means no limit (all rows from offset).
 	GetVisibleCanonicalIDs(ctx context.Context, offset, limit int) ([]string, error)
 
+	// GetVisibleCanonicalIDsSorted returns canonical IDs in a requested stable
+	// order before applying pagination.
+	GetVisibleCanonicalIDsSorted(ctx context.Context, offset, limit int, order CanonicalGameListOrder) ([]string, error)
+
 	// GetCanonicalGameByID returns one merged game view by stable canonical ID.
 	GetCanonicalGameByID(ctx context.Context, canonicalID string) (*CanonicalGame, error)
 

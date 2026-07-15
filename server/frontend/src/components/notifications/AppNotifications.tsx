@@ -23,11 +23,17 @@ export function AppNotifications() {
         const data = (raw ?? {}) as EventPayload
         const count = readNumber(data.canonical_games)
         const duration = readNumber(data.duration_ms)
+        const added = readNumber(data.games_added) ?? 0
+        const removed = readNumber(data.games_removed) ?? 0
+        const automatic = readString(data.trigger) === 'background'
+        if (automatic && added === 0 && removed === 0) return
         notify({
           tone: 'success',
-          title: 'Scan complete',
+          title: automatic ? 'Library updated automatically' : 'Scan complete',
           description:
-            count !== undefined || duration !== undefined
+            automatic
+              ? `${added > 0 ? `+${added} added` : 'No additions'}${removed > 0 ? `, -${removed} removed` : ''}`
+              : count !== undefined || duration !== undefined
               ? `${count !== undefined ? `${count} canonical games` : 'Catalog updated'}${duration !== undefined ? ` in ${Math.round(duration / 1000)}s` : ''}`
               : 'The library scan finished successfully.',
         })

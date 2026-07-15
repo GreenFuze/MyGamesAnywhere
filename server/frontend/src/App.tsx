@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { SearchProvider } from '@/hooks/useSearchContext'
-import { ProfileProvider } from '@/hooks/useProfiles'
+import { ProfileProvider, useProfiles } from '@/hooks/useProfiles'
 import { SSEProvider } from '@/hooks/useSSE'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AppNotifications } from '@/components/notifications/AppNotifications'
@@ -32,12 +33,12 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <SSEProvider>
-        <ToastProvider>
-          <ThemeProvider>
-            <SearchProvider>
-              <BrowserRouter>
-                <ErrorBoundary>
-                  <ProfileProvider>
+        <ThemeProvider>
+          <SearchProvider>
+            <BrowserRouter>
+              <ErrorBoundary>
+                <ProfileProvider>
+                  <ProfileScopedToastProvider>
                     <AppNotifications />
                     <AppQueryInvalidation />
                     <Routes>
@@ -61,13 +62,25 @@ export function App() {
                       <Route path="/game/:id" element={<GameDetailPage />} />
                       <Route path="*" element={<Navigate to="/play" replace />} />
                     </Routes>
-                  </ProfileProvider>
-                </ErrorBoundary>
-              </BrowserRouter>
-            </SearchProvider>
-          </ThemeProvider>
-        </ToastProvider>
+                  </ProfileScopedToastProvider>
+                </ProfileProvider>
+              </ErrorBoundary>
+            </BrowserRouter>
+          </SearchProvider>
+        </ThemeProvider>
       </SSEProvider>
     </QueryClientProvider>
+  )
+}
+
+function ProfileScopedToastProvider({ children }: { children: ReactNode }) {
+  const { currentProfile } = useProfiles()
+  if (!currentProfile) {
+    throw new Error('Notification history requires an active profile')
+  }
+  return (
+    <ToastProvider key={currentProfile.id} historyScope={currentProfile.id}>
+      {children}
+    </ToastProvider>
   )
 }

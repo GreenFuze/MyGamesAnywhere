@@ -940,7 +940,10 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 	tokenMu.Unlock()
 
 	if !hasToken {
-		return map[string]any{"games": []any{}}, nil
+		return nil, &Error{
+			Code:    "AUTH_REQUIRED",
+			Message: "Xbox sign-in is required before the library can be scanned",
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

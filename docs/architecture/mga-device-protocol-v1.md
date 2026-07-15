@@ -21,16 +21,22 @@ The current development implementation includes:
   DPAPI key storage
 - heartbeat presence, endpoint/user metadata, explicit profile grants, and the
   ready/busy/offline/update-required/error UI mapping
-- allow-listed `endpoint.ping`, `endpoint.refresh`, and `endpoint.stop` commands with persisted
+- allow-listed endpoint, `inventory.refresh`, `game.install_archive`,
+  `game.uninstall`, and `game.launch` commands with persisted
   lifecycle/results, endpoint-bound result validation, and capability checks
+- bounded storage/runtime inventory reported at connection, every 15 minutes,
+  and through the manual command using the same client collector
+- transactional ZIP staging/extraction, separate Download/Install progress,
+  schema-2 launch discovery, installed-state persistence, candidate-constrained
+  native launch, and manifest-guarded schema-1/schema-2 uninstall
 - per-user Windows build/installer scripts, `mga://pair`, signed short-lived
   `mga://start` browser association, login startup, diagnostics, single-instance
   enforcement, and local unpairing
 
-This is the secure control-plane vertical slice. Mutating game, emulator,
-inventory, elevation-helper, durable idempotency, cancellation, and client
-self-update command families remain intentionally unimplemented until their
-typed payloads and platform behavior are designed.
+This is the secure control-plane plus first mutating-game vertical slice.
+Game stop, non-ZIP installers, emulator management, elevation helpers,
+durable reconnect idempotency, explicit cancellation messages, and client
+self-update remain intentionally deferred.
 
 ## Goals
 
@@ -195,6 +201,12 @@ context, local capability, and idempotency record. It then returns `accepted` or
 a typed rejection before performing work. Progress messages are monotonic and
 terminal results are durable enough to be replayed after reconnect.
 
+`command.progress` retains the optional overall `percent` field and may also
+carry `stage` plus `stage_percent`. Stage percent is independently validated
+from 0 through 100 and requires a non-empty stage. Archive installation uses
+`download` and `install`; clients derive both values from actual transfer and
+filesystem work rather than UI simulation.
+
 An endpoint that is offline causes an interactive request to fail immediately.
 The server may record that failed attempt for audit purposes, but it does not
 dispatch it later. Scheduled/offline queues require a future protocol decision.
@@ -208,9 +220,9 @@ reserves these typed families:
 |---|---|---|
 | Endpoint | refresh capabilities, collect diagnostics | `View` or `Manage`, depending on sensitivity |
 | Client process | stop the current per-user agent | `Manage` |
-| Inventory | scan, refresh, validate local availability | `Manage` |
-| Game | launch, stop | `Play` |
-| Game management | install, uninstall, repair | `Manage` |
+| Inventory | `inventory.refresh`; bounded storage/runtime report | `Manage` |
+| Game | `game.launch` implemented; stop reserved | `Play` |
+| Game management | ZIP archive install/uninstall implemented; repair and other formats reserved | `Manage` |
 | Emulator | install, uninstall, configure, validate | `Manage` |
 | Client | check update, apply update, restart | `Owner` |
 
@@ -267,8 +279,9 @@ sensitive.
 
 ## Deferred decisions
 
-1. Exact schemas and local safety rules for game install/uninstall/repair,
-   launch/stop, inventory, and emulator commands.
+1. Exact schemas and local safety rules for repair, game stop, launch
+   arguments/working-directory overrides, non-ZIP installers, storefront
+   delegation, and emulator commands.
 2. Durable client idempotency retention and reconnect replay for mutating
    commands.
 3. Cancellation and rollback semantics for each mutating command.
@@ -290,6 +303,17 @@ password or PIN during profile selection, before the web interface opens.
 The trusted-LAN credential policy is intentionally simple: passwords accept any
 four or more characters, while PINs accept four or more digits with no maximum
 length or additional composition rules.
+
+Migration 14 adds the additive `device_inventories` snapshot table. See
+[ADR-0005](0005-device-inventory-and-game-availability.md) for its bounded
+schema, automatic/manual shared collector, and compatibility behavior.
+
+Migration 15 adds command progress columns and `device_game_installations`.
+Migration 16 additively adds command stage/stage-percent fields and per-install
+launch target/candidate fields. Existing migration-15 rows remain valid with
+empty launch metadata. New directories carry manifest schema version 2;
+schema-1 directories remain uninstallable but require reinstall before launch.
+See [ADR-0006](0006-managed-archive-installation.md).
 
 The new client has no legacy installation state. Its initial persisted JSON is
 explicitly schema version 1; unknown future versions fail fast. No existing MGA

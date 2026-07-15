@@ -75,7 +75,7 @@ export class LibraryFilter {
   constructor(private readonly games: GameDetailResponse[]) {}
 
   /** Apply all filters and sort, returning the visible subset. */
-  apply(state: FilterState): GameDetailResponse[] {
+  apply(state: FilterState, sort = true): GameDetailResponse[] {
     const filtered = this.games.filter((g) => {
       // Search: substring match on title
       if (state.search) {
@@ -132,7 +132,7 @@ export class LibraryFilter {
       return true
     })
 
-    return this.sort(filtered, state.sortBy, state.sortDir)
+    return sort ? this.sort(filtered, state.sortBy, state.sortDir) : filtered
   }
 
   // -- Facet extraction (from full unfiltered list) -------------------------

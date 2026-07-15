@@ -19,6 +19,7 @@ const (
 	MessageAuthResponse       MessageType = "auth.response"
 	MessageConnectionAccepted MessageType = "connection.accepted"
 	MessageHeartbeat          MessageType = "heartbeat"
+	MessageInventoryReport    MessageType = "inventory.report"
 	MessageCommandRequest     MessageType = "command.request"
 	MessageCommandAccepted    MessageType = "command.accepted"
 	MessageCommandRejected    MessageType = "command.rejected"
@@ -34,6 +35,7 @@ var knownMessageTypes = map[MessageType]struct{}{
 	MessageAuthResponse:       {},
 	MessageConnectionAccepted: {},
 	MessageHeartbeat:          {},
+	MessageInventoryReport:    {},
 	MessageCommandRequest:     {},
 	MessageCommandAccepted:    {},
 	MessageCommandRejected:    {},

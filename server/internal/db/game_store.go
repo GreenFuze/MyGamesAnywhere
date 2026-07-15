@@ -169,8 +169,15 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 		if err != nil {
 			return fmt.Errorf("apply manual review for %s: %w", persistedID, err)
 		}
-		// Clear old matches for this source game.
-		if _, err := tx.ExecContext(ctx, `DELETE FROM metadata_resolver_matches WHERE source_game_id=?`, persistedID); err != nil {
+		// Complete scans replace all enrichment. Source-only background scans
+		// replace only the source plugin's own match and preserve metadata providers.
+		if batch.PreserveOtherEnrichment {
+			for _, pluginID := range batch.RefreshedEnrichmentPluginIDs {
+				if _, err := tx.ExecContext(ctx, `DELETE FROM metadata_resolver_matches WHERE source_game_id=? AND plugin_id=?`, persistedID, pluginID); err != nil {
+					return fmt.Errorf("delete matches for %s/%s: %w", persistedID, pluginID, err)
+				}
+			}
+		} else if _, err := tx.ExecContext(ctx, `DELETE FROM metadata_resolver_matches WHERE source_game_id=?`, persistedID); err != nil {
 			return fmt.Errorf("delete matches for %s: %w", persistedID, err)
 		}
 		for _, m := range processedMatches {
@@ -196,7 +203,13 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 		if persistedID == "" || !seenIDs[persistedID] {
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM source_game_media WHERE source_game_id=?`, persistedID); err != nil {
+		if batch.PreserveOtherEnrichment {
+			for _, pluginID := range batch.RefreshedEnrichmentPluginIDs {
+				if _, err := tx.ExecContext(ctx, `DELETE FROM source_game_media WHERE source_game_id=? AND source=?`, persistedID, pluginID); err != nil {
+					return fmt.Errorf("delete media links for %s/%s: %w", persistedID, pluginID, err)
+				}
+			}
+		} else if _, err := tx.ExecContext(ctx, `DELETE FROM source_game_media WHERE source_game_id=?`, persistedID); err != nil {
 			return fmt.Errorf("delete media links for %s: %w", persistedID, err)
 		}
 		for _, ref := range refs {
@@ -774,8 +787,26 @@ func (s *gameStore) canonicalGameVisibleInContext(ctx context.Context, canonical
 // GetVisibleCanonicalIDs returns canonical IDs that have at least one found source game,
 // ordered by canonical_id. limit <= 0 means no upper bound (SQLite: LIMIT -1).
 func (s *gameStore) GetVisibleCanonicalIDs(ctx context.Context, offset, limit int) ([]string, error) {
+	return s.GetVisibleCanonicalIDsSorted(ctx, offset, limit, core.CanonicalGameListOrder{
+		Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending,
+	})
+}
+
+// GetVisibleCanonicalIDsSorted applies a validated, deterministic order before
+// LIMIT/OFFSET so adding a page cannot reshuffle games already shown by the UI.
+func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, limit int, order core.CanonicalGameListOrder) ([]string, error) {
 	if offset < 0 {
 		offset = 0
+	}
+	sortExpression, err := canonicalGameSortExpression(ctx, order.Field)
+	if err != nil {
+		return nil, err
+	}
+	direction := "ASC"
+	if order.Direction == core.SortDirectionDescending {
+		direction = "DESC"
+	} else if order.Direction != "" && order.Direction != core.SortDirectionAscending {
+		return nil, fmt.Errorf("unsupported canonical game sort direction %q", order.Direction)
 	}
 	db := s.db.GetDB()
 	q := `
@@ -785,7 +816,7 @@ func (s *gameStore) GetVisibleCanonicalIDs(ctx context.Context, offset, limit in
 			WHERE sg.id = l.source_game_id AND ` + visibleSourceGameWhere(ctx, "sg") + `
 		)
 		GROUP BY canonical_id
-		ORDER BY canonical_id`
+		ORDER BY ` + sortExpression + ` ` + direction + `, canonical_id ` + direction
 	var args []any
 	switch {
 	case limit > 0:
@@ -811,6 +842,42 @@ func (s *gameStore) GetVisibleCanonicalIDs(ctx context.Context, offset, limit in
 		ids = append(ids, cid)
 	}
 	return ids, rows.Err()
+}
+
+func canonicalGameSortExpression(ctx context.Context, field core.CanonicalGameSort) (string, error) {
+	resolverValue := func(column, predicate string) string {
+		return `(SELECT m.` + column + `
+			FROM canonical_source_games_link sort_link
+			JOIN source_games sort_sg ON sort_sg.id = sort_link.source_game_id
+			JOIN metadata_resolver_matches m ON m.source_game_id = sort_sg.id
+			WHERE sort_link.canonical_id = l.canonical_id
+			  AND ` + visibleSourceGameWhere(ctx, "sort_sg") + `
+			  AND m.outvoted = 0 AND ` + predicate + `
+			ORDER BY m.manual_selection DESC, sort_sg.id, m.id
+			LIMIT 1)`
+	}
+	sourceValue := func(column string) string {
+		return `(SELECT sort_sg.` + column + `
+			FROM canonical_source_games_link sort_link
+			JOIN source_games sort_sg ON sort_sg.id = sort_link.source_game_id
+			WHERE sort_link.canonical_id = l.canonical_id
+			  AND ` + visibleSourceGameWhere(ctx, "sort_sg") + `
+			ORDER BY sort_sg.id
+			LIMIT 1)`
+	}
+
+	switch field {
+	case "", core.CanonicalGameSortTitle:
+		return `LOWER(COALESCE(NULLIF(` + resolverValue("title", "TRIM(m.title) != ''") + `, ''), ` + sourceValue("raw_title") + `, ''))`, nil
+	case core.CanonicalGameSortReleaseDate:
+		return `COALESCE(NULLIF(` + resolverValue("release_date", "TRIM(m.release_date) != ''") + `, ''), '')`, nil
+	case core.CanonicalGameSortPlatform:
+		return `LOWER(COALESCE(NULLIF(` + resolverValue("platform", "TRIM(m.platform) != ''") + `, ''), ` + sourceValue("platform") + `, ''))`, nil
+	case core.CanonicalGameSortRating:
+		return `COALESCE(` + resolverValue("rating", "m.rating > 0") + `, 0)`, nil
+	default:
+		return "", fmt.Errorf("unsupported canonical game sort field %q", field)
+	}
 }
 
 func (s *gameStore) canonicalGamesForIDs(ctx context.Context, ids []string) ([]*core.CanonicalGame, error) {
@@ -3349,18 +3416,15 @@ func isActiveUndetectedSourceGame(sg *core.SourceGame) bool {
 	return len(reviewReasonsForCandidate(sg.Platform, sg.GroupKind, len(sg.ResolverMatches), resolverTitleCount)) > 0
 }
 
-func eligibleForProviderTitleCanonicalGrouping(sourceKind core.GameKind, matchKind, parentGameID string) bool {
-	if strings.TrimSpace(parentGameID) != "" {
-		return false
+func automaticEditionCompatibilityKey(platform core.Platform, kind core.GameKind) string {
+	platformValue := strings.TrimSpace(string(platform))
+	kindValue := strings.TrimSpace(string(kind))
+	// Unknown evidence is deliberately not an automatic merge key. A player can
+	// still confirm the relationship with a manual canonical merge pin.
+	if platformValue == "" || platform == core.PlatformUnknown || kindValue == "" || kind == core.GameKindUnknown {
+		return ""
 	}
-	if sourceKind != "" && sourceKind != core.GameKindUnknown && sourceKind != core.GameKindBaseGame {
-		return false
-	}
-	matchKind = strings.TrimSpace(matchKind)
-	if matchKind != "" && matchKind != string(core.GameKindUnknown) && matchKind != string(core.GameKindBaseGame) {
-		return false
-	}
-	return true
+	return platformValue + "|" + kindValue
 }
 
 func resolveManualReviewPersistence(sg *core.SourceGame, existing existingSourceGame) (core.ManualReviewState, string, error) {
@@ -3746,21 +3810,24 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 	}
 
 	// Load all active source games.
-	rows, err := tx.QueryContext(ctx, `SELECT id, kind FROM source_games WHERE `+visibleSourceGameWhere(ctx, "source_games"))
+	rows, err := tx.QueryContext(ctx, `SELECT id, platform, kind FROM source_games WHERE `+visibleSourceGameWhere(ctx, "source_games"))
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
 	var allIDs []string
+	sourcePlatformByID := make(map[string]core.Platform)
 	sourceKindByID := make(map[string]core.GameKind)
 	for rows.Next() {
 		var id string
+		var platform string
 		var kind string
-		if err := rows.Scan(&id, &kind); err != nil {
+		if err := rows.Scan(&id, &platform, &kind); err != nil {
 			return err
 		}
 		allIDs = append(allIDs, id)
+		sourcePlatformByID[id] = core.Platform(platform)
 		sourceKindByID[id] = core.GameKind(kind)
 	}
 	if err := rows.Err(); err != nil {
@@ -3817,7 +3884,11 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 		if strings.TrimSpace(pluginID) == "" || strings.TrimSpace(extID) == "" {
 			continue
 		}
-		key := pluginID + "|" + extID
+		compatibilityKey := automaticEditionCompatibilityKey(sourcePlatformByID[sgID], sourceKindByID[sgID])
+		if compatibilityKey == "" {
+			continue
+		}
+		key := pluginID + "|" + extID + "|" + compatibilityKey
 		extGroups[key] = append(extGroups[key], sgID)
 	}
 	if err := matchRows.Err(); err != nil {
@@ -3826,53 +3897,6 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 
 	// Union source games that share external IDs.
 	for _, members := range extGroups {
-		if len(members) < 2 {
-			continue
-		}
-		for i := 1; i < len(members); i++ {
-			union(members[0], members[i])
-		}
-	}
-
-	titleRows, err := tx.QueryContext(ctx, `SELECT source_game_id, title, COALESCE(metadata_json, '')
-		FROM metadata_resolver_matches
-		WHERE outvoted=0 AND IFNULL(title,'') != ''`)
-	if err != nil {
-		return err
-	}
-	defer titleRows.Close()
-
-	titleGroups := map[string][]string{}
-	for titleRows.Next() {
-		var sgID, title, metadataJSON string
-		if err := titleRows.Scan(&sgID, &title, &metadataJSON); err != nil {
-			return err
-		}
-		sourceKind, ok := sourceKindByID[sgID]
-		if !ok {
-			continue
-		}
-		if _, pinned := pinsBySource[sgID]; pinned {
-			continue
-		}
-		match := core.ResolverMatch{}
-		if strings.TrimSpace(metadataJSON) != "" {
-			parseMetadataJSON(metadataJSON, &match)
-		}
-		if !eligibleForProviderTitleCanonicalGrouping(sourceKind, match.Kind, match.ParentGameID) {
-			continue
-		}
-		key := titlematch.NormalizeLookupTitle(title)
-		if key == "" {
-			continue
-		}
-		titleGroups[key] = append(titleGroups[key], sgID)
-	}
-	if err := titleRows.Err(); err != nil {
-		return err
-	}
-
-	for _, members := range titleGroups {
 		if len(members) < 2 {
 			continue
 		}
@@ -3947,6 +3971,9 @@ func (s *gameStore) recomputeCanonicalGroups(ctx context.Context, tx *sql.Tx) er
 				return err
 			}
 		}
+	}
+	if err := (&identityReconciler{logger: s.logger}).reconcile(ctx, tx); err != nil {
+		return fmt.Errorf("reconcile version-aware game identity: %w", err)
 	}
 
 	s.logger.Info("recomputed canonical groups", "source_games", len(allIDs), "canonical_games", len(groups))
@@ -4374,6 +4401,11 @@ func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonica
 		return nil, err
 	}
 	cg.AchievementSummary = summary
+	identity, err := loadGameIdentity(ctx, db, canonicalID)
+	if err != nil {
+		return nil, err
+	}
+	cg.Identity = identity
 
 	return cg, nil
 }

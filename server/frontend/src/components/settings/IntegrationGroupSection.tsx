@@ -101,7 +101,7 @@ export function IntegrationGroupSection({
   onStartAuth,
   authPendingIds,
 }: IntegrationGroupSectionProps) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(capability === "source");
 
   const meta = CAPABILITY_META[capability] ?? {
     label: capability,
@@ -127,9 +127,9 @@ export function IntegrationGroupSection({
   };
 
   return (
-    <div className="border border-mga-border rounded-mga overflow-hidden">
+    <div className="rounded-mga border border-mga-border">
       {/* Accordion header */}
-      <div className="flex items-center bg-mga-elevated">
+      <div className="flex items-center rounded-mga bg-mga-elevated">
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}
@@ -160,7 +160,7 @@ export function IntegrationGroupSection({
               disabled={scanControlsDisabled}
               className="text-xs"
             >
-              {sourceScanActive ? "Rescanning sources..." : "Rescan All"}
+              {sourceScanActive ? "Scanning…" : "Rescan all"}
             </Button>
           )}
           {capability === "metadata" && onRefreshMetadata && (
@@ -171,9 +171,7 @@ export function IntegrationGroupSection({
               disabled={scanControlsDisabled}
               className="text-xs"
             >
-              {metadataRefreshActive
-                ? "Refreshing metadata..."
-                : "Refresh Metadata"}
+              {metadataRefreshActive ? "Refreshing…" : "Refresh all"}
             </Button>
           )}
           {capability === "save_sync" && saveSyncHeaderControls}

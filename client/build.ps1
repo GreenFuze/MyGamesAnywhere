@@ -22,12 +22,16 @@ if (-not $Version -or -not $Commit -or -not $BuildDate) {
 $bin = Join-Path $root "bin"
 New-Item -ItemType Directory -Force -Path $bin | Out-Null
 $output = Join-Path $bin "mga-client.exe"
+$agentOutput = Join-Path $bin "mga-client-agent.exe"
 $ldflags = "-s -w -X github.com/GreenFuze/MyGamesAnywhere/client/internal/buildinfo.Version=$Version -X github.com/GreenFuze/MyGamesAnywhere/client/internal/buildinfo.Commit=$Commit -X github.com/GreenFuze/MyGamesAnywhere/client/internal/buildinfo.BuildDate=$BuildDate"
+$agentLdflags = "-H=windowsgui $ldflags"
 
 Push-Location $root
 try {
     go build -trimpath -ldflags $ldflags -o $output ./cmd/mga-client
     if ($LASTEXITCODE -ne 0) { throw "MGA Client build failed." }
+    go build -trimpath -ldflags $agentLdflags -o $agentOutput ./cmd/mga-client
+    if ($LASTEXITCODE -ne 0) { throw "MGA Client agent build failed." }
 } finally {
     Pop-Location
 }

@@ -246,29 +246,65 @@ func TestStableCanonicalIDSurvivesSplit(t *testing.T) {
 	}
 }
 
-func TestCanonicalSourcePinSplitOverridesAutomaticTitleGrouping(t *testing.T) {
+func TestConservativeIdentityDoesNotMergeByTitleAlone(t *testing.T) {
 	baseCtx := context.Background()
 	ctx := core.WithProfile(baseCtx, &core.Profile{ID: "profile-1"})
 	db, store := newTestGameStore(t)
+	insertTestProfile(t, db, "profile-1", core.ProfileRoleAdminPlayer)
 
 	persistBatch(t, ctx, store, makeTestBatch("integration-1", "scan:source-a", "source-a", "Killer Instinct", "match-snes"))
 	persistBatch(t, ctx, store, makeTestBatch("integration-2", "scan:source-b", "source-b", "Killer Instinct", "match-xbox"))
-	oldCanonical := canonicalIDForSource(t, ctx, db, "scan:source-a")
-	if got := canonicalIDForSource(t, ctx, db, "scan:source-b"); got != oldCanonical {
-		t.Fatalf("expected title grouping before split, got %q and %q", oldCanonical, got)
+	canonicalA := canonicalIDForSource(t, ctx, db, "scan:source-a")
+	canonicalB := canonicalIDForSource(t, ctx, db, "scan:source-b")
+	if canonicalA == canonicalB {
+		t.Fatalf("title-only records were merged into %q", canonicalA)
+	}
+	if titleA, titleB := titleIDForEdition(t, ctx, db, canonicalA), titleIDForEdition(t, ctx, db, canonicalB); titleA == titleB {
+		t.Fatalf("title-only records shared title identity %q without provider evidence", titleA)
+	}
+}
+
+func TestConservativeIdentityDoesNotMergeSharedProviderIDAcrossPlatforms(t *testing.T) {
+	ctx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-1"})
+	db, store := newTestGameStore(t)
+	insertTestProfile(t, db, "profile-1", core.ProfileRoleAdminPlayer)
+
+	windows := makeTestBatch("integration-1", "scan:windows", "windows", "Double Dragon", "shared-provider-id")
+	console := makeTestBatch("integration-2", "scan:console", "console", "Double Dragon", "shared-provider-id")
+	console.SourceGames[0].Platform = core.PlatformNES
+	console.ResolverMatches["scan:console"][0].Platform = string(core.PlatformNES)
+	persistBatch(t, ctx, store, windows)
+	persistBatch(t, ctx, store, console)
+
+	left, right := canonicalIDForSource(t, ctx, db, "scan:windows"), canonicalIDForSource(t, ctx, db, "scan:console")
+	if left == right {
+		t.Fatalf("cross-platform records were merged into edition %q", left)
+	}
+	if leftTitle, rightTitle := titleIDForEdition(t, ctx, db, left), titleIDForEdition(t, ctx, db, right); leftTitle != rightTitle {
+		t.Fatalf("provider-confirmed releases did not share a title: %q != %q", leftTitle, rightTitle)
+	}
+}
+
+func TestConservativeIdentitySplitsTitleWhenProviderEvidenceConflicts(t *testing.T) {
+	ctx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-1"})
+	db, store := newTestGameStore(t)
+	insertTestProfile(t, db, "profile-1", core.ProfileRoleAdminPlayer)
+
+	persistBatch(t, ctx, store, makeTestBatch("integration-1", "scan:source-a", "source-a", "Killer Instinct", "shared-id"))
+	persistBatch(t, ctx, store, makeTestBatch("integration-2", "scan:source-b", "source-b", "Killer Instinct", "shared-id"))
+	sharedEdition := canonicalIDForSource(t, ctx, db, "scan:source-a")
+	if got := canonicalIDForSource(t, ctx, db, "scan:source-b"); got != sharedEdition {
+		t.Fatalf("initial editions differ: %q != %q", sharedEdition, got)
 	}
 
-	result, err := store.SplitSourceGameCanonical(ctx, oldCanonical, "scan:source-b")
-	if err != nil {
-		t.Fatalf("SplitSourceGameCanonical: %v", err)
+	persistBatch(t, ctx, store, makeTestBatch("integration-2", "scan:source-b", "source-b", "Killer Instinct", "different-id"))
+	left := canonicalIDForSource(t, ctx, db, "scan:source-a")
+	right := canonicalIDForSource(t, ctx, db, "scan:source-b")
+	if left == right {
+		t.Fatalf("conflicting provider evidence remained in edition %q", left)
 	}
-	if result.CanonicalGameID == oldCanonical {
-		t.Fatalf("split canonical id = %q, want different from old %q", result.CanonicalGameID, oldCanonical)
-	}
-
-	persistBatch(t, ctx, store, makeTestBatch("integration-2", "scan:source-b", "source-b", "Killer Instinct", "match-xbox"))
-	if got := canonicalIDForSource(t, ctx, db, "scan:source-b"); got != result.CanonicalGameID {
-		t.Fatalf("split pin did not survive refresh, canonical = %q, want %q", got, result.CanonicalGameID)
+	if leftTitle, rightTitle := titleIDForEdition(t, ctx, db, left), titleIDForEdition(t, ctx, db, right); leftTitle == rightTitle {
+		t.Fatalf("conflicting provider evidence remained in title %q", leftTitle)
 	}
 }
 
@@ -1973,6 +2009,55 @@ func TestUndetectedCandidatesAreHiddenFromLibraryVisibilityAndBecomeVisibleWhenM
 	}
 }
 
+func TestVisibleCanonicalIDsSortedBeforePagination(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+	games := []*core.SourceGame{
+		{
+			ID: "scan:zulu", IntegrationID: "integration-1", PluginID: "game-source-steam",
+			ExternalID: "zulu", RawTitle: "Zulu", Platform: core.PlatformWindowsPC,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found",
+		},
+		{
+			ID: "scan:alpha", IntegrationID: "integration-1", PluginID: "game-source-steam",
+			ExternalID: "alpha", RawTitle: "Alpha", Platform: core.PlatformWindowsPC,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found",
+		},
+	}
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames:   games,
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"scan:zulu":  {{PluginID: "metadata-igdb", ExternalID: "zulu", Title: "Zulu", Rating: 90}},
+			"scan:alpha": {{PluginID: "metadata-igdb", ExternalID: "alpha", Title: "Alpha", Rating: 20}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	alphaID := canonicalIDForSource(t, ctx, db, "scan:alpha")
+	zuluID := canonicalIDForSource(t, ctx, db, "scan:zulu")
+	titlePage, err := store.GetVisibleCanonicalIDsSorted(ctx, 0, 1, core.CanonicalGameListOrder{
+		Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(titlePage) != 1 || titlePage[0] != alphaID {
+		t.Fatalf("title page = %v, want [%s]", titlePage, alphaID)
+	}
+	ratingPage, err := store.GetVisibleCanonicalIDsSorted(ctx, 0, 2, core.CanonicalGameListOrder{
+		Field: core.CanonicalGameSortRating, Direction: core.SortDirectionDescending,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ratingPage) != 2 || ratingPage[0] != zuluID || ratingPage[1] != alphaID {
+		t.Fatalf("rating page = %v, want [%s %s]", ratingPage, zuluID, alphaID)
+	}
+}
+
 func TestGetManualReviewCandidateReturnsDirectSourceDetailEvenWhenNotQueued(t *testing.T) {
 	ctx := context.Background()
 	_, store := newTestGameStore(t)
@@ -2486,6 +2571,99 @@ func newTestGameStore(t *testing.T) (*sqliteDatabase, *gameStore) {
 	return newTestGameStoreWithLogger(t, testLogger{})
 }
 
+func TestPersistSourceOnlyScanPreservesOtherProviderEnrichment(t *testing.T) {
+	database, store := newTestGameStore(t)
+	ctx := context.Background()
+	sourceGame := &core.SourceGame{
+		ID:            "source-1",
+		IntegrationID: "integration-1",
+		PluginID:      "game-source-xbox",
+		ExternalID:    "xbox-1",
+		RawTitle:      "Xbox Game",
+		Platform:      core.PlatformXbox360,
+		Kind:          core.GameKindBaseGame,
+		GroupKind:     core.GroupKindSelfContained,
+		Status:        "found",
+	}
+	initial := &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames:   []*core.SourceGame{sourceGame},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"source-1": {
+				{PluginID: "game-source-xbox", ExternalID: "xbox-1", Title: "Xbox Game", IsGamePass: true},
+				{PluginID: "metadata-igdb", ExternalID: "igdb-1", Title: "IGDB Title"},
+			},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			"source-1": {
+				{Type: core.MediaTypeCover, URL: "https://xbox.example/old.jpg", Source: "game-source-xbox"},
+				{Type: core.MediaTypeCover, URL: "https://igdb.example/cover.jpg", Source: "metadata-igdb"},
+			},
+		},
+	}
+	if err := store.PersistScanResults(ctx, initial); err != nil {
+		t.Fatalf("initial PersistScanResults: %v", err)
+	}
+
+	sourceOnly := &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames:   []*core.SourceGame{sourceGame},
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"source-1": {
+				{PluginID: "game-source-xbox", ExternalID: "xbox-1", Title: "Xbox Game Updated", IsGamePass: false},
+			},
+		},
+		MediaItems: map[string][]core.MediaRef{
+			"source-1": {
+				{Type: core.MediaTypeCover, URL: "https://xbox.example/new.jpg", Source: "game-source-xbox"},
+			},
+		},
+		PreserveOtherEnrichment:      true,
+		RefreshedEnrichmentPluginIDs: []string{"game-source-xbox"},
+	}
+	if err := store.PersistScanResults(ctx, sourceOnly); err != nil {
+		t.Fatalf("source-only PersistScanResults: %v", err)
+	}
+
+	rows, err := database.GetDB().QueryContext(ctx, `SELECT plugin_id, title FROM metadata_resolver_matches ORDER BY plugin_id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	matches := map[string]string{}
+	for rows.Next() {
+		var pluginID, title string
+		if err := rows.Scan(&pluginID, &title); err != nil {
+			t.Fatal(err)
+		}
+		matches[pluginID] = title
+	}
+	if matches["game-source-xbox"] != "Xbox Game Updated" || matches["metadata-igdb"] != "IGDB Title" {
+		t.Fatalf("resolver matches after source-only scan = %+v", matches)
+	}
+
+	mediaRows, err := database.GetDB().QueryContext(ctx, `
+		SELECT l.source, a.url
+		FROM source_game_media l
+		JOIN media_assets a ON a.id = l.media_asset_id
+		ORDER BY l.source`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mediaRows.Close()
+	media := map[string]string{}
+	for mediaRows.Next() {
+		var source, url string
+		if err := mediaRows.Scan(&source, &url); err != nil {
+			t.Fatal(err)
+		}
+		media[source] = url
+	}
+	if media["game-source-xbox"] != "https://xbox.example/new.jpg" || media["metadata-igdb"] != "https://igdb.example/cover.jpg" {
+		t.Fatalf("media after source-only scan = %+v", media)
+	}
+}
+
 func newTestGameStoreWithLogger(t *testing.T, logger core.Logger) (*sqliteDatabase, *gameStore) {
 	t.Helper()
 
@@ -2642,7 +2820,7 @@ func insertTestProfile(t *testing.T, db *sqliteDatabase, id string, role core.Pr
 	}
 }
 
-func TestCanonicalGroupingMergesProviderBackedCleanTitleVersions(t *testing.T) {
+func TestCanonicalGroupingDoesNotMergeDifferentProviderIDsByCleanTitle(t *testing.T) {
 	ctx := context.Background()
 	_, store := newTestGameStore(t)
 
@@ -2691,17 +2869,13 @@ func TestCanonicalGroupingMergesProviderBackedCleanTitleVersions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCanonicalGames: %v", err)
 	}
-	if len(games) != 1 {
-		t.Fatalf("canonical games = %d, want 1", len(games))
+	if len(games) != 2 {
+		t.Fatalf("canonical games = %d, want 2", len(games))
 	}
-	if len(games[0].SourceGames) != 2 {
-		t.Fatalf("source games = %d, want 2", len(games[0].SourceGames))
-	}
-	if games[0].Title != "Altered Beast" {
-		t.Fatalf("canonical title = %q, want Altered Beast", games[0].Title)
-	}
-	if games[0].SourceGames[0].RawTitle == games[0].Title && games[0].SourceGames[0].ID == "source-arcade" {
-		t.Fatalf("source raw title was unexpectedly cleaned: %+v", games[0].SourceGames[0])
+	for _, game := range games {
+		if len(game.SourceGames) != 1 {
+			t.Fatalf("source games for %q = %d, want 1", game.Title, len(game.SourceGames))
+		}
 	}
 }
 
@@ -3160,6 +3334,15 @@ func canonicalIDForSource(t *testing.T, ctx context.Context, db *sqliteDatabase,
 		t.Fatal(err)
 	}
 	return canonicalID
+}
+
+func titleIDForEdition(t *testing.T, ctx context.Context, db *sqliteDatabase, editionID string) string {
+	t.Helper()
+	var titleID string
+	if err := db.GetDB().QueryRowContext(ctx, `SELECT title_id FROM game_editions WHERE id=?`, editionID).Scan(&titleID); err != nil {
+		t.Fatal(err)
+	}
+	return titleID
 }
 
 func containsString(values []string, want string) bool {

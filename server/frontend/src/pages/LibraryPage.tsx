@@ -11,6 +11,8 @@ import { LibraryToolbar } from '@/components/library/LibraryToolbar'
 import { FilterBar } from '@/components/library/FilterBar'
 import { GameGrid } from '@/components/library/GameGrid'
 import { GameListView } from '@/components/library/GameListView'
+import { GroupedGameView } from '@/components/library/GroupedGameView'
+import { PlayRouteShelves } from '@/components/library/PlayRouteShelves'
 import { SectionPickerDialog } from '@/components/library/SectionPickerDialog'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
@@ -45,27 +47,25 @@ import type { GameDetailResponse, LibraryPrefs } from '@/api/client'
 const SCOPES: Record<CollectionScope, { title: string; subtitle: string; emptyMessage: string }> = {
   library: {
     title: 'Library',
-    subtitle: 'All games in your collection',
-    emptyMessage: 'No games in the library yet. Run a scan from the server.',
+    subtitle: 'Your games from every connection',
+    emptyMessage: 'No games yet. Add a connection to get started.',
   },
   play: {
     title: 'Play',
-    subtitle: 'Browser-ready and xCloud-ready games',
-    emptyMessage: 'No actionable games found. Add sources and run a scan.',
+    subtitle: 'Games you can play now',
+    emptyMessage: 'No games are ready to play yet.',
   },
 }
 
 const LIBRARY_VIEW_OPTIONS: Array<{ value: LibraryPrefs['viewMode']; label: string }> = [
-  { value: 'shelf', label: 'Shelf' },
-  { value: 'grid', label: 'Grid' },
-  { value: 'list', label: 'List' },
-  { value: 'timeline', label: 'Timeline' },
+  { value: 'shelf', label: 'Shelves' },
+  { value: 'grid', label: 'Covers' },
+  { value: 'list', label: 'Details' },
 ]
 
 const PLAY_VIEW_OPTIONS: Array<{ value: LibraryPrefs['viewMode']; label: string }> = [
-  { value: 'shelf', label: 'Shelf' },
-  { value: 'grid', label: 'Grid' },
-  { value: 'timeline', label: 'Timeline' },
+  { value: 'shelf', label: 'Shelves' },
+  { value: 'grid', label: 'Covers' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -210,6 +210,15 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
   const loadMoreRequestedRef = useRef(false)
   const {
+    prefs,
+    setViewMode,
+    setGroupBy,
+    setSortBy,
+    setSortDir,
+    setSections,
+    setExpandedSectionId,
+  } = useLibraryPrefs(scope)
+  const {
     data: allGames = [],
     totalCount,
     loadedCount,
@@ -219,16 +228,8 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     isPending,
     isError,
     error,
-  } = useLibraryData()
+  } = useLibraryData(prefs.sortBy, prefs.sortDir)
   const { recentPlayed, removeRecentPlayed } = useRecentPlayed()
-  const {
-    prefs,
-    setViewMode,
-    setSortBy,
-    setSortDir,
-    setSections,
-    setExpandedSectionId,
-  } = useLibraryPrefs(scope)
   const effectiveViewMode = scope === 'play' && prefs.viewMode === 'list' ? 'shelf' : prefs.viewMode
 
   // Local filter state (not persisted — session only)
@@ -252,13 +253,16 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     () => [...computedSections, ...sanitizedSections],
     [computedSections, sanitizedSections],
   )
+  const playCustomSections = useMemo<RuntimeCollectionSectionConfig[]>(
+    () => sanitizedSections.filter((section) => section.kind !== 'all'),
+    [sanitizedSections],
+  )
   const focusedSection = useMemo<RuntimeCollectionSectionConfig | null>(() => {
     if (!sectionId) return null
     return runtimeSections.find((section) => section.id === sectionId) ?? null
   }, [runtimeSections, sectionId])
+  const effectiveGroupBy = focusedSection ? 'none' : prefs.groupBy
   const focusState = useMemo(() => readFocusRouteState(location.state), [location.state])
-  const favoritesAvailableInScope = computedSections.length > 0
-
   const filteredScopeGames = useMemo(() => {
     if (!focusedSection) return scopeGames
     return filterGamesBySection(scopeGames, focusedSection)
@@ -274,7 +278,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         search: searchQuery,
         sortBy: prefs.sortBy,
         sortDir: prefs.sortDir,
-      }),
+      }, false),
     [filter, filterState, searchQuery, prefs.sortBy, prefs.sortDir],
   )
   const displayedGameIds = useMemo(() => new Set(displayedGames.map((game) => game.id)), [displayedGames])
@@ -359,7 +363,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   }, [filterState])
 
   const scopeMeta = SCOPES[scope]
-  const showLibraryShelfAddButton = scope === 'library' && effectiveViewMode === 'shelf' && !focusedSection
+  const showLibraryShelfAddButton = scope === 'library' && effectiveViewMode === 'shelf' && effectiveGroupBy === 'none' && !focusedSection
   const emptyMessage = focusedSection
     ? 'No games in this section match the current filters.'
     : scopeMeta.emptyMessage
@@ -367,10 +371,14 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   const toolbarTotalCount = canUseRemoteTotal ? Math.max(totalCount, filteredScopeGames.length) : filteredScopeGames.length
   const filterRequiresAllPages = activeFilterCount > 0
   const searchRequiresAllPages = searchQuery.trim().length > 0
+  // Group headings and counts are misleading when they only describe the
+  // current page, so grouped views deliberately finish loading the library.
+  const groupRequiresAllPages = effectiveGroupBy !== 'none'
   const isCompletingSearch = searchRequiresAllPages && hasNextPage
   const isCompletingFilter = !searchRequiresAllPages && filterRequiresAllPages && hasNextPage
-  const isClosedShelfOverview = effectiveViewMode === 'shelf' && !focusedSection
-  const showLoadMoreSentinel = hasNextPage && (!isClosedShelfOverview || searchRequiresAllPages || filterRequiresAllPages)
+  const isCompletingGroups = !searchRequiresAllPages && !filterRequiresAllPages && groupRequiresAllPages && hasNextPage
+  const isClosedShelfOverview = scope === 'library' && effectiveViewMode === 'shelf' && effectiveGroupBy === 'none' && !focusedSection
+  const showLoadMoreSentinel = hasNextPage && (!isClosedShelfOverview || searchRequiresAllPages || filterRequiresAllPages || groupRequiresAllPages)
 
   const recentPlayedGames = useMemo(() => {
     if (scope !== 'play') return []
@@ -539,9 +547,9 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   }, [isFetchingNextPage])
 
   useEffect(() => {
-    if ((!searchRequiresAllPages && !filterRequiresAllPages) || !hasNextPage) return
+    if ((!searchRequiresAllPages && !filterRequiresAllPages && !groupRequiresAllPages) || !hasNextPage) return
     requestNextPage()
-  }, [filterRequiresAllPages, hasNextPage, loadedCount, requestNextPage, searchRequiresAllPages])
+  }, [filterRequiresAllPages, groupRequiresAllPages, hasNextPage, loadedCount, requestNextPage, searchRequiresAllPages])
 
   useEffect(() => {
     setSelectedGameIds((prev) => {
@@ -623,20 +631,23 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         }
         totalCount={toolbarTotalCount}
         filteredCount={displayedGames.length}
-        isLoading={isPending || isCompletingSearch}
+        isLoading={isPending || isCompletingSearch || isCompletingGroups}
         viewMode={focusedSection ? 'grid' : effectiveViewMode}
         onViewModeChange={setViewMode}
+        groupBy={effectiveGroupBy}
+        onGroupByChange={setGroupBy}
         viewModeOptions={scope === 'library' ? LIBRARY_VIEW_OPTIONS : PLAY_VIEW_OPTIONS}
         sortBy={prefs.sortBy}
         sortDir={prefs.sortDir}
         onSortChange={handleSortChange}
-        addButtonLabel="Add Section"
+        addButtonLabel="Add shelf"
         showAddButton={scope !== 'library' && !focusedSection}
         onAddButtonClick={() => setSectionPickerOpen(true)}
         filterBarOpen={filterBarOpen}
         onFilterBarToggle={() => setFilterBarOpen((v) => !v)}
         activeFilterCount={activeFilterCount}
         showViewToggle={!focusedSection}
+        showGrouping={!focusedSection}
       />
 
       {/* Filter bar (collapsible) */}
@@ -738,6 +749,18 @@ export function CollectionPage({ scope }: CollectionPageProps) {
             cardVariant={scope === 'play' ? 'play' : 'library'}
           />
         </div>
+      ) : effectiveGroupBy !== 'none' ? (
+        <div className="space-y-8">
+          <RecentPlayedShelf games={recentPlayedGames} onRemove={removeRecentPlayed} />
+          <GroupedGameView
+            games={displayedGames}
+            groupBy={effectiveGroupBy}
+            viewMode={effectiveViewMode}
+            scope={scope}
+            selectedIds={selectedGameIds}
+            onToggleSelected={toggleSelectedGame}
+          />
+        </div>
       ) : effectiveViewMode === 'grid' ? (
         <div className="space-y-8">
           <RecentPlayedShelf games={recentPlayedGames} onRemove={removeRecentPlayed} />
@@ -760,17 +783,20 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         </div>
       ) : (
         <div className="space-y-6">
-          {scope === 'play' && favoritesAvailableInScope ? (
+          {scope === 'play' ? (
             <>
-              <CollectionShelf
-                sections={runtimeSections}
-                onOpenSection={openSection}
-                onRemoveSection={handleRemoveSection}
-                games={displayedGames}
-                isLoading={isPending}
-                scope={scope}
-              />
               <RecentPlayedShelf games={recentPlayedGames} onRemove={removeRecentPlayed} />
+              <PlayRouteShelves games={displayedGames} />
+              {playCustomSections.length > 0 ? (
+                <CollectionShelf
+                  sections={playCustomSections}
+                  onOpenSection={openSection}
+                  onRemoveSection={handleRemoveSection}
+                  games={displayedGames}
+                  isLoading={isPending}
+                  scope={scope}
+                />
+              ) : null}
             </>
           ) : (
             <>
@@ -826,6 +852,8 @@ export function CollectionPage({ scope }: CollectionPageProps) {
               ? `Searching all games: ${loadedCount} of ${totalCount} loaded.`
               : filterRequiresAllPages
               ? `Filtering all games: ${loadedCount} of ${totalCount} loaded.`
+              : groupRequiresAllPages
+              ? `Building groups: ${loadedCount} of ${totalCount} loaded.`
               : isFetchingNextPage
               ? 'Loading more games...'
               : `Scroll to load more games. ${loadedCount} of ${totalCount} loaded.`}

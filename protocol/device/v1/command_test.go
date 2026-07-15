@@ -117,6 +117,18 @@ func TestCommandProgressValidate(t *testing.T) {
 	}
 }
 
+func TestCommandProgressRequiresStageForStagePercent(t *testing.T) {
+	percent := uint8(50)
+	progress := CommandProgress{CommandID: "command-1", Sequence: 1, Phase: "downloading", StagePercent: &percent}
+	if err := progress.Validate(); err == nil {
+		t.Fatal("Validate() accepted stage_percent without stage")
+	}
+	progress.Stage = "download"
+	if err := progress.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func TestCommandResultRequiresErrorForFailure(t *testing.T) {
 	t.Parallel()
 

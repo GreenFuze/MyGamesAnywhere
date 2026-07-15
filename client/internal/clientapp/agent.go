@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,29 +21,45 @@ import (
 
 var errStopRequested = errors.New("MGA Client stop requested")
 
+const inventoryRefreshInterval = 15 * time.Minute
+
 type Agent struct {
 	config     clientconfig.Config
 	privateKey ed25519.PrivateKey
 	buildInfo  buildinfo.Info
 	active     atomic.Int32
+	logger     *log.Logger
+	inventory  InventoryCollector
+	installer  ArchiveInstaller
+	launcher   GameLauncher
 }
 
-func NewAgent(config clientconfig.Config, privateKey ed25519.PrivateKey, info buildinfo.Info) (*Agent, error) {
+func NewAgent(config clientconfig.Config, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger) (*Agent, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return nil, errors.New("valid endpoint private key is required")
 	}
-	return &Agent{config: config, privateKey: privateKey, buildInfo: info}, nil
+	if logger == nil {
+		return nil, errors.New("agent logger is required")
+	}
+	installer, err := NewZIPArchiveInstaller(config.ServerURL)
+	if err != nil {
+		return nil, err
+	}
+	return &Agent{config: config, privateKey: privateKey, buildInfo: info, logger: logger, inventory: NewLocalInventoryCollector(), installer: installer, launcher: NewWindowsGameLauncher()}, nil
 }
 
 func (a *Agent) Run(ctx context.Context) error {
 	delay := time.Second
 	for {
+		a.logger.Printf("connecting to %s", a.config.ServerURL)
 		if err := a.runConnection(ctx); errors.Is(err, errStopRequested) {
+			a.logger.Printf("stop requested by MGA Server")
 			return nil
 		} else if err != nil && ctx.Err() == nil {
+			a.logger.Printf("connection failed: %v; retrying in %s", err, delay)
 			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
@@ -111,18 +128,47 @@ func (a *Agent) runConnection(ctx context.Context) error {
 	if err != nil || accepted.Validate() != nil {
 		return errors.New("server returned invalid connection policy")
 	}
+	a.logger.Printf("connected to MGA Server as endpoint %s", a.config.EndpointID)
 	connectedContext, cancel := context.WithCancel(ctx)
 	defer cancel()
-	errorsChannel := make(chan error, 2)
+	errorsChannel := make(chan error, 3)
 	go func() {
 		errorsChannel <- a.heartbeatLoop(connectedContext, writer, time.Duration(accepted.HeartbeatSeconds)*time.Second)
 	}()
 	go func() { errorsChannel <- a.readLoop(connectedContext, connection, writer) }()
+	go func() { errorsChannel <- a.inventoryLoop(connectedContext, writer, inventoryRefreshInterval) }()
 	select {
 	case <-ctx.Done():
 		return nil
 	case err := <-errorsChannel:
 		return err
+	}
+}
+
+func (a *Agent) inventoryLoop(ctx context.Context, writer *deviceWriter, interval time.Duration) error {
+	if a.inventory == nil {
+		return errors.New("device inventory collector is unavailable")
+	}
+	if interval < time.Minute {
+		return errors.New("inventory refresh interval must be at least one minute")
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		inventory, err := a.inventory.Collect(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			a.logger.Printf("device inventory refresh failed: %v", err)
+		} else if err := writer.WriteMessage(ctx, devicev1.MessageInventoryReport, uuid.NewString(), "", inventory); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -191,11 +237,21 @@ func (a *Agent) handleCommand(ctx context.Context, writer *deviceWriter, request
 	if err := writer.WriteMessage(ctx, devicev1.MessageCommandAccepted, uuid.NewString(), correlationID, accepted); err != nil {
 		return err
 	}
-	progress := devicev1.CommandProgress{CommandID: request.CommandID, Sequence: 1, Phase: "executing"}
-	if err := writer.WriteMessage(ctx, devicev1.MessageCommandProgress, uuid.NewString(), correlationID, progress); err != nil {
+	var progressSequence uint64
+	report := func(update CommandProgressUpdate) error {
+		progressSequence++
+		value := update.Percent
+		progress := devicev1.CommandProgress{CommandID: request.CommandID, Sequence: progressSequence, Phase: update.Phase, Message: update.Message, Percent: &value, Stage: update.Stage}
+		if update.Stage != "" {
+			stageValue := update.StagePercent
+			progress.StagePercent = &stageValue
+		}
+		return writer.WriteMessage(ctx, devicev1.MessageCommandProgress, uuid.NewString(), correlationID, progress)
+	}
+	if err := report(CommandProgressUpdate{Phase: "executing", Message: "Starting", Percent: 0}); err != nil {
 		return err
 	}
-	payload, stopAgent, errorCode, commandErr := a.executeEndpointCommand(request.Name)
+	payload, stopAgent, errorCode, commandErr := a.executeEndpointCommand(ctx, request.CommandID, request.Name, request.Payload, report)
 	if commandErr != nil {
 		return a.writeFailedResult(ctx, writer, request.CommandID, correlationID, errorCode, commandErr)
 	}
@@ -213,7 +269,7 @@ func (a *Agent) handleCommand(ctx context.Context, writer *deviceWriter, request
 	return nil
 }
 
-func (a *Agent) executeEndpointCommand(name string) (payload any, stopAgent bool, errorCode string, err error) {
+func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name string, rawPayload json.RawMessage, report CommandProgressReporter) (payload any, stopAgent bool, errorCode string, err error) {
 	switch name {
 	case devicev1.CapabilityEndpointPing:
 		return map[string]any{"pong": true, "time": time.Now().UTC()}, false, "", nil
@@ -225,6 +281,58 @@ func (a *Agent) executeEndpointCommand(name string) (payload any, stopAgent bool
 		return metadata, false, "", nil
 	case devicev1.CapabilityEndpointStop:
 		return map[string]any{"stopping": true}, true, "", nil
+	case devicev1.CapabilityInventoryRefresh:
+		if a.inventory == nil {
+			return nil, false, "inventory_unavailable", errors.New("device inventory collector is unavailable")
+		}
+		var requestPayload map[string]json.RawMessage
+		if err := json.Unmarshal(rawPayload, &requestPayload); err != nil || len(requestPayload) != 0 {
+			return nil, false, "invalid_payload", errors.New("inventory.refresh payload must be an empty object")
+		}
+		inventory, err := a.inventory.Collect(ctx)
+		if err != nil {
+			return nil, false, "inventory_failed", err
+		}
+		return inventory, false, "", nil
+	case devicev1.CapabilityGameInstallArchive:
+		if a.installer == nil {
+			return nil, false, "installer_unavailable", errors.New("archive installer is unavailable")
+		}
+		var request devicev1.ArchiveInstallRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.installer.Install(ctx, commandID, request, report)
+		if err != nil {
+			return nil, false, "install_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilityGameUninstall:
+		if a.installer == nil {
+			return nil, false, "installer_unavailable", errors.New("archive installer is unavailable")
+		}
+		var request devicev1.GameUninstallRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.installer.Uninstall(ctx, request, report)
+		if err != nil {
+			return nil, false, "uninstall_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilityGameLaunch:
+		if a.launcher == nil {
+			return nil, false, "launcher_unavailable", errors.New("game launcher is unavailable")
+		}
+		var request devicev1.GameLaunchRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.launcher.Launch(ctx, request)
+		if err != nil {
+			return nil, false, "launch_failed", err
+		}
+		return result, false, "", nil
 	default:
 		return nil, false, "unsupported_command", fmt.Errorf("unsupported command %s", name)
 	}

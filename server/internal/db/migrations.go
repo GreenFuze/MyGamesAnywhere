@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 12
+const latestMigrationVersion = 16
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -257,6 +257,94 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 				);`,
 				`CREATE INDEX IF NOT EXISTS idx_device_commands_endpoint ON device_commands(endpoint_id, created_at DESC);`,
 				`CREATE INDEX IF NOT EXISTS idx_device_commands_profile ON device_commands(profile_id, created_at DESC);`,
+			},
+		},
+		{
+			Version: 13,
+			Name:    "version_aware_game_identity",
+			SQL: []string{
+				`CREATE TABLE IF NOT EXISTS game_titles (
+					id TEXT PRIMARY KEY,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					display_title TEXT NOT NULL,
+					normalized_title TEXT NOT NULL,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_game_titles_profile ON game_titles(profile_id);`,
+				`CREATE INDEX IF NOT EXISTS idx_game_titles_normalized ON game_titles(profile_id, normalized_title);`,
+				`CREATE TABLE IF NOT EXISTS game_editions (
+					id TEXT PRIMARY KEY REFERENCES canonical_games(id) ON DELETE CASCADE,
+					title_id TEXT NOT NULL REFERENCES game_titles(id) ON DELETE CASCADE,
+					platform TEXT NOT NULL DEFAULT 'unknown',
+					region TEXT,
+					edition_label TEXT,
+					kind TEXT NOT NULL DEFAULT 'unknown',
+					identity_state TEXT NOT NULL CHECK(identity_state IN ('provider_confirmed','manual','unresolved','legacy_review')),
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_game_editions_title ON game_editions(title_id);`,
+				`CREATE INDEX IF NOT EXISTS idx_game_editions_platform ON game_editions(platform);`,
+				`CREATE TABLE IF NOT EXISTS game_title_external_ids (
+					title_id TEXT NOT NULL REFERENCES game_titles(id) ON DELETE CASCADE,
+					provider TEXT NOT NULL,
+					external_id TEXT NOT NULL,
+					PRIMARY KEY(title_id, provider, external_id)
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_game_title_external_lookup ON game_title_external_ids(provider, external_id);`,
+			},
+			Run: func(ctx context.Context, db *sqliteDatabase) error {
+				return db.rebuildGameIdentity(ctx)
+			},
+		},
+		{
+			Version: 14,
+			Name:    "device_inventory_snapshots",
+			SQL: []string{
+				`CREATE TABLE IF NOT EXISTS device_inventories (
+					endpoint_id TEXT PRIMARY KEY REFERENCES device_endpoints(id) ON DELETE CASCADE,
+					schema_version INTEGER NOT NULL,
+					captured_at INTEGER NOT NULL,
+					storage_json TEXT NOT NULL,
+					runtimes_json TEXT NOT NULL,
+					updated_at INTEGER NOT NULL
+				);`,
+			},
+		},
+		{
+			Version: 15,
+			Name:    "device_archive_installations",
+			SQL: []string{
+				`ALTER TABLE device_commands ADD COLUMN progress_sequence INTEGER NOT NULL DEFAULT 0;`,
+				`ALTER TABLE device_commands ADD COLUMN progress_phase TEXT;`,
+				`ALTER TABLE device_commands ADD COLUMN progress_percent INTEGER;`,
+				`ALTER TABLE device_commands ADD COLUMN progress_message TEXT;`,
+				`CREATE TABLE IF NOT EXISTS device_game_installations (
+					endpoint_id TEXT NOT NULL REFERENCES device_endpoints(id) ON DELETE CASCADE,
+					game_id TEXT NOT NULL REFERENCES canonical_games(id) ON DELETE CASCADE,
+					source_game_id TEXT NOT NULL REFERENCES source_games(id) ON DELETE CASCADE,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					install_root TEXT NOT NULL,
+					install_path TEXT NOT NULL,
+					archive_sha256 TEXT NOT NULL,
+					archive_bytes INTEGER NOT NULL,
+					installed_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					PRIMARY KEY(endpoint_id, game_id, source_game_id)
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_device_game_installations_game ON device_game_installations(game_id, endpoint_id);`,
+				`CREATE INDEX IF NOT EXISTS idx_device_game_installations_profile ON device_game_installations(profile_id, updated_at DESC);`,
+			},
+		},
+		{
+			Version: 16,
+			Name:    "device_install_launch_and_staged_progress",
+			SQL: []string{
+				`ALTER TABLE device_commands ADD COLUMN progress_stage TEXT;`,
+				`ALTER TABLE device_commands ADD COLUMN progress_stage_percent INTEGER;`,
+				`ALTER TABLE device_game_installations ADD COLUMN launch_target TEXT;`,
+				`ALTER TABLE device_game_installations ADD COLUMN launch_candidates_json TEXT NOT NULL DEFAULT '[]';`,
 			},
 		},
 	}

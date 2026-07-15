@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
   ArrowRightLeft,
   Database,
+  Download,
   ExternalLink,
   FileText,
   FolderOpen,
   Loader2,
+  Monitor,
   MoreHorizontal,
   PlayCircle,
   Trophy,
+  Trash2,
   Video,
 } from 'lucide-react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
@@ -20,10 +23,15 @@ import {
   clearSourceGameCanonicalPin,
   getGame,
   getGameAchievements,
+  installArchiveOnDevice,
+	launchGameOnDevice,
+  listDeviceCommands,
   mergeSourceGameCanonical,
   refreshGameMetadata,
   searchCanonicalGames,
   splitSourceGameCanonical,
+	setDeviceGameLaunchTarget,
+  uninstallGameFromDevice,
   type AchievementDTO,
   type AchievementSetDTO,
   type CanonicalGameSearchResult,
@@ -43,6 +51,7 @@ import { BrandBadge, BrandIcon } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { PlatformIcon } from '@/components/ui/platform-icon'
 import { SourceFileInventory } from '@/components/ui/source-file-inventory'
 import {
@@ -120,6 +129,93 @@ function formatHours(value: number | undefined): string {
   return `${Math.round(value)}h`
 }
 
+function formatStorageBytes(value: number | undefined): string {
+  if (!value || value <= 0) return 'Unknown'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1)
+  return `${(value / 1024 ** index).toFixed(index >= 3 ? 1 : 0)} ${units[index]}`
+}
+
+function deviceSetupLabel(status: string, runtime?: string): string {
+  switch (status) {
+    case 'installed':
+      return 'Installed'
+    case 'ready_for_setup':
+      return 'Ready for setup'
+    case 'needs_runtime':
+      return runtime ? `Needs ${runtime}` : 'Needs a game app'
+    case 'not_scanned':
+      return 'Scan needed'
+    case 'update_required':
+      return 'Client update needed'
+    case 'offline':
+      return 'Offline'
+    case 'unsupported':
+      return 'Not supported yet'
+    default:
+      return 'Checking availability'
+  }
+}
+
+type ArchiveInstallChoice = {
+  deviceId: string
+  deviceName: string
+  sourceGameId: string
+  sourceLabel: string
+  archiveName: string
+}
+
+function DeviceArchiveInstallDialog({
+  choice,
+  busy,
+  error,
+  onClose,
+  onInstall,
+}: {
+  choice: ArchiveInstallChoice | null
+  busy: boolean
+  error: string
+  onClose: () => void
+  onInstall: (root: string) => void
+}) {
+  const [root, setRoot] = useState('%USERPROFILE%\\Games')
+
+  useEffect(() => {
+    if (choice) setRoot('%USERPROFILE%\\Games')
+  }, [choice])
+
+  return (
+    <Dialog open={choice !== null} onClose={busy ? () => undefined : onClose} title="Install on device">
+      {choice ? (
+        <div className="space-y-4">
+          <div className="rounded-mga border border-mga-border bg-mga-bg/60 p-3 text-sm">
+            <p className="font-semibold text-mga-text">{choice.deviceName}</p>
+            <p className="mt-1 text-xs text-mga-muted">{choice.sourceLabel} · {choice.archiveName}</p>
+          </div>
+          <Input
+            label="Install folder"
+            value={root}
+            onChange={(event) => setRoot(event.target.value)}
+            disabled={busy}
+            placeholder="%USERPROFILE%\\Games"
+          />
+          <p className="text-xs leading-5 text-mga-muted">
+            Environment variables are expanded by MGA Client for the selected Windows user. This installation can override your future profile default.
+          </p>
+          {error ? <p className="text-sm text-red-400">{error}</p> : null}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+            <Button onClick={() => onInstall(root.trim())} disabled={busy || !root.trim()}>
+              {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+              {busy ? 'Starting…' : 'Install'}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </Dialog>
+  )
+}
+
 function humanizeValue(value: string): string {
   return value
     .split(/[_-]+/g)
@@ -190,6 +286,34 @@ function buildExternalLinks(externalIds: ExternalIDDTO[] | undefined): ExternalL
 function detailValue(value: string | number | undefined | null): string {
   if (value === null || value === undefined || value === '') return 'Unknown'
   return String(value)
+}
+
+function identityStatusLabel(state: string | undefined): string {
+  switch (state) {
+    case 'provider_confirmed':
+      return 'Matched'
+    case 'manual':
+      return 'Grouped by you'
+    case 'legacy_review':
+      return 'Needs a quick review'
+    case 'unresolved':
+      return 'Kept separate for now'
+    default:
+      return 'Not checked yet'
+  }
+}
+
+function editionLabel(
+  platform: string,
+  region?: string,
+  edition?: string,
+): string {
+  const parts = [
+    platform && platform !== 'unknown' ? platformLabel(platform) : '',
+    region?.trim(),
+    edition?.trim(),
+  ].filter((part): part is string => Boolean(part))
+  return parts.length > 0 ? Array.from(new Set(parts)).join(' · ') : 'Version not identified yet'
 }
 
 function isMetadataPlugin(pluginId: string): boolean {
@@ -1124,6 +1248,10 @@ export function GameDetailPage() {
   const [groupingError, setGroupingError] = useState('')
   const [groupingNotice, setGroupingNotice] = useState('')
   const [showFloatingActions, setShowFloatingActions] = useState(false)
+  const [archiveInstallChoice, setArchiveInstallChoice] = useState<ArchiveInstallChoice | null>(null)
+  const [uninstallChoice, setUninstallChoice] = useState<{ deviceId: string; deviceName: string; sourceGameId: string } | null>(null)
+  const [activeDeviceCommand, setActiveDeviceCommand] = useState<{ deviceId: string; commandId: string } | null>(null)
+  const [installError, setInstallError] = useState('')
   const hasRetried404Ref = useRef(false)
 
   const routeState = readGameRouteState(location.state)
@@ -1156,6 +1284,45 @@ export function GameDetailPage() {
     queryFn: () => getGameAchievements(id),
     enabled: id.length > 0,
   })
+
+  const deviceCommands = useQuery({
+    queryKey: ['device-commands', activeDeviceCommand?.deviceId],
+    queryFn: () => listDeviceCommands(activeDeviceCommand!.deviceId),
+    enabled: Boolean(activeDeviceCommand),
+    refetchInterval: (query) => {
+      const command = query.state.data?.find((item) => item.id === activeDeviceCommand?.commandId)
+      return command && ['succeeded', 'failed', 'rejected', 'canceled', 'expired'].includes(command.status) ? false : 1000
+    },
+  })
+  const trackedCommand = deviceCommands.data?.find((item) => item.id === activeDeviceCommand?.commandId)
+  const installArchive = useMutation({
+    mutationFn: ({ choice, root }: { choice: ArchiveInstallChoice; root: string }) =>
+      installArchiveOnDevice(choice.deviceId, id, choice.sourceGameId, root),
+    onSuccess: (command, variables) => {
+      setArchiveInstallChoice(null)
+      setInstallError('')
+      setActiveDeviceCommand({ deviceId: variables.choice.deviceId, commandId: command.id })
+    },
+    onError: (error) => setInstallError(error instanceof Error ? error.message : 'Could not start installation.'),
+  })
+  const uninstallGame = useMutation({
+    mutationFn: ({ deviceId, sourceGameId }: { deviceId: string; sourceGameId: string }) =>
+      uninstallGameFromDevice(deviceId, id, sourceGameId),
+    onSuccess: (command, variables) => {
+      setUninstallChoice(null)
+      setActiveDeviceCommand({ deviceId: variables.deviceId, commandId: command.id })
+    },
+  })
+	const launchGame = useMutation({
+		mutationFn: ({ deviceId, sourceGameId }: { deviceId: string; sourceGameId: string }) =>
+			launchGameOnDevice(deviceId, id, sourceGameId),
+		onSuccess: (command, variables) => setActiveDeviceCommand({ deviceId: variables.deviceId, commandId: command.id }),
+	})
+	const changeLaunchTarget = useMutation({
+		mutationFn: ({ deviceId, sourceGameId, launchTarget }: { deviceId: string; sourceGameId: string; launchTarget: string }) =>
+			setDeviceGameLaunchTarget(deviceId, id, sourceGameId, launchTarget),
+		onSuccess: () => queryClient.invalidateQueries({ queryKey: ['game', id] }),
+	})
 
   const gameData = game.data ?? null
   const mediaCollection = useMemo(() => new GameMediaCollection(gameData?.media), [gameData?.media])
@@ -1230,6 +1397,13 @@ export function GameDetailPage() {
       : gameData?.is_game_pass
         ? 'Game Pass'
         : platformLabel(gameData?.platform ?? '')
+  const archiveSources = useMemo(
+    () => (gameData?.source_games ?? []).flatMap((source) => {
+      const archives = source.files.filter((file) => file.path.toLowerCase().endsWith('.zip'))
+      return archives.length === 1 ? [{ source, archive: archives[0] }] : []
+    }),
+    [gameData?.source_games],
+  )
   useEffect(() => {
     hasRetried404Ref.current = false
   }, [id])
@@ -1243,6 +1417,12 @@ export function GameDetailPage() {
     if (!achievements.isSuccess) return
     void queryClient.invalidateQueries({ queryKey: ['games'] })
   }, [achievements.isSuccess, queryClient])
+
+  useEffect(() => {
+    if (!trackedCommand || !['succeeded', 'failed', 'rejected', 'canceled', 'expired'].includes(trackedCommand.status)) return
+    void queryClient.invalidateQueries({ queryKey: ['game', id] })
+    void queryClient.invalidateQueries({ queryKey: ['devices'] })
+  }, [id, queryClient, trackedCommand])
 
   useEffect(() => {
     const updateVisibility = () => {
@@ -1819,9 +1999,9 @@ export function GameDetailPage() {
             </SectionCard>
 
             <SectionCard
-              title="Availability & Sources"
+              title="Ways to Play & Copies"
               icon={<Database size={18} className="text-mga-accent" />}
-              description="Current launch/runtime availability and source-backed coverage."
+              description="Where this game was found and what is ready to use."
             >
               <div className="space-y-4">
                 <div className="flex flex-wrap gap-2">
@@ -1832,11 +2012,128 @@ export function GameDetailPage() {
                   {browserPlayable ? <Badge variant="playable">Browser Play</Badge> : null}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <MetaItem label="Launchable Sources" value={launchableSourceCount} />
-                  <MetaItem label="Resolver Matches" value={resolverCount} />
-                  <MetaItem label="Files" value={sourceFileCount} />
-                  <MetaItem label="Canonical ID" value={data.id} />
+                  <MetaItem label="Browser Choices" value={launchableSourceCount} />
+                  <MetaItem label="Copies" value={data.source_games.length} />
+                  <MetaItem
+                    label="Version"
+                    value={editionLabel(
+                      data.identity?.edition.platform ?? data.platform,
+                      data.identity?.edition.region,
+                      data.identity?.edition.edition_label,
+                    )}
+                  />
+                  <MetaItem label="Match" value={identityStatusLabel(data.identity?.edition.state)} />
                 </div>
+				{data.devices?.length ? (
+				  <div className="space-y-2 rounded-[18px] border border-white/[0.06] bg-black/10 p-3">
+					<div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-white/58"><Monitor size={14} /> Play on a device</div>
+				{data.devices.map((device) => {
+				  const commandHere = activeDeviceCommand?.deviceId === device.device_id ? trackedCommand : undefined
+				  const activeHere = Boolean(commandHere && !['succeeded', 'failed', 'rejected', 'canceled', 'expired'].includes(commandHere.status))
+				  const downloadPercent = commandHere?.status === 'succeeded'
+					? 100
+					: commandHere?.progress_stage === 'download' ? (commandHere.progress_stage_percent ?? 0) : commandHere?.progress_stage === 'install' ? 100 : 0
+				  const installPercent = commandHere?.status === 'succeeded'
+					? 100
+					: commandHere?.progress_stage === 'install' ? (commandHere.progress_stage_percent ?? 0) : 0
+				  const isInstallCommand = commandHere?.name === 'game.install_archive'
+					  return (
+						<div key={device.device_id} className="rounded-[14px] bg-white/[0.04] px-3 py-2.5">
+						  <div className="flex flex-wrap items-center justify-between gap-3">
+							<div>
+							  <p className="text-sm font-semibold text-white">{device.display_name}</p>
+							  <p className="text-xs text-white/48">{device.os_user}{device.free_bytes ? ` · ${formatStorageBytes(device.free_bytes)} free` : ''}</p>
+							</div>
+							<div className="flex flex-wrap items-center gap-2">
+							  <Badge variant={device.status === 'ready_for_setup' || device.status === 'installed' ? 'playable' : device.status === 'offline' ? 'muted' : 'default'}>
+								{deviceSetupLabel(device.status, device.required_runtime)}
+							  </Badge>
+							  {device.installed && device.installed_source_id ? (
+								<>
+								  <Button
+									size="sm"
+									disabled={!device.connected || !device.can_play || !device.launch_supported || !device.launch_target || launchGame.isPending || Boolean(activeHere)}
+									onClick={() => launchGame.mutate({ deviceId: device.device_id, sourceGameId: device.installed_source_id! })}
+								  >
+									<PlayCircle size={14} /> Play
+								  </Button>
+								  <Button
+									size="sm"
+									variant="outline"
+									disabled={!device.connected || !device.can_manage || !device.uninstall_supported || uninstallGame.isPending || Boolean(activeHere)}
+									onClick={() => setUninstallChoice({
+									  deviceId: device.device_id,
+									  deviceName: device.display_name,
+									  sourceGameId: device.installed_source_id!,
+									})}
+								  >
+									<Trash2 size={14} /> Uninstall
+								  </Button>
+								</>
+							  ) : archiveSources.map(({ source, archive }) => (
+								<Button
+								  key={source.id}
+								  size="sm"
+								  disabled={!device.connected || !device.can_manage || !device.archive_install_supported || device.status === 'update_required' || Boolean(activeHere)}
+								  onClick={() => {
+									setInstallError('')
+									setArchiveInstallChoice({
+									  deviceId: device.device_id,
+									  deviceName: device.display_name,
+									  sourceGameId: source.id,
+									  sourceLabel: source.integration_label || source.integration_id,
+									  archiveName: archive.path.split('/').pop() || archive.path,
+									})
+								  }}
+								>
+								  <Download size={14} /> Install{archiveSources.length > 1 ? ` · ${source.integration_label || source.raw_title}` : ''}
+								</Button>
+							  ))}
+							</div>
+						  </div>
+						  {device.installed && device.installed_source_id && device.launch_candidates && device.launch_candidates.length > 1 ? (
+							<label className="mt-2 flex items-center gap-2 text-xs text-white/58">
+							  <span>Starts with</span>
+							  <select
+								className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-white/80"
+								value={device.launch_target ?? ''}
+								disabled={!device.can_manage || changeLaunchTarget.isPending || Boolean(activeHere)}
+								onChange={(event) => changeLaunchTarget.mutate({ deviceId: device.device_id, sourceGameId: device.installed_source_id!, launchTarget: event.target.value })}
+							  >
+								<option value="" disabled>Choose a game executable</option>
+								{device.launch_candidates.map((candidate) => <option key={candidate} value={candidate}>{candidate}</option>)}
+							  </select>
+							</label>
+						  ) : null}
+						  {commandHere ? (
+							<div className="mt-2">
+							  <div className="flex justify-between gap-3 text-xs text-white/58"><span>{commandHere.progress_message || humanizeValue(commandHere.status)}</span><span>{commandHere.progress_percent ?? 0}%</span></div>
+							  {isInstallCommand ? (
+								<div className="mt-2 space-y-2">
+								  <div><div className="mb-1 flex justify-between text-[11px] text-sky-200/80"><span>Download</span><span>{downloadPercent}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-sky-400 transition-[width]" style={{ width: `${downloadPercent}%` }} /></div></div>
+								  <div><div className="mb-1 flex justify-between text-[11px] text-purple-200/80"><span>Install</span><span>{installPercent}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-purple-500 transition-[width]" style={{ width: `${installPercent}%` }} /></div></div>
+								</div>
+							  ) : (
+								<div className="mt-1 h-1.5 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-mga-accent transition-[width]" style={{ width: `${commandHere.progress_percent ?? 0}%` }} /></div>
+							  )}
+							  {commandHere.error_message ? <p className="mt-1 text-xs text-red-300">{commandHere.error_message}</p> : null}
+							  {launchGame.isError ? <p className="mt-1 text-xs text-red-300">{launchGame.error instanceof Error ? launchGame.error.message : 'Could not start the game.'}</p> : null}
+							</div>
+						  ) : null}
+						</div>
+					  )
+					})}
+				  </div>
+				) : null}
+                <details className="rounded-[18px] border border-white/[0.06] bg-black/10 px-4 py-3 text-xs text-white/58">
+                  <summary className="cursor-pointer font-medium text-white/72">Technical details</summary>
+                  <div className="mt-3 grid gap-2 break-all sm:grid-cols-2">
+                    <span>Game ID: {data.id}</span>
+                    <span>Title ID: {data.identity?.title.id ?? 'Not available'}</span>
+                    <span>Files: {sourceFileCount}</span>
+                    <span>Match evidence: {data.identity?.evidence?.length ?? resolverCount}</span>
+                  </div>
+                </details>
               </div>
             </SectionCard>
           </div>
@@ -2046,6 +2343,49 @@ export function GameDetailPage() {
       </div>
 
       <MediaViewerDialog media={selectedMedia} onClose={() => setSelectedMedia(null)} />
+      <DeviceArchiveInstallDialog
+        choice={archiveInstallChoice}
+        busy={installArchive.isPending}
+        error={installError}
+        onClose={() => setArchiveInstallChoice(null)}
+        onInstall={(root) => {
+          if (archiveInstallChoice) installArchive.mutate({ choice: archiveInstallChoice, root })
+        }}
+      />
+      <Dialog
+        open={Boolean(uninstallChoice)}
+        onClose={() => {
+          if (!uninstallGame.isPending) setUninstallChoice(null)
+        }}
+        title="Uninstall game"
+      >
+        <div className="space-y-4">
+          <p className="text-sm leading-6 text-mga-muted">
+            Remove <span className="font-semibold text-mga-text">{data.title}</span> from{' '}
+            <span className="font-semibold text-mga-text">{uninstallChoice?.deviceName}</span>? MGA will remove only the managed installation folder recorded by the client.
+          </p>
+          {uninstallGame.isError ? (
+            <p className="text-sm text-red-300">
+              {uninstallGame.error instanceof Error ? uninstallGame.error.message : 'Could not start uninstall.'}
+            </p>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" disabled={uninstallGame.isPending} onClick={() => setUninstallChoice(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={uninstallGame.isPending}
+              onClick={() => {
+                if (uninstallChoice) uninstallGame.mutate({ deviceId: uninstallChoice.deviceId, sourceGameId: uninstallChoice.sourceGameId })
+              }}
+            >
+              {uninstallGame.isPending ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+              Uninstall
+            </Button>
+          </div>
+        </div>
+      </Dialog>
       <MergeCanonicalDialog
         source={mergeTarget}
         currentCanonicalId={game.data?.id ?? ''}
