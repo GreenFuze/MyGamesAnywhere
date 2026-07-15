@@ -13,7 +13,7 @@ import (
 	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 )
 
-func TestZIPArchiveInstallerInstallAndUninstall(t *testing.T) {
+func TestManagedArchiveInstallerInstallAndUninstallZIP(t *testing.T) {
 	t.Parallel()
 	archive := buildTestZIP(t, map[string]string{"Game/game.exe": "binary", "Game/readme.txt": "hello"})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -22,9 +22,9 @@ func TestZIPArchiveInstallerInstallAndUninstall(t *testing.T) {
 	}))
 	defer server.Close()
 
-	installer, err := NewZIPArchiveInstaller(server.URL)
+	installer, err := NewManagedArchiveInstaller(server.URL)
 	if err != nil {
-		t.Fatalf("NewZIPArchiveInstaller() error = %v", err)
+		t.Fatalf("NewManagedArchiveInstaller() error = %v", err)
 	}
 	root := t.TempDir()
 	request := devicev1.ArchiveInstallRequest{
@@ -121,7 +121,7 @@ func TestArchiveInstallerReportsSeparateDownloadAndInstallStages(t *testing.T) {
 	archive := buildTestZIP(t, map[string]string{"Game/game.exe": "binary"})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(archive) }))
 	defer server.Close()
-	installer, _ := NewZIPArchiveInstaller(server.URL)
+	installer, _ := NewManagedArchiveInstaller(server.URL)
 	var updates []CommandProgressUpdate
 	_, err := installer.Install(context.Background(), "command-progress", devicev1.ArchiveInstallRequest{
 		GameID: "game-1", SourceGameID: "source-1", Title: "Game", ArchiveName: "game.zip", ArchiveFormat: "zip",
@@ -143,12 +143,12 @@ func TestArchiveInstallerReportsSeparateDownloadAndInstallStages(t *testing.T) {
 	}
 }
 
-func TestZIPArchiveInstallerRejectsTraversal(t *testing.T) {
+func TestManagedArchiveInstallerRejectsZIPTraversal(t *testing.T) {
 	t.Parallel()
 	archive := buildTestZIP(t, map[string]string{"../outside.txt": "bad"})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(archive) }))
 	defer server.Close()
-	installer, _ := NewZIPArchiveInstaller(server.URL)
+	installer, _ := NewManagedArchiveInstaller(server.URL)
 	_, err := installer.Install(context.Background(), "command-1", devicev1.ArchiveInstallRequest{
 		GameID: "game-1", SourceGameID: "source-1", Title: "Game", ArchiveName: "game.zip", ArchiveFormat: "zip",
 		ArchiveSize: uint64(len(archive)), DownloadURL: server.URL, DestinationRoot: t.TempDir(), DestinationName: "Game",
@@ -157,6 +157,77 @@ func TestZIPArchiveInstallerRejectsTraversal(t *testing.T) {
 	if err == nil {
 		t.Fatal("Install() accepted a traversal entry")
 	}
+}
+
+func TestManagedArchiveInstallerInstallsBundled7zAndRARFormats(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		format      string
+		fixture     string
+		archive     string
+		destination string
+	}{
+		{name: "7z", format: devicev1.ArchiveFormat7Z, fixture: "sevenzip-t1.7z", archive: "game.7z", destination: "SevenZip Game"},
+		{name: "rar", format: devicev1.ArchiveFormatRAR, fixture: "rar5-subdirs.rar", archive: "game.rar", destination: "RAR Game"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			archive, err := os.ReadFile(filepath.Join("testdata", test.fixture))
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write(archive)
+			}))
+			defer server.Close()
+			installer, err := NewManagedArchiveInstaller(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := installer.Install(context.Background(), "command-"+test.name, devicev1.ArchiveInstallRequest{
+				GameID: "game-" + test.name, SourceGameID: "source-" + test.name, Title: test.destination,
+				ArchiveName: test.archive, ArchiveFormat: test.format, ArchiveSize: uint64(len(archive)),
+				DownloadURL: server.URL, DownloadToken: "token", DestinationRoot: t.TempDir(), DestinationName: test.destination,
+			}, nil)
+			if err != nil {
+				t.Fatalf("Install() error = %v", err)
+			}
+			if result.ArchiveBytes != uint64(len(archive)) || countExtractedFiles(t, result.InstallPath) == 0 {
+				t.Fatalf("result = %#v", result)
+			}
+		})
+	}
+}
+
+func TestRARArchiveExtractorRejectsSymbolicLinks(t *testing.T) {
+	t.Parallel()
+	extractor, err := archiveExtractorForFormat(devicev1.ArchiveFormatRAR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := extractor.Validate(filepath.Join("testdata", "rar5-symlink-unix.rar")); err == nil {
+		t.Fatal("RAR extractor accepted a symbolic link")
+	}
+}
+
+func countExtractedFiles(t *testing.T, root string) int {
+	t.Helper()
+	count := 0
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && entry.Name() != installManifestName {
+			count++
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return count
 }
 
 func buildTestZIP(t *testing.T, files map[string]string) []byte {

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,15 +19,31 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func TestFindZIPArchiveAndSafeInstallFolderName(t *testing.T) {
+func TestFindSupportedArchiveAndSafeInstallFolderName(t *testing.T) {
 	t.Parallel()
-	game := &core.CanonicalGame{SourceGames: []*core.SourceGame{{
-		ID:    "source-1",
-		Files: []core.GameFile{{Path: "Games/Installers/Game.zip", FileName: "Game.zip", FileKind: "archive", Size: 10}},
+	for _, name := range []string{"Game.zip", "Game.7z", "Game.rar"} {
+		game := &core.CanonicalGame{SourceGames: []*core.SourceGame{{
+			ID:    "source-1",
+			Files: []core.GameFile{{Path: "Games/Installers/" + name, FileName: name, FileKind: "archive", Size: 10}},
+		}}}
+		source, archive := findSupportedArchive(game, "source-1")
+		if source == nil || archive == nil || archive.FileName != name {
+			t.Fatalf("findSupportedArchive(%q) = %#v, %#v", name, source, archive)
+		}
+		format, supported := supportedArchiveFormat(archive.Path)
+		if !supported || format != strings.TrimPrefix(strings.ToLower(filepath.Ext(name)), ".") {
+			t.Fatalf("supportedArchiveFormat(%q) = %q, %t", name, format, supported)
+		}
+	}
+	multiple := &core.CanonicalGame{SourceGames: []*core.SourceGame{{
+		ID: "source-1",
+		Files: []core.GameFile{
+			{Path: "Game.zip", FileName: "Game.zip"},
+			{Path: "Game.rar", FileName: "Game.rar"},
+		},
 	}}}
-	source, archive := findZIPArchive(game, "source-1")
-	if source == nil || archive == nil || archive.FileName != "Game.zip" {
-		t.Fatalf("findZIPArchive() = %#v, %#v", source, archive)
+	if source, archive := findSupportedArchive(multiple, "source-1"); source == nil || archive != nil {
+		t.Fatalf("multiple archives = %#v, %#v", source, archive)
 	}
 	if got := safeInstallFolderName(`Game: The / Adventure?`); got != "Game  The   Adventure" {
 		t.Fatalf("safeInstallFolderName() = %q", got)

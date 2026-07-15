@@ -18,8 +18,8 @@ language. The normal web interface must use the player-facing language defined
 in [player-facing-language.md](player-facing-language.md).
 
 Implementation status: the first library/play UI foundation, version-aware
-identity, bounded device inventory, and managed ZIP installation slices are now
-implemented. See ADR-0004 through ADR-0006. A future profile-owned **My
+identity, bounded device inventory, and managed ZIP/7z/RAR installation slices
+are now implemented. See ADR-0004 through ADR-0006. A future profile-owned **My
 Settings** group will hold `%USERPROFILE%\Games` and other player preferences,
 with endpoint and per-action overrides where the target filesystem matters.
 
@@ -268,6 +268,16 @@ Commands are typed and idempotent. Elevation is requested only for the specific
 local step that requires it; the client does not permanently run as an
 administrator. Uninstall must preview what will be removed and distinguish game
 files, shared prerequisites, user saves, and MGA cache data.
+
+Managed installation state must eventually reconcile with the endpoint
+filesystem. If a user deletes or changes an installation outside MGA, the
+client reports it through one shared connection-time, periodic, and manual
+validation path. A missing directory/manifest becomes **Missing**; a present
+directory with missing managed files or launch target becomes **Needs repair**.
+Play is disabled, history is retained, and the UI offers Reinstall, Repair, or
+Forget without deleting unrelated files or saves. This reconciliation is
+planned, not implemented, and requires a typed protocol addition plus a
+versioned server migration.
 
 ### Save discovery and sync
 

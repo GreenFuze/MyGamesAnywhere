@@ -38,7 +38,7 @@ type ArchiveInstaller interface {
 	Uninstall(context.Context, devicev1.GameUninstallRequest, CommandProgressReporter) (devicev1.GameUninstallResult, error)
 }
 
-type ZIPArchiveInstaller struct {
+type ManagedArchiveInstaller struct {
 	serverURL string
 	client    *http.Client
 	now       func() time.Time
@@ -57,19 +57,19 @@ type installManifest struct {
 	LaunchCandidates []string  `json:"launch_candidates,omitempty"`
 }
 
-func NewZIPArchiveInstaller(serverURL string) (*ZIPArchiveInstaller, error) {
+func NewManagedArchiveInstaller(serverURL string) (*ManagedArchiveInstaller, error) {
 	parsed, err := url.Parse(strings.TrimSpace(serverURL))
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return nil, errors.New("valid MGA Server URL is required")
 	}
-	return &ZIPArchiveInstaller{
+	return &ManagedArchiveInstaller{
 		serverURL: parsed.Scheme + "://" + parsed.Host,
 		client:    &http.Client{Timeout: 0},
 		now:       time.Now,
 	}, nil
 }
 
-func (i *ZIPArchiveInstaller) Install(ctx context.Context, commandID string, request devicev1.ArchiveInstallRequest, report CommandProgressReporter) (devicev1.ArchiveInstallResult, error) {
+func (i *ManagedArchiveInstaller) Install(ctx context.Context, commandID string, request devicev1.ArchiveInstallRequest, report CommandProgressReporter) (devicev1.ArchiveInstallResult, error) {
 	if i == nil || i.client == nil || i.now == nil {
 		return devicev1.ArchiveInstallResult{}, errors.New("archive installer is unavailable")
 	}
@@ -77,6 +77,10 @@ func (i *ZIPArchiveInstaller) Install(ctx context.Context, commandID string, req
 		return devicev1.ArchiveInstallResult{}, errors.New("command_id is required")
 	}
 	if err := request.Validate(); err != nil {
+		return devicev1.ArchiveInstallResult{}, err
+	}
+	extractor, err := archiveExtractorForFormat(request.ArchiveFormat)
+	if err != nil {
 		return devicev1.ArchiveInstallResult{}, err
 	}
 	downloadURL, err := i.resolveDownloadURL(request.DownloadURL)
@@ -119,7 +123,7 @@ func (i *ZIPArchiveInstaller) Install(ctx context.Context, commandID string, req
 	if err := os.MkdirAll(contentDir, 0o755); err != nil {
 		return devicev1.ArchiveInstallResult{}, fmt.Errorf("create staging directory: %w", err)
 	}
-	archivePath := filepath.Join(stage, "source.zip")
+	archivePath := filepath.Join(stage, "source."+devicev1.NormalizeArchiveFormat(request.ArchiveFormat))
 	if err := reportProgress(report, "downloading", "Downloading archive", 0, "download", 0); err != nil {
 		return devicev1.ArchiveInstallResult{}, err
 	}
@@ -134,7 +138,7 @@ func (i *ZIPArchiveInstaller) Install(ctx context.Context, commandID string, req
 	if err := reportProgress(report, "checking", "Checking archive", 43, "install", 5); err != nil {
 		return devicev1.ArchiveInstallResult{}, err
 	}
-	uncompressed, err := validateZIPArchive(archivePath)
+	uncompressed, err := extractor.Validate(archivePath)
 	if err != nil {
 		return devicev1.ArchiveInstallResult{}, err
 	}
@@ -143,7 +147,7 @@ func (i *ZIPArchiveInstaller) Install(ctx context.Context, commandID string, req
 	} else if free < uncompressed+64*1024*1024 {
 		return devicev1.ArchiveInstallResult{}, fmt.Errorf("not enough free space to extract %s", request.ArchiveName)
 	}
-	if err := extractZIP(ctx, archivePath, contentDir, uncompressed, report); err != nil {
+	if err := extractor.Extract(ctx, archivePath, contentDir, uncompressed, report); err != nil {
 		return devicev1.ArchiveInstallResult{}, err
 	}
 	launchCandidates, launchTarget, err := discoverLaunchTargets(contentDir, request.Title)
@@ -177,7 +181,7 @@ func (i *ZIPArchiveInstaller) Install(ctx context.Context, commandID string, req
 	}, nil
 }
 
-func (i *ZIPArchiveInstaller) Uninstall(ctx context.Context, request devicev1.GameUninstallRequest, report CommandProgressReporter) (devicev1.GameUninstallResult, error) {
+func (i *ManagedArchiveInstaller) Uninstall(ctx context.Context, request devicev1.GameUninstallRequest, report CommandProgressReporter) (devicev1.GameUninstallResult, error) {
 	if err := request.Validate(); err != nil {
 		return devicev1.GameUninstallResult{}, err
 	}
@@ -207,7 +211,7 @@ func (i *ZIPArchiveInstaller) Uninstall(ctx context.Context, request devicev1.Ga
 	return devicev1.GameUninstallResult{GameID: request.GameID, SourceGameID: request.SourceGameID, Removed: true}, nil
 }
 
-func (i *ZIPArchiveInstaller) resolveDownloadURL(raw string) (string, error) {
+func (i *ManagedArchiveInstaller) resolveDownloadURL(raw string) (string, error) {
 	server, _ := url.Parse(i.serverURL)
 	download, err := url.Parse(raw)
 	if err != nil {
@@ -225,7 +229,7 @@ func (i *ZIPArchiveInstaller) resolveDownloadURL(raw string) (string, error) {
 	return download.String(), nil
 }
 
-func (i *ZIPArchiveInstaller) download(ctx context.Context, rawURL, token, destination string, expected uint64, report CommandProgressReporter) (string, uint64, error) {
+func (i *ManagedArchiveInstaller) download(ctx context.Context, rawURL, token, destination string, expected uint64, report CommandProgressReporter) (string, uint64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return "", 0, fmt.Errorf("create archive request: %w", err)

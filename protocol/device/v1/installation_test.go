@@ -20,6 +20,17 @@ func TestArchiveInstallRequestValidate(t *testing.T) {
 	if err := request.Validate(); err != nil {
 		t.Fatalf("Validate() rejected origin-relative transfer path: %v", err)
 	}
+	for _, format := range []string{"zip", ".7Z", "RAR"} {
+		request.ArchiveFormat = format
+		if err := request.Validate(); err != nil {
+			t.Fatalf("Validate() rejected archive format %q: %v", format, err)
+		}
+	}
+	request.ArchiveFormat = "exe"
+	if err := request.Validate(); err == nil {
+		t.Fatal("Validate() accepted an executable installer as a managed archive")
+	}
+	request.ArchiveFormat = "zip"
 	request.DestinationName = `..\outside`
 	if err := request.Validate(); err == nil {
 		t.Fatal("Validate() accepted a path-like destination name")

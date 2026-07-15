@@ -1,6 +1,10 @@
 # MGA Cursor handoff — 14-07-2026
 
-> **AUTHORITATIVE WORKING HANDOFF (14-07-2026).** Read this file before changing
+> **SUPERSEDED:** Continue from
+> [`2026-07-15-cursor-handoff.md`](2026-07-15-cursor-handoff.md). This file is
+> retained only as the pre-launch/progress implementation snapshot.
+
+> **HISTORICAL WORKING HANDOFF (14-07-2026).** Read the superseding handoff before changing
 > the current worktree. For implementation status, test status, runtime state,
 > and next actions, this file overrides older roadmaps, release pages, screenshots,
 > chat summaries, and unchecked task lists. Architecture ADRs remain authoritative

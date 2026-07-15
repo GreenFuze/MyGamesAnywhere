@@ -98,11 +98,12 @@ func (c *DeviceController) InstallArchive(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
-	source, archive := findZIPArchive(game, strings.TrimSpace(body.SourceGameID))
+	source, archive := findSupportedArchive(game, strings.TrimSpace(body.SourceGameID))
 	if source == nil || archive == nil {
-		http.Error(w, "the selected source does not contain exactly one supported ZIP archive", http.StatusBadRequest)
+		http.Error(w, "the selected source does not contain exactly one supported ZIP, 7z, or RAR archive", http.StatusBadRequest)
 		return
 	}
+	archiveFormat, _ := supportedArchiveFormat(archive.Path)
 	archivePath, err := c.resolveArchiveSource(r.Context(), source, archive)
 	if err != nil {
 		c.logger.Warn("resolve archive install source", "game_id", gameID, "source_game_id", source.ID, "error", err)
@@ -125,7 +126,7 @@ func (c *DeviceController) InstallArchive(w http.ResponseWriter, r *http.Request
 	}
 	request := devicev1.ArchiveInstallRequest{
 		GameID: game.ID, SourceGameID: source.ID, Title: game.Title, ArchiveName: archive.FileName,
-		ArchiveFormat: "zip", ArchiveSize: uint64(info.Size()),
+		ArchiveFormat: archiveFormat, ArchiveSize: uint64(info.Size()),
 		DownloadURL:     "/api/device-transfers/archive",
 		DownloadToken:   token,
 		DestinationRoot: destinationRoot, DestinationName: safeInstallFolderName(game.Title),
@@ -280,12 +281,16 @@ func (c *DeviceController) ServeArchiveTransfer(w http.ResponseWriter, r *http.R
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", "application/zip")
+	contentType := mime.TypeByExtension(filepath.Ext(transfer.Name))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": transfer.Name}))
 	http.ServeContent(w, r, transfer.Name, info.ModTime(), file)
 }
 
-func findZIPArchive(game *core.CanonicalGame, sourceGameID string) (*core.SourceGame, *core.GameFile) {
+func findSupportedArchive(game *core.CanonicalGame, sourceGameID string) (*core.SourceGame, *core.GameFile) {
 	if game == nil || sourceGameID == "" {
 		return nil, nil
 	}
@@ -296,7 +301,7 @@ func findZIPArchive(game *core.CanonicalGame, sourceGameID string) (*core.Source
 		var archive *core.GameFile
 		for index := range source.Files {
 			file := &source.Files[index]
-			if !file.IsDir && strings.EqualFold(filepath.Ext(file.Path), ".zip") {
+			if _, supported := supportedArchiveFormat(file.Path); !file.IsDir && supported {
 				if archive != nil {
 					return source, nil
 				}
@@ -306,6 +311,14 @@ func findZIPArchive(game *core.CanonicalGame, sourceGameID string) (*core.Source
 		return source, archive
 	}
 	return nil, nil
+}
+
+func supportedArchiveFormat(name string) (string, bool) {
+	format := devicev1.NormalizeArchiveFormat(filepath.Ext(strings.TrimSpace(name)))
+	if err := devicev1.ValidateArchiveFormat(format); err != nil {
+		return "", false
+	}
+	return format, true
 }
 
 func (c *DeviceController) resolveArchiveSource(ctx context.Context, source *core.SourceGame, file *core.GameFile) (string, error) {

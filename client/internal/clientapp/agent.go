@@ -44,7 +44,7 @@ func NewAgent(config clientconfig.Config, privateKey ed25519.PrivateKey, info bu
 	if logger == nil {
 		return nil, errors.New("agent logger is required")
 	}
-	installer, err := NewZIPArchiveInstaller(config.ServerURL)
+	installer, err := NewManagedArchiveInstaller(config.ServerURL)
 	if err != nil {
 		return nil, err
 	}

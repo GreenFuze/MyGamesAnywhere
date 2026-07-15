@@ -26,8 +26,9 @@ folded into the numbered release notes when the release version is selected.
   inventory collector. Devices now show free storage and recognized game apps.
 - Added per-game device readiness so game details can distinguish ready for
   setup, missing runtime, not scanned, offline, update required, and unsupported.
-- Added transactional ZIP installation and guarded uninstall through MGA Client,
-  including live progress and per-device installed state.
+- Added transactional ZIP, 7z, and RAR installation plus guarded uninstall
+  through MGA Client, including bundled pure-Go readers, live progress, and
+  per-device installed state.
 - Added separate blue/cyan Download and purple Install percentages backed by
   MGA Client command progress.
 - Added safe executable discovery, explicit launch-target selection when
@@ -50,6 +51,8 @@ folded into the numbered release notes when the release version is selected.
   executable candidates/selection. Existing rows remain valid with empty launch
   metadata. New installs use manifest schema 2; schema-1 managed installs remain
   safely uninstallable and can be reinstalled to enable Play.
+- `NO_MIGRATION_NEEDED` for bundled 7z/RAR support: it reuses archive command
+  schema 1, manifest schema 2, and migration-16 installation/progress fields.
 - Library grouping remains in the existing extensible frontend-preferences
   JSON. Existing profiles default to no grouping, and the removed Timeline
   view maps to Covers grouped by release year. Settings-sync/save-sync payloads

@@ -2,6 +2,7 @@
 #define AppPublisher "GreenFuze"
 #define AppExeName "mga-client.exe"
 #define AgentExeName "mga-client-agent.exe"
+#define NoticesName "THIRD_PARTY_NOTICES.md"
 
 [Setup]
 AppId={{8BD5321B-C2BA-45C8-91BA-B22F1945964A}
@@ -23,6 +24,7 @@ WizardStyle=modern
 [Files]
 Source: "{#ClientExe}"; DestDir: "{app}"; DestName: "{#AppExeName}"; Flags: ignoreversion
 Source: "{#AgentExe}"; DestDir: "{app}"; DestName: "{#AgentExeName}"; Flags: ignoreversion
+Source: "{#NoticesFile}"; DestDir: "{app}"; DestName: "{#NoticesName}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\MGA Client Status"; Filename: "{app}\{#AppExeName}"; Parameters: "status"

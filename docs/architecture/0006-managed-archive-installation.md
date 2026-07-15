@@ -1,6 +1,6 @@
 # ADR-0006: Managed archive installation
 
-Status: Accepted (ZIP installation and native launch slice implemented)
+Status: Accepted (ZIP/7z/RAR installation and native launch implemented)
 
 ## Context
 
@@ -11,10 +11,11 @@ and storefront-owned products. These families require separate typed commands.
 
 ## Decision
 
-The first command family is `game.install_archive`, schema version 1. ZIP is the
-first guaranteed format. 7z and RAR will use the same server/UI contract after
-their extractors have equivalent path, link, disk, cancellation, and rollback
-guards. EXE/BIN and storefront installs remain separate future command families.
+The first command family is `game.install_archive`, schema version 1. ZIP, 7z,
+and RAR use the same server/UI contract. The client bundles pinned pure-Go
+readers (`bodgit/sevenzip` and `nwaples/rardecode`) rather than requiring a
+machine-wide extractor. EXE/BIN and storefront installs remain separate future
+command families.
 
 The server selects a concrete canonical game, source record, and archive file.
 It creates a random 256-bit, time-limited bearer grant and sends a typed command
@@ -33,7 +34,9 @@ pairing address. The client then:
 1. expands the destination template in the endpoint user's environment;
 2. verifies free space before download and extraction;
 3. downloads into an MGA staging directory while hashing the archive;
-4. rejects ZIP traversal paths and symbolic links;
+4. rejects traversal, symbolic links, unsupported non-regular entries, excessive
+   entry counts, unknown/overflowing sizes, encrypted archives, and multi-volume
+   archives;
 5. extracts without executing archive contents;
 6. writes a schema-versioned `.mga-install.json` manifest;
 7. atomically renames staging into the final game directory.
@@ -81,6 +84,32 @@ use the local Google Drive for desktop mirror when the server is started with
 beneath that root and traversal is rejected. A provider-direct delivery adapter
 can later replace this without changing the client command.
 
+## Planned external-removal reconciliation
+
+Manual filesystem changes outside MGA are not detected yet. A future
+installation-reconciliation slice must use the selected endpoint's MGA Client
+to verify managed installations on connection, periodically, and through an
+explicit refresh. The server must not continue presenting a game as installed
+only because `device_game_installations` still contains a row.
+
+The planned states distinguish:
+
+- **Installed:** managed directory, matching manifest, and selected launch target
+  are present.
+- **Missing:** the managed directory or manifest was removed outside MGA.
+- **Needs repair:** the directory remains but its manifest, selected executable,
+  or other managed files are missing or inconsistent.
+
+Missing or damaged reports disable Play and offer understandable Reinstall,
+Repair, or Forget actions. Detection preserves audit history and never deletes
+unrelated files or saves. The client remains the filesystem authority; the
+server owns persisted state, timestamps, reason codes, and UI history.
+
+This is planned work, not current behavior. It requires a typed protocol report
+or command plus a versioned server migration for installation state,
+`last_verified_at`, detection reason, and any repair metadata. It must share one
+reconciliation path for connection-time, periodic, and manual checks.
+
 ## Persistence and migrations
 
 Server migration 15 adds command progress columns and
@@ -97,6 +126,11 @@ metadata. Uninstall intentionally accepts manifest schemas 1 and 2, preserving
 safe removal of existing managed installations. Launch requires schema 2 and
 never guesses a target for a schema-1 installation.
 
+`NO_MIGRATION_NEEDED` for 7z/RAR support: the command schema already carries
+`archive_format`, and server migration 16 plus manifest schema 2 already hold
+all required progress and launch metadata. Existing SQLite rows, client
+configuration, pairing identity, and managed installations remain valid.
+
 `NO_MIGRATION_NEEDED` for `MGA_GOOGLE_DRIVE_DESKTOP_ROOT`: it is an optional
 runtime environment value and adds no persisted config field. Existing installs
 continue to work when it is absent.
@@ -106,7 +140,8 @@ continue to work when it is absent.
 - MGA gains progress, safe rollback, installed-state reporting, and guarded
   uninstall without permanent elevation.
 - Duplicate source copies remain independently installable.
-- ZIP ships before 7z/RAR rather than treating unlike formats as equivalent.
+- ZIP, 7z, and RAR share one typed workflow while retaining format-specific
+  readers behind a common guarded extraction boundary.
 - Provider-direct streaming, shortcuts, launch arguments/working-directory
   overrides, prerequisites, save-path discovery, repair, and updates remain
   later slices.

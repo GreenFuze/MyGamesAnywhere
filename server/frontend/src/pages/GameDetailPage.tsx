@@ -1399,7 +1399,7 @@ export function GameDetailPage() {
         : platformLabel(gameData?.platform ?? '')
   const archiveSources = useMemo(
     () => (gameData?.source_games ?? []).flatMap((source) => {
-      const archives = source.files.filter((file) => file.path.toLowerCase().endsWith('.zip'))
+      const archives = source.files.filter((file) => /\.(zip|7z|rar)$/i.test(file.path))
       return archives.length === 1 ? [{ source, archive: archives[0] }] : []
     }),
     [gameData?.source_games],

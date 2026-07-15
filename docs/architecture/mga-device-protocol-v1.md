@@ -26,9 +26,10 @@ The current development implementation includes:
   lifecycle/results, endpoint-bound result validation, and capability checks
 - bounded storage/runtime inventory reported at connection, every 15 minutes,
   and through the manual command using the same client collector
-- transactional ZIP staging/extraction, separate Download/Install progress,
-  schema-2 launch discovery, installed-state persistence, candidate-constrained
-  native launch, and manifest-guarded schema-1/schema-2 uninstall
+- transactional ZIP/7z/RAR staging/extraction, separate Download/Install
+  progress, schema-2 launch discovery, installed-state persistence,
+  candidate-constrained native launch, and manifest-guarded
+  schema-1/schema-2 uninstall
 - per-user Windows build/installer scripts, `mga://pair`, signed short-lived
   `mga://start` browser association, login startup, diagnostics, single-instance
   enforcement, and local unpairing
@@ -222,7 +223,7 @@ reserves these typed families:
 | Client process | stop the current per-user agent | `Manage` |
 | Inventory | `inventory.refresh`; bounded storage/runtime report | `Manage` |
 | Game | `game.launch` implemented; stop reserved | `Play` |
-| Game management | ZIP archive install/uninstall implemented; repair and other formats reserved | `Manage` |
+| Game management | ZIP/7z/RAR archive install/uninstall implemented; repair and executable installers reserved | `Manage` |
 | Emulator | install, uninstall, configure, validate | `Manage` |
 | Client | check update, apply update, restart | `Owner` |
 
@@ -289,6 +290,10 @@ sensitive.
 5. Signed client update manifests, minimum-client-version policy, Authenticode,
    and restricted update/recovery mode.
 6. Whether non-authoritative physical-host display grouping is useful.
+7. A typed installation-reconciliation report/command for detecting managed
+   directories, manifests, or executables removed outside MGA. Connection-time,
+   periodic, and manual checks must share one client filesystem validation path;
+   the server retains history and distinguishes missing from needs-repair.
 
 ## Migration impact
 

@@ -2,6 +2,8 @@ module github.com/GreenFuze/MyGamesAnywhere/server
 
 go 1.25.0
 
+toolchain go1.26.5
+
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/getlantern/systray v1.2.2

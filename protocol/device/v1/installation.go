@@ -14,6 +14,9 @@ const (
 	ArchiveInstallSchemaVersion  uint16 = 1
 	InstallManifestSchemaVersion        = 2
 	DefaultInstallRootTemplate          = `%USERPROFILE%\Games`
+	ArchiveFormatZIP                    = "zip"
+	ArchiveFormat7Z                     = "7z"
+	ArchiveFormatRAR                    = "rar"
 )
 
 // ArchiveInstallRequest is a bounded request to download and install one
@@ -42,8 +45,8 @@ func (r ArchiveInstallRequest) Validate() error {
 			return fmt.Errorf("%s is required", name)
 		}
 	}
-	if strings.ToLower(strings.TrimSpace(r.ArchiveFormat)) != "zip" {
-		return fmt.Errorf("unsupported archive format %q", r.ArchiveFormat)
+	if err := ValidateArchiveFormat(r.ArchiveFormat); err != nil {
+		return err
 	}
 	if r.ArchiveSize == 0 {
 		return errors.New("archive_size must be greater than zero")
@@ -63,6 +66,19 @@ func (r ArchiveInstallRequest) Validate() error {
 		return errors.New("destination_name must be one path segment")
 	}
 	return nil
+}
+
+func NormalizeArchiveFormat(value string) string {
+	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(value), "."))
+}
+
+func ValidateArchiveFormat(value string) error {
+	switch NormalizeArchiveFormat(value) {
+	case ArchiveFormatZIP, ArchiveFormat7Z, ArchiveFormatRAR:
+		return nil
+	default:
+		return fmt.Errorf("unsupported archive format %q", value)
+	}
 }
 
 type ArchiveInstallResult struct {
