@@ -1,8 +1,8 @@
 # ADR-0007: Web-authorized GOG Inno Setup installation
 
-- **Status:** Accepted; implementation in dirty worktree; web-authorized install,
-  crash-after-success, recognition, and failed-cleanup revisions are locked
-  below. The Installed Games shelf is specified separately by ADR-0008.
+- **Status:** Accepted; implementation foundation committed in `1e59e51`;
+  web-authorized install, crash-after-success, and failed-cleanup revisions
+  remain to implement. The Installed Games shelf is specified by ADR-0008.
 - **Date:** 2026-07-15
 - **Scope:** First EXE/BIN installer and prerequisite vertical slice
 - **Note:** ADR = Architecture Decision Record.

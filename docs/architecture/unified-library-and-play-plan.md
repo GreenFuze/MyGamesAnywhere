@@ -23,11 +23,11 @@ are now implemented. See ADR-0004 through ADR-0006. A future profile-owned **My
 Settings** group will hold `%USERPROFILE%\Games` and other player preferences,
 with endpoint and per-action overrides where the target filesystem matters.
 The first native EXE/BIN slice is limited by ADR-0007 to web-authorized, signed
-GOG Inno Setup bundles. Its implementation is present in the dirty
-worktree. The revised architecture uses authenticated web consent with Windows
-UAC only when required; dirty code still needs that no-popup revision plus the
-locked crash-after-success/failed-cleanup work and packaged E2E. ADR-0008
-defines the device-selected Installed Games Play shelf.
+GOG Inno Setup bundles. Its implementation foundation is committed in
+`1e59e51`. The revised architecture uses authenticated web consent with Windows
+UAC only when required; code still needs that no-popup revision plus the locked
+crash-after-success/failed-cleanup work and packaged E2E. ADR-0008 defines the
+device-selected Installed Games Play shelf.
 
 ## Product direction
 

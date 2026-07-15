@@ -232,8 +232,9 @@ or unrestricted process-start command is forbidden.
 
 ### Accepted next command family: GOG Inno Setup
 
-ADR-0007 defines the next typed family; implementation is present in the dirty
-worktree but packaged verification remains incomplete:
+ADR-0007 defines the next typed family; its foundation is committed in
+`1e59e51`, while the locked completion/cleanup revisions and packaged
+verification remain incomplete:
 
 - `game.install_gog_inno`, schema 1, requires `Manage`;
 - `game.uninstall_gog_inno`, schema 1, requires `Manage`;
