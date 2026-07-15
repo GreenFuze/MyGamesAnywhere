@@ -24,14 +24,15 @@ var errStopRequested = errors.New("MGA Client stop requested")
 const inventoryRefreshInterval = 15 * time.Minute
 
 type Agent struct {
-	config     clientconfig.Config
-	privateKey ed25519.PrivateKey
-	buildInfo  buildinfo.Info
-	active     atomic.Int32
-	logger     *log.Logger
-	inventory  InventoryCollector
-	installer  ArchiveInstaller
-	launcher   GameLauncher
+	config       clientconfig.Config
+	privateKey   ed25519.PrivateKey
+	buildInfo    buildinfo.Info
+	active       atomic.Int32
+	logger       *log.Logger
+	inventory    InventoryCollector
+	installer    ArchiveInstaller
+	gogInstaller GogInnoInstaller
+	launcher     GameLauncher
 }
 
 func NewAgent(config clientconfig.Config, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger) (*Agent, error) {
@@ -48,7 +49,15 @@ func NewAgent(config clientconfig.Config, privateKey ed25519.PrivateKey, info bu
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{config: config, privateKey: privateKey, buildInfo: info, logger: logger, inventory: NewLocalInventoryCollector(), installer: installer, launcher: NewWindowsGameLauncher()}, nil
+	gogInstaller, err := newPlatformGogInnoInstaller(config.ServerURL)
+	if err != nil {
+		return nil, err
+	}
+	return &Agent{
+		config: config, privateKey: privateKey, buildInfo: info, logger: logger,
+		inventory: NewLocalInventoryCollector(), installer: installer, gogInstaller: gogInstaller,
+		launcher: NewWindowsGameLauncher(),
+	}, nil
 }
 
 func (a *Agent) Run(ctx context.Context) error {
@@ -253,7 +262,7 @@ func (a *Agent) handleCommand(ctx context.Context, writer *deviceWriter, request
 	}
 	payload, stopAgent, errorCode, commandErr := a.executeEndpointCommand(ctx, request.CommandID, request.Name, request.Payload, report)
 	if commandErr != nil {
-		return a.writeFailedResult(ctx, writer, request.CommandID, correlationID, errorCode, commandErr)
+		return a.writeFailedResult(ctx, writer, request.CommandID, correlationID, errorCode, commandErr, payload)
 	}
 	rawPayload, err := json.Marshal(payload)
 	if err != nil {
@@ -320,6 +329,34 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 			return nil, false, "uninstall_failed", err
 		}
 		return result, false, "", nil
+	case devicev1.CapabilityGameInstallGogInno:
+		if a.gogInstaller == nil {
+			return nil, false, "unsupported_installer", errors.New("GOG Inno installer is unavailable")
+		}
+		var request devicev1.GogInnoInstallRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.gogInstaller.Install(ctx, commandID, request, report)
+		if err != nil {
+			code, payload := gogCommandFailure(err, "install_failed")
+			return payload, false, code, err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilityGameUninstallGogInno:
+		if a.gogInstaller == nil {
+			return nil, false, "unsupported_installer", errors.New("GOG Inno installer is unavailable")
+		}
+		var request devicev1.GogInnoUninstallRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.gogInstaller.Uninstall(ctx, request, report)
+		if err != nil {
+			code, payload := gogCommandFailure(err, "uninstall_failed")
+			return payload, false, code, err
+		}
+		return result, false, "", nil
 	case devicev1.CapabilityGameLaunch:
 		if a.launcher == nil {
 			return nil, false, "launcher_unavailable", errors.New("game launcher is unavailable")
@@ -338,13 +375,31 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 	}
 }
 
-func (a *Agent) writeFailedResult(ctx context.Context, writer *deviceWriter, commandID, correlationID, code string, commandErr error) error {
+func (a *Agent) writeFailedResult(ctx context.Context, writer *deviceWriter, commandID, correlationID, code string, commandErr error, payload any) error {
 	result := devicev1.CommandResult{
 		CommandID: commandID,
 		Status:    devicev1.CommandFailed,
 		Error:     &devicev1.ProtocolError{Code: code, Message: commandErr.Error()},
 	}
+	if payload != nil {
+		rawPayload, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		result.Payload = rawPayload
+	}
 	return writer.WriteMessage(ctx, devicev1.MessageCommandResult, uuid.NewString(), correlationID, result)
+}
+
+func gogCommandFailure(err error, fallbackCode string) (string, any) {
+	var commandError *GogInnoCommandError
+	if errors.As(err, &commandError) {
+		if commandError.Payload != nil {
+			return commandError.Code, commandError.Payload
+		}
+		return commandError.Code, nil
+	}
+	return fallbackCode, nil
 }
 
 type deviceWriter struct {

@@ -15,9 +15,11 @@ const (
 	CapabilityEndpointRefresh    = "endpoint.refresh"
 	CapabilityEndpointStop       = "endpoint.stop"
 	CapabilityInventoryRefresh   = "inventory.refresh"
-	CapabilityGameInstallArchive = "game.install_archive"
-	CapabilityGameUninstall      = "game.uninstall"
-	CapabilityGameLaunch         = "game.launch"
+	CapabilityGameInstallArchive   = "game.install_archive"
+	CapabilityGameUninstall        = "game.uninstall"
+	CapabilityGameInstallGogInno   = "game.install_gog_inno"
+	CapabilityGameUninstallGogInno = "game.uninstall_gog_inno"
+	CapabilityGameLaunch           = "game.launch"
 )
 
 // EndpointMetadata describes one OS-user client installation. These fields are

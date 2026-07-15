@@ -22,6 +22,12 @@ identity, bounded device inventory, and managed ZIP/7z/RAR installation slices
 are now implemented. See ADR-0004 through ADR-0006. A future profile-owned **My
 Settings** group will hold `%USERPROFILE%\Games` and other player preferences,
 with endpoint and per-action overrides where the target filesystem matters.
+The first native EXE/BIN slice is limited by ADR-0007 to web-authorized, signed
+GOG Inno Setup bundles. Its implementation is present in the dirty
+worktree. The revised architecture uses authenticated web consent with Windows
+UAC only when required; dirty code still needs that no-popup revision plus the
+locked crash-after-success/failed-cleanup work and packaged E2E. ADR-0008
+defines the device-selected Installed Games Play shelf.
 
 ## Product direction
 
@@ -279,6 +285,15 @@ Forget without deleting unrelated files or saves. This reconciliation is
 planned, not implemented, and requires a typed protocol addition plus a
 versioned server migration.
 
+A true GOG installer failure is not silently accepted and is not immediately
+deleted. A valid command-owned marker produces **Cleanup required** with
+**Clean up**, **Retry**, and **Ignore**. Cleanup uses the publisher uninstaller
+first and may delete only the exact marked destination when that boundary is
+provable; Ignore leaves files, blocks Play, and remains reversible. The exact
+GOG post-success `0xC000041D` deinit crash is Installed only with the success-log
+sentinel and full post-install validation. These policies are locked in
+ADR-0007; generic rollback remains forbidden.
+
 ### Save discovery and sync
 
 1. A route or integration proposes local save locations and a Save Domain.
@@ -336,6 +351,11 @@ overlap because each answers a different player question:
 
 A game can appear in several shelves when it has several valid routes. Installed
 and browser-play are route filters, not mutually exclusive game types.
+
+ADR-0008 makes **Installed Games** for the browser/profile's explicitly
+selected device the first root Play shelf, followed by Continue Playing and the
+existing route/custom shelves. It never aggregates devices or treats
+attention/missing installations as installed.
 
 ### Badges
 
@@ -439,8 +459,8 @@ events, error model, tests, and player-facing UI together.
   a deliberate mixture.
 - The default play-route preference order and whether it is global,
   profile-specific, or remembered per game.
-- The first native installer/package formats and prerequisite types supported by
-  the client.
+- Installer families and standalone prerequisite types beyond the accepted
+  ADR-0007 signed GOG Inno slice.
 - The default save conflict policy and retention count.
 - Whether save-domain compatibility can be community/provider supplied or only
   MGA-maintained and user-confirmed in the first version.

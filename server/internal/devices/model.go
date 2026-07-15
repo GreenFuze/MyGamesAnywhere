@@ -92,18 +92,26 @@ type Command struct {
 }
 
 type GameInstallation struct {
-	EndpointID       string    `json:"endpoint_id"`
-	GameID           string    `json:"game_id"`
-	SourceGameID     string    `json:"source_game_id"`
-	ProfileID        string    `json:"profile_id"`
-	InstallRoot      string    `json:"install_root"`
-	InstallPath      string    `json:"install_path"`
-	ArchiveSHA256    string    `json:"archive_sha256"`
-	ArchiveBytes     uint64    `json:"archive_bytes"`
-	InstalledAt      time.Time `json:"installed_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
-	LaunchTarget     string    `json:"launch_target,omitempty"`
-	LaunchCandidates []string  `json:"launch_candidates,omitempty"`
+	EndpointID       string                     `json:"endpoint_id"`
+	GameID           string                     `json:"game_id"`
+	SourceGameID     string                     `json:"source_game_id"`
+	ProfileID        string                     `json:"profile_id"`
+	InstallRoot      string                     `json:"install_root"`
+	InstallPath      string                     `json:"install_path"`
+	ArchiveSHA256    string                     `json:"archive_sha256"`
+	ArchiveBytes     uint64                     `json:"archive_bytes"`
+	InstalledAt      time.Time                  `json:"installed_at"`
+	UpdatedAt        time.Time                  `json:"updated_at"`
+	LaunchTarget     string                     `json:"launch_target,omitempty"`
+	LaunchCandidates []string                   `json:"launch_candidates,omitempty"`
+	InstallKind      string                     `json:"install_kind"`
+	InstallerFamily  string                     `json:"installer_family,omitempty"`
+	InstallerFiles   []devicev1.GogInnoPackageFile `json:"installer_files,omitempty"`
+	UninstallTarget  string                     `json:"uninstall_target,omitempty"`
+	InstallState     string                     `json:"install_state"`
+	StateReason      string                     `json:"state_reason,omitempty"`
+	LastVerifiedAt   *time.Time                 `json:"last_verified_at,omitempty"`
+	StateChangedAt   *time.Time                 `json:"state_changed_at,omitempty"`
 }
 
 type Store interface {

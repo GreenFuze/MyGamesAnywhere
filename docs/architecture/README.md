@@ -1,7 +1,7 @@
 # MGA Architecture Decisions
 
 > **Current implementation status:** Before continuing the active dirty worktree,
-> read [`../handoffs/2026-07-15-cursor-handoff.md`](../handoffs/2026-07-15-cursor-handoff.md).
+> read [`../handoffs/2026-07-15-codex-return-handoff.md`](../handoffs/2026-07-15-codex-return-handoff.md).
 > That dated handoff is authoritative for live status, verification gaps, and next
 > actions. ADRs here remain authoritative for accepted design; older roadmaps and
 > release pages are not current implementation status.
@@ -17,6 +17,8 @@ cross the server, web interface, and device agent boundaries.
 - [ADR-0004: Conservative version-aware game identity](0004-version-aware-game-identity.md)
 - [ADR-0005: Bounded device inventory and game availability](0005-device-inventory-and-game-availability.md)
 - [ADR-0006: Managed archive installation](0006-managed-archive-installation.md)
+- [ADR-0007: Web-authorized GOG Inno Setup installation](0007-locally-confirmed-gog-inno-installation.md)
+- [ADR-0008: Device-selected Installed Games Play shelf](0008-device-selected-installed-games-shelf.md)
 
 ## Protocols
 
@@ -24,7 +26,7 @@ cross the server, web interface, and device agent boundaries.
 
 ## Working product architecture
 
-- [Agent responsibility and escalation boundary](agent-responsibility-boundary.md)
+- [Decision responsibility and escalation boundary](agent-responsibility-boundary.md)
 - [Unified library, play, installation, and save plan](unified-library-and-play-plan.md)
 - [Player-facing language and information architecture](player-facing-language.md)
 

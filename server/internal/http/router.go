@@ -111,6 +111,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Post("/devices/{id}/commands", b.DeviceCtrl.DispatchCommand)
 				r.Get("/devices/{id}/commands", b.DeviceCtrl.ListCommands)
 				r.Post("/devices/{id}/games/{game_id}/install-archive", b.DeviceCtrl.InstallArchive)
+				r.Post("/devices/{id}/games/{game_id}/install-gog-inno", b.DeviceCtrl.InstallGogInno)
 				r.Post("/devices/{id}/games/{game_id}/sources/{source_game_id}/uninstall", b.DeviceCtrl.UninstallGame)
 				r.Post("/devices/{id}/games/{game_id}/sources/{source_game_id}/launch", b.DeviceCtrl.LaunchGame)
 				r.Put("/devices/{id}/games/{game_id}/sources/{source_game_id}/launch-target", b.DeviceCtrl.SetLaunchTarget)

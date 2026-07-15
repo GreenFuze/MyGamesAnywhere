@@ -3,6 +3,7 @@ package clientapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -56,5 +57,53 @@ func TestAgentCollectsTypedDeviceInventory(t *testing.T) {
 	inventory, ok := payload.(devicev1.DeviceInventory)
 	if !ok || len(inventory.Storage) != 1 {
 		t.Fatalf("inventory payload = %#v", payload)
+	}
+}
+
+type testGogInnoInstaller struct {
+	installResult devicev1.GogInnoInstallResult
+	installErr    error
+}
+
+func (i testGogInnoInstaller) Install(context.Context, string, devicev1.GogInnoInstallRequest, CommandProgressReporter) (devicev1.GogInnoInstallResult, error) {
+	return i.installResult, i.installErr
+}
+
+func (testGogInnoInstaller) Uninstall(context.Context, devicev1.GogInnoUninstallRequest, CommandProgressReporter) (devicev1.GogInnoUninstallResult, error) {
+	return devicev1.GogInnoUninstallResult{}, nil
+}
+
+func TestAgentReturnsTypedGogInnoFailureWithPartialPayload(t *testing.T) {
+	t.Parallel()
+	partial := devicev1.GogInnoInstallResult{GameID: "game", SourceGameID: "source", ProcessID: 4242}
+	commandErr := &GogInnoCommandError{Code: "installer_timeout", Message: "installer may still be running", Payload: partial}
+	agent := &Agent{gogInstaller: testGogInnoInstaller{installResult: partial, installErr: commandErr}}
+	raw, err := json.Marshal(devicev1.GogInnoInstallRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, stop, code, err := agent.executeEndpointCommand(
+		context.Background(), "command-1", devicev1.CapabilityGameInstallGogInno, raw, nil,
+	)
+	if !errors.Is(err, commandErr) || stop || code != "installer_timeout" {
+		t.Fatalf("executeEndpointCommand() stop=%t code=%q error=%v", stop, code, err)
+	}
+	result, ok := payload.(devicev1.GogInnoInstallResult)
+	if !ok || result.ProcessID != 4242 {
+		t.Fatalf("partial payload = %#v", payload)
+	}
+}
+
+func TestLocalMetadataAdvertisesGogInnoCommands(t *testing.T) {
+	metadata, err := localMetadata("Test device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	capabilities := make(map[string]bool, len(metadata.Capabilities))
+	for _, capability := range metadata.Capabilities {
+		capabilities[capability] = true
+	}
+	if !capabilities[devicev1.CapabilityGameInstallGogInno] || !capabilities[devicev1.CapabilityGameUninstallGogInno] {
+		t.Fatalf("capabilities = %v", metadata.Capabilities)
 	}
 }

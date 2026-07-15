@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 16
+const latestMigrationVersion = 17
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -345,6 +345,20 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 				`ALTER TABLE device_commands ADD COLUMN progress_stage_percent INTEGER;`,
 				`ALTER TABLE device_game_installations ADD COLUMN launch_target TEXT;`,
 				`ALTER TABLE device_game_installations ADD COLUMN launch_candidates_json TEXT NOT NULL DEFAULT '[]';`,
+			},
+		},
+		{
+			Version: 17,
+			Name:    "executable_installation_state",
+			SQL: []string{
+				`ALTER TABLE device_game_installations ADD COLUMN install_kind TEXT NOT NULL DEFAULT 'managed_archive';`,
+				`ALTER TABLE device_game_installations ADD COLUMN installer_family TEXT;`,
+				`ALTER TABLE device_game_installations ADD COLUMN installer_files_json TEXT NOT NULL DEFAULT '[]';`,
+				`ALTER TABLE device_game_installations ADD COLUMN uninstall_target TEXT;`,
+				`ALTER TABLE device_game_installations ADD COLUMN install_state TEXT NOT NULL DEFAULT 'installed';`,
+				`ALTER TABLE device_game_installations ADD COLUMN state_reason TEXT;`,
+				`ALTER TABLE device_game_installations ADD COLUMN last_verified_at INTEGER;`,
+				`ALTER TABLE device_game_installations ADD COLUMN state_changed_at INTEGER;`,
 			},
 		},
 	}

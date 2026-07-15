@@ -393,6 +393,8 @@ func localMetadata(displayName string) (devicev1.EndpointMetadata, error) {
 			devicev1.CapabilityEndpointStop,
 			devicev1.CapabilityGameInstallArchive,
 			devicev1.CapabilityGameUninstall,
+			devicev1.CapabilityGameInstallGogInno,
+			devicev1.CapabilityGameUninstallGogInno,
 			devicev1.CapabilityGameLaunch,
 			devicev1.CapabilityInventoryRefresh,
 		},

@@ -24,6 +24,7 @@ import {
   getGame,
   getGameAchievements,
   installArchiveOnDevice,
+  installGogInnoOnDevice,
 	launchGameOnDevice,
   listDeviceCommands,
   mergeSourceGameCanonical,
@@ -37,6 +38,7 @@ import {
   type CanonicalGameSearchResult,
   type CanonicalGroupingResponse,
   type DeleteSourceGameResponse,
+  type DeviceCommand,
   type ExternalIDDTO,
   type GameLaunchOptionDTO,
   type GameMediaDetailDTO,
@@ -157,22 +159,23 @@ function deviceSetupLabel(status: string, runtime?: string): string {
   }
 }
 
-type ArchiveInstallChoice = {
+type DeviceInstallChoice = {
   deviceId: string
   deviceName: string
   sourceGameId: string
   sourceLabel: string
-  archiveName: string
+  packageName: string
+  installKind: 'managed_archive' | 'gog_inno'
 }
 
-function DeviceArchiveInstallDialog({
+function DeviceInstallDialog({
   choice,
   busy,
   error,
   onClose,
   onInstall,
 }: {
-  choice: ArchiveInstallChoice | null
+  choice: DeviceInstallChoice | null
   busy: boolean
   error: string
   onClose: () => void
@@ -190,7 +193,7 @@ function DeviceArchiveInstallDialog({
         <div className="space-y-4">
           <div className="rounded-mga border border-mga-border bg-mga-bg/60 p-3 text-sm">
             <p className="font-semibold text-mga-text">{choice.deviceName}</p>
-            <p className="mt-1 text-xs text-mga-muted">{choice.sourceLabel} · {choice.archiveName}</p>
+            <p className="mt-1 text-xs text-mga-muted">{choice.sourceLabel} · {choice.packageName}</p>
           </div>
           <Input
             label="Install folder"
@@ -200,7 +203,9 @@ function DeviceArchiveInstallDialog({
             placeholder="%USERPROFILE%\\Games"
           />
           <p className="text-xs leading-5 text-mga-muted">
-            Environment variables are expanded by MGA Client for the selected Windows user. This installation can override your future profile default.
+            {choice.installKind === 'gog_inno'
+              ? `MGA Client on ${choice.deviceName} will verify the installer’s GOG publisher signature and Inno Setup shape before asking you to approve. Windows may also ask for permission.`
+              : 'Environment variables are expanded by MGA Client for the selected Windows user. This installation can override your future profile default.'}
           </p>
           {error ? <p className="text-sm text-red-400">{error}</p> : null}
           <div className="flex justify-end gap-2">
@@ -214,6 +219,143 @@ function DeviceArchiveInstallDialog({
       ) : null}
     </Dialog>
   )
+}
+
+function fileBasename(path: string): string {
+  return path.split(/[\\/]/).pop() || path
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function gogInnoPackage(source: SourceGameDetailDTO): { installerName: string; companionCount: number } | null {
+  if (source.kind.toLowerCase() !== 'base_game') return null
+
+  const executableFiles = source.files.filter((file) => /\.exe$/i.test(fileBasename(file.path)))
+  const installers = executableFiles.filter((file) => /^setup_.+\.exe$/i.test(fileBasename(file.path)))
+  if (executableFiles.length !== 1 || installers.length !== 1) return null
+
+  const installerName = fileBasename(installers[0].path)
+  const setupStem = installerName.replace(/\.exe$/i, '')
+  const companionPattern = new RegExp(`^${escapeRegExp(setupStem)}-\\d+\\.bin$`, 'i')
+  const binaryFiles = source.files.filter((file) => /\.bin$/i.test(fileBasename(file.path)))
+  if (binaryFiles.some((file) => !companionPattern.test(fileBasename(file.path)))) return null
+  const companionCount = binaryFiles.length
+  return { installerName, companionCount }
+}
+
+function commandProgressMessage(command: DeviceCommand, deviceName: string): string {
+  if (command.name !== 'game.install_gog_inno') {
+    return command.progress_message || humanizeValue(command.status)
+  }
+
+  const progress = `${command.progress_phase ?? ''} ${command.progress_message ?? ''}`.toLowerCase()
+  if (/confirm|approve/.test(progress)) return `Approve on ${deviceName}`
+  if (/windows permission|uac|elevat/.test(progress)) return 'Waiting for Windows permission'
+  if (/installer.?running|running installer|process.?running/.test(progress)) return 'Installer running'
+  if (/verif|signature|publisher/.test(progress)) return 'Verifying publisher'
+  if (/download|transfer/.test(progress)) return 'Downloading installer'
+  if (/checking|validat|finaliz|launch target/.test(progress)) return 'Checking installed game'
+  if (/prepar|staging/.test(progress)) return 'Preparing installer'
+  if (command.status === 'succeeded') return 'Installed'
+  if (['failed', 'rejected', 'canceled', 'expired'].includes(command.status)) return "Couldn't install"
+  return command.progress_message || 'Preparing installer'
+}
+
+function extractInstallerExitCode(message: string | undefined): string | null {
+  if (!message) return null
+  const hex = message.match(/0x[0-9a-fA-F]{8}/)
+  if (hex) return hex[0].toUpperCase()
+  const decimal = message.match(/exited with code (-?\d+)/i)
+  if (!decimal) return null
+  const value = Number(decimal[1])
+  if (!Number.isFinite(value)) return decimal[1]
+  return `0x${(value >>> 0).toString(16).toUpperCase().padStart(8, '0')}`
+}
+
+function gogInstallErrorMessage(code: string | undefined, message: string | undefined, deviceName: string): string {
+  const detail = `${code ?? ''} ${message ?? ''}`.toLowerCase()
+  const exitCode = extractInstallerExitCode(message)
+  if (/invalid_installer_signature|signature|publisher/.test(detail)) {
+    return "This installer isn’t a verified GOG package. MGA won’t run it."
+  }
+  if (/unsupported_installer|invalid_companion_set|unsupported package/.test(detail)) {
+    return "This installer isn’t supported yet (wrong shape, missing parts, or not Inno Setup)."
+  }
+  if (/local_confirmation_declined/.test(detail)) {
+    return `Installation was canceled on ${deviceName}.`
+  }
+  if (/local_confirmation_timeout/.test(detail)) {
+    return `Approval timed out on ${deviceName}. Try Install again when you can approve it on the device.`
+  }
+  if (/uac_declined/.test(detail)) {
+    return `Windows permission wasn’t approved on ${deviceName}.`
+  }
+  if (/installer_timeout/.test(detail)) {
+    return `The installer may still be running on ${deviceName}. Check the device before trying again.`
+  }
+  if (/installer_start_failed/.test(detail)) {
+    return `MGA couldn’t start the installer on ${deviceName}.`
+  }
+  if (/installer_exit_nonzero/.test(detail)) {
+    return exitCode
+      ? `The installer on ${deviceName} finished with an error (${exitCode}). Files may be incomplete — check that device before trying again.`
+      : `The installer on ${deviceName} finished with an error. Files may be incomplete — check that device before trying again.`
+  }
+  if (/install_validation_failed|uninstaller_missing/.test(detail)) {
+    return `The installer ran on ${deviceName}, but MGA couldn’t confirm a complete install (missing game folder or uninstaller). Check the device before trying again.`
+  }
+  if (/uninstaller_mismatch/.test(detail)) {
+    return `MGA couldn’t verify this game’s uninstaller on ${deviceName}.`
+  }
+  if (/uninstaller_exit_nonzero/.test(detail)) {
+    return exitCode
+      ? `The game’s uninstaller couldn’t finish on ${deviceName} (${exitCode}). Saves and settings may remain.`
+      : `The game’s uninstaller couldn’t finish on ${deviceName}. Saves and settings may remain.`
+  }
+  return message || "MGA couldn’t install this game."
+}
+
+function apiErrorDetail(error: unknown): { code?: string; message?: string } {
+  if (error instanceof ApiError && error.responseText) {
+    try {
+      const parsed = JSON.parse(error.responseText) as { error?: string; error_code?: string; message?: string }
+      return { code: parsed.error_code || parsed.error, message: parsed.message }
+    } catch {
+      return { message: error.responseText }
+    }
+  }
+  return { message: error instanceof Error ? error.message : undefined }
+}
+
+function attentionRequiredMessage(reason: string | undefined, deviceName: string): string {
+  const detail = (reason ?? '').toLowerCase()
+  const exitCode = extractInstallerExitCode(reason)
+  if (/timeout|still_running|unknown.*outcome|connection|restart/.test(detail)) {
+    return `The installer may still be running on ${deviceName}. Check the device before trying again.`
+  }
+  if (/invalid_installer_signature|signature|publisher/.test(detail)) {
+    return `This installer wasn’t a verified GOG package on ${deviceName}. MGA did not treat it as installed.`
+  }
+  if (/unsupported_installer|invalid_companion_set/.test(detail)) {
+    return `This installer isn’t supported on ${deviceName}. MGA did not treat it as installed.`
+  }
+  if (/installer_exit_nonzero/.test(detail)) {
+    return exitCode
+      ? `The installer on ${deviceName} reported an error (${exitCode}). Files may be incomplete — check the device before playing or trying again.`
+      : `The installer on ${deviceName} reported an error. Files may be incomplete — check the device before playing or trying again.`
+  }
+  if (/install_validation_failed|uninstaller_missing/.test(detail)) {
+    return `Install on ${deviceName} didn’t look complete (missing game folder or uninstaller). Check the device before playing or trying again.`
+  }
+  if (/uac_declined|local_confirmation/.test(detail)) {
+    return `Installation didn’t finish on ${deviceName} because approval was declined or timed out.`
+  }
+  if (reason?.trim()) {
+    return `This installation needs attention on ${deviceName}: ${reason.trim()}`
+  }
+  return `This installation needs attention on ${deviceName}. Check the device before playing or trying again.`
 }
 
 function humanizeValue(value: string): string {
@@ -1248,8 +1390,8 @@ export function GameDetailPage() {
   const [groupingError, setGroupingError] = useState('')
   const [groupingNotice, setGroupingNotice] = useState('')
   const [showFloatingActions, setShowFloatingActions] = useState(false)
-  const [archiveInstallChoice, setArchiveInstallChoice] = useState<ArchiveInstallChoice | null>(null)
-  const [uninstallChoice, setUninstallChoice] = useState<{ deviceId: string; deviceName: string; sourceGameId: string } | null>(null)
+  const [installChoice, setInstallChoice] = useState<DeviceInstallChoice | null>(null)
+  const [uninstallChoice, setUninstallChoice] = useState<{ deviceId: string; deviceName: string; sourceGameId: string; installKind?: string } | null>(null)
   const [activeDeviceCommand, setActiveDeviceCommand] = useState<{ deviceId: string; commandId: string } | null>(null)
   const [installError, setInstallError] = useState('')
   const hasRetried404Ref = useRef(false)
@@ -1295,15 +1437,24 @@ export function GameDetailPage() {
     },
   })
   const trackedCommand = deviceCommands.data?.find((item) => item.id === activeDeviceCommand?.commandId)
-  const installArchive = useMutation({
-    mutationFn: ({ choice, root }: { choice: ArchiveInstallChoice; root: string }) =>
-      installArchiveOnDevice(choice.deviceId, id, choice.sourceGameId, root),
+  const installGame = useMutation({
+    mutationFn: ({ choice, root }: { choice: DeviceInstallChoice; root: string }) =>
+      choice.installKind === 'gog_inno'
+        ? installGogInnoOnDevice(choice.deviceId, id, choice.sourceGameId, root)
+        : installArchiveOnDevice(choice.deviceId, id, choice.sourceGameId, root),
     onSuccess: (command, variables) => {
-      setArchiveInstallChoice(null)
+      setInstallChoice(null)
       setInstallError('')
       setActiveDeviceCommand({ deviceId: variables.choice.deviceId, commandId: command.id })
     },
-    onError: (error) => setInstallError(error instanceof Error ? error.message : 'Could not start installation.'),
+    onError: (error, variables) => {
+      const detail = apiErrorDetail(error)
+      setInstallError(
+        variables.choice.installKind === 'gog_inno'
+          ? gogInstallErrorMessage(detail.code, detail.message, variables.choice.deviceName)
+          : (detail.message || 'Could not start installation.'),
+      )
+    },
   })
   const uninstallGame = useMutation({
     mutationFn: ({ deviceId, sourceGameId }: { deviceId: string; sourceGameId: string }) =>
@@ -1401,6 +1552,13 @@ export function GameDetailPage() {
     () => (gameData?.source_games ?? []).flatMap((source) => {
       const archives = source.files.filter((file) => /\.(zip|7z|rar)$/i.test(file.path))
       return archives.length === 1 ? [{ source, archive: archives[0] }] : []
+    }),
+    [gameData?.source_games],
+  )
+  const gogInnoSources = useMemo(
+    () => (gameData?.source_games ?? []).flatMap((source) => {
+      const packageInfo = gogInnoPackage(source)
+      return packageInfo ? [{ source, packageInfo }] : []
     }),
     [gameData?.source_games],
   )
@@ -2036,7 +2194,12 @@ export function GameDetailPage() {
 				  const installPercent = commandHere?.status === 'succeeded'
 					? 100
 					: commandHere?.progress_stage === 'install' ? (commandHere.progress_stage_percent ?? 0) : 0
-				  const isInstallCommand = commandHere?.name === 'game.install_archive'
+				  const isInstallCommand = commandHere?.name === 'game.install_archive' || commandHere?.name === 'game.install_gog_inno'
+				  const isGogInstallCommand = commandHere?.name === 'game.install_gog_inno'
+				  const isGogCommand = isGogInstallCommand || commandHere?.name === 'game.uninstall_gog_inno'
+				  const progressText = commandHere ? commandProgressMessage(commandHere, device.display_name) : ''
+				  const installerRunning = Boolean(isGogInstallCommand && /installer running/i.test(progressText))
+				  const attentionRequired = device.install_state === 'attention_required'
 					  return (
 						<div key={device.device_id} className="rounded-[14px] bg-white/[0.04] px-3 py-2.5">
 						  <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2052,7 +2215,7 @@ export function GameDetailPage() {
 								<>
 								  <Button
 									size="sm"
-									disabled={!device.connected || !device.can_play || !device.launch_supported || !device.launch_target || launchGame.isPending || Boolean(activeHere)}
+									disabled={attentionRequired || !device.connected || !device.can_play || !device.launch_supported || !device.launch_target || launchGame.isPending || Boolean(activeHere)}
 									onClick={() => launchGame.mutate({ deviceId: device.device_id, sourceGameId: device.installed_source_id! })}
 								  >
 									<PlayCircle size={14} /> Play
@@ -2065,30 +2228,56 @@ export function GameDetailPage() {
 									  deviceId: device.device_id,
 									  deviceName: device.display_name,
 									  sourceGameId: device.installed_source_id!,
+									  installKind: device.install_kind,
 									})}
 								  >
 									<Trash2 size={14} /> Uninstall
 								  </Button>
 								</>
-							  ) : archiveSources.map(({ source, archive }) => (
-								<Button
-								  key={source.id}
-								  size="sm"
-								  disabled={!device.connected || !device.can_manage || !device.archive_install_supported || device.status === 'update_required' || Boolean(activeHere)}
-								  onClick={() => {
-									setInstallError('')
-									setArchiveInstallChoice({
-									  deviceId: device.device_id,
-									  deviceName: device.display_name,
-									  sourceGameId: source.id,
-									  sourceLabel: source.integration_label || source.integration_id,
-									  archiveName: archive.path.split('/').pop() || archive.path,
-									})
-								  }}
-								>
-								  <Download size={14} /> Install{archiveSources.length > 1 ? ` · ${source.integration_label || source.raw_title}` : ''}
-								</Button>
-							  ))}
+							  ) : (
+								<>
+								  {gogInnoSources.map(({ source, packageInfo }) => (
+									<Button
+									  key={`gog-inno-${source.id}`}
+									  size="sm"
+									  disabled={!device.connected || !device.can_manage || !device.gog_inno_install_supported || device.status === 'update_required' || Boolean(activeHere)}
+									  onClick={() => {
+										setInstallError('')
+										setInstallChoice({
+										  deviceId: device.device_id,
+										  deviceName: device.display_name,
+										  sourceGameId: source.id,
+										  sourceLabel: source.integration_label || source.integration_id,
+										  packageName: `${packageInfo.installerName}${packageInfo.companionCount ? ` + ${packageInfo.companionCount} part${packageInfo.companionCount === 1 ? '' : 's'}` : ''}`,
+										  installKind: 'gog_inno',
+										})
+									  }}
+									>
+									  <Download size={14} /> Install{gogInnoSources.length > 1 ? ` · ${source.integration_label || source.raw_title}` : ''}
+									</Button>
+								  ))}
+								  {archiveSources.map(({ source, archive }) => (
+									<Button
+									  key={`archive-${source.id}`}
+									  size="sm"
+									  disabled={!device.connected || !device.can_manage || !device.archive_install_supported || device.status === 'update_required' || Boolean(activeHere)}
+									  onClick={() => {
+										setInstallError('')
+										setInstallChoice({
+										  deviceId: device.device_id,
+										  deviceName: device.display_name,
+										  sourceGameId: source.id,
+										  sourceLabel: source.integration_label || source.integration_id,
+										  packageName: fileBasename(archive.path),
+										  installKind: 'managed_archive',
+										})
+									  }}
+									>
+									  <Download size={14} /> Install{archiveSources.length > 1 ? ` · ${source.integration_label || source.raw_title}` : ''}
+									</Button>
+								  ))}
+								</>
+							  )}
 							</div>
 						  </div>
 						  {device.installed && device.installed_source_id && device.launch_candidates && device.launch_candidates.length > 1 ? (
@@ -2105,18 +2294,23 @@ export function GameDetailPage() {
 							  </select>
 							</label>
 						  ) : null}
+						  {attentionRequired ? (
+							<p className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
+							  {attentionRequiredMessage(device.state_reason, device.display_name)}
+							</p>
+						  ) : null}
 						  {commandHere ? (
 							<div className="mt-2">
-							  <div className="flex justify-between gap-3 text-xs text-white/58"><span>{commandHere.progress_message || humanizeValue(commandHere.status)}</span><span>{commandHere.progress_percent ?? 0}%</span></div>
+							  <div className="flex justify-between gap-3 text-xs text-white/58"><span>{progressText}</span><span>{installerRunning ? 'In progress' : `${commandHere.progress_percent ?? 0}%`}</span></div>
 							  {isInstallCommand ? (
 								<div className="mt-2 space-y-2">
 								  <div><div className="mb-1 flex justify-between text-[11px] text-sky-200/80"><span>Download</span><span>{downloadPercent}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-sky-400 transition-[width]" style={{ width: `${downloadPercent}%` }} /></div></div>
-								  <div><div className="mb-1 flex justify-between text-[11px] text-purple-200/80"><span>Install</span><span>{installPercent}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-purple-500 transition-[width]" style={{ width: `${installPercent}%` }} /></div></div>
+								  <div><div className="mb-1 flex justify-between text-[11px] text-purple-200/80"><span>Install</span><span>{installerRunning ? 'In progress' : `${installPercent}%`}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-black/30">{installerRunning ? <div className="h-full w-full animate-pulse rounded-full bg-purple-500/80" /> : <div className="h-full rounded-full bg-purple-500 transition-[width]" style={{ width: `${installPercent}%` }} />}</div></div>
 								</div>
 							  ) : (
 								<div className="mt-1 h-1.5 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-mga-accent transition-[width]" style={{ width: `${commandHere.progress_percent ?? 0}%` }} /></div>
 							  )}
-							  {commandHere.error_message ? <p className="mt-1 text-xs text-red-300">{commandHere.error_message}</p> : null}
+							  {commandHere.error_code || commandHere.error_message ? <p className="mt-1 text-xs text-red-300">{isGogCommand ? gogInstallErrorMessage(commandHere.error_code, commandHere.error_message, device.display_name) : (commandHere.error_message || humanizeValue(commandHere.error_code!))}</p> : null}
 							  {launchGame.isError ? <p className="mt-1 text-xs text-red-300">{launchGame.error instanceof Error ? launchGame.error.message : 'Could not start the game.'}</p> : null}
 							</div>
 						  ) : null}
@@ -2343,13 +2537,13 @@ export function GameDetailPage() {
       </div>
 
       <MediaViewerDialog media={selectedMedia} onClose={() => setSelectedMedia(null)} />
-      <DeviceArchiveInstallDialog
-        choice={archiveInstallChoice}
-        busy={installArchive.isPending}
+      <DeviceInstallDialog
+        choice={installChoice}
+        busy={installGame.isPending}
         error={installError}
-        onClose={() => setArchiveInstallChoice(null)}
+        onClose={() => setInstallChoice(null)}
         onInstall={(root) => {
-          if (archiveInstallChoice) installArchive.mutate({ choice: archiveInstallChoice, root })
+          if (installChoice) installGame.mutate({ choice: installChoice, root })
         }}
       />
       <Dialog
@@ -2362,7 +2556,10 @@ export function GameDetailPage() {
         <div className="space-y-4">
           <p className="text-sm leading-6 text-mga-muted">
             Remove <span className="font-semibold text-mga-text">{data.title}</span> from{' '}
-            <span className="font-semibold text-mga-text">{uninstallChoice?.deviceName}</span>? MGA will remove only the managed installation folder recorded by the client.
+            <span className="font-semibold text-mga-text">{uninstallChoice?.deviceName}</span>?
+            {uninstallChoice?.installKind === 'gog_inno'
+              ? ' The game’s installer will remove the game. Saves and settings may remain.'
+              : ' MGA will remove only the managed installation folder recorded by the client.'}
           </p>
           {uninstallGame.isError ? (
             <p className="text-sm text-red-300">

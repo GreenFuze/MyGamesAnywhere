@@ -230,6 +230,49 @@ reserves these typed families:
 Each concrete command is independently allow-listed. A generic `shell`, `exec`,
 or unrestricted process-start command is forbidden.
 
+### Accepted next command family: GOG Inno Setup
+
+ADR-0007 defines the next typed family; implementation is present in the dirty
+worktree but packaged verification remains incomplete:
+
+- `game.install_gog_inno`, schema 1, requires `Manage`;
+- `game.uninstall_gog_inno`, schema 1, requires `Manage`;
+- `game.cleanup_gog_inno_failed`, schema 1, requires `Manage`.
+
+The install request identifies one server-resolved signed GOG `setup_*.exe`,
+zero or more matching `setup_*-N.bin` companions, game/source identity, and
+destination. Every package file has a typed basename/role/size,
+origin-relative transfer path, and bearer token. The payload has no arbitrary
+local path, URL origin, arguments, environment, working directory, shell,
+script, prerequisite, or confirmation-bypass field. All transfer tokens are
+redacted from audit persistence.
+
+After download, the client must verify GOG Authenticode identity and Inno Setup
+family. The authenticated Manage-authorized web Install action is the consent
+boundary; MGA Client does not show a second install-confirmation popup.
+Invocation uses only the fixed Inno flags recorded in ADR-0007. Normal launch is
+attempted first; one validated `ShellExecuteEx` `runas` retry may request Windows
+UAC when required. No general elevation helper is introduced.
+
+Download uses real aggregate byte progress. Native installer execution is
+indeterminate rather than a fabricated percentage. Exact exit
+`0xC000041D` may be accepted only with the bounded success-log sentinel and full
+post-install validation defined by ADR-0007; raw exit and completion basis stay
+in result/audit.
+
+Executable uninstall is a separate typed command constrained to the recorded
+schema-3 manifest and relative Inno uninstaller target. It never uses archive
+folder deletion.
+
+A true post-start failure with a valid schema-1 cleanup marker enters
+`cleanup_required`. Cleanup is a separate typed user-selected command:
+publisher uninstaller first; if no uninstaller exists or successful uninstall
+leaves files, a no-follow deleter may remove only the exact marked destination.
+Uninstaller failure preserves files. Server-side **Ignore** records
+`ignored_failure` without dispatch or filesystem mutation. Standalone
+prerequisites remain out of scope. Native destructive confirmation remains for
+uninstall/cleanup; removing it is a separate decision.
+
 ## Local interaction and elevation
 
 A command may return `user_action_required` with a safe, typed reason such as
@@ -241,6 +284,12 @@ signed helper for that one operation and the OS user must approve it locally.
 The helper receives a constrained operation description, not a shell command or
 general client credential. The precise helper design requires its own security
 review before implementation.
+
+ADR-0007 does not introduce an MGA helper: after authenticated web install
+consent, GOG signature/family validation, and local destructive confirmation
+for uninstall/cleanup, the signed publisher installer/uninstaller itself is the
+one constrained `ShellExecuteEx` `runas` target. Any MGA-owned elevated helper
+remains deferred.
 
 ## Cancellation, reconnect, and deduplication
 
@@ -281,8 +330,8 @@ sensitive.
 ## Deferred decisions
 
 1. Exact schemas and local safety rules for repair, game stop, launch
-   arguments/working-directory overrides, non-ZIP installers, storefront
-   delegation, and emulator commands.
+   arguments/working-directory overrides, installer families beyond the
+   ADR-0007 GOG Inno slice, storefront delegation, and emulator commands.
 2. Durable client idempotency retention and reconnect replay for mutating
    commands.
 3. Cancellation and rollback semantics for each mutating command.
@@ -319,6 +368,14 @@ launch target/candidate fields. Existing migration-15 rows remain valid with
 empty launch metadata. New directories carry manifest schema version 2;
 schema-1 directories remain uninstallable but require reinstall before launch.
 See [ADR-0006](0006-managed-archive-installation.md).
+
+Dirty-worktree migration 17 adds executable-install family/state, package files,
+uninstaller target, and verification metadata. It has already been applied to
+the real development database and must not be edited.
+
+The locked failed-cleanup/Ignore revision requires additive migration 18 for
+cleanup marker/Ignore metadata and `device_installation_events`. See ADR-0007
+for exact columns, states, events, upgrade tests, and legacy no-marker behavior.
 
 The new client has no legacy installation state. Its initial persisted JSON is
 explicitly schema version 1; unknown future versions fail fast. No existing MGA

@@ -552,6 +552,18 @@ export async function installArchiveOnDevice(
   ) as Promise<DeviceCommand>;
 }
 
+export async function installGogInnoOnDevice(
+  endpointId: string,
+  gameId: string,
+  sourceGameId: string,
+  destinationRoot?: string,
+): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(
+    `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/install-gog-inno`,
+    { source_game_id: sourceGameId, destination_root: destinationRoot?.trim() || undefined },
+  ) as Promise<DeviceCommand>;
+}
+
 export async function uninstallGameFromDevice(
   endpointId: string,
   gameId: string,
@@ -737,6 +749,10 @@ export type GameDeviceAvailabilityDTO = {
   installed_source_id?: string;
   install_path?: string;
   archive_install_supported: boolean;
+  gog_inno_install_supported: boolean;
+  install_kind?: "managed_archive" | "gog_inno" | string;
+  install_state?: "installed" | "attention_required" | string;
+  state_reason?: string;
   uninstall_supported: boolean;
 	launch_supported: boolean;
 	launch_target?: string;

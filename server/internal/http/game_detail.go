@@ -72,9 +72,13 @@ type GameDeviceAvailabilityDTO struct {
 	Installed               bool     `json:"installed"`
 	InstalledSourceID       string   `json:"installed_source_id,omitempty"`
 	InstallPath             string   `json:"install_path,omitempty"`
-	ArchiveInstallSupported bool     `json:"archive_install_supported"`
+		ArchiveInstallSupported bool     `json:"archive_install_supported"`
+	GogInnoInstallSupported bool     `json:"gog_inno_install_supported"`
 	UninstallSupported      bool     `json:"uninstall_supported"`
 	LaunchSupported         bool     `json:"launch_supported"`
+	InstallKind             string   `json:"install_kind,omitempty"`
+	InstallState            string   `json:"install_state,omitempty"`
+	StateReason             string   `json:"state_reason,omitempty"`
 	LaunchTarget            string   `json:"launch_target,omitempty"`
 	LaunchCandidates        []string `json:"launch_candidates,omitempty"`
 }
@@ -111,7 +115,9 @@ func (c *GameController) attachDeviceAvailability(ctx context.Context, response 
 			switch capability {
 			case devicev1.CapabilityGameInstallArchive:
 				item.ArchiveInstallSupported = true
-			case devicev1.CapabilityGameUninstall:
+			case devicev1.CapabilityGameInstallGogInno:
+				item.GogInnoInstallSupported = true
+			case devicev1.CapabilityGameUninstall, devicev1.CapabilityGameUninstallGogInno:
 				item.UninstallSupported = true
 			case devicev1.CapabilityGameLaunch:
 				item.LaunchSupported = true
@@ -122,12 +128,17 @@ func (c *GameController) attachDeviceAvailability(ctx context.Context, response 
 				item.Installed = true
 				item.InstalledSourceID = installation.SourceGameID
 				item.InstallPath = installation.InstallPath
+				item.InstallKind = installation.InstallKind
+				item.InstallState = installation.InstallState
+				item.StateReason = installation.StateReason
 				item.LaunchTarget = installation.LaunchTarget
 				item.LaunchCandidates = installation.LaunchCandidates
 				break
 			}
 		}
 		switch {
+		case item.Installed && item.InstallState == devicev1.InstallStateAttentionRequired:
+			item.Status = "attention_required"
 		case item.Installed:
 			item.Status = "installed"
 		case endpoint.Status == devicev1.EndpointUpdateRequired:

@@ -14,8 +14,9 @@ and storefront-owned products. These families require separate typed commands.
 The first command family is `game.install_archive`, schema version 1. ZIP, 7z,
 and RAR use the same server/UI contract. The client bundles pinned pure-Go
 readers (`bodgit/sevenzip` and `nwaples/rardecode`) rather than requiring a
-machine-wide extractor. EXE/BIN and storefront installs remain separate future
-command families.
+machine-wide extractor. EXE/BIN and storefront installs remain separate command
+families; the first signed GOG Inno Setup packet is defined by
+[ADR-0007](0007-locally-confirmed-gog-inno-installation.md).
 
 The server selects a concrete canonical game, source record, and archive file.
 It creates a random 256-bit, time-limited bearer grant and sends a typed command

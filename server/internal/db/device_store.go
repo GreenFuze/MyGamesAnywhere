@@ -377,21 +377,64 @@ func (s *DeviceStore) CompleteCommand(ctx context.Context, endpointID string, re
 		if installed.GameID != request.GameID || installed.SourceGameID != request.SourceGameID {
 			return errors.New("archive install result does not match command")
 		}
-		launchCandidates, err := json.Marshal(installed.LaunchCandidates)
-		if err != nil {
-			return fmt.Errorf("encode launch candidates: %w", err)
+		if err := upsertGameInstallation(ctx, tx, endpointID, profileID, devices.GameInstallation{
+			GameID: installed.GameID, SourceGameID: installed.SourceGameID, InstallRoot: installed.InstallRoot,
+			InstallPath: installed.InstallPath, ArchiveSHA256: installed.ArchiveSHA256, ArchiveBytes: installed.ArchiveBytes,
+			InstalledAt: installed.InstalledAt, LaunchTarget: installed.LaunchTarget, LaunchCandidates: installed.LaunchCandidates,
+			InstallKind: devicev1.InstallKindManagedArchive, InstallState: devicev1.InstallStateInstalled,
+		}, updatedAt); err != nil {
+			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO device_game_installations
-			(endpoint_id, game_id, source_game_id, profile_id, install_root, install_path, archive_sha256, archive_bytes, installed_at, updated_at, launch_target, launch_candidates_json)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(endpoint_id, game_id, source_game_id) DO UPDATE SET
-				profile_id=excluded.profile_id, install_root=excluded.install_root, install_path=excluded.install_path,
-				archive_sha256=excluded.archive_sha256, archive_bytes=excluded.archive_bytes,
-				installed_at=excluded.installed_at, updated_at=excluded.updated_at,
-				launch_target=excluded.launch_target, launch_candidates_json=excluded.launch_candidates_json`,
-			endpointID, installed.GameID, installed.SourceGameID, profileID, installed.InstallRoot, installed.InstallPath,
-			installed.ArchiveSHA256, installed.ArchiveBytes, installed.InstalledAt.Unix(), updatedAt.Unix(), installed.LaunchTarget, string(launchCandidates)); err != nil {
-			return fmt.Errorf("persist device game installation: %w", err)
+	}
+	if commandName == devicev1.CapabilityGameInstallGogInno && (result.Status == devicev1.CommandSucceeded || result.Status == devicev1.CommandFailed) {
+		var request devicev1.GogInnoInstallRequest
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode gog inno install command: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
+		if len(result.Payload) == 0 {
+			if result.Status == devicev1.CommandSucceeded {
+				return errors.New("gog inno install result payload is required")
+			}
+		} else {
+			var installed devicev1.GogInnoInstallResult
+			if err := json.Unmarshal(result.Payload, &installed); err != nil {
+				return fmt.Errorf("decode gog inno install result: %w", err)
+			}
+			if installed.GameID != request.GameID || installed.SourceGameID != request.SourceGameID {
+				return errors.New("gog inno install result does not match command")
+			}
+			state := devicev1.InstallStateInstalled
+			reason := ""
+			if result.Status == devicev1.CommandFailed {
+				state = devicev1.InstallStateAttentionRequired
+				if result.Error != nil {
+					reason = strings.TrimSpace(result.Error.Code)
+					if message := strings.TrimSpace(result.Error.Message); message != "" {
+						if reason == "" {
+							reason = message
+						} else {
+							reason = reason + ": " + message
+						}
+					}
+				}
+			} else if err := installed.Validate(); err != nil {
+				return err
+			}
+			if strings.TrimSpace(installed.InstallPath) != "" {
+				if err := upsertGameInstallation(ctx, tx, endpointID, profileID, devices.GameInstallation{
+					GameID: installed.GameID, SourceGameID: installed.SourceGameID, InstallRoot: installed.InstallRoot,
+					InstallPath: installed.InstallPath, ArchiveSHA256: installed.PrimarySHA256, ArchiveBytes: installed.TotalPackageBytes,
+					InstalledAt: installed.InstalledAt, LaunchTarget: installed.LaunchTarget, LaunchCandidates: installed.LaunchCandidates,
+					InstallKind: devicev1.InstallKindGogInno, InstallerFamily: devicev1.GogInnoInstallerFamily,
+					InstallerFiles: installed.PackageFiles, UninstallTarget: installed.UninstallTarget,
+					InstallState: state, StateReason: reason,
+				}, updatedAt); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if commandName == devicev1.CapabilityGameUninstall && result.Status == devicev1.CommandSucceeded {
@@ -405,6 +448,25 @@ func (s *DeviceStore) CompleteCommand(ctx context.Context, endpointID string, re
 		}
 		if !removed.Removed || removed.GameID != request.GameID || removed.SourceGameID != request.SourceGameID {
 			return errors.New("game uninstall result does not match command")
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM device_game_installations WHERE endpoint_id=? AND game_id=? AND source_game_id=?`, endpointID, request.GameID, request.SourceGameID); err != nil {
+			return fmt.Errorf("remove device game installation: %w", err)
+		}
+	}
+	if commandName == devicev1.CapabilityGameUninstallGogInno && result.Status == devicev1.CommandSucceeded {
+		var request devicev1.GogInnoUninstallRequest
+		var removed devicev1.GogInnoUninstallResult
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode gog inno uninstall command: %w", err)
+		}
+		if err := json.Unmarshal(result.Payload, &removed); err != nil {
+			return fmt.Errorf("decode gog inno uninstall result: %w", err)
+		}
+		if err := removed.Validate(); err != nil {
+			return err
+		}
+		if !removed.Removed || removed.GameID != request.GameID || removed.SourceGameID != request.SourceGameID {
+			return errors.New("gog inno uninstall result does not match command")
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM device_game_installations WHERE endpoint_id=? AND game_id=? AND source_game_id=?`, endpointID, request.GameID, request.SourceGameID); err != nil {
 			return fmt.Errorf("remove device game installation: %w", err)
@@ -564,7 +626,9 @@ func (s *DeviceStore) ListCommands(ctx context.Context, endpointID, profileID st
 
 func (s *DeviceStore) ListInstallations(ctx context.Context, endpointID, profileID string) ([]devices.GameInstallation, error) {
 	rows, err := s.db.GetDB().QueryContext(ctx, `SELECT endpoint_id, game_id, source_game_id, profile_id,
-		install_root, install_path, archive_sha256, archive_bytes, installed_at, updated_at, COALESCE(launch_target,''), launch_candidates_json
+		install_root, install_path, archive_sha256, archive_bytes, installed_at, updated_at, COALESCE(launch_target,''), launch_candidates_json,
+		COALESCE(install_kind, 'managed_archive'), COALESCE(installer_family,''), COALESCE(installer_files_json,'[]'),
+		COALESCE(uninstall_target,''), COALESCE(install_state, 'installed'), COALESCE(state_reason,''), last_verified_at, state_changed_at
 		FROM device_game_installations WHERE endpoint_id=? AND profile_id=? ORDER BY installed_at DESC`, endpointID, profileID)
 	if err != nil {
 		return nil, err
@@ -574,20 +638,92 @@ func (s *DeviceStore) ListInstallations(ctx context.Context, endpointID, profile
 	for rows.Next() {
 		var installation devices.GameInstallation
 		var installedAt, updatedAt int64
-		var launchCandidates string
+		var launchCandidates, installerFiles string
+		var lastVerifiedAt, stateChangedAt sql.NullInt64
 		if err := rows.Scan(&installation.EndpointID, &installation.GameID, &installation.SourceGameID, &installation.ProfileID,
 			&installation.InstallRoot, &installation.InstallPath, &installation.ArchiveSHA256, &installation.ArchiveBytes,
-			&installedAt, &updatedAt, &installation.LaunchTarget, &launchCandidates); err != nil {
+			&installedAt, &updatedAt, &installation.LaunchTarget, &launchCandidates,
+			&installation.InstallKind, &installation.InstallerFamily, &installerFiles,
+			&installation.UninstallTarget, &installation.InstallState, &installation.StateReason, &lastVerifiedAt, &stateChangedAt); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(launchCandidates), &installation.LaunchCandidates); err != nil {
 			return nil, fmt.Errorf("decode launch candidates: %w", err)
 		}
+		if err := json.Unmarshal([]byte(installerFiles), &installation.InstallerFiles); err != nil {
+			return nil, fmt.Errorf("decode installer files: %w", err)
+		}
 		installation.InstalledAt = time.Unix(installedAt, 0).UTC()
 		installation.UpdatedAt = time.Unix(updatedAt, 0).UTC()
+		if lastVerifiedAt.Valid {
+			value := time.Unix(lastVerifiedAt.Int64, 0).UTC()
+			installation.LastVerifiedAt = &value
+		}
+		if stateChangedAt.Valid {
+			value := time.Unix(stateChangedAt.Int64, 0).UTC()
+			installation.StateChangedAt = &value
+		}
 		installations = append(installations, installation)
 	}
 	return installations, rows.Err()
+}
+
+func upsertGameInstallation(ctx context.Context, tx *sql.Tx, endpointID, profileID string, installation devices.GameInstallation, updatedAt time.Time) error {
+	switch installation.InstallKind {
+	case devicev1.InstallKindManagedArchive, devicev1.InstallKindGogInno:
+	default:
+		return fmt.Errorf("unsupported install_kind %q", installation.InstallKind)
+	}
+	switch installation.InstallState {
+	case devicev1.InstallStateInstalled, devicev1.InstallStateAttentionRequired:
+	default:
+		return fmt.Errorf("unsupported install_state %q", installation.InstallState)
+	}
+	if installation.LaunchCandidates == nil {
+		installation.LaunchCandidates = []string{}
+	}
+	if installation.InstallerFiles == nil {
+		installation.InstallerFiles = []devicev1.GogInnoPackageFile{}
+	}
+	launchCandidates, err := json.Marshal(installation.LaunchCandidates)
+	if err != nil {
+		return fmt.Errorf("encode launch candidates: %w", err)
+	}
+	installerFiles, err := json.Marshal(installation.InstallerFiles)
+	if err != nil {
+		return fmt.Errorf("encode installer files: %w", err)
+	}
+	installedAt := installation.InstalledAt
+	if installedAt.IsZero() {
+		installedAt = updatedAt
+	}
+	stateChangedAt := updatedAt.Unix()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO device_game_installations
+		(endpoint_id, game_id, source_game_id, profile_id, install_root, install_path, archive_sha256, archive_bytes, installed_at, updated_at,
+		 launch_target, launch_candidates_json, install_kind, installer_family, installer_files_json, uninstall_target, install_state, state_reason, state_changed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(endpoint_id, game_id, source_game_id) DO UPDATE SET
+			profile_id=excluded.profile_id, install_root=excluded.install_root, install_path=excluded.install_path,
+			archive_sha256=excluded.archive_sha256, archive_bytes=excluded.archive_bytes,
+			installed_at=excluded.installed_at, updated_at=excluded.updated_at,
+			launch_target=excluded.launch_target, launch_candidates_json=excluded.launch_candidates_json,
+			install_kind=excluded.install_kind, installer_family=excluded.installer_family, installer_files_json=excluded.installer_files_json,
+			uninstall_target=excluded.uninstall_target, install_state=excluded.install_state, state_reason=excluded.state_reason,
+			state_changed_at=excluded.state_changed_at`,
+		endpointID, installation.GameID, installation.SourceGameID, profileID, installation.InstallRoot, installation.InstallPath,
+		installation.ArchiveSHA256, installation.ArchiveBytes, installedAt.Unix(), updatedAt.Unix(), installation.LaunchTarget, string(launchCandidates),
+		installation.InstallKind, nullIfEmpty(installation.InstallerFamily), string(installerFiles), nullIfEmpty(installation.UninstallTarget),
+		installation.InstallState, nullIfEmpty(installation.StateReason), stateChangedAt); err != nil {
+		return fmt.Errorf("persist device game installation: %w", err)
+	}
+	return nil
+}
+
+func nullIfEmpty(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
 }
 
 func (s *DeviceStore) UpdateInstallationLaunchTarget(ctx context.Context, endpointID, gameID, sourceGameID, profileID, launchTarget string, updatedAt time.Time) error {

@@ -175,8 +175,26 @@ func (c *DeviceController) UninstallGame(w http.ResponseWriter, r *http.Request)
 		http.NotFound(w, r)
 		return
 	}
-	payload, _ := json.Marshal(devicev1.GameUninstallRequest{GameID: gameID, SourceGameID: sourceGameID, InstallPath: installation.InstallPath})
-	command, err := c.service.DispatchCommand(r.Context(), endpointID, profileID, devicev1.CapabilityGameUninstall, payload)
+	var (
+		payload []byte
+		name    string
+	)
+	switch installation.InstallKind {
+	case devicev1.InstallKindGogInno:
+		name = devicev1.CapabilityGameUninstallGogInno
+		payload, err = json.Marshal(devicev1.GogInnoUninstallRequest{
+			GameID: gameID, SourceGameID: sourceGameID, InstallPath: installation.InstallPath,
+			InstallerFamily: devicev1.GogInnoInstallerFamily, UninstallTarget: installation.UninstallTarget,
+		})
+	default:
+		name = devicev1.CapabilityGameUninstall
+		payload, err = json.Marshal(devicev1.GameUninstallRequest{GameID: gameID, SourceGameID: sourceGameID, InstallPath: installation.InstallPath})
+	}
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	command, err := c.service.DispatchCommand(r.Context(), endpointID, profileID, name, payload)
 	if err != nil {
 		writeDeviceError(w, err)
 		return
@@ -196,6 +214,10 @@ func (c *DeviceController) LaunchGame(w http.ResponseWriter, r *http.Request) {
 	installation, err := c.findInstallation(r.Context(), endpointID, gameID, sourceGameID, profileID)
 	if err != nil {
 		writeDeviceError(w, err)
+		return
+	}
+	if installation.InstallState == devicev1.InstallStateAttentionRequired {
+		http.Error(w, "this installation needs attention on the device before it can be played", http.StatusConflict)
 		return
 	}
 	if strings.TrimSpace(installation.LaunchTarget) == "" {

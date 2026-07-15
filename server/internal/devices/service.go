@@ -280,6 +280,13 @@ func (s *Service) DispatchCommand(ctx context.Context, endpointID, profileID, na
 		return nil, err
 	}
 	now := s.now()
+	lifetime := 2 * time.Minute
+	switch name {
+	case devicev1.CapabilityGameInstallGogInno:
+		lifetime = devicev1.GogInnoInstallCommandLifetime
+	case devicev1.CapabilityGameUninstallGogInno:
+		lifetime = devicev1.GogInnoUninstallCommandLifetime
+	}
 	command := &Command{
 		ID:             uuid.NewString(),
 		EndpointID:     endpointID,
@@ -291,7 +298,7 @@ func (s *Service) DispatchCommand(ctx context.Context, endpointID, profileID, na
 		Payload:        auditPayload,
 		CreatedAt:      now,
 		UpdatedAt:      now,
-		ExpiresAt:      now.Add(2 * time.Minute),
+		ExpiresAt:      now.Add(lifetime),
 	}
 	request := devicev1.CommandRequest{
 		CommandID:      command.ID,
@@ -330,19 +337,27 @@ func (s *Service) DispatchCommand(ctx context.Context, endpointID, profileID, na
 }
 
 func commandPayloadForAudit(name string, payload json.RawMessage) (json.RawMessage, error) {
-	if name != devicev1.CapabilityGameInstallArchive {
+	switch name {
+	case devicev1.CapabilityGameInstallArchive:
+		var request devicev1.ArchiveInstallRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return nil, err
+		}
+		request.DownloadToken = "[redacted]"
+		return json.Marshal(request)
+	case devicev1.CapabilityGameInstallGogInno:
+		var request devicev1.GogInnoInstallRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return nil, err
+		}
+		request.Installer.DownloadToken = "[redacted]"
+		for index := range request.Companions {
+			request.Companions[index].DownloadToken = "[redacted]"
+		}
+		return json.Marshal(request)
+	default:
 		return append(json.RawMessage(nil), payload...), nil
 	}
-	var request devicev1.ArchiveInstallRequest
-	if err := json.Unmarshal(payload, &request); err != nil {
-		return nil, err
-	}
-	request.DownloadToken = "[redacted]"
-	redacted, err := json.Marshal(request)
-	if err != nil {
-		return nil, err
-	}
-	return redacted, nil
 }
 
 func (s *Service) RecordCommandResult(ctx context.Context, endpointID string, result devicev1.CommandResult) error {
@@ -434,7 +449,8 @@ func requiredAccessForCommand(name string) (devicev1.AccessLevel, error) {
 		return devicev1.AccessManage, nil
 	case devicev1.CapabilityGameLaunch:
 		return devicev1.AccessPlay, nil
-	case devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameUninstall:
+	case devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameUninstall,
+		devicev1.CapabilityGameInstallGogInno, devicev1.CapabilityGameUninstallGogInno:
 		return devicev1.AccessManage, nil
 	default:
 		return "", fmt.Errorf("unsupported device command %q", name)
@@ -458,10 +474,24 @@ func validateCommandPayload(name string, payload json.RawMessage) error {
 		}
 		return request.Validate()
 	}
+	if name == devicev1.CapabilityGameInstallGogInno {
+		var request devicev1.GogInnoInstallRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode gog inno install payload: %w", err)
+		}
+		return request.Validate()
+	}
 	if name == devicev1.CapabilityGameUninstall {
 		var request devicev1.GameUninstallRequest
 		if err := json.Unmarshal(payload, &request); err != nil {
 			return fmt.Errorf("decode game uninstall payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilityGameUninstallGogInno {
+		var request devicev1.GogInnoUninstallRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode gog inno uninstall payload: %w", err)
 		}
 		return request.Validate()
 	}
