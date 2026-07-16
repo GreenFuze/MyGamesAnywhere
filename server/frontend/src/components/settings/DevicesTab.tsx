@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Activity,
   Check,
@@ -60,6 +60,8 @@ function formatBytes(value: number): string {
 export function DevicesTab() {
   const { currentProfile } = useProfiles()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const selectedDeviceID = searchParams.get('device')?.trim() ?? ''
   const [pairing, setPairing] = useState<DevicePairingChallenge | null>(null)
   const sessionQuery = useQuery({ queryKey: ['auth-session'], queryFn: getAuthSession, retry: false })
   const credentialQuery = useQuery({
@@ -146,7 +148,7 @@ export function DevicesTab() {
       ) : null}
       <div className="grid gap-4 xl:grid-cols-2">
         {devicesQuery.data?.map((device) => (
-          <DeviceCard key={device.id} device={device} />
+          <DeviceCard key={device.id} device={device} selectedByLink={device.id === selectedDeviceID} />
         ))}
       </div>
     </div>
@@ -179,11 +181,18 @@ function PairingPanel({ pairing, onClose }: { pairing: DevicePairingChallenge; o
   )
 }
 
-function DeviceCard({ device }: { device: DeviceEndpoint }) {
+function DeviceCard({ device, selectedByLink = false }: { device: DeviceEndpoint; selectedByLink?: boolean }) {
   const queryClient = useQueryClient()
+  const cardRef = useRef<HTMLElement | null>(null)
   const state = statePresentation[device.status]
   const [expanded, setExpanded] = useState(false)
   const [name, setName] = useState(device.display_name)
+  useEffect(() => {
+    if (!selectedByLink) return
+    setExpanded(true)
+    const frame = window.requestAnimationFrame(() => cardRef.current?.scrollIntoView({ block: 'center' }))
+    return () => window.cancelAnimationFrame(frame)
+  }, [selectedByLink])
   const commandsQuery = useQuery({
     queryKey: ['device-commands', device.id],
     queryFn: () => listDeviceCommands(device.id),
@@ -233,7 +242,11 @@ function DeviceCard({ device }: { device: DeviceEndpoint }) {
     })
   }
   return (
-    <article className={cn('overflow-hidden rounded-mga border bg-mga-surface shadow-lg', state.border)}>
+    <article
+      ref={cardRef}
+      data-device-id={device.id}
+      className={cn('overflow-hidden rounded-mga border bg-mga-surface shadow-lg', state.border, selectedByLink && 'ring-2 ring-mga-accent/60')}
+    >
       <div className="p-4">
         <button
           type="button"

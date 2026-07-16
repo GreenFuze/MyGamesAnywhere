@@ -1593,6 +1593,28 @@ paths:
         500:
           description: Internal server error
 
+  /api/play/devices/{id}/installed-games:
+    get:
+      summary: List installed games for the selected device
+      description: Returns the active profile's installed-only, canonically deduplicated shelf for one explicitly selected authorized device. Failed or attention states are excluded and counted; can_play reflects access, live compatibility, launch capability, and recorded target.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: InstalledGamesResponse JSON
+        400:
+          description: Invalid device id
+        401:
+          description: Profile sign-in required
+        404:
+          description: Device not found or not authorized for the active profile
+        500:
+          description: Internal server error
+
   /api/plugins:
     get:
       summary: List plugins

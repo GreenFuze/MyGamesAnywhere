@@ -1,6 +1,6 @@
 # ADR-0008: Device-selected Installed Games Play shelf
 
-- **Status:** Accepted implementation contract; not implemented
+- **Status:** Implemented and verified on 2026-07-16
 - **Date:** 2026-07-15
 - **Scope:** Play-page device association and installed-game shelf
 
@@ -285,3 +285,29 @@ Stop before:
 - changing other shelf policy beyond the recorded order;
 - needing a database/config migration;
 - auto-selecting a device using host/network/hardware inference.
+
+## Implementation and verification
+
+The top bar and Play page now share one profile-scoped endpoint association
+module and same-tab/cross-tab event path. Root Play renders Installed Games
+first, with explicit device selection, one-device non-persisted fallback,
+stable installed-only canonical rows, direct typed endpoint/source launch,
+attention deep links, and the specified offline/update/view/no-target/error
+states. Focused sections omit the shelf.
+
+The profile-scoped
+`GET /api/play/devices/{id}/installed-games` route enforces endpoint access,
+filters attention and cleanup states, counts them separately, and computes
+`can_play` from access, connection, version, capability, target, and installed
+state. Tests cover access isolation, filtering, canonical precedence, sorting,
+playability, association behavior, and frontend action states.
+
+Packaged E2E showed Plasma Pong exactly once in the first Play shelf for
+`tc-pc / TC-PC\\tcs`, excluded two attention rows, expanded the exact device
+through the Settings deep link, and dispatched an exact successful typed launch
+whose returned PID matched the observed Plasma Pong process.
+
+`NO_MIGRATION_NEEDED`: the feature reuses existing installation rows, endpoint
+grants, launch commands, and the existing `mga.clientEndpoint.<profile-id>`
+browser preference. It adds no SQLite, protocol, manifest, client-config, or
+persisted JSON shape.

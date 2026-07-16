@@ -118,6 +118,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Post("/devices/{id}/games/{game_id}/sources/{source_game_id}/reopen-failed-cleanup", b.DeviceCtrl.ReopenFailedGogInno)
 				r.Post("/devices/{id}/games/{game_id}/sources/{source_game_id}/launch", b.DeviceCtrl.LaunchGame)
 				r.Put("/devices/{id}/games/{game_id}/sources/{source_game_id}/launch-target", b.DeviceCtrl.SetLaunchTarget)
+				r.Get("/play/devices/{id}/installed-games", b.GameCtrl.ListInstalledGames)
 			})
 
 			// Routes with standard middleware timeout.
@@ -282,6 +283,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Post("/devices/{id}/games/{game_id}/sources/{source_game_id}/reopen-failed-cleanup", noopHandler())
 			api.Post("/devices/{id}/games/{game_id}/sources/{source_game_id}/launch", noopHandler())
 			api.Put("/devices/{id}/games/{game_id}/sources/{source_game_id}/launch-target", noopHandler())
+			api.Get("/play/devices/{id}/installed-games", noopHandler())
 			api.Get("/setup/status", noopHandler())
 			api.Post("/setup/start-fresh", noopHandler())
 			api.Post("/setup/restore-sync/check", noopHandler())

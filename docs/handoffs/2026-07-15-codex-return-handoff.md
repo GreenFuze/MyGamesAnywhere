@@ -419,13 +419,65 @@ Current runtime snapshot:
 - real SQLite schema version 19 (migration 17 remains immutable);
 - preserve `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive` and Plasma Pong.
 
-Remaining before ADR-0007 is fully closed:
+ADR-0007 and ADR-0008 are now complete. This statement supersedes the remaining
+work list above.
 
-1. Run packaged legacy/no-marker cleanup-refusal E2E without modifying the
-   preserved legacy Duke row/tree.
-2. Recheck exact final runtime evidence and update this section.
-3. Implement ADR-0008 as the next bounded feature: device-selected Installed
-   Games shelf and direct typed Play dispatch.
+Final ADR-0007 evidence:
+
+- packaged legacy/no-marker refusal exposed one Ignore action and zero Clean up
+  actions for Duke row `0c31f912-b8c3-4523-a34b-afd87329d284`; the row and tree
+  remain unchanged;
+- interrupted cleanup startup recovery now also repairs the historical state
+  where the command is already `command_interrupted` but the installation is
+  still `cleanup_running`; it moves the installation to `cleanup_failed`, keeps
+  the marker, and emits the audit event idempotently;
+- the pre-existing synthetic cleanup row was recovered safely and deliberately
+  not bypassed with manual filesystem/database deletion.
+
+Final ADR-0008 evidence:
+
+- root Play showed Installed Games first for endpoint
+  `eaa3b874-bfad-4020-9020-36fd45a04ff9`, with Plasma Pong exactly once and two
+  attention rows excluded/counted;
+- the shelf Play action produced successful command
+  `016cb572-d5ec-4e93-a7ef-9692269d6d90`; returned PID `15976` matched the exact
+  observed Plasma Pong process, and the schema-2 manifest records
+  `Plasma Pong/Plasma Pong.exe`;
+- `/settings?tab=devices&device=eaa3b874-bfad-4020-9020-36fd45a04ff9`
+  expanded and highlighted the exact device;
+- automated tests cover single-device fallback, stale association, explicit
+  multi-device selection behavior, canonical source selection, access
+  isolation, state filtering, sorting, and all player action states.
+
+Fresh final verification on 2026-07-16:
+
+```text
+protocol: go test ./...                              PASS
+client:   go test ./...                              PASS
+server:   go test ./...                              PASS
+plugins:  go test ./... in all 7 standalone modules PASS
+frontend: npm run test:unit                          PASS (3 tests)
+frontend: npm run build                              PASS
+security: govulncheck protocol/client/server         PASS (0 reachable)
+quality:  git diff --check                           PASS
+```
+
+The frontend production chunk is approximately 814 KB and retains the known
+Vite size warning. Standalone plugin modules were tidied to the server's current
+`golang.org/x/text` dependency line so packaged compilation is consistent.
+
+`NO_MIGRATION_NEEDED`: ADR-0008, interrupted-command recovery, frontend tests,
+and plugin module alignment add no persisted schema or config shape. The real
+database remains schema version 19; migration 17 was not edited.
+
+Final runtime snapshot:
+
+- packaged server PID `34624`, HTTP 200 at `http://127.0.0.1:8900/`, launched
+  portable with `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\\My Drive`;
+- installed elevated client PID `36036`, connected;
+- Plasma Pong remains installed at `C:\\Games`;
+- the intentional ADR-0007/0008 worktree remains uncommitted and must not be
+  reset or cleaned.
 
 Lower-priority visual work is planned, not started: brand local dialogs with
 the MGA logo and redesign both client and server tray icons for crisp Windows

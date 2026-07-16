@@ -750,6 +750,19 @@ func Operations() []OperationDoc {
 			ResponseDocs:   map[string]string{"201": "Client launch challenge JSON", "400": "Invalid execution mode", "401": "Profile sign-in required", "403": "Manage access required", "500": "Internal server error"},
 		},
 		{
+			Method:      "GET",
+			Path:        "/api/play/devices/{id}/installed-games",
+			Summary:     "List installed games for the selected device",
+			Description: "Returns the active profile's installed-only, canonically deduplicated shelf for one explicitly selected authorized device. Failed or attention states are excluded and counted; can_play reflects access, live compatibility, launch capability, and recorded target.",
+			ResponseDocs: map[string]string{
+				"200": "InstalledGamesResponse JSON",
+				"400": "Invalid device id",
+				"401": "Profile sign-in required",
+				"404": "Device not found or not authorized for the active profile",
+				"500": "Internal server error",
+			},
+		},
+		{
 			Method:         "POST",
 			Path:           "/api/devices/{id}/games/{game_id}/install-gog-inno",
 			Summary:        "Install a verified GOG game on a device",

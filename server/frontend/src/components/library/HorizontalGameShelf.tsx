@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Info, Play } from 'lucide-react'
 import type { GameDetailResponse } from '@/api/client'
-import { GameCard } from '@/components/library/GameCard'
+import { GameCard, type GameCardPrimaryAction } from '@/components/library/GameCard'
 import { animateHorizontalScrollTo } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/theme/ThemeProvider'
@@ -14,6 +14,7 @@ interface HorizontalGameShelfProps {
   games: GameDetailResponse[]
   label: string
   renderHoverAction?: (game: GameDetailResponse) => ReactNode
+  renderPrimaryAction?: (game: GameDetailResponse) => GameCardPrimaryAction | undefined
   cardVariant?: 'library' | 'play'
 }
 
@@ -32,6 +33,7 @@ export function HorizontalGameShelf({
   games,
   label,
   renderHoverAction,
+  renderPrimaryAction,
   cardVariant = 'library',
 }: HorizontalGameShelfProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -91,11 +93,32 @@ export function HorizontalGameShelf({
           cardVariant === 'play' && 'pr-16',
         )}
       >
-        {games.map((game) => (
-          <div key={game.id} className="shrink-0 snap-start" style={{ width: `${cardWidth}px` }}>
-            <GameCard game={game} hoverAction={renderHoverAction?.(game)} variant={cardVariant} />
-          </div>
-        ))}
+        {games.map((game) => {
+          const primaryAction = renderPrimaryAction?.(game)
+          return (
+            <div key={game.id} className="shrink-0 snap-start" style={{ width: `${cardWidth}px` }}>
+              <GameCard
+                game={game}
+                hoverAction={renderHoverAction?.(game)}
+                primaryAction={primaryAction}
+                variant={cardVariant}
+              />
+              {primaryAction ? (
+                <button
+                  type="button"
+                  disabled={primaryAction.disabled}
+                  onClick={primaryAction.onSelect}
+                  title={primaryAction.title ?? primaryAction.label}
+                  aria-label={`${primaryAction.label} ${game.title}`}
+                  className="mt-2 inline-flex h-9 w-full items-center justify-center gap-2 rounded-full border border-white/10 bg-white/7 px-3 text-sm font-medium text-white transition-colors hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  {primaryAction.kind === 'play' ? <Play size={14} fill="currentColor" /> : <Info size={14} />}
+                  <span className="truncate">{primaryAction.label}</span>
+                </button>
+              ) : null}
+            </div>
+          )
+        })}
       </div>
       {canScrollLeft && (
         <button

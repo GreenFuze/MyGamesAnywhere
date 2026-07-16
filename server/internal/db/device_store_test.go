@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -265,5 +266,119 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 		storedInstallCommand.ProgressPhase != "extracting" || storedInstallCommand.ProgressStage != "install" ||
 		storedInstallCommand.ProgressStagePercent == nil || *storedInstallCommand.ProgressStagePercent != 25 {
 		t.Fatalf("install command progress = %+v", storedInstallCommand)
+	}
+}
+
+func TestFailInterruptedCommandsRecoversCleanupInstallationState(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	database := NewSQLiteDatabase(testLogger{}, testDBConfig{dbPath: filepath.Join(t.TempDir(), "cleanup-recovery.sqlite")})
+	if err := database.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := database.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	profile := &core.Profile{ID: "profile-cleanup", DisplayName: "Admin", Role: core.ProfileRoleAdminPlayer, CreatedAt: now, UpdatedAt: now}
+	if err := NewProfileRepository(database).Create(ctx, profile); err != nil {
+		t.Fatal(err)
+	}
+	store := NewDeviceStore(database)
+	challenge := devices.PairingChallenge{ID: "challenge-cleanup", CodeHash: "cleanup-code", ProfileID: profile.ID, CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	if err := store.CreatePairingChallenge(ctx, challenge); err != nil {
+		t.Fatal(err)
+	}
+	endpoint := devices.Endpoint{
+		ID: "endpoint-cleanup", ClientInstanceID: "instance-cleanup", PublicKey: base64.RawURLEncoding.EncodeToString(make([]byte, 32)),
+		DisplayName: "PC", HostName: "pc", OSUser: "alice", Platform: "windows", Arch: "amd64", ClientVersion: "dev",
+		ProtocolVersion: devicev1.Version, Capabilities: []string{devicev1.CapabilityGameCleanupGogInnoFailed},
+		Status: devicev1.EndpointOffline, CreatedAt: now, UpdatedAt: now,
+	}
+	if _, err := store.PairEndpoint(ctx, challenge.CodeHash, now, endpoint); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.GetDB().ExecContext(ctx, `INSERT INTO canonical_games(id, created_at) VALUES (?, ?)`, "game-cleanup", now.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.GetDB().ExecContext(ctx, `INSERT INTO source_games
+		(id, profile_id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, "source-cleanup", profile.ID, "integration-cleanup", "game-source-test",
+		"external-cleanup", "Cleanup Test", string(core.PlatformWindowsPC), string(core.GameKindBaseGame), string(core.GroupKindSelfContained), "found", now.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	markerID := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	tx, err := database.GetDB().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := upsertGameInstallation(ctx, tx, endpoint.ID, profile.ID, devices.GameInstallation{
+		EndpointID: endpoint.ID, GameID: "game-cleanup", SourceGameID: "source-cleanup", ProfileID: profile.ID,
+		InstallRoot: `C:\Games`, InstallPath: `C:\Games\Cleanup`, ArchiveSHA256: strings.Repeat("a", 64), ArchiveBytes: 1,
+		InstalledAt: now, UpdatedAt: now, InstallKind: devicev1.InstallKindGogInno, InstallerFamily: devicev1.GogInnoInstallerFamily,
+		InstallState: devicev1.InstallStateCleanupRunning, CleanupMarkerID: markerID,
+	}, now); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(devicev1.GogInnoFailedCleanupRequest{
+		GameID: "game-cleanup", SourceGameID: "source-cleanup", InstallRoot: `C:\Games`, InstallPath: `C:\Games\Cleanup`,
+		InstallerFamily: devicev1.GogInnoInstallerFamily, CleanupMarkerID: markerID, PrimarySHA256: strings.Repeat("a", 64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := devices.Command{
+		ID: "command-cleanup", EndpointID: endpoint.ID, ProfileID: profile.ID, Name: devicev1.CapabilityGameCleanupGogInnoFailed,
+		SchemaVersion: 1, IdempotencyKey: "cleanup-idempotency", Status: devicev1.CommandDispatched, Payload: payload,
+		CreatedAt: now, UpdatedAt: now, ExpiresAt: now.Add(time.Minute),
+	}
+	if err := store.CreateCommand(ctx, command); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateCommandStatus(ctx, endpoint.ID, command.ID, devicev1.CommandAccepted, nil, nil, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateCommandStatus(ctx, endpoint.ID, command.ID, devicev1.CommandRunning, nil, nil, now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	recoveredAt := now.Add(3 * time.Second)
+	if count, err := store.FailInterruptedCommands(ctx, recoveredAt); err != nil || count != 1 {
+		t.Fatalf("count=%d error=%v", count, err)
+	}
+	installations, err := store.ListInstallations(ctx, endpoint.ID, profile.ID)
+	if err != nil || len(installations) != 1 {
+		t.Fatalf("installations=%#v error=%v", installations, err)
+	}
+	installation := installations[0]
+	if installation.InstallState != devicev1.InstallStateCleanupFailed || installation.CleanupMarkerID != markerID ||
+		!strings.Contains(installation.StateReason, "command_interrupted") {
+		t.Fatalf("recovered installation=%#v", installation)
+	}
+	var eventType, reason string
+	if err := database.GetDB().QueryRowContext(ctx, `SELECT event_type, COALESCE(reason,'') FROM device_installation_events
+		WHERE endpoint_id=? AND game_id=? AND source_game_id=? ORDER BY created_at DESC LIMIT 1`, endpoint.ID, "game-cleanup", "source-cleanup").Scan(&eventType, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if eventType != "cleanup_failed" || !strings.Contains(reason, "command_interrupted") {
+		t.Fatalf("event_type=%q reason=%q", eventType, reason)
+	}
+
+	// Older servers could recover the command but leave the installation row
+	// stuck in cleanup_running. A later startup must repair that mismatch too.
+	if _, err := database.GetDB().ExecContext(ctx, `UPDATE device_game_installations SET install_state=?, state_reason=NULL
+		WHERE endpoint_id=? AND game_id=? AND source_game_id=?`, devicev1.InstallStateCleanupRunning, endpoint.ID, "game-cleanup", "source-cleanup"); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := store.FailInterruptedCommands(ctx, recoveredAt.Add(time.Second)); err != nil || count != 0 {
+		t.Fatalf("historical recovery count=%d error=%v", count, err)
+	}
+	installations, err = store.ListInstallations(ctx, endpoint.ID, profile.ID)
+	if err != nil || len(installations) != 1 || installations[0].InstallState != devicev1.InstallStateCleanupFailed {
+		t.Fatalf("historical recovery installations=%#v error=%v", installations, err)
 	}
 }

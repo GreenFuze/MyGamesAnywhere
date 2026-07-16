@@ -24,7 +24,16 @@ import { cn } from '@/lib/utils'
 interface GameCardProps {
   game: GameDetailResponse
   hoverAction?: ReactNode
+  primaryAction?: GameCardPrimaryAction
   variant?: 'library' | 'play'
+}
+
+export interface GameCardPrimaryAction {
+  label: string
+  onSelect: () => void
+  disabled?: boolean
+  kind?: 'play' | 'details'
+  title?: string
 }
 
 type OverlayAlignment = 'left' | 'center' | 'right'
@@ -65,21 +74,24 @@ interface CardActionButtonProps {
   onClick: (event: MouseEvent<HTMLButtonElement>) => void
   icon: ReactNode
   variant?: 'primary' | 'secondary'
+  disabled?: boolean
+  title?: string
 }
 
-function CardActionButton({ label, onClick, icon, variant = 'secondary' }: CardActionButtonProps) {
+function CardActionButton({ label, onClick, icon, variant = 'secondary', disabled = false, title }: CardActionButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        'pointer-events-auto inline-flex h-10 min-w-[9.75rem] flex-1 items-center justify-center gap-2 rounded-full px-4 text-sm font-medium transition-colors sm:flex-none',
+        'pointer-events-auto inline-flex h-10 min-w-[9.75rem] flex-1 items-center justify-center gap-2 rounded-full px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-55 sm:flex-none',
         variant === 'primary'
           ? 'bg-white text-black hover:bg-white/90'
           : 'border border-white/14 bg-white/8 text-white hover:bg-white/14',
       )}
       aria-label={label}
-      title={label}
+      title={title ?? label}
     >
       {icon}
       <span className="truncate">{label}</span>
@@ -115,7 +127,7 @@ function FavoriteToggleButton({ favorite, busy, onClick }: FavoriteToggleButtonP
   )
 }
 
-export function GameCard({ game, hoverAction, variant = 'library' }: GameCardProps) {
+export function GameCard({ game, hoverAction, primaryAction, variant = 'library' }: GameCardProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { reducedMotion } = useTheme()
@@ -139,7 +151,8 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
   const sourceIntegrations = selectSourceIntegrations(game)
   const secondaryText = preferredSecondaryText(game) ?? 'Unknown source'
   const canOpenStream = !playable && typeof game.xcloud_url === 'string' && game.xcloud_url.length > 0
-  const primaryActionLabel = playable ? 'Play' : canOpenStream ? 'Open' : 'Details'
+  const primaryActionLabel = primaryAction?.label ?? (playable ? 'Play' : canOpenStream ? 'Open' : 'Details')
+  const primaryActionIsPlay = primaryAction ? primaryAction.kind === 'play' : playable || canOpenStream
   const isPlayVariant = variant === 'play'
   const favoriteBusy = isPendingFor(game.id)
   const achievementLabel = game.achievement_summary && game.achievement_summary.total_count > 0
@@ -323,6 +336,10 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
   }
 
   const launchPrimaryAction = () => {
+    if (primaryAction) {
+      if (!primaryAction.disabled) primaryAction.onSelect()
+      return
+    }
     if (playable) {
       navigate(`/game/${encodeURIComponent(game.id)}/play`, { state: routeState })
       return
@@ -473,8 +490,10 @@ export function GameCard({ game, hoverAction, variant = 'library' }: GameCardPro
                 <CardActionButton
                   label={primaryActionLabel}
                   variant="primary"
+                  disabled={primaryAction?.disabled}
+                  title={primaryAction?.title}
                   icon={
-                    playable || canOpenStream ? (
+                    primaryActionIsPlay ? (
                       <Play size={16} fill="currentColor" />
                     ) : (
                       <Info size={16} />

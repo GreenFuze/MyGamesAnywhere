@@ -1,8 +1,7 @@
 # ADR-0007: Web-authorized GOG Inno Setup installation
 
-- **Status:** Accepted; implementation foundation committed in `1e59e51`;
-  web-authorized install, crash-after-success, and failed-cleanup revisions
-  remain to implement. The Installed Games shelf is specified by ADR-0008.
+- **Status:** Implemented and verified on 2026-07-16. The Installed Games shelf
+  is specified by ADR-0008.
 - **Date:** 2026-07-15
 - **Scope:** First EXE/BIN installer and prerequisite vertical slice
 - **Note:** ADR = Architecture Decision Record.
@@ -810,3 +809,23 @@ The implementation agent must stop before changing this decision if:
 
 Use the escalation format in
 `agent-responsibility-boundary.md`; do not broaden the command.
+
+## Implementation and verification
+
+The completed implementation includes exact crash-after-success
+classification, schema-2/schema-3 markers and manifests, Retry/Ignore/Clean up,
+Add/Remove Programs fail-closed inspection, bounded marked-folder deletion, and
+publisher-uninstaller preference. Server startup also repairs interrupted
+cleanup commands to `cleanup_failed` while preserving the cleanup marker and
+audit history, including the historical case where the command had already
+been marked `command_interrupted` before the installation row was repaired.
+
+Packaged E2E covered signed GOG install and exact launch, publisher uninstall,
+synthetic Ignore/reopen/bounded cleanup, and legacy/no-marker refusal. The
+preserved legacy Duke row exposes Ignore but no Clean up action and its files
+were not modified. Full protocol/client/server tests, standalone plugin tests,
+the frontend unit/production builds, OpenAPI checks, and `govulncheck` passed.
+
+`NO_MIGRATION_NEEDED` for the final interrupted-command recovery: it changes
+startup reconciliation behavior only. Migration 18 remains the versioned
+persistence change for ADR-0007 and migration 17 remains immutable.

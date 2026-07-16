@@ -2194,6 +2194,7 @@ export function GameDetailPage() {
             </SectionCard>
 
             <SectionCard
+              id="device-play"
               title="Ways to Play & Copies"
               icon={<Database size={18} className="text-mga-accent" />}
               description="Where this game was found and what is ready to use."

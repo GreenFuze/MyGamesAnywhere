@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, Download, Laptop, LoaderCircle, Power, Settings, Shield } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -15,31 +15,10 @@ import {
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { useProfiles } from '@/hooks/useProfiles'
+import { useClientEndpointAssociation } from '@/hooks/useClientEndpointAssociation'
 import { cn } from '@/lib/utils'
 
 const connectedStates = new Set<DeviceEndpoint['status']>(['ready', 'busy', 'update_required', 'error'])
-
-class ClientEndpointAssociation {
-  static key(profileID: string) {
-    return `mga.clientEndpoint.${profileID}`
-  }
-
-  static get(profileID: string): string {
-    try {
-      return localStorage.getItem(this.key(profileID)) ?? ''
-    } catch {
-      return ''
-    }
-  }
-
-  static set(profileID: string, endpointID: string) {
-    try {
-      localStorage.setItem(this.key(profileID), endpointID)
-    } catch {
-      // Association is a convenience; live server state remains authoritative.
-    }
-  }
-}
 
 export function ClientStatusControl() {
   const { currentProfile } = useProfiles()
@@ -49,7 +28,6 @@ export function ClientStatusControl() {
   const [open, setOpen] = useState(false)
   const [pendingLaunchID, setPendingLaunchID] = useState('')
   const [launchStartedAt, setLaunchStartedAt] = useState(0)
-  const [associationRevision, setAssociationRevision] = useState(0)
   const [confirmStop, setConfirmStop] = useState(false)
 
   const profileID = currentProfile?.id ?? ''
@@ -93,12 +71,7 @@ export function ClientStatusControl() {
   })
 
   const devices = devicesQuery.data ?? []
-  const associatedID = useMemo(
-    () => profileID ? ClientEndpointAssociation.get(profileID) : '',
-    [profileID, associationRevision],
-  )
-  const associated = devices.find((device) => device.id === associatedID)
-    ?? (devices.length === 1 ? devices[0] : undefined)
+  const { associated, selectEndpoint } = useClientEndpointAssociation(profileID, devices)
   const connected = Boolean(associated && connectedStates.has(associated.status))
   const onlineCount = devices.filter((device) => connectedStates.has(device.status)).length
 
@@ -135,11 +108,10 @@ export function ClientStatusControl() {
   useEffect(() => {
     const launch = launchQuery.data
     if (!currentProfile || launch?.status !== 'acknowledged' || !launch.endpoint_id) return
-    ClientEndpointAssociation.set(currentProfile.id, launch.endpoint_id)
-    setAssociationRevision((revision) => revision + 1)
+    selectEndpoint(launch.endpoint_id)
     setPendingLaunchID('')
     void queryClient.invalidateQueries({ queryKey: ['devices', currentProfile.id] })
-  }, [currentProfile, launchQuery.data, queryClient])
+  }, [currentProfile, launchQuery.data, queryClient, selectEndpoint])
 
   useEffect(() => {
     if (!open) return

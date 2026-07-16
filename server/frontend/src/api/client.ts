@@ -503,6 +503,38 @@ export async function listDevices(): Promise<DeviceEndpoint[]> {
   return getJson<DeviceEndpoint[]>("/api/devices");
 }
 
+export type InstalledGamesDevice = {
+  id: string;
+  display_name: string;
+  status: DeviceState;
+  connected: boolean;
+  access_level: DeviceAccessLevel;
+};
+
+export type InstalledGameItem = {
+  game: GameDetailResponse;
+  source_game_id: string;
+  install_kind: "managed_archive" | "gog_inno" | string;
+  install_state: "installed";
+  launch_target?: string;
+  launch_supported: boolean;
+  can_play: boolean;
+  installed_at: string;
+  updated_at: string;
+};
+
+export type InstalledGamesResponse = {
+  device: InstalledGamesDevice;
+  games: InstalledGameItem[];
+  attention_count: number;
+};
+
+export async function getInstalledGames(endpointId: string): Promise<InstalledGamesResponse> {
+  return getJson<InstalledGamesResponse>(
+    `/api/play/devices/${encodeURIComponent(endpointId)}/installed-games`,
+  );
+}
+
 export async function createDevicePairingChallenge(): Promise<DevicePairingChallenge> {
   return postJson<DevicePairingChallenge>("/api/devices/pairing-challenges", {}) as Promise<DevicePairingChallenge>;
 }

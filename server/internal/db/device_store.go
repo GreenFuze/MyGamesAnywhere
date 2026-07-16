@@ -268,16 +268,89 @@ func (s *DeviceStore) CreateCommand(ctx context.Context, command devices.Command
 // Server process restart. Leaving them running would permanently disable the
 // corresponding UI action even though no client is still executing it.
 func (s *DeviceStore) FailInterruptedCommands(ctx context.Context, recoveredAt time.Time) (int64, error) {
-	result, err := s.db.GetDB().ExecContext(ctx, `UPDATE device_commands SET
-		status=?, result_json=NULL, error_code=?, error_message=?, updated_at=?
-		WHERE status=?`,
-		string(devicev1.CommandFailed), "command_interrupted",
-		"MGA Server restarted before the client reported completion", recoveredAt.Unix(),
-		string(devicev1.CommandRunning))
+	tx, err := s.db.GetDB().BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `SELECT id, endpoint_id, profile_id, name, payload_json
+		FROM device_commands
+		WHERE status=? OR (name=? AND status=? AND error_code=?)`,
+		string(devicev1.CommandRunning), devicev1.CapabilityGameCleanupGogInnoFailed,
+		string(devicev1.CommandFailed), "command_interrupted")
+	if err != nil {
+		return 0, err
+	}
+	type interruptedCommand struct {
+		id, endpointID, profileID, name, payload string
+	}
+	commands := make([]interruptedCommand, 0)
+	for rows.Next() {
+		var command interruptedCommand
+		if err := rows.Scan(&command.id, &command.endpointID, &command.profileID, &command.name, &command.payload); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		commands = append(commands, command)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	const interruptedMessage = "MGA Server restarted before the client reported completion"
+	for _, command := range commands {
+		if command.name != devicev1.CapabilityGameCleanupGogInnoFailed {
+			continue
+		}
+		var request devicev1.GogInnoFailedCleanupRequest
+		if err := json.Unmarshal([]byte(command.payload), &request); err != nil {
+			return 0, fmt.Errorf("decode interrupted cleanup command %s: %w", command.id, err)
+		}
+		result, err := tx.ExecContext(ctx, `UPDATE device_game_installations SET
+			install_state=?, state_reason=?, state_changed_at=?, updated_at=?
+			WHERE endpoint_id=? AND profile_id=? AND game_id=? AND source_game_id=?
+				AND cleanup_marker_id=? AND install_state=?`,
+			devicev1.InstallStateCleanupFailed, "command_interrupted: "+interruptedMessage,
+			recoveredAt.Unix(), recoveredAt.Unix(), command.endpointID, command.profileID,
+			request.GameID, request.SourceGameID, request.CleanupMarkerID, devicev1.InstallStateCleanupRunning)
+		if err != nil {
+			return 0, err
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		if updated == 1 {
+			if err := insertInstallationEventTx(ctx, tx, devices.InstallationEvent{
+				EndpointID: command.endpointID, GameID: request.GameID, SourceGameID: request.SourceGameID,
+				ActorProfileID: command.profileID, EventType: "cleanup_failed",
+				Reason:  "command_interrupted: " + interruptedMessage,
+				Details: json.RawMessage(`{"family":"gog_inno"}`), CreatedAt: recoveredAt,
+			}); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	result, err := tx.ExecContext(ctx, `UPDATE device_commands SET
+		status=?, result_json=NULL, error_code=?, error_message=?, updated_at=?
+		WHERE status=?`, string(devicev1.CommandFailed), "command_interrupted",
+		interruptedMessage, recoveredAt.Unix(), string(devicev1.CommandRunning))
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (s *DeviceStore) UpdateCommandStatus(ctx context.Context, endpointID, commandID string, status devicev1.CommandStatus, result json.RawMessage, protocolError *devicev1.ProtocolError, updatedAt time.Time) error {

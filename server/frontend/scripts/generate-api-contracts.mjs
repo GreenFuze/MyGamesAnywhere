@@ -16,6 +16,7 @@ for (const requiredPath of [
   "/api/games/{id}/cover-override",
   "/api/games/{id}/favorite",
   "/api/duplicates/games",
+  "/api/play/devices/{id}/installed-games",
   "/api/stats/library",
   "/api/stats/gamer",
   "/api/review-candidates/redetect",
