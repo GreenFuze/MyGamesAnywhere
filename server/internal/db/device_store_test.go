@@ -70,6 +70,9 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 	if len(endpoints) != 1 || endpoints[0].AccessLevel != devicev1.AccessOwner {
 		t.Fatalf("endpoints = %+v", endpoints)
 	}
+	if endpoints[0].ExecutionMode != devicev1.ClientExecutionModeStandard {
+		t.Fatalf("endpoint execution mode = %q, want standard", endpoints[0].ExecutionMode)
+	}
 	if err := store.SetGrant(context.Background(), endpoint.ID, secondProfile.ID, devicev1.AccessView, now); err != nil {
 		t.Fatalf("SetGrant(view) error = %v", err)
 	}
@@ -116,6 +119,40 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 	}
 	if len(commands) != 1 || commands[0].Status != devicev1.CommandSucceeded || string(commands[0].Result) != string(result) {
 		t.Fatalf("commands = %+v", commands)
+	}
+	interrupted := devices.Command{
+		ID: "command-interrupted", EndpointID: endpoint.ID, ProfileID: profile.ID, Name: devicev1.CapabilityEndpointPing,
+		SchemaVersion: 1, IdempotencyKey: "idem-interrupted", Status: devicev1.CommandDispatched, Payload: json.RawMessage(`{}`),
+		CreatedAt: now, UpdatedAt: now, ExpiresAt: now.Add(time.Minute),
+	}
+	if err := store.CreateCommand(context.Background(), interrupted); err != nil {
+		t.Fatalf("CreateCommand(interrupted) error = %v", err)
+	}
+	if err := store.UpdateCommandStatus(context.Background(), endpoint.ID, interrupted.ID, devicev1.CommandAccepted, nil, nil, now.Add(time.Second)); err != nil {
+		t.Fatalf("accept interrupted command: %v", err)
+	}
+	if err := store.UpdateCommandStatus(context.Background(), endpoint.ID, interrupted.ID, devicev1.CommandRunning, nil, nil, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("run interrupted command: %v", err)
+	}
+	recoveredAt := now.Add(3 * time.Second)
+	recovered, err := store.FailInterruptedCommands(context.Background(), recoveredAt)
+	if err != nil || recovered != 1 {
+		t.Fatalf("FailInterruptedCommands() = %d, error = %v", recovered, err)
+	}
+	commands, err = store.ListCommands(context.Background(), endpoint.ID, profile.ID, 20)
+	if err != nil {
+		t.Fatalf("ListCommands(after recovery) error = %v", err)
+	}
+	var recoveredCommand *devices.Command
+	for index := range commands {
+		if commands[index].ID == interrupted.ID {
+			recoveredCommand = &commands[index]
+			break
+		}
+	}
+	if recoveredCommand == nil || recoveredCommand.Status != devicev1.CommandFailed ||
+		recoveredCommand.ErrorCode != "command_interrupted" || !recoveredCommand.UpdatedAt.Equal(recoveredAt) {
+		t.Fatalf("recovered command = %+v", recoveredCommand)
 	}
 
 	inventoryCommand := devices.Command{

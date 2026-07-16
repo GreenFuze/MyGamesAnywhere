@@ -61,7 +61,7 @@ func TestGogInnoInstallResultValidate(t *testing.T) {
 		}},
 		SignerSubject: "GOG Sp. z o.o.", SignerThumbprint: "thumb", InvocationMode: GogInnoInvocationFixedSilent,
 		UninstallTarget: "unins000.exe", LaunchTarget: "game.exe", LaunchCandidates: []string{"game.exe"},
-		ProcessID: 12, ExitCode: &exitCode, InstalledAt: time.Now().UTC(),
+		ProcessID: 12, ExitCode: &exitCode, InstalledAt: time.Now().UTC(), CompletionBasis: GogInnoCompletionExitZero,
 	}
 	if err := result.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
@@ -69,6 +69,71 @@ func TestGogInnoInstallResultValidate(t *testing.T) {
 	result.UninstallTarget = "Game/game.exe"
 	if err := result.Validate(); err == nil {
 		t.Fatal("Validate() accepted a non-uninstaller target")
+	}
+}
+
+func TestGogInnoInstallResultValidateFailureEvidence(t *testing.T) {
+	t.Parallel()
+	result := GogInnoInstallResult{
+		GameID: "game-1", SourceGameID: "source-1", InstallRoot: `C:\Games`, InstallPath: `C:\Games\Failed Game`,
+		InstallerFamily: GogInnoInstallerFamily, PrimarySHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		TotalPackageBytes: 42, PackageFiles: []GogInnoPackageFile{{
+			FileName: "setup_game.exe", Role: PackageTransferRoleInstaller, SizeBytes: 42,
+			SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		}},
+		SignerSubject: "GOG Sp. z o.o.", SignerThumbprint: "thumb", InvocationMode: GogInnoInvocationFixedSilent,
+		CleanupMarkerID: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+	}
+	if err := result.ValidateFailureEvidence(); err != nil {
+		t.Fatalf("ValidateFailureEvidence() error = %v", err)
+	}
+	bad := result
+	bad.InstallPath = bad.InstallRoot
+	if err := bad.ValidateFailureEvidence(); err == nil {
+		t.Fatal("ValidateFailureEvidence() accepted install root as destination")
+	}
+	bad = result
+	bad.CleanupMarkerID = "bad"
+	if err := bad.ValidateFailureEvidence(); err == nil {
+		t.Fatal("ValidateFailureEvidence() accepted an invalid marker")
+	}
+}
+
+func TestGogInnoFailedCleanupRequestValidate(t *testing.T) {
+	t.Parallel()
+	request := GogInnoFailedCleanupRequest{
+		GameID: "game-1", SourceGameID: "source-1", InstallRoot: `C:\Games`, InstallPath: `C:\Games\Game`,
+		InstallerFamily: GogInnoInstallerFamily,
+		CleanupMarkerID: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		PrimarySHA256:   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		UninstallTarget: "unins000.exe",
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	bad := request
+	bad.CleanupMarkerID = "not-a-marker"
+	if err := bad.Validate(); err == nil {
+		t.Fatal("Validate() accepted an invalid cleanup marker")
+	}
+
+	bad = request
+	bad.UninstallTarget = `..\Windows\notepad.exe`
+	if err := bad.Validate(); err == nil {
+		t.Fatal("Validate() accepted an unsafe uninstaller")
+	}
+}
+
+func TestGogInnoFailedCleanupResultValidate(t *testing.T) {
+	t.Parallel()
+	result := GogInnoFailedCleanupResult{GameID: "game-1", SourceGameID: "source-1", Removed: true}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	result.Removed = false
+	if err := result.Validate(); err == nil {
+		t.Fatal("Validate() accepted a result that did not remove the failed install")
 	}
 }
 

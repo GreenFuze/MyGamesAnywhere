@@ -20,15 +20,18 @@ import {
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
+	cleanupFailedGameOnDevice,
   clearSourceGameCanonicalPin,
   getGame,
   getGameAchievements,
   installArchiveOnDevice,
   installGogInnoOnDevice,
+	ignoreFailedGameOnDevice,
 	launchGameOnDevice,
   listDeviceCommands,
   mergeSourceGameCanonical,
   refreshGameMetadata,
+	reopenFailedGameCleanup,
   searchCanonicalGames,
   splitSourceGameCanonical,
 	setDeviceGameLaunchTarget,
@@ -204,7 +207,7 @@ function DeviceInstallDialog({
           />
           <p className="text-xs leading-5 text-mga-muted">
             {choice.installKind === 'gog_inno'
-              ? `MGA Client on ${choice.deviceName} will verify the installer’s GOG publisher signature and Inno Setup shape before asking you to approve. Windows may also ask for permission.`
+              ? `MGA Client on ${choice.deviceName} will verify the GOG publisher and installer type before it starts. Windows may ask for permission on that device.`
               : 'Environment variables are expanded by MGA Client for the selected Windows user. This installation can override your future profile default.'}
           </p>
           {error ? <p className="text-sm text-red-400">{error}</p> : null}
@@ -245,13 +248,12 @@ function gogInnoPackage(source: SourceGameDetailDTO): { installerName: string; c
   return { installerName, companionCount }
 }
 
-function commandProgressMessage(command: DeviceCommand, deviceName: string): string {
+function commandProgressMessage(command: DeviceCommand): string {
   if (command.name !== 'game.install_gog_inno') {
     return command.progress_message || humanizeValue(command.status)
   }
 
   const progress = `${command.progress_phase ?? ''} ${command.progress_message ?? ''}`.toLowerCase()
-  if (/confirm|approve/.test(progress)) return `Approve on ${deviceName}`
   if (/windows permission|uac|elevat/.test(progress)) return 'Waiting for Windows permission'
   if (/installer.?running|running installer|process.?running/.test(progress)) return 'Installer running'
   if (/verif|signature|publisher/.test(progress)) return 'Verifying publisher'
@@ -284,10 +286,16 @@ function gogInstallErrorMessage(code: string | undefined, message: string | unde
     return "This installer isn’t supported yet (wrong shape, missing parts, or not Inno Setup)."
   }
   if (/local_confirmation_declined/.test(detail)) {
-    return `Installation was canceled on ${deviceName}.`
+    return `The action was canceled on ${deviceName}.`
   }
   if (/local_confirmation_timeout/.test(detail)) {
-    return `Approval timed out on ${deviceName}. Try Install again when you can approve it on the device.`
+    return `Confirmation timed out on ${deviceName}. Try again when you can confirm it there.`
+  }
+  if (/cleanup_marker_missing|cleanup_marker_mismatch|cleanup_boundary_failed/.test(detail)) {
+    return `MGA couldn’t verify that the failed game folder is safe to remove on ${deviceName}. Files were preserved.`
+  }
+  if (/cleanup_uninstaller_failed|cleanup_failed/.test(detail)) {
+    return `Cleanup couldn’t finish on ${deviceName}. Files were preserved.`
   }
   if (/uac_declined/.test(detail)) {
     return `Windows permission wasn’t approved on ${deviceName}.`
@@ -349,8 +357,8 @@ function attentionRequiredMessage(reason: string | undefined, deviceName: string
   if (/install_validation_failed|uninstaller_missing/.test(detail)) {
     return `Install on ${deviceName} didn’t look complete (missing game folder or uninstaller). Check the device before playing or trying again.`
   }
-  if (/uac_declined|local_confirmation/.test(detail)) {
-    return `Installation didn’t finish on ${deviceName} because approval was declined or timed out.`
+  if (/uac_declined/.test(detail)) {
+	return `Installation didn’t finish on ${deviceName} because Windows permission was declined.`
   }
   if (reason?.trim()) {
     return `This installation needs attention on ${deviceName}: ${reason.trim()}`
@@ -1392,6 +1400,8 @@ export function GameDetailPage() {
   const [showFloatingActions, setShowFloatingActions] = useState(false)
   const [installChoice, setInstallChoice] = useState<DeviceInstallChoice | null>(null)
   const [uninstallChoice, setUninstallChoice] = useState<{ deviceId: string; deviceName: string; sourceGameId: string; installKind?: string } | null>(null)
+  const [cleanupChoice, setCleanupChoice] = useState<{ deviceId: string; deviceName: string; sourceGameId: string; installPath: string; retryChoice?: DeviceInstallChoice } | null>(null)
+  const [pendingRetry, setPendingRetry] = useState<DeviceInstallChoice | null>(null)
   const [activeDeviceCommand, setActiveDeviceCommand] = useState<{ deviceId: string; commandId: string } | null>(null)
   const [installError, setInstallError] = useState('')
   const hasRetried404Ref = useRef(false)
@@ -1474,6 +1484,33 @@ export function GameDetailPage() {
 			setDeviceGameLaunchTarget(deviceId, id, sourceGameId, launchTarget),
 		onSuccess: () => queryClient.invalidateQueries({ queryKey: ['game', id] }),
 	})
+  const cleanupFailed = useMutation({
+    mutationFn: (choice: NonNullable<typeof cleanupChoice>) => cleanupFailedGameOnDevice(choice.deviceId, id, choice.sourceGameId),
+    onSuccess: (command, choice) => {
+      if (choice.retryChoice) setPendingRetry(choice.retryChoice)
+      setActiveDeviceCommand({ deviceId: choice.deviceId, commandId: command.id })
+      setCleanupChoice(null)
+    },
+  })
+	const ignoreFailed = useMutation({
+		mutationFn: ({ deviceId, sourceGameId }: { deviceId: string; sourceGameId: string }) => ignoreFailedGameOnDevice(deviceId, id, sourceGameId),
+		onSuccess: () => queryClient.invalidateQueries({ queryKey: ['game', id] }),
+	})
+	const reopenFailed = useMutation({
+		mutationFn: ({ deviceId, sourceGameId }: { deviceId: string; sourceGameId: string }) => reopenFailedGameCleanup(deviceId, id, sourceGameId),
+		onSuccess: () => queryClient.invalidateQueries({ queryKey: ['game', id] }),
+	})
+
+	useEffect(() => {
+		if (trackedCommand?.name !== 'game.cleanup_gog_inno_failed' || !['succeeded', 'failed', 'rejected', 'canceled', 'expired'].includes(trackedCommand.status)) return
+		void queryClient.invalidateQueries({ queryKey: ['game', id] })
+		if (trackedCommand.status === 'succeeded' && pendingRetry) {
+			setInstallChoice(pendingRetry)
+			setPendingRetry(null)
+		} else if (trackedCommand.status !== 'succeeded' && pendingRetry) {
+			setPendingRetry(null)
+		}
+	}, [id, pendingRetry, queryClient, trackedCommand])
 
   const gameData = game.data ?? null
   const mediaCollection = useMemo(() => new GameMediaCollection(gameData?.media), [gameData?.media])
@@ -2196,10 +2233,13 @@ export function GameDetailPage() {
 					: commandHere?.progress_stage === 'install' ? (commandHere.progress_stage_percent ?? 0) : 0
 				  const isInstallCommand = commandHere?.name === 'game.install_archive' || commandHere?.name === 'game.install_gog_inno'
 				  const isGogInstallCommand = commandHere?.name === 'game.install_gog_inno'
-				  const isGogCommand = isGogInstallCommand || commandHere?.name === 'game.uninstall_gog_inno'
-				  const progressText = commandHere ? commandProgressMessage(commandHere, device.display_name) : ''
+				  const isGogCommand = isGogInstallCommand || commandHere?.name === 'game.uninstall_gog_inno' || commandHere?.name === 'game.cleanup_gog_inno_failed'
+				  const progressText = commandHere ? commandProgressMessage(commandHere) : ''
 				  const installerRunning = Boolean(isGogInstallCommand && /installer running/i.test(progressText))
-				  const attentionRequired = device.install_state === 'attention_required'
+				  const failureState = Boolean(device.installed && device.install_state && device.install_state !== 'installed')
+				  const cleanupAvailable = Boolean(device.cleanup_marker_id && ['cleanup_required', 'cleanup_failed', 'ignored_failure'].includes(device.install_state ?? ''))
+				  const ignoredFailure = device.install_state === 'ignored_failure'
+				  const retryPackage = gogInnoSources.find(({ source }) => source.id === device.installed_source_id)
 					  return (
 						<div key={device.device_id} className="rounded-[14px] bg-white/[0.04] px-3 py-2.5">
 						  <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2211,11 +2251,11 @@ export function GameDetailPage() {
 							  <Badge variant={device.status === 'ready_for_setup' || device.status === 'installed' ? 'playable' : device.status === 'offline' ? 'muted' : 'default'}>
 								{deviceSetupLabel(device.status, device.required_runtime)}
 							  </Badge>
-							  {device.installed && device.installed_source_id ? (
+							  {device.installed && device.installed_source_id && !failureState ? (
 								<>
 								  <Button
 									size="sm"
-									disabled={attentionRequired || !device.connected || !device.can_play || !device.launch_supported || !device.launch_target || launchGame.isPending || Boolean(activeHere)}
+									disabled={!device.connected || !device.can_play || !device.launch_supported || !device.launch_target || launchGame.isPending || Boolean(activeHere)}
 									onClick={() => launchGame.mutate({ deviceId: device.device_id, sourceGameId: device.installed_source_id! })}
 								  >
 									<PlayCircle size={14} /> Play
@@ -2233,6 +2273,20 @@ export function GameDetailPage() {
 								  >
 									<Trash2 size={14} /> Uninstall
 								  </Button>
+								</>
+							  ) : failureState && device.installed_source_id ? (
+								<>
+								  {cleanupAvailable ? (
+									<>
+									  <Button size="sm" disabled={!device.connected || !device.can_manage || !device.failed_cleanup_supported || Boolean(activeHere)} onClick={() => setCleanupChoice({ deviceId: device.device_id, deviceName: device.display_name, sourceGameId: device.installed_source_id!, installPath: device.install_path ?? '' })}><Trash2 size={14} /> Clean up</Button>
+									  {!ignoredFailure ? <Button size="sm" variant="outline" disabled={!device.connected || !device.can_manage || !device.failed_cleanup_supported || !retryPackage || Boolean(activeHere)} onClick={() => retryPackage && setCleanupChoice({ deviceId: device.device_id, deviceName: device.display_name, sourceGameId: device.installed_source_id!, installPath: device.install_path ?? '', retryChoice: { deviceId: device.device_id, deviceName: device.display_name, sourceGameId: device.installed_source_id!, sourceLabel: retryPackage.source.integration_label || retryPackage.source.integration_id, packageName: retryPackage.packageInfo.installerName, installKind: 'gog_inno' } })}>Retry</Button> : null}
+									</>
+								  ) : null}
+								  {ignoredFailure ? (
+									<Button size="sm" variant="outline" disabled={!device.can_manage || reopenFailed.isPending} onClick={() => reopenFailed.mutate({ deviceId: device.device_id, sourceGameId: device.installed_source_id! })}>Review cleanup</Button>
+								  ) : (
+									<Button size="sm" variant="outline" disabled={!device.can_manage || ignoreFailed.isPending || device.install_state === 'cleanup_running'} onClick={() => ignoreFailed.mutate({ deviceId: device.device_id, sourceGameId: device.installed_source_id! })}>Ignore</Button>
+								  )}
 								</>
 							  ) : (
 								<>
@@ -2294,11 +2348,15 @@ export function GameDetailPage() {
 							  </select>
 							</label>
 						  ) : null}
-						  {attentionRequired ? (
+						  {failureState && !ignoredFailure ? (
 							<p className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
-							  {attentionRequiredMessage(device.state_reason, device.display_name)}
+							  {device.install_state === 'cleanup_required'
+								? `The install didn’t finish on ${device.display_name}. Clean up the game files before trying again.`
+								: device.install_state === 'cleanup_running' ? `Cleaning up the failed install on ${device.display_name}…`
+								: device.install_state === 'cleanup_failed' ? `Cleanup couldn’t finish on ${device.display_name}. Files were preserved.`
+								: attentionRequiredMessage(device.state_reason, device.display_name)}
 							</p>
-						  ) : null}
+						  ) : ignoredFailure ? <p className="mt-2 text-xs text-white/48">Failed install ignored. Game files may remain on {device.display_name}.</p> : null}
 						  {commandHere ? (
 							<div className="mt-2">
 							  <div className="flex justify-between gap-3 text-xs text-white/58"><span>{progressText}</span><span>{installerRunning ? 'In progress' : `${commandHere.progress_percent ?? 0}%`}</span></div>
@@ -2579,6 +2637,46 @@ export function GameDetailPage() {
             >
               {uninstallGame.isPending ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
               Uninstall
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+      <Dialog
+        open={Boolean(cleanupChoice)}
+        onClose={() => {
+          if (!cleanupFailed.isPending) setCleanupChoice(null)
+        }}
+        title={cleanupChoice?.retryChoice ? 'Clean up before retrying' : 'Clean up failed install'}
+      >
+        <div className="space-y-4">
+          <p className="text-sm leading-6 text-mga-muted">
+            MGA will remove the files in this failed game folder on{' '}
+            <span className="font-semibold text-mga-text">{cleanupChoice?.deviceName}</span>:
+          </p>
+          <p className="break-all rounded-xl border border-amber-300/20 bg-amber-300/10 px-3 py-2 font-mono text-xs leading-5 text-amber-100">
+            {cleanupChoice?.installPath}
+          </p>
+          <p className="text-sm leading-6 text-mga-muted">
+            The game’s uninstaller will run first when available. Windows components, saves, and settings outside this folder may remain.
+          </p>
+          {cleanupFailed.isError ? (
+            <p className="text-sm text-red-300">
+              {cleanupFailed.error instanceof Error ? cleanupFailed.error.message : 'Could not start cleanup.'}
+            </p>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" disabled={cleanupFailed.isPending} onClick={() => setCleanupChoice(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={cleanupFailed.isPending || !cleanupChoice}
+              onClick={() => {
+                if (cleanupChoice) cleanupFailed.mutate(cleanupChoice)
+              }}
+            >
+              {cleanupFailed.isPending ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+              Clean up
             </Button>
           </div>
         </div>

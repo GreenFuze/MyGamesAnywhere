@@ -72,13 +72,16 @@ type GameDeviceAvailabilityDTO struct {
 	Installed               bool     `json:"installed"`
 	InstalledSourceID       string   `json:"installed_source_id,omitempty"`
 	InstallPath             string   `json:"install_path,omitempty"`
-		ArchiveInstallSupported bool     `json:"archive_install_supported"`
+	ArchiveInstallSupported bool     `json:"archive_install_supported"`
 	GogInnoInstallSupported bool     `json:"gog_inno_install_supported"`
+	FailedCleanupSupported  bool     `json:"failed_cleanup_supported"`
 	UninstallSupported      bool     `json:"uninstall_supported"`
 	LaunchSupported         bool     `json:"launch_supported"`
 	InstallKind             string   `json:"install_kind,omitempty"`
 	InstallState            string   `json:"install_state,omitempty"`
 	StateReason             string   `json:"state_reason,omitempty"`
+	CleanupMarkerID         string   `json:"cleanup_marker_id,omitempty"`
+	CleanupIgnoredAt        string   `json:"cleanup_ignored_at,omitempty"`
 	LaunchTarget            string   `json:"launch_target,omitempty"`
 	LaunchCandidates        []string `json:"launch_candidates,omitempty"`
 }
@@ -117,6 +120,8 @@ func (c *GameController) attachDeviceAvailability(ctx context.Context, response 
 				item.ArchiveInstallSupported = true
 			case devicev1.CapabilityGameInstallGogInno:
 				item.GogInnoInstallSupported = true
+			case devicev1.CapabilityGameCleanupGogInnoFailed:
+				item.FailedCleanupSupported = true
 			case devicev1.CapabilityGameUninstall, devicev1.CapabilityGameUninstallGogInno:
 				item.UninstallSupported = true
 			case devicev1.CapabilityGameLaunch:
@@ -131,14 +136,18 @@ func (c *GameController) attachDeviceAvailability(ctx context.Context, response 
 				item.InstallKind = installation.InstallKind
 				item.InstallState = installation.InstallState
 				item.StateReason = installation.StateReason
+				item.CleanupMarkerID = installation.CleanupMarkerID
+				if installation.CleanupIgnoredAt != nil {
+					item.CleanupIgnoredAt = installation.CleanupIgnoredAt.UTC().Format(time.RFC3339Nano)
+				}
 				item.LaunchTarget = installation.LaunchTarget
 				item.LaunchCandidates = installation.LaunchCandidates
 				break
 			}
 		}
 		switch {
-		case item.Installed && item.InstallState == devicev1.InstallStateAttentionRequired:
-			item.Status = "attention_required"
+		case item.Installed && item.InstallState != devicev1.InstallStateInstalled:
+			item.Status = item.InstallState
 		case item.Installed:
 			item.Status = "installed"
 		case endpoint.Status == devicev1.EndpointUpdateRequired:

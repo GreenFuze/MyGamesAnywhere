@@ -73,6 +73,10 @@ func (testGogInnoInstaller) Uninstall(context.Context, devicev1.GogInnoUninstall
 	return devicev1.GogInnoUninstallResult{}, nil
 }
 
+func (testGogInnoInstaller) CleanupFailed(context.Context, devicev1.GogInnoFailedCleanupRequest, CommandProgressReporter) (devicev1.GogInnoFailedCleanupResult, error) {
+	return devicev1.GogInnoFailedCleanupResult{}, nil
+}
+
 func TestAgentReturnsTypedGogInnoFailureWithPartialPayload(t *testing.T) {
 	t.Parallel()
 	partial := devicev1.GogInnoInstallResult{GameID: "game", SourceGameID: "source", ProcessID: 4242}
@@ -95,7 +99,7 @@ func TestAgentReturnsTypedGogInnoFailureWithPartialPayload(t *testing.T) {
 }
 
 func TestLocalMetadataAdvertisesGogInnoCommands(t *testing.T) {
-	metadata, err := localMetadata("Test device")
+	metadata, err := localMetadata("Test device", devicev1.ClientExecutionModeStandard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +107,7 @@ func TestLocalMetadataAdvertisesGogInnoCommands(t *testing.T) {
 	for _, capability := range metadata.Capabilities {
 		capabilities[capability] = true
 	}
-	if !capabilities[devicev1.CapabilityGameInstallGogInno] || !capabilities[devicev1.CapabilityGameUninstallGogInno] {
+	if !capabilities[devicev1.CapabilityGameInstallGogInno] || !capabilities[devicev1.CapabilityGameUninstallGogInno] || !capabilities[devicev1.CapabilityGameCleanupGogInnoFailed] {
 		t.Fatalf("capabilities = %v", metadata.Capabilities)
 	}
 }

@@ -17,15 +17,19 @@ unrestricted shell command will be added.
 
 On Windows the installed background process is the windowless
 `mga-client-agent.exe` notification-area application. Its tray menu provides
-**Show logs** and **Exit**. The installer starts the per-user agent immediately,
-registers it for startup at sign-in, and points `mga://` at it. The separate
+**Show logs** and **Exit**. The installer registers `mga://`, but never starts
+the agent automatically or at sign-in: MGA's top bar lets the player explicitly
+run it normally or as administrator. Elevated mode lasts only until tray Exit,
+sign-out, or restart and never creates a service or startup task. The separate
 `mga-client.exe` remains a console executable for intentional CLI use.
 
 ## Security boundary
 
 - The endpoint identity is one physical host context + OS user + client
   installation. Another OS user gets a separate endpoint.
-- The agent runs without permanent administrator or service privileges.
+- The agent normally runs without administrator or service privileges. A player
+  may explicitly choose one elevated run through Windows UAC; the reported mode
+  is runtime display state, not an authorization grant.
 - HTTP/WS is supported for trusted LAN installations so MGA does not require a
   locally trusted certificate. HTTPS/WSS remains supported and is strongly
   recommended outside a trusted LAN; never expose an HTTP MGA Server directly
@@ -51,7 +55,7 @@ go run ./cmd/mga-client status
 go run ./cmd/mga-client doctor
 go run ./cmd/mga-client unpair
 go run ./cmd/mga-client protocol "mga://pair?server=...&code=..."
-go run ./cmd/mga-client protocol "mga://start?server=...&launch_id=...&token=..."
+go run ./cmd/mga-client protocol "mga://start?server=...&launch_id=...&token=...&mode=elevated"
 ```
 
 `pair` creates the local per-user identity. `agent` holds the outbound
@@ -71,9 +75,10 @@ Build the per-user Inno Setup installer with:
 .\package-installer.ps1
 ```
 
-The installer registers `mga://` and starts the agent at current-user login via
-an HKCU startup entry;
-it requests no elevation. Packaging fails fast when `ISCC.exe` is unavailable.
+The installer registers `mga://` and removes the obsolete HKCU startup entry.
+It requests no elevation itself; an elevated run is requested only after an
+explicit MGA web action and Windows UAC consent. Packaging fails fast when
+`ISCC.exe` is unavailable.
 MGA Server serves a packaged installer from
 `<app-dir>/downloads/mga-client-windows-amd64-installer.exe`, or from the
 absolute `MGA_CLIENT_INSTALLER_PATH` environment override; otherwise the

@@ -416,6 +416,19 @@ export type DeviceGameInstallation = {
   archive_bytes: number;
   installed_at: string;
   updated_at: string;
+  launch_target?: string;
+  launch_candidates?: string[];
+  install_kind: "managed_archive" | "gog_inno" | string;
+  installer_family?: string;
+  installer_files?: Array<{ file_name: string; role: string; size_bytes: number; sha256: string }>;
+  uninstall_target?: string;
+  install_state: "installed" | "attention_required" | "cleanup_required" | "cleanup_running" | "cleanup_failed" | "ignored_failure" | string;
+  state_reason?: string;
+  last_verified_at?: string;
+  state_changed_at?: string;
+  cleanup_marker_id?: string;
+  cleanup_ignored_at?: string;
+  cleanup_ignored_by_profile_id?: string;
 };
 
 export type DeviceEndpoint = {
@@ -426,6 +439,7 @@ export type DeviceEndpoint = {
   os_user: string;
   platform: string;
   arch: string;
+  execution_mode: "standard" | "elevated" | string;
   client_version: string;
   protocol_version: number;
   capabilities: string[];
@@ -450,6 +464,7 @@ export type DeviceClientLaunch = {
   id: string;
   status: "waiting" | "acknowledged" | "expired";
   endpoint_id?: string;
+  execution_mode?: "standard" | "elevated" | string;
   created_at?: string;
   expires_at: string;
   launch_uri?: string;
@@ -492,8 +507,8 @@ export async function createDevicePairingChallenge(): Promise<DevicePairingChall
   return postJson<DevicePairingChallenge>("/api/devices/pairing-challenges", {}) as Promise<DevicePairingChallenge>;
 }
 
-export async function createDeviceClientLaunch(): Promise<DeviceClientLaunch> {
-  return postJson<DeviceClientLaunch>("/api/devices/client-launches", {}) as Promise<DeviceClientLaunch>;
+export async function createDeviceClientLaunch(mode: "standard" | "elevated" = "standard"): Promise<DeviceClientLaunch> {
+  return postJson<DeviceClientLaunch>("/api/devices/client-launches", { execution_mode: mode }) as Promise<DeviceClientLaunch>;
 }
 
 export async function getDeviceClientLaunch(id: string): Promise<DeviceClientLaunch> {
@@ -573,6 +588,27 @@ export async function uninstallGameFromDevice(
     `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/uninstall`,
     {},
   ) as Promise<DeviceCommand>;
+}
+
+export async function cleanupFailedGameOnDevice(endpointId: string, gameId: string, sourceGameId: string): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(
+    `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/cleanup-failed`,
+    {},
+  ) as Promise<DeviceCommand>;
+}
+
+export async function ignoreFailedGameOnDevice(endpointId: string, gameId: string, sourceGameId: string): Promise<DeviceGameInstallation> {
+  return postJson<DeviceGameInstallation>(
+    `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/ignore-failed`,
+    {},
+  ) as Promise<DeviceGameInstallation>;
+}
+
+export async function reopenFailedGameCleanup(endpointId: string, gameId: string, sourceGameId: string): Promise<DeviceGameInstallation> {
+  return postJson<DeviceGameInstallation>(
+    `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/reopen-failed-cleanup`,
+    {},
+  ) as Promise<DeviceGameInstallation>;
 }
 
 export async function launchGameOnDevice(endpointId: string, gameId: string, sourceGameId: string): Promise<DeviceCommand> {
@@ -750,9 +786,12 @@ export type GameDeviceAvailabilityDTO = {
   install_path?: string;
   archive_install_supported: boolean;
   gog_inno_install_supported: boolean;
+  failed_cleanup_supported: boolean;
   install_kind?: "managed_archive" | "gog_inno" | string;
-  install_state?: "installed" | "attention_required" | string;
+  install_state?: "installed" | "attention_required" | "cleanup_required" | "cleanup_running" | "cleanup_failed" | "ignored_failure" | string;
   state_reason?: string;
+	cleanup_marker_id?: string;
+	cleanup_ignored_at?: string;
   uninstall_supported: boolean;
 	launch_supported: boolean;
 	launch_target?: string;

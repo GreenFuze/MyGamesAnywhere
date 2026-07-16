@@ -64,7 +64,7 @@ func (l *WindowsGameLauncher) Launch(ctx context.Context, request devicev1.GameL
 	if err != nil {
 		return devicev1.GameLaunchResult{}, err
 	}
-	if manifest.SchemaVersion != devicev1.InstallManifestSchemaVersion || manifest.GameID != request.GameID || manifest.SourceGameID != request.SourceGameID {
+	if !isSupportedLaunchManifestVersion(manifest.SchemaVersion) || manifest.GameID != request.GameID || manifest.SourceGameID != request.SourceGameID {
 		return devicev1.GameLaunchResult{}, errors.New("installation manifest does not match the requested game")
 	}
 	requested := devicev1.NormalizeLaunchTarget(request.LaunchTarget)
@@ -106,4 +106,8 @@ func (l *WindowsGameLauncher) Launch(ctx context.Context, request devicev1.GameL
 	return devicev1.GameLaunchResult{
 		GameID: request.GameID, SourceGameID: request.SourceGameID, ProcessID: processID, StartedAt: l.now().UTC(),
 	}, nil
+}
+
+func isSupportedLaunchManifestVersion(version int) bool {
+	return version == devicev1.InstallManifestSchemaVersion || version == devicev1.ExecutableInstallManifestSchemaVersion
 }

@@ -35,7 +35,6 @@ Root: HKCU; Subkey: "Software\Classes\mga"; ValueType: string; ValueName: ""; Va
 Root: HKCU; Subkey: "Software\Classes\mga"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\mga\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AgentExeName},0"
 Root: HKCU; Subkey: "Software\Classes\mga\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AgentExeName}"" protocol ""%1"""
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MGA Client"; ValueData: """{app}\{#AgentExeName}"" agent"; Flags: uninsdeletevalue
-
-[Run]
-Filename: "{app}\{#AgentExeName}"; Parameters: "agent"; Flags: nowait
+; Remove the old per-user auto-start value on upgrade. MGA Client is launched
+; explicitly from MGA so the player chooses standard or elevated mode.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "MGA Client"; Flags: deletevalue

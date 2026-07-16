@@ -204,6 +204,10 @@ func runServer(ctx context.Context, opts serverOptions) error {
 		return fmt.Errorf("configure profile authentication: %w", err)
 	}
 	deviceStore := db.NewDeviceStore(dbSvc)
+	commandRecovery, err := devices.NewCommandRecovery(deviceStore, logSvc)
+	if err != nil {
+		return fmt.Errorf("configure device command recovery: %w", err)
+	}
 	deviceHub := devices.NewHub()
 	deviceSvc, err := devices.NewService(deviceStore, deviceHub)
 	if err != nil {
@@ -283,6 +287,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
 
 	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, mediaSvc, backgroundScanSvc)
+	a.AddStartupTask(commandRecovery)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

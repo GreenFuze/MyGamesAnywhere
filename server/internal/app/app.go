@@ -23,6 +23,15 @@ type App struct {
 	pluginHost         plugins.PluginHost
 	eventBus           *events.EventBus
 	backgroundServices []core.BackgroundService
+	startupTasks       []core.StartupTask
+}
+
+func (a *App) AddStartupTask(tasks ...core.StartupTask) {
+	for _, task := range tasks {
+		if task != nil {
+			a.startupTasks = append(a.startupTasks, task)
+		}
+	}
 }
 
 func NewApp(
@@ -66,6 +75,11 @@ func (a *App) Run(ctx context.Context) error {
 
 	if err := a.db.EnsureSchema(); err != nil {
 		return fmt.Errorf("database schema creation failed: %w", err)
+	}
+	for _, task := range a.startupTasks {
+		if err := task.Run(ctx); err != nil {
+			return fmt.Errorf("startup recovery failed: %w", err)
+		}
 	}
 
 	if a.authSvc != nil {

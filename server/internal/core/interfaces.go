@@ -316,6 +316,12 @@ type BackgroundService interface {
 	Start(ctx context.Context) error
 }
 
+// StartupTask performs bounded recovery after the database schema is ready
+// and before the HTTP server accepts requests.
+type StartupTask interface {
+	Run(ctx context.Context) error
+}
+
 // MediaDownloadQueue schedules pending media_assets rows for background download.
 type MediaDownloadQueue interface {
 	EnqueuePending(ctx context.Context) error

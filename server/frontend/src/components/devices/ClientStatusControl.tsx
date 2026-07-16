@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Download, Laptop, LoaderCircle, Power, Settings } from 'lucide-react'
+import { ChevronDown, Download, Laptop, LoaderCircle, Power, Settings, Shield } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import {
   createDeviceClientLaunch,
@@ -103,11 +103,11 @@ export function ClientStatusControl() {
   const onlineCount = devices.filter((device) => connectedStates.has(device.status)).length
 
   const connect = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (mode: 'standard' | 'elevated') => {
       if (devices.length === 0) {
         return { kind: 'pair' as const, pairing: await createDevicePairingChallenge() }
       }
-      return { kind: 'launch' as const, launch: await createDeviceClientLaunch() }
+      return { kind: 'launch' as const, launch: await createDeviceClientLaunch(mode) }
     },
     onSuccess: (result) => {
       if (result.kind === 'pair') {
@@ -219,9 +219,15 @@ export function ClientStatusControl() {
           {deviceAuthority ? (
             <div className="mt-3 space-y-2">
               {!connected ? (
-                <Button className="w-full" onClick={() => connect.mutate()} disabled={connect.isPending || Boolean(pendingLaunchID) || devicesQuery.isLoading}>
+                <Button className="w-full" onClick={() => connect.mutate('standard')} disabled={connect.isPending || Boolean(pendingLaunchID) || devicesQuery.isLoading}>
                   {connect.isPending || pendingLaunchID ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
-                  {pendingLaunchID ? 'Waiting…' : 'Connect'}
+                  {pendingLaunchID ? 'Waiting…' : devices.length === 0 ? 'Pair MGA Client' : 'Run MGA Client'}
+                </Button>
+              ) : null}
+
+              {!connected && devices.length > 0 ? (
+                <Button variant="outline" className="w-full" onClick={() => connect.mutate('elevated')} disabled={connect.isPending || Boolean(pendingLaunchID) || devicesQuery.isLoading}>
+                  <Shield className="h-4 w-4" /> Run MGA Client as administrator
                 </Button>
               ) : null}
 
@@ -300,5 +306,6 @@ function statusPresentation(authorized: boolean, endpoint: DeviceEndpoint | unde
   if (endpoint.status === 'update_required') return { label: 'Client needs update', dot: 'bg-purple-400', border: 'border-purple-500/40', text: 'text-purple-300' }
   if (endpoint.status === 'error') return { label: 'Client error', dot: 'bg-red-400', border: 'border-red-500/40', text: 'text-red-300' }
   if (endpoint.status === 'busy') return { label: 'Client busy', dot: 'bg-amber-400', border: 'border-amber-500/40', text: 'text-amber-300' }
+  if (endpoint.execution_mode === 'elevated') return { label: 'Client elevated', dot: 'bg-emerald-400', border: 'border-emerald-500/35', text: 'text-emerald-300' }
   return { label: 'Client ready', dot: 'bg-emerald-400', border: 'border-emerald-500/35', text: 'text-emerald-300' }
 }

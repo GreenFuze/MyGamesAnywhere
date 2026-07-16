@@ -1,6 +1,11 @@
 package clientapp
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
+)
 
 func TestValidateServerURLAllowsHTTPFromLAN(t *testing.T) {
 	tests := []struct {
@@ -28,5 +33,12 @@ func TestValidateServerURLAllowsHTTPFromLAN(t *testing.T) {
 func TestValidateServerURLRejectsUnsupportedTransport(t *testing.T) {
 	if _, err := validateServerURL("ftp://tv2:8900"); err == nil {
 		t.Fatal("validateServerURL() accepted unsupported FTP transport")
+	}
+}
+
+func TestStartURIIncludesRequestedExecutionMode(t *testing.T) {
+	uri := startURI(StartOptions{ServerURL: "http://tv2:8900", LaunchID: "launch-1", Token: "token-1"}, devicev1.ClientExecutionModeElevated)
+	if !strings.Contains(uri, "mode=elevated") {
+		t.Fatalf("startURI() = %q, want elevated mode", uri)
 	}
 }

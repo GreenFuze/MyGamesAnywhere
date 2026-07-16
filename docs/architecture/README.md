@@ -19,6 +19,8 @@ cross the server, web interface, and device agent boundaries.
 - [ADR-0006: Managed archive installation](0006-managed-archive-installation.md)
 - [ADR-0007: Web-authorized GOG Inno Setup installation](0007-locally-confirmed-gog-inno-installation.md)
 - [ADR-0008: Device-selected Installed Games Play shelf](0008-device-selected-installed-games-shelf.md)
+- [ADR-0009: Player-selected MGA Client elevation](0009-player-selected-client-elevation.md)
+- [ADR-0010: Cross-platform local confirmation dialogs](0010-cross-platform-local-confirmation-dialogs.md)
 
 ## Protocols
 

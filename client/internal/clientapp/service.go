@@ -36,9 +36,10 @@ type PairOptions struct {
 }
 
 type StartOptions struct {
-	ServerURL string
-	LaunchID  string
-	Token     string
+	ServerURL     string
+	LaunchID      string
+	Token         string
+	ExecutionMode devicev1.ClientExecutionMode
 }
 
 type Status struct {
@@ -118,7 +119,7 @@ func (s *Service) Pair(ctx context.Context, options PairOptions) (clientconfig.C
 	if err != nil {
 		return clientconfig.Config{}, err
 	}
-	metadata, err := localMetadata(options.DisplayName)
+	metadata, err := localMetadata(options.DisplayName, currentExecutionMode())
 	if err != nil {
 		return clientconfig.Config{}, err
 	}
@@ -238,6 +239,18 @@ func (s *Service) Doctor(ctx context.Context) (DoctorResult, error) {
 }
 
 func (s *Service) RunAgent(ctx context.Context) error {
+	return s.RunAgentWithMode(ctx, currentExecutionMode())
+}
+
+// RunAgentWithMode runs the per-user agent and reports the supplied actual
+// runtime mode. Start uses it after it has verified elevation when requested.
+func (s *Service) RunAgentWithMode(ctx context.Context, executionMode devicev1.ClientExecutionMode) error {
+	if executionMode == "" {
+		executionMode = devicev1.ClientExecutionModeStandard
+	}
+	if err := executionMode.Validate(); err != nil {
+		return err
+	}
 	config, err := s.configs.Load()
 	if err != nil {
 		return err
@@ -251,7 +264,7 @@ func (s *Service) RunAgent(ctx context.Context) error {
 		return err
 	}
 	defer lock.Close()
-	agent, err := NewAgent(config, privateKey, s.buildInfo, s.logger)
+	agent, err := NewAgentWithExecutionMode(config, privateKey, s.buildInfo, s.logger, executionMode)
 	if err != nil {
 		return err
 	}
@@ -277,10 +290,20 @@ func (s *Service) RunAgent(ctx context.Context) error {
 // agent is running. An existing agent is success: the acknowledgement still
 // lets the browser associate itself with the correct endpoint.
 func (s *Service) Start(ctx context.Context, options StartOptions) error {
+	requestedMode := options.ExecutionMode
+	if requestedMode == "" {
+		requestedMode = devicev1.ClientExecutionModeStandard
+	}
+	if err := requestedMode.Validate(); err != nil {
+		return err
+	}
+	if requestedMode == devicev1.ClientExecutionModeElevated && currentExecutionMode() != devicev1.ClientExecutionModeElevated {
+		return relaunchElevated(startURI(options, requestedMode))
+	}
 	if err := s.acknowledgeLaunch(ctx, options); err != nil {
 		return err
 	}
-	if err := s.RunAgent(ctx); err != nil && !errors.Is(err, singleinstance.ErrAlreadyRunning) {
+	if err := s.RunAgentWithMode(ctx, currentExecutionMode()); err != nil && !errors.Is(err, singleinstance.ErrAlreadyRunning) {
 		return err
 	}
 	return nil
@@ -303,9 +326,10 @@ func (s *Service) acknowledgeLaunch(ctx context.Context, options StartOptions) e
 		return fmt.Errorf("load endpoint identity: %w", err)
 	}
 	launchRequest := devicev1.ClientLaunchRequest{
-		LaunchID:   strings.TrimSpace(options.LaunchID),
-		Token:      strings.TrimSpace(options.Token),
-		EndpointID: config.EndpointID,
+		LaunchID:      strings.TrimSpace(options.LaunchID),
+		Token:         strings.TrimSpace(options.Token),
+		EndpointID:    config.EndpointID,
+		ExecutionMode: normalizedExecutionMode(options.ExecutionMode),
 	}
 	signingBytes, err := launchRequest.SigningBytes()
 	if err != nil {
@@ -368,7 +392,7 @@ func validateServerURL(value string) (string, error) {
 	return strings.TrimRight(parsed.String(), "/"), nil
 }
 
-func localMetadata(displayName string) (devicev1.EndpointMetadata, error) {
+func localMetadata(displayName string, executionMode devicev1.ClientExecutionMode) (devicev1.EndpointMetadata, error) {
 	hostName, err := os.Hostname()
 	if err != nil {
 		return devicev1.EndpointMetadata{}, fmt.Errorf("read host name: %w", err)
@@ -382,11 +406,12 @@ func localMetadata(displayName string) (devicev1.EndpointMetadata, error) {
 		displayName = hostName + " / " + userName
 	}
 	metadata := devicev1.EndpointMetadata{
-		DisplayName: displayName,
-		HostName:    hostName,
-		OSUser:      userName,
-		Platform:    runtime.GOOS,
-		Arch:        runtime.GOARCH,
+		DisplayName:   displayName,
+		HostName:      hostName,
+		OSUser:        userName,
+		Platform:      runtime.GOOS,
+		Arch:          runtime.GOARCH,
+		ExecutionMode: normalizedExecutionMode(executionMode),
 		Capabilities: []string{
 			devicev1.CapabilityEndpointPing,
 			devicev1.CapabilityEndpointRefresh,
@@ -395,6 +420,7 @@ func localMetadata(displayName string) (devicev1.EndpointMetadata, error) {
 			devicev1.CapabilityGameUninstall,
 			devicev1.CapabilityGameInstallGogInno,
 			devicev1.CapabilityGameUninstallGogInno,
+			devicev1.CapabilityGameCleanupGogInnoFailed,
 			devicev1.CapabilityGameLaunch,
 			devicev1.CapabilityInventoryRefresh,
 		},
@@ -403,4 +429,22 @@ func localMetadata(displayName string) (devicev1.EndpointMetadata, error) {
 		return devicev1.EndpointMetadata{}, err
 	}
 	return metadata, nil
+}
+
+func normalizedExecutionMode(mode devicev1.ClientExecutionMode) devicev1.ClientExecutionMode {
+	if mode == "" {
+		return devicev1.ClientExecutionModeStandard
+	}
+	return mode
+}
+
+func startURI(options StartOptions, mode devicev1.ClientExecutionMode) string {
+	uri := &url.URL{Scheme: "mga", Host: "start"}
+	query := uri.Query()
+	query.Set("server", strings.TrimSpace(options.ServerURL))
+	query.Set("launch_id", strings.TrimSpace(options.LaunchID))
+	query.Set("token", strings.TrimSpace(options.Token))
+	query.Set("mode", string(mode))
+	uri.RawQuery = query.Encode()
+	return uri.String()
 }

@@ -87,7 +87,16 @@ func (c *DeviceController) CreatePairingChallenge(w http.ResponseWriter, r *http
 }
 
 func (c *DeviceController) CreateClientLaunch(w http.ResponseWriter, r *http.Request) {
-	token, launch, err := c.service.CreateClientLaunch(core.ProfileIDFromContext(r.Context()))
+	var body struct {
+		ExecutionMode devicev1.ClientExecutionMode `json:"execution_mode"`
+	}
+	if err := decodeJSONBody(w, r, &body); err != nil {
+		return
+	}
+	if body.ExecutionMode == "" {
+		body.ExecutionMode = devicev1.ClientExecutionModeStandard
+	}
+	token, launch, err := c.service.CreateClientLaunchWithMode(core.ProfileIDFromContext(r.Context()), body.ExecutionMode)
 	if err != nil {
 		writeDeviceError(w, err)
 		return
@@ -97,6 +106,7 @@ func (c *DeviceController) CreateClientLaunch(w http.ResponseWriter, r *http.Req
 	query.Set("server", requestBaseURL(r))
 	query.Set("launch_id", launch.ID)
 	query.Set("token", token)
+	query.Set("mode", string(launch.ExecutionMode))
 	launchURI.RawQuery = query.Encode()
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":         launch.ID,

@@ -23,6 +23,9 @@ the [`architecture`](architecture/README.md) documentation.
 
 ## Later
 
+- Polish local desktop visuals: brand MGA Client confirmation dialogs with the
+  MGA logo, improve the client tray icon, and redesign the server tray icon for
+  crisp rendering at Windows notification-area sizes.
 - Expand MGA Client command coverage for game installation, launch/stop, emulator management, and machine-local repair workflows.
 - Cross-platform installers.
 - Mobile companion client.

@@ -33,16 +33,24 @@ type fakeInnoDetector struct {
 func (f fakeInnoDetector) IsInnoSetup(string) (bool, error) { return f.inno, f.err }
 
 type fakeLocalConfirmer struct {
-	installErr   error
-	uninstallErr error
-}
-
-func (f fakeLocalConfirmer) ConfirmInstall(context.Context, InstallConfirmationDetails, time.Duration) error {
-	return f.installErr
+	uninstallErr   error
+	cleanupErr     error
+	uninstallCalls *int
+	cleanupCalls   *int
 }
 
 func (f fakeLocalConfirmer) ConfirmUninstall(context.Context, UninstallConfirmationDetails, time.Duration) error {
+	if f.uninstallCalls != nil {
+		(*f.uninstallCalls)++
+	}
 	return f.uninstallErr
+}
+
+func (f fakeLocalConfirmer) ConfirmCleanup(context.Context, CleanupConfirmationDetails, time.Duration) error {
+	if f.cleanupCalls != nil {
+		(*f.cleanupCalls)++
+	}
+	return f.cleanupErr
 }
 
 type fakeInstallerProcessRunner struct {
@@ -69,6 +77,17 @@ func (f *fakeInstallerProcessRunner) Start(_ context.Context, spec InstallerProc
 type fakeInstallerProcess struct {
 	exitCode int
 	waitErr  error
+}
+
+type fakeRegisteredProgramInspector struct {
+	associated bool
+	err        error
+	calls      int
+}
+
+func (f *fakeRegisteredProgramInspector) HasAssociation(string) (bool, error) {
+	f.calls++
+	return f.associated, f.err
 }
 
 func (fakeInstallerProcess) PID() int { return 4242 }
@@ -168,9 +187,16 @@ func TestManagedGogInnoInstallerMultiFileProgressFixedArgsAndManifest(t *testing
 	if manifest.SchemaVersion != 3 || manifest.UninstallTarget != "unins000.exe" || len(manifest.PackageFiles) != 2 {
 		t.Fatalf("manifest = %#v", manifest)
 	}
+	if result.CompletionBasis != devicev1.GogInnoCompletionExitZero || manifest.CompletionBasis != devicev1.GogInnoCompletionExitZero {
+		t.Fatalf("completion basis result=%q manifest=%q", result.CompletionBasis, manifest.CompletionBasis)
+	}
+	markers, markerErr := filepath.Glob(filepath.Join(result.InstallRoot, ".mga", gogInnoFailureMarkerDirectory, "*.json"))
+	if markerErr != nil || len(markers) != 0 {
+		t.Fatalf("committed install retained failure marker: markers=%v error=%v", markers, markerErr)
+	}
 }
 
-func TestManagedGogInnoInstallerRejectsValidationAndLocalActionFailures(t *testing.T) {
+func TestManagedGogInnoInstallerRejectsValidationAndExecutionFailures(t *testing.T) {
 	t.Parallel()
 	payload := []byte("MZ Inno Setup")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(payload) }))
@@ -195,8 +221,6 @@ func TestManagedGogInnoInstallerRejectsValidationAndLocalActionFailures(t *testi
 		{name: "invalid signature", verifier: fakeAuthenticodeVerifier{err: errors.New("bad signature")}, detector: fakeInnoDetector{inno: true}, runner: &fakeInstallerProcessRunner{}, code: "invalid_installer_signature"},
 		{name: "wrong publisher", verifier: fakeAuthenticodeVerifier{subject: "Other Publisher", thumbprint: "AA"}, detector: fakeInnoDetector{inno: true}, runner: &fakeInstallerProcessRunner{}, code: "invalid_installer_signature"},
 		{name: "wrong family", verifier: validFakeVerifier(), detector: fakeInnoDetector{inno: false}, runner: &fakeInstallerProcessRunner{}, code: "unsupported_installer"},
-		{name: "declined", verifier: validFakeVerifier(), detector: fakeInnoDetector{inno: true}, confirmer: fakeLocalConfirmer{installErr: ErrLocalConfirmationDeclined}, runner: &fakeInstallerProcessRunner{}, code: "local_confirmation_declined"},
-		{name: "confirmation timeout", verifier: validFakeVerifier(), detector: fakeInnoDetector{inno: true}, confirmer: fakeLocalConfirmer{installErr: ErrLocalConfirmationTimeout}, runner: &fakeInstallerProcessRunner{}, code: "local_confirmation_timeout"},
 		{name: "UAC declined", verifier: validFakeVerifier(), detector: fakeInnoDetector{inno: true}, runner: &fakeInstallerProcessRunner{startErr: ErrUACDeclined}, code: "uac_declined"},
 		{name: "nonzero", verifier: validFakeVerifier(), detector: fakeInnoDetector{inno: true}, runner: &fakeInstallerProcessRunner{exitCode: 7}, code: "installer_exit_nonzero"},
 	}
@@ -209,11 +233,138 @@ func TestManagedGogInnoInstallerRejectsValidationAndLocalActionFailures(t *testi
 			}
 			_, err = installer.Install(context.Background(), "command-"+strings.ReplaceAll(test.name, " ", "-"), baseRequest(t.TempDir()), nil)
 			assertGogErrorCode(t, err, test.code)
-			if (test.code == "local_confirmation_declined" || test.code == "local_confirmation_timeout" ||
-				test.code == "invalid_installer_signature" || test.code == "unsupported_installer") && len(test.runner.specs) != 0 {
+			if (test.code == "invalid_installer_signature" || test.code == "unsupported_installer") && len(test.runner.specs) != 0 {
 				t.Fatalf("process executed after pre-start failure: %#v", test.runner.specs)
 			}
 		})
+	}
+}
+
+func TestManagedGogInnoInstallerAcceptsOnlyExactValidatedPostSuccessCrash(t *testing.T) {
+	t.Parallel()
+	payload := []byte("MZ Inno Setup")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(payload) }))
+	defer server.Close()
+	crashExit := int(uint32(0xC000041D))
+
+	tests := []struct {
+		name             string
+		exitCode         int
+		log              string
+		writeUninstaller bool
+		wantSuccess      bool
+		wantCode         string
+	}{
+		{name: "exact crash and success sentinel", exitCode: crashExit, log: "Installation process succeeded", writeUninstaller: true, wantSuccess: true},
+		{name: "missing success sentinel", exitCode: crashExit, log: "Deinitializing Setup", writeUninstaller: true, wantCode: "installer_exit_nonzero"},
+		{name: "failure sentinel wins", exitCode: crashExit, log: "Installation process succeeded\nRolling back changes", writeUninstaller: true, wantCode: "installer_exit_nonzero"},
+		{name: "different exit remains failure", exitCode: crashExit + 1, log: "Installation process succeeded", writeUninstaller: true, wantCode: "installer_exit_nonzero"},
+		{name: "post validation still required", exitCode: crashExit, log: "Installation process succeeded", wantCode: "uninstaller_missing"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := &fakeInstallerProcessRunner{exitCode: test.exitCode}
+			runner.onStart = func(spec InstallerProcessSpec) error {
+				destination := fixedArgumentValue(spec.Arguments, "/DIR=")
+				logPath := fixedArgumentValue(spec.Arguments, "/LOG=")
+				if err := os.WriteFile(filepath.Join(destination, "Game.exe"), []byte("game"), 0o600); err != nil {
+					return err
+				}
+				if test.writeUninstaller {
+					if err := os.WriteFile(filepath.Join(destination, "unins000.exe"), []byte("uninstall"), 0o600); err != nil {
+						return err
+					}
+				}
+				return os.WriteFile(logPath, []byte(test.log), 0o600)
+			}
+			installer := newFakeGogInstaller(t, server.URL, fakeLocalConfirmer{}, runner)
+			result, err := installer.Install(context.Background(), "command-crash", devicev1.GogInnoInstallRequest{
+				GameID: "game", SourceGameID: "source", Title: "Game", DestinationRoot: root, DestinationName: "Game",
+				Installer: devicev1.PackageTransferDescriptor{FileName: "setup_game.exe", Role: devicev1.PackageTransferRoleInstaller,
+					SizeBytes: uint64(len(payload)), DownloadURL: server.URL, DownloadToken: "token"},
+			}, nil)
+			if test.wantSuccess {
+				if err != nil {
+					t.Fatalf("Install() error = %v", err)
+				}
+				if result.CompletionBasis != devicev1.GogInnoCompletionValidatedPostSuccessCrash || result.ExitCode == nil || *result.ExitCode != crashExit {
+					t.Fatalf("result = %#v", result)
+				}
+				var manifest gogInnoManifest
+				data, readErr := os.ReadFile(filepath.Join(result.InstallPath, installManifestName))
+				if readErr != nil || json.Unmarshal(data, &manifest) != nil {
+					t.Fatalf("read manifest: %v", readErr)
+				}
+				if manifest.CompletionBasis != devicev1.GogInnoCompletionValidatedPostSuccessCrash || manifest.ExitCode == nil || *manifest.ExitCode != crashExit {
+					t.Fatalf("manifest = %#v", manifest)
+				}
+				return
+			}
+			assertGogErrorCode(t, err, test.wantCode)
+			if result.CleanupMarkerID == "" {
+				t.Fatalf("post-start failure has no cleanup marker: %#v", result)
+			}
+			markerPath, markerPathErr := failureMarkerSidecarPath(result.InstallRoot, result.CleanupMarkerID)
+			if markerPathErr != nil {
+				t.Fatal(markerPathErr)
+			}
+			if _, markerErr := os.Stat(markerPath); markerErr != nil {
+				t.Fatalf("post-start failure marker missing: %v", markerErr)
+			}
+		})
+	}
+}
+
+func TestManagedGogInnoInstallerPreStartFailureRemovesMarkerOnlyDestination(t *testing.T) {
+	t.Parallel()
+	payload := []byte("MZ Inno Setup")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(payload) }))
+	defer server.Close()
+	root := t.TempDir()
+	installer := newFakeGogInstaller(t, server.URL, fakeLocalConfirmer{}, &fakeInstallerProcessRunner{startErr: ErrUACDeclined})
+	_, err := installer.Install(context.Background(), "command-prestart", devicev1.GogInnoInstallRequest{
+		GameID: "game", SourceGameID: "source", Title: "Game", DestinationRoot: root, DestinationName: "Game",
+		Installer: devicev1.PackageTransferDescriptor{FileName: "setup_game.exe", Role: devicev1.PackageTransferRoleInstaller,
+			SizeBytes: uint64(len(payload)), DownloadURL: server.URL, DownloadToken: "token"},
+	}, nil)
+	assertGogErrorCode(t, err, "uac_declined")
+	if _, statErr := os.Stat(filepath.Join(root, "Game")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("pre-start marker-only destination remains: %v", statErr)
+	}
+}
+
+func TestReadBoundedInnoLogTailUTF16LE(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "installer.log")
+	text := "Installation process succeeded"
+	data := []byte{0xff, 0xfe}
+	for _, character := range text {
+		data = append(data, byte(character), 0)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := readBoundedInnoLogTail(path)
+	if err != nil || !strings.Contains(decoded, text) {
+		t.Fatalf("decoded=%q error=%v", decoded, err)
+	}
+}
+
+func TestReadBoundedInnoLogTailDoesNotAcceptSentinelOutsideFinalMiB(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "installer.log")
+	data := append([]byte("Installation process succeeded\n"), []byte(strings.Repeat("x", int(maxGogInnoLogTailBytes)+1))...)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := isValidatedPostSuccessCrash(int(uint32(0xC000041D)), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted {
+		t.Fatal("classifier accepted a success sentinel outside the final 1 MiB")
 	}
 }
 
@@ -289,6 +440,209 @@ func TestManagedGogInnoUninstallUsesManifestMembershipAndNeverDeletesLeftovers(t
 	assertGogErrorCode(t, err, "uninstaller_mismatch")
 }
 
+func TestManagedGogInnoCleanupFailedUsesPublisherUninstallerThenBoundedDelete(t *testing.T) {
+	t.Parallel()
+	request := createFailedCleanupFixture(t, true)
+	cleanupCalls := 0
+	runner := &fakeInstallerProcessRunner{}
+	runner.onStart = func(spec InstallerProcessSpec) error {
+		if spec.Path != filepath.Join(request.InstallPath, "unins000.exe") {
+			return errors.New("cleanup did not use the recorded publisher uninstaller")
+		}
+		markerPath, markerErr := failureMarkerSidecarPath(request.InstallRoot, request.CleanupMarkerID)
+		if markerErr != nil {
+			return markerErr
+		}
+		if _, err := os.Stat(markerPath); err != nil {
+			return errors.New("cleanup deleted files before publisher uninstaller start")
+		}
+		return nil
+	}
+	installer := newFakeGogInstaller(t, "https://mga.example", fakeLocalConfirmer{cleanupCalls: &cleanupCalls}, runner)
+	result, err := installer.CleanupFailed(context.Background(), request, nil)
+	if err != nil {
+		t.Fatalf("CleanupFailed() error = %v", err)
+	}
+	if cleanupCalls != 1 || !result.Removed || !result.PublisherUninstallerUsed || !result.BoundedDeleteUsed || !result.SystemChangesMayRemain {
+		t.Fatalf("result=%#v cleanupCalls=%d", result, cleanupCalls)
+	}
+	if _, err := os.Stat(request.InstallPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("marked destination remains: %v", err)
+	}
+}
+
+func TestManagedGogInnoCleanupFailedPreservesFilesWhenPublisherUninstallerFails(t *testing.T) {
+	t.Parallel()
+	request := createFailedCleanupFixture(t, true)
+	installer := newFakeGogInstaller(t, "https://mga.example", fakeLocalConfirmer{}, &fakeInstallerProcessRunner{exitCode: 7})
+	result, err := installer.CleanupFailed(context.Background(), request, nil)
+	assertGogErrorCode(t, err, "cleanup_uninstaller_failed")
+	if !result.PublisherUninstallerUsed || result.BoundedDeleteUsed {
+		t.Fatalf("result = %#v", result)
+	}
+	for _, name := range []string{"payload.bin", "unins000.exe"} {
+		if _, statErr := os.Stat(filepath.Join(request.InstallPath, name)); statErr != nil {
+			t.Fatalf("%s was not preserved: %v", name, statErr)
+		}
+	}
+	markerPath, markerErr := failureMarkerSidecarPath(request.InstallRoot, request.CleanupMarkerID)
+	if markerErr != nil {
+		t.Fatal(markerErr)
+	}
+	if _, statErr := os.Stat(markerPath); statErr != nil {
+		t.Fatalf("sidecar marker was not preserved: %v", statErr)
+	}
+}
+
+func TestManagedGogInnoCleanupFailedWithoutUninstallerDeletesOnlyMarkedDestination(t *testing.T) {
+	t.Parallel()
+	request := createFailedCleanupFixture(t, false)
+	outside := filepath.Join(request.InstallRoot, "keep.txt")
+	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeInstallerProcessRunner{startErr: errors.New("runner must not be called")}
+	installer := newFakeGogInstaller(t, "https://mga.example", fakeLocalConfirmer{}, runner)
+	result, err := installer.CleanupFailed(context.Background(), request, nil)
+	if err != nil {
+		t.Fatalf("CleanupFailed() error = %v", err)
+	}
+	if result.PublisherUninstallerUsed || !result.BoundedDeleteUsed || len(runner.specs) != 0 {
+		t.Fatalf("result=%#v runner=%#v", result, runner.specs)
+	}
+	if data, readErr := os.ReadFile(outside); readErr != nil || string(data) != "keep" {
+		t.Fatalf("outside file changed: data=%q error=%v", data, readErr)
+	}
+}
+
+func TestManagedGogInnoCleanupFailedPreservesRegisteredProgramFolder(t *testing.T) {
+	t.Parallel()
+	request := createFailedCleanupFixture(t, false)
+	inspector := &fakeRegisteredProgramInspector{associated: true}
+	installer := newFakeGogInstaller(t, "https://mga.example", fakeLocalConfirmer{}, &fakeInstallerProcessRunner{})
+	installer.programs = inspector
+	result, err := installer.CleanupFailed(context.Background(), request, nil)
+	assertGogErrorCode(t, err, "cleanup_registered_program_present")
+	if inspector.calls != 1 || result.BoundedDeleteUsed {
+		t.Fatalf("inspector calls=%d result=%#v", inspector.calls, result)
+	}
+	if _, statErr := os.Stat(filepath.Join(request.InstallPath, "payload.bin")); statErr != nil {
+		t.Fatalf("registered program folder was modified: %v", statErr)
+	}
+}
+
+func TestManagedGogInnoCleanupFailedRejectsMissingMismatchedAndRootMarkers(t *testing.T) {
+	t.Parallel()
+	valid := createFailedCleanupFixture(t, false)
+	installer := newFakeGogInstaller(t, "https://mga.example", fakeLocalConfirmer{}, &fakeInstallerProcessRunner{})
+
+	missing := valid
+	missing.InstallPath = filepath.Join(valid.InstallRoot, "Legacy")
+	if err := os.Mkdir(missing.InstallPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := installer.CleanupFailed(context.Background(), missing, nil)
+	assertGogErrorCode(t, err, "cleanup_marker_mismatch")
+
+	mismatch := valid
+	mismatch.CleanupMarkerID = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	_, err = installer.CleanupFailed(context.Background(), mismatch, nil)
+	assertGogErrorCode(t, err, "cleanup_marker_missing")
+
+	root := valid
+	root.InstallPath = valid.InstallRoot
+	_, err = installer.CleanupFailed(context.Background(), root, nil)
+	assertGogErrorCode(t, err, "cleanup_boundary_failed")
+
+	if _, statErr := os.Stat(filepath.Join(valid.InstallPath, "payload.bin")); statErr != nil {
+		t.Fatalf("rejected cleanup modified the marked folder: %v", statErr)
+	}
+}
+
+func TestManagedGogInnoCleanupFailedRejectsReplacedSchema2Destination(t *testing.T) {
+	t.Parallel()
+	request := createFailedCleanupFixture(t, false)
+	if err := os.RemoveAll(request.InstallPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(request.InstallPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(request.InstallPath, "replacement.bin"), []byte("do not delete"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	installer := newFakeGogInstaller(t, "https://mga.example", fakeLocalConfirmer{}, &fakeInstallerProcessRunner{})
+	_, err := installer.CleanupFailed(context.Background(), request, nil)
+	assertGogErrorCode(t, err, "cleanup_marker_mismatch")
+	if _, statErr := os.Stat(filepath.Join(request.InstallPath, "replacement.bin")); statErr != nil {
+		t.Fatalf("replaced destination was modified: %v", statErr)
+	}
+}
+
+func TestManagedGogInnoCleanupDeclinePreservesMarkedFolder(t *testing.T) {
+	t.Parallel()
+	request := createFailedCleanupFixture(t, false)
+	installer := newFakeGogInstaller(t, "https://mga.example", fakeLocalConfirmer{cleanupErr: ErrLocalConfirmationDeclined}, &fakeInstallerProcessRunner{})
+	_, err := installer.CleanupFailed(context.Background(), request, nil)
+	assertGogErrorCode(t, err, "local_confirmation_declined")
+	if _, statErr := os.Stat(filepath.Join(request.InstallPath, "payload.bin")); statErr != nil {
+		t.Fatalf("declined cleanup modified files: %v", statErr)
+	}
+}
+
+func TestManagedGogInnoCleanupDoesNotFollowChildReparsePoint(t *testing.T) {
+	t.Parallel()
+	request := createFailedCleanupFixture(t, false)
+	outsideRoot := t.TempDir()
+	outside := filepath.Join(outsideRoot, "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(request.InstallPath, "outside-link.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+	installer := newFakeGogInstaller(t, "https://mga.example", fakeLocalConfirmer{}, &fakeInstallerProcessRunner{})
+	if _, err := installer.CleanupFailed(context.Background(), request, nil); err != nil {
+		t.Fatalf("CleanupFailed() error = %v", err)
+	}
+	if data, err := os.ReadFile(outside); err != nil || string(data) != "outside" {
+		t.Fatalf("cleanup followed child link: data=%q error=%v", data, err)
+	}
+}
+
+func createFailedCleanupFixture(t *testing.T, withUninstaller bool) devicev1.GogInnoFailedCleanupRequest {
+	t.Helper()
+	root := t.TempDir()
+	installPath := filepath.Join(root, "Failed Game")
+	primaryHash := strings.Repeat("a", 64)
+	marker, err := newGogInnoFailureMarker("command-cleanup", devicev1.GogInnoInstallRequest{
+		GameID: "game", SourceGameID: "source",
+	}, root, installPath, primaryHash, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerRecord, err := createGogInnoFailureMarker(root, installPath, marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(installPath, "payload.bin"), []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	uninstaller := ""
+	if withUninstaller {
+		uninstaller = "unins000.exe"
+		if err := os.WriteFile(filepath.Join(installPath, uninstaller), []byte("uninstaller"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return devicev1.GogInnoFailedCleanupRequest{
+		GameID: "game", SourceGameID: "source", InstallRoot: root, InstallPath: installPath,
+		InstallerFamily: devicev1.GogInnoInstallerFamily, CleanupMarkerID: markerRecord.Marker.MarkerID,
+		PrimarySHA256: primaryHash, UninstallTarget: uninstaller,
+	}
+}
+
 func newFakeGogInstaller(t *testing.T, serverURL string, confirmer LocalConfirmer, runner InstallerProcessRunner) *ManagedGogInnoInstaller {
 	t.Helper()
 	installer, err := NewManagedGogInnoInstaller(serverURL, validFakeVerifier(), fakeInnoDetector{inno: true}, confirmer, runner)
@@ -311,15 +665,15 @@ func fixedArgumentValue(arguments []string, prefix string) string {
 	return ""
 }
 
-func TestInnoPathArgumentQuotesSpaces(t *testing.T) {
+func TestInnoPathArgumentLeavesWindowsQuotingToProcessRunner(t *testing.T) {
 	t.Parallel()
 	got := innoPathArgument("/DIR=", `C:\Games\MGA E2E Game`)
-	want := `/DIR="C:\Games\MGA E2E Game"`
+	want := `/DIR=C:\Games\MGA E2E Game`
 	if got != want {
 		t.Fatalf("innoPathArgument() = %q, want %q", got, want)
 	}
 	if fixedArgumentValue([]string{got}, "/DIR=") != `C:\Games\MGA E2E Game` {
-		t.Fatalf("fixedArgumentValue() did not strip Inno quotes from %q", got)
+		t.Fatalf("fixedArgumentValue() did not retain the path from %q", got)
 	}
 }
 

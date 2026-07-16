@@ -19,6 +19,10 @@ type launchTestStore struct {
 	grant         devicev1.AccessLevel
 	installations []GameInstallation
 	updatedTarget string
+	failureState  string
+	failureEvent  string
+	failureMarker string
+	ignoredBy     string
 }
 
 func (s *launchTestStore) GetEndpoint(_ context.Context, endpointID string) (*Endpoint, error) {
@@ -120,6 +124,13 @@ func (s *launchTestStore) UpdateInstallationLaunchTarget(_ context.Context, _, _
 	s.updatedTarget = launchTarget
 	return nil
 }
+func (s *launchTestStore) SetInstallationFailureState(_ context.Context, _, _, _, _ string, state, _ string, markerID string, _ *time.Time, ignoredBy, eventType string, _ json.RawMessage, _ time.Time) error {
+	s.failureState = state
+	s.failureEvent = eventType
+	s.failureMarker = markerID
+	s.ignoredBy = ignoredBy
+	return nil
+}
 
 func TestServiceRedeemsSignedClientLaunch(t *testing.T) {
 	t.Parallel()
@@ -158,10 +169,58 @@ func TestServiceRedeemsSignedClientLaunch(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsClientLaunchRedeemedWithDifferentExecutionMode(t *testing.T) {
+	t.Parallel()
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	store := &launchTestStore{
+		endpoint: Endpoint{ID: "endpoint-1", PublicKey: base64.RawURLEncoding.EncodeToString(publicKey)},
+		grant:    devicev1.AccessOwner,
+	}
+	service, err := NewService(store, NewHub())
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	service.now = func() time.Time { return time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC) }
+	token, launch, err := service.CreateClientLaunchWithMode("profile-1", devicev1.ClientExecutionModeElevated)
+	if err != nil {
+		t.Fatalf("CreateClientLaunchWithMode() error = %v", err)
+	}
+	request := devicev1.ClientLaunchRequest{
+		LaunchID:      launch.ID,
+		Token:         token,
+		EndpointID:    store.endpoint.ID,
+		ExecutionMode: devicev1.ClientExecutionModeStandard,
+	}
+	signingBytes, err := request.SigningBytes()
+	if err != nil {
+		t.Fatalf("SigningBytes() error = %v", err)
+	}
+	request.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, signingBytes))
+
+	if _, err := service.RedeemClientLaunch(context.Background(), request); !errors.Is(err, ErrClientLaunchNotFound) {
+		t.Fatalf("RedeemClientLaunch() error = %v, want ErrClientLaunchNotFound", err)
+	}
+}
+
 func TestClientStopRequiresManageAccess(t *testing.T) {
 	t.Parallel()
 
 	level, err := requiredAccessForCommand(devicev1.CapabilityEndpointStop)
+	if err != nil {
+		t.Fatalf("requiredAccessForCommand() error = %v", err)
+	}
+	if level != devicev1.AccessManage {
+		t.Fatalf("requiredAccessForCommand() = %q, want %q", level, devicev1.AccessManage)
+	}
+}
+
+func TestFailedInstallCleanupRequiresManageAccess(t *testing.T) {
+	t.Parallel()
+	level, err := requiredAccessForCommand(devicev1.CapabilityGameCleanupGogInnoFailed)
 	if err != nil {
 		t.Fatalf("requiredAccessForCommand() error = %v", err)
 	}
@@ -207,5 +266,65 @@ func TestServiceSelectsOnlyRecordedLaunchCandidate(t *testing.T) {
 	}
 	if store.updatedTarget != "" {
 		t.Fatalf("unrecorded target was persisted as %q", store.updatedTarget)
+	}
+}
+
+func TestServiceFailedInstallIgnoreReopenAndCleanupTransitions(t *testing.T) {
+	t.Parallel()
+	store := &launchTestStore{
+		endpoint: Endpoint{ID: "endpoint-1"}, grant: devicev1.AccessManage,
+		installations: []GameInstallation{{
+			EndpointID: "endpoint-1", GameID: "game-1", SourceGameID: "source-1", ProfileID: "profile-1",
+			InstallState: devicev1.InstallStateCleanupRequired, CleanupMarkerID: "marker-1",
+		}},
+	}
+	service, err := NewService(store, NewHub())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ignored, err := service.TransitionInstallationFailure(context.Background(), "endpoint-1", "game-1", "source-1", "profile-1", "ignore", "")
+	if err != nil {
+		t.Fatalf("ignore transition: %v", err)
+	}
+	if ignored.InstallState != devicev1.InstallStateIgnoredFailure || store.failureState != devicev1.InstallStateIgnoredFailure || store.failureEvent != "failure_ignored" || store.ignoredBy != "profile-1" {
+		t.Fatalf("ignored=%#v store=%#v", ignored, store)
+	}
+	store.installations[0] = *ignored
+	reopened, err := service.TransitionInstallationFailure(context.Background(), "endpoint-1", "game-1", "source-1", "profile-1", "reopen", "")
+	if err != nil {
+		t.Fatalf("reopen transition: %v", err)
+	}
+	if reopened.InstallState != devicev1.InstallStateCleanupRequired || store.failureEvent != "failure_reopened" || store.failureMarker != "marker-1" {
+		t.Fatalf("reopened=%#v store=%#v", reopened, store)
+	}
+	store.installations[0] = *reopened
+	running, err := service.TransitionInstallationFailure(context.Background(), "endpoint-1", "game-1", "source-1", "profile-1", "cleanup_started", "Cleanup requested")
+	if err != nil || running.InstallState != devicev1.InstallStateCleanupRunning || store.failureEvent != "cleanup_started" {
+		t.Fatalf("cleanup start=%#v error=%v store=%#v", running, err, store)
+	}
+}
+
+func TestServiceLegacyAttentionCanBeIgnoredButNotCleaned(t *testing.T) {
+	t.Parallel()
+	store := &launchTestStore{
+		endpoint: Endpoint{ID: "endpoint-1"}, grant: devicev1.AccessManage,
+		installations: []GameInstallation{{
+			EndpointID: "endpoint-1", GameID: "game-1", SourceGameID: "source-1", ProfileID: "profile-1",
+			InstallState: devicev1.InstallStateAttentionRequired,
+		}},
+	}
+	service, err := NewService(store, NewHub())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.TransitionInstallationFailure(context.Background(), "endpoint-1", "game-1", "source-1", "profile-1", "cleanup_started", ""); err == nil {
+		t.Fatal("legacy attention row without a marker was eligible for cleanup")
+	}
+	if _, err := service.TransitionInstallationFailure(context.Background(), "endpoint-1", "game-1", "source-1", "profile-1", "ignore", ""); err != nil {
+		t.Fatalf("ignore legacy attention row: %v", err)
+	}
+	store.grant = devicev1.AccessView
+	if _, err := service.TransitionInstallationFailure(context.Background(), "endpoint-1", "game-1", "source-1", "profile-1", "ignore", ""); !errors.Is(err, ErrDeviceForbidden) {
+		t.Fatalf("view-only ignore error = %v, want ErrDeviceForbidden", err)
 	}
 }

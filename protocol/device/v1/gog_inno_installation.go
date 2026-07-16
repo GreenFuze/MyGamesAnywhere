@@ -13,23 +13,31 @@ import (
 )
 
 const (
-	GogInnoInstallSchemaVersion            uint16 = 1
-	GogInnoUninstallSchemaVersion          uint16 = 1
-	ExecutableInstallManifestSchemaVersion        = 3
-	GogInnoInstallerFamily                        = "gog_inno"
-	GogInnoInvocationFixedSilent                  = "fixed_silent_inno"
-	InstallKindManagedArchive                     = "managed_archive"
-	InstallKindGogInno                            = "gog_inno"
-	InstallStateInstalled                         = "installed"
-	InstallStateAttentionRequired                 = "attention_required"
-	PackageTransferRoleInstaller                  = "installer"
-	PackageTransferRoleCompanion                  = "companion"
-	MaxGogInnoCompanions                          = 64
-	GogInnoLocalConfirmationTimeout               = 10 * time.Minute
-	GogInnoInstallCommandLifetime                 = 4 * time.Hour
-	GogInnoUninstallCommandLifetime               = 1 * time.Hour
-	GogInnoInstallerProcessTimeout                = 2 * time.Hour
-	GogInnoUninstallerProcessTimeout              = 30 * time.Minute
+	GogInnoInstallSchemaVersion                uint16 = 1
+	GogInnoUninstallSchemaVersion              uint16 = 1
+	GogInnoCleanupSchemaVersion                uint16 = 1
+	ExecutableInstallManifestSchemaVersion            = 3
+	GogInnoInstallerFamily                            = "gog_inno"
+	GogInnoInvocationFixedSilent                      = "fixed_silent_inno"
+	InstallKindManagedArchive                         = "managed_archive"
+	InstallKindGogInno                                = "gog_inno"
+	InstallStateInstalled                             = "installed"
+	InstallStateAttentionRequired                     = "attention_required"
+	InstallStateCleanupRequired                       = "cleanup_required"
+	InstallStateCleanupRunning                        = "cleanup_running"
+	InstallStateCleanupFailed                         = "cleanup_failed"
+	InstallStateIgnoredFailure                        = "ignored_failure"
+	GogInnoCompletionExitZero                         = "exit_zero"
+	GogInnoCompletionValidatedPostSuccessCrash        = "validated_post_success_crash"
+	PackageTransferRoleInstaller                      = "installer"
+	PackageTransferRoleCompanion                      = "companion"
+	MaxGogInnoCompanions                              = 64
+	GogInnoLocalConfirmationTimeout                   = 10 * time.Minute
+	GogInnoInstallCommandLifetime                     = 4 * time.Hour
+	GogInnoUninstallCommandLifetime                   = 1 * time.Hour
+	GogInnoCleanupCommandLifetime                     = 1 * time.Hour
+	GogInnoInstallerProcessTimeout                    = 2 * time.Hour
+	GogInnoUninstallerProcessTimeout                  = 30 * time.Minute
 )
 
 var (
@@ -40,10 +48,10 @@ var (
 // PackageTransferDescriptor identifies one origin-relative package file transfer.
 // It never carries executable arguments, shell content, or absolute filesystem paths.
 type PackageTransferDescriptor struct {
-	FileName     string `json:"file_name"`
-	Role         string `json:"role"`
-	SizeBytes    uint64 `json:"size_bytes"`
-	DownloadURL  string `json:"download_url"`
+	FileName      string `json:"file_name"`
+	Role          string `json:"role"`
+	SizeBytes     uint64 `json:"size_bytes"`
+	DownloadURL   string `json:"download_url"`
 	DownloadToken string `json:"download_token"`
 }
 
@@ -68,12 +76,12 @@ func (d PackageTransferDescriptor) Validate() error {
 
 // GogInnoInstallRequest installs one signed GOG Inno Setup package after local confirmation.
 type GogInnoInstallRequest struct {
-	GameID          string                     `json:"game_id"`
-	SourceGameID    string                     `json:"source_game_id"`
-	Title           string                     `json:"title"`
-	DestinationRoot string                     `json:"destination_root,omitempty"`
-	DestinationName string                     `json:"destination_name"`
-	Installer       PackageTransferDescriptor  `json:"installer"`
+	GameID          string                      `json:"game_id"`
+	SourceGameID    string                      `json:"source_game_id"`
+	Title           string                      `json:"title"`
+	DestinationRoot string                      `json:"destination_root,omitempty"`
+	DestinationName string                      `json:"destination_name"`
+	Installer       PackageTransferDescriptor   `json:"installer"`
 	Companions      []PackageTransferDescriptor `json:"companions,omitempty"`
 }
 
@@ -149,27 +157,32 @@ func (f GogInnoPackageFile) Validate() error {
 }
 
 type GogInnoInstallResult struct {
-	GameID             string               `json:"game_id"`
-	SourceGameID       string               `json:"source_game_id"`
-	InstallRoot        string               `json:"install_root"`
-	InstallPath        string               `json:"install_path"`
-	InstallerFamily    string               `json:"installer_family"`
-	PrimarySHA256      string               `json:"primary_sha256"`
-	TotalPackageBytes  uint64               `json:"total_package_bytes"`
-	PackageFiles       []GogInnoPackageFile `json:"package_files"`
-	SignerSubject      string               `json:"signer_subject"`
-	SignerThumbprint   string               `json:"signer_thumbprint"`
-	InvocationMode     string               `json:"invocation_mode"`
-	UninstallTarget    string               `json:"uninstall_target"`
-	LaunchTarget       string               `json:"launch_target,omitempty"`
-	LaunchCandidates   []string             `json:"launch_candidates,omitempty"`
-	ProcessID          int                  `json:"process_id,omitempty"`
-	ExitCode           *int                 `json:"exit_code,omitempty"`
-	DiagnosticRef      string               `json:"diagnostic_ref,omitempty"`
-	InstalledAt        time.Time            `json:"installed_at"`
+	GameID            string               `json:"game_id"`
+	SourceGameID      string               `json:"source_game_id"`
+	InstallRoot       string               `json:"install_root"`
+	InstallPath       string               `json:"install_path"`
+	InstallerFamily   string               `json:"installer_family"`
+	PrimarySHA256     string               `json:"primary_sha256"`
+	TotalPackageBytes uint64               `json:"total_package_bytes"`
+	PackageFiles      []GogInnoPackageFile `json:"package_files"`
+	SignerSubject     string               `json:"signer_subject"`
+	SignerThumbprint  string               `json:"signer_thumbprint"`
+	InvocationMode    string               `json:"invocation_mode"`
+	UninstallTarget   string               `json:"uninstall_target"`
+	LaunchTarget      string               `json:"launch_target,omitempty"`
+	LaunchCandidates  []string             `json:"launch_candidates,omitempty"`
+	ProcessID         int                  `json:"process_id,omitempty"`
+	ExitCode          *int                 `json:"exit_code,omitempty"`
+	DiagnosticRef     string               `json:"diagnostic_ref,omitempty"`
+	InstalledAt       time.Time            `json:"installed_at"`
+	CompletionBasis   string               `json:"completion_basis,omitempty"`
+	CleanupMarkerID   string               `json:"cleanup_marker_id,omitempty"`
 }
 
 func (r GogInnoInstallResult) Validate() error {
+	if err := r.ValidateFailureEvidence(); err != nil {
+		return err
+	}
 	if strings.TrimSpace(r.GameID) == "" || strings.TrimSpace(r.SourceGameID) == "" {
 		return errors.New("game_id and source_game_id are required")
 	}
@@ -187,6 +200,11 @@ func (r GogInnoInstallResult) Validate() error {
 	}
 	if r.InvocationMode != GogInnoInvocationFixedSilent {
 		return fmt.Errorf("unsupported invocation_mode %q", r.InvocationMode)
+	}
+	switch r.CompletionBasis {
+	case GogInnoCompletionExitZero, GogInnoCompletionValidatedPostSuccessCrash:
+	default:
+		return fmt.Errorf("unsupported completion_basis %q", r.CompletionBasis)
 	}
 	if err := ValidateUninstallTarget(r.UninstallTarget); err != nil {
 		return err
@@ -241,6 +259,139 @@ func (r GogInnoInstallResult) Validate() error {
 		if _, exists := candidateSeen[NormalizeLaunchTarget(r.LaunchTarget)]; !exists {
 			return errors.New("launch_target must be included in launch_candidates")
 		}
+	}
+	return nil
+}
+
+// ValidateFailureEvidence validates the sanitized post-start evidence that may
+// be persisted when installation did not commit. It deliberately does not
+// require a completion basis, installed timestamp, uninstaller, or launch
+// target, all of which can be absent after a true failure.
+func (r GogInnoInstallResult) ValidateFailureEvidence() error {
+	if strings.TrimSpace(r.GameID) == "" || strings.TrimSpace(r.SourceGameID) == "" {
+		return errors.New("game_id and source_game_id are required")
+	}
+	if !filepath.IsAbs(r.InstallRoot) || !filepath.IsAbs(r.InstallPath) {
+		return errors.New("install_root and install_path must be absolute")
+	}
+	relative, err := filepath.Rel(filepath.Clean(r.InstallRoot), filepath.Clean(r.InstallPath))
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return errors.New("install_path must be a non-root child of install_root")
+	}
+	if r.InstallerFamily != GogInnoInstallerFamily {
+		return fmt.Errorf("unsupported installer_family %q", r.InstallerFamily)
+	}
+	if !isHexSHA256(r.PrimarySHA256) || r.TotalPackageBytes == 0 {
+		return errors.New("primary hash and total package bytes are required")
+	}
+	if strings.TrimSpace(r.SignerSubject) == "" || strings.TrimSpace(r.SignerThumbprint) == "" {
+		return errors.New("signer_subject and signer_thumbprint are required")
+	}
+	if r.InvocationMode != GogInnoInvocationFixedSilent {
+		return fmt.Errorf("unsupported invocation_mode %q", r.InvocationMode)
+	}
+	if r.CleanupMarkerID != "" && !isBase64URLMarker(r.CleanupMarkerID) {
+		return errors.New("cleanup_marker_id must be a 256-bit base64url value")
+	}
+	if len(r.DiagnosticRef) > 512 {
+		return errors.New("diagnostic_ref exceeds the bounded limit")
+	}
+	if strings.TrimSpace(r.UninstallTarget) != "" {
+		if err := ValidateUninstallTarget(r.UninstallTarget); err != nil {
+			return err
+		}
+	}
+	if len(r.PackageFiles) == 0 {
+		return errors.New("package_files are required")
+	}
+	seen := make(map[string]struct{}, len(r.PackageFiles))
+	var total uint64
+	foundInstaller := false
+	for _, file := range r.PackageFiles {
+		if err := file.Validate(); err != nil {
+			return err
+		}
+		key := strings.ToLower(file.FileName)
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("duplicate package file %q", file.FileName)
+		}
+		seen[key] = struct{}{}
+		if ^uint64(0)-total < file.SizeBytes {
+			return errors.New("package file size total overflows")
+		}
+		total += file.SizeBytes
+		if file.Role == PackageTransferRoleInstaller {
+			if foundInstaller {
+				return errors.New("package_files must contain exactly one installer")
+			}
+			foundInstaller = true
+			if !strings.EqualFold(file.SHA256, r.PrimarySHA256) {
+				return errors.New("primary_sha256 must match the installer file hash")
+			}
+		}
+	}
+	if !foundInstaller || total != r.TotalPackageBytes {
+		return errors.New("package_files require one installer and must sum to total_package_bytes")
+	}
+	return nil
+}
+
+type GogInnoFailedCleanupRequest struct {
+	GameID          string `json:"game_id"`
+	SourceGameID    string `json:"source_game_id"`
+	InstallRoot     string `json:"install_root"`
+	InstallPath     string `json:"install_path"`
+	InstallerFamily string `json:"installer_family"`
+	CleanupMarkerID string `json:"cleanup_marker_id"`
+	PrimarySHA256   string `json:"primary_sha256"`
+	UninstallTarget string `json:"uninstall_target,omitempty"`
+}
+
+func (r GogInnoFailedCleanupRequest) Validate() error {
+	if strings.TrimSpace(r.GameID) == "" || strings.TrimSpace(r.SourceGameID) == "" {
+		return errors.New("game_id and source_game_id are required")
+	}
+	if !filepath.IsAbs(strings.TrimSpace(r.InstallRoot)) || !filepath.IsAbs(strings.TrimSpace(r.InstallPath)) {
+		return errors.New("install_root and install_path must be absolute")
+	}
+	if r.InstallerFamily != GogInnoInstallerFamily {
+		return fmt.Errorf("unsupported installer_family %q", r.InstallerFamily)
+	}
+	if !isBase64URLMarker(r.CleanupMarkerID) {
+		return errors.New("cleanup_marker_id must be a 256-bit base64url value")
+	}
+	if !isHexSHA256(r.PrimarySHA256) {
+		return errors.New("primary_sha256 is invalid")
+	}
+	if strings.TrimSpace(r.UninstallTarget) != "" {
+		return ValidateUninstallTarget(r.UninstallTarget)
+	}
+	return nil
+}
+
+type GogInnoFailedCleanupResult struct {
+	GameID                   string `json:"game_id"`
+	SourceGameID             string `json:"source_game_id"`
+	Removed                  bool   `json:"removed"`
+	PublisherUninstallerUsed bool   `json:"publisher_uninstaller_used"`
+	BoundedDeleteUsed        bool   `json:"bounded_delete_used"`
+	SystemChangesMayRemain   bool   `json:"system_changes_may_remain"`
+	LeftoverDirectory        bool   `json:"leftover_directory"`
+	ProcessID                int    `json:"process_id,omitempty"`
+	ExitCode                 *int   `json:"exit_code,omitempty"`
+	DiagnosticRef            string `json:"diagnostic_ref,omitempty"`
+	Summary                  string `json:"summary,omitempty"`
+}
+
+func (r GogInnoFailedCleanupResult) Validate() error {
+	if strings.TrimSpace(r.GameID) == "" || strings.TrimSpace(r.SourceGameID) == "" {
+		return errors.New("game_id and source_game_id are required")
+	}
+	if !r.Removed {
+		return errors.New("successful cleanup result must report removed")
+	}
+	if len(r.Summary) > 512 || len(r.DiagnosticRef) > 512 {
+		return errors.New("cleanup result text exceeds the bounded limit")
 	}
 	return nil
 }
@@ -357,6 +508,19 @@ func isHexSHA256(value string) bool {
 	}
 	for _, r := range value {
 		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+func isBase64URLMarker(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 43 {
+		return false
+	}
+	for _, r := range value {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' && r != '_' {
 			return false
 		}
 	}

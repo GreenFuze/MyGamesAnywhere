@@ -13,12 +13,14 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 const (
@@ -30,20 +32,12 @@ const (
 	wtdRevocationCheckChainExcludeRoot       = 0x80
 	seeMaskNoCloseProcess                    = 0x00000040
 	swShowNormal                             = 1
-	idOK                                     = 1
-	idCancel                                 = 2
-	idTimeout                                = 32000
-	messageBoxOKCancel                       = 0x00000001
-	messageBoxIconWarning                    = 0x00000030
-	messageBoxSetForeground                  = 0x00010000
 	maxInnoDetectionBytes              int64 = 32 * 1024 * 1024
 )
 
 var (
 	shell32                = windows.NewLazySystemDLL("shell32.dll")
 	procShellExecuteExW    = shell32.NewProc("ShellExecuteExW")
-	user32                 = windows.NewLazySystemDLL("user32.dll")
-	procMessageBoxTimeoutW = user32.NewProc("MessageBoxTimeoutW")
 	wintrust               = windows.NewLazySystemDLL("wintrust.dll")
 	procWTHelperProvData   = wintrust.NewProc("WTHelperProvDataFromStateData")
 	procWTHelperProvSigner = wintrust.NewProc("WTHelperGetProvSignerFromChain")
@@ -51,8 +45,8 @@ var (
 
 type windowsAuthenticodeVerifier struct{}
 type boundedInnoFamilyDetector struct{}
-type windowsLocalConfirmer struct{}
 type windowsInstallerProcessRunner struct{}
+type windowsRegisteredProgramInspector struct{}
 
 type cryptProviderCert struct {
 	Size                uint32
@@ -87,9 +81,11 @@ type cryptProviderSigner struct {
 
 func newAuthenticodeVerifier() AuthenticodeVerifier { return windowsAuthenticodeVerifier{} }
 func newInnoFamilyDetector() InnoFamilyDetector     { return boundedInnoFamilyDetector{} }
-func newLocalConfirmer() LocalConfirmer             { return windowsLocalConfirmer{} }
 func newInstallerProcessRunner() InstallerProcessRunner {
 	return windowsInstallerProcessRunner{}
+}
+func newRegisteredProgramInspector() RegisteredProgramInspector {
+	return windowsRegisteredProgramInspector{}
 }
 
 func (windowsAuthenticodeVerifier) VerifyGOG(path string) (string, string, error) {
@@ -185,47 +181,121 @@ func (boundedInnoFamilyDetector) IsInnoSetup(path string) (bool, error) {
 	return bytes.Contains(last, []byte("Inno Setup")), nil
 }
 
-func (windowsLocalConfirmer) ConfirmInstall(ctx context.Context, details InstallConfirmationDetails, timeout time.Duration) error {
-	message := fmt.Sprintf("Install %s?\n\nVerified publisher: %s\nDestination: %s\nServer: %s\n\n%s",
-		details.GameTitle, details.Publisher, details.Destination, details.Server, details.PossibleUACNote)
-	return showConfirmation(ctx, "MGA Client — Approve installation", message, timeout)
+func isFilesystemReparsePoint(path string) (bool, error) {
+	pointer, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return false, err
+	}
+	attributes, err := windows.GetFileAttributes(pointer)
+	if err != nil {
+		return false, err
+	}
+	return attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0, nil
 }
 
-func (windowsLocalConfirmer) ConfirmUninstall(ctx context.Context, details UninstallConfirmationDetails, timeout time.Duration) error {
-	message := fmt.Sprintf("Uninstall %s?\n\nVerified publisher: %s\nInstalled at: %s\nServer: %s\n\n%s",
-		details.GameTitle, details.Publisher, details.InstallPath, details.Server, details.Warning)
-	return showConfirmation(ctx, "MGA Client — Approve uninstall", message, timeout)
+// filesystemObjectIdentity returns the stable Windows volume/file-ID pair for
+// an existing directory. Schema-2 failed-install markers use it to prove that
+// cleanup still targets the directory created before the native installer ran.
+func filesystemObjectIdentity(path string) (string, error) {
+	pointer, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return "", err
+	}
+	handle, err := windows.CreateFile(pointer, windows.GENERIC_READ,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+	if err != nil {
+		return "", err
+	}
+	defer windows.CloseHandle(handle)
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(handle, &info); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%08x:%08x%08x", info.VolumeSerialNumber, info.FileIndexHigh, info.FileIndexLow), nil
 }
 
-func showConfirmation(ctx context.Context, title, message string, timeout time.Duration) error {
-	if err := ctx.Err(); err != nil {
-		return err
+const uninstallRegistryPath = `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`
+
+func (windowsRegisteredProgramInspector) HasAssociation(installPath string) (bool, error) {
+	cleanInstallPath := filepath.Clean(installPath)
+	for _, root := range []registry.Key{registry.CURRENT_USER, registry.LOCAL_MACHINE} {
+		for _, view := range []uint32{registry.WOW64_64KEY, registry.WOW64_32KEY} {
+			associated, err := registryViewHasAssociation(root, view, cleanInstallPath)
+			if err != nil {
+				return false, err
+			}
+			if associated {
+				return true, nil
+			}
+		}
 	}
-	text, err := windows.UTF16PtrFromString(message)
+	return false, nil
+}
+
+func registryViewHasAssociation(root registry.Key, view uint32, installPath string) (bool, error) {
+	key, err := registry.OpenKey(root, uninstallRegistryPath, registry.READ|view)
+	if errors.Is(err, registry.ErrNotExist) {
+		return false, nil
+	}
 	if err != nil {
-		return err
+		return false, err
 	}
-	caption, err := windows.UTF16PtrFromString(title)
+	defer key.Close()
+	names, err := key.ReadSubKeyNames(-1)
 	if err != nil {
-		return err
+		return false, err
 	}
-	timeoutMilliseconds := uint32(timeout / time.Millisecond)
-	result, _, callErr := procMessageBoxTimeoutW.Call(
-		0, uintptr(unsafe.Pointer(text)), uintptr(unsafe.Pointer(caption)),
-		messageBoxOKCancel|messageBoxIconWarning|messageBoxSetForeground, 0, uintptr(timeoutMilliseconds),
-	)
-	switch result {
-	case idOK:
-		return nil
-	case idTimeout:
-		return ErrLocalConfirmationTimeout
-	case idCancel:
-		return ErrLocalConfirmationDeclined
-	case 0:
-		return fmt.Errorf("show local confirmation: %w", callErr)
-	default:
-		return ErrLocalConfirmationDeclined
+	for _, name := range names {
+		entry, openErr := registry.OpenKey(key, name, registry.READ|view)
+		if errors.Is(openErr, registry.ErrNotExist) {
+			continue
+		}
+		if openErr != nil {
+			return false, openErr
+		}
+		location, _, locationErr := entry.GetStringValue("InstallLocation")
+		uninstall, _, uninstallErr := entry.GetStringValue("UninstallString")
+		entry.Close()
+		if locationErr != nil && !errors.Is(locationErr, registry.ErrNotExist) {
+			return false, locationErr
+		}
+		if uninstallErr != nil && !errors.Is(uninstallErr, registry.ErrNotExist) {
+			return false, uninstallErr
+		}
+		if registryInstallLocationMatches(location, installPath) || registryUninstallExecutableMatches(uninstall, installPath) {
+			return true, nil
+		}
 	}
+	return false, nil
+}
+
+func registryInstallLocationMatches(location, installPath string) bool {
+	location = strings.Trim(strings.TrimSpace(location), `"`)
+	if location == "" {
+		return false
+	}
+	return strings.EqualFold(filepath.Clean(location), filepath.Clean(installPath))
+}
+
+func registryUninstallExecutableMatches(commandLine, installPath string) bool {
+	commandLine = strings.TrimSpace(commandLine)
+	if commandLine == "" {
+		return false
+	}
+	executable := ""
+	if commandLine[0] == '"' {
+		if end := strings.Index(commandLine[1:], `"`); end >= 0 {
+			executable = commandLine[1 : end+1]
+		}
+	} else {
+		executable = strings.Fields(commandLine)[0]
+	}
+	if executable == "" {
+		return false
+	}
+	inside, err := pathWithinRoot(installPath, executable)
+	return err == nil && inside && !strings.EqualFold(filepath.Clean(executable), filepath.Clean(installPath))
 }
 
 func (windowsInstallerProcessRunner) Start(_ context.Context, spec InstallerProcessSpec) (InstallerProcess, error) {

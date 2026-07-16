@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/google/uuid"
 )
 
@@ -33,8 +34,18 @@ func NewClientLaunchRegistry() *ClientLaunchRegistry {
 }
 
 func (r *ClientLaunchRegistry) Create(profileID string, now time.Time) (string, ClientLaunch, error) {
+	return r.CreateWithMode(profileID, devicev1.ClientExecutionModeStandard, now)
+}
+
+func (r *ClientLaunchRegistry) CreateWithMode(profileID string, mode devicev1.ClientExecutionMode, now time.Time) (string, ClientLaunch, error) {
 	if strings.TrimSpace(profileID) == "" {
 		return "", ClientLaunch{}, errors.New("profile_id is required")
+	}
+	if mode == "" {
+		mode = devicev1.ClientExecutionModeStandard
+	}
+	if err := mode.Validate(); err != nil {
+		return "", ClientLaunch{}, err
 	}
 	raw := make([]byte, 18)
 	if _, err := rand.Read(raw); err != nil {
@@ -42,12 +53,13 @@ func (r *ClientLaunchRegistry) Create(profileID string, now time.Time) (string, 
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	launch := ClientLaunch{
-		ID:        uuid.NewString(),
-		ProfileID: profileID,
-		TokenHash: hashClientLaunchToken(token),
-		Status:    ClientLaunchWaiting,
-		CreatedAt: now,
-		ExpiresAt: now.Add(clientLaunchLifetime),
+		ID:            uuid.NewString(),
+		ProfileID:     profileID,
+		ExecutionMode: mode,
+		TokenHash:     hashClientLaunchToken(token),
+		Status:        ClientLaunchWaiting,
+		CreatedAt:     now,
+		ExpiresAt:     now.Add(clientLaunchLifetime),
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

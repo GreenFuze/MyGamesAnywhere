@@ -337,6 +337,9 @@ Do not commit/push unless the user asks.
 
 ## Later accepted/planned work
 
+- lower-priority desktop visual polish: MGA-branded local confirmation dialogs,
+  a cleaner MGA Client tray icon, and a server tray icon designed explicitly
+  for crisp small-size rendering;
 - external deletion/damage reconciliation: shared connection/periodic/manual
   validator, Missing vs Needs repair, versioned migration;
 - profile My Settings install-root default `%USERPROFILE%\Games`, endpoint
@@ -346,3 +349,84 @@ Do not commit/push unless the user asks.
   save-sync hooks.
 
 These are not permission to broaden ADR-0007/0008 while completing them.
+
+## Codex progress — 16 July 2026
+
+This section supersedes the older runtime/test snapshots above.
+
+Implemented and verified locally:
+
+- ADR-0007 completion classifier, schema-2 sidecar marker, migration 18,
+  cleanup/Retry/Ignore/reopen, Add/Remove Programs fail-closed inspection,
+  startup recovery for orphaned running commands, schema-3 launch support, and
+  player-facing actions are present in the intentional dirty worktree.
+- ADR-0009 records explicit standard/elevated browser launch. Migration 19 is
+  applied to the real database; the client remains a per-user process rather
+  than a service or auto-start task.
+- ADR-0010 replaces the unstable custom Win32 TaskDialog/helper path with
+  `github.com/ncruces/zenity` v0.10.14. Packaged E2E held the foreground
+  confirmation open while the same elevated agent remained connected and
+  responsive. There is no second MGA helper process.
+- Server startup now converts commands left `running` by a prior server/client
+  interruption to failed `command_interrupted`, preventing permanently disabled
+  UI actions.
+
+Real packaged E2E evidence:
+
+- Signed GOG **Duke Nukem: Manhattan Project** installed under
+  `C:\Games\MGA E2E Manhattan 20260716`, accepted only through the exact
+  `validated_post_success_crash` classifier, produced a schema-3 manifest and
+  three launch candidates.
+- `DukeNukemMP.exe` launched through `game.launch`; the exact resulting game
+  process was observed and stopped after the test.
+- Typed publisher uninstall command
+  `f5be6c08-c174-4def-9460-30cdfe76ab83` succeeded with publisher process PID
+  `35048`, exit `0`. MGA performed no direct recursive uninstall deletion; the
+  publisher removed the game directory and its Add/Remove Programs association.
+- Synthetic schema-1 no-uninstaller fixture under
+  `C:\Games\MGA E2E Synthetic Cleanup 20260716` verified Ignore (files
+  preserved plus actor/time/event), reopen, foreground local confirmation,
+  Add/Remove Programs inspection, and bounded marked-folder deletion. Cleanup
+  command `57560103-81f9-4388-aa50-26152c081041` succeeded with
+  `publisher_uninstaller_used=false`, `bounded_delete_used=true`, and no
+  leftover directory. Its synthetic row, folder, and four audit events were
+  removed afterward.
+- The legacy Duke row `0c31f912-b8c3-4523-a34b-afd87329d284` and tree remain
+  unchanged: `attention_required`, no marker, path
+  `C:\Games\MGA E2E Duke Nukem 3D\Voxel Duke Nukem 3D`.
+
+Fresh verification:
+
+```text
+protocol: go test ./...                              PASS
+client:   go test ./...                              PASS
+server:   go test ./...                              PASS
+frontend: npm run build                              PASS
+govulncheck v1.6.0 protocol/client/server            PASS
+```
+
+The frontend retains the known approximately 807 KB production chunk warning.
+`govulncheck` initially found reachable issues in server `golang.org/x/net`
+v0.50.0; the worktree now uses v0.55.0 and the rescan passes. The associated
+`x/crypto`, `x/sys`, and `x/text` transitive upgrades are compilation-only.
+`NO_MIGRATION_NEEDED`: dependency and local dialog changes do not alter SQLite,
+client config, protocol payloads, installation manifests, or persisted JSON.
+
+Current runtime snapshot:
+
+- packaged server PID `13924`, healthy at `http://127.0.0.1:8900`;
+- installed elevated client PID `36036`, connected and responsive;
+- real SQLite schema version 19 (migration 17 remains immutable);
+- preserve `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive` and Plasma Pong.
+
+Remaining before ADR-0007 is fully closed:
+
+1. Run packaged legacy/no-marker cleanup-refusal E2E without modifying the
+   preserved legacy Duke row/tree.
+2. Recheck exact final runtime evidence and update this section.
+3. Implement ADR-0008 as the next bounded feature: device-selected Installed
+   Games shelf and direct typed Play dispatch.
+
+Lower-priority visual work is planned, not started: brand local dialogs with
+the MGA logo and redesign both client and server tray icons for crisp Windows
+notification-area rendering.

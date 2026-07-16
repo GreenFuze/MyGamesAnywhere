@@ -49,7 +49,11 @@ func NewService(store Store, hub *Hub) (*Service, error) {
 }
 
 func (s *Service) CreateClientLaunch(profileID string) (string, ClientLaunch, error) {
-	return s.launches.Create(profileID, s.now())
+	return s.CreateClientLaunchWithMode(profileID, devicev1.ClientExecutionModeStandard)
+}
+
+func (s *Service) CreateClientLaunchWithMode(profileID string, mode devicev1.ClientExecutionMode) (string, ClientLaunch, error) {
+	return s.launches.CreateWithMode(profileID, mode, s.now())
 }
 
 func (s *Service) GetClientLaunch(id, profileID string) (ClientLaunch, error) {
@@ -80,7 +84,11 @@ func (s *Service) RedeemClientLaunch(ctx context.Context, request devicev1.Clien
 		return ClientLaunch{}, err
 	}
 	signature, _ := base64.RawURLEncoding.DecodeString(request.Signature)
-	if !ed25519.Verify(ed25519.PublicKey(publicKey), signingBytes, signature) {
+	requestMode := request.ExecutionMode
+	if requestMode == "" {
+		requestMode = devicev1.ClientExecutionModeStandard
+	}
+	if requestMode != launch.ExecutionMode || !ed25519.Verify(ed25519.PublicKey(publicKey), signingBytes, signature) {
 		return ClientLaunch{}, ErrClientLaunchNotFound
 	}
 	return s.launches.Redeem(request.LaunchID, request.Token, request.EndpointID, s.now())
@@ -118,6 +126,10 @@ func (s *Service) Pair(ctx context.Context, request devicev1.PairingRequest, web
 		return devicev1.PairingResponse{}, err
 	}
 	now := s.now()
+	executionMode := request.Metadata.ExecutionMode
+	if executionMode == "" {
+		executionMode = devicev1.ClientExecutionModeStandard
+	}
 	endpoint := Endpoint{
 		ID:               uuid.NewString(),
 		ClientInstanceID: request.ClientInstanceID,
@@ -127,6 +139,7 @@ func (s *Service) Pair(ctx context.Context, request devicev1.PairingRequest, web
 		OSUser:           strings.TrimSpace(request.Metadata.OSUser),
 		Platform:         strings.TrimSpace(request.Metadata.Platform),
 		Arch:             strings.TrimSpace(request.Metadata.Arch),
+		ExecutionMode:    executionMode,
 		ClientVersion:    strings.TrimSpace(request.ClientVersion),
 		ProtocolVersion:  selected,
 		Capabilities:     request.Metadata.SortedCapabilities(),
@@ -184,6 +197,10 @@ func (s *Service) MarkConnected(ctx context.Context, endpoint *Endpoint, hello d
 	endpoint.OSUser = hello.Metadata.OSUser
 	endpoint.Platform = hello.Metadata.Platform
 	endpoint.Arch = hello.Metadata.Arch
+	endpoint.ExecutionMode = hello.Metadata.ExecutionMode
+	if endpoint.ExecutionMode == "" {
+		endpoint.ExecutionMode = devicev1.ClientExecutionModeStandard
+	}
 	endpoint.ClientVersion = hello.ClientVersion
 	endpoint.ProtocolVersion = selected
 	endpoint.Capabilities = hello.Metadata.SortedCapabilities()
@@ -286,6 +303,8 @@ func (s *Service) DispatchCommand(ctx context.Context, endpointID, profileID, na
 		lifetime = devicev1.GogInnoInstallCommandLifetime
 	case devicev1.CapabilityGameUninstallGogInno:
 		lifetime = devicev1.GogInnoUninstallCommandLifetime
+	case devicev1.CapabilityGameCleanupGogInnoFailed:
+		lifetime = devicev1.GogInnoCleanupCommandLifetime
 	}
 	command := &Command{
 		ID:             uuid.NewString(),
@@ -422,6 +441,80 @@ func (s *Service) SetInstallationLaunchTarget(ctx context.Context, endpointID, g
 	return ErrInstallationNotFound
 }
 
+func (s *Service) TransitionInstallationFailure(ctx context.Context, endpointID, gameID, sourceGameID, profileID, action, reason string) (*GameInstallation, error) {
+	if err := s.requireAccess(ctx, endpointID, profileID, devicev1.AccessManage); err != nil {
+		return nil, err
+	}
+	installations, err := s.store.ListInstallations(ctx, endpointID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	var current *GameInstallation
+	for index := range installations {
+		if installations[index].GameID == gameID && installations[index].SourceGameID == sourceGameID {
+			copy := installations[index]
+			current = &copy
+			break
+		}
+	}
+	if current == nil {
+		return nil, ErrInstallationNotFound
+	}
+	now := s.now()
+	state := current.InstallState
+	markerID := current.CleanupMarkerID
+	var ignoredAt *time.Time
+	ignoredBy := ""
+	switch action {
+	case "ignore":
+		switch current.InstallState {
+		case devicev1.InstallStateAttentionRequired, devicev1.InstallStateCleanupRequired, devicev1.InstallStateCleanupFailed:
+		default:
+			return nil, fmt.Errorf("installation state %s cannot be ignored", current.InstallState)
+		}
+		state = devicev1.InstallStateIgnoredFailure
+		ignoredAt = &now
+		ignoredBy = profileID
+		action = "failure_ignored"
+	case "reopen":
+		if current.InstallState != devicev1.InstallStateIgnoredFailure {
+			return nil, fmt.Errorf("installation state %s cannot be reopened", current.InstallState)
+		}
+		state = devicev1.InstallStateAttentionRequired
+		if markerID != "" {
+			state = devicev1.InstallStateCleanupRequired
+		}
+		action = "failure_reopened"
+	case "cleanup_started":
+		if markerID == "" {
+			return nil, errors.New("failed installation has no cleanup marker")
+		}
+		switch current.InstallState {
+		case devicev1.InstallStateCleanupRequired, devicev1.InstallStateCleanupFailed, devicev1.InstallStateIgnoredFailure:
+		default:
+			return nil, fmt.Errorf("installation state %s cannot start cleanup", current.InstallState)
+		}
+		state = devicev1.InstallStateCleanupRunning
+	case "cleanup_failed":
+		if current.InstallState != devicev1.InstallStateCleanupRunning {
+			return nil, fmt.Errorf("installation state %s cannot fail cleanup dispatch", current.InstallState)
+		}
+		state = devicev1.InstallStateCleanupFailed
+	default:
+		return nil, fmt.Errorf("unsupported installation failure action %q", action)
+	}
+	if err := s.store.SetInstallationFailureState(ctx, endpointID, gameID, sourceGameID, profileID, state, reason, markerID, ignoredAt, ignoredBy, action, json.RawMessage(`{}`), now); err != nil {
+		return nil, err
+	}
+	current.InstallState = state
+	current.StateReason = reason
+	current.CleanupIgnoredAt = ignoredAt
+	current.CleanupIgnoredByProfileID = ignoredBy
+	current.UpdatedAt = now
+	current.StateChangedAt = &now
+	return current, nil
+}
+
 func (s *Service) requireAccess(ctx context.Context, endpointID, profileID string, required devicev1.AccessLevel) error {
 	granted, err := s.store.GetGrant(ctx, endpointID, profileID)
 	if err != nil {
@@ -450,7 +543,8 @@ func requiredAccessForCommand(name string) (devicev1.AccessLevel, error) {
 	case devicev1.CapabilityGameLaunch:
 		return devicev1.AccessPlay, nil
 	case devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameUninstall,
-		devicev1.CapabilityGameInstallGogInno, devicev1.CapabilityGameUninstallGogInno:
+		devicev1.CapabilityGameInstallGogInno, devicev1.CapabilityGameUninstallGogInno,
+		devicev1.CapabilityGameCleanupGogInnoFailed:
 		return devicev1.AccessManage, nil
 	default:
 		return "", fmt.Errorf("unsupported device command %q", name)
@@ -492,6 +586,13 @@ func validateCommandPayload(name string, payload json.RawMessage) error {
 		var request devicev1.GogInnoUninstallRequest
 		if err := json.Unmarshal(payload, &request); err != nil {
 			return fmt.Errorf("decode gog inno uninstall payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilityGameCleanupGogInnoFailed {
+		var request devicev1.GogInnoFailedCleanupRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode gog inno cleanup payload: %w", err)
 		}
 		return request.Validate()
 	}

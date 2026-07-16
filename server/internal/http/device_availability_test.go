@@ -58,3 +58,30 @@ func TestLocalRuntimeRequirementDoesNotGuessUnsupportedPlatforms(t *testing.T) {
 		t.Fatal("PS3 was marked supported without an implemented runtime route")
 	}
 }
+
+func TestAttachDeviceAvailabilityMapsFailedCleanupStateAndCapability(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	controller := &GameController{
+		logger: noopLogger{},
+		deviceLister: availabilityDeviceLister{endpoints: []devices.Endpoint{{
+			ID: "device-1", DisplayName: "PC", OSUser: "alice", Platform: "windows", Status: devicev1.EndpointReady,
+			AccessLevel: devicev1.AccessManage, Capabilities: []string{devicev1.CapabilityGameCleanupGogInnoFailed},
+			Installations: []devices.GameInstallation{{
+				GameID: "game-1", SourceGameID: "source-1", InstallPath: `C:\Games\Failed`, InstallKind: devicev1.InstallKindGogInno,
+				InstallState: devicev1.InstallStateIgnoredFailure, CleanupMarkerID: "marker", CleanupIgnoredAt: &now,
+			}},
+		}}},
+	}
+	response := GameDetailResponse{}
+	controller.attachDeviceAvailability(core.WithProfile(context.Background(), &core.Profile{ID: "profile-1"}), &response,
+		&core.CanonicalGame{ID: "game-1", Platform: core.PlatformWindowsPC})
+	if len(response.Devices) != 1 {
+		t.Fatalf("devices = %#v", response.Devices)
+	}
+	device := response.Devices[0]
+	if !device.Installed || device.Status != devicev1.InstallStateIgnoredFailure || device.InstallState != devicev1.InstallStateIgnoredFailure ||
+		!device.FailedCleanupSupported || device.CleanupMarkerID != "marker" || device.CleanupIgnoredAt == "" {
+		t.Fatalf("failed device availability = %#v", device)
+	}
+}

@@ -326,10 +326,74 @@ decisions.
 
 Transactional guarantees end when the native installer starts.
 
+#### Runtime correction — 15 July 2026: non-empty Inno destination
+
+Packaged-client E2E against the signed Duke Nukem 3D installer established a
+contradictory runtime fact: placing the schema-1 marker inside a newly-created
+destination makes this Inno installer abort silently with exit `0x00000001`
+before it writes its log or game files. The marker itself makes the requested
+silent destination non-empty. This correction changes only marker placement;
+it does not broaden executable trust, cleanup authority, or the accepted
+post-success crash allowlist.
+
+New markers therefore use schema 2 and are written atomically immediately
+before process start at the deterministic command-bound sidecar path
+`<install-root>/.mga/failed-installs/<marker-id>.json`. The client first
+creates the otherwise-empty destination and records its Windows volume/file-ID
+identity in the marker. Cleanup revalidates the sidecar's exact marker ID,
+identity, root/path, command/game/source, family, and package hash, then
+requires the current destination to have the same filesystem identity. A
+replaced destination is refused. The sidecar is removed only after successful
+installation or successful cleanup.
+
+Existing schema-1 markers inside the destination remain readable solely for
+cleanup compatibility; their in-destination location remains their replacement
+defence. No server/database/protocol migration is required: persistence retains
+only the already-version-neutral marker ID, and schema 2 is client filesystem
+state.
+
+#### Runtime safety addition — 16 July 2026: Windows registered-program check
+
+Immediately before MGA uses its bounded direct deleter (whether no validated
+uninstaller was discovered or a validated publisher uninstaller completed but
+left files), MGA Client must inspect Windows Add/Remove Programs uninstall
+registry views. A registry entry is associated only when its `InstallLocation`
+normalizes exactly to the failed install path, or its parsed uninstall executable
+is provably inside that exact path. Display-name-only matches are never enough.
+
+If any associated entry remains, MGA must preserve the destination and return
+the typed cleanup failure `cleanup_registered_program_present`; the player uses
+Windows Apps & features/the publisher uninstaller instead. Registry access
+errors other than a missing uninstall key also fail closed. MGA never executes
+an untrusted registry command. A successfully run recorded publisher
+uninstaller is followed by a fresh check before any direct deletion.
+
+This is a Windows-client runtime inspection only. It changes no server DTO,
+SQLite state, pairing/config/settings, or marker payload; therefore
+`NO_MIGRATION_NEEDED`.
+
+#### Runtime correction — 16 July 2026: cross-platform destructive prompt
+
+Packaged tray-hosted E2E showed that MGA's custom Windows message-box and task
+dialog implementations could exit abruptly or return an invisible Cancel. MGA
+therefore no longer maintains a custom Win32 confirmation boundary.
+
+The destructive prompt remains mandatory, bounded, local, and fail-closed.
+[ADR-0010](0010-cross-platform-local-confirmation-dialogs.md) supersedes only
+the transient rendering mechanism: MGA Client uses the cross-platform Zenity
+adapter with foreground behavior, an explicit action/Cancel choice, Cancel as
+the default, and the existing command timeout. The typed authorization,
+verified installation metadata, and post-confirmation filesystem/process
+safety rules in this ADR are unchanged.
+
+`NO_MIGRATION_NEEDED`: this changes only transient local UI rendering; no
+persisted protocol, database, marker, or configuration data changes.
+
 - Download/validation/decline failures remove only command staging.
-- The client creates a schema-versioned `.mga-failed-install.json` cleanup
-  marker in the newly created, previously absent destination immediately before
-  process start. It records a random marker ID, command/game/source identity,
+- The client creates a schema-versioned failed-install marker immediately before
+  process start. New schema-2 markers use the command-bound sidecar above;
+  legacy schema-1 markers remain in the destination only for cleanup
+  compatibility. It records a random marker ID, command/game/source identity,
   install root/path, primary package hash, and creation time.
 - The exact accepted crash-after-success outcome is committed as Installed and
   replaces the failure marker with the normal schema-3 manifest.

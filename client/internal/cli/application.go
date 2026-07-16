@@ -98,11 +98,16 @@ func newProtocolCommand(service ClientService) *cobra.Command {
 				return errors.New("unsupported MGA protocol URI")
 			}
 			if parsed.Host == "start" {
-				return service.Start(command.Context(), clientapp.StartOptions{
-					ServerURL: parsed.Query().Get("server"),
-					LaunchID:  parsed.Query().Get("launch_id"),
-					Token:     parsed.Query().Get("token"),
+				err = service.Start(command.Context(), clientapp.StartOptions{
+					ServerURL:     parsed.Query().Get("server"),
+					LaunchID:      parsed.Query().Get("launch_id"),
+					Token:         parsed.Query().Get("token"),
+					ExecutionMode: devicev1.ClientExecutionMode(parsed.Query().Get("mode")),
 				})
+				if errors.Is(err, clientapp.ErrElevationRelaunched) {
+					return nil
+				}
+				return err
 			}
 			if parsed.Host != "pair" {
 				return errors.New("unsupported MGA protocol URI")

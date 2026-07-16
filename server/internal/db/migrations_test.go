@@ -106,6 +106,84 @@ func TestMigration16UpgradesVersion15RowsWithSafeLaunchDefaults(t *testing.T) {
 	}
 }
 
+func TestMigrations18And19PreserveLegacyAttentionRowAndAddStandardExecutionMode(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(
+		testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false},
+	).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.ensureSchemaMigrationsTable(); err != nil {
+		t.Fatalf("ensure migrations table: %v", err)
+	}
+	for _, migration := range dbSvc.orderedMigrations() {
+		if migration.Version > 17 {
+			break
+		}
+		if err := dbSvc.runMigration(context.Background(), migration); err != nil {
+			t.Fatalf("run migration %d: %v", migration.Version, err)
+		}
+	}
+	var migration17 migration
+	for _, candidate := range dbSvc.orderedMigrations() {
+		if candidate.Version == 17 {
+			migration17 = candidate
+			break
+		}
+	}
+	if got := migrationChecksum(migration17); got != "c15af1fda922e7eedbede9fcb802ce19fe7994178d1f04252de8b5cafe249dd6" {
+		t.Fatalf("migration 17 checksum changed: %s", got)
+	}
+
+	now := time.Now().Unix()
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO profiles (id, display_name, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, []any{"profile-1", "Player", "admin_player", now, now}},
+		{`INSERT INTO canonical_games (id, created_at) VALUES (?, ?)`, []any{"game-1", now}},
+		{`INSERT INTO source_games (id, profile_id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, status, review_state, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, []any{"source-1", "profile-1", "integration-1", "game-source-google-drive", "source-1", "Duke", "windows_pc", "base_game", "packed", "found", "matched", now}},
+		{`INSERT INTO device_endpoints (id, client_instance_id, public_key, display_name, host_name, os_user, platform, arch, client_version, protocol_version, capabilities_json, status, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, []any{"endpoint-1", "instance-1", "key", "PC", "pc", "user", "windows", "amd64", "dev", 1, `[]`, "offline", now, now}},
+		{`INSERT INTO device_game_installations
+			(endpoint_id, game_id, source_game_id, profile_id, install_root, install_path, archive_sha256, archive_bytes, installed_at, updated_at, install_kind, installer_family, install_state, state_reason)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, []any{"endpoint-1", "game-1", "source-1", "profile-1", `C:\Games`, `C:\Games\Legacy Duke`, strings.Repeat("a", 64), 42, now, now, "gog_inno", "gog_inno", "attention_required", "installer_exit_nonzero"}},
+	} {
+		if _, err := dbSvc.GetDB().Exec(statement.query, statement.args...); err != nil {
+			t.Fatalf("seed version 17 row: %v", err)
+		}
+	}
+
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatalf("apply migration 18: %v", err)
+	}
+	assertLatestMigrationVersion(t, dbSvc.GetDB())
+	var state, reason string
+	var marker, ignoredBy sql.NullString
+	var ignoredAt sql.NullInt64
+	if err := dbSvc.GetDB().QueryRow(`SELECT install_state, state_reason, cleanup_marker_id, cleanup_ignored_at, cleanup_ignored_by_profile_id
+		FROM device_game_installations WHERE endpoint_id='endpoint-1'`).Scan(&state, &reason, &marker, &ignoredAt, &ignoredBy); err != nil {
+		t.Fatalf("read migrated failed installation: %v", err)
+	}
+	if state != "attention_required" || reason != "installer_exit_nonzero" || marker.Valid || ignoredAt.Valid || ignoredBy.Valid {
+		t.Fatalf("migration changed legacy row: state=%q reason=%q marker=%#v ignoredAt=%#v ignoredBy=%#v", state, reason, marker, ignoredAt, ignoredBy)
+	}
+	var executionMode string
+	if err := dbSvc.GetDB().QueryRow(`SELECT execution_mode FROM device_endpoints WHERE id='endpoint-1'`).Scan(&executionMode); err != nil {
+		t.Fatalf("read migrated endpoint execution mode: %v", err)
+	}
+	if executionMode != "standard" {
+		t.Fatalf("migrated endpoint execution mode = %q, want standard", executionMode)
+	}
+	var eventCount int
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM device_installation_events`).Scan(&eventCount); err != nil || eventCount != 0 {
+		t.Fatalf("migration synthesized events: count=%d error=%v", eventCount, err)
+	}
+}
+
 func TestMigrationsRejectChecksumMismatch(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
 	dbSvc := NewSQLiteDatabase(testLogger{}, testDBConfig{dbPath: dbPath})

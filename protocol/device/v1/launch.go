@@ -12,10 +12,11 @@ const clientLaunchSigningContext = "mga-client-launch-v1"
 // ClientLaunchRequest proves that the installed per-user client opened a
 // short-lived mga://start challenge. It never carries a reusable credential.
 type ClientLaunchRequest struct {
-	LaunchID   string `json:"launch_id"`
-	Token      string `json:"token"`
-	EndpointID string `json:"endpoint_id"`
-	Signature  string `json:"signature"`
+	LaunchID      string              `json:"launch_id"`
+	Token         string              `json:"token"`
+	EndpointID    string              `json:"endpoint_id"`
+	ExecutionMode ClientExecutionMode `json:"execution_mode"`
+	Signature     string              `json:"signature"`
 }
 
 // SigningBytes returns the canonical launch proof signed by the endpoint key.
@@ -30,7 +31,13 @@ func (r ClientLaunchRequest) SigningBytes() ([]byte, error) {
 	if strings.TrimSpace(r.EndpointID) == "" {
 		return nil, errors.New("endpoint_id is required")
 	}
-	return []byte(fmt.Sprintf("%s\n%s\n%s\n%s", clientLaunchSigningContext, r.LaunchID, r.Token, r.EndpointID)), nil
+	if err := r.ExecutionMode.Validate(); err != nil {
+		return nil, err
+	}
+	if r.ExecutionMode == "" {
+		return []byte(fmt.Sprintf("%s\n%s\n%s\n%s", clientLaunchSigningContext, r.LaunchID, r.Token, r.EndpointID)), nil
+	}
+	return []byte(fmt.Sprintf("%s\n%s\n%s\n%s\n%s", clientLaunchSigningContext, r.LaunchID, r.Token, r.EndpointID, r.ExecutionMode)), nil
 }
 
 // Validate rejects malformed launch proofs before authorization checks.

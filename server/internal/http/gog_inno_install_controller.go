@@ -119,6 +119,85 @@ func (c *DeviceController) InstallGogInno(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusAccepted, command)
 }
 
+func (c *DeviceController) CleanupFailedGogInno(w http.ResponseWriter, r *http.Request) {
+	var body map[string]json.RawMessage
+	if err := decodeJSONBody(w, r, &body); err != nil {
+		return
+	}
+	if len(body) != 0 {
+		http.Error(w, "cleanup request body must be empty", http.StatusBadRequest)
+		return
+	}
+	endpointID := chi.URLParam(r, "id")
+	gameID := chi.URLParam(r, "game_id")
+	sourceGameID, err := decodedPathParam(r, "source_game_id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	profileID := core.ProfileIDFromContext(r.Context())
+	installation, err := c.findInstallation(r.Context(), endpointID, gameID, sourceGameID, profileID)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	if installation.InstallKind != devicev1.InstallKindGogInno || strings.TrimSpace(installation.CleanupMarkerID) == "" {
+		http.Error(w, "this failed installation has no verified cleanup marker", http.StatusConflict)
+		return
+	}
+	payload, err := json.Marshal(devicev1.GogInnoFailedCleanupRequest{
+		GameID: gameID, SourceGameID: sourceGameID, InstallRoot: installation.InstallRoot, InstallPath: installation.InstallPath,
+		InstallerFamily: installation.InstallerFamily, CleanupMarkerID: installation.CleanupMarkerID,
+		PrimarySHA256: installation.ArchiveSHA256, UninstallTarget: installation.UninstallTarget,
+	})
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	if _, err := c.service.TransitionInstallationFailure(r.Context(), endpointID, gameID, sourceGameID, profileID, "cleanup_started", "Cleanup requested"); err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	command, err := c.service.DispatchCommand(r.Context(), endpointID, profileID, devicev1.CapabilityGameCleanupGogInnoFailed, payload)
+	if err != nil {
+		_, _ = c.service.TransitionInstallationFailure(r.Context(), endpointID, gameID, sourceGameID, profileID, "cleanup_failed", err.Error())
+		writeDeviceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, command)
+}
+
+func (c *DeviceController) IgnoreFailedGogInno(w http.ResponseWriter, r *http.Request) {
+	c.transitionFailedGogInno(w, r, "ignore")
+}
+
+func (c *DeviceController) ReopenFailedGogInno(w http.ResponseWriter, r *http.Request) {
+	c.transitionFailedGogInno(w, r, "reopen")
+}
+
+func (c *DeviceController) transitionFailedGogInno(w http.ResponseWriter, r *http.Request, action string) {
+	var body map[string]json.RawMessage
+	if err := decodeJSONBody(w, r, &body); err != nil {
+		return
+	}
+	if len(body) != 0 {
+		http.Error(w, "request body must be empty", http.StatusBadRequest)
+		return
+	}
+	sourceGameID, err := decodedPathParam(r, "source_game_id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	installation, err := c.service.TransitionInstallationFailure(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "game_id"), sourceGameID,
+		core.ProfileIDFromContext(r.Context()), action, "")
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, installation)
+}
+
 func findSupportedGogInnoPackage(game *core.CanonicalGame, sourceGameID string) (*core.SourceGame, *core.GameFile, []*core.GameFile, error) {
 	if game == nil || sourceGameID == "" {
 		return nil, nil, nil, nil

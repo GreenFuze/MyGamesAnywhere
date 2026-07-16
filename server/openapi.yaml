@@ -401,11 +401,25 @@ paths:
 
   /api/devices/client-launches:
     post:
+      summary: Start the selected MGA Client mode
+      description: Creates a short-lived signed browser-to-client launch challenge. Standard is the default; elevated requests require the local Windows user to approve UAC before the client redeems the challenge.
+      requestBody:
+        description: 'JSON: { execution_mode?: ''standard'' | ''elevated'' }'
+        content:
+          application/json:
+            schema:
+              type: object
       responses:
+        201:
+          description: Client launch challenge JSON
         400:
-          description: Error response
+          description: Invalid execution mode
+        401:
+          description: Profile sign-in required
+        403:
+          description: Manage access required
         500:
-          description: Error response
+          description: Internal server error
 
   /api/devices/client-launches/redeem:
     post:
@@ -504,6 +518,266 @@ paths:
           description: Error response
         500:
           description: Error response
+
+  /api/devices/{id}/games/{game_id}/install-archive:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/{id}/games/{game_id}/install-gog-inno:
+    post:
+      summary: Install a verified GOG game on a device
+      description: Creates a typed GOG Inno install command from the selected server-owned source package. The authenticated Manage action is installation consent; MGA Client verifies the publisher and package family and may still trigger Windows UAC, but does not show a separate install-confirmation popup.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: 'JSON: { source_game_id: string, destination_root?: string }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: DeviceCommand JSON
+        400:
+          description: Invalid request or unsupported package
+        404:
+          description: Device, game, or source not found
+        409:
+          description: Device unavailable or installation state conflicts
+        500:
+          description: Internal server error
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/cleanup-failed:
+    post:
+      summary: Clean up a marked failed GOG installation
+      description: Dispatches a typed cleanup command built only from persisted failed-install identity, boundary, hash, marker, and optional publisher-uninstaller evidence. Cleanup is unavailable for legacy attention rows without a marker.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Empty JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: DeviceCommand JSON
+        400:
+          description: Invalid request
+        403:
+          description: Manage access required
+        404:
+          description: Installation not found
+        409:
+          description: No verified cleanup marker or invalid state
+        500:
+          description: Internal server error
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/ignore-failed:
+    post:
+      summary: Ignore a failed installation
+      description: Records the authenticated profile and time, leaves files untouched, keeps Play blocked, and suppresses the active cleanup warning. This server-only state change never dispatches a device command.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Empty JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Updated DeviceGameInstallation JSON
+        400:
+          description: Invalid request
+        403:
+          description: Manage access required
+        404:
+          description: Installation not found
+        409:
+          description: Invalid installation state
+        500:
+          description: Internal server error
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/launch:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/launch-target:
+    put:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/reopen-failed-cleanup:
+    post:
+      summary: Reopen an ignored failed installation
+      description: Reverses Ignore and restores cleanup-required when a valid marker exists or attention-required for a legacy no-marker row. This server-only state change never dispatches a device command.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Empty JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Updated DeviceGameInstallation JSON
+        400:
+          description: Invalid request
+        403:
+          description: Manage access required
+        404:
+          description: Installation not found
+        409:
+          description: Invalid installation state
+        500:
+          description: Internal server error
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/uninstall:
+    post:
+      summary: Uninstall a managed game from a device
+      description: Dispatches the installation-family-specific typed uninstall command using only persisted installation evidence. GOG Inno uninstall uses the recorded publisher uninstaller and retains native destructive confirmation.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Empty JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: DeviceCommand JSON
+        400:
+          description: Invalid request
+        403:
+          description: Manage access required
+        404:
+          description: Installation not found
+        409:
+          description: Device unavailable or uninstall unsupported
+        500:
+          description: Internal server error
 
   /api/devices/{id}/grants:
     get:
@@ -1242,6 +1516,8 @@ paths:
           description: MediaDownloadStatus JSON
         400:
           description: Error response
+        403:
+          description: Admin profile required
         500:
           description: Internal server error
 
@@ -1254,6 +1530,8 @@ paths:
           description: MediaDownloadStatus JSON
         400:
           description: Error response
+        403:
+          description: Admin profile required
         500:
           description: Internal server error
 
@@ -1266,6 +1544,8 @@ paths:
           description: MediaDownloadStatus JSON
         400:
           description: Error response
+        403:
+          description: Admin profile required
         500:
           description: Internal server error
 

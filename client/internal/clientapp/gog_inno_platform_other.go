@@ -4,19 +4,21 @@ package clientapp
 
 import (
 	"context"
-	"time"
+	"os"
 )
 
 type unsupportedAuthenticodeVerifier struct{}
 type unsupportedInnoFamilyDetector struct{}
-type unsupportedLocalConfirmer struct{}
 type unsupportedInstallerProcessRunner struct{}
+type unsupportedRegisteredProgramInspector struct{}
 
 func newAuthenticodeVerifier() AuthenticodeVerifier { return unsupportedAuthenticodeVerifier{} }
 func newInnoFamilyDetector() InnoFamilyDetector     { return unsupportedInnoFamilyDetector{} }
-func newLocalConfirmer() LocalConfirmer             { return unsupportedLocalConfirmer{} }
 func newInstallerProcessRunner() InstallerProcessRunner {
 	return unsupportedInstallerProcessRunner{}
+}
+func newRegisteredProgramInspector() RegisteredProgramInspector {
+	return unsupportedRegisteredProgramInspector{}
 }
 
 func (unsupportedAuthenticodeVerifier) VerifyGOG(string) (string, string, error) {
@@ -27,14 +29,22 @@ func (unsupportedInnoFamilyDetector) IsInnoSetup(string) (bool, error) {
 	return false, ErrUnsupportedInstallerPlatform
 }
 
-func (unsupportedLocalConfirmer) ConfirmInstall(context.Context, InstallConfirmationDetails, time.Duration) error {
-	return ErrUnsupportedInstallerPlatform
+func isFilesystemReparsePoint(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false, err
+	}
+	return info.Mode()&os.ModeSymlink != 0, nil
 }
 
-func (unsupportedLocalConfirmer) ConfirmUninstall(context.Context, UninstallConfirmationDetails, time.Duration) error {
-	return ErrUnsupportedInstallerPlatform
+func filesystemObjectIdentity(string) (string, error) {
+	return "", ErrUnsupportedInstallerPlatform
 }
 
 func (unsupportedInstallerProcessRunner) Start(context.Context, InstallerProcessSpec) (InstallerProcess, error) {
 	return nil, ErrUnsupportedInstallerPlatform
+}
+
+func (unsupportedRegisteredProgramInspector) HasAssociation(string) (bool, error) {
+	return false, ErrUnsupportedInstallerPlatform
 }

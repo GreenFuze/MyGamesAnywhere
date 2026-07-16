@@ -9,25 +9,26 @@ import (
 )
 
 type Endpoint struct {
-	ID               string                    `json:"id"`
-	ClientInstanceID string                    `json:"client_instance_id"`
-	PublicKey        string                    `json:"-"`
-	DisplayName      string                    `json:"display_name"`
-	HostName         string                    `json:"host_name"`
-	OSUser           string                    `json:"os_user"`
-	Platform         string                    `json:"platform"`
-	Arch             string                    `json:"arch"`
-	ClientVersion    string                    `json:"client_version"`
-	ProtocolVersion  devicev1.ProtocolVersion  `json:"protocol_version"`
-	Capabilities     []string                  `json:"capabilities"`
-	Status           devicev1.EndpointState    `json:"status"`
-	StatusReason     string                    `json:"status_reason,omitempty"`
-	LastSeenAt       *time.Time                `json:"last_seen_at,omitempty"`
-	CreatedAt        time.Time                 `json:"created_at"`
-	UpdatedAt        time.Time                 `json:"updated_at"`
-	AccessLevel      devicev1.AccessLevel      `json:"access_level"`
-	Inventory        *devicev1.DeviceInventory `json:"inventory,omitempty"`
-	Installations    []GameInstallation        `json:"installations,omitempty"`
+	ID               string                       `json:"id"`
+	ClientInstanceID string                       `json:"client_instance_id"`
+	PublicKey        string                       `json:"-"`
+	DisplayName      string                       `json:"display_name"`
+	HostName         string                       `json:"host_name"`
+	OSUser           string                       `json:"os_user"`
+	Platform         string                       `json:"platform"`
+	Arch             string                       `json:"arch"`
+	ExecutionMode    devicev1.ClientExecutionMode `json:"execution_mode"`
+	ClientVersion    string                       `json:"client_version"`
+	ProtocolVersion  devicev1.ProtocolVersion     `json:"protocol_version"`
+	Capabilities     []string                     `json:"capabilities"`
+	Status           devicev1.EndpointState       `json:"status"`
+	StatusReason     string                       `json:"status_reason,omitempty"`
+	LastSeenAt       *time.Time                   `json:"last_seen_at,omitempty"`
+	CreatedAt        time.Time                    `json:"created_at"`
+	UpdatedAt        time.Time                    `json:"updated_at"`
+	AccessLevel      devicev1.AccessLevel         `json:"access_level"`
+	Inventory        *devicev1.DeviceInventory    `json:"inventory,omitempty"`
+	Installations    []GameInstallation           `json:"installations,omitempty"`
 }
 
 type PairingChallenge struct {
@@ -49,13 +50,14 @@ const (
 // ClientLaunch is an ephemeral browser-to-client association challenge. The
 // raw token is returned only once and is never stored.
 type ClientLaunch struct {
-	ID         string             `json:"id"`
-	ProfileID  string             `json:"-"`
-	TokenHash  string             `json:"-"`
-	EndpointID string             `json:"endpoint_id,omitempty"`
-	Status     ClientLaunchStatus `json:"status"`
-	CreatedAt  time.Time          `json:"created_at"`
-	ExpiresAt  time.Time          `json:"expires_at"`
+	ID            string                       `json:"id"`
+	ProfileID     string                       `json:"-"`
+	TokenHash     string                       `json:"-"`
+	EndpointID    string                       `json:"endpoint_id,omitempty"`
+	ExecutionMode devicev1.ClientExecutionMode `json:"execution_mode"`
+	Status        ClientLaunchStatus           `json:"status"`
+	CreatedAt     time.Time                    `json:"created_at"`
+	ExpiresAt     time.Time                    `json:"expires_at"`
 }
 
 type Grant struct {
@@ -92,26 +94,41 @@ type Command struct {
 }
 
 type GameInstallation struct {
-	EndpointID       string                     `json:"endpoint_id"`
-	GameID           string                     `json:"game_id"`
-	SourceGameID     string                     `json:"source_game_id"`
-	ProfileID        string                     `json:"profile_id"`
-	InstallRoot      string                     `json:"install_root"`
-	InstallPath      string                     `json:"install_path"`
-	ArchiveSHA256    string                     `json:"archive_sha256"`
-	ArchiveBytes     uint64                     `json:"archive_bytes"`
-	InstalledAt      time.Time                  `json:"installed_at"`
-	UpdatedAt        time.Time                  `json:"updated_at"`
-	LaunchTarget     string                     `json:"launch_target,omitempty"`
-	LaunchCandidates []string                   `json:"launch_candidates,omitempty"`
-	InstallKind      string                     `json:"install_kind"`
-	InstallerFamily  string                     `json:"installer_family,omitempty"`
-	InstallerFiles   []devicev1.GogInnoPackageFile `json:"installer_files,omitempty"`
-	UninstallTarget  string                     `json:"uninstall_target,omitempty"`
-	InstallState     string                     `json:"install_state"`
-	StateReason      string                     `json:"state_reason,omitempty"`
-	LastVerifiedAt   *time.Time                 `json:"last_verified_at,omitempty"`
-	StateChangedAt   *time.Time                 `json:"state_changed_at,omitempty"`
+	EndpointID                string                        `json:"endpoint_id"`
+	GameID                    string                        `json:"game_id"`
+	SourceGameID              string                        `json:"source_game_id"`
+	ProfileID                 string                        `json:"profile_id"`
+	InstallRoot               string                        `json:"install_root"`
+	InstallPath               string                        `json:"install_path"`
+	ArchiveSHA256             string                        `json:"archive_sha256"`
+	ArchiveBytes              uint64                        `json:"archive_bytes"`
+	InstalledAt               time.Time                     `json:"installed_at"`
+	UpdatedAt                 time.Time                     `json:"updated_at"`
+	LaunchTarget              string                        `json:"launch_target,omitempty"`
+	LaunchCandidates          []string                      `json:"launch_candidates,omitempty"`
+	InstallKind               string                        `json:"install_kind"`
+	InstallerFamily           string                        `json:"installer_family,omitempty"`
+	InstallerFiles            []devicev1.GogInnoPackageFile `json:"installer_files,omitempty"`
+	UninstallTarget           string                        `json:"uninstall_target,omitempty"`
+	InstallState              string                        `json:"install_state"`
+	StateReason               string                        `json:"state_reason,omitempty"`
+	LastVerifiedAt            *time.Time                    `json:"last_verified_at,omitempty"`
+	StateChangedAt            *time.Time                    `json:"state_changed_at,omitempty"`
+	CleanupMarkerID           string                        `json:"cleanup_marker_id,omitempty"`
+	CleanupIgnoredAt          *time.Time                    `json:"cleanup_ignored_at,omitempty"`
+	CleanupIgnoredByProfileID string                        `json:"cleanup_ignored_by_profile_id,omitempty"`
+}
+
+type InstallationEvent struct {
+	ID             string          `json:"id"`
+	EndpointID     string          `json:"endpoint_id"`
+	GameID         string          `json:"game_id"`
+	SourceGameID   string          `json:"source_game_id"`
+	ActorProfileID string          `json:"actor_profile_id,omitempty"`
+	EventType      string          `json:"event_type"`
+	Reason         string          `json:"reason,omitempty"`
+	Details        json.RawMessage `json:"details,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
 }
 
 type Store interface {
@@ -136,4 +153,5 @@ type Store interface {
 	SaveInventory(ctx context.Context, endpointID string, inventory devicev1.DeviceInventory, updatedAt time.Time) error
 	ListInstallations(ctx context.Context, endpointID, profileID string) ([]GameInstallation, error)
 	UpdateInstallationLaunchTarget(ctx context.Context, endpointID, gameID, sourceGameID, profileID, launchTarget string, updatedAt time.Time) error
+	SetInstallationFailureState(ctx context.Context, endpointID, gameID, sourceGameID, profileID, state, reason, markerID string, ignoredAt *time.Time, ignoredByProfileID, eventType string, details json.RawMessage, updatedAt time.Time) error
 }

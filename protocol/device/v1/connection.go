@@ -11,26 +11,45 @@ import (
 )
 
 const (
-	CapabilityEndpointPing       = "endpoint.ping"
-	CapabilityEndpointRefresh    = "endpoint.refresh"
-	CapabilityEndpointStop       = "endpoint.stop"
-	CapabilityInventoryRefresh   = "inventory.refresh"
-	CapabilityGameInstallArchive   = "game.install_archive"
-	CapabilityGameUninstall        = "game.uninstall"
-	CapabilityGameInstallGogInno   = "game.install_gog_inno"
-	CapabilityGameUninstallGogInno = "game.uninstall_gog_inno"
-	CapabilityGameLaunch           = "game.launch"
+	CapabilityEndpointPing             = "endpoint.ping"
+	CapabilityEndpointRefresh          = "endpoint.refresh"
+	CapabilityEndpointStop             = "endpoint.stop"
+	CapabilityInventoryRefresh         = "inventory.refresh"
+	CapabilityGameInstallArchive       = "game.install_archive"
+	CapabilityGameUninstall            = "game.uninstall"
+	CapabilityGameInstallGogInno       = "game.install_gog_inno"
+	CapabilityGameUninstallGogInno     = "game.uninstall_gog_inno"
+	CapabilityGameCleanupGogInnoFailed = "game.cleanup_gog_inno_failed"
+	CapabilityGameLaunch               = "game.launch"
 )
+
+type ClientExecutionMode string
+
+const (
+	ClientExecutionModeStandard ClientExecutionMode = "standard"
+	ClientExecutionModeElevated ClientExecutionMode = "elevated"
+)
+
+func (m ClientExecutionMode) Validate() error {
+	if m == "" {
+		return nil
+	}
+	if m != ClientExecutionModeStandard && m != ClientExecutionModeElevated {
+		return fmt.Errorf("invalid client execution mode %q", m)
+	}
+	return nil
+}
 
 // EndpointMetadata describes one OS-user client installation. These fields are
 // display and capability metadata; EndpointID remains the authorization target.
 type EndpointMetadata struct {
-	DisplayName  string   `json:"display_name"`
-	HostName     string   `json:"host_name"`
-	OSUser       string   `json:"os_user"`
-	Platform     string   `json:"platform"`
-	Arch         string   `json:"arch"`
-	Capabilities []string `json:"capabilities"`
+	DisplayName   string              `json:"display_name"`
+	HostName      string              `json:"host_name"`
+	OSUser        string              `json:"os_user"`
+	Platform      string              `json:"platform"`
+	Arch          string              `json:"arch"`
+	ExecutionMode ClientExecutionMode `json:"execution_mode"`
+	Capabilities  []string            `json:"capabilities"`
 }
 
 // Validate rejects incomplete metadata and normalizes no values implicitly.
@@ -48,6 +67,9 @@ func (m EndpointMetadata) Validate() error {
 	}
 	if len(m.Capabilities) == 0 {
 		return errors.New("at least one capability is required")
+	}
+	if err := m.ExecutionMode.Validate(); err != nil {
+		return err
 	}
 	seen := make(map[string]struct{}, len(m.Capabilities))
 	for _, capability := range m.Capabilities {

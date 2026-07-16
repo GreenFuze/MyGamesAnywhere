@@ -24,19 +24,32 @@ var errStopRequested = errors.New("MGA Client stop requested")
 const inventoryRefreshInterval = 15 * time.Minute
 
 type Agent struct {
-	config       clientconfig.Config
-	privateKey   ed25519.PrivateKey
-	buildInfo    buildinfo.Info
-	active       atomic.Int32
-	logger       *log.Logger
-	inventory    InventoryCollector
-	installer    ArchiveInstaller
-	gogInstaller GogInnoInstaller
-	launcher     GameLauncher
+	config        clientconfig.Config
+	privateKey    ed25519.PrivateKey
+	buildInfo     buildinfo.Info
+	active        atomic.Int32
+	logger        *log.Logger
+	executionMode devicev1.ClientExecutionMode
+	inventory     InventoryCollector
+	installer     ArchiveInstaller
+	gogInstaller  GogInnoInstaller
+	launcher      GameLauncher
 }
 
 func NewAgent(config clientconfig.Config, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger) (*Agent, error) {
+	return NewAgentWithExecutionMode(config, privateKey, info, logger, devicev1.ClientExecutionModeStandard)
+}
+
+// NewAgentWithExecutionMode creates an agent that reports its actual current
+// Windows execution mode as endpoint runtime metadata.
+func NewAgentWithExecutionMode(config clientconfig.Config, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode) (*Agent, error) {
 	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+	if executionMode == "" {
+		executionMode = devicev1.ClientExecutionModeStandard
+	}
+	if err := executionMode.Validate(); err != nil {
 		return nil, err
 	}
 	if len(privateKey) != ed25519.PrivateKeySize {
@@ -54,7 +67,7 @@ func NewAgent(config clientconfig.Config, privateKey ed25519.PrivateKey, info bu
 		return nil, err
 	}
 	return &Agent{
-		config: config, privateKey: privateKey, buildInfo: info, logger: logger,
+		config: config, privateKey: privateKey, buildInfo: info, logger: logger, executionMode: executionMode,
 		inventory: NewLocalInventoryCollector(), installer: installer, gogInstaller: gogInstaller,
 		launcher: NewWindowsGameLauncher(),
 	}, nil
@@ -95,7 +108,7 @@ func (a *Agent) runConnection(ctx context.Context) error {
 	}
 	defer connection.CloseNow()
 	writer := &deviceWriter{connection: connection}
-	metadata, err := localMetadata(a.config.DisplayName)
+	metadata, err := localMetadata(a.config.DisplayName, a.executionMode)
 	if err != nil {
 		return err
 	}
@@ -283,7 +296,7 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 	case devicev1.CapabilityEndpointPing:
 		return map[string]any{"pong": true, "time": time.Now().UTC()}, false, "", nil
 	case devicev1.CapabilityEndpointRefresh:
-		metadata, err := localMetadata(a.config.DisplayName)
+		metadata, err := localMetadata(a.config.DisplayName, a.executionMode)
 		if err != nil {
 			return nil, false, "metadata_failed", err
 		}
@@ -354,6 +367,20 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 		result, err := a.gogInstaller.Uninstall(ctx, request, report)
 		if err != nil {
 			code, payload := gogCommandFailure(err, "uninstall_failed")
+			return payload, false, code, err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilityGameCleanupGogInnoFailed:
+		if a.gogInstaller == nil {
+			return nil, false, "unsupported_installer", errors.New("GOG Inno installer is unavailable")
+		}
+		var request devicev1.GogInnoFailedCleanupRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.gogInstaller.CleanupFailed(ctx, request, report)
+		if err != nil {
+			code, payload := gogCommandFailure(err, "cleanup_failed")
 			return payload, false, code, err
 		}
 		return result, false, "", nil

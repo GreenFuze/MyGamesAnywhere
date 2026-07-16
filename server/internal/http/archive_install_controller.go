@@ -216,7 +216,7 @@ func (c *DeviceController) LaunchGame(w http.ResponseWriter, r *http.Request) {
 		writeDeviceError(w, err)
 		return
 	}
-	if installation.InstallState == devicev1.InstallStateAttentionRequired {
+	if installation.InstallState != devicev1.InstallStateInstalled {
 		http.Error(w, "this installation needs attention on the device before it can be played", http.StatusConflict)
 		return
 	}

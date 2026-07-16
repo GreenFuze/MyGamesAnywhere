@@ -53,6 +53,27 @@ func TestWindowsGameLauncherStartsRecordedRegularExecutable(t *testing.T) {
 	}
 }
 
+func TestWindowsGameLauncherStartsRecordedExecutableFromGogManifest(t *testing.T) {
+	t.Parallel()
+	installPath, executable := writeLauncherTestInstallationWithSchemaVersion(t, devicev1.ExecutableInstallManifestSchemaVersion)
+	starter := &fakeGameProcessStarter{processID: 4343}
+	launcher := &WindowsGameLauncher{now: time.Now, start: starter, resolvePath: filepath.EvalSymlinks}
+
+	result, err := launcher.Launch(context.Background(), devicev1.GameLaunchRequest{
+		GameID: "game-1", SourceGameID: "source-1", InstallPath: installPath, LaunchTarget: "Game/game.exe",
+	})
+	if err != nil {
+		t.Fatalf("Launch() error = %v", err)
+	}
+	resolvedExecutable, err := filepath.EvalSymlinks(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if starter.executable != resolvedExecutable || result.ProcessID != 4343 {
+		t.Fatalf("starter executable = %q, result = %#v", starter.executable, result)
+	}
+}
+
 func TestWindowsGameLauncherRejectsTargetOutsideManifestCandidates(t *testing.T) {
 	t.Parallel()
 	installPath, _ := writeLauncherTestInstallation(t)
@@ -100,6 +121,11 @@ func TestWindowsGameLauncherRejectsResolvedTargetOutsideInstallDirectory(t *test
 
 func writeLauncherTestInstallation(t *testing.T) (string, string) {
 	t.Helper()
+	return writeLauncherTestInstallationWithSchemaVersion(t, devicev1.InstallManifestSchemaVersion)
+}
+
+func writeLauncherTestInstallationWithSchemaVersion(t *testing.T, schemaVersion int) (string, string) {
+	t.Helper()
 	installPath := t.TempDir()
 	executable := filepath.Join(installPath, "Game", "game.exe")
 	if err := os.MkdirAll(filepath.Dir(executable), 0o755); err != nil {
@@ -109,7 +135,7 @@ func writeLauncherTestInstallation(t *testing.T) (string, string) {
 		t.Fatal(err)
 	}
 	if err := writeInstallManifest(installPath, installManifest{
-		SchemaVersion: devicev1.InstallManifestSchemaVersion,
+		SchemaVersion: schemaVersion,
 		GameID:        "game-1",
 		SourceGameID:  "source-1",
 		InstallRoot:   filepath.Dir(installPath),
