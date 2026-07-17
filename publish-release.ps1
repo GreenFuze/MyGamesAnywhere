@@ -12,12 +12,13 @@ $ErrorActionPreference = "Stop"
 function Invoke-Native {
     param(
         [Parameter(Mandatory = $true)][string]$Command,
-        [Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments
+        # Named so short native flags like `git tag -a` are not bound as -Arguments.
+        [Parameter(ValueFromRemainingArguments = $true)][string[]]$RemainingArguments
     )
 
-    & $Command @Arguments
+    & $Command @RemainingArguments
     if ($LASTEXITCODE -ne 0) {
-        throw "Command failed with exit code ${LASTEXITCODE}: $Command $($Arguments -join ' ')"
+        throw "Command failed with exit code ${LASTEXITCODE}: $Command $($RemainingArguments -join ' ')"
     }
 }
 
