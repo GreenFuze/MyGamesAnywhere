@@ -794,9 +794,8 @@ routes.
 
 ## ADR-0015 device emulator routes — 17 July 2026
 
-ADR-0015 is implemented and verified in the current intentional, uncommitted
-worktree. It is the authoritative continuation of ADR-0013/0014 and must not be
-reset, cleaned, or partially discarded.
+ADR-0015 is implemented and verified in feature checkpoint `1fe8c93`. It is
+the authoritative continuation of ADR-0013/0014 and shipped in v0.2.3.
 
 Locked and implemented behavior:
 
@@ -892,9 +891,8 @@ emulator routes without an explicit compatibility/conversion contract.
 
 ## ADR-0016 emulator setup and components — 17 July 2026
 
-ADR-0016 is implemented and verified in the same intentional, uncommitted
-ADR-0015/0016 checkpoint. Do not reset, clean, or partially discard this
-worktree. The accepted design is recorded in
+ADR-0016 is implemented and verified in the same committed ADR-0015/0016
+checkpoint `1fe8c93` and shipped in v0.2.3. The accepted design is recorded in
 `docs/architecture/0016-emulator-setup-and-components.md`.
 
 Locked and implemented behavior:
@@ -1000,3 +998,26 @@ save and achievement capabilities; conflict/authority rules; and explicit
 compatibility or conversion adapters before copying between storefront and
 emulator routes. Record the ADR before implementation and add migration 25 if
 the resulting design persists new state.
+
+## v0.2.3 release and TV2 deployment — 17 July 2026
+
+- Feature checkpoint `1fe8c93` (`feat: add managed emulator routes and setup`)
+  and release checkpoint `6ef4b21` (`chore: prepare v0.2.3 release`) are pushed
+  to `origin/main`.
+- Stable GitHub release `v0.2.3` targets exact commit `6ef4b21` and is the
+  latest release: `https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.2.3`.
+- Published artifacts are the server installer (623,071,298 bytes), portable
+  ZIP (679,173,537 bytes), MGA Client installer (8,241,047 bytes), update
+  manifest, and four-entry checksum file. GitHub-reported SHA-256 digests match
+  the locally verified files.
+- TV2's own Settings > Update interface found `0.2.3`, downloaded and verified
+  the 594.2 MB installer, applied it, went offline for the expected restart,
+  and returned HTTP 200. The UI reports `MGA restarted on version v0.2.3`, No
+  update, and About confirms version `v0.2.3` at commit `6ef4b21`.
+- TV2 had no browser warnings or errors after restart. One earlier Chrome
+  extension `Receiving end does not exist` message occurred during the planned
+  server restart and did not recur after the new server was online.
+- The local packaged server was rebuilt and restored after release packaging.
+  It runs v0.2.3 at commit `6ef4b21`, HTTP 200, schema 24. The installed v0.2.2
+  MGA Client remains protocol-compatible and reconnected Ready in standard
+  mode; it was not silently replaced by the server release.
