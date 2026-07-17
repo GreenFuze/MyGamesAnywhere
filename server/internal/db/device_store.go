@@ -827,14 +827,19 @@ func saveDeviceInventory(ctx context.Context, tx *sql.Tx, endpointID string, inv
 	if err != nil {
 		return fmt.Errorf("encode device package manager inventory: %w", err)
 	}
+	saveAdaptersJSON, err := json.Marshal(inventory.SaveAdapters)
+	if err != nil {
+		return fmt.Errorf("encode device save adapter inventory: %w", err)
+	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO device_inventories
-		(endpoint_id, schema_version, captured_at, storage_json, runtimes_json, package_managers_json, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		(endpoint_id, schema_version, captured_at, storage_json, runtimes_json, package_managers_json, save_adapters_json, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(endpoint_id) DO UPDATE SET schema_version=excluded.schema_version,
 			captured_at=excluded.captured_at, storage_json=excluded.storage_json,
 			runtimes_json=excluded.runtimes_json, package_managers_json=excluded.package_managers_json,
+			save_adapters_json=excluded.save_adapters_json,
 			updated_at=excluded.updated_at`,
-		endpointID, inventory.SchemaVersion, inventory.CapturedAt.Unix(), string(storageJSON), string(runtimesJSON), string(packageManagersJSON), updatedAt.Unix())
+		endpointID, inventory.SchemaVersion, inventory.CapturedAt.Unix(), string(storageJSON), string(runtimesJSON), string(packageManagersJSON), string(saveAdaptersJSON), updatedAt.Unix())
 	if err != nil {
 		return fmt.Errorf("persist device inventory: %w", err)
 	}
@@ -850,9 +855,9 @@ func saveDeviceInventory(ctx context.Context, tx *sql.Tx, endpointID string, inv
 func (s *DeviceStore) GetInventory(ctx context.Context, endpointID string) (*devicev1.DeviceInventory, error) {
 	var schemaVersion uint16
 	var capturedAt int64
-	var storageJSON, runtimesJSON, packageManagersJSON string
-	err := s.db.GetDB().QueryRowContext(ctx, `SELECT schema_version, captured_at, storage_json, runtimes_json, package_managers_json
-		FROM device_inventories WHERE endpoint_id=?`, endpointID).Scan(&schemaVersion, &capturedAt, &storageJSON, &runtimesJSON, &packageManagersJSON)
+	var storageJSON, runtimesJSON, packageManagersJSON, saveAdaptersJSON string
+	err := s.db.GetDB().QueryRowContext(ctx, `SELECT schema_version, captured_at, storage_json, runtimes_json, package_managers_json, save_adapters_json
+		FROM device_inventories WHERE endpoint_id=?`, endpointID).Scan(&schemaVersion, &capturedAt, &storageJSON, &runtimesJSON, &packageManagersJSON, &saveAdaptersJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -868,6 +873,9 @@ func (s *DeviceStore) GetInventory(ctx context.Context, endpointID string) (*dev
 	}
 	if err := json.Unmarshal([]byte(packageManagersJSON), &inventory.PackageManagers); err != nil {
 		return nil, fmt.Errorf("decode device package manager inventory: %w", err)
+	}
+	if err := json.Unmarshal([]byte(saveAdaptersJSON), &inventory.SaveAdapters); err != nil {
+		return nil, fmt.Errorf("decode device save adapter inventory: %w", err)
 	}
 	if err := inventory.Validate(); err != nil {
 		return nil, fmt.Errorf("validate persisted device inventory: %w", err)

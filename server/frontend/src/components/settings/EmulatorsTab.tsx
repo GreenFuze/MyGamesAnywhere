@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, CircleCheck, Download, Gamepad2, Loader2, Monitor, RefreshCw, Trophy } from 'lucide-react'
+import { ChevronDown, CircleCheck, Download, Gamepad2, Loader2, Monitor, RefreshCw, Save, Trophy } from 'lucide-react'
 import {
   dispatchDeviceCommand,
   getEndpointEmulators,
@@ -43,6 +43,22 @@ function firmwareFact(core: DeviceEmulatorCoreOption): string {
   if (core.firmware_state === 'missing') return ' · Firmware needed'
   if (core.firmware_state === 'unknown') return ' · Firmware unchecked'
   return ''
+}
+
+function saveSupportFact(option: DeviceEmulatorOption): { label: string; title: string } | null {
+  if (!option.detected) return null
+  if (option.save_probe_state === 'complete') {
+    return {
+      label: 'Save support detected',
+      title: option.save_route_overrides
+        ? 'MGA found emulator save settings, including game-specific choices. Backups are not enabled yet.'
+        : 'MGA found this emulator’s save settings. Backups are not enabled yet.',
+    }
+  }
+  if (option.save_probe_state === 'partial') {
+    return { label: 'Save setup needs attention', title: 'MGA could not completely read this emulator’s save settings.' }
+  }
+  return { label: 'Save support unknown', title: 'Reconnect with an updated MGA Client to check local save support.' }
 }
 
 function commandProgressLabel(phase?: string, percent?: number): string {
@@ -229,6 +245,11 @@ function DeviceEmulatorPanel({ device, profileId, single }: { device: DeviceEndp
                         </Button>
                       ) : null}
                     </div>
+                    {saveSupportFact(option) ? (
+                      <div className="mt-2 flex items-center gap-1.5 text-xs opacity-80" title={saveSupportFact(option)?.title}>
+                        <Save size={12} /> {saveSupportFact(option)?.label}
+                      </div>
+                    ) : null}
                     {option.cores?.length ? (
                       <div className="mt-3 border-t border-current/10 pt-3">
                         <label className="flex items-center justify-between gap-3 text-xs">

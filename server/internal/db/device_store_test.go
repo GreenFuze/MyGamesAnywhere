@@ -176,6 +176,7 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 		Storage:         []devicev1.StorageInventory{{ID: "c", Root: `C:\`, TotalBytes: 100, FreeBytes: 25}},
 		Runtimes:        []devicev1.RuntimeInventory{{ID: "steam", Name: "Steam", Path: `C:\Steam\steam.exe`}},
 		PackageManagers: []devicev1.PackageManagerInventory{{ID: "winget", Name: "Windows Package Manager"}},
+		SaveAdapters:    []devicev1.SaveAdapterInventory{{ID: "scummvm", Name: "ScummVM", ProbeState: "complete", SaveKinds: []string{"save_file"}}},
 	}
 	inventoryPayload, err := json.Marshal(inventory)
 	if err != nil {
@@ -193,7 +194,8 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 		t.Fatalf("GetInventory() error = %v", err)
 	}
 	if storedInventory == nil || len(storedInventory.Storage) != 1 || storedInventory.Storage[0].FreeBytes != 25 ||
-		len(storedInventory.Runtimes) != 1 || len(storedInventory.PackageManagers) != 1 || storedInventory.PackageManagers[0].ID != "winget" {
+		len(storedInventory.Runtimes) != 1 || len(storedInventory.PackageManagers) != 1 || storedInventory.PackageManagers[0].ID != "winget" ||
+		len(storedInventory.SaveAdapters) != 1 || storedInventory.SaveAdapters[0].ID != "scummvm" {
 		t.Fatalf("stored inventory = %#v", storedInventory)
 	}
 

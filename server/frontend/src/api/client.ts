@@ -400,11 +400,20 @@ export type DeviceRuntimeInventory = {
   path?: string;
 };
 
+export type DeviceSaveAdapterInventory = {
+  id: string;
+  name: string;
+  probe_state: "complete" | "partial" | "unsupported" | "unknown" | string;
+  save_kinds: Array<"save_file" | "save_ram" | "save_state" | string>;
+  route_overrides?: boolean;
+};
+
 export type DeviceInventory = {
   schema_version: number;
   captured_at: string;
   storage: DeviceStorageInventory[];
   runtimes: DeviceRuntimeInventory[];
+  save_adapters?: DeviceSaveAdapterInventory[];
 };
 
 export type DeviceGameInstallation = {
@@ -571,6 +580,9 @@ export type DeviceEmulatorOption = {
   cores?: DeviceEmulatorCoreOption[];
   setup_provider?: string;
   setup_available: boolean;
+  save_probe_state?: "complete" | "partial" | "unsupported" | "unknown" | string;
+  save_kinds?: string[];
+  save_route_overrides?: boolean;
 };
 
 export type DeviceEmulatorCoreOption = {

@@ -28,6 +28,7 @@ cross the server, web interface, and device agent boundaries.
 - [ADR-0015: Device emulator routes](0015-device-emulator-routes.md)
 - [ADR-0016: Emulator setup and components](0016-emulator-setup-and-components.md)
 - [ADR-0017: Route-level Save Domains and provider boundaries](0017-route-save-domains.md)
+- [ADR-0018: Local save adapter discovery](0018-local-save-adapter-discovery.md)
 
 ## Protocols
 

@@ -148,7 +148,7 @@ func TestRetroArchReadinessUsesDetectedCoreAndPersistsPerPlatformChoice(t *testi
 		Inventory: &devicev1.DeviceInventory{Runtimes: []devicev1.RuntimeInventory{{
 			ID: "retroarch", Name: "RetroArch", CoreProbeState: "complete",
 			Components: []devicev1.RuntimeComponentInventory{{Kind: "core", ID: "fceumm", Name: "FCEUmm"}, {Kind: "core", ID: "mesen", Name: "Mesen"}},
-		}}},
+		}}, SaveAdapters: []devicev1.SaveAdapterInventory{{ID: "retroarch", Name: "RetroArch", ProbeState: "complete", SaveKinds: []string{"save_ram", "save_state"}, RouteOverrides: true}}},
 	}}
 	service, _ := NewService(repository, endpoint, NewDefaultCatalog())
 	configuration, err := service.SetCoreDefault(context.Background(), "endpoint", "profile", core.PlatformNES, "retroarch", "mesen")
@@ -161,7 +161,7 @@ func TestRetroArchReadinessUsesDetectedCoreAndPersistsPerPlatformChoice(t *testi
 		}
 		for _, option := range platform.Emulators {
 			if option.ID == "retroarch" {
-				if option.State != "ready" || option.SelectedCore != "mesen" || option.ResolvedCore != "mesen" {
+				if option.State != "ready" || option.SelectedCore != "mesen" || option.ResolvedCore != "mesen" || option.SaveProbeState != "complete" || !option.SaveRouteOverrides || len(option.SaveKinds) != 2 {
 					t.Fatalf("RetroArch option = %#v", option)
 				}
 				return

@@ -37,6 +37,40 @@ func TestMigrationsFreshDBReachLatestAndAreIdempotent(t *testing.T) {
 	}
 }
 
+func TestMigration25AddsEmptySaveAdapterInventory(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.ensureSchemaMigrationsTable(); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range dbSvc.orderedMigrations() {
+		if migration.Version > 24 {
+			break
+		}
+		if err := dbSvc.runMigration(context.Background(), migration); err != nil {
+			t.Fatalf("run migration %d: %v", migration.Version, err)
+		}
+	}
+	now := time.Now().Unix()
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO device_endpoints (id, client_instance_id, public_key, display_name, host_name, os_user, platform, arch, execution_mode, client_version, protocol_version, capabilities_json, status, created_at, updated_at) VALUES ('endpoint-25','instance-25','key','PC','pc','user','windows','amd64','standard','dev',1,'[]','offline',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO device_inventories (endpoint_id, schema_version, captured_at, storage_json, runtimes_json, package_managers_json, updated_at) VALUES ('endpoint-25',2,?,'[]','[]','[]',?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	var adapters string
+	if err := dbSvc.GetDB().QueryRow(`SELECT save_adapters_json FROM device_inventories WHERE endpoint_id='endpoint-25'`).Scan(&adapters); err != nil || adapters != "[]" {
+		t.Fatalf("migrated save adapters = %q, error = %v", adapters, err)
+	}
+}
+
 func TestMigration16UpgradesVersion15RowsWithSafeLaunchDefaults(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
 	dbSvc := NewSQLiteDatabaseWithMigrationOptions(

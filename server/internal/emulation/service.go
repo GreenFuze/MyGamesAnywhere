@@ -41,6 +41,9 @@ type Option struct {
 	ResolvedCore       string       `json:"resolved_core,omitempty"`
 	Cores              []CoreOption `json:"cores,omitempty"`
 	SetupAvailable     bool         `json:"setup_available"`
+	SaveProbeState     string       `json:"save_probe_state,omitempty"`
+	SaveKinds          []string     `json:"save_kinds,omitempty"`
+	SaveRouteOverrides bool         `json:"save_route_overrides,omitempty"`
 }
 
 type CoreOption struct {
@@ -209,9 +212,13 @@ func (s *Service) findEndpoint(ctx context.Context, endpointID, profileID string
 
 func (s *Service) configuration(endpoint devices.Endpoint, defaults map[core.Platform]string, coreDefaults map[core.Platform]map[string]string) DeviceConfiguration {
 	detected := make(map[string]devicev1.RuntimeInventory)
+	saveAdapters := make(map[string]devicev1.SaveAdapterInventory)
 	if endpoint.Inventory != nil {
 		for _, runtime := range endpoint.Inventory.Runtimes {
 			detected[strings.ToLower(runtime.ID)] = runtime
+		}
+		for _, adapter := range endpoint.Inventory.SaveAdapters {
+			saveAdapters[strings.ToLower(adapter.ID)] = adapter
 		}
 	}
 	clientSupportsLaunch := contains(endpoint.Capabilities, devicev1.CapabilityGameLaunchEmulator)
@@ -222,7 +229,8 @@ func (s *Service) configuration(endpoint devices.Endpoint, defaults map[core.Pla
 		entry := PlatformConfiguration{Platform: platform, PlatformName: platformName(platform), SelectedDefault: defaults[platform]}
 		for _, emulator := range s.catalog.ForPlatform(platform) {
 			runtime, found := detected[emulator.ID]
-			option := Option{Emulator: emulator, Detected: found, Version: runtime.Version, State: "needs_setup", CoreProbeState: runtime.CoreProbeState, FirmwareProbeState: runtime.FirmwareProbeState, SetupAvailable: emulator.SetupProvider == "winget" && clientSupportsSetup && wingetAvailable}
+			saveAdapter := saveAdapters[emulator.ID]
+			option := Option{Emulator: emulator, Detected: found, Version: runtime.Version, State: "needs_setup", CoreProbeState: runtime.CoreProbeState, FirmwareProbeState: runtime.FirmwareProbeState, SetupAvailable: emulator.SetupProvider == "winget" && clientSupportsSetup && wingetAvailable, SaveProbeState: saveAdapter.ProbeState, SaveKinds: saveAdapter.SaveKinds, SaveRouteOverrides: saveAdapter.RouteOverrides}
 			if coreDefaults[platform] != nil {
 				option.SelectedCore = coreDefaults[platform][emulator.ID]
 			}

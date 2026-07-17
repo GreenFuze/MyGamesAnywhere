@@ -40,12 +40,14 @@ func (c *LocalInventoryCollector) Collect(ctx context.Context) (devicev1.DeviceI
 	if err != nil {
 		return devicev1.DeviceInventory{}, err
 	}
+	runtimes := collectKnownRuntimes(ctx)
 	inventory := devicev1.DeviceInventory{
 		SchemaVersion:   devicev1.InventorySchemaVersion,
 		CapturedAt:      c.now().UTC(),
 		Storage:         storage,
-		Runtimes:        collectKnownRuntimes(ctx),
+		Runtimes:        runtimes,
 		PackageManagers: collectKnownPackageManagers(),
+		SaveAdapters:    NewLocalSaveAdapterDiscoverer().Discover(runtimes),
 	}.Normalize()
 	if err := inventory.Validate(); err != nil {
 		return devicev1.DeviceInventory{}, err

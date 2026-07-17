@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 24
+const latestMigrationVersion = 25
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -459,6 +459,13 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 			Name:    "device_inventory_package_managers",
 			SQL: []string{
 				`ALTER TABLE device_inventories ADD COLUMN package_managers_json TEXT NOT NULL DEFAULT '[]';`,
+			},
+		},
+		{
+			Version: 25,
+			Name:    "device_inventory_save_adapters",
+			SQL: []string{
+				`ALTER TABLE device_inventories ADD COLUMN save_adapters_json TEXT NOT NULL DEFAULT '[]';`,
 			},
 		},
 	}

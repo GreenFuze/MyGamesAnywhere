@@ -9,10 +9,12 @@ import (
 )
 
 const (
-	InventorySchemaVersion       uint16 = 2
-	InventorySchemaVersionLegacy uint16 = 1
-	maxInventoryRuntimes                = 64
-	maxRuntimeComponents                = 256
+	InventorySchemaVersion         uint16 = 3
+	InventorySchemaVersionPrevious uint16 = 2
+	InventorySchemaVersionLegacy   uint16 = 1
+	maxInventoryRuntimes                  = 64
+	maxRuntimeComponents                  = 256
+	maxSaveAdapters                       = 16
 )
 
 // DeviceInventory is a bounded snapshot of facts needed to evaluate play and
@@ -24,6 +26,7 @@ type DeviceInventory struct {
 	Storage         []StorageInventory        `json:"storage"`
 	Runtimes        []RuntimeInventory        `json:"runtimes"`
 	PackageManagers []PackageManagerInventory `json:"package_managers,omitempty"`
+	SaveAdapters    []SaveAdapterInventory    `json:"save_adapters,omitempty"`
 }
 
 type StorageInventory struct {
@@ -55,8 +58,16 @@ type RuntimeComponentInventory struct {
 	Version string `json:"version,omitempty"`
 }
 
+type SaveAdapterInventory struct {
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	ProbeState     string   `json:"probe_state"`
+	SaveKinds      []string `json:"save_kinds"`
+	RouteOverrides bool     `json:"route_overrides,omitempty"`
+}
+
 func (i DeviceInventory) Validate() error {
-	if i.SchemaVersion != InventorySchemaVersionLegacy && i.SchemaVersion != InventorySchemaVersion {
+	if i.SchemaVersion != InventorySchemaVersionLegacy && i.SchemaVersion != InventorySchemaVersionPrevious && i.SchemaVersion != InventorySchemaVersion {
 		return fmt.Errorf("unsupported inventory schema version %d", i.SchemaVersion)
 	}
 	if i.CapturedAt.IsZero() {
@@ -100,6 +111,22 @@ func (i DeviceInventory) Validate() error {
 	}
 	if i.SchemaVersion == InventorySchemaVersionLegacy && len(i.PackageManagers) != 0 {
 		return errors.New("inventory schema 1 cannot contain package managers")
+	}
+	if i.SchemaVersion != InventorySchemaVersion && len(i.SaveAdapters) != 0 {
+		return fmt.Errorf("inventory schema %d cannot contain save adapters", i.SchemaVersion)
+	}
+	if len(i.SaveAdapters) > maxSaveAdapters {
+		return errors.New("inventory contains too many save adapters")
+	}
+	seenAdapters := map[string]bool{}
+	for _, adapter := range i.SaveAdapters {
+		if err := adapter.Validate(); err != nil {
+			return err
+		}
+		if seenAdapters[adapter.ID] {
+			return fmt.Errorf("duplicate save adapter id %q", adapter.ID)
+		}
+		seenAdapters[adapter.ID] = true
 	}
 	return nil
 }
@@ -161,6 +188,29 @@ func (c RuntimeComponentInventory) Validate() error {
 	return nil
 }
 
+func (a SaveAdapterInventory) Validate() error {
+	if strings.TrimSpace(a.ID) == "" || strings.TrimSpace(a.Name) == "" {
+		return errors.New("save adapter id and name are required")
+	}
+	if a.ProbeState == "" {
+		return fmt.Errorf("save adapter %s probe state is required", a.ID)
+	}
+	if err := validateProbeState(a.ProbeState); err != nil {
+		return fmt.Errorf("save adapter %s probe: %w", a.ID, err)
+	}
+	seenKinds := map[string]bool{}
+	for _, kind := range a.SaveKinds {
+		if kind != "save_file" && kind != "save_ram" && kind != "save_state" {
+			return fmt.Errorf("save adapter %s has unsupported save kind %q", a.ID, kind)
+		}
+		if seenKinds[kind] {
+			return fmt.Errorf("save adapter %s has duplicate save kind %q", a.ID, kind)
+		}
+		seenKinds[kind] = true
+	}
+	return nil
+}
+
 func validateProbeState(state string) error {
 	switch state {
 	case "", "unknown", "complete", "partial", "unsupported":
@@ -176,6 +226,7 @@ func (i DeviceInventory) Normalize() DeviceInventory {
 	i.Storage = append([]StorageInventory(nil), i.Storage...)
 	i.Runtimes = append([]RuntimeInventory(nil), i.Runtimes...)
 	i.PackageManagers = append([]PackageManagerInventory(nil), i.PackageManagers...)
+	i.SaveAdapters = append([]SaveAdapterInventory(nil), i.SaveAdapters...)
 	for index := range i.Runtimes {
 		i.Runtimes[index].Components = append([]RuntimeComponentInventory(nil), i.Runtimes[index].Components...)
 		sort.Slice(i.Runtimes[index].Components, func(left, right int) bool {
@@ -188,5 +239,9 @@ func (i DeviceInventory) Normalize() DeviceInventory {
 	sort.Slice(i.Storage, func(left, right int) bool { return i.Storage[left].ID < i.Storage[right].ID })
 	sort.Slice(i.Runtimes, func(left, right int) bool { return i.Runtimes[left].ID < i.Runtimes[right].ID })
 	sort.Slice(i.PackageManagers, func(left, right int) bool { return i.PackageManagers[left].ID < i.PackageManagers[right].ID })
+	for index := range i.SaveAdapters {
+		sort.Strings(i.SaveAdapters[index].SaveKinds)
+	}
+	sort.Slice(i.SaveAdapters, func(left, right int) bool { return i.SaveAdapters[left].ID < i.SaveAdapters[right].ID })
 	return i
 }
