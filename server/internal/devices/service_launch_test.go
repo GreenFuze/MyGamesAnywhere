@@ -72,8 +72,8 @@ func (*launchTestStore) CreatePairingChallenge(context.Context, PairingChallenge
 func (*launchTestStore) PairEndpoint(context.Context, string, time.Time, Endpoint) (string, error) {
 	return "", errors.New("unexpected call")
 }
-func (*launchTestStore) ListEndpoints(context.Context, string) ([]Endpoint, error) {
-	return nil, errors.New("unexpected call")
+func (s *launchTestStore) ListEndpoints(context.Context, string) ([]Endpoint, error) {
+	return []Endpoint{s.endpoint}, nil
 }
 func (*launchTestStore) ListGrants(context.Context, string) ([]Grant, error) {
 	return nil, errors.New("unexpected call")
@@ -115,7 +115,7 @@ func (*launchTestStore) GetCommand(context.Context, string, string) (*Command, e
 	return nil, errors.New("unexpected call")
 }
 func (*launchTestStore) GetInventory(context.Context, string) (*devicev1.DeviceInventory, error) {
-	return nil, errors.New("unexpected call")
+	return nil, nil
 }
 func (*launchTestStore) SaveInventory(context.Context, string, devicev1.DeviceInventory, time.Time) error {
 	return errors.New("unexpected call")
@@ -133,6 +133,47 @@ func (s *launchTestStore) SetInstallationFailureState(_ context.Context, _, _, _
 	s.failureMarker = markerID
 	s.ignoredBy = ignoredBy
 	return nil
+}
+
+type presenceTestTransport struct{}
+
+func (presenceTestTransport) Write(context.Context, []byte) error { return nil }
+func (presenceTestTransport) Close() error                        { return nil }
+
+func TestServiceListEndpointsUsesLiveHubPresence(t *testing.T) {
+	t.Parallel()
+
+	store := &launchTestStore{
+		endpoint: Endpoint{ID: "endpoint-1", Status: devicev1.EndpointReady, StatusReason: "stale"},
+	}
+	hub := NewHub()
+	service, err := NewService(store, hub)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	endpoints, err := service.ListEndpoints(context.Background(), "profile-1")
+	if err != nil {
+		t.Fatalf("ListEndpoints() error = %v", err)
+	}
+	if got := endpoints[0].Status; got != devicev1.EndpointOffline {
+		t.Fatalf("offline status = %q, want %q", got, devicev1.EndpointOffline)
+	}
+	if endpoints[0].StatusReason != "" {
+		t.Fatalf("offline status reason = %q, want empty", endpoints[0].StatusReason)
+	}
+
+	transport := presenceTestTransport{}
+	if err := hub.Register(store.endpoint.ID, transport); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	endpoints, err = service.ListEndpoints(context.Background(), "profile-1")
+	if err != nil {
+		t.Fatalf("ListEndpoints() connected error = %v", err)
+	}
+	if got := endpoints[0].Status; got != devicev1.EndpointReady {
+		t.Fatalf("connected status = %q, want %q", got, devicev1.EndpointReady)
+	}
 }
 
 func TestServiceRedeemsSignedClientLaunch(t *testing.T) {

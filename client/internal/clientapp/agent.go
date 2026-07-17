@@ -34,6 +34,8 @@ type Agent struct {
 	installer     ArchiveInstaller
 	gogInstaller  GogInnoInstaller
 	launcher      GameLauncher
+	emulator      EmulatorLauncher
+	emulatorSetup EmulatorSetupManager
 	validator     InstallationValidator
 }
 
@@ -71,10 +73,19 @@ func NewAgentWithExecutionMode(config clientconfig.Config, privateKey ed25519.Pr
 	if err != nil {
 		return nil, err
 	}
+	inventory := NewLocalInventoryCollector()
+	emulator, err := NewManagedEmulatorLauncher(config.ServerURL, inventory)
+	if err != nil {
+		return nil, err
+	}
+	emulatorSetup, err := NewManagedEmulatorSetupManager(inventory)
+	if err != nil {
+		return nil, err
+	}
 	return &Agent{
 		config: config, privateKey: privateKey, buildInfo: info, logger: logger, executionMode: executionMode,
-		inventory: NewLocalInventoryCollector(), installer: installer, gogInstaller: gogInstaller,
-		launcher: NewWindowsGameLauncher(), validator: validator,
+		inventory: inventory, installer: installer, gogInstaller: gogInstaller,
+		launcher: NewWindowsGameLauncher(), emulator: emulator, emulatorSetup: emulatorSetup, validator: validator,
 	}, nil
 }
 
@@ -411,6 +422,32 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 		result, err := a.launcher.Launch(ctx, request)
 		if err != nil {
 			return nil, false, "launch_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilityGameLaunchEmulator:
+		if a.emulator == nil {
+			return nil, false, "emulator_launcher_unavailable", errors.New("emulator launcher is unavailable")
+		}
+		var request devicev1.EmulatorLaunchRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.emulator.Launch(ctx, commandID, request, report)
+		if err != nil {
+			return nil, false, "emulator_launch_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilityEmulatorSetup:
+		if a.emulatorSetup == nil {
+			return nil, false, "emulator_setup_unavailable", errors.New("emulator setup manager is unavailable")
+		}
+		var request devicev1.EmulatorSetupRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.emulatorSetup.Setup(ctx, request, report)
+		if err != nil {
+			return nil, false, "emulator_setup_failed", err
 		}
 		return result, false, "", nil
 	case devicev1.CapabilityGameValidateInstallations:

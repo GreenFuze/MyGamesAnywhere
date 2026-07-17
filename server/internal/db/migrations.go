@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 21
+const latestMigrationVersion = 24
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -423,6 +423,42 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 					updated_by_profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
 					updated_at INTEGER NOT NULL
 				);`,
+			},
+		},
+		{
+			Version: 22,
+			Name:    "device_emulator_preferences",
+			SQL: []string{
+				`CREATE TABLE device_emulator_preferences (
+					endpoint_id TEXT NOT NULL REFERENCES device_endpoints(id) ON DELETE CASCADE,
+					platform TEXT NOT NULL CHECK(length(trim(platform)) > 0),
+					emulator_id TEXT NOT NULL CHECK(length(trim(emulator_id)) > 0),
+					updated_by_profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+					updated_at INTEGER NOT NULL,
+					PRIMARY KEY(endpoint_id, platform)
+				);`,
+			},
+		},
+		{
+			Version: 23,
+			Name:    "device_emulator_core_preferences",
+			SQL: []string{
+				`CREATE TABLE device_emulator_core_preferences (
+					endpoint_id TEXT NOT NULL REFERENCES device_endpoints(id) ON DELETE CASCADE,
+					platform TEXT NOT NULL CHECK(length(trim(platform)) > 0),
+					emulator_id TEXT NOT NULL CHECK(length(trim(emulator_id)) > 0),
+					core_id TEXT NOT NULL CHECK(length(trim(core_id)) > 0),
+					updated_by_profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+					updated_at INTEGER NOT NULL,
+					PRIMARY KEY(endpoint_id, platform, emulator_id)
+				);`,
+			},
+		},
+		{
+			Version: 24,
+			Name:    "device_inventory_package_managers",
+			SQL: []string{
+				`ALTER TABLE device_inventories ADD COLUMN package_managers_json TEXT NOT NULL DEFAULT '[]';`,
 			},
 		},
 	}

@@ -19,6 +19,7 @@ import (
 	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/devices"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/emulation"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/installprefs"
 	"github.com/coder/websocket"
 	"github.com/go-chi/chi/v5"
@@ -41,6 +42,11 @@ type DeviceController struct {
 	archiveTransfers    *archiveTransferRegistry
 	validation          *InstallationValidationService
 	installPreferences  *installprefs.Service
+	emulators           *emulation.Service
+}
+
+func (c *DeviceController) SetEmulationService(service *emulation.Service) {
+	c.emulators = service
 }
 
 func NewDeviceController(service *devices.Service, hub *devices.Hub, logger core.Logger, clientInstallerPath ...string) (*DeviceController, error) {

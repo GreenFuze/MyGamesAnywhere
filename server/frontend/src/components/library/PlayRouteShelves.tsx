@@ -14,6 +14,9 @@ export function PlayRouteShelves({ games }: PlayRouteShelvesProps) {
     const favorites = games.filter((game) => game.favorite)
     const browser = games.filter((game) => isPlayable(game))
     const cloud = games.filter((game) => game.xcloud_available)
+		const emulator = games.filter((game) => game.devices?.some((device) =>
+			device.connected && device.can_play && device.emulator_routes?.some((route) => route.state === 'ready'),
+		))
 
     const routeShelves: Array<{
       key: string
@@ -24,6 +27,7 @@ export function PlayRouteShelves({ games }: PlayRouteShelvesProps) {
       { key: 'favorites', label: 'Favorites', games: favorites },
       { key: 'browser', label: 'Play in browser', games: browser, preferredPlayRoute: 'browser' },
       { key: 'cloud', label: 'Cloud play', games: cloud, preferredPlayRoute: 'cloud' },
+			{ key: 'emulator', label: 'Play with an emulator', games: emulator, preferredPlayRoute: 'emulator' },
     ]
     return routeShelves.filter((shelf) => shelf.games.length > 0)
   }, [games])

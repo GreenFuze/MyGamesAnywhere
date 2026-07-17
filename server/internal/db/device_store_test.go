@@ -171,10 +171,11 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 		t.Fatalf("run inventory command: %v", err)
 	}
 	inventory := devicev1.DeviceInventory{
-		SchemaVersion: devicev1.InventorySchemaVersion,
-		CapturedAt:    now.Add(2 * time.Second),
-		Storage:       []devicev1.StorageInventory{{ID: "c", Root: `C:\`, TotalBytes: 100, FreeBytes: 25}},
-		Runtimes:      []devicev1.RuntimeInventory{{ID: "steam", Name: "Steam", Path: `C:\Steam\steam.exe`}},
+		SchemaVersion:   devicev1.InventorySchemaVersion,
+		CapturedAt:      now.Add(2 * time.Second),
+		Storage:         []devicev1.StorageInventory{{ID: "c", Root: `C:\`, TotalBytes: 100, FreeBytes: 25}},
+		Runtimes:        []devicev1.RuntimeInventory{{ID: "steam", Name: "Steam", Path: `C:\Steam\steam.exe`}},
+		PackageManagers: []devicev1.PackageManagerInventory{{ID: "winget", Name: "Windows Package Manager"}},
 	}
 	inventoryPayload, err := json.Marshal(inventory)
 	if err != nil {
@@ -191,7 +192,8 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInventory() error = %v", err)
 	}
-	if storedInventory == nil || len(storedInventory.Storage) != 1 || storedInventory.Storage[0].FreeBytes != 25 || len(storedInventory.Runtimes) != 1 {
+	if storedInventory == nil || len(storedInventory.Storage) != 1 || storedInventory.Storage[0].FreeBytes != 25 ||
+		len(storedInventory.Runtimes) != 1 || len(storedInventory.PackageManagers) != 1 || storedInventory.PackageManagers[0].ID != "winget" {
 		t.Fatalf("stored inventory = %#v", storedInventory)
 	}
 

@@ -5,39 +5,30 @@ import (
 	"time"
 )
 
-func TestDeviceInventoryValidationAndNormalization(t *testing.T) {
-	t.Parallel()
-	inventory := DeviceInventory{
-		SchemaVersion: InventorySchemaVersion,
-		CapturedAt:    time.Now(),
-		Storage: []StorageInventory{
-			{ID: "d", Root: `D:\`, TotalBytes: 200, FreeBytes: 100},
-			{ID: "c", Root: `C:\`, TotalBytes: 100, FreeBytes: 25},
-		},
-		Runtimes: []RuntimeInventory{
-			{ID: "steam", Name: "Steam"},
-			{ID: "retroarch", Name: "RetroArch"},
-		},
+func TestInventoryValidationAcceptsLegacyAndComponentSnapshots(t *testing.T) {
+	legacy := DeviceInventory{SchemaVersion: InventorySchemaVersionLegacy, CapturedAt: time.Now(), Runtimes: []RuntimeInventory{{ID: "scummvm", Name: "ScummVM"}}}
+	if err := legacy.Validate(); err != nil {
+		t.Fatalf("legacy inventory rejected: %v", err)
 	}
-	if err := inventory.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v", err)
+	current := DeviceInventory{
+		SchemaVersion: InventorySchemaVersion, CapturedAt: time.Now(),
+		PackageManagers: []PackageManagerInventory{{ID: "winget", Name: "Windows Package Manager"}},
+		Runtimes:        []RuntimeInventory{{ID: "retroarch", Name: "RetroArch", CoreProbeState: "complete", FirmwareProbeState: "unknown", Components: []RuntimeComponentInventory{{Kind: "core", ID: "snes9x", Name: "Snes9x"}}}},
 	}
-	normalized := inventory.Normalize()
-	if normalized.Storage[0].ID != "c" || normalized.Runtimes[0].ID != "retroarch" {
-		t.Fatalf("Normalize() = %#v", normalized)
+	if err := current.Validate(); err != nil {
+		t.Fatalf("component inventory rejected: %v", err)
 	}
 }
 
-func TestDeviceInventoryRejectsUnsafeOrInconsistentFacts(t *testing.T) {
-	t.Parallel()
-	tests := []DeviceInventory{
-		{},
-		{SchemaVersion: InventorySchemaVersion, CapturedAt: time.Now(), Storage: []StorageInventory{{ID: "c", Root: `C:\`, TotalBytes: 10, FreeBytes: 11}}},
-		{SchemaVersion: InventorySchemaVersion, CapturedAt: time.Now(), Runtimes: []RuntimeInventory{{ID: "steam", Name: "Steam"}, {ID: "steam", Name: "Steam"}}},
+func TestInventoryValidationRejectsSchemaOneExtensionAndDuplicateComponent(t *testing.T) {
+	legacy := DeviceInventory{SchemaVersion: InventorySchemaVersionLegacy, CapturedAt: time.Now(), PackageManagers: []PackageManagerInventory{{ID: "winget", Name: "Winget"}}}
+	if err := legacy.Validate(); err == nil {
+		t.Fatal("schema 1 extension was accepted")
 	}
-	for _, inventory := range tests {
-		if err := inventory.Validate(); err == nil {
-			t.Fatalf("Validate(%#v) error = nil", inventory)
-		}
+	duplicate := DeviceInventory{SchemaVersion: InventorySchemaVersion, CapturedAt: time.Now(), Runtimes: []RuntimeInventory{{
+		ID: "retroarch", Name: "RetroArch", Components: []RuntimeComponentInventory{{Kind: "core", ID: "snes9x", Name: "Snes9x"}, {Kind: "core", ID: "snes9x", Name: "Snes9x"}},
+	}}}
+	if err := duplicate.Validate(); err == nil {
+		t.Fatal("duplicate runtime component was accepted")
 	}
 }

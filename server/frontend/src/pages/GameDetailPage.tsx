@@ -30,6 +30,7 @@ import {
 	preflightInstallationOnDevice,
 	ignoreFailedGameOnDevice,
 	launchGameOnDevice,
+	launchEmulatorGameOnDevice,
   listDeviceCommands,
   mergeSourceGameCanonical,
   refreshGameMetadata,
@@ -145,7 +146,7 @@ function formatStorageBytes(value: number | undefined): string {
   return `${(value / 1024 ** index).toFixed(index >= 3 ? 1 : 0)} ${units[index]}`
 }
 
-function deviceSetupLabel(status: string, runtime?: string): string {
+function deviceSetupLabel(status: string): string {
   switch (status) {
     case 'installed':
       return 'Installed'
@@ -155,8 +156,10 @@ function deviceSetupLabel(status: string, runtime?: string): string {
       return 'Needs repair'
     case 'ready_for_setup':
       return 'Ready for setup'
-    case 'needs_runtime':
-      return runtime ? `Needs ${runtime}` : 'Needs a game app'
+		case 'ready_to_play':
+			return 'Ready to play'
+		case 'needs_setup':
+			return 'Emulator setup needed'
     case 'not_scanned':
       return 'Scan needed'
     case 'update_required':
@@ -1576,6 +1579,11 @@ export function GameDetailPage() {
 			launchGameOnDevice(deviceId, id, sourceGameId),
 		onSuccess: (command, variables) => setActiveDeviceCommand({ deviceId: variables.deviceId, commandId: command.id }),
 	})
+	const launchEmulator = useMutation({
+		mutationFn: ({ deviceId, sourceGameId, emulatorId }: { deviceId: string; sourceGameId: string; emulatorId: string }) =>
+			launchEmulatorGameOnDevice(deviceId, id, sourceGameId, emulatorId),
+		onSuccess: (command, variables) => setActiveDeviceCommand({ deviceId: variables.deviceId, commandId: command.id }),
+	})
 	const changeLaunchTarget = useMutation({
 		mutationFn: ({ deviceId, sourceGameId, launchTarget }: { deviceId: string; sourceGameId: string; launchTarget: string }) =>
 			setDeviceGameLaunchTarget(deviceId, id, sourceGameId, launchTarget),
@@ -2348,8 +2356,20 @@ export function GameDetailPage() {
 							</div>
 							<div className="flex flex-wrap items-center gap-2">
 							  <Badge variant={device.status === 'ready_for_setup' || device.status === 'installed' ? 'playable' : device.status === 'offline' ? 'muted' : 'default'}>
-								{deviceSetupLabel(device.status, device.required_runtime)}
+								{deviceSetupLabel(device.status)}
 							  </Badge>
+							  {device.emulator_routes?.filter((route) => route.state === 'ready').map((route) => (
+								<Button
+								  key={`emulator-${route.emulator_id}-${route.source_game_id}`}
+								  size="sm"
+								  variant={route.default ? 'default' : 'outline'}
+								  disabled={!device.connected || !device.can_play || launchEmulator.isPending || Boolean(activeHere)}
+								  title={route.reason || `Play ${route.source_title} with ${route.emulator_name}`}
+								  onClick={() => launchEmulator.mutate({ deviceId: device.device_id, sourceGameId: route.source_game_id, emulatorId: route.emulator_id })}
+								>
+								  <PlayCircle size={14} /> {route.emulator_name}{(device.emulator_routes?.length ?? 0) > 1 ? ` · ${route.source_title}` : ''}
+								</Button>
+							  ))}
 							  {device.installed && device.installed_source_id && !failureState ? (
 								<>
 								  <Button

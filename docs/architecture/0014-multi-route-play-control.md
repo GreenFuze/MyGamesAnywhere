@@ -44,6 +44,11 @@ and cloud play. Each action retains its edition/library-item identity, route
 type, execution target, and relevant capability facts. Selecting one action
 must not silently fall back to a different route.
 
+An emulator default is only the primary choice within an ordered compatible
+emulator list. It does not remove the other emulator routes. Route labels and
+details expose meaningful differences such as RetroAchievements support,
+required firmware/core, save compatibility, and device readiness.
+
 ### Initial default selection
 
 The initial default is deterministic and contextual:

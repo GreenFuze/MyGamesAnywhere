@@ -22,6 +22,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/devices"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/emulation"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/gamesvc"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/http"
@@ -219,6 +220,11 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	if err != nil {
 		return fmt.Errorf("configure install preferences: %w", err)
 	}
+	emulatorPreferenceRepo := db.NewEmulatorPreferenceRepository(dbSvc)
+	emulationSvc, err := emulation.NewService(emulatorPreferenceRepo, deviceSvc, emulation.NewDefaultCatalog())
+	if err != nil {
+		return fmt.Errorf("configure emulator settings: %w", err)
+	}
 	integrationRepo := db.NewIntegrationRepository(dbSvc)
 	gameStore := db.NewGameStore(dbSvc, logSvc)
 	cacheStore := db.NewSourceCacheStore(dbSvc)
@@ -246,6 +252,8 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	gameCtrl := http.NewGameController(gameStore, orchestrator, deletionSvc, integrationRepo, cacheSvc, logSvc)
 	gameCtrl.SetCanonicalGroupingService(groupingSvc)
 	gameCtrl.SetDeviceEndpointLister(deviceSvc)
+	gameCtrl.SetEmulationService(emulationSvc)
+	gameCtrl.SetEmulatorContentRoot(envString("MGA_GOOGLE_DRIVE_DESKTOP_ROOT", ""))
 	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc, mediaSvc)
 	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc, eventBus, achievementRefreshCtrl)
 	backgroundScanSvc, err := http.NewBackgroundScanService(discoCtrl, profileRepo, settingRepo, logSvc, eventBus)
@@ -296,6 +304,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	deviceCtrl.SetArchiveInstallDependencies(gameStore, integrationRepo, envString("MGA_GOOGLE_DRIVE_DESKTOP_ROOT", ""))
 	deviceCtrl.SetInstallationValidationService(installationValidationSvc)
 	deviceCtrl.SetInstallPreferenceService(installPreferenceSvc)
+	deviceCtrl.SetEmulationService(emulationSvc)
 
 	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
 

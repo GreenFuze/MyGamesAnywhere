@@ -460,6 +460,8 @@ func localMetadata(displayName string, executionMode devicev1.ClientExecutionMod
 			devicev1.CapabilityGameCleanupGogInnoFailed,
 			devicev1.CapabilityGameValidateInstallations,
 			devicev1.CapabilityGameLaunch,
+			devicev1.CapabilityGameLaunchEmulator,
+			devicev1.CapabilityEmulatorSetup,
 			devicev1.CapabilityInventoryRefresh,
 			devicev1.CapabilityInstallationPreflight,
 		},

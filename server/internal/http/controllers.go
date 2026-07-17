@@ -16,6 +16,7 @@ import (
 
 	appconfig "github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/emulation"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
@@ -76,15 +77,17 @@ type GameFileDTO struct {
 
 // GameController serves GET /api/games (list) and GET /api/games/{id} (single game).
 type GameController struct {
-	gameStore       core.GameStore
-	statsSvc        core.StatsService
-	refreshSvc      core.GameMetadataRefreshService
-	deleteSvc       core.GameDeletionService
-	groupingSvc     core.CanonicalGroupingService
-	integrationRepo core.IntegrationRepository
-	cacheSvc        core.SourceCacheService
-	deviceLister    DeviceEndpointLister
-	logger          core.Logger
+	gameStore           core.GameStore
+	statsSvc            core.StatsService
+	refreshSvc          core.GameMetadataRefreshService
+	deleteSvc           core.GameDeletionService
+	groupingSvc         core.CanonicalGroupingService
+	integrationRepo     core.IntegrationRepository
+	cacheSvc            core.SourceCacheService
+	deviceLister        DeviceEndpointLister
+	emulation           EmulatorConfigurationProvider
+	emulatorContentRoot string
+	logger              core.Logger
 }
 
 type DeleteSourceGameResponse struct {
@@ -217,6 +220,14 @@ func (c *GameController) SetCanonicalGroupingService(groupingSvc core.CanonicalG
 
 func (c *GameController) SetDeviceEndpointLister(lister DeviceEndpointLister) {
 	c.deviceLister = lister
+}
+
+func (c *GameController) SetEmulationService(service *emulation.Service) {
+	c.emulation = service
+}
+
+func (c *GameController) SetEmulatorContentRoot(googleDriveDesktopRoot string) {
+	c.emulatorContentRoot = strings.TrimSpace(googleDriveDesktopRoot)
 }
 
 func decodedPathParam(r *http.Request, key string) (string, error) {
@@ -353,11 +364,26 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 	integrationLabels := c.loadIntegrationLabels(ctx)
 
 	out := make([]GameDetailResponse, 0, len(games))
+	listedGames := make([]*core.CanonicalGame, 0, len(games))
 	for _, cg := range games {
 		if cg == nil {
 			continue
 		}
 		out = append(out, c.canonicalToGameDetailWithIntegrationLabels(ctx, cg, integrationLabels))
+		listedGames = append(listedGames, cg)
+	}
+	if c.deviceLister != nil {
+		profileID := core.ProfileIDFromContext(ctx)
+		if profileID != "" {
+			facts, availabilityErr := c.loadDeviceAvailabilityFacts(ctx, profileID)
+			if availabilityErr != nil {
+				c.logger.Warn("list devices for library availability failed", "error", availabilityErr)
+			} else {
+				for index := range out {
+					c.attachDeviceAvailabilityWithFacts(&out[index], listedGames[index], facts)
+				}
+			}
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(ListGamesResponse{

@@ -77,11 +77,17 @@ installation.
 
 Emulation has two layers:
 
-1. MGA-wide catalog data maps normalized emulation platforms to compatible
-   emulator families and their capabilities.
-2. Device/OS-user settings select or configure the emulator available to that
-   endpoint. Paths and discovery belong to MGA Client, never MGA Server's
-   filesystem.
+1. MGA-wide catalog data maps each normalized emulation platform to an ordered
+   list of compatible emulator definitions (`platform -> emulator[]`). It may
+   nominate a default, but never collapses the list to one emulator. Capability
+   facts belong to each emulator/version/core combination; RetroAchievements,
+   save formats, firmware needs, and launch features are not assumed to be
+   shared by every compatible emulator.
+2. Device/OS-user settings select or configure zero or more emulators available
+   to that endpoint and may choose a default for a platform. Paths and discovery
+   belong to MGA Client, never MGA Server's filesystem. A default affects the
+   main Play action only; every other ready compatible emulator remains a
+   separate selectable route.
 
 The UI will expose a dedicated **Emulators** settings surface organized by
 device/OS user. A later bounded emulator-management ADR must define the catalog,

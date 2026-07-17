@@ -8,10 +8,23 @@ import (
 	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/devices"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/emulation"
 )
 
 type availabilityDeviceLister struct {
 	endpoints []devices.Endpoint
+}
+
+type availabilityEmulationProvider struct {
+	configurations map[string]emulation.DeviceConfiguration
+}
+
+func (p availabilityEmulationProvider) Get(_ context.Context, endpointID, _ string) (emulation.DeviceConfiguration, error) {
+	return p.configurations[endpointID], nil
+}
+
+func (p availabilityEmulationProvider) GetForEndpoint(_ context.Context, endpoint devices.Endpoint, _ string) (emulation.DeviceConfiguration, error) {
+	return p.configurations[endpoint.ID], nil
 }
 
 func (l availabilityDeviceLister) ListEndpoints(context.Context, string) ([]devices.Endpoint, error) {
@@ -23,6 +36,12 @@ func TestAttachDeviceAvailabilityUsesInventoryAndRuntimeFacts(t *testing.T) {
 	now := time.Now()
 	controller := &GameController{
 		logger: noopLogger{},
+		emulation: availabilityEmulationProvider{configurations: map[string]emulation.DeviceConfiguration{
+			"device-ready": {EndpointID: "device-ready", Platforms: []emulation.PlatformConfiguration{{
+				Platform: core.PlatformGenesis, ResolvedDefault: "retroarch",
+				Emulators: []emulation.Option{{Emulator: emulation.Emulator{ID: "retroarch", Name: "RetroArch"}, Detected: true, State: "needs_setup", Reason: "Choose a core"}},
+			}}},
+		}},
 		deviceLister: availabilityDeviceLister{endpoints: []devices.Endpoint{
 			{
 				ID: "device-ready", DisplayName: "Living room PC", OSUser: "alice", Platform: "windows",
@@ -39,23 +58,16 @@ func TestAttachDeviceAvailabilityUsesInventoryAndRuntimeFacts(t *testing.T) {
 	}
 	ctx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-1"})
 	response := GameDetailResponse{}
-	controller.attachDeviceAvailability(ctx, &response, &core.CanonicalGame{ID: "game-1", Platform: core.PlatformGenesis})
+	controller.attachDeviceAvailability(ctx, &response, &core.CanonicalGame{ID: "game-1", Platform: core.PlatformGenesis, SourceGames: []*core.SourceGame{{ID: "source", RawTitle: "Game", Status: "found", GroupKind: core.GroupKindSelfContained, RootPath: `C:\Games\Game`, Files: []core.GameFile{{Path: "game.rom"}}}}})
 	if len(response.Devices) != 2 {
 		t.Fatalf("devices = %#v", response.Devices)
 	}
 	ready := response.Devices[0]
-	if ready.Status != "ready_for_setup" || !ready.RuntimeAvailable || ready.RequiredRuntimeID != "retroarch" || ready.FreeBytes != 40 || !ready.CanManage {
+	if ready.Status != "needs_setup" || len(ready.EmulatorRoutes) != 1 || ready.EmulatorRoutes[0].EmulatorID != "retroarch" || ready.FreeBytes != 40 || !ready.CanManage {
 		t.Fatalf("ready device = %#v", ready)
 	}
 	if response.Devices[1].Status != "offline" || response.Devices[1].CanManage {
 		t.Fatalf("offline device = %#v", response.Devices[1])
-	}
-}
-
-func TestLocalRuntimeRequirementDoesNotGuessUnsupportedPlatforms(t *testing.T) {
-	t.Parallel()
-	if _, _, supported := localRuntimeRequirement(core.PlatformPS3); supported {
-		t.Fatal("PS3 was marked supported without an implemented runtime route")
 	}
 }
 

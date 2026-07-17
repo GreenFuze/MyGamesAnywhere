@@ -9,6 +9,7 @@ import (
 	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/devices"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/emulation"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcegames"
 )
 
@@ -54,36 +55,54 @@ type DeviceEndpointLister interface {
 	ListEndpoints(context.Context, string) ([]devices.Endpoint, error)
 }
 
+type EmulatorConfigurationProvider interface {
+	Get(context.Context, string, string) (emulation.DeviceConfiguration, error)
+	GetForEndpoint(context.Context, devices.Endpoint, string) (emulation.DeviceConfiguration, error)
+}
+
+type deviceAvailabilityFacts struct {
+	Endpoint  devices.Endpoint
+	Emulators *emulation.DeviceConfiguration
+}
+
+type GameEmulatorRouteDTO struct {
+	EmulatorID   string `json:"emulator_id"`
+	EmulatorName string `json:"emulator_name"`
+	SourceGameID string `json:"source_game_id"`
+	SourceTitle  string `json:"source_title"`
+	State        string `json:"state"`
+	Reason       string `json:"reason,omitempty"`
+	Default      bool   `json:"default"`
+}
+
 type GameDeviceAvailabilityDTO struct {
-	DeviceID                string   `json:"device_id"`
-	DisplayName             string   `json:"display_name"`
-	OSUser                  string   `json:"os_user"`
-	Status                  string   `json:"status"`
-	Connected               bool     `json:"connected"`
-	CanManage               bool     `json:"can_manage"`
-	CanPlay                 bool     `json:"can_play"`
-	PlatformSupported       bool     `json:"platform_supported"`
-	RequiredRuntimeID       string   `json:"required_runtime_id,omitempty"`
-	RequiredRuntime         string   `json:"required_runtime,omitempty"`
-	RuntimeAvailable        bool     `json:"runtime_available"`
-	FreeBytes               uint64   `json:"free_bytes,omitempty"`
-	TotalBytes              uint64   `json:"total_bytes,omitempty"`
-	InventoryCapturedAt     string   `json:"inventory_captured_at,omitempty"`
-	Installed               bool     `json:"installed"`
-	InstalledSourceID       string   `json:"installed_source_id,omitempty"`
-	InstallPath             string   `json:"install_path,omitempty"`
-	ArchiveInstallSupported bool     `json:"archive_install_supported"`
-	GogInnoInstallSupported bool     `json:"gog_inno_install_supported"`
-	FailedCleanupSupported  bool     `json:"failed_cleanup_supported"`
-	UninstallSupported      bool     `json:"uninstall_supported"`
-	LaunchSupported         bool     `json:"launch_supported"`
-	InstallKind             string   `json:"install_kind,omitempty"`
-	InstallState            string   `json:"install_state,omitempty"`
-	StateReason             string   `json:"state_reason,omitempty"`
-	CleanupMarkerID         string   `json:"cleanup_marker_id,omitempty"`
-	CleanupIgnoredAt        string   `json:"cleanup_ignored_at,omitempty"`
-	LaunchTarget            string   `json:"launch_target,omitempty"`
-	LaunchCandidates        []string `json:"launch_candidates,omitempty"`
+	DeviceID                string                 `json:"device_id"`
+	DisplayName             string                 `json:"display_name"`
+	OSUser                  string                 `json:"os_user"`
+	Status                  string                 `json:"status"`
+	Connected               bool                   `json:"connected"`
+	CanManage               bool                   `json:"can_manage"`
+	CanPlay                 bool                   `json:"can_play"`
+	PlatformSupported       bool                   `json:"platform_supported"`
+	EmulatorRoutes          []GameEmulatorRouteDTO `json:"emulator_routes,omitempty"`
+	FreeBytes               uint64                 `json:"free_bytes,omitempty"`
+	TotalBytes              uint64                 `json:"total_bytes,omitempty"`
+	InventoryCapturedAt     string                 `json:"inventory_captured_at,omitempty"`
+	Installed               bool                   `json:"installed"`
+	InstalledSourceID       string                 `json:"installed_source_id,omitempty"`
+	InstallPath             string                 `json:"install_path,omitempty"`
+	ArchiveInstallSupported bool                   `json:"archive_install_supported"`
+	GogInnoInstallSupported bool                   `json:"gog_inno_install_supported"`
+	FailedCleanupSupported  bool                   `json:"failed_cleanup_supported"`
+	UninstallSupported      bool                   `json:"uninstall_supported"`
+	LaunchSupported         bool                   `json:"launch_supported"`
+	InstallKind             string                 `json:"install_kind,omitempty"`
+	InstallState            string                 `json:"install_state,omitempty"`
+	StateReason             string                 `json:"state_reason,omitempty"`
+	CleanupMarkerID         string                 `json:"cleanup_marker_id,omitempty"`
+	CleanupIgnoredAt        string                 `json:"cleanup_ignored_at,omitempty"`
+	LaunchTarget            string                 `json:"launch_target,omitempty"`
+	LaunchCandidates        []string               `json:"launch_candidates,omitempty"`
 }
 
 func (c *GameController) attachDeviceAvailability(ctx context.Context, response *GameDetailResponse, game *core.CanonicalGame) {
@@ -94,13 +113,38 @@ func (c *GameController) attachDeviceAvailability(ctx context.Context, response 
 	if profileID == "" {
 		return
 	}
-	endpoints, err := c.deviceLister.ListEndpoints(ctx, profileID)
+	facts, err := c.loadDeviceAvailabilityFacts(ctx, profileID)
 	if err != nil {
 		c.logger.Warn("list devices for game availability failed", "error", err, "game_id", game.ID)
 		return
 	}
-	requiredID, requiredName, knownPlatform := localRuntimeRequirement(game.Platform)
+	c.attachDeviceAvailabilityWithFacts(response, game, facts)
+}
+
+func (c *GameController) loadDeviceAvailabilityFacts(ctx context.Context, profileID string) ([]deviceAvailabilityFacts, error) {
+	endpoints, err := c.deviceLister.ListEndpoints(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	facts := make([]deviceAvailabilityFacts, 0, len(endpoints))
 	for _, endpoint := range endpoints {
+		fact := deviceAvailabilityFacts{Endpoint: endpoint}
+		if c.emulation != nil && endpoint.Platform == "windows" {
+			configuration, configurationErr := c.emulation.GetForEndpoint(ctx, endpoint, profileID)
+			if configurationErr != nil {
+				c.logger.Warn("resolve emulator routes failed", "device_id", endpoint.ID, "error", configurationErr)
+			} else {
+				fact.Emulators = &configuration
+			}
+		}
+		facts = append(facts, fact)
+	}
+	return facts, nil
+}
+
+func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailResponse, game *core.CanonicalGame, facts []deviceAvailabilityFacts) {
+	for _, fact := range facts {
+		endpoint := fact.Endpoint
 		allowed, _ := endpoint.AccessLevel.Allows(devicev1.AccessManage)
 		canPlay, _ := endpoint.AccessLevel.Allows(devicev1.AccessPlay)
 		item := GameDeviceAvailabilityDTO{
@@ -110,9 +154,10 @@ func (c *GameController) attachDeviceAvailability(ctx context.Context, response 
 			Connected:         endpoint.Status == devicev1.EndpointReady || endpoint.Status == devicev1.EndpointBusy,
 			CanManage:         allowed,
 			CanPlay:           canPlay,
-			PlatformSupported: knownPlatform && endpoint.Platform == "windows",
-			RequiredRuntimeID: requiredID,
-			RequiredRuntime:   requiredName,
+			PlatformSupported: game.Platform == core.PlatformWindowsPC && endpoint.Platform == "windows",
+		}
+		if fact.Emulators != nil {
+			c.attachEmulatorRoutes(&item, *fact.Emulators, game)
 		}
 		for _, capability := range endpoint.Capabilities {
 			switch capability {
@@ -164,45 +209,59 @@ func (c *GameController) attachDeviceAvailability(ctx context.Context, response 
 				item.FreeBytes += storage.FreeBytes
 				item.TotalBytes += storage.TotalBytes
 			}
-			if requiredID == "" {
-				item.RuntimeAvailable = true
-			} else {
-				for _, runtime := range endpoint.Inventory.Runtimes {
-					if runtime.ID == requiredID {
-						item.RuntimeAvailable = true
-						break
-					}
-				}
-			}
-			if item.RuntimeAvailable {
+			if game.Platform == core.PlatformWindowsPC {
 				item.Status = "ready_for_setup"
+			} else if hasReadyEmulatorRoute(item.EmulatorRoutes) {
+				item.Status = "ready_to_play"
 			} else {
-				item.Status = "needs_runtime"
+				item.Status = "needs_setup"
 			}
 		}
 		response.Devices = append(response.Devices, item)
 	}
 }
 
-func localRuntimeRequirement(platform core.Platform) (string, string, bool) {
-	switch platform {
-	case core.PlatformWindowsPC:
-		return "", "", true
-	case core.PlatformScummVM:
-		return "scummvm", "ScummVM", true
-	case core.PlatformMSDOS:
-		return "dosbox", "DOSBox", true
-	case core.PlatformPS1:
-		return "duckstation", "DuckStation", true
-	case core.PlatformPS2:
-		return "pcsx2", "PCSX2", true
-	case core.PlatformArcade, core.PlatformNES, core.PlatformSNES, core.PlatformGB, core.PlatformGBC,
-		core.PlatformGBA, core.PlatformN64, core.PlatformGenesis, core.PlatformSegaMasterSystem,
-		core.PlatformGameGear, core.PlatformSegaCD, core.PlatformSega32X:
-		return "retroarch", "RetroArch", true
-	default:
-		return "", "", false
+func (c *GameController) attachEmulatorRoutes(item *GameDeviceAvailabilityDTO, configuration emulation.DeviceConfiguration, game *core.CanonicalGame) {
+	if item == nil || game == nil {
+		return
 	}
+	for _, platform := range configuration.Platforms {
+		if platform.Platform != game.Platform {
+			continue
+		}
+		item.PlatformSupported = true
+		defaultAssigned := false
+		for _, option := range platform.Emulators {
+			for _, source := range game.SourceGames {
+				if source == nil || source.Status != "found" || source.GroupKind != core.GroupKindSelfContained || len(source.Files) == 0 {
+					continue
+				}
+				route := GameEmulatorRouteDTO{
+					EmulatorID: option.ID, EmulatorName: option.Name, SourceGameID: source.ID, SourceTitle: source.RawTitle,
+					State: option.State, Reason: option.Reason,
+				}
+				if route.State == "ready" && !supportsEmulatorContentSource(source, c.emulatorContentRoot) {
+					route.State = "needs_setup"
+					route.Reason = "Download this copy to the MGA Server before playing on a device"
+				}
+				if !defaultAssigned && option.ID == platform.ResolvedDefault && route.State == "ready" {
+					route.Default = true
+					defaultAssigned = true
+				}
+				item.EmulatorRoutes = append(item.EmulatorRoutes, route)
+			}
+		}
+		return
+	}
+}
+
+func hasReadyEmulatorRoute(routes []GameEmulatorRouteDTO) bool {
+	for _, route := range routes {
+		if route.State == "ready" {
+			return true
+		}
+	}
+	return false
 }
 
 type AchievementSummaryDTO struct {

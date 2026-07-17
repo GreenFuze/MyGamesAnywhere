@@ -23,6 +23,7 @@ import (
 )
 
 const archiveTransferLifetime = 12 * time.Hour
+const emulatorContentTransferLifetime = 10 * time.Minute
 
 type archiveTransfer struct {
 	Path      string
@@ -41,8 +42,19 @@ func newArchiveTransferRegistry() *archiveTransferRegistry {
 }
 
 func (r *archiveTransferRegistry) Create(path, name string) (string, error) {
+	return r.create(path, name, archiveTransferLifetime)
+}
+
+func (r *archiveTransferRegistry) CreateEmulatorContent(path, name string) (string, error) {
+	return r.create(path, name, emulatorContentTransferLifetime)
+}
+
+func (r *archiveTransferRegistry) create(path, name string, lifetime time.Duration) (string, error) {
 	if r == nil || strings.TrimSpace(path) == "" {
 		return "", errors.New("archive transfer registry is unavailable")
+	}
+	if lifetime <= 0 {
+		return "", errors.New("transfer lifetime must be positive")
 	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -57,7 +69,7 @@ func (r *archiveTransferRegistry) Create(path, name string) (string, error) {
 			delete(r.items, key)
 		}
 	}
-	r.items[token] = archiveTransfer{Path: path, Name: name, ExpiresAt: now.Add(archiveTransferLifetime)}
+	r.items[token] = archiveTransfer{Path: path, Name: name, ExpiresAt: now.Add(lifetime)}
 	return token, nil
 }
 

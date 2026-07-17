@@ -545,6 +545,80 @@ export async function setEndpointInstallPreference(endpointId: string, rootTempl
   return putJson<InstallPreference>(`/api/devices/${encodeURIComponent(endpointId)}/install-preference`, { root_template: rootTemplate });
 }
 
+export type EmulatorCapabilityFact = {
+  id: string;
+  state: string;
+  details?: string;
+};
+
+export type DeviceEmulatorOption = {
+  id: string;
+  name: string;
+  platforms: string[];
+  adapter_state: string;
+  setup_hint?: string;
+  capabilities: EmulatorCapabilityFact[];
+  detected: boolean;
+  version?: string;
+  state: "ready" | "needs_setup" | "unavailable" | "unknown" | string;
+  reason?: string;
+  core_probe_state?: string;
+  firmware_probe_state?: string;
+  selected_core?: string;
+  resolved_core?: string;
+  cores?: DeviceEmulatorCoreOption[];
+  setup_provider?: string;
+  setup_available: boolean;
+};
+
+export type DeviceEmulatorCoreOption = {
+  id: string;
+  name: string;
+  detected: boolean;
+  state: "ready" | "needs_setup" | "unavailable" | string;
+  reason?: string;
+  firmware_state: "not_required" | "present" | "missing" | "unknown" | string;
+  capabilities: EmulatorCapabilityFact[];
+};
+
+export type DeviceEmulatorPlatform = {
+  platform: string;
+  platform_name: string;
+  selected_default?: string;
+  resolved_default?: string;
+  emulators: DeviceEmulatorOption[];
+};
+
+export type DeviceEmulatorConfiguration = {
+  endpoint_id: string;
+  platforms: DeviceEmulatorPlatform[];
+};
+
+export async function getEndpointEmulators(endpointId: string): Promise<DeviceEmulatorConfiguration> {
+  return getJson<DeviceEmulatorConfiguration>(`/api/devices/${encodeURIComponent(endpointId)}/emulators`);
+}
+
+export async function setEndpointEmulatorDefault(endpointId: string, platform: string, emulatorId: string): Promise<DeviceEmulatorConfiguration> {
+  return putJson<DeviceEmulatorConfiguration>(
+    `/api/devices/${encodeURIComponent(endpointId)}/emulators/${encodeURIComponent(platform)}/default`,
+    { emulator_id: emulatorId },
+  );
+}
+
+export async function setEndpointEmulatorCore(endpointId: string, platform: string, emulatorId: string, coreId: string): Promise<DeviceEmulatorConfiguration> {
+  return putJson<DeviceEmulatorConfiguration>(
+    `/api/devices/${encodeURIComponent(endpointId)}/emulators/${encodeURIComponent(platform)}/${encodeURIComponent(emulatorId)}/core`,
+    { core_id: coreId },
+  );
+}
+
+export async function setupEndpointEmulator(endpointId: string, emulatorId: string, action: "install" | "update"): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(
+    `/api/devices/${encodeURIComponent(endpointId)}/emulators/${encodeURIComponent(emulatorId)}/setup`,
+    { action },
+  ) as Promise<DeviceCommand>;
+}
+
 export type InstallationValidationScheduleConfig = {
   enabled: boolean;
   interval_minutes: number;
@@ -742,6 +816,13 @@ export async function launchGameOnDevice(endpointId: string, gameId: string, sou
   ) as Promise<DeviceCommand>;
 }
 
+export async function launchEmulatorGameOnDevice(endpointId: string, gameId: string, sourceGameId: string, emulatorId: string): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(
+    `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/launch-emulator`,
+    { emulator_id: emulatorId },
+  ) as Promise<DeviceCommand>;
+}
+
 export async function setDeviceGameLaunchTarget(endpointId: string, gameId: string, sourceGameId: string, launchTarget: string): Promise<void> {
   const path = `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/launch-target`;
   const response = await apiFetch(path, {
@@ -899,9 +980,7 @@ export type GameDeviceAvailabilityDTO = {
   can_manage: boolean;
 	can_play: boolean;
   platform_supported: boolean;
-  required_runtime_id?: string;
-  required_runtime?: string;
-  runtime_available: boolean;
+  emulator_routes?: GameEmulatorRouteDTO[];
   free_bytes?: number;
   total_bytes?: number;
   inventory_captured_at?: string;
@@ -920,6 +999,16 @@ export type GameDeviceAvailabilityDTO = {
 	launch_supported: boolean;
 	launch_target?: string;
 	launch_candidates?: string[];
+};
+
+export type GameEmulatorRouteDTO = {
+  emulator_id: string;
+  emulator_name: string;
+  source_game_id: string;
+  source_title: string;
+  state: "ready" | "needs_setup" | "unavailable" | "unknown" | string;
+  reason?: string;
+  default: boolean;
 };
 
 export type AchievementDTO = {

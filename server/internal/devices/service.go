@@ -168,6 +168,13 @@ func (s *Service) ListEndpoints(ctx context.Context, profileID string) ([]Endpoi
 		return nil, err
 	}
 	for index := range endpoints {
+		// Connection state is process-local. A persisted ready/busy state can be
+		// left behind when the server stops before the WebSocket cleanup defer
+		// runs, so the live hub is authoritative for presence after restart.
+		if !s.hub.IsConnected(endpoints[index].ID) {
+			endpoints[index].Status = devicev1.EndpointOffline
+			endpoints[index].StatusReason = ""
+		}
 		inventory, err := s.store.GetInventory(ctx, endpoints[index].ID)
 		if err != nil {
 			return nil, err
@@ -316,6 +323,8 @@ func (s *Service) DispatchCommand(ctx context.Context, endpointID, profileID, na
 		lifetime = devicev1.GogInnoUninstallCommandLifetime
 	case devicev1.CapabilityGameCleanupGogInnoFailed:
 		lifetime = devicev1.GogInnoCleanupCommandLifetime
+	case devicev1.CapabilityEmulatorSetup:
+		lifetime = 30 * time.Minute
 	}
 	command := &Command{
 		ID:             uuid.NewString(),
@@ -420,6 +429,15 @@ func commandPayloadForAudit(name string, payload json.RawMessage) (json.RawMessa
 			return nil, err
 		}
 		request.DownloadToken = "[redacted]"
+		return json.Marshal(request)
+	case devicev1.CapabilityGameLaunchEmulator:
+		var request devicev1.EmulatorLaunchRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return nil, err
+		}
+		for index := range request.Artifacts {
+			request.Artifacts[index].DownloadToken = "[redacted]"
+		}
 		return json.Marshal(request)
 	case devicev1.CapabilityGameInstallGogInno:
 		var request devicev1.GogInnoInstallRequest
@@ -631,8 +649,10 @@ func requiredAccessForCommand(name string) (devicev1.AccessLevel, error) {
 		return devicev1.AccessManage, nil
 	case devicev1.CapabilityGameValidateInstallations:
 		return devicev1.AccessView, nil
-	case devicev1.CapabilityGameLaunch:
+	case devicev1.CapabilityGameLaunch, devicev1.CapabilityGameLaunchEmulator:
 		return devicev1.AccessPlay, nil
+	case devicev1.CapabilityEmulatorSetup:
+		return devicev1.AccessOwner, nil
 	case devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameUninstall,
 		devicev1.CapabilityGameInstallGogInno, devicev1.CapabilityGameUninstallGogInno,
 		devicev1.CapabilityGameCleanupGogInnoFailed:
@@ -705,6 +725,20 @@ func validateCommandPayload(name string, payload json.RawMessage) error {
 		var request devicev1.GameLaunchRequest
 		if err := json.Unmarshal(payload, &request); err != nil {
 			return fmt.Errorf("decode game launch payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilityGameLaunchEmulator {
+		var request devicev1.EmulatorLaunchRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode emulator launch payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilityEmulatorSetup {
+		var request devicev1.EmulatorSetupRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode emulator setup payload: %w", err)
 		}
 		return request.Validate()
 	}

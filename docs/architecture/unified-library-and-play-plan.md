@@ -113,6 +113,12 @@ Save Sync is cross-cutting: it connects a save domain, a player profile, one or
 more local save locations, and a storage transport. It is not merely a property
 of a storefront or a device.
 
+Save access is also not assumed to be local. A route or integration declares
+whether saves are local files, accessible through a provider API, managed
+opaquely by a storefront/cloud service, unsupported, or still unknown. MGA must
+handle Steam Cloud, Xbox cloud saves, xCloud, and other non-local storefront
+cases explicitly rather than pretending every save has a client-visible path.
+
 ### Casual by default, inspectable when needed
 
 The default experience is written for a player, not a developer. Provenance,
@@ -180,6 +186,14 @@ are:
 
 A route declares requirements, target compatibility, preparation steps, and
 availability. One Edition may have several routes at the same time.
+
+For emulation, the catalog relation is explicitly
+`normalized platform -> compatible emulator[]`. Each compatible emulator can
+produce its own route and capability set. A chosen default controls only the
+main Play action; it never hides the other compatible emulators. Capabilities
+such as RetroAchievements, required cores/firmware, save format compatibility,
+and controller support are evaluated per emulator/version/core rather than per
+platform.
 
 Cards expose those simultaneous routes through the split Play control defined
 by [ADR-0014](0014-multi-route-play-control.md): the main segment runs the
@@ -307,13 +321,33 @@ ADR-0007; generic rollback remains forbidden.
 
 ### Save discovery and sync
 
-1. A route or integration proposes local save locations and a Save Domain.
-2. The client inspects only authorized locations for its OS user.
-3. MGA compares local and remote snapshots using timestamps plus content
-   identity; timestamps alone do not silently overwrite data.
-4. An unambiguous newer snapshot can follow the configured policy.
-5. Divergent changes create a visible conflict with backup and choice.
-6. Every transfer reports game, device/user, direction, time, and result.
+1. A route or integration proposes a Save Domain plus its save-access mode:
+   local files, provider API, provider-managed opaque state, unsupported, or
+   unknown.
+2. The client inspects only authorized local locations for its OS user. A
+   storefront integration, not MGA Client, accesses remote provider saves when
+   the provider exposes a supported API.
+3. MGA compares accessible snapshots using content identity, provider revision
+   or ETag when available, and timestamps. Timestamps alone do not silently
+   overwrite data.
+4. An unambiguous newer snapshot can follow the configured policy only when the
+   source and destination belong to an explicitly compatible Save Domain.
+5. Divergent local, transport, or provider changes create a visible conflict
+   with backup and choice. MGA avoids a second automatic writer when Steam,
+   Xbox, or another storefront already owns active cloud synchronization.
+6. Every accessible transfer reports game, route/provider, device/user when
+   applicable, direction, time, and result. Provider-managed opaque saves show
+   their real status and are never reported as MGA-synced.
+
+Non-local storefront support is a required Save Sync workstream, not an
+optional integration enhancement. It must cover cloud-only routes such as
+xCloud, storefront games installed on another MGA endpoint, provider-owned
+cloud saves, and safe local import/export when a provider permits it. When a
+provider exposes no save API, MGA must say **Managed by Xbox/Steam** or
+**Unavailable to MGA** instead of fabricating a download/upload operation.
+Crossing between a storefront save and an emulator save requires explicit
+format compatibility or a typed conversion adapter; matching game titles is
+never sufficient.
 
 The first implementation may be conservative and manual. Correct conflict and
 compatibility behavior is more important than invisible automation.
@@ -455,8 +489,10 @@ as specified by [ADR-0005](0005-device-inventory-and-game-availability.md).
 4. **Device play and installation:** add route resolution, inventory, install
    plans, progress, prerequisites, disk checks, uninstall previews, and update
    state.
-5. **Save domains:** add explicit compatibility, client-side save discovery,
-   snapshots, conflict handling, and transport-backed sync.
+5. **Save domains:** add explicit compatibility, client-side local discovery,
+   storefront/provider save capabilities, non-local and cloud-save handling,
+   snapshots, conflict handling, and transport-backed sync without competing
+   with provider-owned synchronization.
 6. **Library Review:** replace title-only duplicate cleanup with edition- and
    content-aware review, preserving source evidence.
 
@@ -474,6 +510,9 @@ events, error model, tests, and player-facing UI together.
 - Installer families and standalone prerequisite types beyond the accepted
   ADR-0007 signed GOG Inno slice.
 - The default save conflict policy and retention count.
+- The first non-local storefront save providers MGA can access directly, their
+  API permission model, and which providers must initially remain visible but
+  provider-managed/opaque.
 - Whether save-domain compatibility can be community/provider supplied or only
   MGA-maintained and user-confirmed in the first version.
 - Which badges are enabled by default in Covers view and how player preferences

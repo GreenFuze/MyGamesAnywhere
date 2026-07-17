@@ -1,4 +1,4 @@
-import type { GameDetailResponse } from '@/api/client'
+import { launchEmulatorGameOnDevice, type GameDetailResponse } from '@/api/client'
 import { ChevronDown, Info, Play, Trophy } from 'lucide-react'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { GameContextMenu } from '@/components/library/GameContextMenu'
@@ -25,6 +25,7 @@ import {
   type GameCardPrimaryAction,
 } from '@/lib/gameCardActions'
 import { cn } from '@/lib/utils'
+import { useToast } from '@/components/ui/toast'
 
 export type { GameCardPlayRoute, GameCardPrimaryAction } from '@/lib/gameCardActions'
 
@@ -232,6 +233,7 @@ export function GameCard({
   preferredPlayRoute,
   variant = 'library',
 }: GameCardProps) {
+	const { notify } = useToast()
   const navigate = useNavigate()
   const location = useLocation()
   const { reducedMotion } = useTheme()
@@ -457,6 +459,32 @@ export function GameCard({
     })
   }
 
+  const emulatorRoutes = (game.devices ?? [])
+    .flatMap((device) => (device.emulator_routes ?? []).map((route) => ({ device, route })))
+    .filter(({ device, route }) => device.connected && device.can_play && route.state === 'ready')
+    .sort((left, right) => Number(right.route.default) - Number(left.route.default))
+  for (const { device, route } of emulatorRoutes) {
+    const source = game.source_games.find((candidate) => candidate.id === route.source_game_id)
+    const sourceLabel = source?.integration_label || source?.integration_id || route.source_title
+    builtInActions.push({
+      id: `emulator:${device.device_id}:${route.emulator_id}:${route.source_game_id}`,
+      label: `Play on ${device.display_name} · ${route.emulator_name}${emulatorRoutes.length > 1 ? ` · ${sourceLabel}` : ''}`,
+      kind: 'play',
+      route: 'emulator',
+      title: route.reason || `Start this copy with ${route.emulator_name} on ${device.display_name}`,
+      onSelect: () => {
+        void launchEmulatorGameOnDevice(device.device_id, game.id, route.source_game_id, route.emulator_id)
+          .then(() => notify({ title: `Starting ${game.title}`, description: `${route.emulator_name} on ${device.display_name}`, tone: 'success' }))
+          .catch((error: unknown) => notify({
+            title: `Could not start ${game.title}`,
+            description: error instanceof Error ? error.message : 'MGA Client rejected the play request.',
+            tone: 'error',
+          }))
+      },
+    })
+  }
+	const installedOnDevice = game.devices?.some((device) => device.installed) === true
+
   const {
     primaryAction: cardPrimaryAction,
     alternateActions: cardAlternateActions,
@@ -505,6 +533,8 @@ export function GameCard({
       {game.xcloud_available && <StatusBadge kind="xcloud" />}
       {game.is_game_pass && <StatusBadge kind="gamepass" />}
       {playable && <StatusBadge kind="playable" />}
+			{emulatorRoutes.length > 0 && <StatusBadge kind="emulator" />}
+			{installedOnDevice && <StatusBadge kind="installed" />}
       <IconBadge label={game.platform}>
         <PlatformIcon platform={game.platform} showLabel={false} className="text-white" />
       </IconBadge>

@@ -23,6 +23,8 @@ const (
 	CapabilityGameCleanupGogInnoFailed  = "game.cleanup_gog_inno_failed"
 	CapabilityGameValidateInstallations = "game.validate_installations"
 	CapabilityGameLaunch                = "game.launch"
+	CapabilityGameLaunchEmulator        = "game.launch_emulator"
+	CapabilityEmulatorSetup             = "emulator.setup"
 )
 
 type ClientExecutionMode string

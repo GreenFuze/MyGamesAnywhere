@@ -723,10 +723,13 @@ quality:  git diff --check                           PASS
 ```
 
 Current next architectural task: define the emulator catalog and per-endpoint
-configuration contract, including normalized platform-to-emulator mapping,
-candidate/selection precedence, cores/firmware, RetroAchievements capability,
-launch ownership, managed installation/update policy, persistence migration 22,
-and the split between MGA-wide catalog data and device/OS-user configuration.
+configuration contract, including normalized
+`platform -> compatible emulator[]` catalog entries, default and candidate
+selection precedence, per-emulator/version/core capabilities, cores/firmware,
+RetroAchievements support, save compatibility, launch ownership, managed
+installation/update policy, persistence migration 22, and the split between
+MGA-wide catalog data and device/OS-user configuration. A default emulator must
+never hide other ready compatible emulator routes.
 
 ## ADR-0014 multi-route Play control — 17 July 2026
 
@@ -775,6 +778,225 @@ Verification evidence:
 
 The next architectural task remains the bounded emulator catalog and
 per-endpoint configuration ADR. It must define normalized platforms,
-candidate/selection precedence, multiple emulator routes, cores/firmware,
-RetroAchievements capabilities, launch ownership, managed install/update
-policy, and migration 22 before making Settings > Emulators mutable.
+`platform -> compatible emulator[]`, default/candidate precedence, multiple
+emulator routes, per-emulator/version/core capabilities, cores/firmware,
+RetroAchievements and save compatibility, launch ownership, managed
+install/update policy, and migration 22 before making Settings > Emulators
+mutable.
+
+The subsequent Save Domain work must explicitly fix and extend Save Sync for
+non-local storefronts and cloud routes. It must distinguish client-visible
+local files, provider API access, and provider-managed opaque saves; cover
+Steam/Xbox cloud ownership, xCloud and games installed on other endpoints;
+avoid competing automatic writers; and require explicit compatibility or a
+typed conversion adapter before moving saves between storefront and emulator
+routes.
+
+## ADR-0015 device emulator routes — 17 July 2026
+
+ADR-0015 is implemented and verified in the current intentional, uncommitted
+worktree. It is the authoritative continuation of ADR-0013/0014 and must not be
+reset, cleaned, or partially discarded.
+
+Locked and implemented behavior:
+
+- the catalog is normalized `platform -> emulator[]`; a selected default only
+  chooses the main local-emulator action and never hides compatible alternatives
+  or duplicate source copies;
+- migration 22 adds owner-audited per-endpoint/platform emulator preferences.
+  It is applied to the real database and must never be edited; use migration 23
+  for any later persistence change;
+- Settings > Emulators shows every platform, all compatible choices, per-device
+  discovery/readiness, and an Owner-only Automatic/default selector;
+- the read model emits one route per emulator and source copy, and the Library,
+  Play shelves, cards, and game detail surface ready emulator actions alongside
+  browser, installed, and cloud routes;
+- the first launch adapter is typed ScummVM. The server sends no executable
+  path, shell, arbitrary arguments, or server-local path. MGA Client resolves
+  its allow-listed runtime, accepts content only from the exact paired server
+  origin over HTTP or HTTPS, verifies size/SHA-256 into the per-user MGA cache,
+  and starts ScummVM with fixed adapter arguments;
+- short-lived content grants are tokenized and all tokens are redacted in the
+  device command audit row;
+- relative Google Drive source records are safely resolved beneath configured
+  `MGA_GOOGLE_DRIVE_DESKTOP_ROOT`; artifact paths are relative to the selected
+  game root and out-of-root paths are rejected;
+- RetroArch remains visible but Needs setup until typed core discovery exists.
+  DOSBox, DuckStation, and PCSX2 remain planned catalog candidates rather than
+  falsely ready adapters;
+- Save Sync ownership/capability facts are cataloged but Save Domain behavior
+  for non-local storefronts/cloud routes remains the next separate design slice.
+
+Runtime evidence found and fixed one pre-existing presence defect: a hard MGA
+Server stop could leave persisted `ready` state even though the process-local
+WebSocket hub was empty. Endpoint list/readiness now treats the live hub as the
+presence authority, so the UI correctly offers Connect after a restart and a
+command cannot present a stale connected device. `NO_MIGRATION_NEEDED`: this is
+derived process-local presence only and changes no stored schema or data.
+
+Packaged real E2E:
+
+1. Chrome launched the installed client through the elevated `mga://` action;
+   Windows UAC succeeded and endpoint `eaa3b874-bfad-4020-9020-36fd45a04ff9`
+   connected Ready/Elevated with `game.launch_emulator` advertised.
+2. Settings > Emulators showed ScummVM `Ready · Main`, while MS-DOS and
+   PlayStation each retained two visible compatible choices. Selecting ScummVM
+   persisted one preference row; returning to Automatic deleted it. The final
+   preference row count is zero.
+3. Castle of Dr. Brain source `scan:75357152afbfe583`, canonical game
+   `aa24f7a9-18ee-4a8f-ba06-e30a9d50b782`, exposed a real ScummVM button.
+4. Clicking that button created succeeded command
+   `6b43469f-f011-451f-87ad-94845b1066e1`, transferred and verified 39 files /
+   3,809,076 bytes from `G:\My Drive`, and launched the installed ScummVM
+   process. The command audit contains `[redacted]` for every transfer token.
+   The temporary ScummVM process was stopped after verification; the immutable
+   MGA client cache remains available for later launch reuse.
+5. The packaged frontend and server were used throughout; no npm/Vite dev server
+   was run.
+
+Fresh verification:
+
+```text
+protocol: go test ./...                              PASS
+client:   go test ./...                              PASS
+server:   go test ./...                              PASS
+plugins:  go test ./... in all 7 standalone modules PASS
+frontend: npm run test:unit                          PASS (8 tests)
+frontend: npm run build / packaged server build      PASS
+OpenAPI:  generator + frontend contract generator   PASS
+quality:  git diff --check                           PASS
+```
+
+Current runtime and preservation state:
+
+- packaged server PID `37136`, exact `server\bin\mga_server.exe`, portable,
+  HTTP 200 at the local verification URL, SHA-256
+  `44B9071387CA6C46F7DFE3B917DCE0C78A6D91C7219009DF6A177AFA5ABCE80C`;
+- installed elevated MGA Client PID `36712`, connected, installed agent
+  SHA-256 `BD78B90F98F7CBCB443EB5DDC7759230BFB788AEAEE7354C3CBD3FEEF5B70914`;
+- real SQLite schema version 22; migration 22 is immutable and emulator
+  preference row count is zero;
+- endpoint install override remains `C:\Games`; profile fallback remains
+  `%USERPROFILE%\Games`; the server keeps
+  `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive`;
+- Plasma Pong remains Installed at `c:\games\Plasma Pong`; the legacy Duke row
+  remains `attention_required` with no cleanup marker; the historical cleanup
+  row remains `cleanup_failed` with its original marker.
+
+Next bounded work: typed emulator setup management—runtime/core/firmware
+discovery, version/capability reporting (including RetroAchievements), and
+managed install/update policy—followed by the Save Domain work for local,
+provider-API, and provider-opaque saves. Do not collapse platform mappings to a
+single emulator, and do not start automatic save copying between storefront and
+emulator routes without an explicit compatibility/conversion contract.
+
+## ADR-0016 emulator setup and components — 17 July 2026
+
+ADR-0016 is implemented and verified in the same intentional, uncommitted
+ADR-0015/0016 checkpoint. Do not reset, clean, or partially discard this
+worktree. The accepted design is recorded in
+`docs/architecture/0016-emulator-setup-and-components.md`.
+
+Locked and implemented behavior:
+
+- device inventory schema 2 reports bounded, allow-listed package-manager,
+  emulator-runtime, core, and firmware-component facts. It never reports
+  executable paths, firmware paths, hashes, arbitrary directory contents, or
+  server-supplied probe commands;
+- Windows discovery currently identifies `winget`, supported emulator
+  runtimes, RetroArch `*_libretro` cores, and exact allow-listed PlayStation and
+  Sega CD BIOS sets. Probe completeness is explicit, so MGA distinguishes
+  missing from unknown instead of making false claims;
+- migration 23 adds owner-audited per-endpoint/platform/emulator RetroArch core
+  preferences. Migration 24 corrects the real split-column inventory store by
+  adding `device_inventories.package_managers_json`. Both migrations are
+  applied to the real database and immutable; use migration 25 for any later
+  persisted change;
+- the normalized catalog remains `platform -> emulator[]`. RetroArch platforms
+  expose all compatible core alternatives, an optional default, per-core
+  RetroAchievements support, and typed firmware readiness. A missing default
+  or runtime never hides alternatives;
+- MGA Server dispatches only typed `emulator.setup` install/update requests.
+  MGA Client owns the fixed `winget` package IDs and arguments for RetroArch,
+  ScummVM, PCSX2, DuckStation, and DOSBox. The server cannot provide a URL,
+  executable, package ID, shell, script, or arbitrary argument, and setup does
+  not include uninstall;
+- Settings > Emulators now supports per-device default-emulator and core
+  selection, detected/missing cores, RetroAchievements and firmware facts,
+  Owner-only install/update actions, confirmation, two-phase command progress,
+  and post-success inventory refresh;
+- RetroArch launch is typed end to end. The client re-resolves the allow-listed
+  runtime and selected core, verifies content remains inside the paired-server
+  cache, and launches with fixed arguments. Server artifact selection is
+  deterministic and rejects ambiguous content;
+- remote trusted-LAN MGA servers remain supported over HTTP or HTTPS. No
+  localhost, shared-filesystem, or TLS-only assumption was introduced.
+
+Persistence correction discovered during packaged E2E:
+
+The initial inventory-schema-2 design assumed the existing inventory payload
+was stored as one opaque JSON value. Runtime evidence showed that
+`device_inventories` stores storage and runtimes in separate columns, which
+dropped the new package-manager facts. Migration 23 was already applied and
+therefore remained untouched. Migration 24 adds the missing dedicated column,
+and the repository now round-trips `winget` correctly. This correction and its
+test are part of ADR-0016.
+
+Packaged real E2E:
+
+1. Chrome opened the production Settings > Emulators page and launched the
+   installed MGA Client through the standard `mga://` action. Endpoint
+   `eaa3b874-bfad-4020-9020-36fd45a04ff9` connected Ready in standard mode and
+   advertised `emulator.setup`, `game.launch_emulator`, and
+   `inventory.refresh`.
+2. Inventory schema 2 persisted
+   `[{"id":"winget","name":"Windows Package Manager"}]`. The device panel
+   changed from Not connected to Connected and exposed the expected install and
+   update actions.
+3. RetroArch is not installed on this endpoint, but each platform still showed
+   all compatible core choices as not installed. ScummVM `2026.1.0` remained
+   detected and displayed Update. No setup button was activated, so no external
+   emulator package or runtime was installed, updated, or removed.
+4. The browser console contained no warnings or errors. The production page is
+   left open at `http://localhost:8900/settings?tab=emulators` and the installed
+   client remains connected for further local testing.
+
+Fresh verification:
+
+```text
+protocol: go test ./...                              PASS
+client:   go test ./...                              PASS
+server:   go test ./...                              PASS
+plugins:  go test ./... in all 7 standalone modules PASS
+frontend: npm run test:unit                          PASS (8 tests)
+frontend: npm run generate:api-contracts             PASS
+frontend: npm run build                              PASS
+OpenAPI:  generator/test                             PASS
+quality:  gofmt + git diff --check                   PASS
+security: govulncheck                                NOT RUN (tool unavailable)
+```
+
+Current runtime and preservation state:
+
+- packaged server PID `45864`, exact `server\bin\mga_server.exe`, portable,
+  HTTP 200 at the local verification URL, SHA-256
+  `E20A3BA480BABEC60EE9BE20B6EBDF1FD93CF07554BE4F5238FADAF62FC5EB6C`;
+- installed standard MGA Client PID `50760`, exact per-user installed agent,
+  SHA-256
+  `3E245D0E4360AA4E1852E0895A229C3D34A1C02791DAD2C789245901D1F33C27`;
+- real SQLite schema version 24; migrations 22, 23, and 24 are immutable;
+  emulator and core preference row counts are both zero;
+- endpoint install override remains `C:\Games`; the profile default remains
+  `%USERPROFILE%\Games`; the server was started with
+  `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive`;
+- Plasma Pong remains Installed. The legacy Duke row remains
+  `attention_required` with reason `installer_exit_nonzero` and no cleanup
+  marker. No game installation, cleanup, or emulator setup command was run.
+
+Next bounded architectural task: Save Domains and non-local storefront Save
+Sync. Define local-file, provider-API, and provider-opaque ownership; Steam and
+Xbox cloud behavior; xCloud and games installed on other endpoints; route-level
+save and achievement capabilities; conflict/authority rules; and explicit
+compatibility or conversion adapters before copying between storefront and
+emulator routes. Record the ADR before implementation and add migration 25 if
+the resulting design persists new state.
