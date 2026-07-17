@@ -135,6 +135,7 @@ export function InstalledGamesShelf() {
       onSelect,
       disabled: action.disabled || (action.intent === 'launch' && launch.isPending),
       kind: action.kind,
+      route: 'local',
       title: action.intent === 'device' ? 'Open device controls' : undefined,
     }
   }

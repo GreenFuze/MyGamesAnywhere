@@ -1,5 +1,5 @@
 import type { GameDetailResponse } from '@/api/client'
-import { Info, Play, Trophy } from 'lucide-react'
+import { ChevronDown, Info, Play, Trophy } from 'lucide-react'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { GameContextMenu } from '@/components/library/GameContextMenu'
 import { BrandIcon } from '@/components/ui/brand-icon'
@@ -19,21 +19,22 @@ import {
   selectSourceIntegrations,
 } from '@/lib/gameUtils'
 import { buildGameRouteState } from '@/lib/gameNavigation'
+import {
+  GameCardActionResolver,
+  type GameCardPlayRoute,
+  type GameCardPrimaryAction,
+} from '@/lib/gameCardActions'
 import { cn } from '@/lib/utils'
+
+export type { GameCardPlayRoute, GameCardPrimaryAction } from '@/lib/gameCardActions'
 
 interface GameCardProps {
   game: GameDetailResponse
   hoverAction?: ReactNode
   primaryAction?: GameCardPrimaryAction
+  alternateActions?: GameCardPrimaryAction[]
+  preferredPlayRoute?: GameCardPlayRoute
   variant?: 'library' | 'play'
-}
-
-export interface GameCardPrimaryAction {
-  label: string
-  onSelect: () => void
-  disabled?: boolean
-  kind?: 'play' | 'details'
-  title?: string
 }
 
 type OverlayAlignment = 'left' | 'center' | 'right'
@@ -99,6 +100,102 @@ function CardActionButton({ label, onClick, icon, variant = 'secondary', disable
   )
 }
 
+interface CardSplitActionButtonProps {
+  gameTitle: string
+  primaryAction: GameCardPrimaryAction
+  alternateActions: GameCardPrimaryAction[]
+  onSelect: (action: GameCardPrimaryAction, event: MouseEvent<HTMLButtonElement>) => void
+}
+
+function actionIcon(action: GameCardPrimaryAction) {
+  return action.kind === 'play' ? <Play size={16} fill="currentColor" /> : <Info size={16} />
+}
+
+function CardSplitActionButton({ gameTitle, primaryAction, alternateActions, onSelect }: CardSplitActionButtonProps) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const closeOnPointer = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnPointer)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnPointer)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
+  return (
+    <div ref={rootRef} className="pointer-events-auto relative flex min-w-[9.75rem] flex-1 sm:flex-none">
+      <button
+        type="button"
+        disabled={primaryAction.disabled}
+        onClick={(event) => onSelect(primaryAction, event)}
+        title={primaryAction.title ?? primaryAction.label}
+        aria-label={`${primaryAction.label} ${gameTitle}`}
+        className={cn(
+          'inline-flex h-10 min-w-0 flex-1 items-center justify-center gap-2 bg-white px-4 text-sm font-medium text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-55',
+          alternateActions.length > 0 ? 'rounded-l-full border-r border-black/14 pr-3' : 'rounded-full',
+        )}
+      >
+        {actionIcon(primaryAction)}
+        <span className="truncate">{primaryAction.label}</span>
+      </button>
+      {alternateActions.length > 0 ? (
+        <>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              setOpen((value) => !value)
+            }}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-r-full bg-white text-black transition-colors hover:bg-white/90"
+            aria-label={`Choose how to play ${gameTitle}`}
+            aria-haspopup="menu"
+            aria-expanded={open}
+            title="Other play options"
+          >
+            <ChevronDown size={17} aria-hidden="true" />
+          </button>
+          {open ? (
+            <div
+              role="menu"
+              aria-label={`Ways to play ${gameTitle}`}
+              className="absolute bottom-full left-0 z-20 mb-2 min-w-full overflow-hidden rounded-[14px] border border-white/12 bg-[#17191f] p-1.5 text-white shadow-2xl"
+            >
+              {alternateActions.map((action, index) => (
+                <button
+                  key={action.id ?? `${action.route ?? action.kind ?? 'action'}-${action.label}-${index}`}
+                  type="button"
+                  role="menuitem"
+                  disabled={action.disabled}
+                  title={action.title ?? action.label}
+                  onClick={(event) => {
+                    if (action.disabled) return
+                    setOpen(false)
+                    onSelect(action, event)
+                  }}
+                  className="flex w-full items-center gap-2 rounded-[10px] px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {actionIcon(action)}
+                  <span className="whitespace-nowrap">{action.label}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  )
+}
+
 interface FavoriteToggleButtonProps {
   favorite: boolean
   busy: boolean
@@ -127,7 +224,14 @@ function FavoriteToggleButton({ favorite, busy, onClick }: FavoriteToggleButtonP
   )
 }
 
-export function GameCard({ game, hoverAction, primaryAction, variant = 'library' }: GameCardProps) {
+export function GameCard({
+  game,
+  hoverAction,
+  primaryAction,
+  alternateActions = [],
+  preferredPlayRoute,
+  variant = 'library',
+}: GameCardProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { reducedMotion } = useTheme()
@@ -148,11 +252,9 @@ export function GameCard({ game, hoverAction, primaryAction, variant = 'library'
   const overlayMediaUrl = previewUrl ?? coverUrl
   const previewUsesLandscapeMedia = previewUrl !== null && previewUrl !== coverUrl
   const playable = isPlayable(game)
+  const xcloudUrl = typeof game.xcloud_url === 'string' && game.xcloud_url.length > 0 ? game.xcloud_url : null
   const sourceIntegrations = selectSourceIntegrations(game)
   const secondaryText = preferredSecondaryText(game) ?? 'Unknown source'
-  const canOpenStream = !playable && typeof game.xcloud_url === 'string' && game.xcloud_url.length > 0
-  const primaryActionLabel = primaryAction?.label ?? (playable ? 'Play' : canOpenStream ? 'Open' : 'Details')
-  const primaryActionIsPlay = primaryAction ? primaryAction.kind === 'play' : playable || canOpenStream
   const isPlayVariant = variant === 'play'
   const favoriteBusy = isPendingFor(game.id)
   const achievementLabel = game.achievement_summary && game.achievement_summary.total_count > 0
@@ -335,20 +437,44 @@ export function GameCard({ game, hoverAction, primaryAction, variant = 'library'
     navigate(`/game/${encodeURIComponent(game.id)}`, { state: routeState })
   }
 
-  const launchPrimaryAction = () => {
-    if (primaryAction) {
-      if (!primaryAction.disabled) primaryAction.onSelect()
-      return
-    }
-    if (playable) {
-      navigate(`/game/${encodeURIComponent(game.id)}/play`, { state: routeState })
-      return
-    }
-    if (canOpenStream && game.xcloud_url) {
-      window.open(game.xcloud_url, '_blank', 'noopener,noreferrer')
-      return
-    }
-    openGame()
+  const builtInActions: GameCardPrimaryAction[] = []
+  if (playable) {
+    builtInActions.push({
+      id: 'browser',
+      label: 'Play in browser',
+      kind: 'play',
+      route: 'browser',
+      onSelect: () => navigate(`/game/${encodeURIComponent(game.id)}/play`, { state: routeState }),
+    })
+  }
+  if (xcloudUrl) {
+    builtInActions.push({
+      id: 'xcloud',
+      label: 'Play in xCloud',
+      kind: 'play',
+      route: 'cloud',
+      onSelect: () => window.open(xcloudUrl, '_blank', 'noopener,noreferrer'),
+    })
+  }
+
+  const {
+    primaryAction: cardPrimaryAction,
+    alternateActions: cardAlternateActions,
+  } = new GameCardActionResolver({
+    primaryAction,
+    alternateActions,
+    derivedActions: builtInActions,
+    preferredPlayRoute,
+    fallbackAction: {
+      id: 'details',
+      label: 'Details',
+      kind: 'details',
+      onSelect: openGame,
+    },
+  }).resolve()
+
+  const launchCardAction = (action: GameCardPrimaryAction) => {
+    if (!action.disabled) action.onSelect()
   }
 
   const stopCardClick = (event: MouseEvent<HTMLElement>) => {
@@ -461,7 +587,7 @@ export function GameCard({ game, hoverAction, primaryAction, variant = 'library'
                   openGame()
                 }}
                 className="absolute inset-0 z-[2] cursor-pointer"
-                aria-label={`Open details for ${game.title}`}
+                aria-label={`View details for ${game.title}`}
                 title="View details"
               />
               <div className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-t from-black/86 via-black/12 to-black/8" />
@@ -487,24 +613,16 @@ export function GameCard({ game, hoverAction, primaryAction, variant = 'library'
               style={{ minHeight: `${overlayLayout.trayHeight}px` }}
             >
               <div className="flex items-center gap-2">
-                <CardActionButton
-                  label={primaryActionLabel}
-                  variant="primary"
-                  disabled={primaryAction?.disabled}
-                  title={primaryAction?.title}
-                  icon={
-                    primaryActionIsPlay ? (
-                      <Play size={16} fill="currentColor" />
-                    ) : (
-                      <Info size={16} />
-                    )
-                  }
-                  onClick={(event) => {
+                <CardSplitActionButton
+                  gameTitle={game.title}
+                  primaryAction={cardPrimaryAction}
+                  alternateActions={cardAlternateActions}
+                  onSelect={(action, event) => {
                     stopCardClick(event)
-                    launchPrimaryAction()
+                    launchCardAction(action)
                   }}
                 />
-                {primaryActionLabel !== 'Details' && (
+                {cardPrimaryAction.kind !== 'details' && (
                   <CardActionButton
                     label="Details"
                     icon={<Info size={16} />}

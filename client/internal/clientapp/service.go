@@ -461,6 +461,7 @@ func localMetadata(displayName string, executionMode devicev1.ClientExecutionMod
 			devicev1.CapabilityGameValidateInstallations,
 			devicev1.CapabilityGameLaunch,
 			devicev1.CapabilityInventoryRefresh,
+			devicev1.CapabilityInstallationPreflight,
 		},
 	}
 	if err := metadata.Validate(); err != nil {

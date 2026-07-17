@@ -19,15 +19,17 @@ in [player-facing-language.md](player-facing-language.md).
 
 Implementation status: the first library/play UI foundation, version-aware
 identity, bounded device inventory, and managed ZIP/7z/RAR installation slices
-are now implemented. See ADR-0004 through ADR-0006. A future profile-owned **My
-Settings** group will hold `%USERPROFILE%\Games` and other player preferences,
-with endpoint and per-action overrides where the target filesystem matters.
+are now implemented. See ADR-0004 through ADR-0006. ADR-0012 defines the
+profile-owned **My Settings** install default, endpoint override, and
+per-install override, with `%USERPROFILE%\Games` as the fallback.
 The first native EXE/BIN slice is limited by ADR-0007 to web-authorized, signed
-GOG Inno Setup bundles. Its implementation foundation is committed in
-`1e59e51`. The revised architecture uses authenticated web consent with Windows
-UAC only when required; code still needs that no-popup revision plus the locked
-crash-after-success/failed-cleanup work and packaged E2E. ADR-0008 defines the
-device-selected Installed Games Play shelf.
+GOG Inno Setup bundles. ADR-0007, the ADR-0008 device-selected Installed Games
+shelf, ADR-0011 reconciliation, and ADR-0012 install-location preferences are
+implemented and verified. ADR-0013 adds device-side, read-only installation
+preflight, category-specific prerequisite ownership, and a per-device
+Emulators settings surface without inventing the later emulator configuration
+schema. The revised architecture uses authenticated web
+consent with Windows UAC only when required.
 
 ## Product direction
 
@@ -178,6 +180,13 @@ are:
 
 A route declares requirements, target compatibility, preparation steps, and
 availability. One Edition may have several routes at the same time.
+
+Cards expose those simultaneous routes through the split Play control defined
+by [ADR-0014](0014-multi-route-play-control.md): the main segment runs the
+contextual default and the arrow lists the other explicit routes. The generic
+card action is never Open. Local emulators, browser emulation, installed/native
+play, storefront launch, and cloud play remain peers rather than replacing one
+another.
 
 ### Execution Target
 
@@ -459,8 +468,9 @@ events, error model, tests, and player-facing UI together.
 
 - Whether user-created collections contain Titles, Editions, Library Items, or
   a deliberate mixture.
-- The default play-route preference order and whether it is global,
-  profile-specific, or remembered per game.
+- Whether to add a remembered per-game/profile play-route preference after the
+  deterministic contextual default in ADR-0014, including unavailable-route
+  fallback and cross-browser synchronization.
 - Installer families and standalone prerequisite types beyond the accepted
   ADR-0007 signed GOG Inno slice.
 - The default save conflict policy and retention count.

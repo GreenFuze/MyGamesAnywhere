@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import type { GameDetailResponse } from '@/api/client'
+import type { GameCardPlayRoute } from '@/components/library/GameCard'
 import { HorizontalGameShelf } from '@/components/library/HorizontalGameShelf'
 import { isPlayable } from '@/lib/gameUtils'
 
@@ -14,11 +15,17 @@ export function PlayRouteShelves({ games }: PlayRouteShelvesProps) {
     const browser = games.filter((game) => isPlayable(game))
     const cloud = games.filter((game) => game.xcloud_available)
 
-    return [
+    const routeShelves: Array<{
+      key: string
+      label: string
+      games: GameDetailResponse[]
+      preferredPlayRoute?: GameCardPlayRoute
+    }> = [
       { key: 'favorites', label: 'Favorites', games: favorites },
-      { key: 'browser', label: 'Play in browser', games: browser },
-      { key: 'cloud', label: 'Cloud play', games: cloud },
-    ].filter((shelf) => shelf.games.length > 0)
+      { key: 'browser', label: 'Play in browser', games: browser, preferredPlayRoute: 'browser' },
+      { key: 'cloud', label: 'Cloud play', games: cloud, preferredPlayRoute: 'cloud' },
+    ]
+    return routeShelves.filter((shelf) => shelf.games.length > 0)
   }, [games])
 
   return (
@@ -29,7 +36,12 @@ export function PlayRouteShelves({ games }: PlayRouteShelvesProps) {
             <h2 className="text-2xl font-semibold tracking-tight text-mga-text">{shelf.label}</h2>
             <span className="text-sm text-mga-muted">{shelf.games.length}</span>
           </div>
-          <HorizontalGameShelf games={shelf.games} label={shelf.label} cardVariant="play" />
+          <HorizontalGameShelf
+            games={shelf.games}
+            label={shelf.label}
+            cardVariant="play"
+            preferredPlayRoute={shelf.preferredPlayRoute}
+          />
         </section>
       ))}
     </div>

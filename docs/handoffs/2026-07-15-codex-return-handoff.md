@@ -584,5 +584,197 @@ quality:  git diff --check                           PASS
 ```
 
 The known approximately 824 KB Vite chunk warning remains. ADR-0011 and the
-loopback/direct-link launch hardening are intentional uncommitted work; do not
-commit, push, release, or deploy without explicit user instruction.
+loopback/direct-link launch hardening were committed and pushed to `main` as
+`c4fa101 feat: reconcile managed installations` on 17 July 2026.
+
+## ADR-0012 install-location preferences — 17 July 2026
+
+ADR-0012 is implemented and verified as the next bounded installation slice.
+It is part of the ADR-0012/0013/0014 implementation checkpoint following
+`c4fa101`; do not rewrite or discard that checkpoint.
+
+Implemented behavior:
+
+- destination precedence is per-install override, endpoint override, profile
+  default, then `%USERPROFILE%\Games`;
+- profile defaults live in the existing profile-scoped `profile_settings` key
+  `install_root_template`;
+- migration 21 creates the cascading `device_install_preferences` table with
+  updater identity and timestamp; it is applied to the real database and must
+  not be edited—use migration 22 for any later schema change;
+- profile preferences are available to the active signed-in profile through
+  **My Settings**; endpoint overrides require Owner, while installation still
+  requires Manage;
+- MGA Server never expands or interprets the endpoint filesystem template.
+  Environment expansion remains in MGA Client under the target OS user, so a
+  server on another LAN computer (including TV2) behaves identically;
+- trusted-LAN HTTP remains supported. Non-loopback server hosts remain exact
+  and are never rewritten to localhost.
+
+Packaged browser E2E:
+
+1. The production frontend loaded **My Settings** with the standard
+   `%USERPROFILE%\Games` fallback.
+2. `%USERPROFILE%\MGA ADR12 Profile E2E` persisted and reloaded, then the reset
+   action removed that row and restored the standard fallback.
+3. The expanded Owner card for `tc-pc / TC-PC\tcs` first inherited the profile
+   value, then saved the intended endpoint override `C:\Games` and displayed
+   `This device uses its own folder.` This override is intentionally retained.
+4. The top bar showed `Client elevated`; the endpoint remained Ready. Plasma
+   Pong and both preserved legacy attention rows were untouched.
+5. The in-app browser reported no frontend warnings or errors during the flow.
+
+Current runtime:
+
+- packaged server PID `6084`, exact executable
+  `server\bin\mga_server.exe`, portable mode, HTTP 200 at
+  `http://127.0.0.1:8900`;
+- installed elevated client PID `38620`, connected Ready;
+- real SQLite schema version 21;
+- `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive` was preserved for the packaged
+  server process;
+- profile default is the standard fallback and the local endpoint override is
+  `C:\Games`.
+
+Fresh ADR-0012 verification:
+
+```text
+protocol: go test ./...                              PASS
+client:   go test ./...                              PASS
+server:   go test ./...                              PASS
+plugins:  go test ./... in all 7 standalone modules PASS
+frontend: npm run test:unit                          PASS (4 tests)
+frontend: npm run build                              PASS
+OpenAPI:  generator/test + frontend contracts       PASS
+security: govulncheck v1.6.0 protocol/client/server  PASS (0 reachable)
+quality:  git diff --check                           PASS
+```
+
+The expected approximately 829 KB Vite chunk warning remains. The next product
+slice should not guess standalone prerequisite types or additional executable
+installer families; those remain explicit decisions in the unified plan.
+
+## ADR-0013 device-side installation preflight — 17 July 2026
+
+ADR-0013 is implemented and locally verified on top of ADR-0012 in the same
+ADR-0012/0013/0014 implementation checkpoint.
+
+Locked behavior:
+
+- MGA Server dispatches typed, read-only `installation.preflight` schema 1 to
+  the selected device/OS-user endpoint before installation;
+- requests are bound to game ID, source ID, destination template, category,
+  bounded package bytes, and typed prerequisite IDs, with no shell, script,
+  executable path, arbitrary probe, elevation, or mutation;
+- client results distinguish ready, missing, unknown, installer-managed, and
+  not-applicable; only definite required missing facts block Install;
+- signed/native installers own embedded prerequisites; MGA never enumerates or
+  removes them;
+- managed archives visibly remain unknown because they can be ready-to-play,
+  require undeclared runtimes, or contain another installer;
+- Steam and known emulator detection is allow-listed. Xbox is intentionally
+  unknown until a reliable client probe exists, never falsely reported missing;
+- Settings now has a per-device **Emulators** surface showing detected emulator
+  facts. Persisted selection, cores, firmware, managed emulator installation,
+  launch, updates, and RetroAchievements capability mapping require the next
+  emulator ADR and migration 22 or later;
+- `NO_MIGRATION_NEEDED` for ADR-0013. Existing `device_commands` stores the
+  bounded audit/result JSON; schema stays 21 and migration 21 must not be edited.
+
+Packaged E2E evidence:
+
+1. Final packaged server PID `3932` runs exact executable
+   `server\bin\mga_server.exe` in portable mode with HTTP 200 at the local test
+   URL. This is not an architectural localhost assumption; relative API calls,
+   exact non-loopback origins, trusted-LAN HTTP/WS, and remote LAN servers such
+   as TV2 remain supported.
+2. Final installed elevated client PID `51656` runs from the per-user installed
+   MGA Client and connects Ready. Chrome launched the elevated `mga://` action;
+   the in-app browser remained the verification surface.
+3. Pikuniku source `scan:61e0a917ab382de4`, game
+   `54c6e130-843b-45db-8c90-145a1af41867`, destination `C:\Games`, and its real
+   148,780,824-byte GOG package produced succeeded command
+   `9a924542-9208-4a96-9d8a-eb55d3cea434`.
+4. The dialog showed enough free space (`142 MB` package, `263.9 GB` then
+   available) and `The game installer will handle its own components.` Install
+   remained enabled. The installer was not started and no game files changed.
+5. Exactly one final command was created after disabling focus/reconnect
+   refetch. The two earlier development commands remain valid audit evidence;
+   total preflight command count is three.
+6. Settings > Emulators displayed the `tc-pc / TC-PC\tcs` endpoint and detected
+   ScummVM at `C:\Program Files\ScummVM\scummvm.exe`. Browser warnings/errors:
+   none.
+7. Schema remains 21. Endpoint override remains `C:\Games`; profile fallback,
+   Plasma Pong, the legacy Duke attention row, and the historical cleanup row
+   remain untouched.
+
+Fresh verification:
+
+```text
+protocol: go test ./...                              PASS
+client:   go test ./...                              PASS
+server:   go test ./...                              PASS
+plugins:  go test ./... in all 7 standalone modules PASS
+frontend: npm run test:unit                          PASS (4 tests)
+frontend: npm run build                              PASS
+OpenAPI:  generator/test + frontend contracts       PASS
+security: govulncheck protocol/client/server         PASS (0 reachable)
+quality:  git diff --check                           PASS
+```
+
+Current next architectural task: define the emulator catalog and per-endpoint
+configuration contract, including normalized platform-to-emulator mapping,
+candidate/selection precedence, cores/firmware, RetroAchievements capability,
+launch ownership, managed installation/update policy, persistence migration 22,
+and the split between MGA-wide catalog data and device/OS-user configuration.
+
+## ADR-0014 multi-route Play control — 17 July 2026
+
+ADR-0014 is implemented and locally verified on top of ADR-0012/0013 in the
+same implementation checkpoint.
+
+Locked behavior:
+
+- a game may expose several simultaneous routes: multiple local emulators,
+  browser emulation, native/storefront play, and cloud/remote play;
+- cards use one contextual default action plus a down-arrow menu containing all
+  other explicit routes; Details remains separate;
+- card actions use route-specific player wording such as **Play in browser**
+  and **Play in xCloud**. The generic visible **Open** action is removed;
+- browser and Cloud shelves make their named route primary, while the installed
+  shelf preserves the selected device/OS-user action and keeps browser/cloud
+  alternatives available;
+- the resolver contract accepts multiple emulator/local/storefront actions, so
+  later emulator catalog work does not need to flatten them into one route;
+- route selection never silently falls back to a different route. Save-domain,
+  achievement/RetroAchievements, target, and edition identity remain route
+  facts when the full read model supplies them;
+- remembered per-game/profile defaults remain deferred. The initial default is
+  deterministic and contextual, so `NO_MIGRATION_NEEDED`; schema remains 21.
+
+Verification evidence:
+
+1. The packaged production app, not a Vite server, showed **Play in browser**
+   for Altered Beast and **Play in xCloud** for A Game About Digging a Hole,
+   each with separate Details and no generic Open action.
+2. The current real library has 52 browser-playable and 74 cloud-playable
+   records with no overlap. Four focused resolver tests therefore cover the
+   unavailable live multi-route combinations: Cloud-shelf defaulting,
+   simultaneous browser/cloud alternatives, a disabled installed-device
+   primary with playable alternatives, derived-route deduplication, and the
+   Details fallback.
+3. Frontend unit tests pass (8 total), the production build passes, and browser
+   warnings/errors are empty. The expected approximately 838 KB Vite chunk
+   warning remains.
+4. Packaged server PID `51616` runs exact `server\bin\mga_server.exe` in
+   portable mode with HTTP 200 at the local verification URL. Installed elevated
+   client PID `51656` remains connected; top bar reports Client elevated.
+5. Schema remains 21. `C:\Games`, `%USERPROFILE%\Games`, Plasma Pong, the Duke
+   attention row, preflight audit results, credentials, and
+   `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive` remain preserved.
+
+The next architectural task remains the bounded emulator catalog and
+per-endpoint configuration ADR. It must define normalized platforms,
+candidate/selection precedence, multiple emulator routes, cores/firmware,
+RetroAchievements capabilities, launch ownership, managed install/update
+policy, and migration 22 before making Settings > Emulators mutable.

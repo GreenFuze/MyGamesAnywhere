@@ -21,7 +21,7 @@ The current development implementation includes:
   DPAPI key storage
 - heartbeat presence, endpoint/user metadata, explicit profile grants, and the
   ready/busy/offline/update-required/error UI mapping
-- allow-listed endpoint, `inventory.refresh`, `game.install_archive`,
+- allow-listed endpoint, `inventory.refresh`, `installation.preflight`, `game.install_archive`,
   `game.uninstall`, `game.launch`, and read-only
   `game.validate_installations` commands with persisted
   lifecycle/results, endpoint-bound result validation, and capability checks
@@ -229,6 +229,7 @@ reserves these typed families:
 | Endpoint | refresh capabilities, collect diagnostics | `View` or `Manage`, depending on sensitivity |
 | Client process | stop the current per-user agent | `Manage` |
 | Inventory | `inventory.refresh`; bounded storage/runtime report | `Manage` |
+| Installation preflight | `installation.preflight`; read-only destination storage and typed prerequisite checks | `Manage` |
 | Game | `game.launch` implemented; stop reserved | `Play` |
 | Game management | ZIP/7z/RAR archive install/uninstall implemented; repair and executable installers reserved | `Manage` |
 | Installation health | `game.validate_installations`; bounded exact-path verification with no mutation | `View` |
@@ -237,6 +238,23 @@ reserves these typed families:
 
 Each concrete command is independently allow-listed. A generic `shell`, `exec`,
 or unrestricted process-start command is forbidden.
+
+### Implemented command family: installation preflight
+
+ADR-0013 defines `installation.preflight`, schema 1. MGA Server binds the
+request to one game/source, selected endpoint, destination template, package
+size, installation category, and typed prerequisite IDs. MGA Client expands
+the destination under the target OS user, checks the destination volume, and
+freshly probes only allow-listed runtimes. It returns ready, missing, unknown,
+installer-managed, or not-applicable checks and never installs, launches,
+elevates, removes, or runs an arbitrary probe. Definite required missing facts
+block Install; unknown archive prerequisites remain a visible warning.
+
+Steam and known emulators have allow-listed detection. Xbox remains unknown
+until MGA has a reliable device-side probe; unsupported detection must never be
+misreported as definitely missing. Native game installers own their embedded
+prerequisites. Managed archives remain explicitly ambiguous, including the
+case where an archive contains another installer.
 
 ### Implemented command family: GOG Inno Setup
 

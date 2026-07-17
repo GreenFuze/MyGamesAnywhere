@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, Info, Play } from 'lucide-react'
 import type { GameDetailResponse } from '@/api/client'
-import { GameCard, type GameCardPrimaryAction } from '@/components/library/GameCard'
+import {
+  GameCard,
+  type GameCardPlayRoute,
+  type GameCardPrimaryAction,
+} from '@/components/library/GameCard'
 import { animateHorizontalScrollTo } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/theme/ThemeProvider'
@@ -15,6 +19,7 @@ interface HorizontalGameShelfProps {
   label: string
   renderHoverAction?: (game: GameDetailResponse) => ReactNode
   renderPrimaryAction?: (game: GameDetailResponse) => GameCardPrimaryAction | undefined
+  preferredPlayRoute?: GameCardPlayRoute
   cardVariant?: 'library' | 'play'
 }
 
@@ -34,6 +39,7 @@ export function HorizontalGameShelf({
   label,
   renderHoverAction,
   renderPrimaryAction,
+  preferredPlayRoute,
   cardVariant = 'library',
 }: HorizontalGameShelfProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -101,6 +107,7 @@ export function HorizontalGameShelf({
                 game={game}
                 hoverAction={renderHoverAction?.(game)}
                 primaryAction={primaryAction}
+                preferredPlayRoute={preferredPlayRoute}
                 variant={cardVariant}
               />
               {primaryAction ? (

@@ -501,8 +501,48 @@ export type DeviceCommand = {
   updated_at: string;
 };
 
+export type InstallationPreflightCheck = {
+  id: string;
+  name: string;
+  kind: string;
+  status: "ready" | "missing" | "unknown" | "installer_managed" | "not_applicable";
+  required: boolean;
+  message: string;
+  required_bytes?: number;
+  available_bytes?: number;
+};
+
+export type InstallationPreflightResult = {
+  schema_version: number;
+  can_install: boolean;
+  checks: InstallationPreflightCheck[];
+};
+
 export async function listDevices(): Promise<DeviceEndpoint[]> {
   return getJson<DeviceEndpoint[]>("/api/devices");
+}
+
+export type InstallPreference = {
+  profile_root: string;
+  endpoint_root?: string;
+  effective_root: string;
+  source: "default" | "profile" | "device";
+};
+
+export async function getProfileInstallPreference(): Promise<InstallPreference> {
+  return getJson<InstallPreference>("/api/install-preferences/profile");
+}
+
+export async function setProfileInstallPreference(rootTemplate: string): Promise<InstallPreference> {
+  return putJson<InstallPreference>("/api/install-preferences/profile", { root_template: rootTemplate });
+}
+
+export async function getEndpointInstallPreference(endpointId: string): Promise<InstallPreference> {
+  return getJson<InstallPreference>(`/api/devices/${encodeURIComponent(endpointId)}/install-preference`);
+}
+
+export async function setEndpointInstallPreference(endpointId: string, rootTemplate: string): Promise<InstallPreference> {
+  return putJson<InstallPreference>(`/api/devices/${encodeURIComponent(endpointId)}/install-preference`, { root_template: rootTemplate });
 }
 
 export type InstallationValidationScheduleConfig = {
@@ -635,6 +675,19 @@ export async function installArchiveOnDevice(
   return postJson<DeviceCommand>(
     `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/install-archive`,
     { source_game_id: sourceGameId, destination_root: destinationRoot?.trim() || undefined },
+  ) as Promise<DeviceCommand>;
+}
+
+export async function preflightInstallationOnDevice(
+  endpointId: string,
+  gameId: string,
+  sourceGameId: string,
+  installKind: "managed_archive" | "gog_inno",
+  destinationRoot: string,
+): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(
+    `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/installation-preflight`,
+    { source_game_id: sourceGameId, install_kind: installKind, destination_root: destinationRoot.trim() },
   ) as Promise<DeviceCommand>;
 }
 

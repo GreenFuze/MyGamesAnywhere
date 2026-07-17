@@ -24,8 +24,10 @@ import {
   clearSourceGameCanonicalPin,
   getGame,
   getGameAchievements,
+	getEndpointInstallPreference,
   installArchiveOnDevice,
   installGogInnoOnDevice,
+	preflightInstallationOnDevice,
 	ignoreFailedGameOnDevice,
 	launchGameOnDevice,
   listDeviceCommands,
@@ -44,12 +46,14 @@ import {
   type DeviceCommand,
   type ExternalIDDTO,
   type GameLaunchOptionDTO,
+	type InstallationPreflightResult,
   type GameMediaDetailDTO,
   type ResolverMatchDTO,
   type SourceGameDetailDTO,
 } from '@/api/client'
 import { useGameFavoriteAction } from '@/hooks/useGameFavorite'
 import { useRecentPlayed } from '@/hooks/useRecentPlayed'
+import { useProfiles } from '@/hooks/useProfiles'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { SourceGameHardDeleteDialog } from '@/components/library/SourceGameHardDeleteDialog'
 import { BrandBadge, BrandIcon } from '@/components/ui/brand-icon'
@@ -176,23 +180,73 @@ type DeviceInstallChoice = {
 }
 
 function DeviceInstallDialog({
+  gameId,
   choice,
   busy,
   error,
   onClose,
   onInstall,
 }: {
+  gameId: string
   choice: DeviceInstallChoice | null
   busy: boolean
   error: string
   onClose: () => void
   onInstall: (root: string) => void
 }) {
+	const { currentProfile } = useProfiles()
   const [root, setRoot] = useState('%USERPROFILE%\\Games')
+	const [checkedRoot, setCheckedRoot] = useState('')
+	const preference = useQuery({
+		queryKey: ['endpoint-install-preference', choice?.deviceId, currentProfile?.id],
+		queryFn: () => getEndpointInstallPreference(choice!.deviceId),
+		enabled: Boolean(choice),
+	})
 
   useEffect(() => {
-    if (choice) setRoot('%USERPROFILE%\\Games')
+    if (choice) {
+		setRoot('%USERPROFILE%\\Games')
+		setCheckedRoot('')
+	}
   }, [choice])
+	useEffect(() => {
+		if (choice && preference.data) setRoot(preference.data.effective_root)
+	}, [choice, preference.data])
+	useEffect(() => {
+		if (!choice || preference.isLoading || !root.trim()) {
+			setCheckedRoot('')
+			return
+		}
+		const timer = window.setTimeout(() => setCheckedRoot(root.trim()), 450)
+		return () => window.clearTimeout(timer)
+	}, [choice, preference.isLoading, root])
+	const preflight = useQuery({
+		queryKey: ['installation-preflight', choice?.deviceId, gameId, choice?.sourceGameId, choice?.installKind, checkedRoot],
+		queryFn: async ({ signal }) => {
+			const command = await preflightInstallationOnDevice(choice!.deviceId, gameId, choice!.sourceGameId, choice!.installKind, checkedRoot)
+			for (let attempt = 0; attempt < 60; attempt += 1) {
+				if (signal.aborted) throw new Error('Device check canceled.')
+				await new Promise<void>((resolve, reject) => {
+					const timer = window.setTimeout(resolve, 500)
+					signal.addEventListener('abort', () => { window.clearTimeout(timer); reject(new Error('Device check canceled.')) }, { once: true })
+				})
+				const current = (await listDeviceCommands(choice!.deviceId)).find((item) => item.id === command.id)
+				if (!current || !['succeeded', 'failed', 'rejected', 'canceled', 'expired'].includes(current.status)) continue
+				if (current.status !== 'succeeded') throw new Error(current.error_message || 'MGA Client could not check this device.')
+				const result = current.result as InstallationPreflightResult | undefined
+				if (!result || !Array.isArray(result.checks)) throw new Error('MGA Client returned an invalid device check.')
+				return result
+			}
+			throw new Error('The device check took too long. Make sure MGA Client is connected.')
+		},
+		enabled: Boolean(choice && checkedRoot && !preference.isLoading),
+		retry: false,
+		staleTime: 30_000,
+		refetchOnWindowFocus: false,
+		refetchOnReconnect: false,
+	})
+	const checking = Boolean(choice && root.trim() && (root.trim() !== checkedRoot || preflight.isLoading || preflight.isFetching))
+	const blocked = preflight.data?.can_install === false
 
   return (
     <Dialog open={choice !== null} onClose={busy ? () => undefined : onClose} title="Install on device">
@@ -206,7 +260,7 @@ function DeviceInstallDialog({
             label="Install folder"
             value={root}
             onChange={(event) => setRoot(event.target.value)}
-            disabled={busy}
+            disabled={busy || preference.isLoading}
             placeholder="%USERPROFILE%\\Games"
           />
           <p className="text-xs leading-5 text-mga-muted">
@@ -214,12 +268,36 @@ function DeviceInstallDialog({
               ? `MGA Client on ${choice.deviceName} will verify the GOG publisher and installer type before it starts. Windows may ask for permission on that device.`
               : 'Environment variables are expanded by MGA Client for the selected Windows user. This installation can override your future profile default.'}
           </p>
+		  {preference.data ? (
+			<p className="text-xs text-mga-muted">
+			  Starting with {preference.data.source === 'device' ? `${choice.deviceName}'s folder` : 'your default folder'}. You can change it for this installation.
+			</p>
+		  ) : null}
+          {preference.error ? <p className="text-xs text-amber-300">Saved folder could not be loaded. Check the folder before installing.</p> : null}
+          <section className="rounded-mga border border-mga-border bg-black/20 p-3">
+			<div className="flex items-center justify-between gap-3">
+			  <p className="text-xs font-bold uppercase tracking-[0.16em] text-mga-muted">Before installing</p>
+			  {checking ? <span className="flex items-center gap-1.5 text-xs text-mga-muted"><Loader2 size={13} className="animate-spin" /> Checking device</span> : null}
+			</div>
+			{preflight.data ? (
+			  <div className="mt-2 space-y-2">
+				{preflight.data.checks.map((check) => (
+				  <div key={check.id} className="flex gap-2 text-xs leading-5">
+					<span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', check.status === 'ready' ? 'bg-emerald-400' : check.status === 'missing' ? 'bg-red-400' : check.status === 'installer_managed' ? 'bg-purple-400' : 'bg-amber-400')} />
+					<div><span className="font-semibold text-mga-text">{check.name}.</span> <span className="text-mga-muted">{check.message}</span>{check.required_bytes ? <span className="ml-1 text-mga-muted">Package: {formatStorageBytes(check.required_bytes)}{check.available_bytes ? ` · Free: ${formatStorageBytes(check.available_bytes)}` : ''}.</span> : null}</div>
+				  </div>
+				))}
+			  </div>
+			) : preflight.error && checkedRoot === root.trim() ? (
+			  <p className="mt-2 text-xs leading-5 text-amber-300">MGA couldn’t check this device. You can still install, but MGA has not verified space or extra components.</p>
+			) : null}
+		  </section>
           {error ? <p className="text-sm text-red-400">{error}</p> : null}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-            <Button onClick={() => onInstall(root.trim())} disabled={busy || !root.trim()}>
+            <Button onClick={() => onInstall(root.trim())} disabled={busy || preference.isLoading || checking || blocked || !root.trim()}>
               {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-              {busy ? 'Starting…' : 'Install'}
+              {busy ? 'Starting…' : preflight.error ? 'Install anyway' : blocked ? 'Requirements missing' : 'Install'}
             </Button>
           </div>
         </div>
@@ -2623,6 +2701,7 @@ export function GameDetailPage() {
 
       <MediaViewerDialog media={selectedMedia} onClose={() => setSelectedMedia(null)} />
       <DeviceInstallDialog
+        gameId={id}
         choice={installChoice}
         busy={installGame.isPending}
         error={installError}

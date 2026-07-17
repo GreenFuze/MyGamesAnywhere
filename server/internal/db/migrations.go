@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 20
+const latestMigrationVersion = 21
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -411,6 +411,18 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 				`DROP TABLE device_installation_events;`,
 				`ALTER TABLE device_installation_events_v20 RENAME TO device_installation_events;`,
 				`CREATE INDEX idx_device_installation_events_identity_time ON device_installation_events(endpoint_id, game_id, source_game_id, created_at DESC);`,
+			},
+		},
+		{
+			Version: 21,
+			Name:    "device_install_preferences",
+			SQL: []string{
+				`CREATE TABLE device_install_preferences (
+					endpoint_id TEXT PRIMARY KEY REFERENCES device_endpoints(id) ON DELETE CASCADE,
+					install_root_template TEXT NOT NULL,
+					updated_by_profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+					updated_at INTEGER NOT NULL
+				);`,
 			},
 		},
 	}

@@ -27,6 +27,7 @@ import {
   getCredentialStatus,
   deleteDeviceGrant,
   getDeviceClientDownload,
+	getEndpointInstallPreference,
   getInstallationValidationStatus,
   listDeviceCommands,
   listDeviceGrants,
@@ -34,6 +35,7 @@ import {
   renameDevice,
   revokeDevice,
   setDeviceGrant,
+	setEndpointInstallPreference,
   setInstallationValidationSchedule,
   validateDeviceInstallations,
   type DeviceAccessLevel,
@@ -391,6 +393,7 @@ function DeviceCard({ device, validationStatus, selectedByLink = false }: { devi
                 <Button variant="outline" size="sm" onClick={() => rename.mutate()} disabled={!name.trim() || name === device.display_name || rename.isPending}><Save className="h-4 w-4" /> Rename</Button>
               </div>
             ) : null}
+			<DeviceInstallFolderPanel device={device} isOwner={isOwner} expanded={expanded} />
             <div className="mt-4 flex flex-wrap gap-2 border-t border-mga-border pt-4">
               <Tooltip content="Check that MGA Client is responding">
                 <Button size="sm" onClick={() => action.mutate('endpoint.ping')} disabled={device.status === 'offline' || !device.capabilities.includes('endpoint.ping') || action.isPending}><Send className="h-4 w-4" /> Check</Button>
@@ -411,6 +414,57 @@ function DeviceCard({ device, validationStatus, selectedByLink = false }: { devi
         ) : null}
       </div>
     </article>
+  )
+}
+
+function DeviceInstallFolderPanel({ device, isOwner, expanded }: { device: DeviceEndpoint; isOwner: boolean; expanded: boolean }) {
+  const { currentProfile } = useProfiles()
+  const queryClient = useQueryClient()
+  const [root, setRoot] = useState('')
+  const preference = useQuery({
+    queryKey: ['endpoint-install-preference', device.id, currentProfile?.id],
+    queryFn: () => getEndpointInstallPreference(device.id),
+    enabled: expanded,
+  })
+  useEffect(() => {
+    if (preference.data) setRoot(preference.data.endpoint_root || '')
+  }, [preference.data])
+  const save = useMutation({
+    mutationFn: (value: string) => setEndpointInstallPreference(device.id, value),
+    onSuccess: async (saved) => {
+      setRoot(saved.endpoint_root || '')
+      queryClient.setQueryData(['endpoint-install-preference', device.id, currentProfile?.id], saved)
+      await queryClient.invalidateQueries({ queryKey: ['endpoint-install-preference', device.id] })
+    },
+  })
+
+  return (
+    <div className="mt-4 rounded-mga border border-mga-border bg-mga-bg/70 p-3">
+      <div className="flex items-center gap-2 text-xs font-semibold text-mga-text"><HardDrive className="h-3.5 w-3.5" /> Install folder</div>
+      {isOwner ? (
+        <>
+          <div className="mt-3 flex gap-2">
+            <Input
+              aria-label={`Install folder for ${device.display_name}`}
+              value={root}
+              onChange={(event) => setRoot(event.target.value)}
+              placeholder={preference.data?.profile_root || '%USERPROFILE%\\Games'}
+              disabled={preference.isLoading || save.isPending}
+            />
+            <Button variant="outline" size="sm" onClick={() => save.mutate(root.trim())} disabled={save.isPending || root.trim() === (preference.data?.endpoint_root || '')}>
+              <Save className="h-4 w-4" /> Save
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-mga-muted">
+            {preference.data?.endpoint_root ? 'This device uses its own folder.' : `Using your default: ${preference.data?.profile_root || '%USERPROFILE%\\Games'}`}
+          </p>
+          {preference.data?.endpoint_root ? <Button variant="ghost" size="sm" className="mt-2" onClick={() => save.mutate('')} disabled={save.isPending}>Use my default</Button> : null}
+        </>
+      ) : (
+        <p className="mt-2 text-xs text-mga-muted">{preference.data?.effective_root || 'Loading…'}</p>
+      )}
+      {preference.error || save.error ? <ErrorText error={preference.error || save.error} /> : null}
+    </div>
   )
 }
 

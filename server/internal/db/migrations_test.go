@@ -250,6 +250,40 @@ func TestMigration20PreservesEventsAndAddsVerificationDefaults(t *testing.T) {
 	}
 }
 
+func TestMigration21AddsEmptyCascadingDeviceInstallPreferences(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	for _, statement := range []string{
+		`INSERT INTO profiles (id, display_name, role, created_at, updated_at) VALUES ('profile-21','Player','admin_player',` + fmt.Sprint(now) + `,` + fmt.Sprint(now) + `)`,
+		`INSERT INTO device_endpoints (id, client_instance_id, public_key, display_name, host_name, os_user, platform, arch, execution_mode, client_version, protocol_version, capabilities_json, status, created_at, updated_at) VALUES ('endpoint-21','instance-21','key','PC','pc','user','windows','amd64','standard','dev',1,'[]','offline',` + fmt.Sprint(now) + `,` + fmt.Sprint(now) + `)`,
+	} {
+		if _, err := dbSvc.GetDB().Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var count int
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM device_install_preferences`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("migration backfilled preferences: count=%d error=%v", count, err)
+	}
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO device_install_preferences (endpoint_id, install_root_template, updated_by_profile_id, updated_at) VALUES ('endpoint-21','C:\Games','profile-21',?)`, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbSvc.GetDB().Exec(`DELETE FROM device_endpoints WHERE id='endpoint-21'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM device_install_preferences`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("endpoint preference did not cascade: count=%d error=%v", count, err)
+	}
+}
+
 func TestMigrationsAcceptKnownLegacyInitialChecksum(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
 	dbSvc := NewSQLiteDatabase(testLogger{}, testDBConfig{dbPath: dbPath})

@@ -321,6 +321,17 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 			return nil, false, "inventory_failed", err
 		}
 		return inventory, false, "", nil
+	case devicev1.CapabilityInstallationPreflight:
+		var request devicev1.InstallationPreflightRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		evaluator := NewInstallationPreflightEvaluator(a.inventory)
+		result, err := evaluator.Evaluate(ctx, request)
+		if err != nil {
+			return nil, false, "preflight_failed", err
+		}
+		return result, false, "", nil
 	case devicev1.CapabilityGameInstallArchive:
 		if a.installer == nil {
 			return nil, false, "installer_unavailable", errors.New("archive installer is unavailable")

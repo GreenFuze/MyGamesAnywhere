@@ -25,6 +25,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/gamesvc"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/http"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/installprefs"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/keystore"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/logger"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/media"
@@ -213,6 +214,11 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	if err != nil {
 		return fmt.Errorf("configure device service: %w", err)
 	}
+	installPreferenceRepo := db.NewInstallPreferenceRepository(dbSvc)
+	installPreferenceSvc, err := installprefs.NewService(installPreferenceRepo, deviceSvc)
+	if err != nil {
+		return fmt.Errorf("configure install preferences: %w", err)
+	}
 	integrationRepo := db.NewIntegrationRepository(dbSvc)
 	gameStore := db.NewGameStore(dbSvc, logSvc)
 	cacheStore := db.NewSourceCacheStore(dbSvc)
@@ -289,6 +295,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	}
 	deviceCtrl.SetArchiveInstallDependencies(gameStore, integrationRepo, envString("MGA_GOOGLE_DRIVE_DESKTOP_ROOT", ""))
 	deviceCtrl.SetInstallationValidationService(installationValidationSvc)
+	deviceCtrl.SetInstallPreferenceService(installPreferenceSvc)
 
 	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
 

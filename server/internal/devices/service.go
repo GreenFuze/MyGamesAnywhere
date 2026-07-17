@@ -182,6 +182,12 @@ func (s *Service) ListEndpoints(ctx context.Context, profileID string) ([]Endpoi
 	return endpoints, nil
 }
 
+// AuthorizeEndpoint verifies that a profile has the requested endpoint access.
+// It exposes authorization to bounded services without exposing the store.
+func (s *Service) AuthorizeEndpoint(ctx context.Context, endpointID, profileID string, required devicev1.AccessLevel) error {
+	return s.requireAccess(ctx, endpointID, profileID, required)
+}
+
 func (s *Service) EndpointForConnection(ctx context.Context, endpointID string) (*Endpoint, error) {
 	endpoint, err := s.store.GetEndpoint(ctx, endpointID)
 	if err != nil {
@@ -621,6 +627,8 @@ func requiredAccessForCommand(name string) (devicev1.AccessLevel, error) {
 		return devicev1.AccessManage, nil
 	case devicev1.CapabilityInventoryRefresh:
 		return devicev1.AccessManage, nil
+	case devicev1.CapabilityInstallationPreflight:
+		return devicev1.AccessManage, nil
 	case devicev1.CapabilityGameValidateInstallations:
 		return devicev1.AccessView, nil
 	case devicev1.CapabilityGameLaunch:
@@ -643,6 +651,13 @@ func validateCommandPayload(name string, payload json.RawMessage) error {
 		if err := json.Unmarshal(payload, &values); err != nil || len(values) != 0 {
 			return errors.New("inventory.refresh payload must be an empty object")
 		}
+	}
+	if name == devicev1.CapabilityInstallationPreflight {
+		var request devicev1.InstallationPreflightRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode installation preflight payload: %w", err)
+		}
+		return request.Validate()
 	}
 	if name == devicev1.CapabilityGameValidateInstallations {
 		var request devicev1.InstallationValidationRequest

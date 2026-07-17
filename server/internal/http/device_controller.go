@@ -19,6 +19,7 @@ import (
 	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/devices"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/installprefs"
 	"github.com/coder/websocket"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -39,6 +40,7 @@ type DeviceController struct {
 	googleDriveRoot     string
 	archiveTransfers    *archiveTransferRegistry
 	validation          *InstallationValidationService
+	installPreferences  *installprefs.Service
 }
 
 func NewDeviceController(service *devices.Service, hub *devices.Hub, logger core.Logger, clientInstallerPath ...string) (*DeviceController, error) {

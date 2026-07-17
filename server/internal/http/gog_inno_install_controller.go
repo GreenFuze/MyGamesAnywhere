@@ -27,6 +27,11 @@ func (c *DeviceController) InstallGogInno(w http.ResponseWriter, r *http.Request
 	if err := decodeJSONBody(w, r, &body); err != nil {
 		return
 	}
+	destinationRoot, err := c.resolveInstallRoot(r, endpointID, body.DestinationRoot)
+	if err != nil {
+		writeInstallPreferenceError(w, err)
+		return
+	}
 	game, err := c.gameStore.GetCanonicalGameByID(r.Context(), gameID)
 	if err != nil {
 		writeDeviceError(w, err)
@@ -64,10 +69,6 @@ func (c *DeviceController) InstallGogInno(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		writeDeviceError(w, err)
 		return
-	}
-	destinationRoot := strings.TrimSpace(body.DestinationRoot)
-	if destinationRoot == "" {
-		destinationRoot = devicev1.DefaultInstallRootTemplate
 	}
 	request := devicev1.GogInnoInstallRequest{
 		GameID: game.ID, SourceGameID: source.ID, Title: game.Title,

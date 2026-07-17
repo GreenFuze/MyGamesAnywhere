@@ -861,6 +861,58 @@ paths:
         500:
           description: Error response
 
+  /api/devices/{id}/install-preference:
+    get:
+      summary: Get a device/user install folder
+      description: Returns the endpoint override, active profile default, effective template, and provenance for an authorized endpoint.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: InstallPreference JSON
+        400:
+          description: Error response
+        401:
+          description: Profile sign-in required
+        403:
+          description: View access required
+        404:
+          description: Device not found
+        500:
+          description: Internal server error
+    put:
+      summary: Set a device/user install folder
+      description: Sets an Owner-authorized endpoint override. An empty template restores inheritance from the active profile.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: 'JSON: { root_template: string }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: InstallPreference JSON
+        400:
+          description: Invalid template
+        401:
+          description: Profile sign-in required
+        403:
+          description: Owner access required
+        404:
+          description: Device not found
+        500:
+          description: Internal server error
+
   /api/devices/{id}/validate-installations:
     post:
       summary: Check MGA-installed games on a device
@@ -1348,6 +1400,38 @@ paths:
           description: Game or source record not found
         409:
           description: Source record is not eligible for hard delete
+        500:
+          description: Internal server error
+
+  /api/install-preferences/profile:
+    get:
+      summary: Get the active player's install folder
+      description: Returns the active profile default and effective destination-root template. Environment variables are expanded only by MGA Client on the selected device/user endpoint.
+      responses:
+        200:
+          description: InstallPreference JSON
+        400:
+          description: Error response
+        401:
+          description: Profile sign-in required
+        500:
+          description: Internal server error
+    put:
+      summary: Set the active player's install folder
+      description: Stores the profile-scoped destination-root template. An empty template restores the standard %USERPROFILE%\Games fallback.
+      requestBody:
+        description: 'JSON: { root_template: string }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: InstallPreference JSON
+        400:
+          description: Invalid template
+        401:
+          description: Profile sign-in required
         500:
           description: Internal server error
 

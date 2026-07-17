@@ -22,6 +22,9 @@ cross the server, web interface, and device agent boundaries.
 - [ADR-0009: Player-selected MGA Client elevation](0009-player-selected-client-elevation.md)
 - [ADR-0010: Cross-platform local confirmation dialogs](0010-cross-platform-local-confirmation-dialogs.md)
 - [ADR-0011: Device installation reconciliation](0011-device-installation-reconciliation.md)
+- [ADR-0012: Profile and device install-location preferences](0012-install-location-preferences.md)
+- [ADR-0013: Device-side installation preflight and prerequisite policy](0013-device-install-preflight.md)
+- [ADR-0014: Multi-route Play control](0014-multi-route-play-control.md)
 
 ## Protocols
 

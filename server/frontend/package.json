@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test:unit": "node --experimental-strip-types --test src/lib/installedGames.test.mjs",
+    "test:unit": "node --experimental-strip-types --test src/lib/installedGames.test.mjs src/lib/gameCardActions.test.mjs",
     "generate:api-contracts": "node ./scripts/generate-api-contracts.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
