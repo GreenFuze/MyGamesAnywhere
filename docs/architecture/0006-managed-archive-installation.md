@@ -85,31 +85,29 @@ use the local Google Drive for desktop mirror when the server is started with
 beneath that root and traversal is rejected. A provider-direct delivery adapter
 can later replace this without changing the client command.
 
-## Planned external-removal reconciliation
+## External-removal reconciliation
 
-Manual filesystem changes outside MGA are not detected yet. A future
-installation-reconciliation slice must use the selected endpoint's MGA Client
-to verify managed installations on connection, periodically, and through an
-explicit refresh. The server must not continue presenting a game as installed
-only because `device_game_installations` still contains a row.
+[ADR-0011](0011-device-installation-reconciliation.md) implements read-only
+reconciliation through the selected endpoint's MGA Client. Scheduled and manual
+checks share the same bounded `game.validate_installations` command, client
+validator, result applier, events, and UI state. The server no longer presents
+a game as playable solely because `device_game_installations` contains an old
+successful row.
 
-The planned states distinguish:
+The implemented states distinguish:
 
 - **Installed:** managed directory, matching manifest, and selected launch target
   are present.
-- **Missing:** the managed directory or manifest was removed outside MGA.
+- **Missing:** the managed directory was removed outside MGA.
 - **Needs repair:** the directory remains but its manifest, selected executable,
   or other managed files are missing or inconsistent.
 
-Missing or damaged reports disable Play and offer understandable Reinstall,
-Repair, or Forget actions. Detection preserves audit history and never deletes
-unrelated files or saves. The client remains the filesystem authority; the
-server owns persisted state, timestamps, reason codes, and UI history.
-
-This is planned work, not current behavior. It requires a typed protocol report
-or command plus a versioned server migration for installation state,
-`last_verified_at`, detection reason, and any repair metadata. It must share one
-reconciliation path for connection-time, periodic, and manual checks.
+Missing or damaged reports disable Play, remain visible in device/game details,
+and produce low-noise transition notifications. Detection preserves audit
+history and never repairs, deletes, or forgets anything automatically. The
+client remains the filesystem authority; the server owns persisted state,
+timestamps, reason codes, and UI history. Repair, reinstall, cleanup, and Forget
+actions remain deferred.
 
 ## Persistence and migrations
 
@@ -121,6 +119,11 @@ Server migration 16 additively adds staged command progress plus launch target
 and candidate fields. Existing migration-15 rows receive null stage/target
 values and an empty candidate list, so they remain valid and become playable
 after reinstalling with an updated client.
+
+Server migration 20 additively records verification reason/details and extends
+installation audit events with Missing, Needs repair, and restored transitions.
+It preserves existing installation/event rows and all migration-17 cleanup
+state. See ADR-0011 for the exact validation and compatibility rules.
 
 New installed directories contain manifest schema version 2 with launch target
 metadata. Uninstall intentionally accepts manifest schemas 1 and 2, preserving

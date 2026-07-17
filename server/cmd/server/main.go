@@ -219,6 +219,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 
 	processManager := plugins.NewProcessManager()
 	eventBus := events.New()
+	deviceSvc.SetEventBus(eventBus)
 	pluginHost := plugins.NewPluginHost(logSvc, configSvc, processManager, eventBus)
 
 	ks := keystore.New()
@@ -246,6 +247,10 @@ func runServer(ctx context.Context, opts serverOptions) error {
 		return fmt.Errorf("configure background library scans: %w", err)
 	}
 	discoCtrl.SetBackgroundScanService(backgroundScanSvc)
+	installationValidationSvc, err := http.NewInstallationValidationService(deviceSvc, profileRepo, settingRepo, logSvc, eventBus)
+	if err != nil {
+		return fmt.Errorf("configure installation validation: %w", err)
+	}
 	aboutCtrl := http.NewAboutController(logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, gameStore, configSvc, logSvc, eventBus, syncSvc)
@@ -283,10 +288,11 @@ func runServer(ctx context.Context, opts serverOptions) error {
 		return fmt.Errorf("configure device controller: %w", err)
 	}
 	deviceCtrl.SetArchiveInstallDependencies(gameStore, integrationRepo, envString("MGA_GOOGLE_DRIVE_DESKTOP_ROOT", ""))
+	deviceCtrl.SetInstallationValidationService(installationValidationSvc)
 
 	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
 
-	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, mediaSvc, backgroundScanSvc)
+	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, mediaSvc, backgroundScanSvc, installationValidationSvc)
 	a.AddStartupTask(commandRecovery)
 
 	ctx, cancel := context.WithCancel(ctx)

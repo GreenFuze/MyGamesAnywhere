@@ -13,7 +13,7 @@ import {
   listDevices,
   type DeviceEndpoint,
 } from '@/api/client'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useClientEndpointAssociation } from '@/hooks/useClientEndpointAssociation'
 import { cn } from '@/lib/utils'
@@ -28,6 +28,7 @@ export function ClientStatusControl() {
   const [open, setOpen] = useState(false)
   const [pendingLaunchID, setPendingLaunchID] = useState('')
   const [launchStartedAt, setLaunchStartedAt] = useState(0)
+  const [launchMessage, setLaunchMessage] = useState('')
   const [confirmStop, setConfirmStop] = useState(false)
 
   const profileID = currentProfile?.id ?? ''
@@ -75,24 +76,24 @@ export function ClientStatusControl() {
   const connected = Boolean(associated && connectedStates.has(associated.status))
   const onlineCount = devices.filter((device) => connectedStates.has(device.status)).length
 
-  const connect = useMutation({
-    mutationFn: async (mode: 'standard' | 'elevated') => {
+  const preparedClientActionQuery = useQuery({
+    queryKey: ['device-client-actions', profileID, devices.length === 0 ? 'pair' : 'launch'],
+    queryFn: async () => {
       if (devices.length === 0) {
-        return { kind: 'pair' as const, pairing: await createDevicePairingChallenge() }
+        const pairing = await createDevicePairingChallenge()
+        if (!pairing.pair_uri) throw new Error('MGA Server did not return a client pairing URI')
+        return { kind: 'pair' as const, pairing }
       }
-      return { kind: 'launch' as const, launch: await createDeviceClientLaunch(mode) }
+      const [standard, elevated] = await Promise.all([
+        createDeviceClientLaunch('standard'),
+        createDeviceClientLaunch('elevated'),
+      ])
+      if (!standard.launch_uri || !elevated.launch_uri) throw new Error('MGA Server did not return MGA Client launch links')
+      return { kind: 'launch' as const, standard, elevated }
     },
-    onSuccess: (result) => {
-      if (result.kind === 'pair') {
-        if (!result.pairing.pair_uri) throw new Error('MGA Server did not return a client pairing URI')
-        window.location.href = result.pairing.pair_uri
-        return
-      }
-      if (!result.launch.launch_uri) throw new Error('MGA Server did not return a client launch URI')
-      setPendingLaunchID(result.launch.id)
-      setLaunchStartedAt(Date.now())
-      window.location.href = result.launch.launch_uri
-    },
+    enabled: open && deviceAuthority && devicesQuery.isSuccess && !connected && !pendingLaunchID,
+    retry: false,
+    staleTime: 30_000,
   })
   const stop = useMutation({
     mutationFn: () => {
@@ -107,9 +108,15 @@ export function ClientStatusControl() {
 
   useEffect(() => {
     const launch = launchQuery.data
+    if (launch?.status === 'expired') {
+      setLaunchMessage('MGA Client did not open. Try again.')
+      setPendingLaunchID('')
+      return
+    }
     if (!currentProfile || launch?.status !== 'acknowledged' || !launch.endpoint_id) return
     selectEndpoint(launch.endpoint_id)
     setPendingLaunchID('')
+    setLaunchMessage('')
     void queryClient.invalidateQueries({ queryKey: ['devices', currentProfile.id] })
   }, [currentProfile, launchQuery.data, queryClient, selectEndpoint])
 
@@ -148,6 +155,18 @@ export function ClientStatusControl() {
       && launchStartedAt
       && Date.now() - launchStartedAt > 4000,
   )
+  const preparedClientAction = preparedClientActionQuery.data
+  const beginLaunch = (launchID: string) => {
+    setPendingLaunchID(launchID)
+    setLaunchStartedAt(Date.now())
+    setLaunchMessage('')
+  }
+  const retryLaunch = () => {
+    setPendingLaunchID('')
+    setLaunchStartedAt(0)
+    setLaunchMessage('')
+    void preparedClientActionQuery.refetch()
+  }
 
   return (
     <div ref={menuRef} className="relative shrink-0">
@@ -191,16 +210,29 @@ export function ClientStatusControl() {
           {deviceAuthority ? (
             <div className="mt-3 space-y-2">
               {!connected ? (
-                <Button className="w-full" onClick={() => connect.mutate('standard')} disabled={connect.isPending || Boolean(pendingLaunchID) || devicesQuery.isLoading}>
-                  {connect.isPending || pendingLaunchID ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
-                  {pendingLaunchID ? 'Waiting…' : devices.length === 0 ? 'Pair MGA Client' : 'Run MGA Client'}
-                </Button>
+                pendingLaunchID ? (
+                  <Button className="w-full" disabled><LoaderCircle className="h-4 w-4 animate-spin" /> Waiting…</Button>
+                ) : preparedClientAction?.kind === 'pair' ? (
+                  <a className={cn(buttonVariants(), 'w-full')} href={preparedClientAction.pairing.pair_uri}>
+                    <Power className="h-4 w-4" /> Pair MGA Client
+                  </a>
+                ) : preparedClientAction?.kind === 'launch' ? (
+                  <a className={cn(buttonVariants(), 'w-full')} href={preparedClientAction.standard.launch_uri} onClick={() => beginLaunch(preparedClientAction.standard.id)}>
+                    <Power className="h-4 w-4" /> Run MGA Client
+                  </a>
+                ) : (
+                  <Button className="w-full" disabled><LoaderCircle className="h-4 w-4 animate-spin" /> Preparing…</Button>
+                )
               ) : null}
 
               {!connected && devices.length > 0 ? (
-                <Button variant="outline" className="w-full" onClick={() => connect.mutate('elevated')} disabled={connect.isPending || Boolean(pendingLaunchID) || devicesQuery.isLoading}>
-                  <Shield className="h-4 w-4" /> Run MGA Client as administrator
-                </Button>
+                preparedClientAction?.kind === 'launch' && !pendingLaunchID ? (
+                  <a className={cn(buttonVariants({ variant: 'outline' }), 'w-full')} href={preparedClientAction.elevated.launch_uri} onClick={() => beginLaunch(preparedClientAction.elevated.id)}>
+                    <Shield className="h-4 w-4" /> Run MGA Client as administrator
+                  </a>
+                ) : (
+                  <Button variant="outline" className="w-full" disabled><Shield className="h-4 w-4" /> Run MGA Client as administrator</Button>
+                )
               ) : null}
 
               {!connected ? (
@@ -231,9 +263,10 @@ export function ClientStatusControl() {
                 </div>
               ) : null}
 
-              {launchUnanswered || launchQuery.data?.status === 'expired' || connect.error || launchQuery.error ? (
+              {launchUnanswered || launchMessage || preparedClientActionQuery.error || launchQuery.error ? (
                 <div className="rounded-mga border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs leading-5 text-mga-muted">
-                  Client did not respond. Open it or pair it again.
+                  <p>{launchMessage || 'MGA Client did not respond. Open it or try again.'}</p>
+                  {pendingLaunchID ? <Button variant="outline" size="sm" className="mt-2 w-full" onClick={retryLaunch}>Try again</Button> : null}
                 </div>
               ) : null}
               {stop.error ? <p className="text-xs text-red-300">{stop.error instanceof Error ? stop.error.message : 'Could not stop MGA Client.'}</p> : null}

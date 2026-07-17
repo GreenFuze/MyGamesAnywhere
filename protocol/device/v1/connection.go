@@ -11,16 +11,17 @@ import (
 )
 
 const (
-	CapabilityEndpointPing             = "endpoint.ping"
-	CapabilityEndpointRefresh          = "endpoint.refresh"
-	CapabilityEndpointStop             = "endpoint.stop"
-	CapabilityInventoryRefresh         = "inventory.refresh"
-	CapabilityGameInstallArchive       = "game.install_archive"
-	CapabilityGameUninstall            = "game.uninstall"
-	CapabilityGameInstallGogInno       = "game.install_gog_inno"
-	CapabilityGameUninstallGogInno     = "game.uninstall_gog_inno"
-	CapabilityGameCleanupGogInnoFailed = "game.cleanup_gog_inno_failed"
-	CapabilityGameLaunch               = "game.launch"
+	CapabilityEndpointPing              = "endpoint.ping"
+	CapabilityEndpointRefresh           = "endpoint.refresh"
+	CapabilityEndpointStop              = "endpoint.stop"
+	CapabilityInventoryRefresh          = "inventory.refresh"
+	CapabilityGameInstallArchive        = "game.install_archive"
+	CapabilityGameUninstall             = "game.uninstall"
+	CapabilityGameInstallGogInno        = "game.install_gog_inno"
+	CapabilityGameUninstallGogInno      = "game.uninstall_gog_inno"
+	CapabilityGameCleanupGogInnoFailed  = "game.cleanup_gog_inno_failed"
+	CapabilityGameValidateInstallations = "game.validate_installations"
+	CapabilityGameLaunch                = "game.launch"
 )
 
 type ClientExecutionMode string

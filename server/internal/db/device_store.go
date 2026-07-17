@@ -647,6 +647,33 @@ func (s *DeviceStore) CompleteCommand(ctx context.Context, endpointID string, re
 			}
 		}
 	}
+	if commandName == devicev1.CapabilityGameValidateInstallations && result.Status == devicev1.CommandSucceeded {
+		var request devicev1.InstallationValidationRequest
+		var validation devicev1.InstallationValidationResult
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode installation validation command: %w", err)
+		}
+		if err := json.Unmarshal(result.Payload, &validation); err != nil {
+			return fmt.Errorf("decode installation validation result: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
+		if err := validation.Validate(); err != nil {
+			return err
+		}
+		changedMissing, changedRepair, restored, err := applyInstallationValidationResult(ctx, tx, endpointID, profileID, request, validation, updatedAt)
+		if err != nil {
+			return err
+		}
+		validation.ChangedMissing = changedMissing
+		validation.ChangedNeedsRepair = changedRepair
+		validation.Restored = restored
+		result.Payload, err = json.Marshal(validation)
+		if err != nil {
+			return fmt.Errorf("encode installation validation summary: %w", err)
+		}
+	}
 	if commandName == devicev1.CapabilityGameLaunch && result.Status == devicev1.CommandSucceeded {
 		var request devicev1.GameLaunchRequest
 		var launched devicev1.GameLaunchResult
@@ -684,6 +711,92 @@ func (s *DeviceStore) CompleteCommand(ctx context.Context, endpointID string, re
 		return errors.New("device command status changed concurrently")
 	}
 	return tx.Commit()
+}
+
+func applyInstallationValidationResult(ctx context.Context, tx *sql.Tx, endpointID, profileID string, request devicev1.InstallationValidationRequest, validation devicev1.InstallationValidationResult, updatedAt time.Time) (int, int, int, error) {
+	requested := make(map[string]devicev1.InstallationValidationRequestItem, len(request.Items))
+	for _, item := range request.Items {
+		requested[item.GameID+"\x00"+item.SourceGameID] = item
+	}
+	if len(validation.Items) != len(requested) {
+		return 0, 0, 0, errors.New("installation validation result omitted requested identities")
+	}
+	changedMissing, changedRepair, restored := 0, 0, 0
+	for _, checked := range validation.Items {
+		key := checked.GameID + "\x00" + checked.SourceGameID
+		if _, ok := requested[key]; !ok {
+			return 0, 0, 0, errors.New("installation validation result contains an unrequested identity")
+		}
+		var currentState string
+		err := tx.QueryRowContext(ctx, `SELECT install_state FROM device_game_installations
+			WHERE endpoint_id=? AND profile_id=? AND game_id=? AND source_game_id=?`, endpointID, profileID, checked.GameID, checked.SourceGameID).Scan(&currentState)
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, 0, 0, devices.ErrInstallationNotFound
+		}
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		switch currentState {
+		case devicev1.InstallStateInstalled, devicev1.InstallStateMissing, devicev1.InstallStateNeedsRepair:
+		default:
+			continue
+		}
+		details, err := json.Marshal(map[string]any{
+			"reported_checked_at": checked.CheckedAt.UTC(), "manifest_schema": checked.ManifestSchema,
+			"registered_program": checked.RegisteredProgram,
+		})
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		stateReason := any(nil)
+		if checked.State != devicev1.InstallStateInstalled {
+			stateReason = checked.ReasonCode
+		}
+		stateChangedAt := any(nil)
+		if currentState != checked.State {
+			stateChangedAt = updatedAt.Unix()
+		}
+		update, err := tx.ExecContext(ctx, `UPDATE device_game_installations SET
+			install_state=?, state_reason=?, verification_reason_code=?, verification_details_json=?, last_verified_at=?,
+			state_changed_at=COALESCE(?, state_changed_at)
+			WHERE endpoint_id=? AND profile_id=? AND game_id=? AND source_game_id=?
+			AND install_state IN ('installed','missing','needs_repair')`,
+			checked.State, stateReason, checked.ReasonCode, string(details), updatedAt.Unix(), stateChangedAt,
+			endpointID, profileID, checked.GameID, checked.SourceGameID)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		rows, err := update.RowsAffected()
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		if rows != 1 {
+			return 0, 0, 0, errors.New("installation changed while validation result was applied")
+		}
+		if currentState == checked.State {
+			continue
+		}
+		eventType := ""
+		switch checked.State {
+		case devicev1.InstallStateMissing:
+			changedMissing++
+			eventType = "installation_missing"
+		case devicev1.InstallStateNeedsRepair:
+			changedRepair++
+			eventType = "installation_needs_repair"
+		case devicev1.InstallStateInstalled:
+			restored++
+			eventType = "installation_restored"
+		}
+		if err := insertInstallationEventTx(ctx, tx, devices.InstallationEvent{
+			EndpointID: endpointID, GameID: checked.GameID, SourceGameID: checked.SourceGameID,
+			ActorProfileID: profileID, EventType: eventType, Reason: checked.ReasonCode,
+			Details: details, CreatedAt: updatedAt,
+		}); err != nil {
+			return 0, 0, 0, err
+		}
+	}
+	return changedMissing, changedRepair, restored, nil
 }
 
 func (s *DeviceStore) SaveInventory(ctx context.Context, endpointID string, inventory devicev1.DeviceInventory, updatedAt time.Time) error {
@@ -799,12 +912,50 @@ func (s *DeviceStore) ListCommands(ctx context.Context, endpointID, profileID st
 	return commands, rows.Err()
 }
 
+func (s *DeviceStore) GetCommand(ctx context.Context, endpointID, commandID string) (*devices.Command, error) {
+	row := s.db.GetDB().QueryRowContext(ctx, `SELECT id, endpoint_id, profile_id, name, schema_version, idempotency_key,
+		status, payload_json, COALESCE(result_json,''), COALESCE(error_code,''), COALESCE(error_message,''),
+		progress_sequence, COALESCE(progress_phase,''), progress_percent, COALESCE(progress_stage,''), progress_stage_percent, COALESCE(progress_message,''), created_at, updated_at, expires_at
+		FROM device_commands WHERE endpoint_id=? AND id=?`, endpointID, commandID)
+	var command devices.Command
+	var status, payload, result string
+	var createdAt, updatedAt, expiresAt int64
+	var progressPercent, progressStagePercent sql.NullInt64
+	if err := row.Scan(&command.ID, &command.EndpointID, &command.ProfileID, &command.Name, &command.SchemaVersion,
+		&command.IdempotencyKey, &status, &payload, &result, &command.ErrorCode, &command.ErrorMessage,
+		&command.ProgressSequence, &command.ProgressPhase, &progressPercent, &command.ProgressStage, &progressStagePercent,
+		&command.ProgressMessage, &createdAt, &updatedAt, &expiresAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, devices.ErrCommandNotFound
+		}
+		return nil, err
+	}
+	command.Status = devicev1.CommandStatus(status)
+	command.Payload = json.RawMessage(payload)
+	if result != "" {
+		command.Result = json.RawMessage(result)
+	}
+	if progressPercent.Valid {
+		value := uint8(progressPercent.Int64)
+		command.ProgressPercent = &value
+	}
+	if progressStagePercent.Valid {
+		value := uint8(progressStagePercent.Int64)
+		command.ProgressStagePercent = &value
+	}
+	command.CreatedAt = time.Unix(createdAt, 0).UTC()
+	command.UpdatedAt = time.Unix(updatedAt, 0).UTC()
+	command.ExpiresAt = time.Unix(expiresAt, 0).UTC()
+	return &command, nil
+}
+
 func (s *DeviceStore) ListInstallations(ctx context.Context, endpointID, profileID string) ([]devices.GameInstallation, error) {
 	rows, err := s.db.GetDB().QueryContext(ctx, `SELECT endpoint_id, game_id, source_game_id, profile_id,
 		install_root, install_path, archive_sha256, archive_bytes, installed_at, updated_at, COALESCE(launch_target,''), launch_candidates_json,
 		COALESCE(install_kind, 'managed_archive'), COALESCE(installer_family,''), COALESCE(installer_files_json,'[]'),
 		COALESCE(uninstall_target,''), COALESCE(install_state, 'installed'), COALESCE(state_reason,''), last_verified_at, state_changed_at
-		, COALESCE(cleanup_marker_id,''), cleanup_ignored_at, COALESCE(cleanup_ignored_by_profile_id,'')
+		, COALESCE(cleanup_marker_id,''), cleanup_ignored_at, COALESCE(cleanup_ignored_by_profile_id,''),
+		COALESCE(verification_reason_code,''), COALESCE(verification_details_json,'{}')
 		FROM device_game_installations WHERE endpoint_id=? AND profile_id=? ORDER BY installed_at DESC`, endpointID, profileID)
 	if err != nil {
 		return nil, err
@@ -814,14 +965,15 @@ func (s *DeviceStore) ListInstallations(ctx context.Context, endpointID, profile
 	for rows.Next() {
 		var installation devices.GameInstallation
 		var installedAt, updatedAt int64
-		var launchCandidates, installerFiles string
+		var launchCandidates, installerFiles, verificationDetails string
 		var lastVerifiedAt, stateChangedAt, cleanupIgnoredAt sql.NullInt64
 		if err := rows.Scan(&installation.EndpointID, &installation.GameID, &installation.SourceGameID, &installation.ProfileID,
 			&installation.InstallRoot, &installation.InstallPath, &installation.ArchiveSHA256, &installation.ArchiveBytes,
 			&installedAt, &updatedAt, &installation.LaunchTarget, &launchCandidates,
 			&installation.InstallKind, &installation.InstallerFamily, &installerFiles,
 			&installation.UninstallTarget, &installation.InstallState, &installation.StateReason, &lastVerifiedAt, &stateChangedAt,
-			&installation.CleanupMarkerID, &cleanupIgnoredAt, &installation.CleanupIgnoredByProfileID); err != nil {
+			&installation.CleanupMarkerID, &cleanupIgnoredAt, &installation.CleanupIgnoredByProfileID,
+			&installation.VerificationReasonCode, &verificationDetails); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(launchCandidates), &installation.LaunchCandidates); err != nil {
@@ -830,6 +982,7 @@ func (s *DeviceStore) ListInstallations(ctx context.Context, endpointID, profile
 		if err := json.Unmarshal([]byte(installerFiles), &installation.InstallerFiles); err != nil {
 			return nil, fmt.Errorf("decode installer files: %w", err)
 		}
+		installation.VerificationDetails = json.RawMessage(verificationDetails)
 		installation.InstalledAt = time.Unix(installedAt, 0).UTC()
 		installation.UpdatedAt = time.Unix(updatedAt, 0).UTC()
 		if lastVerifiedAt.Valid {
@@ -856,7 +1009,8 @@ func upsertGameInstallation(ctx context.Context, tx *sql.Tx, endpointID, profile
 		return fmt.Errorf("unsupported install_kind %q", installation.InstallKind)
 	}
 	switch installation.InstallState {
-	case devicev1.InstallStateInstalled, devicev1.InstallStateAttentionRequired, devicev1.InstallStateCleanupRequired,
+	case devicev1.InstallStateInstalled, devicev1.InstallStateMissing, devicev1.InstallStateNeedsRepair,
+		devicev1.InstallStateAttentionRequired, devicev1.InstallStateCleanupRequired,
 		devicev1.InstallStateCleanupRunning, devicev1.InstallStateCleanupFailed, devicev1.InstallStateIgnoredFailure:
 	default:
 		return fmt.Errorf("unsupported install_state %q", installation.InstallState)
@@ -883,8 +1037,8 @@ func upsertGameInstallation(ctx context.Context, tx *sql.Tx, endpointID, profile
 	if _, err := tx.ExecContext(ctx, `INSERT INTO device_game_installations
 		(endpoint_id, game_id, source_game_id, profile_id, install_root, install_path, archive_sha256, archive_bytes, installed_at, updated_at,
 		 launch_target, launch_candidates_json, install_kind, installer_family, installer_files_json, uninstall_target, install_state, state_reason, state_changed_at,
-		 cleanup_marker_id, cleanup_ignored_at, cleanup_ignored_by_profile_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 cleanup_marker_id, cleanup_ignored_at, cleanup_ignored_by_profile_id, verification_reason_code, verification_details_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(endpoint_id, game_id, source_game_id) DO UPDATE SET
 			profile_id=excluded.profile_id, install_root=excluded.install_root, install_path=excluded.install_path,
 			archive_sha256=excluded.archive_sha256, archive_bytes=excluded.archive_bytes,
@@ -893,12 +1047,13 @@ func upsertGameInstallation(ctx context.Context, tx *sql.Tx, endpointID, profile
 			install_kind=excluded.install_kind, installer_family=excluded.installer_family, installer_files_json=excluded.installer_files_json,
 			uninstall_target=excluded.uninstall_target, install_state=excluded.install_state, state_reason=excluded.state_reason,
 			state_changed_at=excluded.state_changed_at, cleanup_marker_id=excluded.cleanup_marker_id,
-			cleanup_ignored_at=excluded.cleanup_ignored_at, cleanup_ignored_by_profile_id=excluded.cleanup_ignored_by_profile_id`,
+			cleanup_ignored_at=excluded.cleanup_ignored_at, cleanup_ignored_by_profile_id=excluded.cleanup_ignored_by_profile_id,
+			verification_reason_code=NULL, verification_details_json='{}'`,
 		endpointID, installation.GameID, installation.SourceGameID, profileID, installation.InstallRoot, installation.InstallPath,
 		installation.ArchiveSHA256, installation.ArchiveBytes, installedAt.Unix(), updatedAt.Unix(), installation.LaunchTarget, string(launchCandidates),
 		installation.InstallKind, nullIfEmpty(installation.InstallerFamily), string(installerFiles), nullIfEmpty(installation.UninstallTarget),
 		installation.InstallState, nullIfEmpty(installation.StateReason), stateChangedAt, nullIfEmpty(installation.CleanupMarkerID),
-		unixOrNil(installation.CleanupIgnoredAt), nullIfEmpty(installation.CleanupIgnoredByProfileID)); err != nil {
+		unixOrNil(installation.CleanupIgnoredAt), nullIfEmpty(installation.CleanupIgnoredByProfileID), nil, `{}`); err != nil {
 		return fmt.Errorf("persist device game installation: %w", err)
 	}
 	return nil

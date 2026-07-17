@@ -34,6 +34,12 @@ export function AppQueryInvalidation() {
       subscribe('achievement_refresh_completed', refreshAchievements),
       subscribe('achievement_refresh_failed', refreshAchievements),
       subscribe('achievement_refresh_warning', refreshAchievements),
+      subscribe('installation_validation_finished', () => {
+        queryClient.invalidateQueries({ queryKey: ['devices'] })
+        queryClient.invalidateQueries({ queryKey: ['installation-validation-schedule'] })
+        queryClient.invalidateQueries({ queryKey: ['installed-games'] })
+        queryClient.invalidateQueries({ queryKey: ['game-detail'] })
+      }),
     ]
 
     return () => {

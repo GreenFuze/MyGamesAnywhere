@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 19
+const latestMigrationVersion = 20
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -387,6 +387,30 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 			Name:    "device_endpoint_execution_mode",
 			SQL: []string{
 				`ALTER TABLE device_endpoints ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'standard' CHECK(execution_mode IN ('standard','elevated'));`,
+			},
+		},
+		{
+			Version: 20,
+			Name:    "device_installation_reconciliation",
+			SQL: []string{
+				`ALTER TABLE device_game_installations ADD COLUMN verification_reason_code TEXT;`,
+				`ALTER TABLE device_game_installations ADD COLUMN verification_details_json TEXT NOT NULL DEFAULT '{}';`,
+				`CREATE TABLE device_installation_events_v20 (
+					id TEXT PRIMARY KEY,
+					endpoint_id TEXT NOT NULL REFERENCES device_endpoints(id) ON DELETE CASCADE,
+					game_id TEXT NOT NULL REFERENCES canonical_games(id) ON DELETE CASCADE,
+					source_game_id TEXT NOT NULL REFERENCES source_games(id) ON DELETE CASCADE,
+					actor_profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+					event_type TEXT NOT NULL CHECK(event_type IN ('failure_detected','post_success_crash_accepted','cleanup_started','cleanup_succeeded','cleanup_failed','failure_ignored','failure_reopened','installation_missing','installation_needs_repair','installation_restored')),
+					reason TEXT,
+					details_json TEXT NOT NULL DEFAULT '{}',
+					created_at INTEGER NOT NULL
+				);`,
+				`INSERT INTO device_installation_events_v20 (id, endpoint_id, game_id, source_game_id, actor_profile_id, event_type, reason, details_json, created_at)
+				 SELECT id, endpoint_id, game_id, source_game_id, actor_profile_id, event_type, reason, details_json, created_at FROM device_installation_events;`,
+				`DROP TABLE device_installation_events;`,
+				`ALTER TABLE device_installation_events_v20 RENAME TO device_installation_events;`,
+				`CREATE INDEX idx_device_installation_events_identity_time ON device_installation_events(endpoint_id, game_id, source_game_id, created_at DESC);`,
 			},
 		},
 	}

@@ -422,13 +422,15 @@ export type DeviceGameInstallation = {
   installer_family?: string;
   installer_files?: Array<{ file_name: string; role: string; size_bytes: number; sha256: string }>;
   uninstall_target?: string;
-  install_state: "installed" | "attention_required" | "cleanup_required" | "cleanup_running" | "cleanup_failed" | "ignored_failure" | string;
+  install_state: "installed" | "missing" | "needs_repair" | "attention_required" | "cleanup_required" | "cleanup_running" | "cleanup_failed" | "ignored_failure" | string;
   state_reason?: string;
   last_verified_at?: string;
   state_changed_at?: string;
   cleanup_marker_id?: string;
   cleanup_ignored_at?: string;
   cleanup_ignored_by_profile_id?: string;
+  verification_reason_code?: string;
+  verification_details?: Record<string, unknown>;
 };
 
 export type DeviceEndpoint = {
@@ -501,6 +503,43 @@ export type DeviceCommand = {
 
 export async function listDevices(): Promise<DeviceEndpoint[]> {
   return getJson<DeviceEndpoint[]>("/api/devices");
+}
+
+export type InstallationValidationScheduleConfig = {
+  enabled: boolean;
+  interval_minutes: number;
+};
+
+export type InstallationValidationEndpointStatus = {
+  endpoint_id: string;
+  display_name: string;
+  state: "scheduled" | "running" | "disabled" | "waiting" | "failed" | "no_installations" | string;
+  next_run_at?: string;
+  last_started_at?: string;
+  last_finished_at?: string;
+  last_status?: string;
+  last_error?: string;
+  active_command_id?: string;
+  installed?: number;
+  missing?: number;
+  needs_repair?: number;
+  eligible_count: number;
+};
+
+export type InstallationValidationScheduleStatus = InstallationValidationScheduleConfig & {
+  devices: InstallationValidationEndpointStatus[];
+};
+
+export async function getInstallationValidationStatus(): Promise<InstallationValidationScheduleStatus> {
+  return getJson<InstallationValidationScheduleStatus>("/api/devices/validation-schedule");
+}
+
+export async function setInstallationValidationSchedule(config: InstallationValidationScheduleConfig): Promise<InstallationValidationScheduleStatus> {
+  return putJson<InstallationValidationScheduleStatus>("/api/devices/validation-schedule", config);
+}
+
+export async function validateDeviceInstallations(endpointId: string): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(`/api/devices/${encodeURIComponent(endpointId)}/validate-installations`, {}) as Promise<DeviceCommand>;
 }
 
 export type InstalledGamesDevice = {

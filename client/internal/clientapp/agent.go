@@ -34,6 +34,7 @@ type Agent struct {
 	installer     ArchiveInstaller
 	gogInstaller  GogInnoInstaller
 	launcher      GameLauncher
+	validator     InstallationValidator
 }
 
 func NewAgent(config clientconfig.Config, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger) (*Agent, error) {
@@ -66,10 +67,14 @@ func NewAgentWithExecutionMode(config clientconfig.Config, privateKey ed25519.Pr
 	if err != nil {
 		return nil, err
 	}
+	validator, err := NewLocalInstallationValidator(newRegisteredProgramInspector())
+	if err != nil {
+		return nil, err
+	}
 	return &Agent{
 		config: config, privateKey: privateKey, buildInfo: info, logger: logger, executionMode: executionMode,
 		inventory: NewLocalInventoryCollector(), installer: installer, gogInstaller: gogInstaller,
-		launcher: NewWindowsGameLauncher(),
+		launcher: NewWindowsGameLauncher(), validator: validator,
 	}, nil
 }
 
@@ -395,6 +400,19 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 		result, err := a.launcher.Launch(ctx, request)
 		if err != nil {
 			return nil, false, "launch_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilityGameValidateInstallations:
+		if a.validator == nil {
+			return nil, false, "validator_unavailable", errors.New("installation validator is unavailable")
+		}
+		var request devicev1.InstallationValidationRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.validator.Validate(ctx, request, report)
+		if err != nil {
+			return nil, false, "validation_failed", err
 		}
 		return result, false, "", nil
 	default:

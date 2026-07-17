@@ -482,3 +482,107 @@ Final runtime snapshot:
 Lower-priority visual work is planned, not started: brand local dialogs with
 the MGA logo and redesign both client and server tray icons for crisp Windows
 notification-area rendering.
+
+## ADR-0007/0008 checkpoint and ADR-0011 progress — 16 July 2026
+
+The complete ADR-0007/0008 work was committed and pushed to `main` as clean
+checkpoint `c545108` (`feat: complete install cleanup and installed games
+shelf`). Do not amend or rewrite that checkpoint.
+
+ADR-0011 is implemented in the current intentional, uncommitted worktree:
+
+- shared typed `game.validate_installations` schema-1 command and capability;
+- one read-only archive/GOG validator for manual and scheduled checks;
+- strict Installed, Missing, and Needs repair evidence/reason mapping;
+- failed cleanup, ignored, attention, and cleanup-running states excluded;
+- migration 20 verification metadata and transition events, preserving all
+  existing event/installation rows and leaving migration 17 unchanged;
+- transactional, identity-exact result application with idempotent transition
+  events and no `updated_at` shelf reordering;
+- profile-scoped automatic checks (default 15 minutes, first attempt after one
+  minute, selectable 5 minutes through 24 hours, pausable);
+- Settings > Devices schedule/status, manual Check installed games, per-game
+  health presentation, SSE invalidation, and low-noise notification history;
+- OpenAPI routes and generated contract coverage.
+
+Fresh automated evidence:
+
+```text
+protocol: go test ./...                              PASS
+client:   go test ./...                              PASS
+server:   go test ./...                              PASS
+plugins:  go test ./... in all 7 standalone modules PASS
+frontend: npm run test:unit                          PASS (4 tests)
+frontend: npm run build                              PASS
+OpenAPI:  generator + frontend contract generator   PASS
+security: govulncheck protocol/client/server         PASS (0 reachable)
+quality:  git diff --check                           PASS before final docs
+```
+
+The known Vite chunk warning remains (approximately 823 KB). The new client
+installer was packaged and installed successfully; its installed agent hash
+matches `client/bin/mga-client-agent.exe`. The packaged server was rebuilt,
+started in portable mode with
+`MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\\My Drive`, and applied migration 20 to the
+real database. Plasma Pong remains Installed; the legacy Duke row remains
+`attention_required` with no marker/tree change; the historical marked
+cleanup-failed row remains protected.
+
+Current runtime snapshot:
+
+- packaged server PID `500`, HTTP 200 at `http://127.0.0.1:8900/`;
+- real SQLite schema version 20;
+- installed client PID `38620`, connected Ready in elevated mode;
+- Chrome is authenticated at Settings > Devices with the device expanded;
+- the Codex built-in browser intentionally blocks non-HTTP custom protocols;
+  Chrome successfully launched the same direct `mga://` elevated action and
+  produced the expected UAC prompt.
+
+## ADR-0011 packaged E2E complete — 17 July 2026
+
+ADR-0011 is fully verified. The real packaged server and installed elevated
+client exercised the shared manual/background validation implementation through
+the visible **Check installed games** action:
+
+1. Plasma Pong and the isolated `adr11-e2e-20260717` managed-archive fixture
+   both validated Healthy.
+2. Moving only `C:\Games\MGA ADR11 E2E 20260717` to an exact restorable sibling
+   produced Missing / `install_path_missing` while Plasma Pong stayed Healthy.
+3. Settings > Devices showed the synthetic title as Missing with `The game
+   folder is no longer on this device.` Chrome showed the matching toast, one
+   unread notification, and history entry `Installed games need attention` /
+   `1 missing`.
+4. Restoring the same directory produced Installed / `healthy`, exactly one
+   `installation_restored` event, a Ready UI state, and the history entry
+   `Installed games are available again` / `1 restored`.
+5. The synthetic installation, its two transition events, source/canonical
+   records, staging files, and game directory were removed. The database has
+   zero remaining `adr11-e2e-20260717` rows and the filesystem path is absent.
+
+Final preservation evidence:
+
+- schema remains 20;
+- Plasma Pong remains Installed and Healthy at `c:\games\Plasma Pong`;
+- the legacy Duke row remains `attention_required`, with no cleanup marker or
+  tree change;
+- the historical `MGA E2E Cleanup Prompt` row remains `cleanup_failed` with
+  marker `DvW_ZxiaL-OClbTNQEBvJgkjVLZiMtClHD44uh8V8yc`;
+- packaged server and installed elevated client remain running.
+
+Fresh post-E2E verification passed on 17 July 2026:
+
+```text
+protocol: go test ./...                              PASS
+client:   go test ./...                              PASS
+server:   go test ./...                              PASS
+plugins:  go test ./... in all 7 standalone modules PASS
+frontend: npm run test:unit                          PASS (4 tests)
+frontend: npm run build                              PASS
+OpenAPI:  generator + frontend contract generator   PASS
+security: govulncheck v1.6.0 protocol/client/server  PASS (0 reachable)
+quality:  git diff --check                           PASS
+```
+
+The known approximately 824 KB Vite chunk warning remains. ADR-0011 and the
+loopback/direct-link launch hardening are intentional uncommitted work; do not
+commit, push, release, or deploy without explicit user instruction.

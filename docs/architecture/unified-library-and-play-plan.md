@@ -270,20 +270,22 @@ runtime, or lacks permission. It then reports stages such as:
 - creating the play route;
 - completed, cancelled, or failed.
 
-Commands are typed and idempotent. Elevation is requested only for the specific
-local step that requires it; the client does not permanently run as an
-administrator. Uninstall must preview what will be removed and distinguish game
-files, shared prerequisites, user saves, and MGA cache data.
+Commands are typed and idempotent. Per ADR-0009, the player explicitly chooses
+standard or elevated mode each time the MGA Client is started; standard mode
+requests UAC only for a constrained action that needs it, while elevated mode
+lasts until the client exits or Windows restarts. MGA does not install a
+machine-wide privileged service or persist an elevated auto-start. Uninstall
+must preview what will be removed and distinguish game files, shared
+prerequisites, user saves, and MGA cache data.
 
-Managed installation state must eventually reconcile with the endpoint
-filesystem. If a user deletes or changes an installation outside MGA, the
-client reports it through one shared connection-time, periodic, and manual
-validation path. A missing directory/manifest becomes **Missing**; a present
-directory with missing managed files or launch target becomes **Needs repair**.
-Play is disabled, history is retained, and the UI offers Reinstall, Repair, or
-Forget without deleting unrelated files or saves. This reconciliation is
-planned, not implemented, and requires a typed protocol addition plus a
-versioned server migration.
+Managed installation state reconciles with the endpoint filesystem through the
+ADR-0011 scheduled/manual validation path. If a user deletes or changes an
+MGA-managed installation outside MGA, a missing directory becomes **Missing**;
+a present directory with a missing/invalid manifest, managed executable,
+uninstaller, or inconsistent publisher registration becomes **Needs repair**.
+Play is disabled, history is retained, and transition notifications stay
+visible without deleting or repairing anything automatically. Reinstall,
+Repair, cleanup, and Forget actions remain later slices.
 
 A true GOG installer failure is not silently accepted and is not immediately
 deleted. A valid command-owned marker produces **Cleanup required** with

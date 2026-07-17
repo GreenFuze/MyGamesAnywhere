@@ -110,6 +110,10 @@ signal.
 ## Transport and command model
 
 - The client establishes an outbound WebSocket connection to the server.
+- MGA Server is not assumed to run on the browser or client computer. A paired
+  server URL may name any reachable LAN host (for example `http://tv2:8900` or
+  a LAN IP address), and clients must preserve that configured host rather than
+  rewriting it to `localhost`.
 - HTTP/WS is supported on a trusted LAN to avoid requiring locally trusted
   certificates on every browser and client host. HTTPS/WSS remains supported
   and is strongly recommended on any network that is not fully trusted. MGA

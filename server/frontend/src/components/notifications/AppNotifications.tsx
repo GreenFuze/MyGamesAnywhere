@@ -86,6 +86,31 @@ export function AppNotifications() {
           description: readString(data.error) ?? 'An operation failed.',
         })
       }),
+      subscribe('installation_validation_finished', (raw) => {
+        const data = (raw ?? {}) as EventPayload
+        const status = readString(data.status)
+        if (status && status !== 'succeeded') {
+          notify({
+            tone: 'error',
+            title: 'Installed game check failed',
+            description: readString(data.error) ?? 'MGA could not check the installed games on this device.',
+          })
+          return
+        }
+        const missing = readNumber(data.changed_missing) ?? 0
+        const repair = readNumber(data.changed_needs_repair) ?? 0
+        const restored = readNumber(data.restored) ?? 0
+        if (missing === 0 && repair === 0 && restored === 0) return
+        notify({
+          tone: missing > 0 || repair > 0 ? 'error' : 'success',
+          title: missing > 0 || repair > 0 ? 'Installed games need attention' : 'Installed games are available again',
+          description: [
+            missing > 0 ? `${missing} missing` : '',
+            repair > 0 ? `${repair} need repair` : '',
+            restored > 0 ? `${restored} restored` : '',
+          ].filter(Boolean).join(', '),
+        })
+      }),
       subscribe('integration_status_checked', (raw) => {
         const data = (raw ?? {}) as EventPayload
         const integrationId = readString(data.integration_id)

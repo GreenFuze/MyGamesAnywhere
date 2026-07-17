@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -318,7 +319,7 @@ func (s *Service) acknowledgeLaunch(ctx context.Context, options StartOptions) e
 	if err != nil {
 		return err
 	}
-	if serverURL != config.ServerURL {
+	if !samePairedServerURL(serverURL, config.ServerURL) {
 		return errors.New("launch server does not match the paired MGA Server")
 	}
 	privateKey, err := s.identities.Load()
@@ -392,6 +393,42 @@ func validateServerURL(value string) (string, error) {
 	return strings.TrimRight(parsed.String(), "/"), nil
 }
 
+func samePairedServerURL(launchURL, pairedURL string) bool {
+	launch, launchErr := url.Parse(launchURL)
+	paired, pairedErr := url.Parse(pairedURL)
+	if launchErr != nil || pairedErr != nil || launch.Host == "" || paired.Host == "" {
+		return false
+	}
+	if !strings.EqualFold(launch.Scheme, paired.Scheme) || effectiveServerPort(launch) != effectiveServerPort(paired) {
+		return false
+	}
+	if launch.EscapedPath() != paired.EscapedPath() {
+		return false
+	}
+	if strings.EqualFold(launch.Hostname(), paired.Hostname()) {
+		return true
+	}
+	return isLoopbackServerHost(launch.Hostname()) && isLoopbackServerHost(paired.Hostname())
+}
+
+func effectiveServerPort(server *url.URL) string {
+	if port := server.Port(); port != "" {
+		return port
+	}
+	if strings.EqualFold(server.Scheme, "https") {
+		return "443"
+	}
+	return "80"
+}
+
+func isLoopbackServerHost(host string) bool {
+	if strings.EqualFold(strings.TrimSpace(host), "localhost") {
+		return true
+	}
+	address := net.ParseIP(strings.TrimSpace(host))
+	return address != nil && address.IsLoopback()
+}
+
 func localMetadata(displayName string, executionMode devicev1.ClientExecutionMode) (devicev1.EndpointMetadata, error) {
 	hostName, err := os.Hostname()
 	if err != nil {
@@ -421,6 +458,7 @@ func localMetadata(displayName string, executionMode devicev1.ClientExecutionMod
 			devicev1.CapabilityGameInstallGogInno,
 			devicev1.CapabilityGameUninstallGogInno,
 			devicev1.CapabilityGameCleanupGogInnoFailed,
+			devicev1.CapabilityGameValidateInstallations,
 			devicev1.CapabilityGameLaunch,
 			devicev1.CapabilityInventoryRefresh,
 		},

@@ -87,6 +87,11 @@ const knownTypes = [
   'plugin_process_exited',
   'operation_error',
 
+  // Device installation validation.
+  'installation_validation_started',
+  'installation_validation_finished',
+  'installation_validation_schedule_updated',
+
   // OAuth flow events.
   'oauth_complete',
   'oauth_error',

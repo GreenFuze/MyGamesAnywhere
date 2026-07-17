@@ -21,6 +21,7 @@ cross the server, web interface, and device agent boundaries.
 - [ADR-0008: Device-selected Installed Games Play shelf](0008-device-selected-installed-games-shelf.md)
 - [ADR-0009: Player-selected MGA Client elevation](0009-player-selected-client-elevation.md)
 - [ADR-0010: Cross-platform local confirmation dialogs](0010-cross-platform-local-confirmation-dialogs.md)
+- [ADR-0011: Device installation reconciliation](0011-device-installation-reconciliation.md)
 
 ## Protocols
 

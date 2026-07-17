@@ -145,6 +145,10 @@ function deviceSetupLabel(status: string, runtime?: string): string {
   switch (status) {
     case 'installed':
       return 'Installed'
+    case 'missing':
+      return 'Missing'
+    case 'needs_repair':
+      return 'Needs repair'
     case 'ready_for_setup':
       return 'Ready for setup'
     case 'needs_runtime':
@@ -364,6 +368,21 @@ function attentionRequiredMessage(reason: string | undefined, deviceName: string
     return `This installation needs attention on ${deviceName}: ${reason.trim()}`
   }
   return `This installation needs attention on ${deviceName}. Check the device before playing or trying again.`
+}
+
+function installationVerificationMessage(reason: string | undefined): string {
+  switch ((reason ?? '').trim()) {
+    case 'manifest_missing': return 'MGA’s installation record is missing from the game folder.'
+    case 'manifest_invalid':
+    case 'manifest_identity_mismatch':
+    case 'manifest_schema_unsupported': return 'MGA could not verify the game folder.'
+    case 'launch_target_missing': return 'the executable used to start the game is missing.'
+    case 'uninstall_target_missing': return 'the game’s uninstaller is missing.'
+    case 'registered_program_missing': return 'Windows no longer lists the game as installed.'
+    case 'files_missing_registration_present': return 'Windows lists the game, but its files are missing.'
+    case 'unsafe_reparse_point': return 'the game folder redirects somewhere MGA cannot verify safely.'
+    default: return reason?.trim() || 'MGA could not verify all required files.'
+  }
 }
 
 function humanizeValue(value: string): string {
@@ -2237,7 +2256,8 @@ export function GameDetailPage() {
 				  const isGogCommand = isGogInstallCommand || commandHere?.name === 'game.uninstall_gog_inno' || commandHere?.name === 'game.cleanup_gog_inno_failed'
 				  const progressText = commandHere ? commandProgressMessage(commandHere) : ''
 				  const installerRunning = Boolean(isGogInstallCommand && /installer running/i.test(progressText))
-				  const failureState = Boolean(device.installed && device.install_state && device.install_state !== 'installed')
+				  const reconciliationState = device.install_state === 'missing' || device.install_state === 'needs_repair'
+				  const failureState = Boolean(device.installed && device.install_state && ['attention_required', 'cleanup_required', 'cleanup_running', 'cleanup_failed', 'ignored_failure'].includes(device.install_state))
 				  const cleanupAvailable = Boolean(device.cleanup_marker_id && ['cleanup_required', 'cleanup_failed', 'ignored_failure'].includes(device.install_state ?? ''))
 				  const ignoredFailure = device.install_state === 'ignored_failure'
 				  const retryPackage = gogInnoSources.find(({ source }) => source.id === device.installed_source_id)
@@ -2275,7 +2295,7 @@ export function GameDetailPage() {
 									<Trash2 size={14} /> Uninstall
 								  </Button>
 								</>
-							  ) : failureState && device.installed_source_id ? (
+							  ) : reconciliationState && device.installed_source_id ? null : failureState && device.installed_source_id ? (
 								<>
 								  {cleanupAvailable ? (
 									<>
@@ -2349,7 +2369,13 @@ export function GameDetailPage() {
 							  </select>
 							</label>
 						  ) : null}
-						  {failureState && !ignoredFailure ? (
+						  {reconciliationState ? (
+							<p className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
+							  {device.install_state === 'missing'
+								? `The installed game folder is no longer on ${device.display_name}. MGA did not remove it.`
+								: `This installation is incomplete on ${device.display_name}: ${installationVerificationMessage(device.state_reason)}`}
+							</p>
+						  ) : failureState && !ignoredFailure ? (
 							<p className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
 							  {device.install_state === 'cleanup_required'
 								? `The install didn’t finish on ${device.display_name}. Clean up the game files before trying again.`

@@ -467,6 +467,38 @@ paths:
         500:
           description: Error response
 
+  /api/devices/validation-schedule:
+    get:
+      summary: Get automatic installed-game check status
+      description: Returns the active profile's schedule and per-device visibility for the shared manual/background MGA installation validator.
+      responses:
+        200:
+          description: InstallationValidationScheduleStatus JSON
+        400:
+          description: Error response
+        401:
+          description: Profile sign-in required
+        500:
+          description: Internal server error
+    put:
+      summary: Configure automatic installed-game checks
+      description: Enables or pauses profile-scoped automatic validation and selects an interval from 5 minutes through 24 hours.
+      requestBody:
+        description: 'JSON: { enabled: boolean, interval_minutes: number }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: InstallationValidationScheduleStatus JSON
+        400:
+          description: Invalid interval
+        401:
+          description: Profile sign-in required
+        500:
+          description: Internal server error
+
   /api/devices/{id}:
     delete:
       parameters:
@@ -828,6 +860,36 @@ paths:
           description: Error response
         500:
           description: Error response
+
+  /api/devices/{id}/validate-installations:
+    post:
+      summary: Check MGA-installed games on a device
+      description: Dispatches the same bounded, read-only typed installation validator used by automatic checks. It never deletes or repairs files or registry entries.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Empty JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: DeviceCommand JSON
+        400:
+          description: No eligible installations or device not ready
+        403:
+          description: View access required
+        404:
+          description: Device not found
+        409:
+          description: Device unavailable or incompatible
+        500:
+          description: Internal server error
 
   /api/duplicates/games:
     get:

@@ -45,3 +45,15 @@ Every JSON payload includes an RFC3339Nano `ts` field added by `events.PublishJS
 | `event` | When | Payload (excerpt) |
 |---------|------|-------------------|
 | `operation_error` | Operation failed (achievements plugin call, sync key store/clear, etc.) | `scope`, `error`, plus scope-specific fields (`plugin_id`, `game_id`, `operation`, …) |
+
+### Installed game checks
+
+These profile-scoped events are emitted by the shared manual/background
+installation-validation coordinator. Unchanged healthy background checks stay
+silent in notification history.
+
+| `event` | When | Payload (excerpt) |
+|---------|------|-------------------|
+| `installation_validation_started` | A manual or scheduled check dispatches to a connected endpoint | `profile_id`, `endpoint_id`, `command_id`, `trigger`, `total` |
+| `installation_validation_finished` | The typed command reaches a terminal state | `profile_id`, `endpoint_id`, `command_id`, `trigger`, `status`, `total`, `changed_missing`, `changed_needs_repair`, `restored`, `error` |
+| `installation_validation_schedule_updated` | A profile changes its automatic-check interval or paused state | `profile_id`, `enabled`, `interval_minutes` |

@@ -22,7 +22,8 @@ The current development implementation includes:
 - heartbeat presence, endpoint/user metadata, explicit profile grants, and the
   ready/busy/offline/update-required/error UI mapping
 - allow-listed endpoint, `inventory.refresh`, `game.install_archive`,
-  `game.uninstall`, and `game.launch` commands with persisted
+  `game.uninstall`, `game.launch`, and read-only
+  `game.validate_installations` commands with persisted
   lifecycle/results, endpoint-bound result validation, and capability checks
 - bounded storage/runtime inventory reported at connection, every 15 minutes,
   and through the manual command using the same client collector
@@ -83,6 +84,12 @@ two-minute, process-local launch challenge. The web interface opens
 The installed per-user client rejects a server different from its paired
 server, signs the challenge with its endpoint key, and redeems it over HTTP or
 HTTPS, according to the server URL selected during pairing.
+Exact origin matching is retained for non-loopback hosts. `localhost`, IPv4
+loopback, and IPv6 loopback are equivalent only when both sides are loopback
+and the scheme, effective port, and path match.
+The configured origin may be a different LAN computer and may use plain HTTP.
+Implementations must not replace a LAN host with `localhost`; accepting HTTP is
+an intentional trusted-LAN mode, not a claim that the transport is secure.
 The server verifies both the signature and the profile's endpoint grant before
 revealing the endpoint ID to that browser flow. Live WebSocket state—not custom
 protocol invocation—then controls the top-bar status color.
@@ -224,17 +231,18 @@ reserves these typed families:
 | Inventory | `inventory.refresh`; bounded storage/runtime report | `Manage` |
 | Game | `game.launch` implemented; stop reserved | `Play` |
 | Game management | ZIP/7z/RAR archive install/uninstall implemented; repair and executable installers reserved | `Manage` |
+| Installation health | `game.validate_installations`; bounded exact-path verification with no mutation | `View` |
 | Emulator | install, uninstall, configure, validate | `Manage` |
 | Client | check update, apply update, restart | `Owner` |
 
 Each concrete command is independently allow-listed. A generic `shell`, `exec`,
 or unrestricted process-start command is forbidden.
 
-### Accepted next command family: GOG Inno Setup
+### Implemented command family: GOG Inno Setup
 
-ADR-0007 defines the next typed family; its foundation is committed in
-`1e59e51`, while the locked completion/cleanup revisions and packaged
-verification remain incomplete:
+ADR-0007 defines this typed family. Its foundation was committed in `1e59e51`;
+the completion/cleanup revisions and packaged verification were completed in
+checkpoint `c545108`:
 
 - `game.install_gog_inno`, schema 1, requires `Manage`;
 - `game.uninstall_gog_inno`, schema 1, requires `Manage`;
@@ -340,10 +348,7 @@ sensitive.
 5. Signed client update manifests, minimum-client-version policy, Authenticode,
    and restricted update/recovery mode.
 6. Whether non-authoritative physical-host display grouping is useful.
-7. A typed installation-reconciliation report/command for detecting managed
-   directories, manifests, or executables removed outside MGA. Connection-time,
-   periodic, and manual checks must share one client filesystem validation path;
-   the server retains history and distinguishes missing from needs-repair.
+7. Storefront-owned installation reconciliation for games not installed by MGA.
 
 ## Migration impact
 
@@ -377,6 +382,12 @@ the real development database and must not be edited.
 The locked failed-cleanup/Ignore revision requires additive migration 18 for
 cleanup marker/Ignore metadata and `device_installation_events`. See ADR-0007
 for exact columns, states, events, upgrade tests, and legacy no-marker behavior.
+
+Migration 19 records the explicit standard/elevated browser-launch policy from
+ADR-0009. Migration 20 adds reconciliation reason/details fields and extends
+installation audit events with Missing, Needs repair, and restored transitions.
+It preserves existing installation rows and events, including legacy rows with
+no cleanup marker. See [ADR-0011](0011-device-installation-reconciliation.md).
 
 The new client has no legacy installation state. Its initial persisted JSON is
 explicitly schema version 1; unknown future versions fail fast. No existing MGA

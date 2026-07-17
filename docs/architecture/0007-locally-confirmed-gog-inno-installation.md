@@ -517,8 +517,10 @@ Executable installations never use archive `RemoveAll` uninstall.
    remaining install directory as leftovers. MGA does not delete leftovers.
 6. Failure keeps the installation record and reports attention required.
 
-Manual uninstall outside MGA remains undetected until the separately planned
-installation-reconciliation slice is implemented.
+Manual uninstall outside MGA is detected by the separately implemented
+[ADR-0011](0011-device-installation-reconciliation.md) scheduled/manual
+validation path. Files and Add/Remove Programs evidence must agree; mismatches
+become Needs repair rather than a false Missing or Installed result.
 
 ### Prerequisite ownership
 
@@ -558,8 +560,9 @@ Application validation allow-lists:
 - install kinds: `managed_archive`, `gog_inno`;
 - states for this slice: `installed`, `attention_required`.
 
-The broader planned reconciliation states `missing` and `needs_repair` are
-reserved but not produced until that feature is implemented.
+Migration 20 and ADR-0011 produce the broader reconciliation states `missing`
+and `needs_repair` through the separate read-only validation command. Migration
+17 remains immutable.
 
 Existing migration-16 rows become `managed_archive` + `installed`, retain all
 paths/hashes/candidates, remain launchable, and remain uninstallable through the
@@ -691,7 +694,8 @@ Likely implementation surfaces include:
 - interactive installer wizards or custom arguments;
 - patches, DLC/add-ons, language packs, multiple EXEs, or ambiguous bundles;
 - standalone prerequisites or MGA prerequisite removal;
-- external-removal reconciliation, repair, update, or install queue;
+- repair, update, or install queue; external-removal detection is implemented
+  separately by ADR-0011 and does not broaden this installer command;
 - remote cancellation after native process start;
 - automatic retry/reconnect replay;
 - generic elevation helper/service/scheduled task;
@@ -801,7 +805,8 @@ The implementation agent must stop before changing this decision if:
   failure;
 - implementation restores/adds an MGA Client install confirmation or otherwise
   bypasses the authenticated web consent/signature/family boundary;
-- external-removal reconciliation becomes necessary to claim correctness;
+- reconciliation behavior beyond the locked ADR-0011 validation boundary is
+  needed;
 - protocol, migration, authorization, ownership, or player-policy behavior is
   needed beyond this packet;
 - real E2E would require changing credentials, disabling security checks, or

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -199,6 +200,53 @@ func TestMigrationsRejectChecksumMismatch(t *testing.T) {
 	}
 	if err := dbSvc.EnsureSchema(); err == nil {
 		t.Fatal("EnsureSchema() succeeded with checksum mismatch")
+	}
+}
+
+func TestMigration20PreservesEventsAndAddsVerificationDefaults(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.ensureSchemaMigrationsTable(); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range dbSvc.orderedMigrations() {
+		if migration.Version > 19 {
+			break
+		}
+		if err := dbSvc.runMigration(context.Background(), migration); err != nil {
+			t.Fatalf("run migration %d: %v", migration.Version, err)
+		}
+	}
+	now := time.Now().Unix()
+	for _, statement := range []string{
+		`INSERT INTO profiles (id, display_name, role, created_at, updated_at) VALUES ('profile-1','Player','admin_player',` + fmt.Sprint(now) + `,` + fmt.Sprint(now) + `)`,
+		`INSERT INTO canonical_games (id, created_at) VALUES ('game-1',` + fmt.Sprint(now) + `)`,
+		`INSERT INTO source_games (id, profile_id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, status, review_state, created_at) VALUES ('source-1','profile-1','i','p','e','Game','windows_pc','base_game','packed','found','matched',` + fmt.Sprint(now) + `)`,
+		`INSERT INTO device_endpoints (id, client_instance_id, public_key, display_name, host_name, os_user, platform, arch, execution_mode, client_version, protocol_version, capabilities_json, status, created_at, updated_at) VALUES ('endpoint-1','instance-1','key','PC','pc','user','windows','amd64','standard','dev',1,'[]','offline',` + fmt.Sprint(now) + `,` + fmt.Sprint(now) + `)`,
+		`INSERT INTO device_game_installations (endpoint_id, game_id, source_game_id, profile_id, install_root, install_path, archive_sha256, archive_bytes, installed_at, updated_at, install_kind, install_state) VALUES ('endpoint-1','game-1','source-1','profile-1','C:\Games','C:\Games\Game','hash',1,` + fmt.Sprint(now) + `,` + fmt.Sprint(now) + `,'managed_archive','installed')`,
+		`INSERT INTO device_installation_events (id, endpoint_id, game_id, source_game_id, actor_profile_id, event_type, reason, details_json, created_at) VALUES ('event-1','endpoint-1','game-1','source-1','profile-1','failure_ignored','old','{}',` + fmt.Sprint(now) + `)`,
+	} {
+		if _, err := dbSvc.GetDB().Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	var reason, details string
+	if err := dbSvc.GetDB().QueryRow(`SELECT COALESCE(verification_reason_code,''), verification_details_json FROM device_game_installations`).Scan(&reason, &details); err != nil || reason != "" || details != "{}" {
+		t.Fatalf("verification defaults = %q %q, error = %v", reason, details, err)
+	}
+	var preserved int
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM device_installation_events WHERE id='event-1' AND event_type='failure_ignored'`).Scan(&preserved); err != nil || preserved != 1 {
+		t.Fatalf("preserved events = %d, error = %v", preserved, err)
+	}
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO device_installation_events (id, endpoint_id, game_id, source_game_id, actor_profile_id, event_type, details_json, created_at) VALUES ('event-2','endpoint-1','game-1','source-1','profile-1','installation_missing','{}',?)`, now); err != nil {
+		t.Fatalf("new reconciliation event rejected: %v", err)
 	}
 }
 

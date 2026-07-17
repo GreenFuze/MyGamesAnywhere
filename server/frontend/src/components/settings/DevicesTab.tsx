@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Activity,
+  AlertTriangle,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clipboard,
@@ -14,6 +16,7 @@ import {
   Plus,
   Save,
   Send,
+  ShieldCheck,
   Trash2,
   UserRound,
 } from 'lucide-react'
@@ -24,23 +27,29 @@ import {
   getCredentialStatus,
   deleteDeviceGrant,
   getDeviceClientDownload,
+  getInstallationValidationStatus,
   listDeviceCommands,
   listDeviceGrants,
   listDevices,
   renameDevice,
   revokeDevice,
   setDeviceGrant,
+  setInstallationValidationSchedule,
+  validateDeviceInstallations,
   type DeviceAccessLevel,
   type DeviceEndpoint,
   type DevicePairingChallenge,
+  type InstallationValidationEndpointStatus,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { ActionMenu, type ActionMenuItem } from '@/components/ui/action-menu'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Tooltip } from '@/components/ui/tooltip'
+import { InstallationValidationScheduleCard } from '@/components/settings/InstallationValidationScheduleCard'
 import { useProfiles } from '@/hooks/useProfiles'
 import { cn } from '@/lib/utils'
+import { installationReasonLabel, validationStatusLabel } from '@/lib/installationValidation'
 
 const statePresentation = {
   ready: { label: 'Ready', dot: 'bg-emerald-400', text: 'text-emerald-300', border: 'border-emerald-500/30' },
@@ -59,6 +68,7 @@ function formatBytes(value: number): string {
 
 export function DevicesTab() {
   const { currentProfile } = useProfiles()
+  const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const selectedDeviceID = searchParams.get('device')?.trim() ?? ''
@@ -82,6 +92,16 @@ export function DevicesTab() {
     refetchInterval: 3000,
   })
   const downloadQuery = useQuery({ queryKey: ['device-client-download'], queryFn: getDeviceClientDownload })
+  const validationQuery = useQuery({
+    queryKey: ['installation-validation-schedule', currentProfile?.id],
+    queryFn: getInstallationValidationStatus,
+    enabled: authorized,
+    refetchInterval: 3000,
+  })
+  const saveValidationSchedule = useMutation({
+    mutationFn: setInstallationValidationSchedule,
+    onSuccess: (status) => queryClient.setQueryData(['installation-validation-schedule', currentProfile?.id], status),
+  })
 
   const createPairing = useMutation({
     mutationFn: createDevicePairingChallenge,
@@ -137,6 +157,14 @@ export function DevicesTab() {
 
       {pairing ? <PairingPanel pairing={pairing} onClose={() => setPairing(null)} /> : null}
 
+      <InstallationValidationScheduleCard
+        status={validationQuery.data}
+        loading={validationQuery.isLoading}
+        saving={saveValidationSchedule.isPending}
+        error={validationQuery.error instanceof Error ? validationQuery.error.message : saveValidationSchedule.error instanceof Error ? saveValidationSchedule.error.message : undefined}
+        onChange={(config) => saveValidationSchedule.mutate(config)}
+      />
+
       {devicesQuery.isLoading ? <PanelMessage text="Loading devices…" /> : null}
       {devicesQuery.error ? <ErrorText error={devicesQuery.error} /> : null}
       {devicesQuery.data?.length === 0 ? (
@@ -148,7 +176,12 @@ export function DevicesTab() {
       ) : null}
       <div className="grid gap-4 xl:grid-cols-2">
         {devicesQuery.data?.map((device) => (
-          <DeviceCard key={device.id} device={device} selectedByLink={device.id === selectedDeviceID} />
+          <DeviceCard
+            key={device.id}
+            device={device}
+            validationStatus={validationQuery.data?.devices.find((status) => status.endpoint_id === device.id)}
+            selectedByLink={device.id === selectedDeviceID}
+          />
         ))}
       </div>
     </div>
@@ -181,7 +214,7 @@ function PairingPanel({ pairing, onClose }: { pairing: DevicePairingChallenge; o
   )
 }
 
-function DeviceCard({ device, selectedByLink = false }: { device: DeviceEndpoint; selectedByLink?: boolean }) {
+function DeviceCard({ device, validationStatus, selectedByLink = false }: { device: DeviceEndpoint; validationStatus?: InstallationValidationEndpointStatus; selectedByLink?: boolean }) {
   const queryClient = useQueryClient()
   const cardRef = useRef<HTMLElement | null>(null)
   const state = statePresentation[device.status]
@@ -214,10 +247,22 @@ function DeviceCard({ device, selectedByLink = false }: { device: DeviceEndpoint
     mutationFn: () => revokeDevice(device.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['devices'] }),
   })
+  const validateInstallations = useMutation({
+    mutationFn: () => validateDeviceInstallations(device.id),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['device-commands', device.id] })
+      await queryClient.invalidateQueries({ queryKey: ['installation-validation-schedule'] })
+    },
+  })
   const latest = commandsQuery.data?.[0]
   const canManage = accessAllows(device.access_level, 'manage')
   const isOwner = device.access_level === 'owner'
   const deviceActions: ActionMenuItem[] = [
+    {
+      label: 'Check installed games',
+      onSelect: () => validateInstallations.mutate(),
+      disabled: device.status !== 'ready' || !device.capabilities.includes('game.validate_installations') || !validationStatus?.eligible_count || validateInstallations.isPending,
+    },
     {
       label: 'Scan storage and apps',
       onSelect: () => action.mutate('inventory.refresh'),
@@ -285,6 +330,33 @@ function DeviceCard({ device, selectedByLink = false }: { device: DeviceEndpoint
               <DeviceFact label="Game apps" value={device.inventory?.runtimes.length ? device.inventory.runtimes.map((runtime) => runtime.name).join(', ') : 'None found'} />
               <DeviceFact label="Installed by MGA" value={String(device.installations?.length ?? 0)} />
             </dl>
+			{device.installations?.length ? (
+			  <div className="mt-3 rounded-mga border border-mga-border bg-mga-bg/70 p-3">
+				<div className="flex flex-wrap items-center justify-between gap-2">
+				  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-mga-text"><ShieldCheck className="h-3.5 w-3.5" /> Installed games</span>
+				  <span className="text-[11px] text-mga-muted">{validationStatusLabel(validationStatus)}</span>
+				</div>
+				<div className="mt-2 space-y-2">
+				  {device.installations.map((installation) => {
+					const presentation = installationStatePresentation(installation.install_state)
+					const Icon = presentation.icon
+					return (
+					  <div key={`${installation.game_id}:${installation.source_game_id}`} className="flex items-start gap-2 rounded-mga bg-black/20 px-3 py-2">
+						<Icon className={cn('mt-0.5 h-4 w-4 shrink-0', presentation.color)} />
+						<div className="min-w-0 flex-1">
+						  <div className="flex flex-wrap items-center justify-between gap-2">
+							<span className="truncate text-xs font-semibold text-mga-text" title={installation.install_path}>{installationFolderName(installation.install_path)}</span>
+							<span className={cn('text-[10px] font-bold', presentation.color)}>{presentation.label}</span>
+						  </div>
+						  {installation.install_state !== 'installed' ? <p className="mt-1 text-[11px] text-mga-muted">{installationReasonLabel(installation.verification_reason_code || installation.state_reason)}</p> : null}
+						  {installation.last_verified_at ? <p className="mt-1 text-[10px] text-mga-muted">Checked {new Date(installation.last_verified_at).toLocaleString()}</p> : null}
+						</div>
+					  </div>
+					)
+				  })}
+				</div>
+			  </div>
+			) : null}
 			{device.inventory ? (
 			  <div className="mt-3 rounded-mga border border-mga-border bg-mga-bg/70 p-3">
 				<div className="flex items-center justify-between gap-3 text-xs text-mga-muted">
@@ -333,7 +405,7 @@ function DeviceCard({ device, selectedByLink = false }: { device: DeviceEndpoint
                 {latest.progress_percent !== undefined ? ` (${latest.progress_percent}%)` : ''}
               </div>
             ) : null}
-            {action.error || rename.error || revoke.error ? <ErrorText error={action.error || rename.error || revoke.error} /> : null}
+            {action.error || validateInstallations.error || rename.error || revoke.error ? <ErrorText error={action.error || validateInstallations.error || rename.error || revoke.error} /> : null}
             {isOwner ? <DeviceAccessPanel device={device} /> : null}
           </div>
         ) : null}
@@ -416,6 +488,19 @@ function accessAllows(granted: DeviceAccessLevel, required: DeviceAccessLevel): 
 
 function accessLevelLabel(level: DeviceAccessLevel): string {
   return level.charAt(0).toUpperCase() + level.slice(1)
+}
+
+function installationFolderName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) || path
+}
+
+function installationStatePresentation(state: string) {
+  switch (state) {
+    case 'installed': return { label: 'Ready', color: 'text-emerald-300', icon: CheckCircle2 }
+    case 'missing': return { label: 'Missing', color: 'text-red-300', icon: AlertTriangle }
+    case 'needs_repair': return { label: 'Needs repair', color: 'text-amber-300', icon: AlertTriangle }
+    default: return { label: 'Needs attention', color: 'text-amber-300', icon: AlertTriangle }
+  }
 }
 
 function DeviceFact({ label, value }: { label: string; value: string }) {

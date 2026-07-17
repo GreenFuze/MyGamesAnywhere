@@ -117,6 +117,8 @@ type GameInstallation struct {
 	CleanupMarkerID           string                        `json:"cleanup_marker_id,omitempty"`
 	CleanupIgnoredAt          *time.Time                    `json:"cleanup_ignored_at,omitempty"`
 	CleanupIgnoredByProfileID string                        `json:"cleanup_ignored_by_profile_id,omitempty"`
+	VerificationReasonCode    string                        `json:"verification_reason_code,omitempty"`
+	VerificationDetails       json.RawMessage               `json:"verification_details,omitempty"`
 }
 
 type InstallationEvent struct {
@@ -154,4 +156,5 @@ type Store interface {
 	ListInstallations(ctx context.Context, endpointID, profileID string) ([]GameInstallation, error)
 	UpdateInstallationLaunchTarget(ctx context.Context, endpointID, gameID, sourceGameID, profileID, launchTarget string, updatedAt time.Time) error
 	SetInstallationFailureState(ctx context.Context, endpointID, gameID, sourceGameID, profileID, state, reason, markerID string, ignoredAt *time.Time, ignoredByProfileID, eventType string, details json.RawMessage, updatedAt time.Time) error
+	GetCommand(ctx context.Context, endpointID, commandID string) (*Command, error)
 }

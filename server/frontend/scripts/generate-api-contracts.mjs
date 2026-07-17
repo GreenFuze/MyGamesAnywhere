@@ -17,6 +17,8 @@ for (const requiredPath of [
   "/api/games/{id}/favorite",
   "/api/duplicates/games",
   "/api/play/devices/{id}/installed-games",
+  "/api/devices/validation-schedule",
+  "/api/devices/{id}/validate-installations",
   "/api/stats/library",
   "/api/stats/gamer",
   "/api/review-candidates/redetect",

@@ -111,6 +111,9 @@ func (*launchTestStore) CompleteCommand(context.Context, string, devicev1.Comman
 func (*launchTestStore) ListCommands(context.Context, string, string, int) ([]Command, error) {
 	return nil, errors.New("unexpected call")
 }
+func (*launchTestStore) GetCommand(context.Context, string, string) (*Command, error) {
+	return nil, errors.New("unexpected call")
+}
 func (*launchTestStore) GetInventory(context.Context, string) (*devicev1.DeviceInventory, error) {
 	return nil, errors.New("unexpected call")
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/google/uuid"
 )
 
@@ -27,6 +28,7 @@ var (
 	ErrGrantNotFound        = errors.New("device grant not found")
 	ErrLastOwner            = errors.New("device endpoint must retain at least one owner")
 	ErrInstallationNotFound = errors.New("device game installation not found")
+	ErrNoInstallations      = errors.New("device has no MGA installations to check")
 )
 
 const pairingLifetime = 10 * time.Minute
@@ -36,7 +38,10 @@ type Service struct {
 	hub      *Hub
 	launches *ClientLaunchRegistry
 	now      func() time.Time
+	eventBus *events.EventBus
 }
+
+func (s *Service) SetEventBus(eventBus *events.EventBus) { s.eventBus = eventBus }
 
 func NewService(store Store, hub *Hub) (*Service, error) {
 	if store == nil {
@@ -355,6 +360,52 @@ func (s *Service) DispatchCommand(ctx context.Context, endpointID, profileID, na
 	return command, nil
 }
 
+func (s *Service) DispatchInstallationValidation(ctx context.Context, endpointID, profileID, trigger string) (*Command, error) {
+	installations, err := s.store.ListInstallations(ctx, endpointID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	request := devicev1.InstallationValidationRequest{Trigger: strings.TrimSpace(trigger)}
+	for _, installation := range installations {
+		switch installation.InstallState {
+		case devicev1.InstallStateInstalled, devicev1.InstallStateMissing, devicev1.InstallStateNeedsRepair:
+		default:
+			continue
+		}
+		request.Items = append(request.Items, devicev1.InstallationValidationRequestItem{
+			GameID: installation.GameID, SourceGameID: installation.SourceGameID,
+			InstallKind: installation.InstallKind, InstallRoot: installation.InstallRoot,
+			InstallPath: installation.InstallPath, LaunchTarget: installation.LaunchTarget,
+			UninstallTarget: installation.UninstallTarget,
+		})
+	}
+	if len(request.Items) == 0 {
+		return nil, ErrNoInstallations
+	}
+	if err := request.Validate(); err != nil {
+		return nil, err
+	}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	return s.DispatchCommand(ctx, endpointID, profileID, devicev1.CapabilityGameValidateInstallations, payload)
+}
+
+func (s *Service) GetCommand(ctx context.Context, endpointID, profileID, commandID string) (*Command, error) {
+	if err := s.requireAccess(ctx, endpointID, profileID, devicev1.AccessView); err != nil {
+		return nil, err
+	}
+	command, err := s.store.GetCommand(ctx, endpointID, commandID)
+	if err != nil {
+		return nil, err
+	}
+	if command.ProfileID != profileID {
+		return nil, ErrCommandNotFound
+	}
+	return command, nil
+}
+
 func commandPayloadForAudit(name string, payload json.RawMessage) (json.RawMessage, error) {
 	switch name {
 	case devicev1.CapabilityGameInstallArchive:
@@ -383,7 +434,37 @@ func (s *Service) RecordCommandResult(ctx context.Context, endpointID string, re
 	if err := result.Validate(); err != nil {
 		return err
 	}
-	return s.store.CompleteCommand(ctx, endpointID, result, s.now())
+	if err := s.store.CompleteCommand(ctx, endpointID, result, s.now()); err != nil {
+		return err
+	}
+	command, err := s.store.GetCommand(ctx, endpointID, result.CommandID)
+	if err != nil || command.Name != devicev1.CapabilityGameValidateInstallations {
+		return err
+	}
+	payload := map[string]any{
+		"profile_id": command.ProfileID, "endpoint_id": endpointID, "command_id": command.ID,
+		"status": command.Status, "error": command.ErrorMessage,
+	}
+	var request devicev1.InstallationValidationRequest
+	if err := json.Unmarshal(command.Payload, &request); err != nil {
+		return fmt.Errorf("decode stored installation validation command: %w", err)
+	}
+	payload["trigger"] = request.Trigger
+	payload["total"] = len(request.Items)
+	if command.Status == devicev1.CommandSucceeded {
+		var validation devicev1.InstallationValidationResult
+		if err := json.Unmarshal(command.Result, &validation); err != nil {
+			return fmt.Errorf("decode stored installation validation result: %w", err)
+		}
+		payload["installed"] = validation.Installed
+		payload["missing"] = validation.Missing
+		payload["needs_repair"] = validation.NeedsRepair
+		payload["changed_missing"] = validation.ChangedMissing
+		payload["changed_needs_repair"] = validation.ChangedNeedsRepair
+		payload["restored"] = validation.Restored
+	}
+	events.PublishJSON(s.eventBus, "installation_validation_finished", payload)
+	return nil
 }
 
 func (s *Service) RecordCommandStatus(ctx context.Context, endpointID, commandID string, status devicev1.CommandStatus) error {
@@ -540,6 +621,8 @@ func requiredAccessForCommand(name string) (devicev1.AccessLevel, error) {
 		return devicev1.AccessManage, nil
 	case devicev1.CapabilityInventoryRefresh:
 		return devicev1.AccessManage, nil
+	case devicev1.CapabilityGameValidateInstallations:
+		return devicev1.AccessView, nil
 	case devicev1.CapabilityGameLaunch:
 		return devicev1.AccessPlay, nil
 	case devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameUninstall,
@@ -560,6 +643,13 @@ func validateCommandPayload(name string, payload json.RawMessage) error {
 		if err := json.Unmarshal(payload, &values); err != nil || len(values) != 0 {
 			return errors.New("inventory.refresh payload must be an empty object")
 		}
+	}
+	if name == devicev1.CapabilityGameValidateInstallations {
+		var request devicev1.InstallationValidationRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode installation validation payload: %w", err)
+		}
+		return request.Validate()
 	}
 	if name == devicev1.CapabilityGameInstallArchive {
 		var request devicev1.ArchiveInstallRequest

@@ -38,6 +38,7 @@ type DeviceController struct {
 	integrationRepo     core.IntegrationRepository
 	googleDriveRoot     string
 	archiveTransfers    *archiveTransferRegistry
+	validation          *InstallationValidationService
 }
 
 func NewDeviceController(service *devices.Service, hub *devices.Hub, logger core.Logger, clientInstallerPath ...string) (*DeviceController, error) {

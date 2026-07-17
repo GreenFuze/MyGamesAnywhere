@@ -31,6 +31,25 @@ handler re-launches itself with `runas` before redeeming an elevated challenge;
 therefore a UAC cancellation leaves the challenge unacknowledged and no agent
 runs. Existing callers that omit a mode mean `standard`.
 
+The launch URL must match the paired server origin. Host comparison is exact
+for every non-loopback server. For a server that is local on both sides,
+`localhost`, an IPv4 loopback literal, and an IPv6 loopback literal are treated
+as the same host only when scheme, effective port, and path also match. This
+allows a browser opened through `127.0.0.1` to wake a client originally paired
+through `localhost` without accepting a LAN/DNS host substitution.
+The paired origin may use plain HTTP and may identify another LAN computer;
+neither client launch nor elevation assumes that MGA Server is local. HTTP is
+an explicitly accepted trusted-LAN deployment tradeoff and provides no
+transport confidentiality or integrity on an untrusted network.
+
+The server prepares the short-lived launch challenge while the disconnected
+client menu is open. The visible standard/elevated actions are direct
+`mga://start` links, so Windows receives the custom-protocol activation from
+the player's actual click. Creating a challenge asynchronously and navigating
+to the custom protocol only after that request returns is forbidden because
+browsers may discard the user-activation context and silently block the local
+handler. Unanswered attempts expose an explicit retry with a new challenge.
+
 ## Persistence and compatibility
 
 Migration 19 adds `device_endpoints.execution_mode TEXT NOT NULL DEFAULT
@@ -39,6 +58,10 @@ until their next connection. Client pairing identity and config remain
 unchanged. The installer removes the old per-user `Run` auto-start value during
 upgrade; this is an installer-owned registry cleanup, not a client config or
 database migration.
+
+`NO_MIGRATION_NEEDED` for loopback-origin canonicalization: it changes only
+runtime comparison of the short-lived launch URL. Stored pairing identity,
+server URL, endpoint key, client config schema, and database rows are unchanged.
 
 ## Failure behavior
 
