@@ -1021,3 +1021,98 @@ the resulting design persists new state.
   It runs v0.2.3 at commit `6ef4b21`, HTTP 200, schema 24. The installed v0.2.2
   MGA Client remains protocol-compatible and reconnected Ready in standard
   mode; it was not silently replaced by the server release.
+
+## ADR-0017 route-level Save Domains — 17 July 2026
+
+This is the current authoritative continuation after the v0.2.3 checkpoint.
+The complete decision is recorded in `docs/architecture/0017-route-save-domains.md`.
+
+Implemented architecture and behavior:
+
+- save capability is attached to a play route or owned copy, never inferred
+  from a canonical title alone;
+- the typed read model now distinguishes `mga_managed`, `local_files`,
+  `provider_api`, `provider_opaque`, `unsupported`, and `unknown` access, plus
+  explicit status, manager, MGA read/write ability, and transfer policy;
+- actual launchable browser-play routes expose an MGA-managed backup domain.
+  A non-launchable browser placeholder exposes no save capability;
+- local source copies, installations, and emulator routes expose local-file
+  boundaries and remain `needs_adapter` until MGA has a verified adapter;
+- Steam, Xbox, xCloud, and Epic boundaries are provider-managed/opaque. The UI
+  uses conditional language and does not claim that a provider cloud save
+  exists or that MGA can read or replace it;
+- distinct routes remain distinct domains. MGA must not copy between a
+  storefront, local native game, browser play, or emulator merely because the
+  displayed title matches. A future compatibility or conversion adapter must
+  establish that relationship explicitly;
+- cards now show compact, accessible save-state badges. Game details include a
+  Saves section describing every available route/copy separately;
+- Settings > Connections renames the old save migration action to **Move MGA
+  Save Backups** and states that it moves only MGA browser-save backups, not
+  Steam, Xbox, or other storefront saves;
+- existing browser-save snapshot concurrency and storage behavior remain
+  unchanged.
+
+Persistence:
+
+`NO_MIGRATION_NEEDED`: ADR-0017 adds a derived server read model, API fields,
+and UI presentation only. It does not persist a domain, adapter, mapping,
+converter, or user choice and does not change existing SQLite or JSON/config
+data. The real schema remains 24. Migrations 22, 23, and 24 are immutable;
+migration 25 remains reserved for the first later persisted Save Domain change.
+
+Fresh verification after the final edge-case correction:
+
+```text
+protocol: go test ./...                              PASS
+client:   go test ./...                              PASS
+server:   go test ./...                              PASS
+plugins:  go test ./... in all 7 standalone modules PASS
+frontend: npm run generate:api-contracts             PASS
+frontend: npm run test:unit                          PASS (10 tests)
+frontend: npm run build                              PASS
+quality:  gofmt + git diff --check                   PASS
+security: govulncheck                                NOT RUN (tool unavailable)
+```
+
+Packaged real E2E:
+
+1. The production Play page showed 74 currently playable games. Browser-play
+   cards displayed `MGA save backup available`, xCloud cards displayed
+   `Provider-managed saves`, and local copies without an adapter displayed
+   `Local saves need setup`.
+2. `Castlevania: Aria of Sorrow` displayed three independent save domains: its
+   Google Drive copy requires a verified local adapter, launchable Browser play
+   has an MGA backup available, and the RetroArch route requires a verified
+   emulator adapter.
+3. `A Little to the Left` displayed only the Xbox copy and Xbox Cloud Gaming
+   provider-managed domains. Its non-launchable browser placeholder was absent.
+   The real API also returned `has_save=false` for that placeholder and
+   `provider_opaque` for xCloud and the Xbox source.
+4. After rebuilding and restarting the packaged server, the installed MGA
+   Client reconnected Ready. The browser console contained no warnings or
+   errors. The production page is left open on the Castlevania Saves section
+   for review.
+
+Current runtime and preservation state:
+
+- packaged server PID `3384`, exact `server\bin\mga_server.exe`, portable,
+  HTTP 200 at `http://127.0.0.1:8900`, SHA-256
+  `0737B3EBBBC0021A0AF30F74A2443DC6AE6C4FF0C72ACD3BE3C389BD94578A65`;
+- installed standard MGA Client PID `50760`, exact per-user installed agent,
+  SHA-256
+  `3E245D0E4360AA4E1852E0895A229C3D34A1C02791DAD2C789245901D1F33C27`;
+- schema 24, credentials, `C:\Games`, `%USERPROFILE%\Games`, Plasma Pong, and
+  the legacy Duke attention row/tree remain preserved. The server was started
+  with `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive`;
+- no install, uninstall, cleanup, emulator setup, save copy, or save deletion
+  command was run during ADR-0017 verification;
+- all ADR-0017 changes remain intentionally uncommitted on `main`. Do not
+  reset, clean, revert, overwrite, or discard them.
+
+Next bounded task: define and implement the verified local-save adapter
+contract, then add the first concrete emulator adapters (RetroArch and
+ScummVM) without weakening route identity. Record the next ADR first. If it
+persists adapter discovery, route bindings, compatibility, converters, user
+overrides, or sync state, add migration 25 rather than editing migrations
+22-24. Provider APIs and cross-route conversion remain later, separate work.

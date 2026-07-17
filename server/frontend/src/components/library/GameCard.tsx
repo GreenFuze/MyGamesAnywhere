@@ -1,5 +1,5 @@
 import { launchEmulatorGameOnDevice, type GameDetailResponse } from '@/api/client'
-import { ChevronDown, Info, Play, Trophy } from 'lucide-react'
+import { ChevronDown, Info, Play, Save, Trophy } from 'lucide-react'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { GameContextMenu } from '@/components/library/GameContextMenu'
 import { BrandIcon } from '@/components/ui/brand-icon'
@@ -26,6 +26,7 @@ import {
 } from '@/lib/gameCardActions'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
+import { collectSaveDomains, saveDomainSummary } from '@/lib/saveDomains'
 
 export type { GameCardPlayRoute, GameCardPrimaryAction } from '@/lib/gameCardActions'
 
@@ -262,6 +263,7 @@ export function GameCard({
   const achievementLabel = game.achievement_summary && game.achievement_summary.total_count > 0
     ? `${game.achievement_summary.unlocked_count} of ${game.achievement_summary.total_count} achievements`
     : null
+	const saveSummary = saveDomainSummary(collectSaveDomains(game))
 
   const routeState = useMemo(
     () => buildGameRouteState(location.pathname, location.search),
@@ -543,6 +545,11 @@ export function GameCard({
           <Trophy size={13} />
         </IconBadge>
       ) : null}
+	  {saveSummary ? (
+		<IconBadge label={saveSummary}>
+		  <Save size={13} />
+		</IconBadge>
+	  ) : null}
       {sourceIntegrations.slice(0, 2).map((source) => (
         <IconBadge key={source.key} label={source.label}>
           <BrandIcon brand={source.pluginId} className="h-3.5 w-3.5" />
@@ -746,6 +753,11 @@ export function GameCard({
                     <Trophy size={13} />
                   </IconBadge>
                 ) : null}
+				{saveSummary ? (
+				  <IconBadge label={saveSummary}>
+					<Save size={13} />
+				  </IconBadge>
+				) : null}
                 {sourceIntegrations[0] ? (
                   <IconBadge label={sourceIntegrations[0].label}>
                     <BrandIcon brand={sourceIntegrations[0].pluginId} className="h-3.5 w-3.5" />

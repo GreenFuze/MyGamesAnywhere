@@ -39,7 +39,7 @@ func TestAttachDeviceAvailabilityUsesInventoryAndRuntimeFacts(t *testing.T) {
 		emulation: availabilityEmulationProvider{configurations: map[string]emulation.DeviceConfiguration{
 			"device-ready": {EndpointID: "device-ready", Platforms: []emulation.PlatformConfiguration{{
 				Platform: core.PlatformGenesis, ResolvedDefault: "retroarch",
-				Emulators: []emulation.Option{{Emulator: emulation.Emulator{ID: "retroarch", Name: "RetroArch"}, Detected: true, State: "needs_setup", Reason: "Choose a core"}},
+				Emulators: []emulation.Option{{Emulator: emulation.Emulator{ID: "retroarch", Name: "RetroArch"}, Detected: true, State: "needs_setup", Reason: "Choose a core", ResolvedCore: "genesis_plus_gx"}},
 			}}},
 		}},
 		deviceLister: availabilityDeviceLister{endpoints: []devices.Endpoint{
@@ -66,6 +66,9 @@ func TestAttachDeviceAvailabilityUsesInventoryAndRuntimeFacts(t *testing.T) {
 	if ready.Status != "needs_setup" || len(ready.EmulatorRoutes) != 1 || ready.EmulatorRoutes[0].EmulatorID != "retroarch" || ready.FreeBytes != 40 || !ready.CanManage {
 		t.Fatalf("ready device = %#v", ready)
 	}
+	if ready.EmulatorRoutes[0].CoreID != "genesis_plus_gx" || ready.EmulatorRoutes[0].Save == nil || ready.EmulatorRoutes[0].Save.Access != "local_files" {
+		t.Fatalf("emulator save route = %#v", ready.EmulatorRoutes[0])
+	}
 	if response.Devices[1].Status != "offline" || response.Devices[1].CanManage {
 		t.Fatalf("offline device = %#v", response.Devices[1])
 	}
@@ -87,7 +90,7 @@ func TestAttachDeviceAvailabilityMapsFailedCleanupStateAndCapability(t *testing.
 	}
 	response := GameDetailResponse{}
 	controller.attachDeviceAvailability(core.WithProfile(context.Background(), &core.Profile{ID: "profile-1"}), &response,
-		&core.CanonicalGame{ID: "game-1", Platform: core.PlatformWindowsPC})
+		&core.CanonicalGame{ID: "game-1", Platform: core.PlatformWindowsPC, SourceGames: []*core.SourceGame{{ID: "source-1", PluginID: "game-source-steam"}}})
 	if len(response.Devices) != 1 {
 		t.Fatalf("devices = %#v", response.Devices)
 	}
@@ -95,5 +98,8 @@ func TestAttachDeviceAvailabilityMapsFailedCleanupStateAndCapability(t *testing.
 	if !device.Installed || device.Status != devicev1.InstallStateIgnoredFailure || device.InstallState != devicev1.InstallStateIgnoredFailure ||
 		!device.FailedCleanupSupported || device.CleanupMarkerID != "marker" || device.CleanupIgnoredAt == "" {
 		t.Fatalf("failed device availability = %#v", device)
+	}
+	if device.InstalledSave == nil || device.InstalledSave.Access != "provider_opaque" || device.InstalledSave.MGARead || device.InstalledSave.MGAWrite {
+		t.Fatalf("installed Steam save capability = %#v", device.InstalledSave)
 	}
 }

@@ -13,6 +13,7 @@ import {
   Monitor,
   MoreHorizontal,
   PlayCircle,
+	Save,
   Trophy,
   Trash2,
   Video,
@@ -90,6 +91,7 @@ import { GameMediaCollection, mediaOriginalUrl, mediaUrl, youtubeEmbedUrl, youtu
 import { buildFeaturedMediaRail, mergeDisplayMedia } from '@/lib/gameMediaDisplay'
 import { evaluateBackgroundSuitability } from '@/lib/backgroundSuitability'
 import { cn } from '@/lib/utils'
+import { collectSaveDomains, saveDomainStatusLabel } from '@/lib/saveDomains'
 
 type MetadataField =
   | 'title'
@@ -1659,6 +1661,7 @@ export function GameDetailPage() {
   const browserPlayIssue = browserPlayResolution?.issue ?? null
   const browserPlayRuntime = browserPlayResolution?.runtime ?? null
   const sources = gameData ? selectSourcePlugins(gameData) : []
+	const saveDomains = useMemo(() => gameData ? collectSaveDomains(gameData) : [], [gameData])
   const resolverCount = gameData
     ? gameData.source_games.reduce(
         (total, sourceGame) => total + sourceGame.resolver_matches.length,
@@ -2259,6 +2262,7 @@ export function GameDetailPage() {
               <HeroTabLink href="#howlongtobeat" label="HowLongToBeat" />
             ) : null}
             {achievementSets.length > 0 ? <HeroTabLink href="#achievements" label="Achievements" /> : null}
+			{saveDomains.length > 0 ? <HeroTabLink href="#saves" label="Saves" /> : null}
             <HeroTabLink href="#source-records" label="Sources" />
             {externalLinks.length > 0 ? <HeroTabLink href="#external-links" label="Links" /> : null}
           </div>
@@ -2530,6 +2534,32 @@ export function GameDetailPage() {
             </div>
           </SectionCard>
         ) : null}
+
+		{saveDomains.length > 0 ? (
+		  <SectionCard
+			id="saves"
+			title="Saves"
+			icon={<Save size={18} className="text-mga-accent" />}
+			description="Save handling depends on how and where you play. MGA only connects versions that are proven compatible."
+		  >
+			<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+			  {saveDomains.map((domain) => (
+				<div key={domain.domain_id} className="rounded-[18px] border border-white/[0.06] bg-black/10 p-4">
+				  <div className="flex items-start justify-between gap-3">
+					<div className="min-w-0">
+					  <p className="text-sm font-semibold text-white">{domain.label}</p>
+					  {domain.context ? <p className="mt-0.5 truncate text-xs text-white/45">{domain.context}</p> : null}
+					</div>
+					<Badge variant={domain.status === 'available' ? 'playable' : domain.status === 'provider_managed' ? 'default' : 'muted'}>
+					  {saveDomainStatusLabel(domain)}
+					</Badge>
+				  </div>
+				  <p className="mt-3 text-xs leading-5 text-white/58">{domain.detail}</p>
+				</div>
+			  ))}
+			</div>
+		  </SectionCard>
+		) : null}
 
         <SectionCard
           id="achievements"

@@ -3184,7 +3184,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
                 }
               />
               <p className="text-xs text-mga-muted">
-                {saveSyncMigration.slots_migrated} migrated,{" "}
+                {saveSyncMigration.slots_migrated} moved,{" "}
                 {saveSyncMigration.slots_skipped} skipped
               </p>
             </div>
@@ -3257,7 +3257,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
                     disabled={saveSyncIntegrations.length < 2}
                     className="text-xs"
                   >
-                    Migrate Saves
+                    Move Backups
                   </Button>
                 ) : undefined
               }
@@ -3324,13 +3324,18 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
         <Dialog
           open={migrationDialogOpen}
           onClose={() => setMigrationDialogOpen(false)}
-          title="Migrate Save Sync Data"
+          title="Move MGA Save Backups"
         >
           <div className="space-y-4">
+            <p className="text-sm leading-6 text-mga-text-muted">
+              This moves MGA&apos;s browser-save backups between storage
+              connections. It does not copy or replace Steam, Xbox, or other
+              storefront saves.
+            </p>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-1">
                 <label className="text-sm font-medium text-mga-text">
-                  Source Integration
+                  From
                 </label>
                 <select
                   value={migrationSourceId}
@@ -3346,7 +3351,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium text-mga-text">
-                  Target Integration
+                  To
                 </label>
                 <select
                   value={migrationTargetId}
@@ -3371,7 +3376,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
                   size="sm"
                   onClick={() => setMigrationScope("all")}
                 >
-                  Entire Library
+                  All games
                 </Button>
                 <Button
                   type="button"
@@ -3379,19 +3384,19 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
                   size="sm"
                   onClick={() => setMigrationScope("game")}
                 >
-                  One Canonical Game
+                  One game
                 </Button>
               </div>
             </div>
 
             {migrationScope === "game" && (
               <Input
-                label="Canonical Game ID"
+                label="Game ID"
                 value={migrationCanonicalGameId}
                 onChange={(event) =>
                   setMigrationCanonicalGameId(event.target.value)
                 }
-                placeholder="Enter the canonical game ID to migrate"
+                placeholder="Enter a game ID"
               />
             )}
 
@@ -3403,7 +3408,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
                   setMigrationDeleteSource(event.target.checked)
                 }
               />
-              Delete source copies after a successful migration
+              Delete the old backups after they move successfully
             </label>
 
             <div className="flex justify-end gap-3 pt-2">
@@ -3419,7 +3424,7 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
                 onClick={handleStartMigration}
                 disabled={migrationStarting}
               >
-                {migrationStarting ? "Starting..." : "Start Migration"}
+                {migrationStarting ? "Starting..." : "Move Backups"}
               </Button>
             </div>
           </div>

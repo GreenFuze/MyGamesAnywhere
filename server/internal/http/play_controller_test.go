@@ -102,6 +102,9 @@ func TestCanonicalToGameDetailIncludesPlayMetadataAndFileIDs(t *testing.T) {
 	if len(detail.Play.Options) != 1 || detail.Play.Options[0].Kind != "browser" || detail.Play.Options[0].SourceGameID != "source-1" {
 		t.Fatalf("expected browser launch option for source-1, got %+v", detail.Play.Options)
 	}
+	if detail.Play.Options[0].Save == nil || detail.Play.Options[0].Save.Access != "mga_managed" || !detail.Play.Options[0].Save.MGAWrite {
+		t.Fatalf("browser save capability = %+v", detail.Play.Options[0].Save)
+	}
 	if detail.Play.LaunchCandidates[0].FileID != detail.SourceGames[0].Play.RootFileID {
 		t.Fatalf("launch candidate/root mismatch: %+v vs %+v", detail.Play.LaunchCandidates[0], detail.SourceGames[0].Play)
 	}
@@ -152,6 +155,9 @@ func TestCanonicalToGameDetailIncludesSourceBackedXcloudOptions(t *testing.T) {
 	}
 	if xcloudOptions[0].IntegrationLabel != "Xbox" || xcloudOptions[0].SourceTitle != "FINAL FANTASY" {
 		t.Fatalf("xcloud source context = %+v, want Xbox FINAL FANTASY", xcloudOptions[0])
+	}
+	if detail.SourceGames[0].Save == nil || detail.SourceGames[0].Save.Access != "provider_opaque" || xcloudOptions[0].Save == nil || xcloudOptions[0].Save.Access != "provider_opaque" {
+		t.Fatalf("Xbox save capabilities = source %+v, xCloud %+v", detail.SourceGames[0].Save, xcloudOptions[0].Save)
 	}
 }
 
@@ -224,6 +230,9 @@ func TestCanonicalToGameDetailExcludesNonStreamableBrowserPlaySource(t *testing.
 	}
 	if detail.SourceGames[0].Play == nil || detail.SourceGames[0].Play.Launchable {
 		t.Fatalf("expected source to be marked non-launchable, got %+v", detail.SourceGames[0].Play)
+	}
+	if len(detail.Play.Options) != 1 || detail.Play.Options[0].Save != nil {
+		t.Fatalf("non-launchable browser placeholder must not advertise save backup: %+v", detail.Play.Options)
 	}
 }
 

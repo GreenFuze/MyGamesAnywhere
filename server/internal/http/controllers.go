@@ -19,6 +19,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/emulation"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/savedomain"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 	"github.com/go-chi/chi/v5"
@@ -87,6 +88,7 @@ type GameController struct {
 	deviceLister        DeviceEndpointLister
 	emulation           EmulatorConfigurationProvider
 	emulatorContentRoot string
+	saveDomains         *savedomain.Resolver
 	logger              core.Logger
 }
 
@@ -211,7 +213,7 @@ func NewGameController(gameStore core.GameStore, refreshSvc core.GameMetadataRef
 	} else if inferred, ok := any(gameStore).(core.StatsService); ok {
 		svc = inferred
 	}
-	return &GameController{gameStore: gameStore, statsSvc: svc, refreshSvc: refreshSvc, deleteSvc: deleteSvc, integrationRepo: integrationRepo, cacheSvc: cacheSvc, logger: logger}
+	return &GameController{gameStore: gameStore, statsSvc: svc, refreshSvc: refreshSvc, deleteSvc: deleteSvc, integrationRepo: integrationRepo, cacheSvc: cacheSvc, saveDomains: savedomain.NewResolver(), logger: logger}
 }
 
 func (c *GameController) SetCanonicalGroupingService(groupingSvc core.CanonicalGroupingService) {

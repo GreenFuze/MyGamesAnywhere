@@ -144,6 +144,18 @@ export type GameLaunchCandidateDTO = {
   size: number;
 };
 
+export type SaveDomainCapability = {
+  domain_id: string;
+  access: "mga_managed" | "local_files" | "provider_api" | "provider_opaque" | "unsupported" | "unknown" | string;
+  status: "available" | "provider_managed" | "needs_adapter" | "unsupported" | "unknown" | string;
+  manager: "mga" | "device" | "provider" | "unknown" | string;
+  label: string;
+  detail: string;
+  mga_read: boolean;
+  mga_write: boolean;
+  transfer: "same_domain_only" | "converter_required" | "unavailable" | "unknown" | string;
+};
+
 export type GameLaunchOptionDTO = {
   kind: "browser" | "xcloud" | string;
   source_game_id: string;
@@ -160,6 +172,7 @@ export type GameLaunchOptionDTO = {
   size?: number;
   profile?: string;
   url?: string;
+  save?: SaveDomainCapability;
 };
 
 export type GamePlayDTO = {
@@ -287,6 +300,7 @@ export type SourceGameDetailDTO = {
   delivery?: SourceDeliveryDTO;
   play?: SourceGamePlayDTO;
   hard_delete?: SourceGameHardDeleteDTO;
+  save?: SaveDomainCapability;
   resolver_matches: ResolverMatchDTO[];
 };
 

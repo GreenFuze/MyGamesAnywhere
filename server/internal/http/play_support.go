@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/savedomain"
 )
 
 type GamePlayDTO struct {
@@ -19,21 +20,22 @@ type GamePlayDTO struct {
 }
 
 type GameLaunchOptionDTO struct {
-	Kind             string `json:"kind"`
-	SourceGameID     string `json:"source_game_id"`
-	SourceTitle      string `json:"source_title,omitempty"`
-	Platform         string `json:"platform,omitempty"`
-	PluginID         string `json:"plugin_id,omitempty"`
-	IntegrationID    string `json:"integration_id,omitempty"`
-	IntegrationLabel string `json:"integration_label,omitempty"`
-	Launchable       bool   `json:"launchable"`
-	FileID           string `json:"file_id,omitempty"`
-	RootFileID       string `json:"root_file_id,omitempty"`
-	Path             string `json:"path,omitempty"`
-	FileKind         string `json:"file_kind,omitempty"`
-	Size             int64  `json:"size,omitempty"`
-	Profile          string `json:"profile,omitempty"`
-	URL              string `json:"url,omitempty"`
+	Kind             string                 `json:"kind"`
+	SourceGameID     string                 `json:"source_game_id"`
+	SourceTitle      string                 `json:"source_title,omitempty"`
+	Platform         string                 `json:"platform,omitempty"`
+	PluginID         string                 `json:"plugin_id,omitempty"`
+	IntegrationID    string                 `json:"integration_id,omitempty"`
+	IntegrationLabel string                 `json:"integration_label,omitempty"`
+	Launchable       bool                   `json:"launchable"`
+	FileID           string                 `json:"file_id,omitempty"`
+	RootFileID       string                 `json:"root_file_id,omitempty"`
+	Path             string                 `json:"path,omitempty"`
+	FileKind         string                 `json:"file_kind,omitempty"`
+	Size             int64                  `json:"size,omitempty"`
+	Profile          string                 `json:"profile,omitempty"`
+	URL              string                 `json:"url,omitempty"`
+	Save             *savedomain.Capability `json:"save,omitempty"`
 }
 
 type GameLaunchSourceDTO struct {

@@ -30,6 +30,7 @@ import type {
   ScanJobStatus,
   ScanReport,
   SourceGamePlayDTO,
+	SaveDomainCapability,
 } from "@/api/generated/contracts";
 
 export type {
@@ -79,6 +80,7 @@ export type {
   SaveSyncSlotSummary,
   SaveSyncSnapshot,
   SaveSyncSnapshotFile,
+	SaveDomainCapability,
   ScanIntegrationResult,
   ScanJobIntegrationStatus,
   ScanJobMetadataProviderStatus,
@@ -890,6 +892,7 @@ export type SourceGameDetailDTO = {
   files: GameFileDTO[];
   delivery?: SourceDeliveryDTO;
   play?: SourceGamePlayDTO;
+	save?: SaveDomainCapability;
   hard_delete?: {
     eligible: boolean;
     reason?: string;
@@ -986,6 +989,7 @@ export type GameDeviceAvailabilityDTO = {
   inventory_captured_at?: string;
   installed: boolean;
   installed_source_id?: string;
+	installed_save?: SaveDomainCapability;
   install_path?: string;
   archive_install_supported: boolean;
   gog_inno_install_supported: boolean;
@@ -1004,11 +1008,13 @@ export type GameDeviceAvailabilityDTO = {
 export type GameEmulatorRouteDTO = {
   emulator_id: string;
   emulator_name: string;
+	core_id?: string;
   source_game_id: string;
   source_title: string;
   state: "ready" | "needs_setup" | "unavailable" | "unknown" | string;
   reason?: string;
   default: boolean;
+	save?: SaveDomainCapability;
 };
 
 export type AchievementDTO = {

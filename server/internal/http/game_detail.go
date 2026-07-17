@@ -10,6 +10,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/devices"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/emulation"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/savedomain"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcegames"
 )
 
@@ -66,13 +67,15 @@ type deviceAvailabilityFacts struct {
 }
 
 type GameEmulatorRouteDTO struct {
-	EmulatorID   string `json:"emulator_id"`
-	EmulatorName string `json:"emulator_name"`
-	SourceGameID string `json:"source_game_id"`
-	SourceTitle  string `json:"source_title"`
-	State        string `json:"state"`
-	Reason       string `json:"reason,omitempty"`
-	Default      bool   `json:"default"`
+	EmulatorID   string                 `json:"emulator_id"`
+	EmulatorName string                 `json:"emulator_name"`
+	CoreID       string                 `json:"core_id,omitempty"`
+	SourceGameID string                 `json:"source_game_id"`
+	SourceTitle  string                 `json:"source_title"`
+	State        string                 `json:"state"`
+	Reason       string                 `json:"reason,omitempty"`
+	Default      bool                   `json:"default"`
+	Save         *savedomain.Capability `json:"save,omitempty"`
 }
 
 type GameDeviceAvailabilityDTO struct {
@@ -90,6 +93,7 @@ type GameDeviceAvailabilityDTO struct {
 	InventoryCapturedAt     string                 `json:"inventory_captured_at,omitempty"`
 	Installed               bool                   `json:"installed"`
 	InstalledSourceID       string                 `json:"installed_source_id,omitempty"`
+	InstalledSave           *savedomain.Capability `json:"installed_save,omitempty"`
 	InstallPath             string                 `json:"install_path,omitempty"`
 	ArchiveInstallSupported bool                   `json:"archive_install_supported"`
 	GogInnoInstallSupported bool                   `json:"gog_inno_install_supported"`
@@ -177,6 +181,10 @@ func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailR
 			if installation.GameID == game.ID {
 				item.Installed = true
 				item.InstalledSourceID = installation.SourceGameID
+				if source := saveDomainSource(game, installation.SourceGameID); source.SourceGameID != "" {
+					save := c.saveDomainResolver().Installed(source, endpoint.ID)
+					item.InstalledSave = &save
+				}
 				item.InstallPath = installation.InstallPath
 				item.InstallKind = installation.InstallKind
 				item.InstallState = installation.InstallState
@@ -238,8 +246,12 @@ func (c *GameController) attachEmulatorRoutes(item *GameDeviceAvailabilityDTO, c
 				}
 				route := GameEmulatorRouteDTO{
 					EmulatorID: option.ID, EmulatorName: option.Name, SourceGameID: source.ID, SourceTitle: source.RawTitle,
-					State: option.State, Reason: option.Reason,
+					CoreID: option.ResolvedCore, State: option.State, Reason: option.Reason,
 				}
+				save := c.saveDomainResolver().Emulator(savedomain.Source{
+					SourceGameID: source.ID, PluginID: source.PluginID,
+				}, item.DeviceID, option.ID, option.ResolvedCore)
+				route.Save = &save
 				if route.State == "ready" && !supportsEmulatorContentSource(source, c.emulatorContentRoot) {
 					route.State = "needs_setup"
 					route.Reason = "Download this copy to the MGA Server before playing on a device"
@@ -262,6 +274,25 @@ func hasReadyEmulatorRoute(routes []GameEmulatorRouteDTO) bool {
 		}
 	}
 	return false
+}
+
+func (c *GameController) saveDomainResolver() *savedomain.Resolver {
+	if c != nil && c.saveDomains != nil {
+		return c.saveDomains
+	}
+	return savedomain.NewResolver()
+}
+
+func saveDomainSource(game *core.CanonicalGame, sourceGameID string) savedomain.Source {
+	if game == nil || strings.TrimSpace(sourceGameID) == "" {
+		return savedomain.Source{}
+	}
+	for _, source := range game.SourceGames {
+		if source != nil && source.ID == sourceGameID {
+			return savedomain.Source{SourceGameID: source.ID, PluginID: source.PluginID}
+		}
+	}
+	return savedomain.Source{}
 }
 
 type AchievementSummaryDTO struct {
@@ -304,6 +335,7 @@ type SourceGameDetailDTO struct {
 	Files            []GameFileDTO            `json:"files"`
 	Delivery         *SourceDeliveryDTO       `json:"delivery,omitempty"`
 	Play             *SourceGamePlayDTO       `json:"play,omitempty"`
+	Save             *savedomain.Capability   `json:"save,omitempty"`
 	HardDelete       *SourceGameHardDeleteDTO `json:"hard_delete,omitempty"`
 	CanonicalPin     *CanonicalSourcePin      `json:"canonical_pin,omitempty"`
 	ResolverMatches  []core.ResolverMatch     `json:"resolver_matches"`
@@ -488,6 +520,8 @@ func launchBoxSearchURL(title string) string {
 }
 
 func launchOptionsForSource(source SourceGameDetailDTO, launchSource *GameLaunchSourceDTO, launchCandidate *GameLaunchCandidateDTO) []GameLaunchOptionDTO {
+	resolver := savedomain.NewResolver()
+	saveSource := savedomain.Source{SourceGameID: source.ID, PluginID: source.PluginID, IntegrationLabel: source.IntegrationLabel}
 	options := make([]GameLaunchOptionDTO, 0, 2)
 	if launchSource != nil {
 		option := GameLaunchOptionDTO{
@@ -501,6 +535,10 @@ func launchOptionsForSource(source SourceGameDetailDTO, launchSource *GameLaunch
 			Launchable:       launchSource.Launchable,
 			RootFileID:       launchSource.RootFileID,
 			Profile:          firstReadyDeliveryProfile(source.Delivery),
+		}
+		if launchSource.Launchable {
+			browserSave := resolver.Browser(saveSource, source.Platform)
+			option.Save = &browserSave
 		}
 		if launchCandidate != nil {
 			option.FileID = launchCandidate.FileID
@@ -521,6 +559,7 @@ func launchOptionsForSource(source SourceGameDetailDTO, launchSource *GameLaunch
 			continue
 		}
 		seenXcloud[key] = true
+		xcloudSave := resolver.XCloud(saveSource)
 		options = append(options, GameLaunchOptionDTO{
 			Kind:             "xcloud",
 			SourceGameID:     source.ID,
@@ -531,6 +570,7 @@ func launchOptionsForSource(source SourceGameDetailDTO, launchSource *GameLaunch
 			IntegrationLabel: source.IntegrationLabel,
 			Launchable:       strings.TrimSpace(match.XcloudURL) != "",
 			URL:              match.XcloudURL,
+			Save:             &xcloudSave,
 		})
 	}
 	return options
@@ -592,6 +632,10 @@ func (c *GameController) sourceGameToDetailDTO(
 		CanonicalPin:     canonicalSourcePinDTO(sg.CanonicalPin),
 		ResolverMatches:  resolverMatchesForDetail(sg.ResolverMatches),
 	}
+	save := c.saveDomainResolver().Source(savedomain.Source{
+		SourceGameID: sg.ID, PluginID: sg.PluginID, IntegrationLabel: integrationLabels[sg.IntegrationID],
+	})
+	dto.Save = &save
 	eligible, reason := sourcegames.HardDeleteEligibility(sg)
 	dto.HardDelete = &SourceGameHardDeleteDTO{Eligible: eligible, Reason: reason}
 	if sg.LastSeenAt != nil {

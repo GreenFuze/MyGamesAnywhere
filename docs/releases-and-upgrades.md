@@ -40,14 +40,26 @@ Every tagged release should include:
    - `mga-update.json`
    - `SHA256SUMS.txt`
 
-The current public release flow is:
+The current public release flow is automated from the repository root:
 
-1. choose the release version, for example `0.2.0`
-2. build the standalone client with `./client/package-installer.ps1 -Version <version>`
-3. build the portable package locally with `./server/package-portable.ps1 -Version <version>`
-4. build the Windows installer and update manifest with `./server/package-installer.ps1 -Version <version> -SkipBuild -ReleaseBaseUrl https://github.com/GreenFuze/MyGamesAnywhere/releases/download/v<version>`
-5. publish the GitHub Release manually with `gh release create v<version>` and upload the server artifacts plus `client/release/mga-client-windows-amd64-installer.exe`
-6. mark beta builds as prereleases and stable builds as latest
+```powershell
+.\publish-release.ps1 0.2.4
+# or increment the patch/build number from the latest stable tag
+.\publish-release.ps1 --inc
+```
+
+The release command fails fast unless it is running on GitHub's `main` or
+`master` default branch with a clean worktree whose HEAD exactly matches the
+remote branch. It writes `VERSION`, creates the version-preparation commit,
+runs the migration guard and complete Go/frontend test suite, invokes the
+existing client, portable, and installer packagers, regenerates the combined
+checksums, pushes the release commit, creates and pushes the annotated tag, and
+publishes that tag as GitHub's latest release. If a matching
+`docs/releases/vX.Y.Z.md` exists it is used as the release notes; otherwise
+GitHub-generated notes are used.
+
+The lower-level packaging scripts remain available for local artifact testing,
+but they do not commit, tag, push, or publish a release by themselves.
 
 GitHub Actions packaging workflows have been removed. Releases are built locally and published manually with `gh`.
 

@@ -25,6 +25,9 @@ cross the server, web interface, and device agent boundaries.
 - [ADR-0012: Profile and device install-location preferences](0012-install-location-preferences.md)
 - [ADR-0013: Device-side installation preflight and prerequisite policy](0013-device-install-preflight.md)
 - [ADR-0014: Multi-route Play control](0014-multi-route-play-control.md)
+- [ADR-0015: Device emulator routes](0015-device-emulator-routes.md)
+- [ADR-0016: Emulator setup and components](0016-emulator-setup-and-components.md)
+- [ADR-0017: Route-level Save Domains and provider boundaries](0017-route-save-domains.md)
 
 ## Protocols
 
