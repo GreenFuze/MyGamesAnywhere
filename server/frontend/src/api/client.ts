@@ -414,6 +414,17 @@ export type DeviceInventory = {
   storage: DeviceStorageInventory[];
   runtimes: DeviceRuntimeInventory[];
   save_adapters?: DeviceSaveAdapterInventory[];
+  managed_installations?: DeviceManagedInstallationObservation[];
+};
+
+export type DeviceManagedInstallationObservation = {
+  local_installation_id: string;
+  state: "managed_here" | "managed_elsewhere" | "released" | "installing_here" | "installing_elsewhere" | "legacy_unclaimed" | "interrupted" | string;
+  install_kind: string;
+  title: string;
+  install_path?: string;
+  can_manage?: boolean;
+  can_adopt?: boolean;
 };
 
 export type DeviceGameInstallation = {

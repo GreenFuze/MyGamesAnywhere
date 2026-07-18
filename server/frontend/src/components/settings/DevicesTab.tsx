@@ -68,6 +68,21 @@ function formatBytes(value: number): string {
   return `${(value / 1024 ** index).toFixed(index >= 3 ? 1 : 0)} ${units[index]}`
 }
 
+const ownershipStateLabel: Record<string, string> = {
+  managed_here: 'Managed here',
+  managed_elsewhere: 'Managed by another MGA server',
+  released: 'Ready to pick up',
+  installing_here: 'Installing from this server',
+  installing_elsewhere: 'Installing from another server',
+  legacy_unclaimed: 'Needs local ownership review',
+  interrupted: 'Install was interrupted — cleanup needed',
+}
+
+function openOwnershipAction(action: 'release' | 'adopt', localInstallationID: string) {
+  const query = new URLSearchParams({ server: window.location.origin, installation_id: localInstallationID })
+  window.location.href = `mga://${action}?${query.toString()}`
+}
+
 export function DevicesTab() {
   const { currentProfile } = useProfiles()
   const queryClient = useQueryClient()
@@ -389,6 +404,21 @@ function DeviceCard({ device, validationStatus, selectedByLink = false }: { devi
 					})}
 				  </div>
 				) : <p className="mt-2 text-xs text-mga-muted">No writable storage was reported.</p>}
+				{device.inventory.managed_installations?.length ? (
+				  <div className="mt-3 border-t border-mga-border pt-3">
+					<div className="mb-2 flex items-center justify-between gap-2 text-xs"><span className="font-semibold text-mga-text">Games found by MGA Client</span><span className="text-mga-muted">{device.inventory.managed_installations.length}</span></div>
+					<div className="space-y-2">
+					  {device.inventory.managed_installations.map((item) => (
+						<div key={item.local_installation_id} className="rounded-mga bg-black/20 px-3 py-2">
+						  <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-semibold text-mga-text">{item.title}</span><span className="text-[10px] font-bold text-mga-muted">{ownershipStateLabel[item.state] ?? item.state}</span></div>
+						  {item.install_path ? <p className="mt-1 truncate text-[10px] text-mga-muted" title={item.install_path}>{item.install_path}</p> : null}
+						  {item.can_manage ? <Button size="sm" variant="outline" className="mt-2" onClick={() => openOwnershipAction('release', item.local_installation_id)}>Release</Button> : null}
+						  {item.can_adopt ? <Button size="sm" variant="outline" className="mt-2" onClick={() => openOwnershipAction('adopt', item.local_installation_id)}>Pick up</Button> : null}
+						</div>
+					  ))}
+					</div>
+				  </div>
+				) : null}
 			  </div>
 			) : null}
             <details className="mt-3 text-xs text-mga-muted">

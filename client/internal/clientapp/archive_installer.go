@@ -42,19 +42,37 @@ type ManagedArchiveInstaller struct {
 	serverURL string
 	client    *http.Client
 	now       func() time.Time
+	ownership *InstallationOwnership
 }
 
 type installManifest struct {
-	SchemaVersion    int       `json:"schema_version"`
-	GameID           string    `json:"game_id"`
-	SourceGameID     string    `json:"source_game_id"`
-	InstallRoot      string    `json:"install_root"`
-	ArchiveName      string    `json:"archive_name"`
-	ArchiveSHA256    string    `json:"archive_sha256"`
-	ArchiveBytes     uint64    `json:"archive_bytes"`
-	InstalledAt      time.Time `json:"installed_at"`
-	LaunchTarget     string    `json:"launch_target,omitempty"`
-	LaunchCandidates []string  `json:"launch_candidates,omitempty"`
+	SchemaVersion       int       `json:"schema_version"`
+	GameID              string    `json:"game_id"`
+	SourceGameID        string    `json:"source_game_id"`
+	InstallRoot         string    `json:"install_root"`
+	ArchiveName         string    `json:"archive_name"`
+	ArchiveSHA256       string    `json:"archive_sha256"`
+	ArchiveBytes        uint64    `json:"archive_bytes"`
+	InstalledAt         time.Time `json:"installed_at"`
+	LaunchTarget        string    `json:"launch_target,omitempty"`
+	LaunchCandidates    []string  `json:"launch_candidates,omitempty"`
+	LocalInstallationID string    `json:"local_installation_id,omitempty"`
+	OwnerBindingID      string    `json:"owner_binding_id,omitempty"`
+	OwnershipState      string    `json:"ownership_state,omitempty"`
+	InstallerFamily     string    `json:"installer_family,omitempty"`
+	PrimarySHA256       string    `json:"primary_sha256,omitempty"`
+}
+
+func NewOwnedManagedArchiveInstaller(serverURL string, ownership *InstallationOwnership) (*ManagedArchiveInstaller, error) {
+	installer, err := NewManagedArchiveInstaller(serverURL)
+	if err != nil {
+		return nil, err
+	}
+	if ownership == nil {
+		return nil, errors.New("installation ownership is required")
+	}
+	installer.ownership = ownership
+	return installer, nil
 }
 
 func NewManagedArchiveInstaller(serverURL string) (*ManagedArchiveInstaller, error) {
@@ -98,6 +116,7 @@ func (i *ManagedArchiveInstaller) Install(ctx context.Context, commandID string,
 	if err := validateDestinationName(request.DestinationName); err != nil {
 		return devicev1.ArchiveInstallResult{}, err
 	}
+	installRoot = i.ownership.NamespacedRoot(installRoot)
 	if err := os.MkdirAll(installRoot, 0o755); err != nil {
 		return devicev1.ArchiveInstallResult{}, fmt.Errorf("create install root: %w", err)
 	}
@@ -108,6 +127,18 @@ func (i *ManagedArchiveInstaller) Install(ctx context.Context, commandID string,
 	}
 
 	target := filepath.Join(installRoot, request.DestinationName)
+	var ownershipOperation *OwnedInstallOperation
+	if i.ownership != nil {
+		ownershipOperation, err = i.ownership.BeginInstall(devicev1.InstallKindManagedArchive, request.GameID, request.SourceGameID, request.Title, installRoot, target, "")
+		if err != nil {
+			return devicev1.ArchiveInstallResult{}, err
+		}
+		defer func() {
+			if ownershipOperation != nil {
+				_ = ownershipOperation.Abort()
+			}
+		}()
+	}
 	if _, err := os.Stat(target); err == nil {
 		return devicev1.ArchiveInstallResult{}, fmt.Errorf("destination already exists: %s", target)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -156,11 +187,25 @@ func (i *ManagedArchiveInstaller) Install(ctx context.Context, commandID string,
 	}
 
 	installedAt := i.now().UTC()
+	manifestSchema := devicev1.LegacyInstallManifestSchemaVersion
+	localInstallationID, ownerBindingID := "", ""
+	if ownershipOperation != nil {
+		manifestSchema = devicev1.InstallManifestSchemaVersion
+		localInstallationID = ownershipOperation.LocalInstallationID()
+		ownerBindingID = ownershipOperation.OwnerBindingID()
+	}
 	manifest := installManifest{
-		SchemaVersion: devicev1.InstallManifestSchemaVersion,
+		SchemaVersion: manifestSchema,
 		GameID:        request.GameID, SourceGameID: request.SourceGameID, InstallRoot: installRoot,
 		ArchiveName: request.ArchiveName, ArchiveSHA256: hash, ArchiveBytes: downloaded, InstalledAt: installedAt,
 		LaunchTarget: launchTarget, LaunchCandidates: launchCandidates,
+		LocalInstallationID: localInstallationID, OwnerBindingID: ownerBindingID,
+		OwnershipState: func() string {
+			if ownerBindingID != "" {
+				return string(OwnershipOwned)
+			}
+			return ""
+		}(),
 	}
 	if err := writeInstallManifest(contentDir, manifest); err != nil {
 		return devicev1.ArchiveInstallResult{}, err
@@ -170,6 +215,14 @@ func (i *ManagedArchiveInstaller) Install(ctx context.Context, commandID string,
 	}
 	if err := os.Rename(contentDir, target); err != nil {
 		return devicev1.ArchiveInstallResult{}, fmt.Errorf("commit installation: %w", err)
+	}
+	if ownershipOperation != nil {
+		if err := ownershipOperation.Complete(); err != nil {
+			ownershipOperation.LeavePending()
+			ownershipOperation = nil
+			return devicev1.ArchiveInstallResult{}, fmt.Errorf("finalize installation ownership: %w", err)
+		}
+		ownershipOperation = nil
 	}
 	if err := reportProgress(report, "complete", "Installed", 100, "install", 100); err != nil {
 		return devicev1.ArchiveInstallResult{}, err
@@ -192,18 +245,34 @@ func (i *ManagedArchiveInstaller) Uninstall(ctx context.Context, request devicev
 	if err != nil {
 		return devicev1.GameUninstallResult{}, err
 	}
-	if (manifest.SchemaVersion != 1 && manifest.SchemaVersion != devicev1.InstallManifestSchemaVersion) || manifest.GameID != request.GameID || manifest.SourceGameID != request.SourceGameID {
+	if (manifest.SchemaVersion != 1 && manifest.SchemaVersion != devicev1.LegacyInstallManifestSchemaVersion && manifest.SchemaVersion != devicev1.InstallManifestSchemaVersion) || manifest.GameID != request.GameID || manifest.SourceGameID != request.SourceGameID {
 		return devicev1.GameUninstallResult{}, errors.New("installation manifest does not match the requested game")
 	}
 	inside, err := pathWithinRoot(manifest.InstallRoot, request.InstallPath)
 	if err != nil || !inside || filepath.Clean(request.InstallPath) == filepath.Clean(manifest.InstallRoot) {
 		return devicev1.GameUninstallResult{}, errors.New("install path is outside its recorded MGA root")
 	}
+	manifest, err = ensureInstallationManifestOwnership(i.ownership, request.InstallPath, manifest)
+	if err != nil {
+		return devicev1.GameUninstallResult{}, err
+	}
+	mutation, err := i.ownership.AuthorizeMutation(manifest.LocalInstallationID, manifest.OwnerBindingID, request.InstallPath)
+	if err != nil {
+		return devicev1.GameUninstallResult{}, err
+	}
+	if mutation != nil {
+		defer mutation.Close()
+	}
 	if err := reportProgress(report, "removing", "Removing installed files", 25, "", 0); err != nil {
 		return devicev1.GameUninstallResult{}, err
 	}
 	if err := os.RemoveAll(request.InstallPath); err != nil {
 		return devicev1.GameUninstallResult{}, fmt.Errorf("remove installation: %w", err)
+	}
+	if mutation != nil {
+		if err := mutation.Removed(); err != nil {
+			return devicev1.GameUninstallResult{}, fmt.Errorf("remove installation ownership: %w", err)
+		}
 	}
 	if err := reportProgress(report, "complete", "Uninstalled", 100, "", 0); err != nil {
 		return devicev1.GameUninstallResult{}, err

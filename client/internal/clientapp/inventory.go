@@ -25,7 +25,13 @@ type InventoryCollector interface {
 // LocalInventoryCollector owns the bounded, platform-aware inventory probes.
 // It never enumerates arbitrary installed applications or environment values.
 type LocalInventoryCollector struct {
-	now func() time.Time
+	now       func() time.Time
+	ownership *OwnershipCatalog
+	bindingID string
+}
+
+func NewOwnedLocalInventoryCollector(ownership *OwnershipCatalog, bindingID string) *LocalInventoryCollector {
+	return &LocalInventoryCollector{now: time.Now, ownership: ownership, bindingID: bindingID}
 }
 
 func NewLocalInventoryCollector() *LocalInventoryCollector {
@@ -42,17 +48,68 @@ func (c *LocalInventoryCollector) Collect(ctx context.Context) (devicev1.DeviceI
 	}
 	runtimes := collectKnownRuntimes(ctx)
 	inventory := devicev1.DeviceInventory{
-		SchemaVersion:   devicev1.InventorySchemaVersion,
-		CapturedAt:      c.now().UTC(),
-		Storage:         storage,
-		Runtimes:        runtimes,
-		PackageManagers: collectKnownPackageManagers(),
-		SaveAdapters:    NewLocalSaveAdapterDiscoverer().Discover(runtimes),
+		SchemaVersion:        devicev1.InventorySchemaVersion,
+		CapturedAt:           c.now().UTC(),
+		Storage:              storage,
+		Runtimes:             runtimes,
+		PackageManagers:      collectKnownPackageManagers(),
+		SaveAdapters:         NewLocalSaveAdapterDiscoverer().Discover(runtimes),
+		ManagedInstallations: c.managedInstallationObservations(),
 	}.Normalize()
 	if err := inventory.Validate(); err != nil {
 		return devicev1.DeviceInventory{}, err
 	}
 	return inventory, nil
+}
+
+func (c *LocalInventoryCollector) managedInstallationObservations() []devicev1.ManagedInstallationObservation {
+	if c == nil || c.ownership == nil || strings.TrimSpace(c.bindingID) == "" {
+		return nil
+	}
+	records := c.ownership.List()
+	result := make([]devicev1.ManagedInstallationObservation, 0, len(records))
+	for _, record := range records {
+		title := strings.TrimSpace(record.Title)
+		if title == "" {
+			title = "Managed game"
+		}
+		item := devicev1.ManagedInstallationObservation{LocalInstallationID: record.LocalInstallationID, InstallKind: record.InstallKind, Title: title}
+		switch record.State {
+		case OwnershipReleased:
+			item.State = "released"
+			item.InstallPath = record.InstallPath
+			item.CanAdopt = true
+		case OwnershipLegacyUnclaimed:
+			item.State = "legacy_unclaimed"
+			item.InstallPath = record.InstallPath
+		case OwnershipInterrupted:
+			if strings.EqualFold(record.OwnerBindingID, c.bindingID) {
+				item.State = "interrupted"
+				item.InstallPath = record.InstallPath
+			} else {
+				item.State = "managed_elsewhere"
+			}
+		case OwnershipInstalling:
+			if strings.EqualFold(record.OwnerBindingID, c.bindingID) {
+				item.State = "installing_here"
+				item.InstallPath = record.InstallPath
+			} else {
+				item.State = "installing_elsewhere"
+			}
+		case OwnershipOwned:
+			if strings.EqualFold(record.OwnerBindingID, c.bindingID) {
+				item.State = "managed_here"
+				item.InstallPath = record.InstallPath
+				item.CanManage = true
+			} else {
+				item.State = "managed_elsewhere"
+			}
+		default:
+			continue
+		}
+		result = append(result, item)
+	}
+	return result
 }
 
 type runtimeCandidate struct {

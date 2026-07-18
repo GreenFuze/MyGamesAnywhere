@@ -47,6 +47,7 @@ type StartOptions struct {
 }
 
 type BindingStatus struct {
+	BindingID        string
 	ServerURL        string
 	EndpointID       string
 	ClientInstanceID string
@@ -70,8 +71,9 @@ type DoctorResult struct {
 }
 
 type UnpairOptions struct {
-	ServerURL string
-	All       bool
+	ServerURL            string
+	All                  bool
+	ReleaseInstallations bool
 }
 
 type Service struct {
@@ -81,6 +83,8 @@ type Service struct {
 	httpClient *http.Client
 	logger     *log.Logger
 	logFile    *os.File
+	ownership  *OwnershipCatalog
+	operations *InstallationCoordinator
 }
 
 func New(dataDir string, info buildinfo.Info, extraLogWriters ...io.Writer) (*Service, error) {
@@ -99,6 +103,11 @@ func New(dataDir string, info buildinfo.Info, extraLogWriters ...io.Writer) (*Se
 	if err != nil {
 		return nil, fmt.Errorf("open client log: %w", err)
 	}
+	ownership, err := OpenOwnershipCatalog(layout.OwnershipPath)
+	if err != nil {
+		_ = logFile.Close()
+		return nil, fmt.Errorf("open installation ownership catalog: %w", err)
+	}
 	writers := []io.Writer{logFile}
 	for _, writer := range extraLogWriters {
 		if writer != nil && writer != io.Discard {
@@ -112,6 +121,8 @@ func New(dataDir string, info buildinfo.Info, extraLogWriters ...io.Writer) (*Se
 		httpClient: &http.Client{Timeout: 15 * time.Second},
 		logger:     log.New(io.MultiWriter(writers...), "", log.Ldate|log.Ltime|log.LUTC),
 		logFile:    logFile,
+		ownership:  ownership,
+		operations: NewInstallationCoordinator(),
 	}, nil
 }
 
@@ -157,7 +168,7 @@ func (s *Service) Pair(ctx context.Context, options PairOptions) (clientconfig.B
 		return clientconfig.Binding{}, fmt.Errorf("generate endpoint identity: %w", err)
 	}
 	instanceID := uuid.NewString()
-	binding := clientconfig.Binding{ServerURL: serverURL, ClientInstanceID: instanceID, DisplayName: metadata.DisplayName}
+	binding := clientconfig.Binding{BindingID: uuid.NewString(), ServerURL: serverURL, ClientInstanceID: instanceID, DisplayName: metadata.DisplayName}
 	identityStore := s.identityStore(binding)
 	if err := identityStore.Save(privateKey); err != nil {
 		return clientconfig.Binding{}, fmt.Errorf("protect endpoint private key: %w", err)
@@ -230,7 +241,7 @@ func (s *Service) Status() (Status, error) {
 	for _, binding := range document.Bindings {
 		_, keyErr := s.identityStore(binding).Load()
 		status.Bindings = append(status.Bindings, BindingStatus{
-			ServerURL: binding.ServerURL, EndpointID: binding.EndpointID,
+			BindingID: binding.BindingID, ServerURL: binding.ServerURL, EndpointID: binding.EndpointID,
 			ClientInstanceID: binding.ClientInstanceID, DisplayName: binding.DisplayName,
 			PrivateKeyReady: keyErr == nil,
 		})
@@ -301,6 +312,9 @@ func (s *Service) runAgentWithMode(ctx context.Context, executionMode devicev1.C
 		return err
 	}
 	defer lock.Close()
+	if err := s.ownership.RecoverInterrupted(); err != nil {
+		return fmt.Errorf("recover interrupted installation ownership: %w", err)
+	}
 	control, err := singleinstance.OpenSignal(s.instanceLockName() + "-Restart")
 	if err != nil {
 		return fmt.Errorf("open agent restart signal: %w", err)
@@ -321,19 +335,51 @@ func (s *Service) runAgentWithMode(ctx context.Context, executionMode devicev1.C
 		if keyErr != nil {
 			return fmt.Errorf("load endpoint identity for %s: %w", binding.ServerURL, keyErr)
 		}
-		agent, agentErr := NewAgentWithExecutionMode(binding, privateKey, s.buildInfo, s.logger, executionMode)
+		ownership, ownershipErr := NewInstallationOwnership(binding.BindingID, binding.ServerURL, len(document.Bindings), s.ownership, s.operations)
+		if ownershipErr != nil {
+			return fmt.Errorf("prepare installation ownership for %s: %w", binding.ServerURL, ownershipErr)
+		}
+		agent, agentErr := NewOwnedAgentWithExecutionMode(binding, privateKey, s.buildInfo, s.logger, executionMode, ownership)
 		if agentErr != nil {
 			return fmt.Errorf("prepare agent for %s: %w", binding.ServerURL, agentErr)
 		}
 		agents = append(agents, agent)
 		serverURL := binding.ServerURL
-		desktopBindings = append(desktopBindings, desktop.BindingOption{ServerURL: serverURL, Unpair: func() error { return s.clearBinding(serverURL, false) }})
+		desktopBindings = append(desktopBindings, desktop.BindingOption{
+			ServerURL: serverURL,
+			Unpair:    func() error { return s.clearBinding(serverURL, false) },
+			ReleaseAndUnpair: func() error {
+				if err := s.releaseAllOwnedByServer(serverURL); err != nil {
+					return err
+				}
+				return s.clearBinding(serverURL, false)
+			},
+		})
+	}
+	bindingLabels := make(map[string]string, len(document.Bindings))
+	for _, binding := range document.Bindings {
+		bindingLabels[strings.ToLower(binding.BindingID)] = binding.ServerURL
+	}
+	desktopInstallations := make([]desktop.InstallationOption, 0)
+	for _, record := range s.ownership.List() {
+		if record.State != OwnershipOwned {
+			continue
+		}
+		record := record
+		ownerLabel := bindingLabels[strings.ToLower(record.OwnerBindingID)]
+		if ownerLabel == "" {
+			ownerLabel = "Disconnected MGA server"
+		}
+		desktopInstallations = append(desktopInstallations, desktop.InstallationOption{LocalInstallationID: record.LocalInstallationID, Title: record.Title, Path: record.InstallPath, OwnerLabel: ownerLabel, Release: func() error {
+			return s.ReleaseInstallation(ReleaseInstallationOptions{LocalInstallationID: record.LocalInstallationID})
+		}})
 	}
 	host, err := desktop.NewHost(desktop.Options{
-		DisplayName: document.Bindings[0].DisplayName,
-		LogPath:     s.layout.LogPath,
-		Version:     s.buildInfo.Version,
-		Bindings:    desktopBindings,
+		DisplayName:   document.Bindings[0].DisplayName,
+		LogPath:       s.layout.LogPath,
+		Version:       s.buildInfo.Version,
+		Bindings:      desktopBindings,
+		Installations: desktopInstallations,
 	})
 	if err != nil {
 		return err
@@ -480,6 +526,23 @@ func (s *Service) Unpair(options UnpairOptions) error {
 		return fmt.Errorf("stop the running MGA Client agent before unpairing: %w", err)
 	}
 	defer lock.Close()
+	if options.ReleaseInstallations {
+		if options.All {
+			for _, binding := range document.Bindings {
+				if err := s.releaseAllOwnedByServer(binding.ServerURL); err != nil {
+					return err
+				}
+			}
+		} else {
+			target := options.ServerURL
+			if strings.TrimSpace(target) == "" && len(document.Bindings) == 1 {
+				target = document.Bindings[0].ServerURL
+			}
+			if err := s.releaseAllOwnedByServer(target); err != nil {
+				return err
+			}
+		}
+	}
 	return s.clearBinding(options.ServerURL, options.All)
 }
 
@@ -553,17 +616,18 @@ func (s *Service) loadBindings() (clientconfig.Document, error) {
 	if err := validateUniqueBindingOrigins(result.Document.Bindings); err != nil {
 		return clientconfig.Document{}, err
 	}
-	if !result.LegacyLoaded {
+	if result.MigrationFrom == 0 {
 		return result.Document, nil
 	}
-	legacy := result.Document.Bindings[0]
-	if _, err := s.identityStore(legacy).Load(); err != nil {
-		return clientconfig.Document{}, fmt.Errorf("verify legacy endpoint identity before config migration: %w", err)
+	for _, binding := range result.Document.Bindings {
+		if _, err := s.identityStore(binding).Load(); err != nil {
+			return clientconfig.Document{}, fmt.Errorf("verify endpoint identity for %s before config migration: %w", binding.ServerURL, err)
+		}
 	}
 	if err := s.configs.Save(result.Document); err != nil {
 		return clientconfig.Document{}, fmt.Errorf("migrate client config to schema %d: %w", clientconfig.SchemaVersion, err)
 	}
-	s.Logf("migrated client configuration from schema %d to %d", clientconfig.LegacySchemaVersion, clientconfig.SchemaVersion)
+	s.Logf("migrated client configuration from schema %d to %d", result.MigrationFrom, clientconfig.SchemaVersion)
 	return result.Document, nil
 }
 

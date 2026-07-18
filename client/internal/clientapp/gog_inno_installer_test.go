@@ -618,7 +618,7 @@ func createFailedCleanupFixture(t *testing.T, withUninstaller bool) devicev1.Gog
 	primaryHash := strings.Repeat("a", 64)
 	marker, err := newGogInnoFailureMarker("command-cleanup", devicev1.GogInnoInstallRequest{
 		GameID: "game", SourceGameID: "source",
-	}, root, installPath, primaryHash, time.Now().UTC())
+	}, root, installPath, primaryHash, "", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}

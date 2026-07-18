@@ -9,18 +9,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 const (
-	SchemaVersion       = 2
-	LegacySchemaVersion = 1
-	MaxBindings         = 16
+	SchemaVersion         = 3
+	BindingsSchemaVersion = 2
+	LegacySchemaVersion   = 1
+	MaxBindings           = 16
 )
 
 var ErrNotPaired = errors.New("MGA Client is not paired")
 
 // Binding is one server-issued endpoint identity for this device/OS user.
 type Binding struct {
+	BindingID        string `json:"binding_id"`
 	ServerURL        string `json:"server_url"`
 	WebSocketURL     string `json:"websocket_url"`
 	EndpointID       string `json:"endpoint_id"`
@@ -31,6 +35,7 @@ type Binding struct {
 
 func (b Binding) Validate() error {
 	for name, value := range map[string]string{
+		"binding_id":         b.BindingID,
 		"server_url":         b.ServerURL,
 		"websocket_url":      b.WebSocketURL,
 		"endpoint_id":        b.EndpointID,
@@ -40,6 +45,9 @@ func (b Binding) Validate() error {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s is required", name)
 		}
+	}
+	if _, err := uuid.Parse(b.BindingID); err != nil {
+		return errors.New("binding_id must be a UUID")
 	}
 	return nil
 }
@@ -61,11 +69,17 @@ func (d Document) Validate() error {
 		return fmt.Errorf("server binding count %d exceeds limit %d", len(d.Bindings), MaxBindings)
 	}
 	instances := make(map[string]struct{}, len(d.Bindings))
+	bindingIDs := make(map[string]struct{}, len(d.Bindings))
 	servers := make(map[string]struct{}, len(d.Bindings))
 	for index, binding := range d.Bindings {
 		if err := binding.Validate(); err != nil {
 			return fmt.Errorf("binding %d: %w", index, err)
 		}
+		bindingID := strings.ToLower(strings.TrimSpace(binding.BindingID))
+		if _, exists := bindingIDs[bindingID]; exists {
+			return fmt.Errorf("duplicate binding_id %q", binding.BindingID)
+		}
+		bindingIDs[bindingID] = struct{}{}
 		instance := strings.ToLower(strings.TrimSpace(binding.ClientInstanceID))
 		if _, exists := instances[instance]; exists {
 			return fmt.Errorf("duplicate client_instance_id %q", binding.ClientInstanceID)
@@ -83,8 +97,22 @@ func (d Document) Validate() error {
 // LoadResult reports whether the caller must verify the legacy key before
 // atomically persisting the in-memory schema-2 representation.
 type LoadResult struct {
-	Document     Document
-	LegacyLoaded bool
+	Document      Document
+	MigrationFrom int
+}
+
+type bindingsConfig struct {
+	SchemaVersion int             `json:"schema_version"`
+	Bindings      []legacyBinding `json:"bindings"`
+}
+
+type legacyBinding struct {
+	ServerURL        string `json:"server_url"`
+	WebSocketURL     string `json:"websocket_url"`
+	EndpointID       string `json:"endpoint_id"`
+	ClientInstanceID string `json:"client_instance_id"`
+	DisplayName      string `json:"display_name"`
+	LegacyIdentity   bool   `json:"legacy_identity,omitempty"`
 }
 
 type legacyConfig struct {
@@ -134,12 +162,30 @@ func (s *Store) Load() (LoadResult, error) {
 			return LoadResult{}, err
 		}
 		return LoadResult{Document: document}, nil
+	case BindingsSchemaVersion:
+		var previous bindingsConfig
+		if err := decodeStrict(data, &previous); err != nil {
+			return LoadResult{}, fmt.Errorf("decode schema-%d client config: %w", BindingsSchemaVersion, err)
+		}
+		document := Document{SchemaVersion: SchemaVersion, Bindings: make([]Binding, 0, len(previous.Bindings))}
+		for _, old := range previous.Bindings {
+			document.Bindings = append(document.Bindings, Binding{
+				BindingID: uuid.NewString(), ServerURL: old.ServerURL, WebSocketURL: old.WebSocketURL,
+				EndpointID: old.EndpointID, ClientInstanceID: old.ClientInstanceID,
+				DisplayName: old.DisplayName, LegacyIdentity: old.LegacyIdentity,
+			})
+		}
+		if err := document.Validate(); err != nil {
+			return LoadResult{}, fmt.Errorf("schema-%d client config: %w", BindingsSchemaVersion, err)
+		}
+		return LoadResult{Document: document, MigrationFrom: BindingsSchemaVersion}, nil
 	case LegacySchemaVersion:
 		var legacy legacyConfig
 		if err := decodeStrict(data, &legacy); err != nil {
 			return LoadResult{}, fmt.Errorf("decode legacy client config: %w", err)
 		}
 		binding := Binding{
+			BindingID: uuid.NewString(),
 			ServerURL: legacy.ServerURL, WebSocketURL: legacy.WebSocketURL,
 			EndpointID: legacy.EndpointID, ClientInstanceID: legacy.ClientInstanceID,
 			DisplayName: legacy.DisplayName, LegacyIdentity: true,
@@ -148,7 +194,7 @@ func (s *Store) Load() (LoadResult, error) {
 		if err := document.Validate(); err != nil {
 			return LoadResult{}, fmt.Errorf("legacy client config: %w", err)
 		}
-		return LoadResult{Document: document, LegacyLoaded: true}, nil
+		return LoadResult{Document: document, MigrationFrom: LegacySchemaVersion}, nil
 	default:
 		return LoadResult{}, fmt.Errorf("unsupported client config schema %d", header.SchemaVersion)
 	}

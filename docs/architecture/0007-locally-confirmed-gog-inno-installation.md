@@ -834,3 +834,12 @@ the frontend unit/production builds, OpenAPI checks, and `govulncheck` passed.
 `NO_MIGRATION_NEEDED` for the final interrupted-command recovery: it changes
 startup reconciliation behavior only. Migration 18 remains the versioned
 persistence change for ADR-0007 and migration 17 remains immutable.
+
+## ADR-0023 ownership amendment
+
+ADR-0023 raises new successful GOG manifests to schema 4 by adding the
+client-local installation and owner-binding IDs. Schema 3 remains the legacy
+format and keeps all ADR-0007 validation. A single-binding client may claim it
+after those checks; a multi-binding client requires explicit local ownership
+recovery. Native product reservations and per-binding roots are additional
+guards and do not weaken publisher-uninstaller or Add/Remove Programs checks.

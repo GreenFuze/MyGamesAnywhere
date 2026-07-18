@@ -24,6 +24,17 @@ func (fakeClientService) Doctor(context.Context) (clientapp.DoctorResult, error)
 	return clientapp.DoctorResult{}, nil
 }
 func (fakeClientService) Unpair(clientapp.UnpairOptions) error { return nil }
+func (fakeClientService) Installations() ([]clientapp.InstallationOwnershipRecord, error) {
+	return nil, nil
+}
+func (fakeClientService) ReleaseInstallation(clientapp.ReleaseInstallationOptions) error { return nil }
+func (fakeClientService) AdoptInstallation(clientapp.AdoptInstallationOptions) error     { return nil }
+func (fakeClientService) ConfirmAndReleaseInstallation(context.Context, clientapp.ReleaseInstallationOptions) error {
+	return nil
+}
+func (fakeClientService) ConfirmAndAdoptInstallation(context.Context, clientapp.AdoptInstallationOptions) error {
+	return nil
+}
 
 func TestNewApplicationFailsWithoutWriters(t *testing.T) {
 	t.Parallel()

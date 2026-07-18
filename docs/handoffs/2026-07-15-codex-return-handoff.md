@@ -1334,3 +1334,94 @@ Current runtime after the rebuild:
 - server retained `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive`, the existing
   database, credentials, profiles, and install settings;
 - no commit, push, release, deployment, or database migration was performed.
+
+## 2026-07-18 — client-authoritative cross-server installation ownership
+
+This newest section supersedes all earlier runtime, schema, ownership, and
+next-task status in this handoff. ADR-0023 is accepted and its managed-install
+ownership slice is implemented in the still-intentional, uncommitted worktree.
+Do not reset, clean, revert, overwrite, or discard tracked or untracked files.
+Do not commit, push, release, deploy, or update TV2 without explicit user
+instruction.
+
+Implemented behavior:
+
+- client config schema 3 gives every server binding a random stable local
+  `binding_id`. URLs remain changeable endpoints, not ownership credentials.
+  The real schema-2 localhost binding migrated only after its protected key was
+  verified. It retains endpoint `eaa3b874-bfad-4020-9020-36fd45a04ff9` and now
+  has binding `7912672d-639f-4ca3-ad72-9880d3a25302`;
+- the versioned per-OS-user ownership catalog is the authority for MGA-managed
+  paths. It uses random local installation IDs, owner bindings, lifecycle and
+  history, atomic replacement, a cross-process named lock, and an in-process
+  operation coordinator. A crashed `installing` record becomes `interrupted`
+  on the next agent start and remains non-adoptable;
+- new managed archives and GOG/Inno installs use visible per-binding roots:
+  `<base>\MGA\<server-label>-<short-binding-id>\<game>`. Two servers choosing
+  `C:\Games` therefore do not share the same managed destination;
+- archive manifest schema 3 and GOG manifest schema 4 bind the manifest to the
+  client-local installation and owner. Install, launch, cleanup, and uninstall
+  fail closed unless active binding, catalog, manifest, path/root boundary, and
+  product evidence agree. Ambiguous legacy installs are not guessed when more
+  than one server is paired;
+- unbinding preserves files and ownership by default. The tray and CLI can
+  release one managed game or release all games while unbinding. Release keeps
+  files and history, clears mutation authority, and makes the game adoptable;
+- another paired server can pick up only a released game. `mga://release` and
+  `mga://adopt` show a local MGA Client confirmation containing the title,
+  folder, and requesting server. Catalog and manifest ownership are both
+  changed or the operation rolls back/fails closed. Pairing with a reused host,
+  port, or URL does not inherit ownership automatically;
+- inventory schema 4 reports bounded, privacy-safe states per binding:
+  managed here/elsewhere, released, installing here/elsewhere, interrupted,
+  and legacy unclaimed. Another server receives no owner URL, key, profile, or
+  install path. Devices shows **Release** only to the owner and **Pick up** only
+  for released records;
+- server migration 26 additively persists `managed_installations_json` and is
+  applied successfully to the real database. Migration 26 must never be edited;
+  the next persisted SQLite change is migration 27.
+
+Bounded limitation recorded in ADR-0023: initial GOG/Inno collision evidence is
+conservative installer identity. Full Add/Remove Programs and storefront
+product linkage, a general **Use existing installation** grant, device-global
+storefront uninstall wording, and the separately confirmed save-sync ownership
+transfer remain follow-up work. The current catalog is intentionally absent on
+this PC because no new managed installation has run since schema introduction;
+tests cover release/adoption without altering Plasma Pong or the preserved Duke
+legacy attention row.
+
+Fresh verification from final formatted source:
+
+```text
+client:          go test ./...                         PASS
+client quality:  go vet ./...                          PASS
+server:          go test ./...                         PASS
+protocol:        go test ./...                         PASS
+frontend:        npm run test:unit                     PASS (10 tests)
+frontend:        npm run build                         PASS
+migration guard: server/scripts/check-migration-guard  PASS
+quality:         gofmt + git diff --check              PASS
+```
+
+Packaged local E2E:
+
+- packaged portable server PID `50392`, exact
+  `server\bin\mga_server.exe`, HTTP 200 `OK` at `/health`, SHA-256
+  `C16482D39EB4C859121710E05B80AE092C2B43E854B5A9F87DF9066FCC3EB5E5`;
+- installed standard MGA Client PID `55672`, version 0.2.4, connected to the
+  preserved endpoint. Installed agent and final build hashes match exactly:
+  `25C55F76AEF9A07AEB3377F00B8B1DACA87EEE81D782BB92A7951EA81C4BA1E8`;
+- final client installer SHA-256:
+  `53ACDF6593023B18DB100590A60401F5AE5EE9C2F829AAF674E973DF98FB4933`;
+- the real packaged Devices page was reloaded in the in-app browser. It showed
+  **Client ready**, client 0.2.4, endpoint Ready, only local `C:\` storage, and
+  no browser console errors. No synthetic ownership record was inserted merely
+  to make the new section appear;
+- server startup preserved `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive`, the
+  existing database, credentials, profiles, integrations, `C:\Games`, Plasma
+  Pong, and Duke's legacy attention row.
+
+Next bounded task: implement richer OS/storefront product observation and the
+**Use existing installation** grant before treating native-product collision
+handling as complete. Then design explicit save-sync ownership transfer for
+released/adopted games; do not couple it silently to installation ownership.

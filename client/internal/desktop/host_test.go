@@ -3,7 +3,7 @@ package desktop
 import "testing"
 
 func TestNewHostFailsFastForInvalidOptions(t *testing.T) {
-	binding := BindingOption{ServerURL: "http://mga", Unpair: func() error { return nil }}
+	binding := BindingOption{ServerURL: "http://mga", Unpair: func() error { return nil }, ReleaseAndUnpair: func() error { return nil }}
 	tests := []Options{
 		{LogPath: "client.log", Version: "1.0.0", Bindings: []BindingOption{binding}},
 		{DisplayName: "PC / user", Version: "1.0.0", Bindings: []BindingOption{binding}},
@@ -20,8 +20,8 @@ func TestNewHostFailsFastForInvalidOptions(t *testing.T) {
 
 func TestNewHostAcceptsMultipleBindings(t *testing.T) {
 	_, err := NewHost(Options{DisplayName: "PC / user", LogPath: "client.log", Version: "1.0.0", Bindings: []BindingOption{
-		{ServerURL: "http://localhost:8900", Unpair: func() error { return nil }},
-		{ServerURL: "http://tv2:8900", Unpair: func() error { return nil }},
+		{ServerURL: "http://localhost:8900", Unpair: func() error { return nil }, ReleaseAndUnpair: func() error { return nil }},
+		{ServerURL: "http://tv2:8900", Unpair: func() error { return nil }, ReleaseAndUnpair: func() error { return nil }},
 	}})
 	if err != nil {
 		t.Fatalf("NewHost() error = %v", err)

@@ -31,6 +31,11 @@ type ClientService interface {
 	Status() (clientapp.Status, error)
 	Doctor(ctx context.Context) (clientapp.DoctorResult, error)
 	Unpair(options clientapp.UnpairOptions) error
+	Installations() ([]clientapp.InstallationOwnershipRecord, error)
+	ReleaseInstallation(options clientapp.ReleaseInstallationOptions) error
+	AdoptInstallation(options clientapp.AdoptInstallationOptions) error
+	ConfirmAndReleaseInstallation(ctx context.Context, options clientapp.ReleaseInstallationOptions) error
+	ConfirmAndAdoptInstallation(ctx context.Context, options clientapp.AdoptInstallationOptions) error
 }
 
 // Application owns the CLI command graph and its injected dependencies.
@@ -68,9 +73,69 @@ func NewApplication(deps Dependencies) (*Application, error) {
 	root.AddCommand(newStatusCommand(deps.Client))
 	root.AddCommand(newDoctorCommand(deps.Client))
 	root.AddCommand(newUnpairCommand(deps.Client))
+	root.AddCommand(newInstallationsCommand(deps.Client))
 	root.AddCommand(newProtocolCommand(deps.Client))
 
 	return &Application{root: root}, nil
+}
+
+func newInstallationsCommand(service ClientService) *cobra.Command {
+	command := &cobra.Command{Use: "installations", Short: "Manage local MGA installation ownership"}
+	command.AddCommand(&cobra.Command{
+		Use: "list", Short: "List locally managed installations", Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			items, err := service.Installations()
+			if err != nil {
+				return err
+			}
+			if len(items) == 0 {
+				_, err = fmt.Fprintln(command.OutOrStdout(), "No locally managed installations.")
+				return err
+			}
+			for _, item := range items {
+				owner := item.OwnerBindingID
+				if owner == "" {
+					owner = "none"
+				}
+				if _, err = fmt.Fprintf(command.OutOrStdout(), "%s\n  title: %s\n  state: %s\n  owner: %s\n  path: %s\n", item.LocalInstallationID, item.Title, item.State, owner, item.InstallPath); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	})
+	var release clientapp.ReleaseInstallationOptions
+	releaseCommand := &cobra.Command{
+		Use: "release", Short: "Release an installation without deleting its files", Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if err := service.ReleaseInstallation(release); err != nil {
+				return err
+			}
+			_, err := fmt.Fprintln(command.OutOrStdout(), "Installation released. Files were preserved.")
+			return err
+		},
+	}
+	releaseCommand.Flags().StringVar(&release.LocalInstallationID, "id", "", "Local installation ID (required)")
+	releaseCommand.Flags().StringVar(&release.ServerURL, "server", "", "Confirm the current owning server URL")
+	_ = releaseCommand.MarkFlagRequired("id")
+	command.AddCommand(releaseCommand)
+	var adopt clientapp.AdoptInstallationOptions
+	adoptCommand := &cobra.Command{
+		Use: "adopt", Short: "Give a released installation to a paired MGA Server", Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if err := service.AdoptInstallation(adopt); err != nil {
+				return err
+			}
+			_, err := fmt.Fprintln(command.OutOrStdout(), "Installation adopted.")
+			return err
+		},
+	}
+	adoptCommand.Flags().StringVar(&adopt.LocalInstallationID, "id", "", "Local installation ID (required)")
+	adoptCommand.Flags().StringVar(&adopt.ServerURL, "server", "", "Paired MGA Server URL that will own it (required)")
+	_ = adoptCommand.MarkFlagRequired("id")
+	_ = adoptCommand.MarkFlagRequired("server")
+	command.AddCommand(adoptCommand)
+	return command
 }
 
 func newUnpairCommand(service ClientService) *cobra.Command {
@@ -89,6 +154,7 @@ func newUnpairCommand(service ClientService) *cobra.Command {
 	}
 	command.Flags().StringVar(&options.ServerURL, "server", "", "Unbind only this MGA Server URL")
 	command.Flags().BoolVar(&options.All, "all", false, "Unbind every MGA Server")
+	command.Flags().BoolVar(&options.ReleaseInstallations, "release-installations", false, "Preserve files and release this server's managed games for adoption")
 	return command
 }
 
@@ -101,6 +167,18 @@ func newProtocolCommand(service ClientService) *cobra.Command {
 			parsed, err := url.Parse(args[0])
 			if err != nil || parsed.Scheme != "mga" {
 				return errors.New("unsupported MGA protocol URI")
+			}
+			if parsed.Host == "release" || parsed.Host == "adopt" {
+				localID, server := parsed.Query().Get("installation_id"), parsed.Query().Get("server")
+				if parsed.Host == "release" {
+					err = service.ConfirmAndReleaseInstallation(command.Context(), clientapp.ReleaseInstallationOptions{LocalInstallationID: localID, ServerURL: server})
+				} else {
+					err = service.ConfirmAndAdoptInstallation(command.Context(), clientapp.AdoptInstallationOptions{LocalInstallationID: localID, ServerURL: server})
+				}
+				if err != nil {
+					return err
+				}
+				return service.RunAgentReplacingExisting(command.Context())
 			}
 			if parsed.Host == "start" {
 				err = service.Start(command.Context(), clientapp.StartOptions{
@@ -184,8 +262,8 @@ func newStatusCommand(service ClientService) *cobra.Command {
 				return err
 			}
 			for _, binding := range status.Bindings {
-				if _, err = fmt.Fprintf(command.OutOrStdout(), "\nname: %s\nendpoint: %s\ninstance: %s\nserver: %s\nprivate_key: %t\n",
-					binding.DisplayName, binding.EndpointID, binding.ClientInstanceID, binding.ServerURL, binding.PrivateKeyReady); err != nil {
+				if _, err = fmt.Fprintf(command.OutOrStdout(), "\nname: %s\nbinding: %s\nendpoint: %s\ninstance: %s\nserver: %s\nprivate_key: %t\n",
+					binding.DisplayName, binding.BindingID, binding.EndpointID, binding.ClientInstanceID, binding.ServerURL, binding.PrivateKeyReady); err != nil {
 					return err
 				}
 			}

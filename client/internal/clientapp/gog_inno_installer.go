@@ -31,8 +31,9 @@ const (
 	maxGogInnoLogTailBytes        int64 = 1024 * 1024
 )
 
-// NO_MIGRATION_NEEDED: this installer adds no client config, pairing identity,
-// settings-sync, or save-sync fields. Its durable per-install data is schema 3.
+// ADR-0023 raises successful owned manifests to schema 4 and owned failed-install
+// markers to schema 3. Legacy schema-3 manifests and schema-1/2 markers remain
+// readable under the fail-closed single-binding ownership migration.
 
 type AuthenticodeVerifier interface {
 	VerifyGOG(path string) (subject string, thumbprint string, err error)
@@ -98,6 +99,7 @@ type ManagedGogInnoInstaller struct {
 	confirmer LocalConfirmer
 	runner    InstallerProcessRunner
 	programs  RegisteredProgramInspector
+	ownership *InstallationOwnership
 }
 
 type GogInnoCommandError struct {
@@ -118,26 +120,41 @@ func gogError(code string, payload any, format string, values ...any) error {
 }
 
 type gogInnoManifest struct {
-	SchemaVersion    int                           `json:"schema_version"`
-	GameID           string                        `json:"game_id"`
-	SourceGameID     string                        `json:"source_game_id"`
-	InstallRoot      string                        `json:"install_root"`
-	InstallPath      string                        `json:"install_path"`
-	InstallerFamily  string                        `json:"installer_family"`
-	PrimarySHA256    string                        `json:"primary_sha256"`
-	TotalBytes       uint64                        `json:"total_package_bytes"`
-	PackageFiles     []devicev1.GogInnoPackageFile `json:"package_files"`
-	SignerSubject    string                        `json:"signer_subject"`
-	SignerThumbprint string                        `json:"signer_thumbprint"`
-	InvocationMode   string                        `json:"invocation_mode"`
-	UninstallTarget  string                        `json:"uninstall_target"`
-	LaunchTarget     string                        `json:"launch_target,omitempty"`
-	LaunchCandidates []string                      `json:"launch_candidates,omitempty"`
-	ProcessID        int                           `json:"process_id,omitempty"`
-	ExitCode         *int                          `json:"exit_code,omitempty"`
-	DiagnosticRef    string                        `json:"diagnostic_ref,omitempty"`
-	InstalledAt      time.Time                     `json:"installed_at"`
-	CompletionBasis  string                        `json:"completion_basis"`
+	SchemaVersion       int                           `json:"schema_version"`
+	GameID              string                        `json:"game_id"`
+	SourceGameID        string                        `json:"source_game_id"`
+	InstallRoot         string                        `json:"install_root"`
+	InstallPath         string                        `json:"install_path"`
+	InstallerFamily     string                        `json:"installer_family"`
+	PrimarySHA256       string                        `json:"primary_sha256"`
+	TotalBytes          uint64                        `json:"total_package_bytes"`
+	PackageFiles        []devicev1.GogInnoPackageFile `json:"package_files"`
+	SignerSubject       string                        `json:"signer_subject"`
+	SignerThumbprint    string                        `json:"signer_thumbprint"`
+	InvocationMode      string                        `json:"invocation_mode"`
+	UninstallTarget     string                        `json:"uninstall_target"`
+	LaunchTarget        string                        `json:"launch_target,omitempty"`
+	LaunchCandidates    []string                      `json:"launch_candidates,omitempty"`
+	ProcessID           int                           `json:"process_id,omitempty"`
+	ExitCode            *int                          `json:"exit_code,omitempty"`
+	DiagnosticRef       string                        `json:"diagnostic_ref,omitempty"`
+	InstalledAt         time.Time                     `json:"installed_at"`
+	CompletionBasis     string                        `json:"completion_basis"`
+	LocalInstallationID string                        `json:"local_installation_id,omitempty"`
+	OwnerBindingID      string                        `json:"owner_binding_id,omitempty"`
+	OwnershipState      string                        `json:"ownership_state,omitempty"`
+}
+
+func NewOwnedManagedGogInnoInstaller(serverURL string, verifier AuthenticodeVerifier, detector InnoFamilyDetector, confirmer LocalConfirmer, runner InstallerProcessRunner, ownership *InstallationOwnership) (*ManagedGogInnoInstaller, error) {
+	installer, err := NewManagedGogInnoInstaller(serverURL, verifier, detector, confirmer, runner)
+	if err != nil {
+		return nil, err
+	}
+	if ownership == nil {
+		return nil, errors.New("installation ownership is required")
+	}
+	installer.ownership = ownership
+	return installer, nil
 }
 
 type gogInnoFailureMarker struct {
@@ -152,6 +169,7 @@ type gogInnoFailureMarker struct {
 	PrimarySHA256   string    `json:"primary_sha256"`
 	DestinationID   string    `json:"destination_identity,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
+	OwnerBindingID  string    `json:"owner_binding_id,omitempty"`
 }
 
 type gogInnoFailureMarkerRecord struct {
@@ -183,6 +201,10 @@ func newPlatformGogInnoInstaller(serverURL string) (*ManagedGogInnoInstaller, er
 	return NewManagedGogInnoInstaller(serverURL, newAuthenticodeVerifier(), newInnoFamilyDetector(), newLocalConfirmer(), newInstallerProcessRunner())
 }
 
+func newPlatformOwnedGogInnoInstaller(serverURL string, ownership *InstallationOwnership) (*ManagedGogInnoInstaller, error) {
+	return NewOwnedManagedGogInnoInstaller(serverURL, newAuthenticodeVerifier(), newInnoFamilyDetector(), newLocalConfirmer(), newInstallerProcessRunner(), ownership)
+}
+
 func (i *ManagedGogInnoInstaller) Install(ctx context.Context, commandID string, request devicev1.GogInnoInstallRequest, report CommandProgressReporter) (devicev1.GogInnoInstallResult, error) {
 	var result devicev1.GogInnoInstallResult
 	if i == nil || i.client == nil || i.now == nil || i.verifier == nil || i.detector == nil || i.confirmer == nil || i.runner == nil {
@@ -207,10 +229,24 @@ func (i *ManagedGogInnoInstaller) Install(ctx context.Context, commandID string,
 	if err := validateDestinationName(request.DestinationName); err != nil {
 		return result, err
 	}
+	installRoot = i.ownership.NamespacedRoot(installRoot)
 	if err := os.MkdirAll(installRoot, 0o755); err != nil {
 		return result, fmt.Errorf("create install root: %w", err)
 	}
 	installPath := filepath.Join(installRoot, request.DestinationName)
+	var ownershipOperation *OwnedInstallOperation
+	if i.ownership != nil {
+		productIdentity := "gog-inno:" + strings.ToLower(strings.TrimSpace(request.Installer.FileName))
+		ownershipOperation, err = i.ownership.BeginInstall(devicev1.InstallKindGogInno, request.GameID, request.SourceGameID, request.Title, installRoot, installPath, productIdentity)
+		if err != nil {
+			return result, gogError("installation_conflict", nil, "%v", err)
+		}
+		defer func() {
+			if ownershipOperation != nil {
+				_ = ownershipOperation.Abort()
+			}
+		}()
+	}
 	if inside, boundaryErr := pathWithinRoot(installRoot, installPath); boundaryErr != nil || !inside || filepath.Clean(installPath) == filepath.Clean(installRoot) {
 		return result, errors.New("destination is outside the install root")
 	}
@@ -308,7 +344,11 @@ func (i *ManagedGogInnoInstaller) Install(ctx context.Context, commandID string,
 		PackageFiles: files, SignerSubject: subject, SignerThumbprint: thumbprint,
 		InvocationMode: devicev1.GogInnoInvocationFixedSilent, DiagnosticRef: filepath.ToSlash(filepath.Join(".mga", "staging", commandID, gogInnoLogName)),
 	}
-	marker, err := newGogInnoFailureMarker(commandID, request, installRoot, installPath, result.PrimarySHA256, i.now().UTC())
+	ownerBindingID := ""
+	if i.ownership != nil {
+		ownerBindingID = i.ownership.bindingID
+	}
+	marker, err := newGogInnoFailureMarker(commandID, request, installRoot, installPath, result.PrimarySHA256, ownerBindingID, i.now().UTC())
 	if err != nil {
 		return result, gogError("install_validation_failed", nil, "%v", err)
 	}
@@ -384,13 +424,27 @@ func (i *ManagedGogInnoInstaller) Install(ctx context.Context, commandID string,
 	result.LaunchCandidates = candidates
 	result.LaunchTarget = launchTarget
 	result.InstalledAt = i.now().UTC()
+	manifestSchema := devicev1.LegacyExecutableInstallManifestSchemaVersion
+	localInstallationID, ownerBindingID := "", ""
+	if ownershipOperation != nil {
+		manifestSchema = devicev1.ExecutableInstallManifestSchemaVersion
+		localInstallationID = ownershipOperation.LocalInstallationID()
+		ownerBindingID = ownershipOperation.OwnerBindingID()
+	}
 	manifest := gogInnoManifest{
-		SchemaVersion: devicev1.ExecutableInstallManifestSchemaVersion, GameID: result.GameID, SourceGameID: result.SourceGameID,
+		SchemaVersion: manifestSchema, GameID: result.GameID, SourceGameID: result.SourceGameID,
 		InstallRoot: result.InstallRoot, InstallPath: result.InstallPath, InstallerFamily: result.InstallerFamily,
 		PrimarySHA256: result.PrimarySHA256, TotalBytes: result.TotalPackageBytes, PackageFiles: result.PackageFiles,
 		SignerSubject: result.SignerSubject, SignerThumbprint: result.SignerThumbprint, InvocationMode: result.InvocationMode,
 		UninstallTarget: result.UninstallTarget, LaunchTarget: result.LaunchTarget, LaunchCandidates: result.LaunchCandidates, InstalledAt: result.InstalledAt,
 		ProcessID: result.ProcessID, ExitCode: result.ExitCode, DiagnosticRef: result.DiagnosticRef, CompletionBasis: result.CompletionBasis,
+		LocalInstallationID: localInstallationID, OwnerBindingID: ownerBindingID,
+		OwnershipState: func() string {
+			if ownerBindingID != "" {
+				return string(OwnershipOwned)
+			}
+			return ""
+		}(),
 	}
 	if err := writeGogInnoManifest(installPath, manifest); err != nil {
 		result = i.inventoryFailedInstall(result, marker)
@@ -405,6 +459,14 @@ func (i *ManagedGogInnoInstaller) Install(ctx context.Context, commandID string,
 	}
 	result.CleanupMarkerID = ""
 	markerCreated = false
+	if ownershipOperation != nil {
+		if err := ownershipOperation.Complete(); err != nil {
+			ownershipOperation.LeavePending()
+			ownershipOperation = nil
+			return result, gogError("install_validation_failed", result, "finalize installation ownership: %v", err)
+		}
+		ownershipOperation = nil
+	}
 	if err := reportProgress(report, "complete", "Installed", 100, "install", 100); err != nil {
 		return result, err
 	}
@@ -428,7 +490,7 @@ func (i *ManagedGogInnoInstaller) Uninstall(ctx context.Context, request devicev
 	if err != nil {
 		return result, gogError("uninstaller_mismatch", nil, "%v", err)
 	}
-	if manifest.SchemaVersion != devicev1.ExecutableInstallManifestSchemaVersion ||
+	if (manifest.SchemaVersion != devicev1.LegacyExecutableInstallManifestSchemaVersion && manifest.SchemaVersion != devicev1.ExecutableInstallManifestSchemaVersion) ||
 		manifest.GameID != request.GameID || manifest.SourceGameID != request.SourceGameID ||
 		manifest.InstallerFamily != devicev1.GogInnoInstallerFamily ||
 		!sameRelativePath(manifest.UninstallTarget, request.UninstallTarget) {
@@ -437,6 +499,22 @@ func (i *ManagedGogInnoInstaller) Uninstall(ctx context.Context, request devicev
 	inside, boundaryErr := pathWithinRoot(manifest.InstallRoot, request.InstallPath)
 	if boundaryErr != nil || !inside || filepath.Clean(request.InstallPath) == filepath.Clean(manifest.InstallRoot) {
 		return result, gogError("uninstaller_mismatch", nil, "install path is outside its recorded MGA root")
+	}
+	common, commonErr := readInstallManifest(request.InstallPath)
+	if commonErr != nil {
+		return result, gogError("installation_owner_mismatch", nil, "%v", commonErr)
+	}
+	common, commonErr = ensureInstallationManifestOwnership(i.ownership, request.InstallPath, common)
+	if commonErr != nil {
+		return result, gogError("installation_owner_mismatch", nil, "%v", commonErr)
+	}
+	manifest.LocalInstallationID, manifest.OwnerBindingID, manifest.OwnershipState = common.LocalInstallationID, common.OwnerBindingID, common.OwnershipState
+	mutation, err := i.ownership.AuthorizeMutation(manifest.LocalInstallationID, manifest.OwnerBindingID, request.InstallPath)
+	if err != nil {
+		return result, gogError("installation_owner_mismatch", nil, "%v", err)
+	}
+	if mutation != nil {
+		defer mutation.Close()
 	}
 	target := filepath.Join(request.InstallPath, filepath.FromSlash(request.UninstallTarget))
 	member, memberErr := pathWithinRoot(request.InstallPath, target)
@@ -473,6 +551,11 @@ func (i *ManagedGogInnoInstaller) Uninstall(ctx context.Context, request devicev
 	_, statErr := os.Stat(request.InstallPath)
 	result.LeftoverDirectory = statErr == nil
 	result.Removed = true
+	if mutation != nil {
+		if err := mutation.Removed(); err != nil {
+			return result, gogError("installation_owner_mismatch", result, "remove installation ownership: %v", err)
+		}
+	}
 	if err := reportProgress(report, "complete", "Uninstalled", 100, "install", 100); err != nil {
 		return result, err
 	}
@@ -502,6 +585,14 @@ func (i *ManagedGogInnoInstaller) CleanupFailed(ctx context.Context, request dev
 	}
 	if err := validateFailureMarker(markerRecord.Marker, request); err != nil {
 		return result, gogError("cleanup_marker_mismatch", nil, "%v", err)
+	}
+	if i.ownership != nil {
+		if markerRecord.Marker.OwnerBindingID == "" && i.ownership.bindingCount != 1 {
+			return result, gogError("cleanup_marker_mismatch", nil, "legacy failed-install ownership is ambiguous across MGA servers")
+		}
+		if markerRecord.Marker.OwnerBindingID != "" && !strings.EqualFold(markerRecord.Marker.OwnerBindingID, i.ownership.bindingID) {
+			return result, gogError("cleanup_marker_mismatch", nil, "failed install is managed by another MGA server")
+		}
 	}
 	if err := i.confirmer.ConfirmCleanup(ctx, CleanupConfirmationDetails{
 		GameTitle: request.GameID, InstallPath: request.InstallPath, Server: i.serverURL,
@@ -572,15 +663,19 @@ func (i *ManagedGogInnoInstaller) CleanupFailed(ctx context.Context, request dev
 	return result, nil
 }
 
-func newGogInnoFailureMarker(commandID string, request devicev1.GogInnoInstallRequest, installRoot, installPath, primarySHA256 string, createdAt time.Time) (gogInnoFailureMarker, error) {
+func newGogInnoFailureMarker(commandID string, request devicev1.GogInnoInstallRequest, installRoot, installPath, primarySHA256, ownerBindingID string, createdAt time.Time) (gogInnoFailureMarker, error) {
 	random := make([]byte, 32)
 	if _, err := rand.Read(random); err != nil {
 		return gogInnoFailureMarker{}, fmt.Errorf("create failed-install marker ID: %w", err)
 	}
+	schema := 2
+	if ownerBindingID != "" {
+		schema = 3
+	}
 	return gogInnoFailureMarker{
-		SchemaVersion: 2, MarkerID: base64.RawURLEncoding.EncodeToString(random), CommandID: commandID,
+		SchemaVersion: schema, MarkerID: base64.RawURLEncoding.EncodeToString(random), CommandID: commandID,
 		GameID: request.GameID, SourceGameID: request.SourceGameID, InstallRoot: installRoot, InstallPath: installPath,
-		InstallerFamily: devicev1.GogInnoInstallerFamily, PrimarySHA256: primarySHA256, CreatedAt: createdAt,
+		InstallerFamily: devicev1.GogInnoInstallerFamily, PrimarySHA256: primarySHA256, CreatedAt: createdAt, OwnerBindingID: ownerBindingID,
 	}, nil
 }
 
@@ -675,7 +770,7 @@ func readGogInnoFailureMarker(installRoot, installPath, markerID string) (gogInn
 }
 
 func validateFailureMarker(marker gogInnoFailureMarker, request devicev1.GogInnoFailedCleanupRequest) error {
-	if (marker.SchemaVersion != 1 && marker.SchemaVersion != 2) || marker.MarkerID != request.CleanupMarkerID || marker.GameID != request.GameID ||
+	if (marker.SchemaVersion != 1 && marker.SchemaVersion != 2 && marker.SchemaVersion != 3) || marker.MarkerID != request.CleanupMarkerID || marker.GameID != request.GameID ||
 		marker.SourceGameID != request.SourceGameID || marker.InstallerFamily != request.InstallerFamily ||
 		strings.TrimSpace(marker.CommandID) == "" || filepath.Base(marker.CommandID) != marker.CommandID || strings.ContainsAny(marker.CommandID, `/\:`) || marker.CreatedAt.IsZero() ||
 		!strings.EqualFold(marker.PrimarySHA256, request.PrimarySHA256) ||
@@ -683,7 +778,7 @@ func validateFailureMarker(marker gogInnoFailureMarker, request devicev1.GogInno
 		!strings.EqualFold(filepath.Clean(marker.InstallPath), filepath.Clean(request.InstallPath)) {
 		return errors.New("failed-install cleanup marker does not match the persisted installation")
 	}
-	if marker.SchemaVersion == 2 {
+	if marker.SchemaVersion >= 2 {
 		currentID, err := filesystemObjectIdentity(request.InstallPath)
 		if err != nil || currentID != marker.DestinationID || strings.TrimSpace(marker.DestinationID) == "" {
 			return errors.New("failed-install destination identity does not match the cleanup marker")

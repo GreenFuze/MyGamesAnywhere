@@ -11,12 +11,13 @@ import (
 )
 
 const (
-	ArchiveInstallSchemaVersion  uint16 = 1
-	InstallManifestSchemaVersion        = 2
-	DefaultInstallRootTemplate          = `%USERPROFILE%\Games`
-	ArchiveFormatZIP                    = "zip"
-	ArchiveFormat7Z                     = "7z"
-	ArchiveFormatRAR                    = "rar"
+	ArchiveInstallSchemaVersion        uint16 = 1
+	LegacyInstallManifestSchemaVersion        = 2
+	InstallManifestSchemaVersion              = 3
+	DefaultInstallRootTemplate                = `%USERPROFILE%\Games`
+	ArchiveFormatZIP                          = "zip"
+	ArchiveFormat7Z                           = "7z"
+	ArchiveFormatRAR                          = "rar"
 )
 
 // ArchiveInstallRequest is a bounded request to download and install one

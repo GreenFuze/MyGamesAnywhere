@@ -58,3 +58,37 @@ func ConfirmUnbind(ctx context.Context, pairedServer string) (bool, error) {
 func ShowError(title, message string) error {
 	return zenity.Error(message, zenity.Title(title), zenity.OKLabel("OK"))
 }
+
+func ConfirmInstallationRelease(ctx context.Context, title, path, server string) (bool, error) {
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(path) == "" || strings.TrimSpace(server) == "" {
+		return false, fmt.Errorf("installation title, path, and server are required")
+	}
+	err := zenity.Question(
+		fmt.Sprintf("Release %s from:\n%s\n\nInstalled files will stay at:\n%s\n\nAnother paired MGA Server can pick it up later. The current server will no longer be allowed to update or uninstall it.", title, server, path),
+		zenity.Title("MGA Client — Release installation"), zenity.OKLabel("Release"), zenity.CancelLabel("Cancel"), zenity.WarningIcon, zenity.DefaultCancel(), zenity.Context(ctx),
+	)
+	if err == nil {
+		return true, nil
+	}
+	if err == zenity.ErrCanceled {
+		return false, nil
+	}
+	return false, fmt.Errorf("show release dialog: %w", err)
+}
+
+func ConfirmInstallationAdoption(ctx context.Context, title, path, server string) (bool, error) {
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(path) == "" || strings.TrimSpace(server) == "" {
+		return false, fmt.Errorf("installation title, path, and server are required")
+	}
+	err := zenity.Question(
+		fmt.Sprintf("Let this MGA Server manage %s?\n\nServer:\n%s\n\nInstalled at:\n%s\n\nThe server will be allowed to launch, update, repair, and uninstall this installation when those actions are supported.", title, server, path),
+		zenity.Title("MGA Client — Pick up installation"), zenity.OKLabel("Pick up"), zenity.CancelLabel("Cancel"), zenity.WarningIcon, zenity.DefaultCancel(), zenity.Context(ctx),
+	)
+	if err == nil {
+		return true, nil
+	}
+	if err == zenity.ErrCanceled {
+		return false, nil
+	}
+	return false, fmt.Errorf("show adoption dialog: %w", err)
+}

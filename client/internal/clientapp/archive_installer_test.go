@@ -59,6 +59,48 @@ func TestManagedArchiveInstallerInstallAndUninstallZIP(t *testing.T) {
 	}
 }
 
+func TestOwnedArchiveInstallUsesBindingRootAndRejectsOtherServerUninstall(t *testing.T) {
+	archive := buildTestZIP(t, map[string]string{"game.exe": "binary"})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(archive) }))
+	defer server.Close()
+	catalog, err := OpenOwnershipCatalog(filepath.Join(t.TempDir(), "ownership.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinator := NewInstallationCoordinator()
+	one, _ := NewInstallationOwnership(testBindingOne, server.URL, 2, catalog, coordinator)
+	two, _ := NewInstallationOwnership(testBindingTwo, server.URL, 2, catalog, coordinator)
+	installerOne, _ := NewOwnedManagedArchiveInstaller(server.URL, one)
+	installerTwo, _ := NewOwnedManagedArchiveInstaller(server.URL, two)
+	base := t.TempDir()
+	request := devicev1.ArchiveInstallRequest{GameID: "same-game", SourceGameID: "same-source", Title: "Game", ArchiveName: "game.zip", ArchiveFormat: "zip", ArchiveSize: uint64(len(archive)), DownloadURL: server.URL, DownloadToken: "token", DestinationRoot: base, DestinationName: "Game"}
+	result, err := installerOne.Install(context.Background(), "owned-command", request, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoot := filepath.Join(base, "MGA", "127.0.0.1-11111111")
+	if !sameLocalPath(result.InstallRoot, wantRoot) {
+		t.Fatalf("install root = %s, want %s", result.InstallRoot, wantRoot)
+	}
+	manifest, err := readInstallManifest(result.InstallPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.SchemaVersion != devicev1.InstallManifestSchemaVersion || manifest.OwnerBindingID != testBindingOne || manifest.LocalInstallationID == "" {
+		t.Fatalf("owned manifest = %+v", manifest)
+	}
+	uninstallRequest := devicev1.GameUninstallRequest{GameID: request.GameID, SourceGameID: request.SourceGameID, InstallPath: result.InstallPath}
+	if _, err := installerTwo.Uninstall(context.Background(), uninstallRequest, nil); err == nil {
+		t.Fatal("other server uninstalled owned installation")
+	}
+	if _, err := installerOne.Uninstall(context.Background(), uninstallRequest, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.List()) != 0 {
+		t.Fatalf("ownership catalog retained removed installation: %+v", catalog.List())
+	}
+}
+
 func TestDiscoverLaunchTargetsPrefersGameAndSkipsInstallers(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

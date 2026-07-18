@@ -13,31 +13,32 @@ import (
 )
 
 const (
-	GogInnoInstallSchemaVersion                uint16 = 1
-	GogInnoUninstallSchemaVersion              uint16 = 1
-	GogInnoCleanupSchemaVersion                uint16 = 1
-	ExecutableInstallManifestSchemaVersion            = 3
-	GogInnoInstallerFamily                            = "gog_inno"
-	GogInnoInvocationFixedSilent                      = "fixed_silent_inno"
-	InstallKindManagedArchive                         = "managed_archive"
-	InstallKindGogInno                                = "gog_inno"
-	InstallStateInstalled                             = "installed"
-	InstallStateAttentionRequired                     = "attention_required"
-	InstallStateCleanupRequired                       = "cleanup_required"
-	InstallStateCleanupRunning                        = "cleanup_running"
-	InstallStateCleanupFailed                         = "cleanup_failed"
-	InstallStateIgnoredFailure                        = "ignored_failure"
-	GogInnoCompletionExitZero                         = "exit_zero"
-	GogInnoCompletionValidatedPostSuccessCrash        = "validated_post_success_crash"
-	PackageTransferRoleInstaller                      = "installer"
-	PackageTransferRoleCompanion                      = "companion"
-	MaxGogInnoCompanions                              = 64
-	GogInnoLocalConfirmationTimeout                   = 10 * time.Minute
-	GogInnoInstallCommandLifetime                     = 4 * time.Hour
-	GogInnoUninstallCommandLifetime                   = 1 * time.Hour
-	GogInnoCleanupCommandLifetime                     = 1 * time.Hour
-	GogInnoInstallerProcessTimeout                    = 2 * time.Hour
-	GogInnoUninstallerProcessTimeout                  = 30 * time.Minute
+	GogInnoInstallSchemaVersion                  uint16 = 1
+	GogInnoUninstallSchemaVersion                uint16 = 1
+	GogInnoCleanupSchemaVersion                  uint16 = 1
+	LegacyExecutableInstallManifestSchemaVersion        = 3
+	ExecutableInstallManifestSchemaVersion              = 4
+	GogInnoInstallerFamily                              = "gog_inno"
+	GogInnoInvocationFixedSilent                        = "fixed_silent_inno"
+	InstallKindManagedArchive                           = "managed_archive"
+	InstallKindGogInno                                  = "gog_inno"
+	InstallStateInstalled                               = "installed"
+	InstallStateAttentionRequired                       = "attention_required"
+	InstallStateCleanupRequired                         = "cleanup_required"
+	InstallStateCleanupRunning                          = "cleanup_running"
+	InstallStateCleanupFailed                           = "cleanup_failed"
+	InstallStateIgnoredFailure                          = "ignored_failure"
+	GogInnoCompletionExitZero                           = "exit_zero"
+	GogInnoCompletionValidatedPostSuccessCrash          = "validated_post_success_crash"
+	PackageTransferRoleInstaller                        = "installer"
+	PackageTransferRoleCompanion                        = "companion"
+	MaxGogInnoCompanions                                = 64
+	GogInnoLocalConfirmationTimeout                     = 10 * time.Minute
+	GogInnoInstallCommandLifetime                       = 4 * time.Hour
+	GogInnoUninstallCommandLifetime                     = 1 * time.Hour
+	GogInnoCleanupCommandLifetime                       = 1 * time.Hour
+	GogInnoInstallerProcessTimeout                      = 2 * time.Hour
+	GogInnoUninstallerProcessTimeout                    = 30 * time.Minute
 )
 
 var (

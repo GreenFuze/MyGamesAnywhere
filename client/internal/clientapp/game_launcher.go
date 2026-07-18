@@ -40,6 +40,13 @@ type WindowsGameLauncher struct {
 	now         func() time.Time
 	start       gameProcessStarter
 	resolvePath func(string) (string, error)
+	ownership   *InstallationOwnership
+}
+
+func NewOwnedWindowsGameLauncher(ownership *InstallationOwnership) *WindowsGameLauncher {
+	launcher := NewWindowsGameLauncher()
+	launcher.ownership = ownership
+	return launcher
 }
 
 func NewWindowsGameLauncher() *WindowsGameLauncher {
@@ -66,6 +73,17 @@ func (l *WindowsGameLauncher) Launch(ctx context.Context, request devicev1.GameL
 	}
 	if !isSupportedLaunchManifestVersion(manifest.SchemaVersion) || manifest.GameID != request.GameID || manifest.SourceGameID != request.SourceGameID {
 		return devicev1.GameLaunchResult{}, errors.New("installation manifest does not match the requested game")
+	}
+	manifest, err = ensureInstallationManifestOwnership(l.ownership, request.InstallPath, manifest)
+	if err != nil {
+		return devicev1.GameLaunchResult{}, err
+	}
+	mutation, err := l.ownership.AuthorizeMutation(manifest.LocalInstallationID, manifest.OwnerBindingID, request.InstallPath)
+	if err != nil {
+		return devicev1.GameLaunchResult{}, err
+	}
+	if mutation != nil {
+		defer mutation.Close()
 	}
 	requested := devicev1.NormalizeLaunchTarget(request.LaunchTarget)
 	allowed := false
@@ -109,5 +127,5 @@ func (l *WindowsGameLauncher) Launch(ctx context.Context, request devicev1.GameL
 }
 
 func isSupportedLaunchManifestVersion(version int) bool {
-	return version == devicev1.InstallManifestSchemaVersion || version == devicev1.ExecutableInstallManifestSchemaVersion
+	return version == devicev1.LegacyInstallManifestSchemaVersion || version == devicev1.InstallManifestSchemaVersion || version == devicev1.LegacyExecutableInstallManifestSchemaVersion || version == devicev1.ExecutableInstallManifestSchemaVersion
 }

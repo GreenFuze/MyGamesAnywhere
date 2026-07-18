@@ -15,6 +15,14 @@ import (
 	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 )
 
+func serviceTestBinding(id, server string) clientconfig.Binding {
+	bindingID := "11111111-1111-4111-8111-111111111111"
+	if id == "two" {
+		bindingID = "22222222-2222-4222-8222-222222222222"
+	}
+	return clientconfig.Binding{BindingID: bindingID, ServerURL: server, WebSocketURL: strings.Replace(server, "http", "ws", 1) + "/connect", EndpointID: id, ClientInstanceID: id, DisplayName: "PC / player"}
+}
+
 func TestValidateServerURLAllowsHTTPFromLAN(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -83,10 +91,7 @@ func TestAcknowledgeLaunchReportsUnknownServerWithoutRemovingBindings(t *testing
 		t.Fatalf("New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = service.Close() })
-	binding := clientconfig.Binding{ServerURL: "http://127.0.0.1:8900",
-		WebSocketURL: "ws://127.0.0.1:8900/api/devices/connect", EndpointID: "endpoint-1",
-		ClientInstanceID: "instance-1", DisplayName: "PC / player",
-	}
+	binding := serviceTestBinding("one", "http://127.0.0.1:8900")
 	if err := service.configs.Save(clientconfig.Document{SchemaVersion: clientconfig.SchemaVersion, Bindings: []clientconfig.Binding{binding}}); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
@@ -131,7 +136,7 @@ func TestLoadBindingsMigratesLegacyOnlyAfterKeyVerification(t *testing.T) {
 		t.Fatalf("migrated document = %+v", document)
 	}
 	loaded, err := service.configs.Load()
-	if err != nil || loaded.LegacyLoaded {
+	if err != nil || loaded.MigrationFrom != 0 {
 		t.Fatalf("persisted migration = %+v, err=%v", loaded, err)
 	}
 }
@@ -148,7 +153,7 @@ func TestLoadBindingsLeavesLegacyConfigUntouchedWhenKeyIsMissing(t *testing.T) {
 	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.loadBindings(); err == nil || !strings.Contains(err.Error(), "verify legacy") {
+	if _, err := service.loadBindings(); err == nil || !strings.Contains(err.Error(), "verify endpoint identity") {
 		t.Fatalf("loadBindings() error = %v", err)
 	}
 	data, _ := os.ReadFile(path)
@@ -163,8 +168,8 @@ func TestClearBindingRemovesOnlyRequestedServerAndKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = service.Close() })
-	one := clientconfig.Binding{ServerURL: "http://localhost:8900", WebSocketURL: "ws://localhost:8900/connect", EndpointID: "one", ClientInstanceID: "one", DisplayName: "PC / player"}
-	two := clientconfig.Binding{ServerURL: "http://tv2:8900", WebSocketURL: "ws://tv2:8900/connect", EndpointID: "two", ClientInstanceID: "two", DisplayName: "PC / player"}
+	one := serviceTestBinding("one", "http://localhost:8900")
+	two := serviceTestBinding("two", "http://tv2:8900")
 	for _, binding := range []clientconfig.Binding{one, two} {
 		_, key, keyErr := ed25519.GenerateKey(rand.Reader)
 		if keyErr != nil {
@@ -198,7 +203,7 @@ func TestPairRejectsEquivalentExistingServerBeforeNetworkRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = service.Close() })
-	binding := clientconfig.Binding{ServerURL: "http://localhost:8900", WebSocketURL: "ws://localhost:8900/connect", EndpointID: "one", ClientInstanceID: "one", DisplayName: "PC / player"}
+	binding := serviceTestBinding("one", "http://localhost:8900")
 	if err := service.configs.Save(clientconfig.Document{SchemaVersion: clientconfig.SchemaVersion, Bindings: []clientconfig.Binding{binding}}); err != nil {
 		t.Fatal(err)
 	}
@@ -213,8 +218,8 @@ func TestLoadBindingsRejectsEquivalentLoopbackOrigins(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = service.Close() })
-	one := clientconfig.Binding{ServerURL: "http://localhost:8900", WebSocketURL: "ws://localhost:8900/connect", EndpointID: "one", ClientInstanceID: "one", DisplayName: "PC / player"}
-	two := clientconfig.Binding{ServerURL: "http://127.0.0.1:8900", WebSocketURL: "ws://127.0.0.1:8900/connect", EndpointID: "two", ClientInstanceID: "two", DisplayName: "PC / player"}
+	one := serviceTestBinding("one", "http://localhost:8900")
+	two := serviceTestBinding("two", "http://127.0.0.1:8900")
 	if err := service.configs.Save(clientconfig.Document{SchemaVersion: clientconfig.SchemaVersion, Bindings: []clientconfig.Binding{one, two}}); err != nil {
 		t.Fatal(err)
 	}

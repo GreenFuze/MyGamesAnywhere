@@ -33,6 +33,7 @@ cross the server, web interface, and device agent boundaries.
 - [ADR-0020: Multi-server bindings for one device/OS-user client](0020-multi-server-client-bindings.md)
 - [ADR-0021: Actionable installation attention and local storage reporting](0021-actionable-attention-and-local-storage.md)
 - [ADR-0022: Actionable, contextual notifications](0022-actionable-notifications.md)
+- [ADR-0023: Client-authoritative cross-server installation ownership](0023-cross-server-installation-ownership.md)
 
 ## Protocols
 

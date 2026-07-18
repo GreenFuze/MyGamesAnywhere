@@ -43,6 +43,7 @@ func (h *Host) Run(ctx context.Context, runner AgentRunner) error {
 		for _, binding := range h.options.Bindings {
 			binding := binding
 			item := unpair.AddSubMenuItem(binding.ServerURL, "Unbind only from "+binding.ServerURL)
+			releaseItem := unpair.AddSubMenuItem("Release games + "+binding.ServerURL, "Preserve files, release ownership, then unbind")
 			go func() {
 				select {
 				case <-runContext.Done():
@@ -63,6 +64,51 @@ func (h *Host) Run(ctx context.Context, runner AgentRunner) error {
 					cancel()
 				}
 			}()
+			go func() {
+				select {
+				case <-runContext.Done():
+					return
+				case <-releaseItem.ClickedCh:
+					approved, err := ConfirmUnbind(runContext, binding.ServerURL+" and release all of its managed games")
+					if err != nil {
+						_ = ShowError("MGA Client — Release failed", err.Error())
+						return
+					}
+					if !approved {
+						return
+					}
+					if err := binding.ReleaseAndUnpair(); err != nil {
+						_ = ShowError("MGA Client — Release failed", err.Error())
+						return
+					}
+					cancel()
+				}
+			}()
+		}
+		if len(h.options.Installations) > 0 {
+			managed := systray.AddMenuItem("Managed games", "Release a game without deleting its files")
+			for _, installation := range h.options.Installations {
+				installation := installation
+				item := managed.AddSubMenuItem(installation.Title, installation.Path)
+				go func() {
+					select {
+					case <-runContext.Done():
+						return
+					case <-item.ClickedCh:
+						approved, err := ConfirmInstallationRelease(runContext, installation.Title, installation.Path, installation.OwnerLabel)
+						if err != nil {
+							_ = ShowError("MGA Client — Release failed", err.Error())
+							return
+						}
+						if !approved {
+							return
+						}
+						if err := installation.Release(); err != nil {
+							_ = ShowError("MGA Client — Release failed", err.Error())
+						}
+					}
+				}()
+			}
 		}
 		exit := systray.AddMenuItem("Exit", "Stop this user's MGA Client")
 

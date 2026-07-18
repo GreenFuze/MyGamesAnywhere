@@ -35,6 +35,17 @@ func TestInventoryValidationAcceptsSchemaTwoWithoutSaveAdapters(t *testing.T) {
 	}
 }
 
+func TestInventoryManagedInstallationObservationIsBoundedAndSanitized(t *testing.T) {
+	inventory := DeviceInventory{SchemaVersion: InventorySchemaVersion, CapturedAt: time.Now(), ManagedInstallations: []ManagedInstallationObservation{{LocalInstallationID: "local-1", State: "managed_elsewhere", InstallKind: "managed_archive", Title: "Game"}}}
+	if err := inventory.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	inventory.ManagedInstallations[0].InstallPath = `C:\Games\secret`
+	if err := inventory.Validate(); err == nil {
+		t.Fatal("other server path was accepted")
+	}
+}
+
 func TestInventoryValidationRejectsInvalidSaveAdapters(t *testing.T) {
 	for name, adapters := range map[string][]SaveAdapterInventory{
 		"duplicate": {{ID: "scummvm", Name: "ScummVM", ProbeState: "complete"}, {ID: "scummvm", Name: "ScummVM", ProbeState: "partial"}},

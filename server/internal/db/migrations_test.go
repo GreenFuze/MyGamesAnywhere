@@ -37,7 +37,7 @@ func TestMigrationsFreshDBReachLatestAndAreIdempotent(t *testing.T) {
 	}
 }
 
-func TestMigration25AddsEmptySaveAdapterInventory(t *testing.T) {
+func TestMigrations25And26AddEmptyExtendedInventory(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
 	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
 	if err := dbSvc.Connect(); err != nil {
@@ -68,6 +68,10 @@ func TestMigration25AddsEmptySaveAdapterInventory(t *testing.T) {
 	var adapters string
 	if err := dbSvc.GetDB().QueryRow(`SELECT save_adapters_json FROM device_inventories WHERE endpoint_id='endpoint-25'`).Scan(&adapters); err != nil || adapters != "[]" {
 		t.Fatalf("migrated save adapters = %q, error = %v", adapters, err)
+	}
+	var installations string
+	if err := dbSvc.GetDB().QueryRow(`SELECT managed_installations_json FROM device_inventories WHERE endpoint_id='endpoint-25'`).Scan(&installations); err != nil || installations != "[]" {
+		t.Fatalf("migrated managed installations = %q, error = %v", installations, err)
 	}
 }
 

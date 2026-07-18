@@ -149,3 +149,12 @@ continue to work when it is absent.
 - Provider-direct streaming, shortcuts, launch arguments/working-directory
   overrides, prerequisites, save-path discovery, repair, and updates remain
   later slices.
+
+## ADR-0023 ownership amendment
+
+ADR-0023 raises new archive manifests to schema 3 by adding client-local
+installation and owner-binding IDs. Schema 2 remains the legacy launchable and
+uninstallable format. On a client with exactly one binding it is claimed lazily
+after the existing identity and boundary checks; with several bindings it is
+never assigned by guesswork. New installs resolve the configured path as a base
+and place content below a stable per-binding visible root.

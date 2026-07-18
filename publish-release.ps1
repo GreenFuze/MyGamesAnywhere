@@ -114,6 +114,7 @@ $repoRoot = $PSScriptRoot
 $versionFile = Join-Path $repoRoot "VERSION"
 $serverDir = Join-Path $repoRoot "server"
 $clientDir = Join-Path $repoRoot "client"
+$clientVersionFile = Join-Path $clientDir "VERSION"
 $protocolDir = Join-Path $repoRoot "protocol"
 $serverReleaseDir = Join-Path $serverDir "release"
 $clientReleaseDir = Join-Path $clientDir "release"
@@ -128,6 +129,9 @@ if ($env:OS -ne 'Windows_NT') {
 }
 if (-not (Test-Path -LiteralPath $versionFile)) {
     throw "Missing repository VERSION file: $versionFile"
+}
+if (-not (Test-Path -LiteralPath $clientVersionFile)) {
+    throw "Missing client VERSION file: $clientVersionFile"
 }
 
 $runningBuildProcesses = @(
@@ -196,13 +200,15 @@ Invoke-InDirectory $repoRoot {
     }
 
     $currentVersion = (Get-Content -LiteralPath $versionFile -Raw).Trim().TrimStart('v')
-    if ($currentVersion -ne $resolvedVersion) {
+    $currentClientVersion = (Get-Content -LiteralPath $clientVersionFile -Raw).Trim().TrimStart('v')
+    if ($currentVersion -ne $resolvedVersion -or $currentClientVersion -ne $resolvedVersion) {
         $encoding = New-Object System.Text.UTF8Encoding($false)
         [System.IO.File]::WriteAllText($versionFile, "$resolvedVersion$([Environment]::NewLine)", $encoding)
-        Invoke-Native git add -- VERSION
+        [System.IO.File]::WriteAllText($clientVersionFile, "$resolvedVersion$([Environment]::NewLine)", $encoding)
+        Invoke-Native git add -- VERSION client/VERSION
         Invoke-Native git commit -m "chore: prepare $tag release"
     } else {
-        Write-Host "VERSION already contains $resolvedVersion; no version commit is needed." -ForegroundColor DarkGray
+        Write-Host "VERSION and client/VERSION already contain $resolvedVersion; no version commit is needed." -ForegroundColor DarkGray
     }
 
     Write-Host "Running release verification for $tag..." -ForegroundColor Cyan

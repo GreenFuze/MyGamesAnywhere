@@ -34,6 +34,10 @@ The current development implementation includes:
 - per-user Windows build/installer scripts, `mga://pair`, signed short-lived
   `mga://start` browser association, login startup, diagnostics, single-instance
   enforcement, and local unpairing
+- schema-3 stable local binding IDs, a client-authoritative installation
+  ownership catalog, per-binding roots, and cross-agent mutation reservations
+- inventory-schema-4 managed-install observations plus locally confirmed
+  `mga://release` and `mga://adopt` ownership recovery
 
 This is the secure control-plane plus first mutating-game vertical slice.
 Game stop, non-ZIP installers, emulator management, elevation helpers,
@@ -66,6 +70,8 @@ self-update remain intentionally deferred.
 | `profile_id` | Server | Authenticated MGA identity requesting or receiving access |
 | `endpoint_id` | Server during pairing | Authoritative command target |
 | `client_instance_id` | Client installation | Correlates local state before and after pairing |
+| `binding_id` | Client per server binding | Stable local owner identity independent of server URL |
+| `local_installation_id` | Client per managed installation | Authorizes and audits local ownership across servers |
 | `connection_id` | Server per WebSocket | Identifies one live connection |
 | `message_id` | Message sender | Deduplicates protocol messages |
 | `command_id` | Server | Correlates the complete command lifecycle |
@@ -407,6 +413,8 @@ installation audit events with Missing, Needs repair, and restored transitions.
 It preserves existing installation rows and events, including legacy rows with
 no cleanup marker. See [ADR-0011](0011-device-installation-reconciliation.md).
 
-The new client has no legacy installation state. Its initial persisted JSON is
-explicitly schema version 1; unknown future versions fail fast. No existing MGA
-server JSON/config format is changed.
+Migration 26 additively stores bounded, sanitized managed-install observations
+with device inventory. Client config schema 3 adds stable binding IDs;
+ownership-catalog schema 1, archive manifest schema 3, and executable manifest
+schema 4 add client-local ownership. Older config and manifests follow the
+fail-closed migration policy in [ADR-0023](0023-cross-server-installation-ownership.md).

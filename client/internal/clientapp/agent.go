@@ -46,6 +46,17 @@ func NewAgent(config clientconfig.Binding, privateKey ed25519.PrivateKey, info b
 // NewAgentWithExecutionMode creates an agent that reports its actual current
 // Windows execution mode as endpoint runtime metadata.
 func NewAgentWithExecutionMode(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode) (*Agent, error) {
+	return newAgentWithOwnership(config, privateKey, info, logger, executionMode, nil)
+}
+
+func NewOwnedAgentWithExecutionMode(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode, ownership *InstallationOwnership) (*Agent, error) {
+	if ownership == nil {
+		return nil, errors.New("installation ownership is required")
+	}
+	return newAgentWithOwnership(config, privateKey, info, logger, executionMode, ownership)
+}
+
+func newAgentWithOwnership(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode, ownership *InstallationOwnership) (*Agent, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -61,11 +72,22 @@ func NewAgentWithExecutionMode(config clientconfig.Binding, privateKey ed25519.P
 	if logger == nil {
 		return nil, errors.New("agent logger is required")
 	}
-	installer, err := NewManagedArchiveInstaller(config.ServerURL)
+	var installer *ManagedArchiveInstaller
+	var err error
+	if ownership == nil {
+		installer, err = NewManagedArchiveInstaller(config.ServerURL)
+	} else {
+		installer, err = NewOwnedManagedArchiveInstaller(config.ServerURL, ownership)
+	}
 	if err != nil {
 		return nil, err
 	}
-	gogInstaller, err := newPlatformGogInnoInstaller(config.ServerURL)
+	var gogInstaller *ManagedGogInnoInstaller
+	if ownership == nil {
+		gogInstaller, err = newPlatformGogInnoInstaller(config.ServerURL)
+	} else {
+		gogInstaller, err = newPlatformOwnedGogInnoInstaller(config.ServerURL, ownership)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +95,12 @@ func NewAgentWithExecutionMode(config clientconfig.Binding, privateKey ed25519.P
 	if err != nil {
 		return nil, err
 	}
-	inventory := NewLocalInventoryCollector()
+	var inventory *LocalInventoryCollector
+	if ownership == nil {
+		inventory = NewLocalInventoryCollector()
+	} else {
+		inventory = NewOwnedLocalInventoryCollector(ownership.catalog, config.BindingID)
+	}
 	emulator, err := NewManagedEmulatorLauncher(config.ServerURL, inventory)
 	if err != nil {
 		return nil, err
@@ -85,7 +112,7 @@ func NewAgentWithExecutionMode(config clientconfig.Binding, privateKey ed25519.P
 	return &Agent{
 		config: config, privateKey: privateKey, buildInfo: info, logger: logger, executionMode: executionMode,
 		inventory: inventory, installer: installer, gogInstaller: gogInstaller,
-		launcher: NewWindowsGameLauncher(), emulator: emulator, emulatorSetup: emulatorSetup, validator: validator,
+		launcher: NewOwnedWindowsGameLauncher(ownership), emulator: emulator, emulatorSetup: emulatorSetup, validator: validator,
 	}, nil
 }
 

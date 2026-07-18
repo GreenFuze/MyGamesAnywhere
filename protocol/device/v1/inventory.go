@@ -9,24 +9,27 @@ import (
 )
 
 const (
-	InventorySchemaVersion         uint16 = 3
-	InventorySchemaVersionPrevious uint16 = 2
-	InventorySchemaVersionLegacy   uint16 = 1
-	maxInventoryRuntimes                  = 64
-	maxRuntimeComponents                  = 256
-	maxSaveAdapters                       = 16
+	InventorySchemaVersion                 uint16 = 4
+	InventorySchemaVersionWithSaveAdapters uint16 = 3
+	InventorySchemaVersionPrevious         uint16 = 2
+	InventorySchemaVersionLegacy           uint16 = 1
+	maxInventoryRuntimes                          = 64
+	maxRuntimeComponents                          = 256
+	maxSaveAdapters                               = 16
+	maxManagedInstallations                       = 256
 )
 
 // DeviceInventory is a bounded snapshot of facts needed to evaluate play and
 // installation options. It intentionally excludes full environment dumps and
 // arbitrary installed-software lists.
 type DeviceInventory struct {
-	SchemaVersion   uint16                    `json:"schema_version"`
-	CapturedAt      time.Time                 `json:"captured_at"`
-	Storage         []StorageInventory        `json:"storage"`
-	Runtimes        []RuntimeInventory        `json:"runtimes"`
-	PackageManagers []PackageManagerInventory `json:"package_managers,omitempty"`
-	SaveAdapters    []SaveAdapterInventory    `json:"save_adapters,omitempty"`
+	SchemaVersion        uint16                           `json:"schema_version"`
+	CapturedAt           time.Time                        `json:"captured_at"`
+	Storage              []StorageInventory               `json:"storage"`
+	Runtimes             []RuntimeInventory               `json:"runtimes"`
+	PackageManagers      []PackageManagerInventory        `json:"package_managers,omitempty"`
+	SaveAdapters         []SaveAdapterInventory           `json:"save_adapters,omitempty"`
+	ManagedInstallations []ManagedInstallationObservation `json:"managed_installations,omitempty"`
 }
 
 type StorageInventory struct {
@@ -66,8 +69,18 @@ type SaveAdapterInventory struct {
 	RouteOverrides bool     `json:"route_overrides,omitempty"`
 }
 
+type ManagedInstallationObservation struct {
+	LocalInstallationID string `json:"local_installation_id"`
+	State               string `json:"state"`
+	InstallKind         string `json:"install_kind"`
+	Title               string `json:"title"`
+	InstallPath         string `json:"install_path,omitempty"`
+	CanManage           bool   `json:"can_manage,omitempty"`
+	CanAdopt            bool   `json:"can_adopt,omitempty"`
+}
+
 func (i DeviceInventory) Validate() error {
-	if i.SchemaVersion != InventorySchemaVersionLegacy && i.SchemaVersion != InventorySchemaVersionPrevious && i.SchemaVersion != InventorySchemaVersion {
+	if i.SchemaVersion != InventorySchemaVersionLegacy && i.SchemaVersion != InventorySchemaVersionPrevious && i.SchemaVersion != InventorySchemaVersionWithSaveAdapters && i.SchemaVersion != InventorySchemaVersion {
 		return fmt.Errorf("unsupported inventory schema version %d", i.SchemaVersion)
 	}
 	if i.CapturedAt.IsZero() {
@@ -112,7 +125,7 @@ func (i DeviceInventory) Validate() error {
 	if i.SchemaVersion == InventorySchemaVersionLegacy && len(i.PackageManagers) != 0 {
 		return errors.New("inventory schema 1 cannot contain package managers")
 	}
-	if i.SchemaVersion != InventorySchemaVersion && len(i.SaveAdapters) != 0 {
+	if i.SchemaVersion < 3 && len(i.SaveAdapters) != 0 {
 		return fmt.Errorf("inventory schema %d cannot contain save adapters", i.SchemaVersion)
 	}
 	if len(i.SaveAdapters) > maxSaveAdapters {
@@ -127,6 +140,45 @@ func (i DeviceInventory) Validate() error {
 			return fmt.Errorf("duplicate save adapter id %q", adapter.ID)
 		}
 		seenAdapters[adapter.ID] = true
+	}
+	if i.SchemaVersion != InventorySchemaVersion && len(i.ManagedInstallations) != 0 {
+		return fmt.Errorf("inventory schema %d cannot contain managed installations", i.SchemaVersion)
+	}
+	if len(i.ManagedInstallations) > maxManagedInstallations {
+		return errors.New("inventory contains too many managed installations")
+	}
+	seenInstallations := map[string]bool{}
+	for _, installation := range i.ManagedInstallations {
+		if err := installation.Validate(); err != nil {
+			return err
+		}
+		if seenInstallations[installation.LocalInstallationID] {
+			return fmt.Errorf("duplicate local installation id %q", installation.LocalInstallationID)
+		}
+		seenInstallations[installation.LocalInstallationID] = true
+	}
+	return nil
+}
+
+func (i ManagedInstallationObservation) Validate() error {
+	if strings.TrimSpace(i.LocalInstallationID) == "" || strings.TrimSpace(i.InstallKind) == "" || strings.TrimSpace(i.Title) == "" {
+		return errors.New("managed installation ID, kind, and title are required")
+	}
+	switch i.State {
+	case "managed_here", "managed_elsewhere", "released", "installing_here", "installing_elsewhere", "legacy_unclaimed", "interrupted":
+	default:
+		return fmt.Errorf("unsupported managed installation state %q", i.State)
+	}
+	if i.State == "managed_elsewhere" || i.State == "installing_elsewhere" {
+		if i.InstallPath != "" || i.CanManage || i.CanAdopt {
+			return errors.New("another server's installation must not expose path or authority")
+		}
+	}
+	if i.CanManage && i.State != "managed_here" {
+		return errors.New("only a locally owned installation can be managed")
+	}
+	if i.CanAdopt && i.State != "released" {
+		return errors.New("only a released installation can be adopted")
 	}
 	return nil
 }
@@ -227,6 +279,7 @@ func (i DeviceInventory) Normalize() DeviceInventory {
 	i.Runtimes = append([]RuntimeInventory(nil), i.Runtimes...)
 	i.PackageManagers = append([]PackageManagerInventory(nil), i.PackageManagers...)
 	i.SaveAdapters = append([]SaveAdapterInventory(nil), i.SaveAdapters...)
+	i.ManagedInstallations = append([]ManagedInstallationObservation(nil), i.ManagedInstallations...)
 	for index := range i.Runtimes {
 		i.Runtimes[index].Components = append([]RuntimeComponentInventory(nil), i.Runtimes[index].Components...)
 		sort.Slice(i.Runtimes[index].Components, func(left, right int) bool {
@@ -243,5 +296,8 @@ func (i DeviceInventory) Normalize() DeviceInventory {
 		sort.Strings(i.SaveAdapters[index].SaveKinds)
 	}
 	sort.Slice(i.SaveAdapters, func(left, right int) bool { return i.SaveAdapters[left].ID < i.SaveAdapters[right].ID })
+	sort.Slice(i.ManagedInstallations, func(left, right int) bool {
+		return i.ManagedInstallations[left].LocalInstallationID < i.ManagedInstallations[right].LocalInstallationID
+	})
 	return i
 }
