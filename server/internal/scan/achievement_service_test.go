@@ -1,10 +1,20 @@
 package scan
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
+
+type achievementFailureTestHost struct{}
+
+func (achievementFailureTestHost) Call(context.Context, string, string, any, any) error {
+	return errors.New("plugin error [AUTH_FAILED]: sign-in required")
+}
+
+func (achievementFailureTestHost) GetPluginIDsProviding(string) []string { return nil }
 
 func TestBuildAchievementQueryCandidatesReturnsMultipleSourceBackedSets(t *testing.T) {
 	game := &core.CanonicalGame{
@@ -74,5 +84,22 @@ func TestBuildAchievementQueryCandidatesSkipsOutvotedResolverMatches(t *testing.
 	candidates := BuildAchievementQueryCandidates(game, []string{"retroachievements"})
 	if got := candidates["retroachievements"]; len(got) != 0 {
 		t.Fatalf("outvoted candidates = %+v, want none", got)
+	}
+}
+
+func TestAchievementFetchFailureKeepsIntegrationIdentity(t *testing.T) {
+	service := NewAchievementFetchService(nil, achievementFailureTestHost{}, eventTestLogger{})
+	game := &core.CanonicalGame{ID: "game-1", Title: "Game"}
+	_, failures := service.FetchAndCacheWithCandidatesOptions(
+		context.Background(),
+		game,
+		[]AchievementSource{{IntegrationID: "xbox-orr", Label: "Orr's Xbox", PluginID: "xbox-source"}},
+		map[string][]AchievementQueryCandidate{
+			"xbox-source": {{PluginID: "xbox-source", ExternalGameID: "game-1", SourceGameID: "source-1"}},
+		},
+		AchievementFetchOptions{PersistProviderFailures: false},
+	)
+	if _, ok := failures["xbox-source|xbox-orr|game-1"]; !ok {
+		t.Fatalf("failure keys = %+v, want connection identity in key", failures)
 	}
 }

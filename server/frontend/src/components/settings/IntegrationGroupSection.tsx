@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type {
   Integration,
   IntegrationStatusEntry,
@@ -61,6 +61,8 @@ interface IntegrationGroupSectionProps {
   saveSyncHeaderControls?: ReactNode;
   onStartAuth?: (integration: Integration, options?: { force?: boolean }) => void;
   authPendingIds?: Set<string>;
+  focusIntegrationId?: string;
+  focusPluginId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,8 +102,24 @@ export function IntegrationGroupSection({
   saveSyncHeaderControls,
   onStartAuth,
   authPendingIds,
+  focusIntegrationId,
+  focusPluginId,
 }: IntegrationGroupSectionProps) {
-  const [expanded, setExpanded] = useState(capability === "source");
+  const focusedIntegration = integrations.find((integration) =>
+    focusIntegrationId
+      ? integration.id === focusIntegrationId
+      : Boolean(focusPluginId && integration.plugin_id === focusPluginId),
+  );
+  const [expanded, setExpanded] = useState(capability === "source" || Boolean(focusedIntegration));
+
+  useEffect(() => {
+    if (!focusedIntegration) return
+    setExpanded(true)
+    const timer = window.setTimeout(() => {
+      document.getElementById(`integration-${focusedIntegration.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
+    }, 50)
+    return () => window.clearTimeout(timer)
+  }, [focusedIntegration])
 
   const meta = CAPABILITY_META[capability] ?? {
     label: capability,
@@ -182,45 +200,40 @@ export function IntegrationGroupSection({
       {expanded && (
         <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
           {integrations.map((integ) => (
-            <IntegrationCard
+            <div
               key={integ.id}
-              integration={integ}
-              plugin={pluginMap.get(integ.plugin_id)}
-              status={statusMap.get(integ.id)}
-              isChecking={checkingIds.has(integ.id)}
-              capability={capability}
-              gameCount={getGameCount(integ)}
-              onCheck={onCheck}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              mutationDisabled={mutationControlsDisabled}
-              // Source-specific.
-              scanState={scanStateByIntegrationId?.get(integ.id)}
-              refreshState={refreshStateByIntegrationId?.get(integ.id)}
-              scanDisabled={
-                capability === "source" ? scanControlsDisabled : undefined
-              }
-              onScan={onScan}
-              refreshDisabled={refreshControlsDisabled}
-              onRefresh={onRefresh}
-              // Sync-specific.
-              syncStatus={capability === "sync" ? syncStatus : undefined}
-              syncState={capability === "sync" ? syncState : undefined}
-              onPush={capability === "sync" ? onPush : undefined}
-              onPull={capability === "sync" ? onPull : undefined}
-              onStoreKey={capability === "sync" ? onStoreKey : undefined}
-              onClearKey={capability === "sync" ? onClearKey : undefined}
-              activeSaveSyncIntegrationId={
-                capability === "save_sync"
-                  ? activeSaveSyncIntegrationId
-                  : undefined
-              }
-              onSetActiveSaveSync={
-                capability === "save_sync" ? onSetActiveSaveSync : undefined
-              }
-              onStartAuth={onStartAuth}
-              authPending={authPendingIds?.has(integ.id)}
-            />
+              id={`integration-${integ.id}`}
+              className={focusedIntegration?.id === integ.id ? "rounded-mga ring-2 ring-mga-accent ring-offset-2 ring-offset-mga-bg" : undefined}
+            >
+              <IntegrationCard
+                integration={integ}
+                plugin={pluginMap.get(integ.plugin_id)}
+                status={statusMap.get(integ.id)}
+                isChecking={checkingIds.has(integ.id)}
+                capability={capability}
+                gameCount={getGameCount(integ)}
+                onCheck={onCheck}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                mutationDisabled={mutationControlsDisabled}
+                scanState={scanStateByIntegrationId?.get(integ.id)}
+                refreshState={refreshStateByIntegrationId?.get(integ.id)}
+                scanDisabled={capability === "source" ? scanControlsDisabled : undefined}
+                onScan={onScan}
+                refreshDisabled={refreshControlsDisabled}
+                onRefresh={onRefresh}
+                syncStatus={capability === "sync" ? syncStatus : undefined}
+                syncState={capability === "sync" ? syncState : undefined}
+                onPush={capability === "sync" ? onPush : undefined}
+                onPull={capability === "sync" ? onPull : undefined}
+                onStoreKey={capability === "sync" ? onStoreKey : undefined}
+                onClearKey={capability === "sync" ? onClearKey : undefined}
+                activeSaveSyncIntegrationId={capability === "save_sync" ? activeSaveSyncIntegrationId : undefined}
+                onSetActiveSaveSync={capability === "save_sync" ? onSetActiveSaveSync : undefined}
+                onStartAuth={onStartAuth}
+                authPending={authPendingIds?.has(integ.id)}
+              />
+            </div>
           ))}
         </div>
       )}

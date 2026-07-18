@@ -33,10 +33,12 @@ Events are delivered on `GET /api/events` as Server-Sent Events: each message ha
 | `scan_integration_complete` | Integration persisted. `games_found`. |
 | `scan_cancel_requested` | Cancellation was requested for the active job. |
 | `scan_cancelled` | Scan exited due to cancellation. `finished_at`. |
-| `scan_complete` | Full scan done. `canonical_games`, `duration_ms`. |
+| `scan_complete` | Full scan done. `canonical_games`, `duration_ms`, `games_added`, `games_removed`, bounded `changes[]` (`kind`, `source_game_id`, `title`, `integration_id`, `integration_label`), and `changes_omitted`. |
 | `scan_error` | Fatal scan failure. `error`; optional `integration_id`. |
 
-Per-game discovery events are not emitted in v1 (high volume); clients rely on counts above.
+Per-game progress events are not emitted in v1 (high volume). The terminal event
+contains at most 100 changed source-game summaries so notification history can
+explain the result without exposing configuration or credentials.
 
 ## Job snapshot notes
 

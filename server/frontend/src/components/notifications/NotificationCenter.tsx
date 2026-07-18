@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, Bell, CheckCircle2, Info, Trash2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { AlertCircle, ArrowRight, Bell, CheckCircle2, ChevronDown, Info, Minus, Plus, Trash2 } from 'lucide-react'
 import { useDateTimeFormat } from '@/hooks/useDateTimeFormat'
 import { cn } from '@/lib/utils'
 import { useToast, type ToastTone } from '@/components/ui/toast'
@@ -17,6 +18,7 @@ const toneStyles: Record<ToastTone, string> = {
 }
 
 export function NotificationCenter() {
+  const navigate = useNavigate()
   const { notifications, unreadCount, markAllRead, clearHistory } = useToast()
   const { format } = useDateTimeFormat()
   const [open, setOpen] = useState(false)
@@ -107,9 +109,25 @@ export function NotificationCenter() {
                 return (
                   <article
                     key={notification.id}
+                    role={notification.action ? 'link' : undefined}
+                    tabIndex={notification.action ? 0 : undefined}
+                    onClick={(event) => {
+                      if (!notification.action) return
+                      const target = event.target as Element
+                      if (target.closest('button, a, details, summary')) return
+                      setOpen(false)
+                      navigate(notification.action.href)
+                    }}
+                    onKeyDown={(event) => {
+                      if (!notification.action || (event.key !== 'Enter' && event.key !== ' ')) return
+                      event.preventDefault()
+                      setOpen(false)
+                      navigate(notification.action.href)
+                    }}
                     className={cn(
                       'flex gap-3 border-b border-mga-border/70 px-3 py-3 last:border-b-0',
                       notification.read ? 'bg-mga-surface' : 'bg-mga-accent/[0.04]',
+                      notification.action && 'cursor-pointer transition-colors hover:bg-mga-elevated/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mga-accent',
                     )}
                   >
                     <span className={cn('mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full', toneStyles[notification.tone])}>
@@ -122,6 +140,52 @@ export function NotificationCenter() {
                       </div>
                       {notification.description ? (
                         <p className="mt-0.5 text-[11px] leading-5 text-mga-muted">{notification.description}</p>
+                      ) : null}
+                      {notification.details?.length ? (
+                        <details
+                          className="group mt-2 rounded-mga border border-mga-border/70 bg-mga-bg/50"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-1.5 text-[11px] font-medium text-mga-text [&::-webkit-details-marker]:hidden">
+                            <ChevronDown className="h-3.5 w-3.5 -rotate-90 transition-transform group-open:rotate-0" />
+                            Show {notification.details.length + (notification.detailsOmitted ?? 0)} changed {notification.details.length + (notification.detailsOmitted ?? 0) === 1 ? 'game' : 'games'}
+                          </summary>
+                          <ul className="max-h-48 space-y-1 overflow-y-auto border-t border-mga-border/60 px-2 py-2">
+                            {notification.details.map((detail, index) => {
+                              const DetailIcon = detail.kind === 'added' ? Plus : detail.kind === 'removed' ? Minus : Info
+                              return (
+                                <li key={`${detail.kind ?? 'info'}:${detail.title}:${index}`} className="flex items-start gap-2 text-[11px] leading-4">
+                                  <DetailIcon className={cn(
+                                    'mt-0.5 h-3 w-3 shrink-0',
+                                    detail.kind === 'added' ? 'text-emerald-400' : detail.kind === 'removed' ? 'text-red-400' : 'text-mga-accent',
+                                  )} />
+                                  <span className="min-w-0">
+                                    <span className="block break-words text-mga-text">{detail.title}</span>
+                                    {detail.context ? <span className="block text-[10px] text-mga-muted">{detail.context}</span> : null}
+                                  </span>
+                                </li>
+                              )
+                            })}
+                            {(notification.detailsOmitted ?? 0) > 0 ? (
+                              <li className="pl-5 text-[10px] text-mga-muted">
+                                And {notification.detailsOmitted} more…
+                              </li>
+                            ) : null}
+                          </ul>
+                        </details>
+                      ) : null}
+                      {notification.action ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpen(false)
+                            navigate(notification.action!.href)
+                          }}
+                          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-mga-accent hover:underline"
+                        >
+                          {notification.action.label}
+                          <ArrowRight className="h-3 w-3" />
+                        </button>
                       ) : null}
                       <time className="mt-1 block text-[10px] text-mga-muted" dateTime={notification.createdAt}>
                         {format(notification.createdAt)}

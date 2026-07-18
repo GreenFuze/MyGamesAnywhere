@@ -13,11 +13,25 @@ import { cn } from '@/lib/utils'
 
 export type ToastTone = 'info' | 'success' | 'error'
 
+export type NotificationDetail = {
+  kind?: 'added' | 'removed' | 'info'
+  title: string
+  context?: string
+}
+
+export type NotificationAction = {
+  label: string
+  href: string
+}
+
 type Toast = {
   id: number
   title: string
   description?: string
   tone: ToastTone
+  details?: NotificationDetail[]
+  detailsOmitted?: number
+  action?: NotificationAction
 }
 
 type ToastInput = Omit<Toast, 'id'>
@@ -89,14 +103,41 @@ class BrowserNotificationHistoryStore {
 function isNotificationHistoryItem(value: unknown): value is NotificationHistoryItem {
   if (!value || typeof value !== 'object') return false
   const item = value as Partial<NotificationHistoryItem>
+  const validDetails = item.details === undefined || (
+    Array.isArray(item.details) && item.details.every(isNotificationDetail)
+  )
+  const validAction = item.action === undefined || isNotificationAction(item.action)
   return (
     typeof item.id === 'string' &&
     typeof item.title === 'string' &&
     (item.description === undefined || typeof item.description === 'string') &&
     (item.tone === 'info' || item.tone === 'success' || item.tone === 'error') &&
     typeof item.createdAt === 'string' &&
-    typeof item.read === 'boolean'
+    typeof item.read === 'boolean' &&
+    validDetails &&
+    (item.detailsOmitted === undefined || (typeof item.detailsOmitted === 'number' && item.detailsOmitted >= 0)) &&
+    validAction
   )
+}
+
+function isNotificationDetail(value: unknown): value is NotificationDetail {
+  if (!value || typeof value !== 'object') return false
+  const detail = value as Partial<NotificationDetail>
+  return (
+    typeof detail.title === 'string' &&
+    (detail.context === undefined || typeof detail.context === 'string') &&
+    (detail.kind === undefined || detail.kind === 'added' || detail.kind === 'removed' || detail.kind === 'info')
+  )
+}
+
+function isNotificationAction(value: unknown): value is NotificationAction {
+  if (!value || typeof value !== 'object') return false
+  const action = value as Partial<NotificationAction>
+  return typeof action.label === 'string' && typeof action.href === 'string' && isInternalNotificationPath(action.href)
+}
+
+function isInternalNotificationPath(value: string): boolean {
+  return value.startsWith('/') && !value.startsWith('//')
 }
 
 export function ToastProvider({ children, historyScope }: { children: ReactNode; historyScope: string }) {
@@ -116,15 +157,13 @@ export function ToastProvider({ children, historyScope }: { children: ReactNode;
   }, [])
 
   const notify = useCallback(
-    ({ title, description, tone }: ToastInput) => {
+    (input: ToastInput) => {
       const id = nextIdRef.current++
-      setToasts((prev) => [...prev, { id, title, description, tone }])
+      setToasts((prev) => [...prev, { id, ...input }])
       setNotifications((prev) => [
         {
+          ...input,
           id: `${Date.now()}-${id}`,
-          title,
-          description,
-          tone,
           createdAt: new Date().toISOString(),
           read: false,
         },

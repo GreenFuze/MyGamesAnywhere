@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useSSE } from '@/hooks/useSSE'
-import { useToast } from '@/components/ui/toast'
+import { useToast, type NotificationDetail } from '@/components/ui/toast'
 
 type EventPayload = Record<string, unknown>
 
@@ -10,6 +10,34 @@ function readString(value: unknown): string | undefined {
 
 function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function connectionPath(integrationId?: string, pluginId?: string): string {
+  const params = new URLSearchParams({ tab: 'integrations' })
+  if (integrationId) params.set('integration', integrationId)
+  else if (pluginId) params.set('plugin', pluginId)
+  return `/settings?${params.toString()}`
+}
+
+function readScanDetails(value: unknown): NotificationDetail[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return []
+    const change = candidate as EventPayload
+    const kind = readString(change.kind)
+    const title = readString(change.title)
+    if (!title || (kind !== 'added' && kind !== 'removed')) return []
+    return [{
+      kind,
+      title,
+      context: readString(change.integration_label) ?? readString(change.integration_id),
+    } satisfies NotificationDetail]
+  })
+}
+
+function isAuthenticationError(value?: string): boolean {
+  if (!value) return false
+  return /AUTH_(?:FAILED|REQUIRED)|not authenticated|re-?auth|sign[- ]?in required/i.test(value)
 }
 
 export function AppNotifications() {
@@ -25,6 +53,8 @@ export function AppNotifications() {
         const duration = readNumber(data.duration_ms)
         const added = readNumber(data.games_added) ?? 0
         const removed = readNumber(data.games_removed) ?? 0
+        const details = readScanDetails(data.changes)
+        const detailsOmitted = readNumber(data.changes_omitted) ?? 0
         const automatic = readString(data.trigger) === 'background'
         if (automatic && added === 0 && removed === 0) return
         notify({
@@ -32,18 +62,22 @@ export function AppNotifications() {
           title: automatic ? 'Library updated automatically' : 'Scan complete',
           description:
             automatic
-              ? `${added > 0 ? `+${added} added` : 'No additions'}${removed > 0 ? `, -${removed} removed` : ''}`
+              ? `${added > 0 ? `${added} added` : 'No additions'}${removed > 0 ? `, ${removed} removed` : ''}${details.length > 0 ? '. Expand to see which games changed.' : ''}`
               : count !== undefined || duration !== undefined
-              ? `${count !== undefined ? `${count} canonical games` : 'Catalog updated'}${duration !== undefined ? ` in ${Math.round(duration / 1000)}s` : ''}`
+              ? `${count !== undefined ? `${count} games in your library` : 'Library updated'}${duration !== undefined ? ` in ${Math.round(duration / 1000)}s` : ''}${details.length > 0 ? `. ${added} added, ${removed} removed.` : ''}`
               : 'The library scan finished successfully.',
+          details,
+          detailsOmitted,
         })
       }),
       subscribe('scan_error', (raw) => {
         const data = (raw ?? {}) as EventPayload
+        const integrationId = readString(data.integration_id)
         notify({
           tone: 'error',
-          title: 'Scan failed',
-          description: readString(data.error) ?? 'The scan ended with an error.',
+          title: integrationId ? 'A connection could not update your library' : 'Library update failed',
+          description: integrationId ? 'Open the connection to check it and try again.' : (readString(data.error) ?? 'MGA could not update the library.'),
+          action: integrationId ? { label: 'Review connection', href: connectionPath(integrationId) } : undefined,
         })
       }),
       subscribe('sync_operation_finished', (raw) => {
@@ -60,40 +94,64 @@ export function AppNotifications() {
       }),
       subscribe('settings_sync_auto_push_failed', (raw) => {
         const data = (raw ?? {}) as EventPayload
+        const integrationId = readString(data.integration_id)
+        const label = readString(data.label) ?? 'Settings sync'
         notify({
           tone: 'error',
-          title: 'Settings sync needs attention',
-          description: readString(data.error) ?? 'The integration was saved, but MGA could not push settings sync automatically.',
+          title: `${label} needs attention`,
+          description: 'MGA saved your changes locally, but could not back them up. Open the connection to fix it.',
+          action: { label: 'Review connection', href: connectionPath(integrationId, readString(data.plugin_id)) },
         })
       }),
       subscribe('plugin_process_exited', (raw) => {
         const data = (raw ?? {}) as EventPayload
+        const pluginId = readString(data.plugin_id)
         notify({
           tone: 'error',
-          title: 'Plugin process exited',
-          description:
-            readString(data.plugin_id) ??
-            readString(data.detail) ??
-            'A plugin process disconnected unexpectedly.',
+          title: pluginId ? `${humanize(pluginId)} stopped` : 'A connection helper stopped',
+          description: 'MGA could not continue using this connection. Open Connections to check it and try again.',
+          action: { label: 'Review connections', href: connectionPath(undefined, pluginId) },
         })
       }),
       subscribe('operation_error', (raw) => {
         const data = (raw ?? {}) as EventPayload
         const scope = readString(data.scope)
+        const integrationId = readString(data.integration_id)
+        const pluginId = readString(data.plugin_id)
+        const integrationLabel = readString(data.integration_label) ?? (pluginId ? humanize(pluginId) : 'Connection')
+        const error = readString(data.error)
+        const authError = scope === 'achievements' && isAuthenticationError(error)
+        if (scope === 'achievements') {
+          notify({
+            tone: 'error',
+            title: `${integrationLabel} achievements need attention`,
+            description: authError
+              ? `Sign in to ${integrationLabel} again so MGA can update achievements${readString(data.game_title) ? ` for ${readString(data.game_title)}` : ''}.`
+              : `MGA could not update achievements from ${integrationLabel}. Open the connection to review it.`,
+            action: {
+              label: authError ? 'Open sign-in controls' : 'Review connection',
+              href: connectionPath(integrationId, pluginId),
+            },
+          })
+          return
+        }
         notify({
           tone: 'error',
-          title: scope ? `${humanize(scope)} error` : 'Operation error',
-          description: readString(data.error) ?? 'An operation failed.',
+          title: scope ? `${humanize(scope)} needs attention` : 'Something needs attention',
+          description: error ?? 'MGA could not finish the operation.',
+          action: scope === 'sync_key' ? { label: 'Review connection', href: connectionPath() } : undefined,
         })
       }),
       subscribe('installation_validation_finished', (raw) => {
         const data = (raw ?? {}) as EventPayload
         const status = readString(data.status)
         if (status && status !== 'succeeded') {
+          const endpointId = readString(data.endpoint_id)
           notify({
             tone: 'error',
             title: 'Installed game check failed',
             description: readString(data.error) ?? 'MGA could not check the installed games on this device.',
+            action: endpointId ? { label: 'Review device', href: `/settings?tab=devices&device=${encodeURIComponent(endpointId)}` } : undefined,
           })
           return
         }
@@ -109,6 +167,7 @@ export function AppNotifications() {
             repair > 0 ? `${repair} need repair` : '',
             restored > 0 ? `${restored} restored` : '',
           ].filter(Boolean).join(', '),
+          action: readString(data.endpoint_id) ? { label: 'Review installed games', href: `/settings?tab=devices&device=${encodeURIComponent(readString(data.endpoint_id)!)}` } : undefined,
         })
       }),
       subscribe('integration_status_checked', (raw) => {
@@ -128,6 +187,7 @@ export function AppNotifications() {
             tone: 'success',
             title: `${label} is available`,
             description: readString(data.message) ?? 'Connectivity recovered.',
+            action: { label: 'Open connection', href: connectionPath(integrationId) },
           })
           return
         }
@@ -136,6 +196,7 @@ export function AppNotifications() {
           tone: 'error',
           title: `${label} needs attention`,
           description: readString(data.message) ?? `Status changed to ${nextStatus}.`,
+          action: { label: nextStatus === 'oauth_required' ? 'Open sign-in controls' : 'Review connection', href: connectionPath(integrationId) },
         })
       }),
     ]

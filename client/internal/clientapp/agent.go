@@ -24,7 +24,7 @@ var errStopRequested = errors.New("MGA Client stop requested")
 const inventoryRefreshInterval = 15 * time.Minute
 
 type Agent struct {
-	config        clientconfig.Config
+	config        clientconfig.Binding
 	privateKey    ed25519.PrivateKey
 	buildInfo     buildinfo.Info
 	active        atomic.Int32
@@ -39,13 +39,13 @@ type Agent struct {
 	validator     InstallationValidator
 }
 
-func NewAgent(config clientconfig.Config, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger) (*Agent, error) {
+func NewAgent(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger) (*Agent, error) {
 	return NewAgentWithExecutionMode(config, privateKey, info, logger, devicev1.ClientExecutionModeStandard)
 }
 
 // NewAgentWithExecutionMode creates an agent that reports its actual current
 // Windows execution mode as endpoint runtime metadata.
-func NewAgentWithExecutionMode(config clientconfig.Config, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode) (*Agent, error) {
+func NewAgentWithExecutionMode(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode) (*Agent, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

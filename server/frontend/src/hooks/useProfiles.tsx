@@ -1,10 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, ArrowRight, CloudDownload, Gamepad2, Gem, Joystick, Rocket, Swords, Trophy } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, CloudDownload, Gamepad2, Gem, Joystick, Rocket, Swords, Trophy, UserPlus } from 'lucide-react'
 import {
   browseRestoreSyncSetup,
   checkRestoreSyncSetup,
+  createProfile,
   getSetupStatus,
   importOAuthCallback,
   isRestoreSyncOAuthRequired,
@@ -68,6 +69,7 @@ export function useProfiles() {
 export function ProfileProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
   const [selectedProfileId, setSelectedProfileId] = useState(() => readSelectedProfileId())
+  const [addingPlayer, setAddingPlayer] = useState(false)
 
   const setupQuery = useQuery({
     queryKey: ['setup-status'],
@@ -112,6 +114,18 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     queryClient.invalidateQueries({ queryKey: ['setup-status'] })
   }, [queryClient])
 
+  const beginAddPlayer = useCallback(async () => {
+    const administrator = profiles.find((profile) => profile.role === 'admin_player')
+    if (!administrator) throw new Error('An administrator profile is required to add a player.')
+    setAddingPlayer(true)
+    await selectProfile(administrator.id)
+  }, [profiles, selectProfile])
+
+  const cancelAddPlayer = useCallback(async () => {
+    setAddingPlayer(false)
+    await clearProfile()
+  }, [clearProfile])
+
   const value = useMemo<ProfileContextValue>(() => ({
     profiles,
     currentProfile,
@@ -130,14 +144,23 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   if (!currentProfile) {
     return (
       <ProfileContext.Provider value={value}>
-        <ProfilePicker profiles={profiles} onSelect={selectProfile} />
+        <ProfilePicker profiles={profiles} onSelect={selectProfile} onAddPlayer={beginAddPlayer} />
       </ProfileContext.Provider>
     )
   }
   return (
     <ProfileContext.Provider value={value}>
-      <ProfileSignInGate profile={currentProfile} onCancel={clearProfile}>
-        {children}
+      <ProfileSignInGate profile={currentProfile} onCancel={addingPlayer ? cancelAddPlayer : clearProfile}>
+        {addingPlayer ? (
+          <AddPlayerGate
+            onCancel={cancelAddPlayer}
+            onCreated={async (profile) => {
+              setAddingPlayer(false)
+              await queryClient.invalidateQueries({ queryKey: ['profiles'] })
+              await selectProfile(profile.id)
+            }}
+          />
+        ) : children}
       </ProfileSignInGate>
     </ProfileContext.Provider>
   )
@@ -583,7 +606,7 @@ function apiErrorText(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback
 }
 
-function ProfilePicker({ profiles, onSelect }: { profiles: Profile[]; onSelect: (id: string) => Promise<void> }) {
+function ProfilePicker({ profiles, onSelect, onAddPlayer }: { profiles: Profile[]; onSelect: (id: string) => Promise<void>; onAddPlayer: () => Promise<void> }) {
   const [selectingProfileId, setSelectingProfileId] = useState('')
   const [selectionError, setSelectionError] = useState('')
 
@@ -594,6 +617,17 @@ function ProfilePicker({ profiles, onSelect }: { profiles: Profile[]; onSelect: 
       await onSelect(profileId)
     } catch (error) {
       setSelectionError(apiErrorText(error, 'Could not start the profile sign-in.'))
+      setSelectingProfileId('')
+    }
+  }
+
+  const addPlayer = async () => {
+    setSelectingProfileId('new')
+    setSelectionError('')
+    try {
+      await onAddPlayer()
+    } catch (error) {
+      setSelectionError(apiErrorText(error, 'Could not start adding a player.'))
       setSelectingProfileId('')
     }
   }
@@ -625,8 +659,56 @@ function ProfilePicker({ profiles, onSelect }: { profiles: Profile[]; onSelect: 
             </div>
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => void addPlayer()}
+          disabled={Boolean(selectingProfileId)}
+          className="group grid min-h-32 place-items-center rounded-mga border border-dashed border-mga-border bg-mga-bg/45 p-4 text-center transition hover:border-mga-accent/70 hover:bg-mga-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-mga-accent"
+        >
+          <span>
+            <UserPlus className="mx-auto h-8 w-8 text-mga-accent" />
+            <span className="mt-3 block text-lg font-bold text-mga-text">Add player</span>
+            <span className="mt-1 block text-xs text-mga-muted">Administrator sign-in required</span>
+          </span>
+        </button>
       </div>
       {selectionError ? <p className="mt-4 text-sm text-red-400">{selectionError}</p> : null}
+    </ProfileGateShell>
+  )
+}
+
+function AddPlayerGate({ onCancel, onCreated }: { onCancel: () => Promise<void>; onCreated: (profile: Profile) => Promise<void> }) {
+  const [displayName, setDisplayName] = useState('')
+  const [avatarKey, setAvatarKey] = useState<ProfileAvatarKey>('player-2')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      const profile = await createProfile({ display_name: displayName.trim(), avatar_key: avatarKey, role: 'player' })
+      await onCreated(profile)
+    } catch (err) {
+      setError(apiErrorText(err, 'Could not add the player.'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <ProfileGateShell eyebrow="New Player" title="Add A Player">
+      <div className="space-y-5">
+        <Input label="Player name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoFocus />
+        <AvatarChooser value={avatarKey} onChange={setAvatarKey} />
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void submit()} disabled={!displayName.trim() || saving}>
+            <UserPlus className="h-4 w-4" /> {saving ? 'Adding…' : 'Add player'}
+          </Button>
+          <Button variant="outline" onClick={() => void onCancel()} disabled={saving}>Cancel</Button>
+        </div>
+        {error ? <p className="text-sm text-red-400">{error}</p> : null}
+      </div>
     </ProfileGateShell>
   )
 }

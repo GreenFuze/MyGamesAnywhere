@@ -72,10 +72,6 @@ func (c *AuthController) CredentialStatus(w http.ResponseWriter, r *http.Request
 }
 
 func (c *AuthController) InitializeCredential(w http.ResponseWriter, r *http.Request) {
-	if !isLoopbackRequest(r) {
-		http.Error(w, "initial credential setup is available only from the MGA Server host", http.StatusForbidden)
-		return
-	}
 	var body struct {
 		New  string              `json:"new"`
 		Kind auth.CredentialKind `json:"kind"`

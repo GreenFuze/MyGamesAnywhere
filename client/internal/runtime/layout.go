@@ -11,6 +11,7 @@ type Layout struct {
 	DataDir        string
 	ConfigPath     string
 	PrivateKeyPath string
+	IdentityDir    string
 	LogPath        string
 }
 
@@ -36,6 +37,7 @@ func Resolve(dataDir string) (Layout, error) {
 		DataDir:        absolute,
 		ConfigPath:     filepath.Join(absolute, "config.json"),
 		PrivateKeyPath: filepath.Join(absolute, "endpoint_key.dpapi"),
+		IdentityDir:    filepath.Join(absolute, "identities"),
 		LogPath:        filepath.Join(absolute, "mga-client.log"),
 	}, nil
 }

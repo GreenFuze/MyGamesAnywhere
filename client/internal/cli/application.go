@@ -24,12 +24,13 @@ type Dependencies struct {
 }
 
 type ClientService interface {
-	Pair(ctx context.Context, options clientapp.PairOptions) (clientconfig.Config, error)
+	Pair(ctx context.Context, options clientapp.PairOptions) (clientconfig.Binding, error)
 	Start(ctx context.Context, options clientapp.StartOptions) error
 	RunAgent(ctx context.Context) error
+	RunAgentReplacingExisting(ctx context.Context) error
 	Status() (clientapp.Status, error)
 	Doctor(ctx context.Context) (clientapp.DoctorResult, error)
-	Unpair() error
+	Unpair(options clientapp.UnpairOptions) error
 }
 
 // Application owns the CLI command graph and its injected dependencies.
@@ -73,18 +74,22 @@ func NewApplication(deps Dependencies) (*Application, error) {
 }
 
 func newUnpairCommand(service ClientService) *cobra.Command {
-	return &cobra.Command{
+	var options clientapp.UnpairOptions
+	command := &cobra.Command{
 		Use:   "unpair",
 		Short: "Remove this OS-user client's local endpoint identity",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			if err := service.Unpair(); err != nil {
+			if err := service.Unpair(options); err != nil {
 				return err
 			}
 			_, err := fmt.Fprintln(command.OutOrStdout(), "unpaired")
 			return err
 		},
 	}
+	command.Flags().StringVar(&options.ServerURL, "server", "", "Unbind only this MGA Server URL")
+	command.Flags().BoolVar(&options.All, "all", false, "Unbind every MGA Server")
+	return command
 }
 
 func newProtocolCommand(service ClientService) *cobra.Command {
@@ -122,7 +127,7 @@ func newProtocolCommand(service ClientService) *cobra.Command {
 			if _, err = fmt.Fprintf(command.OutOrStdout(), "Paired %s as %s. Connecting agent…\n", config.DisplayName, config.EndpointID); err != nil {
 				return err
 			}
-			return service.RunAgent(command.Context())
+			return service.RunAgentReplacingExisting(command.Context())
 		},
 	}
 }
@@ -175,9 +180,16 @@ func newStatusCommand(service ClientService) *cobra.Command {
 				_, err = fmt.Fprintln(command.OutOrStdout(), "not paired")
 				return err
 			}
-			_, err = fmt.Fprintf(command.OutOrStdout(), "paired\nname: %s\nendpoint: %s\ninstance: %s\nserver: %s\nprivate_key: %t\n",
-				status.DisplayName, status.EndpointID, status.ClientInstanceID, status.ServerURL, status.PrivateKeyReady)
-			return err
+			if _, err = fmt.Fprintf(command.OutOrStdout(), "paired: %d server(s)\n", len(status.Bindings)); err != nil {
+				return err
+			}
+			for _, binding := range status.Bindings {
+				if _, err = fmt.Fprintf(command.OutOrStdout(), "\nname: %s\nendpoint: %s\ninstance: %s\nserver: %s\nprivate_key: %t\n",
+					binding.DisplayName, binding.EndpointID, binding.ClientInstanceID, binding.ServerURL, binding.PrivateKeyReady); err != nil {
+					return err
+				}
+			}
+			return nil
 		},
 	}
 }
@@ -192,9 +204,16 @@ func newDoctorCommand(service ClientService) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(command.OutOrStdout(), "paired: %t\nprivate_key: %t\nserver_health: %s\n",
-				result.Status.Paired, result.Status.PrivateKeyReady, result.ServerHealth)
-			return err
+			if _, err = fmt.Fprintf(command.OutOrStdout(), "paired: %t\nbindings: %d\n", result.Paired, len(result.Bindings)); err != nil {
+				return err
+			}
+			for _, binding := range result.Bindings {
+				if _, err = fmt.Fprintf(command.OutOrStdout(), "\nserver: %s\nprivate_key: %t\nserver_health: %s\n",
+					binding.Status.ServerURL, binding.Status.PrivateKeyReady, binding.ServerHealth); err != nil {
+					return err
+				}
+			}
+			return nil
 		},
 	}
 }

@@ -179,6 +179,13 @@ func TestOAuthControllerImportDraftCallbackWithPluginOwnedState(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
+	draft, ok := controller.states.Peek("state-draft")
+	if !ok {
+		t.Fatal("draft OAuth state was consumed before integration creation")
+	}
+	if got := draft.ConfigUpdates["token"]; got != "cached-by-plugin" {
+		t.Fatalf("draft config update = %v, want cached-by-plugin", got)
+	}
 }
 
 func TestOAuthControllerImportRejectsBadCallbacks(t *testing.T) {

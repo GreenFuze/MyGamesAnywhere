@@ -1116,3 +1116,221 @@ ScummVM) without weakening route identity. Record the next ADR first. If it
 persists adapter discovery, route bindings, compatibility, converters, user
 overrides, or sync state, add migration 25 rather than editing migrations
 22-24. Provider APIs and cross-route conversion remain later, separate work.
+
+## Profile, Xbox, and client recovery fixes — 18 July 2026
+
+This section supersedes older runtime/worktree status above. `origin/main` is
+currently `8399d6b5` and tagged `v0.2.4`; the fixes below remain intentionally
+uncommitted. Do not reset, clean, revert, or discard any dirty or untracked
+files, including the pre-existing `AGENTS.md`, `CLAUDE.md`, and
+`client/internal/launchlog` work.
+
+ADR-0019 records the accepted boundaries:
+
+- the login/profile picker now offers **Add player**; it signs into an existing
+  administrator, creates only a player through the normal authorized API, and
+  selects the new profile;
+- initial password/PIN setup is allowed from trusted-LAN remote browsers. It
+  remains one-time and cannot replace an existing credential;
+- Xbox tokens are profile-integration-owned. The plugin ignores legacy
+  `tokens.json`, clears request state when config has no tokens, reads tokens
+  only from the current scan/achievement request, and asks Microsoft to show
+  the account chooser;
+- draft OAuth results are held server-side by OAuth state and consumed only by
+  the same profile/plugin when the integration is created. Tokens are not sent
+  through the frontend retry;
+- a client launched for a different server displays the paired/requested
+  origins and offers a locally confirmed unbind. Other windowless protocol
+  errors now display a native error dialog. The tray has **Unbind from server**;
+- while disconnected, the top bar offers both launch actions for an existing
+  pairing and **Pair this Windows user**, preventing an unbound client from
+  becoming trapped in a launch loop;
+- Settings tabs wrap into clean button rows and no longer expose the native
+  horizontal/vertical scrollbar shown in the reported screenshot.
+
+Persistence is `NO_MIGRATION_NEEDED`: no schema or persisted JSON shape
+changed. Existing hashed credentials, encrypted integration config, client
+config, and protected endpoint key formats are unchanged. User-confirmed
+unbinding deletes only that OS user's existing pairing config and private key.
+Schema migration 25 remains applied and immutable.
+
+Fresh verification:
+
+```text
+client:       go test ./...                         PASS
+server:       go test ./...                         PASS
+Xbox plugin:  go test ./...                         PASS
+frontend:     npm run test:unit                     PASS (10 tests)
+frontend:     npm run build                         PASS
+quality:      gofmt + git diff --check              PASS
+```
+
+Packaged-local state:
+
+- `server\build.ps1 -WindowsGUI` completed and rebuilt the packaged server,
+  frontend, tray, and plugins from the dirty worktree;
+- `client\package-installer.ps1` completed and the new per-user installer was
+  run silently; the installed agent timestamp is 18 July 2026 08:00:24;
+- packaged server PID `55928` runs exact `server\bin\mga_server.exe`, portable,
+  with HTTP 200 at `http://127.0.0.1:8900` and
+  `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive`; server SHA-256 is
+  `4BB67B19393DD62C500CD13ED72AD35704B5E07EC85DB8AFDEED32F8DB6ED92D`;
+- the locally built client installer SHA-256 is
+  `6D35F53367F87140BDC4A9D816F4D7B5C5C1E8EC5C7779C7A8303C590D71DFD4`;
+- the real database remains schema 25. No profile credential, integration,
+  device pairing, installation, cleanup, save, or game data was mutated during
+  automated verification;
+- Chrome automation could not initialize because its local control kernel
+  reported `failed to write kernel assets: The system cannot find the path
+  specified`. No browser-driven or native-dialog E2E claim is made. Unit and
+  packaged HTTP evidence above is exact; interactive Chrome/TV2 validation is
+  still required before release/deployment.
+
+## Actionable attention, local disks, and multi-server client bindings — 18 July 2026
+
+This section supersedes the client configuration/runtime and next-task status
+above. ADR-0020 and ADR-0021 are accepted and implemented in the still-dirty,
+intentional worktree. No commit, push, release, deployment, profile credential,
+integration config, canonical/source game, save, or device grant was created or
+changed. Normal client connection updated endpoint last-seen, inventory, and
+installation-validation timestamps.
+
+Implemented behavior:
+
+- client config schema 2 stores a bounded `bindings[]` list. Each server owns a
+  separate endpoint ID, client instance ID, and protected key. The real schema-1
+  localhost config was verified against its DPAPI key and atomically migrated;
+  the legacy endpoint/key remain unchanged and the binding has
+  `legacy_identity=true`;
+- pairing another server appends rather than replaces. Equivalent origins are
+  rejected, `mga://start` selects the matching binding, and an unknown origin
+  directs the player to **Pair this Windows user** without deleting anything;
+- one tray process runs all binding agents. Pairing while the tray is already
+  running uses a tested named restart signal so the new process takes over and
+  starts the complete binding list immediately. Tray unbind is per-server; CLI
+  requires `--server` when several bindings exist and `--all` to remove all;
+- Windows storage inventory and install-root enforcement require a fixed drive
+  backed by `\\Device\\HarddiskVolume*`. This excludes network, removable,
+  SUBST-like, Google Drive Desktop, and other virtual/cloud mounts even when a
+  driver reports them as fixed and supplies a volume GUID;
+- every unhealthy Devices installation row shows a player-facing cause and
+  **Review and resolve**. Duke's legacy record explains the installer failure,
+  shows the old folder, explains why MGA cannot safely clean it, and offers
+  **Dismiss warning** with confirmation. No cleanup action is exposed because
+  the legacy row has no verified cleanup marker.
+
+Cleanup performed at the user's request:
+
+- removed `C:\Games\MGA E2E Cleanup Prompt`;
+- removed `C:\Games\MGA E2E Duke Nukem 3D`;
+- removed `C:\Games\MGA E2E Manhattan 20260716`;
+- verified no `C:\Games\MGA E2E *` directory remains. The server-side Duke
+  attention row remains intentionally preserved and can now be dismissed from
+  the UI; MGA did not mutate that record during verification.
+
+Fresh automated evidence:
+
+```text
+client:       go test ./...                         PASS
+server:       go test ./...                         PASS
+protocol:     go test ./...                         PASS
+plugins:      go test ./... in all 7 modules       PASS
+frontend:     npm run test:unit                     PASS (10 tests)
+frontend:     npm run build                         PASS
+quality:      gofmt + git diff --check              PASS
+```
+
+Fresh packaged/UI E2E:
+
+1. `server\build.ps1 -WindowsGUI` and `client\package-installer.ps1` completed.
+   The final client installer was installed per-user and its installed agent
+   hash exactly matches `client\bin\mga-client-agent.exe`:
+   `D7737BFDEB996D6B12606F9751B6536175B4669506625B4A7BD5B36262CD6B19`.
+2. The installed client was launched through MGA's **Run MGA Client** action in
+   Chrome (not directly). The custom-protocol process connected successfully
+   with the preserved endpoint. The in-app browser confirmed **Client ready**.
+3. The packaged Devices UI showed only `C:\`, with 251.9 GB free of 951.6 GB.
+   G:, H:, and I: disappeared after the new inventory arrived. The exact-host
+   Windows tests also reject those present Google Drive Desktop mounts as
+   install roots.
+4. **Review and resolve** navigated to Duke's exact game/device section. The
+   page showed the installer error, the old folder path, the missing-cleanup-
+   evidence explanation, and the confirmed **Dismiss warning** action.
+5. The real client config is schema 2 with one preserved localhost binding.
+   The real database remains schema migration 25.
+
+Current runtime:
+
+- packaged server PID `16288`, exact `server\bin\mga_server.exe`, portable,
+  HTTP 200 at `http://127.0.0.1:8900`, SHA-256
+  `1F9240E0B8C793751FCFEFBFDEF00FAC256D9102C05C6B0F0E291A395D1B06C0`;
+- installed standard MGA Client PID `44860`, exact per-user installed agent,
+  connected to preserved endpoint `eaa3b874-bfad-4020-9020-36fd45a04ff9`;
+- server started with `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive`; credentials,
+  Plasma Pong, `C:\Games`, profile/default install settings, and schema-25 data
+  remain preserved;
+- the worktree remains intentionally uncommitted. Do not reset, clean, revert,
+  overwrite, or discard tracked or untracked files. Do not commit, push,
+  release, or deploy without explicit user instruction.
+
+Next task is product work beyond ADR-0020/0021. The previously recorded next
+bounded task (verified local-save adapter contract and first RetroArch/ScummVM
+adapters) remains valid unless the user reprioritizes it.
+
+## 2026-07-18 — actionable notification follow-through (ADR-0022)
+
+The user reprioritized notification quality. ADR-0022 is accepted and implemented
+in the dirty worktree:
+
+- full and background scans snapshot exact found source records before and after
+  successful integration reconciliation. Scan reports and `scan_complete` now
+  include a bounded list of added/removed titles with their connection id and
+  friendly connection label. Addition/removal totals are exact even when one
+  removed game is replaced by one added game in the same scan;
+- notification history retains optional structured details, renders scan changes
+  in a collapsed list, and keeps the existing v1 profile/browser local-storage
+  records readable;
+- achievement fetch failures preserve the originating integration identity.
+  Their profile-scoped `operation_error` event includes the connection id/label
+  and game id/title, and the UI replaces the raw plugin error with player-facing
+  sign-in guidance;
+- connection notifications carry internal actions. Clicking the notification or
+  its action opens Settings > Connections, expands the relevant group, scrolls
+  the exact connection into view, and highlights it. Device validation and other
+  connection events also receive supported deep links where their payload has an
+  exact target;
+- an event/report is capped at 100 changed-game summaries and reports the omitted
+  count. No configuration, credentials, or tokens enter notification payloads.
+
+Persistence: `NO_MIGRATION_NEEDED`. `ScanReport` and browser history only gain
+optional JSON fields. Existing SQLite `report_json` and
+`mga.notification-history.v1` entries remain readable. Historical notifications
+cannot be retroactively enriched because their old events did not retain game or
+connection identity; new events use ADR-0022.
+
+Fresh verification:
+
+```text
+server:          go test ./...                         PASS
+frontend:        npm run test:unit                     PASS (10 tests)
+frontend:        npm run build                         PASS
+migration guard: server/scripts/check-migration-guard  PASS
+quality:         gofmt + git diff --check              PASS
+```
+
+Packaged UI verification used the real app, not the npm server. A direct
+`?tab=integrations&integration=<id>` navigation expanded, scrolled, and visibly
+highlighted the Xbox connection; the focused card was inside the 720px viewport.
+The existing browser notification history remained readable after the optional
+shape extension. The user-owned in-app tab was returned to the original Devices
+URL after testing.
+
+Current runtime after the rebuild:
+
+- packaged portable server PID `29024`, `server\bin\mga_server.exe`, HTTP 200 at
+  `/health`, SHA-256
+  `DD0F99CC6DD128D9CCE133234E97364A2689494B837D6650E2DEFCF96AAD89F1`;
+- installed MGA Client PID `44860`, still connected and shown as **Client ready**;
+- server retained `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive`, the existing
+  database, credentials, profiles, and install settings;
+- no commit, push, release, deployment, or database migration was performed.

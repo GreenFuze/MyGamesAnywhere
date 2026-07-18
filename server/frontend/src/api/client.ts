@@ -1693,6 +1693,7 @@ export async function createIntegration(body: {
   label: string;
   integration_type: string;
   config?: Record<string, unknown>;
+  oauth_state?: string;
 }): Promise<CreateIntegrationResult> {
   const res = await apiFetch(`${base}/api/integrations`, {
     method: "POST",

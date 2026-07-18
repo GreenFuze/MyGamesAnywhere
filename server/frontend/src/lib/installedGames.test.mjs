@@ -37,6 +37,8 @@ test('installed game action reflects exact device and launch state', () => {
 test('installation validation uses player-facing reasons and visible schedule states', () => {
   assert.equal(installationReasonLabel('launch_target_missing'), 'The executable used to start this game is missing.')
   assert.equal(installationReasonLabel('registered_program_missing'), 'Windows no longer lists this game as installed.')
+  assert.equal(installationReasonLabel('installer_exit_nonzero'), 'The installer reported an error before MGA could verify the installation.')
+  assert.equal(installationReasonLabel('installer_timeout'), 'MGA could not confirm whether the installer finished. Check the device.')
   assert.equal(validationStatusLabel({ state: 'running', eligible_count: 1 }), 'Checking now…')
   assert.equal(validationStatusLabel({ state: 'disabled', eligible_count: 1 }), 'Automatic checks paused')
   assert.equal(validationStatusLabel({ state: 'scheduled', eligible_count: 1, last_finished_at: '2026-07-16T12:00:00Z' }, () => 'formatted'), 'Last checked formatted')

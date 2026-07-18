@@ -2408,7 +2408,18 @@ export function GameDetailPage() {
 								  {ignoredFailure ? (
 									<Button size="sm" variant="outline" disabled={!device.can_manage || reopenFailed.isPending} onClick={() => reopenFailed.mutate({ deviceId: device.device_id, sourceGameId: device.installed_source_id! })}>Review cleanup</Button>
 								  ) : (
-									<Button size="sm" variant="outline" disabled={!device.can_manage || ignoreFailed.isPending || device.install_state === 'cleanup_running'} onClick={() => ignoreFailed.mutate({ deviceId: device.device_id, sourceGameId: device.installed_source_id! })}>Ignore</Button>
+									<Button
+									  size="sm"
+									  variant="outline"
+									  disabled={!device.can_manage || ignoreFailed.isPending || device.install_state === 'cleanup_running'}
+									  onClick={() => {
+										if (window.confirm('Dismiss this warning? MGA will keep the installation record and will not delete or change any files.')) {
+										  ignoreFailed.mutate({ deviceId: device.device_id, sourceGameId: device.installed_source_id! })
+										}
+									  }}
+									>
+									  Dismiss warning
+									</Button>
 								  )}
 								</>
 							  ) : (
@@ -2478,14 +2489,21 @@ export function GameDetailPage() {
 								: `This installation is incomplete on ${device.display_name}: ${installationVerificationMessage(device.state_reason)}`}
 							</p>
 						  ) : failureState && !ignoredFailure ? (
-							<p className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
-							  {device.install_state === 'cleanup_required'
-								? `The install didn’t finish on ${device.display_name}. Clean up the game files before trying again.`
-								: device.install_state === 'cleanup_running' ? `Cleaning up the failed install on ${device.display_name}…`
-								: device.install_state === 'cleanup_failed' ? `Cleanup couldn’t finish on ${device.display_name}. Files were preserved.`
-								: attentionRequiredMessage(device.state_reason, device.display_name)}
-							</p>
-						  ) : ignoredFailure ? <p className="mt-2 text-xs text-white/48">Failed install ignored. Game files may remain on {device.display_name}.</p> : null}
+							<div className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
+							  <p>
+								{device.install_state === 'cleanup_required'
+								  ? `The install didn’t finish on ${device.display_name}. Clean up the game files before trying again.`
+								  : device.install_state === 'cleanup_running' ? `Cleaning up the failed install on ${device.display_name}…`
+								  : device.install_state === 'cleanup_failed' ? `Cleanup couldn’t finish on ${device.display_name}. Files were preserved.`
+								  : attentionRequiredMessage(device.state_reason, device.display_name)}
+							  </p>
+							  {!cleanupAvailable && device.install_state === 'attention_required' ? (
+								<p className="mt-1 text-amber-100/75">
+								  This older record has no verified cleanup information, so MGA will not remove files from {device.install_path || device.display_name}. Inspect that location if needed, then dismiss the warning to remove it from Play.
+								</p>
+							  ) : null}
+							</div>
+						  ) : ignoredFailure ? <p className="mt-2 text-xs text-white/48">Warning dismissed. MGA did not change game files on {device.display_name}.</p> : null}
 						  {commandHere ? (
 							<div className="mt-2">
 							  <div className="flex justify-between gap-3 text-xs text-white/58"><span>{progressText}</span><span>{installerRunning ? 'In progress' : `${commandHere.progress_percent ?? 0}%`}</span></div>

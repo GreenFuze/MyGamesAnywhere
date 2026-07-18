@@ -658,9 +658,11 @@ function formatMetadataPanelLabel(integration: ScanJobIntegrationStatus) {
 
 type IntegrationsTabProps = {
   firstRunRestore?: boolean;
+  focusIntegrationId?: string;
+  focusPluginId?: string;
 };
 
-export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProps = {}) {
+export function IntegrationsTab({ firstRunRestore = false, focusIntegrationId, focusPluginId }: IntegrationsTabProps = {}) {
   const queryClient = useQueryClient();
   const { subscribe, connected } = useSSE();
   const scanEventLogRef = useRef<HTMLDivElement | null>(null);
@@ -3248,6 +3250,8 @@ export function IntegrationsTab({ firstRunRestore = false }: IntegrationsTabProp
               }
               onStartAuth={handleStartAuth}
               authPendingIds={authPendingIds}
+              focusIntegrationId={focusIntegrationId}
+              focusPluginId={focusPluginId}
               saveSyncHeaderControls={
                 cap === "save_sync" ? (
                   <Button

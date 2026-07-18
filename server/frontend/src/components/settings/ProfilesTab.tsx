@@ -203,7 +203,7 @@ function ProfileCredentialPanel({ profile }: { profile: Profile }) {
       ) : null}
       {next !== confirm && confirm ? <p className="mt-3 text-sm text-red-400">Credentials do not match.</p> : null}
       {mutationError ? <p className="mt-3 text-sm text-red-400">{errorText(mutationError, 'Credential update failed')}</p> : null}
-      {!status.data?.configured ? <p className="mt-3 text-xs text-mga-muted">Initial setup is intentionally limited to the computer running MGA Server.</p> : null}
+      {!status.data?.configured ? <p className="mt-3 text-xs text-mga-muted">You can set this up from any computer on your MGA network.</p> : null}
     </section>
   )
 }

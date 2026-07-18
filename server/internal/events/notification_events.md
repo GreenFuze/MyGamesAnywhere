@@ -12,7 +12,7 @@ Every JSON payload includes an RFC3339Nano `ts` field added by `events.PublishJS
 | `GET /api/integrations/status` | `integration_status_run_started.total`, then each `integration_status_checked` has `index` / `total` | One row per integration checked; use for a bar during status refresh. |
 | Scan pipeline | `scan_*` events in `scan_events.md` | Finer-grained phases. |
 | Sync | `sync_operation_started` then `sync_operation_finished` with `ok` | Spinner or two-step UI; finished payload includes summary counts (no secrets). |
-| Achievements fetch | `operation_error` with `scope: achievements` includes `index` / `total` when a plugin call fails | `total` = plugins that will be queried for this game; `index` = Nth query attempted. |
+| Achievements fetch | `operation_error` with `scope: achievements` identifies the affected connection and game when a plugin call fails | The browser can link to the exact connection without interpreting the raw error. |
 
 ## Event catalog
 
@@ -44,7 +44,7 @@ Every JSON payload includes an RFC3339Nano `ts` field added by `events.PublishJS
 
 | `event` | When | Payload (excerpt) |
 |---------|------|-------------------|
-| `operation_error` | Operation failed (achievements plugin call, sync key store/clear, etc.) | `scope`, `error`, plus scope-specific fields (`plugin_id`, `game_id`, `operation`, …) |
+| `operation_error` | Operation failed (achievements plugin call, sync key store/clear, etc.) | `scope`, `error`, plus scope-specific fields. Achievement failures include `profile_id`, `integration_id`, `integration_label`, `plugin_id`, `game_id`, and `game_title`. |
 
 ### Installed game checks
 

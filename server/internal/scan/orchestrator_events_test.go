@@ -297,6 +297,26 @@ func TestRunScanReconcilesSuccessfulEmptySource(t *testing.T) {
 	if reports[0].GamesRemoved != 1 {
 		t.Fatalf("games removed = %d, want 1", reports[0].GamesRemoved)
 	}
+	if len(reports[0].Changes) != 1 || reports[0].Changes[0].Kind != "removed" || reports[0].Changes[0].Title != "Temporary Game" {
+		t.Fatalf("scan changes = %+v, want removed Temporary Game", reports[0].Changes)
+	}
+}
+
+func TestBuildScanLibraryChangesReportsReplacementInsteadOfNetZero(t *testing.T) {
+	changes := buildScanLibraryChanges(
+		[]*core.FoundSourceGame{{ID: "old", IntegrationID: "source-1", RawTitle: "Old Game"}},
+		[]*core.FoundSourceGame{{ID: "new", IntegrationID: "source-1", RawTitle: "New Game"}},
+		[]string{"source-1"},
+		map[string]string{"source-1": "My Games"},
+	)
+	if len(changes) != 2 {
+		t.Fatalf("changes = %+v, want one addition and one removal", changes)
+	}
+	report := &core.ScanReport{Results: []core.ScanIntegrationResult{{IntegrationID: "source-1"}}}
+	applyExactScanChanges(report, changes)
+	if report.GamesAdded != 1 || report.GamesRemoved != 1 {
+		t.Fatalf("report totals = +%d/-%d, want +1/-1", report.GamesAdded, report.GamesRemoved)
+	}
 }
 
 func TestRunScanPreparesMultipleIntegrationsConcurrently(t *testing.T) {

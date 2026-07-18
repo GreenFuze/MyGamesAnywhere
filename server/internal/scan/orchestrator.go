@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ const (
 	sourceGamesListMethod         = "source.games.list"
 	maxScanPreparationConcurrency = 2
 	mediaEnqueueKickTimeout       = 10 * time.Second
+	maxPublishedScanChanges       = 100
 )
 
 // PluginCaller is the subset of PluginHost that the orchestrator needs.
@@ -208,6 +210,10 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		filter[id] = true
 	}
 	filteredIntegrations := filterSourceIntegrations(o.pluginDiscovery, integrations, filter)
+	filteredIntegrationIDs := make([]string, 0, len(filteredIntegrations))
+	for _, integration := range filteredIntegrations {
+		filteredIntegrationIDs = append(filteredIntegrationIDs, integration.ID)
+	}
 	o.publishEventWithContext(ctx, "scan_started", map[string]any{
 		"integration_count": len(filteredIntegrations),
 		"metadata_only":     false,
@@ -219,6 +225,14 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 
 	// Snapshot pre-scan game counts for diff computation.
 	preCounts, _ := o.gameStore.GetSourceGameCountsByIntegration(ctx)
+	var preSourceGames []*core.FoundSourceGame
+	if len(filteredIntegrationIDs) > 0 {
+		preSourceGames, err = o.gameStore.GetFoundSourceGames(ctx, filteredIntegrationIDs)
+		if err != nil {
+			o.publishScanError(ctx, "", err)
+			return nil, fmt.Errorf("snapshot library before scan: %w", err)
+		}
+	}
 
 	// Build integration label map for the report.
 	integLabelMap := make(map[string]string, len(integrations))
@@ -289,7 +303,17 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 
 	// Compute diff and build scan report.
 	postCounts, _ := o.gameStore.GetSourceGameCountsByIntegration(ctx)
+	var postSourceGames []*core.FoundSourceGame
+	if len(scannedIDs) > 0 {
+		postSourceGames, err = o.gameStore.GetFoundSourceGames(ctx, scannedIDs)
+		if err != nil {
+			o.publishScanError(ctx, "", err)
+			return nil, fmt.Errorf("snapshot library after scan: %w", err)
+		}
+	}
+	changes := buildScanLibraryChanges(preSourceGames, postSourceGames, scannedIDs, integLabelMap)
 	report := o.buildScanReport(scanStart, false, scannedIDs, preCounts, postCounts, integResults, len(result))
+	applyExactScanChanges(report, changes)
 	report.Trigger = ScanTriggerFromContext(ctx)
 	if saveErr := o.gameStore.SaveScanReport(ctx, report); saveErr != nil {
 		o.logger.Warn("orchestrator: failed to save scan report", "error", saveErr)
@@ -303,8 +327,107 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		"trigger":         report.Trigger,
 		"games_added":     report.GamesAdded,
 		"games_removed":   report.GamesRemoved,
+		"changes":         report.Changes,
+		"changes_omitted": report.ChangesOmitted,
 	})
 	return result, nil
+}
+
+func buildScanLibraryChanges(
+	before, after []*core.FoundSourceGame,
+	scannedIntegrationIDs []string,
+	integrationLabels map[string]string,
+) []core.ScanLibraryChange {
+	scanned := make(map[string]struct{}, len(scannedIntegrationIDs))
+	for _, integrationID := range scannedIntegrationIDs {
+		scanned[integrationID] = struct{}{}
+	}
+	toMap := func(items []*core.FoundSourceGame) map[string]*core.FoundSourceGame {
+		mapped := make(map[string]*core.FoundSourceGame, len(items))
+		for _, item := range items {
+			if item == nil {
+				continue
+			}
+			if _, ok := scanned[item.IntegrationID]; !ok {
+				continue
+			}
+			mapped[item.ID] = item
+		}
+		return mapped
+	}
+
+	beforeByID := toMap(before)
+	afterByID := toMap(after)
+	changes := make([]core.ScanLibraryChange, 0)
+	appendChange := func(kind string, item *core.FoundSourceGame) {
+		title := strings.TrimSpace(item.RawTitle)
+		if title == "" {
+			title = item.ID
+		}
+		changes = append(changes, core.ScanLibraryChange{
+			Kind:             kind,
+			SourceGameID:     item.ID,
+			Title:            title,
+			IntegrationID:    item.IntegrationID,
+			IntegrationLabel: integrationLabels[item.IntegrationID],
+		})
+	}
+	for id, item := range beforeByID {
+		if _, ok := afterByID[id]; !ok {
+			appendChange("removed", item)
+		}
+	}
+	for id, item := range afterByID {
+		if _, ok := beforeByID[id]; !ok {
+			appendChange("added", item)
+		}
+	}
+	sort.Slice(changes, func(i, j int) bool {
+		if changes[i].Kind != changes[j].Kind {
+			return changes[i].Kind < changes[j].Kind
+		}
+		if changes[i].IntegrationLabel != changes[j].IntegrationLabel {
+			return changes[i].IntegrationLabel < changes[j].IntegrationLabel
+		}
+		return changes[i].Title < changes[j].Title
+	})
+	return changes
+}
+
+func applyExactScanChanges(report *core.ScanReport, changes []core.ScanLibraryChange) {
+	if report == nil {
+		return
+	}
+	report.GamesAdded = 0
+	report.GamesRemoved = 0
+	for index := range report.Results {
+		report.Results[index].GamesAdded = 0
+		report.Results[index].GamesRemoved = 0
+	}
+	resultByIntegrationID := make(map[string]*core.ScanIntegrationResult, len(report.Results))
+	for index := range report.Results {
+		resultByIntegrationID[report.Results[index].IntegrationID] = &report.Results[index]
+	}
+	for _, change := range changes {
+		result := resultByIntegrationID[change.IntegrationID]
+		switch change.Kind {
+		case "added":
+			report.GamesAdded++
+			if result != nil {
+				result.GamesAdded++
+			}
+		case "removed":
+			report.GamesRemoved++
+			if result != nil {
+				result.GamesRemoved++
+			}
+		}
+	}
+	report.Changes = changes
+	if len(report.Changes) > maxPublishedScanChanges {
+		report.ChangesOmitted = len(report.Changes) - maxPublishedScanChanges
+		report.Changes = report.Changes[:maxPublishedScanChanges]
+	}
 }
 
 func (o *Orchestrator) enqueuePendingMediaAsync(integrationID string) {

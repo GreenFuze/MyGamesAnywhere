@@ -1173,6 +1173,21 @@ type ScanReport struct {
 	GamesUpdated   int                     `json:"games_updated"`
 	TotalGames     int                     `json:"total_games"`
 	Results        []ScanIntegrationResult `json:"integration_results"`
+	// NO_MIGRATION_NEEDED: these optional report_json fields are backward-compatible;
+	// existing rows unmarshal with zero values and no SQLite schema changes.
+	Changes        []ScanLibraryChange `json:"changes,omitempty"`
+	ChangesOmitted int                 `json:"changes_omitted,omitempty"`
+}
+
+// ScanLibraryChange identifies one source record added to or removed from the
+// player's library by a completed scan. It deliberately contains no source
+// configuration or credentials so it is safe to include in notification events.
+type ScanLibraryChange struct {
+	Kind             string `json:"kind"`
+	SourceGameID     string `json:"source_game_id"`
+	Title            string `json:"title"`
+	IntegrationID    string `json:"integration_id"`
+	IntegrationLabel string `json:"integration_label,omitempty"`
 }
 
 type LibraryScanScheduleConfig struct {

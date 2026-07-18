@@ -1569,7 +1569,7 @@ func (c *PluginController) writeOAuthRequired(w http.ResponseWriter, r *http.Req
 	callbackURL := c.oauthRedirectURI(pluginID)
 	if c.oauthStates != nil && strings.TrimSpace(checkResult.State) != "" {
 		if _, ok := c.oauthStates.Peek(checkResult.State); !ok {
-			c.oauthStates.Register(checkResult.State, OAuthState{PluginID: pluginID})
+			c.oauthStates.Register(checkResult.State, OAuthState{PluginID: pluginID, ProfileID: core.ProfileIDFromContext(r.Context())})
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -2006,6 +2006,7 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 		Label           string          `json:"label"`
 		IntegrationType string          `json:"integration_type"`
 		Config          json.RawMessage `json:"config"`
+		OAuthState      string          `json:"oauth_state,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -2032,6 +2033,22 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if configMap == nil {
 		configMap = map[string]any{}
+	}
+	if strings.TrimSpace(body.OAuthState) != "" {
+		draftState, ok := c.oauthStates.Consume(strings.TrimSpace(body.OAuthState))
+		if !ok {
+			http.Error(w, "OAuth sign-in state is missing or expired", http.StatusBadRequest)
+			return
+		}
+		if draftState.PluginID != body.PluginID || draftState.ProfileID != core.ProfileIDFromContext(r.Context()) {
+			http.Error(w, "OAuth sign-in state does not belong to this profile connection", http.StatusForbidden)
+			return
+		}
+		if len(draftState.ConfigUpdates) == 0 {
+			http.Error(w, "OAuth sign-in has not completed", http.StatusConflict)
+			return
+		}
+		mergeConfigUpdates(configMap, draftState.ConfigUpdates)
 	}
 	_, checkResult, normalizedConfig, err := c.validateIntegrationConfig(r.Context(), body.PluginID, configMap)
 	if err != nil {
@@ -2644,13 +2661,34 @@ func (c *AchievementController) GetAchievements(w http.ResponseWriter, r *http.R
 		sets = append(sets, achievementSetToDTO(*set))
 	}
 	for errKey, callErr := range errs {
-		pluginID := strings.SplitN(errKey, "|", 2)[0]
-		c.logger.Error("achievements.game.get failed", callErr, "plugin_id", pluginID, "game_id", gameID)
+		parts := strings.Split(errKey, "|")
+		pluginID := parts[0]
+		integrationID := ""
+		if len(parts) >= 3 {
+			integrationID = parts[1]
+		}
+		integrationLabel := ""
+		for _, source := range achievementSources {
+			if source.PluginID != pluginID {
+				continue
+			}
+			if integrationID != "" && source.IntegrationID != integrationID {
+				continue
+			}
+			integrationID = source.IntegrationID
+			integrationLabel = source.Label
+			break
+		}
+		c.logger.Error("achievements.game.get failed", callErr, "plugin_id", pluginID, "integration_id", integrationID, "game_id", gameID)
 		events.PublishJSON(c.eventBus, "operation_error", map[string]any{
-			"scope":     "achievements",
-			"plugin_id": pluginID,
-			"game_id":   gameID,
-			"error":     callErr.Error(),
+			"scope":             "achievements",
+			"profile_id":        core.ProfileIDFromContext(ctx),
+			"plugin_id":         pluginID,
+			"integration_id":    integrationID,
+			"integration_label": integrationLabel,
+			"game_id":           gameID,
+			"game_title":        game.Title,
+			"error":             callErr.Error(),
 		})
 	}
 

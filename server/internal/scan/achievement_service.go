@@ -130,6 +130,7 @@ func (s *AchievementFetchService) FetchAndCacheWithCandidatesOptions(ctx context
 				candidate.IntegrationLabel = source.Label
 			}
 			fetchKey := pluginID + "|" + candidate.ExternalGameID
+			failureKey := pluginID + "|" + source.IntegrationID + "|" + candidate.ExternalGameID
 			baseSet, ok := fetched[fetchKey]
 			if !ok {
 				var result rawAchievementPluginResult
@@ -140,7 +141,7 @@ func (s *AchievementFetchService) FetchAndCacheWithCandidatesOptions(ctx context
 					if errs == nil {
 						errs = make(map[string]error)
 					}
-					errs[fetchKey] = err
+					errs[failureKey] = err
 					if options.PersistProviderFailures {
 						if stateErr := s.gameStore.SaveAchievementRefreshState(ctx, &core.AchievementRefreshState{
 							SourceGameID:    candidate.SourceGameID,
@@ -151,7 +152,7 @@ func (s *AchievementFetchService) FetchAndCacheWithCandidatesOptions(ctx context
 							LastAttemptedAt: time.Now().UTC(),
 							LastError:       err.Error(),
 						}); stateErr != nil {
-							errs[fetchKey+"|state"] = &AchievementCacheError{Err: stateErr}
+							errs[failureKey+"|state"] = &AchievementCacheError{Err: stateErr}
 						}
 					}
 					continue

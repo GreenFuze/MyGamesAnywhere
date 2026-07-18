@@ -60,6 +60,7 @@ type OAuthState struct {
 	IntegrationID string
 	ProfileID     string
 	PluginID      string
+	ConfigUpdates map[string]any
 }
 
 type OAuthStateStore struct {
@@ -101,6 +102,24 @@ func (s *OAuthStateStore) Consume(state string) (OAuthState, bool) {
 		delete(s.states, state)
 	}
 	return value, ok
+}
+
+func (s *OAuthStateStore) SetConfigUpdates(state string, updates map[string]any) bool {
+	if s == nil || strings.TrimSpace(state) == "" || len(updates) == 0 {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value, ok := s.states[state]
+	if !ok {
+		return false
+	}
+	value.ConfigUpdates = make(map[string]any, len(updates))
+	for key, update := range updates {
+		value.ConfigUpdates[key] = update
+	}
+	s.states[state] = value
+	return true
 }
 
 // Callback handles GET /api/auth/callback/{plugin_id}.
@@ -379,7 +398,7 @@ func (c *OAuthController) completeCallback(ctx context.Context, pluginID, state 
 	if err := c.persistOAuthConfigUpdates(ctx, pluginID, state, result.ConfigUpdates); err != nil {
 		return err
 	}
-	if hasOAuthState {
+	if hasOAuthState && strings.TrimSpace(oauthState.IntegrationID) != "" {
 		if err := c.clearAuthRelatedAchievementRefreshFailures(ctx, oauthState); err != nil {
 			return err
 		}
@@ -421,11 +440,14 @@ type oauthCallbackResult struct {
 }
 
 func (c *OAuthController) persistOAuthConfigUpdates(ctx context.Context, pluginID, state string, updates map[string]any) error {
-	oauthState, ok := c.states.Consume(state)
+	oauthState, ok := c.states.Peek(state)
 	if !ok || len(updates) == 0 {
 		return nil
 	}
 	if strings.TrimSpace(oauthState.IntegrationID) == "" {
+		if !c.states.SetConfigUpdates(state, updates) {
+			return fmt.Errorf("save draft OAuth config updates: state is missing")
+		}
 		return nil
 	}
 	if c.repo == nil {

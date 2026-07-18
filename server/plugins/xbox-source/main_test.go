@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -125,9 +126,39 @@ func TestHandleCheckConfigForceOAuthSkipsSilentValidation(t *testing.T) {
 	}
 	if got := body["authorize_url"]; got == "" {
 		t.Fatal("authorize_url is empty")
+	} else if !strings.Contains(got.(string), "prompt=select_account") {
+		t.Fatalf("authorize_url = %q, want Microsoft account chooser", got)
 	}
 	if got := body["state"]; got == "" {
 		t.Fatal("state is empty")
+	}
+}
+
+func TestXboxRequestsDoNotReuseAnotherIntegrationTokens(t *testing.T) {
+	originalTokens := tokens
+	t.Cleanup(func() {
+		tokenMu.Lock()
+		tokens = originalTokens
+		tokenMu.Unlock()
+	})
+
+	tokenMu.Lock()
+	tokens = savedTokens{XSTSToken: "another-profile", XSTSExpiresAt: time.Now().Add(time.Hour)}
+	tokenMu.Unlock()
+
+	result, pluginErr := handleGamesList(json.RawMessage(`{}`))
+	if result != nil || pluginErr == nil || pluginErr.Code != "AUTH_REQUIRED" {
+		t.Fatalf("handleGamesList() = %#v, %+v; want AUTH_REQUIRED", result, pluginErr)
+	}
+
+	payload := json.RawMessage(`{"config":{},"redirect_uri":"http://tv2:8900/api/auth/callback/game-source-xbox"}`)
+	result, pluginErr = handleCheckConfig(payload)
+	if pluginErr != nil {
+		t.Fatalf("handleCheckConfig() error = %+v", pluginErr)
+	}
+	body := result.(map[string]any)
+	if body["status"] != "oauth_required" {
+		t.Fatalf("status = %v, want oauth_required", body["status"])
 	}
 }
 

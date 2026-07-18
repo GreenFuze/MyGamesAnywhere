@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -43,8 +46,7 @@ type StartOptions struct {
 	ExecutionMode devicev1.ClientExecutionMode
 }
 
-type Status struct {
-	Paired           bool
+type BindingStatus struct {
 	ServerURL        string
 	EndpointID       string
 	ClientInstanceID string
@@ -52,22 +54,36 @@ type Status struct {
 	PrivateKeyReady  bool
 }
 
-type DoctorResult struct {
-	Status       Status
+type Status struct {
+	Paired   bool
+	Bindings []BindingStatus
+}
+
+type BindingDoctorResult struct {
+	Status       BindingStatus
 	ServerHealth string
+}
+
+type DoctorResult struct {
+	Paired   bool
+	Bindings []BindingDoctorResult
+}
+
+type UnpairOptions struct {
+	ServerURL string
+	All       bool
 }
 
 type Service struct {
 	layout     clientruntime.Layout
 	configs    *clientconfig.Store
-	identities identity.Store
 	buildInfo  buildinfo.Info
 	httpClient *http.Client
 	logger     *log.Logger
 	logFile    *os.File
 }
 
-func New(dataDir string, info buildinfo.Info) (*Service, error) {
+func New(dataDir string, info buildinfo.Info, extraLogWriters ...io.Writer) (*Service, error) {
 	layout, err := clientruntime.Resolve(dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve client runtime: %w", err)
@@ -83,13 +99,18 @@ func New(dataDir string, info buildinfo.Info) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open client log: %w", err)
 	}
+	writers := []io.Writer{logFile}
+	for _, writer := range extraLogWriters {
+		if writer != nil && writer != io.Discard {
+			writers = append(writers, writer)
+		}
+	}
 	return &Service{
 		layout:     layout,
 		configs:    configs,
-		identities: identity.NewStore(layout.PrivateKeyPath),
 		buildInfo:  info,
 		httpClient: &http.Client{Timeout: 15 * time.Second},
-		logger:     log.New(logFile, "", log.Ldate|log.Ltime|log.LUTC),
+		logger:     log.New(io.MultiWriter(writers...), "", log.Ldate|log.Ltime|log.LUTC),
 		logFile:    logFile,
 	}, nil
 }
@@ -109,35 +130,44 @@ func (s *Service) Logf(format string, values ...any) {
 	}
 }
 
-func (s *Service) Pair(ctx context.Context, options PairOptions) (clientconfig.Config, error) {
+func (s *Service) Pair(ctx context.Context, options PairOptions) (clientconfig.Binding, error) {
 	s.Logf("pairing requested for server %s", strings.TrimSpace(options.ServerURL))
-	if _, err := s.configs.Load(); err == nil {
-		return clientconfig.Config{}, errors.New("MGA Client is already paired; unpair or use a separate data directory")
-	} else if !errors.Is(err, clientconfig.ErrNotPaired) {
-		return clientconfig.Config{}, err
-	}
 	serverURL, err := validateServerURL(options.ServerURL)
 	if err != nil {
-		return clientconfig.Config{}, err
+		return clientconfig.Binding{}, err
+	}
+	document, err := s.loadBindings()
+	if errors.Is(err, clientconfig.ErrNotPaired) {
+		document = clientconfig.Document{SchemaVersion: clientconfig.SchemaVersion}
+	} else if err != nil {
+		return clientconfig.Binding{}, err
+	}
+	if _, found := findBinding(document.Bindings, serverURL); found {
+		return clientconfig.Binding{}, fmt.Errorf("MGA Client is already paired with %s", serverURL)
+	}
+	if len(document.Bindings) >= clientconfig.MaxBindings {
+		return clientconfig.Binding{}, fmt.Errorf("MGA Client already has the maximum of %d server bindings", clientconfig.MaxBindings)
 	}
 	metadata, err := localMetadata(options.DisplayName, currentExecutionMode())
 	if err != nil {
-		return clientconfig.Config{}, err
+		return clientconfig.Binding{}, err
 	}
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		return clientconfig.Config{}, fmt.Errorf("generate endpoint identity: %w", err)
+		return clientconfig.Binding{}, fmt.Errorf("generate endpoint identity: %w", err)
 	}
-	if err := s.identities.Save(privateKey); err != nil {
-		return clientconfig.Config{}, fmt.Errorf("protect endpoint private key: %w", err)
+	instanceID := uuid.NewString()
+	binding := clientconfig.Binding{ServerURL: serverURL, ClientInstanceID: instanceID, DisplayName: metadata.DisplayName}
+	identityStore := s.identityStore(binding)
+	if err := identityStore.Save(privateKey); err != nil {
+		return clientconfig.Binding{}, fmt.Errorf("protect endpoint private key: %w", err)
 	}
 	paired := false
 	defer func() {
 		if !paired {
-			_ = s.identities.Clear()
+			_ = identityStore.Clear()
 		}
 	}()
-	instanceID := uuid.NewString()
 	pairingRequest := devicev1.PairingRequest{
 		Code:             strings.TrimSpace(options.Code),
 		ClientInstanceID: instanceID,
@@ -147,69 +177,65 @@ func (s *Service) Pair(ctx context.Context, options PairOptions) (clientconfig.C
 		Metadata:         metadata,
 	}
 	if err := pairingRequest.Validate(); err != nil {
-		return clientconfig.Config{}, err
+		return clientconfig.Binding{}, err
 	}
 	body, err := json.Marshal(pairingRequest)
 	if err != nil {
-		return clientconfig.Config{}, err
+		return clientconfig.Binding{}, err
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, serverURL+"/api/devices/pair", bytes.NewReader(body))
 	if err != nil {
-		return clientconfig.Config{}, err
+		return clientconfig.Binding{}, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
 	response, err := s.httpClient.Do(request)
 	if err != nil {
-		return clientconfig.Config{}, fmt.Errorf("pair with MGA Server: %w", err)
+		return clientconfig.Binding{}, fmt.Errorf("pair with MGA Server: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 8*1024))
-		return clientconfig.Config{}, fmt.Errorf("pair with MGA Server: %s: %s", response.Status, strings.TrimSpace(string(message)))
+		return clientconfig.Binding{}, fmt.Errorf("pair with MGA Server: %s: %s", response.Status, strings.TrimSpace(string(message)))
 	}
 	var pairingResponse devicev1.PairingResponse
 	decoder := json.NewDecoder(io.LimitReader(response.Body, 64*1024))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&pairingResponse); err != nil {
-		return clientconfig.Config{}, fmt.Errorf("decode pairing response: %w", err)
+		return clientconfig.Binding{}, fmt.Errorf("decode pairing response: %w", err)
 	}
 	if err := pairingResponse.Validate(); err != nil {
-		return clientconfig.Config{}, err
+		return clientconfig.Binding{}, err
 	}
-	config := clientconfig.Config{
-		SchemaVersion:    clientconfig.SchemaVersion,
-		ServerURL:        serverURL,
-		WebSocketURL:     pairingResponse.WebSocketURL,
-		EndpointID:       pairingResponse.EndpointID,
-		ClientInstanceID: instanceID,
-		DisplayName:      metadata.DisplayName,
-	}
-	if err := s.configs.Save(config); err != nil {
-		return clientconfig.Config{}, fmt.Errorf("save paired client config: %w", err)
+	binding.WebSocketURL = pairingResponse.WebSocketURL
+	binding.EndpointID = pairingResponse.EndpointID
+	document.Bindings = append(document.Bindings, binding)
+	if err := s.configs.Save(document); err != nil {
+		return clientconfig.Binding{}, fmt.Errorf("save paired client config: %w", err)
 	}
 	paired = true
-	s.Logf("paired endpoint %s as %s", config.EndpointID, config.DisplayName)
-	return config, nil
+	s.Logf("paired endpoint %s as %s", binding.EndpointID, binding.DisplayName)
+	return binding, nil
 }
 
 func (s *Service) Status() (Status, error) {
-	config, err := s.configs.Load()
+	document, err := s.loadBindings()
 	if errors.Is(err, clientconfig.ErrNotPaired) {
 		return Status{}, nil
 	}
 	if err != nil {
 		return Status{}, err
 	}
-	_, keyErr := s.identities.Load()
-	return Status{
-		Paired:           true,
-		ServerURL:        config.ServerURL,
-		EndpointID:       config.EndpointID,
-		ClientInstanceID: config.ClientInstanceID,
-		DisplayName:      config.DisplayName,
-		PrivateKeyReady:  keyErr == nil,
-	}, nil
+	status := Status{Paired: true, Bindings: make([]BindingStatus, 0, len(document.Bindings))}
+	for _, binding := range document.Bindings {
+		_, keyErr := s.identityStore(binding).Load()
+		status.Bindings = append(status.Bindings, BindingStatus{
+			ServerURL: binding.ServerURL, EndpointID: binding.EndpointID,
+			ClientInstanceID: binding.ClientInstanceID, DisplayName: binding.DisplayName,
+			PrivateKeyReady: keyErr == nil,
+		})
+	}
+	return status, nil
 }
 
 func (s *Service) Doctor(ctx context.Context) (DoctorResult, error) {
@@ -217,74 +243,145 @@ func (s *Service) Doctor(ctx context.Context) (DoctorResult, error) {
 	if err != nil {
 		return DoctorResult{}, err
 	}
-	result := DoctorResult{Status: status, ServerHealth: "not checked"}
+	result := DoctorResult{Paired: status.Paired}
 	if !status.Paired {
 		return result, nil
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, status.ServerURL+"/health", nil)
-	if err != nil {
-		return DoctorResult{}, err
-	}
-	response, err := s.httpClient.Do(request)
-	if err != nil {
-		result.ServerHealth = err.Error()
-		return result, nil
-	}
-	defer response.Body.Close()
-	if response.StatusCode == http.StatusOK {
-		result.ServerHealth = "OK"
-	} else {
-		result.ServerHealth = response.Status
+	for _, binding := range status.Bindings {
+		item := BindingDoctorResult{Status: binding, ServerHealth: "not checked"}
+		request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, binding.ServerURL+"/health", nil)
+		if requestErr != nil {
+			return DoctorResult{}, requestErr
+		}
+		response, requestErr := s.httpClient.Do(request)
+		if requestErr != nil {
+			item.ServerHealth = requestErr.Error()
+		} else {
+			if response.StatusCode == http.StatusOK {
+				item.ServerHealth = "OK"
+			} else {
+				item.ServerHealth = response.Status
+			}
+			response.Body.Close()
+		}
+		result.Bindings = append(result.Bindings, item)
 	}
 	return result, nil
 }
 
 func (s *Service) RunAgent(ctx context.Context) error {
-	return s.RunAgentWithMode(ctx, currentExecutionMode())
+	return s.runAgentWithMode(ctx, currentExecutionMode(), false)
+}
+
+// RunAgentReplacingExisting restarts an existing tray process so a newly
+// paired server binding becomes active immediately.
+func (s *Service) RunAgentReplacingExisting(ctx context.Context) error {
+	return s.runAgentWithMode(ctx, currentExecutionMode(), true)
 }
 
 // RunAgentWithMode runs the per-user agent and reports the supplied actual
 // runtime mode. Start uses it after it has verified elevation when requested.
 func (s *Service) RunAgentWithMode(ctx context.Context, executionMode devicev1.ClientExecutionMode) error {
+	return s.runAgentWithMode(ctx, executionMode, false)
+}
+
+func (s *Service) runAgentWithMode(ctx context.Context, executionMode devicev1.ClientExecutionMode, replaceExisting bool) error {
 	if executionMode == "" {
 		executionMode = devicev1.ClientExecutionModeStandard
 	}
 	if err := executionMode.Validate(); err != nil {
 		return err
 	}
-	config, err := s.configs.Load()
+	document, err := s.loadBindings()
 	if err != nil {
 		return err
 	}
-	privateKey, err := s.identities.Load()
-	if err != nil {
-		return fmt.Errorf("load endpoint identity: %w", err)
-	}
-	lock, err := singleinstance.Acquire("MGAClient-" + config.ClientInstanceID)
+	lock, err := s.acquireAgentLock(ctx, replaceExisting)
 	if err != nil {
 		return err
 	}
 	defer lock.Close()
-	agent, err := NewAgentWithExecutionMode(config, privateKey, s.buildInfo, s.logger, executionMode)
+	control, err := singleinstance.OpenSignal(s.instanceLockName() + "-Restart")
 	if err != nil {
-		return err
+		return fmt.Errorf("open agent restart signal: %w", err)
+	}
+	defer control.Close()
+	hostContext, stopHost := context.WithCancel(ctx)
+	defer stopHost()
+	go func() {
+		if waitErr := control.Wait(hostContext); waitErr == nil {
+			s.Logf("agent restart requested after server binding change")
+			stopHost()
+		}
+	}()
+	agents := make([]*Agent, 0, len(document.Bindings))
+	desktopBindings := make([]desktop.BindingOption, 0, len(document.Bindings))
+	for _, binding := range document.Bindings {
+		privateKey, keyErr := s.identityStore(binding).Load()
+		if keyErr != nil {
+			return fmt.Errorf("load endpoint identity for %s: %w", binding.ServerURL, keyErr)
+		}
+		agent, agentErr := NewAgentWithExecutionMode(binding, privateKey, s.buildInfo, s.logger, executionMode)
+		if agentErr != nil {
+			return fmt.Errorf("prepare agent for %s: %w", binding.ServerURL, agentErr)
+		}
+		agents = append(agents, agent)
+		serverURL := binding.ServerURL
+		desktopBindings = append(desktopBindings, desktop.BindingOption{ServerURL: serverURL, Unpair: func() error { return s.clearBinding(serverURL, false) }})
 	}
 	host, err := desktop.NewHost(desktop.Options{
-		DisplayName: config.DisplayName,
+		DisplayName: document.Bindings[0].DisplayName,
 		LogPath:     s.layout.LogPath,
 		Version:     s.buildInfo.Version,
+		Bindings:    desktopBindings,
 	})
 	if err != nil {
 		return err
 	}
-	s.Logf("agent starting for endpoint %s", config.EndpointID)
-	err = host.Run(ctx, agent.Run)
+	s.Logf("agent host starting with %d server binding(s)", len(agents))
+	err = host.Run(hostContext, func(runContext context.Context) error { return runAgents(runContext, agents) })
 	if err != nil && !errors.Is(err, context.Canceled) {
 		s.Logf("agent stopped with error: %v", err)
 		return err
 	}
 	s.Logf("agent stopped")
 	return nil
+}
+
+func (s *Service) acquireAgentLock(ctx context.Context, replaceExisting bool) (*singleinstance.Lock, error) {
+	lock, err := singleinstance.Acquire(s.instanceLockName())
+	if err == nil || !replaceExisting || !errors.Is(err, singleinstance.ErrAlreadyRunning) {
+		return lock, err
+	}
+	control, controlErr := singleinstance.OpenSignal(s.instanceLockName() + "-Restart")
+	if controlErr != nil {
+		return nil, fmt.Errorf("open existing agent restart signal: %w", controlErr)
+	}
+	if controlErr = control.Notify(); controlErr != nil {
+		_ = control.Close()
+		return nil, fmt.Errorf("request existing agent restart: %w", controlErr)
+	}
+	defer control.Close()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.NewTimer(10 * time.Second)
+	defer timeout.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timeout.C:
+			return nil, errors.New("existing MGA Client did not stop after restart request")
+		case <-ticker.C:
+			lock, err = singleinstance.Acquire(s.instanceLockName())
+			if err == nil {
+				return lock, nil
+			}
+			if !errors.Is(err, singleinstance.ErrAlreadyRunning) {
+				return nil, err
+			}
+		}
+	}
 }
 
 // Start acknowledges a browser launch challenge before ensuring the per-user
@@ -311,7 +408,7 @@ func (s *Service) Start(ctx context.Context, options StartOptions) error {
 }
 
 func (s *Service) acknowledgeLaunch(ctx context.Context, options StartOptions) error {
-	config, err := s.configs.Load()
+	document, err := s.loadBindings()
 	if err != nil {
 		return err
 	}
@@ -319,17 +416,22 @@ func (s *Service) acknowledgeLaunch(ctx context.Context, options StartOptions) e
 	if err != nil {
 		return err
 	}
-	if !samePairedServerURL(serverURL, config.ServerURL) {
-		return errors.New("launch server does not match the paired MGA Server")
+	binding, found := findBinding(document.Bindings, serverURL)
+	if !found {
+		servers := make([]string, 0, len(document.Bindings))
+		for _, existing := range document.Bindings {
+			servers = append(servers, existing.ServerURL)
+		}
+		return &ServerBindingNotFoundError{RequestedServer: serverURL, BoundServers: servers}
 	}
-	privateKey, err := s.identities.Load()
+	privateKey, err := s.identityStore(binding).Load()
 	if err != nil {
 		return fmt.Errorf("load endpoint identity: %w", err)
 	}
 	launchRequest := devicev1.ClientLaunchRequest{
 		LaunchID:      strings.TrimSpace(options.LaunchID),
 		Token:         strings.TrimSpace(options.Token),
-		EndpointID:    config.EndpointID,
+		EndpointID:    binding.EndpointID,
 		ExecutionMode: normalizedExecutionMode(options.ExecutionMode),
 	}
 	signingBytes, err := launchRequest.SigningBytes()
@@ -359,26 +461,161 @@ func (s *Service) acknowledgeLaunch(ctx context.Context, options StartOptions) e
 	return nil
 }
 
-func (s *Service) Unpair() error {
-	config, err := s.configs.Load()
+func (s *Service) Unpair(options UnpairOptions) error {
+	if options.All && strings.TrimSpace(options.ServerURL) != "" {
+		return errors.New("choose either one server or all bindings")
+	}
+	document, err := s.loadBindings()
 	if errors.Is(err, clientconfig.ErrNotPaired) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	lock, err := singleinstance.Acquire("MGAClient-" + config.ClientInstanceID)
+	if !options.All && strings.TrimSpace(options.ServerURL) == "" && len(document.Bindings) > 1 {
+		return errors.New("multiple server bindings exist; choose --server or --all")
+	}
+	lock, err := singleinstance.Acquire(s.instanceLockName())
 	if err != nil {
 		return fmt.Errorf("stop the running MGA Client agent before unpairing: %w", err)
 	}
 	defer lock.Close()
-	if err := s.configs.Clear(); err != nil {
-		return fmt.Errorf("clear client configuration: %w", err)
+	return s.clearBinding(options.ServerURL, options.All)
+}
+
+func (s *Service) clearBinding(serverURL string, all bool) error {
+	document, err := s.loadBindings()
+	if errors.Is(err, clientconfig.ErrNotPaired) {
+		return nil
 	}
-	if err := s.identities.Clear(); err != nil {
-		return fmt.Errorf("clear endpoint private key: %w", err)
+	if err != nil {
+		return err
+	}
+	removed := document.Bindings
+	remaining := make([]clientconfig.Binding, 0, len(document.Bindings))
+	if !all {
+		target := strings.TrimSpace(serverURL)
+		if target == "" && len(document.Bindings) == 1 {
+			target = document.Bindings[0].ServerURL
+		}
+		normalized, normalizeErr := validateServerURL(target)
+		if normalizeErr != nil {
+			return normalizeErr
+		}
+		removed = nil
+		for _, binding := range document.Bindings {
+			if samePairedServerURL(normalized, binding.ServerURL) {
+				removed = append(removed, binding)
+			} else {
+				remaining = append(remaining, binding)
+			}
+		}
+		if len(removed) == 0 {
+			return fmt.Errorf("MGA Client is not paired with %s", normalized)
+		}
+	}
+	if len(remaining) == 0 {
+		if err := s.configs.Clear(); err != nil {
+			return fmt.Errorf("clear client configuration: %w", err)
+		}
+	} else {
+		document.Bindings = remaining
+		if err := s.configs.Save(document); err != nil {
+			return fmt.Errorf("save remaining client bindings: %w", err)
+		}
+	}
+	for _, binding := range removed {
+		if err := s.identityStore(binding).Clear(); err != nil {
+			return fmt.Errorf("clear endpoint private key for %s: %w", binding.ServerURL, err)
+		}
 	}
 	return nil
+}
+
+// ServerBindingNotFoundError reports a browser launch from an unpaired server.
+type ServerBindingNotFoundError struct {
+	RequestedServer string
+	BoundServers    []string
+}
+
+func (e *ServerBindingNotFoundError) Error() string {
+	if len(e.BoundServers) == 0 {
+		return fmt.Sprintf("MGA Client is not paired with %s; return to MGA and choose Pair this Windows user", e.RequestedServer)
+	}
+	return fmt.Sprintf("MGA Client is not paired with %s; current bindings: %s. Return to that MGA Server and choose Pair this Windows user", e.RequestedServer, strings.Join(e.BoundServers, ", "))
+}
+
+func (s *Service) loadBindings() (clientconfig.Document, error) {
+	result, err := s.configs.Load()
+	if err != nil {
+		return clientconfig.Document{}, err
+	}
+	if err := validateUniqueBindingOrigins(result.Document.Bindings); err != nil {
+		return clientconfig.Document{}, err
+	}
+	if !result.LegacyLoaded {
+		return result.Document, nil
+	}
+	legacy := result.Document.Bindings[0]
+	if _, err := s.identityStore(legacy).Load(); err != nil {
+		return clientconfig.Document{}, fmt.Errorf("verify legacy endpoint identity before config migration: %w", err)
+	}
+	if err := s.configs.Save(result.Document); err != nil {
+		return clientconfig.Document{}, fmt.Errorf("migrate client config to schema %d: %w", clientconfig.SchemaVersion, err)
+	}
+	s.Logf("migrated client configuration from schema %d to %d", clientconfig.LegacySchemaVersion, clientconfig.SchemaVersion)
+	return result.Document, nil
+}
+
+func validateUniqueBindingOrigins(bindings []clientconfig.Binding) error {
+	for index, binding := range bindings {
+		for previous := 0; previous < index; previous++ {
+			if samePairedServerURL(binding.ServerURL, bindings[previous].ServerURL) {
+				return fmt.Errorf("duplicate equivalent server bindings %q and %q", bindings[previous].ServerURL, binding.ServerURL)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Service) identityStore(binding clientconfig.Binding) identity.Store {
+	if binding.LegacyIdentity {
+		return identity.NewStore(s.layout.PrivateKeyPath)
+	}
+	digest := sha256.Sum256([]byte(strings.TrimSpace(binding.ClientInstanceID)))
+	name := hex.EncodeToString(digest[:]) + ".dpapi"
+	return identity.NewStore(filepath.Join(s.layout.IdentityDir, name))
+}
+
+func (s *Service) instanceLockName() string {
+	digest := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(s.layout.DataDir))))
+	return "MGAClient-" + hex.EncodeToString(digest[:16])
+}
+
+func findBinding(bindings []clientconfig.Binding, serverURL string) (clientconfig.Binding, bool) {
+	for _, binding := range bindings {
+		if samePairedServerURL(serverURL, binding.ServerURL) {
+			return binding, true
+		}
+	}
+	return clientconfig.Binding{}, false
+}
+
+func runAgents(ctx context.Context, agents []*Agent) error {
+	if len(agents) == 0 {
+		return clientconfig.ErrNotPaired
+	}
+	results := make(chan error, len(agents))
+	for _, agent := range agents {
+		agent := agent
+		go func() { results <- agent.Run(ctx) }()
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-results:
+		return err
+	}
 }
 
 func validateServerURL(value string) (string, error) {

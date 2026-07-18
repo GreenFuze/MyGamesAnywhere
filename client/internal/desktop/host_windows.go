@@ -39,6 +39,31 @@ func (h *Host) Run(ctx context.Context, runner AgentRunner) error {
 		versionItem.Disable()
 		systray.AddSeparator()
 		showLogs := systray.AddMenuItem("Show logs", "Open the MGA Client log")
+		unpair := systray.AddMenuItem("Unbind from server", "Remove one MGA Server binding")
+		for _, binding := range h.options.Bindings {
+			binding := binding
+			item := unpair.AddSubMenuItem(binding.ServerURL, "Unbind only from "+binding.ServerURL)
+			go func() {
+				select {
+				case <-runContext.Done():
+					return
+				case <-item.ClickedCh:
+					approved, err := ConfirmUnbind(runContext, binding.ServerURL)
+					if err != nil {
+						_ = ShowError("MGA Client — Unbind failed", err.Error())
+						return
+					}
+					if !approved {
+						return
+					}
+					if err := binding.Unpair(); err != nil {
+						_ = ShowError("MGA Client — Unbind failed", err.Error())
+						return
+					}
+					cancel()
+				}
+			}()
+		}
 		exit := systray.AddMenuItem("Exit", "Stop this user's MGA Client")
 
 		go func() {

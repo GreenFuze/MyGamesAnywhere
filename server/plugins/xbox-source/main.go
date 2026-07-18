@@ -53,7 +53,6 @@ type xboxConfig struct {
 
 const (
 	configFile = "config.json"
-	tokenFile  = "tokens.json"
 
 	msAuthorizeURL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize"
 	msTokenURL     = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
@@ -88,30 +87,14 @@ type savedTokens struct {
 var tokens savedTokens
 var tokenMu sync.Mutex
 
-func loadTokens() error {
-	data, err := os.ReadFile(tokenFile)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, &tokens)
-}
-
-func saveTokens() error {
-	data, err := json.MarshalIndent(tokens, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(tokenFile, data, 0600)
-}
-
 func useConfiguredTokens(configTokens *savedTokens) bool {
-	if configTokens == nil {
-		return false
-	}
 	tokenMu.Lock()
-	tokens = *configTokens
+	tokens = savedTokens{}
+	if configTokens != nil {
+		tokens = *configTokens
+	}
 	tokenMu.Unlock()
-	return true
+	return configTokens != nil
 }
 
 func currentTokensConfigUpdate() map[string]any {
@@ -192,6 +175,7 @@ func buildAuthorizeURL(state string, redirectURI string) string {
 		"scope":                 {"XboxLive.signin XboxLive.offline_access offline_access"},
 		"state":                 {state},
 		"response_mode":         {"query"},
+		"prompt":                {"select_account"},
 		"code_challenge":        {codeChallenge(verifier)},
 		"code_challenge_method": {"S256"},
 	}
@@ -358,16 +342,12 @@ func randomState() string {
 
 // --------------- Ensure authenticated (refresh only) ---------------
 
-// ensureAuthenticated checks cached tokens and tries a silent refresh.
+// ensureAuthenticated checks only the active request's integration-owned
+// tokens and tries a silent refresh.
 // If refresh fails, returns an error — the frontend must trigger re-auth via check_config.
 func ensureAuthenticated(ctx context.Context) error {
 	tokenMu.Lock()
 	defer tokenMu.Unlock()
-
-	// Try loading saved tokens.
-	if tokens.XSTSToken == "" {
-		loadTokens()
-	}
 
 	// If XSTS token is still valid, we're good.
 	if tokens.XSTSToken != "" && time.Now().Before(tokens.XSTSExpiresAt.Add(-5*time.Minute)) {
@@ -390,7 +370,6 @@ func ensureAuthenticated(ctx context.Context) error {
 			err = fullXboxAuth(msResp.AccessToken)
 			tokenMu.Lock()
 			if err == nil {
-				saveTokens()
 				return nil
 			}
 			log.Printf("Xbox auth after refresh failed: %v", err)
@@ -878,13 +857,19 @@ func normalizedXboxUnlockedAt(progression *xboxProgression) string {
 
 func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 	var p struct {
-		ExternalGameID string `json:"external_game_id"`
+		ExternalGameID string     `json:"external_game_id"`
+		Config         xboxConfig `json:"config"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 	}
 	if p.ExternalGameID == "" {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id required"}
+	}
+	cfg.XBLMarket = p.Config.XBLMarket
+	cfg.PlayLaunchLocale = p.Config.PlayLaunchLocale
+	if !useConfiguredTokens(p.Config.Tokens) {
+		return nil, &Error{Code: "AUTH_REQUIRED", Message: "Xbox sign-in is required before achievements can be refreshed"}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -925,21 +910,19 @@ func handleInit() (any, *Error) {
 	}
 	cfg = *c
 
-	// Try loading cached tokens (non-blocking). Auth happens via check_config + OAuth callback.
-	loadTokens()
-
 	return map[string]any{
 		"status": "ok",
-		"xuid":   tokens.XUID,
 	}, nil
 }
 
 func handleGamesList(params json.RawMessage) (any, *Error) {
-	tokenMu.Lock()
-	hasToken := tokens.XSTSToken != ""
-	tokenMu.Unlock()
-
-	if !hasToken {
+	var requestConfig xboxConfig
+	if err := json.Unmarshal(params, &requestConfig); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	cfg.XBLMarket = requestConfig.XBLMarket
+	cfg.PlayLaunchLocale = requestConfig.PlayLaunchLocale
+	if !useConfiguredTokens(requestConfig.Tokens) {
 		return nil, &Error{
 			Code:    "AUTH_REQUIRED",
 			Message: "Xbox sign-in is required before the library can be scanned",
@@ -998,11 +981,8 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 		}, nil
 	}
 
-	// Check for valid profile-owned or cached XSTS tokens.
+	// Check only the profile-owned integration tokens supplied in this request.
 	tokenMu.Lock()
-	if tokens.XSTSToken == "" {
-		loadTokens()
-	}
 	hasValid := tokens.XSTSToken != "" && time.Now().Before(tokens.XSTSExpiresAt.Add(-5*time.Minute))
 	tokenMu.Unlock()
 
@@ -1028,9 +1008,6 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 			tokenMu.Unlock()
 
 			if err := fullXboxAuth(msResp.AccessToken); err == nil {
-				tokenMu.Lock()
-				saveTokens()
-				tokenMu.Unlock()
 				return xboxAuthOKResponse(), nil
 			}
 		}
@@ -1089,7 +1066,6 @@ func handleOAuthCallback(params json.RawMessage) (any, *Error) {
 	}
 
 	tokenMu.Lock()
-	saveTokens()
 	xuid := tokens.XUID
 	tokenMu.Unlock()
 

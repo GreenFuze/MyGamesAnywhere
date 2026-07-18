@@ -1628,6 +1628,41 @@ func TestPluginControllerCheckPluginConfigReturnsConfigUpdates(t *testing.T) {
 	}
 }
 
+func TestPluginControllerCreateConsumesProfileOwnedDraftOAuthUpdates(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{}
+	host := &fakeControllerIntegrationPluginHost{
+		plugins: map[string]*core.Plugin{
+			"plugin.oauth": {Manifest: core.PluginManifest{
+				ID: "plugin.oauth", Provides: []string{"plugin.check_config", "auth.oauth.callback"}, ConfigSchema: map[string]any{},
+			}},
+		},
+		checkResults: map[string]integrationCheckResult{"plugin.oauth": {Status: "ok"}},
+	}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil)
+	controller.oauthStates = NewOAuthStateStore()
+	controller.oauthStates.Register("orr-state", OAuthState{
+		PluginID: "plugin.oauth", ProfileID: "orr", ConfigUpdates: map[string]any{"tokens": map[string]any{"xuid": "orr-xuid"}},
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/integrations", strings.NewReader(`{"plugin_id":"plugin.oauth","label":"Orr Xbox","integration_type":"source","config":{},"oauth_state":"orr-state"}`))
+	request = request.WithContext(core.WithProfile(request.Context(), &core.Profile{ID: "orr", Role: core.ProfileRoleAdminPlayer}))
+	recorder := httptest.NewRecorder()
+	controller.Create(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("Create() status = %d, body = %q", recorder.Code, recorder.Body.String())
+	}
+	if repo.created == nil || !strings.Contains(repo.created.ConfigJSON, "orr-xuid") {
+		t.Fatalf("created integration = %+v, want profile-owned OAuth update", repo.created)
+	}
+	config, ok := host.lastCheckPayload["config"].(map[string]any)
+	if !ok || config["tokens"] == nil {
+		t.Fatalf("plugin check config = %#v, want OAuth tokens", host.lastCheckPayload["config"])
+	}
+	if _, ok := controller.oauthStates.Peek("orr-state"); ok {
+		t.Fatal("draft OAuth state was not consumed after integration creation")
+	}
+}
+
 func TestPluginControllerListReturnsEmptyArray(t *testing.T) {
 	controller := NewPluginController(
 		&fakeControllerIntegrationRepo{},
@@ -1901,10 +1936,17 @@ func (c staticConfig) Validate() error       { return nil }
 type fakeControllerIntegrationRepo struct {
 	byID    map[string]*core.Integration
 	updated *core.Integration
+	created *core.Integration
 }
 
-func (r *fakeControllerIntegrationRepo) Create(context.Context, *core.Integration) error {
-	panic("unexpected call")
+func (r *fakeControllerIntegrationRepo) Create(_ context.Context, integration *core.Integration) error {
+	copy := *integration
+	r.created = &copy
+	if r.byID == nil {
+		r.byID = map[string]*core.Integration{}
+	}
+	r.byID[integration.ID] = &copy
+	return nil
 }
 func (r *fakeControllerIntegrationRepo) Update(_ context.Context, integration *core.Integration) error {
 	copy := *integration

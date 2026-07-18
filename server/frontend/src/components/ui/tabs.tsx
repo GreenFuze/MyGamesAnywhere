@@ -14,11 +14,11 @@ interface TabsProps {
   className?: string
 }
 
-/** Horizontal tab navigation bar using mga CSS vars. */
+/** Responsive tab navigation that wraps instead of exposing browser scrollbars. */
 export function Tabs({ tabs, active, onChange, className }: TabsProps) {
   return (
     <div
-      className={cn('flex gap-1 overflow-x-auto border-b border-mga-border', className)}
+      className={cn('flex flex-wrap gap-1 rounded-mga border border-mga-border bg-mga-surface/60 p-1', className)}
       role="tablist"
     >
       {tabs.map((tab) => (
@@ -29,11 +29,10 @@ export function Tabs({ tabs, active, onChange, className }: TabsProps) {
           aria-selected={active === tab.id}
           onClick={() => onChange(tab.id)}
           className={cn(
-            'flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-sm font-medium transition-colors sm:px-4',
-            'border-b-2 -mb-px',
+            'flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors sm:flex-none',
             active === tab.id
-              ? 'border-mga-accent text-mga-accent'
-              : 'border-transparent text-mga-muted hover:text-mga-text hover:border-mga-border',
+              ? 'bg-mga-accent/15 text-mga-accent shadow-sm'
+              : 'text-mga-muted hover:bg-mga-elevated hover:text-mga-text',
           )}
         >
           {tab.icon}

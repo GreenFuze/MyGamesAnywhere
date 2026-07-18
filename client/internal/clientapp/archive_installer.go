@@ -428,7 +428,11 @@ func expandInstallRoot(template string) (string, error) {
 	if !filepath.IsAbs(absolute) {
 		return "", errors.New("install root must resolve to an absolute path")
 	}
-	return filepath.Clean(absolute), nil
+	cleaned := filepath.Clean(absolute)
+	if err := validateInstallRootStorage(cleaned); err != nil {
+		return "", err
+	}
+	return cleaned, nil
 }
 
 func validateDestinationName(name string) error {

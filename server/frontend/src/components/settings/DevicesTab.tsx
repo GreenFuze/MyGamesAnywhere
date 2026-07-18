@@ -218,6 +218,7 @@ function PairingPanel({ pairing, onClose }: { pairing: DevicePairingChallenge; o
 
 function DeviceCard({ device, validationStatus, selectedByLink = false }: { device: DeviceEndpoint; validationStatus?: InstallationValidationEndpointStatus; selectedByLink?: boolean }) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const cardRef = useRef<HTMLElement | null>(null)
   const state = statePresentation[device.status]
   const [expanded, setExpanded] = useState(false)
@@ -352,6 +353,16 @@ function DeviceCard({ device, validationStatus, selectedByLink = false }: { devi
 						  </div>
 						  {installation.install_state !== 'installed' ? <p className="mt-1 text-[11px] text-mga-muted">{installationReasonLabel(installation.verification_reason_code || installation.state_reason)}</p> : null}
 						  {installation.last_verified_at ? <p className="mt-1 text-[10px] text-mga-muted">Checked {new Date(installation.last_verified_at).toLocaleString()}</p> : null}
+						  {installation.install_state !== 'installed' ? (
+							<Button
+							  size="sm"
+							  variant="outline"
+							  className="mt-2"
+							  onClick={() => navigate({ pathname: `/game/${encodeURIComponent(installation.game_id)}`, hash: '#device-play' })}
+							>
+							  Review and resolve
+							</Button>
+						  ) : null}
 						</div>
 					  </div>
 					)

@@ -6,6 +6,12 @@ export type InstallationValidationStatusView = {
 
 export function installationReasonLabel(reason?: string): string {
   switch (reason) {
+	case 'installer_exit_nonzero': return 'The installer reported an error before MGA could verify the installation.'
+	case 'install_validation_failed': return 'The installer finished, but MGA could not verify a complete installation.'
+	case 'uninstaller_missing': return 'The installer finished, but MGA could not find a safe uninstaller.'
+	case 'uac_declined': return 'Windows permission was declined before installation finished.'
+	case 'installer_timeout':
+	case 'installer_still_running': return 'MGA could not confirm whether the installer finished. Check the device.'
     case 'install_path_missing': return 'The game folder is no longer on this device.'
     case 'manifest_missing': return 'MGA’s installation record is missing from the game folder.'
     case 'manifest_invalid':
@@ -16,7 +22,7 @@ export function installationReasonLabel(reason?: string): string {
     case 'registered_program_missing': return 'Windows no longer lists this game as installed.'
     case 'files_missing_registration_present': return 'Windows lists this game, but its files are missing.'
     case 'unsafe_reparse_point': return 'The game folder redirects somewhere MGA cannot verify safely.'
-    default: return reason ? reason.replace(/[_-]+/g, ' ') : 'This installation needs attention.'
+	default: return reason ? `MGA recorded: ${reason.replace(/[_-]+/g, ' ')}.` : 'MGA needs you to review this installation.'
   }
 }
 

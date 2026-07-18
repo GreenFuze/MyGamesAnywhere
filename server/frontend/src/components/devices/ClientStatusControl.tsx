@@ -79,17 +79,17 @@ export function ClientStatusControl() {
   const preparedClientActionQuery = useQuery({
     queryKey: ['device-client-actions', profileID, devices.length === 0 ? 'pair' : 'launch'],
     queryFn: async () => {
+      const pairing = await createDevicePairingChallenge()
+      if (!pairing.pair_uri) throw new Error('MGA Server did not return a client pairing URI')
       if (devices.length === 0) {
-        const pairing = await createDevicePairingChallenge()
-        if (!pairing.pair_uri) throw new Error('MGA Server did not return a client pairing URI')
-        return { kind: 'pair' as const, pairing }
+        return { pairing }
       }
       const [standard, elevated] = await Promise.all([
         createDeviceClientLaunch('standard'),
         createDeviceClientLaunch('elevated'),
       ])
       if (!standard.launch_uri || !elevated.launch_uri) throw new Error('MGA Server did not return MGA Client launch links')
-      return { kind: 'launch' as const, standard, elevated }
+      return { pairing, standard, elevated }
     },
     enabled: open && deviceAuthority && devicesQuery.isSuccess && !connected && !pendingLaunchID,
     retry: false,
@@ -212,11 +212,11 @@ export function ClientStatusControl() {
               {!connected ? (
                 pendingLaunchID ? (
                   <Button className="w-full" disabled><LoaderCircle className="h-4 w-4 animate-spin" /> Waiting…</Button>
-                ) : preparedClientAction?.kind === 'pair' ? (
+                ) : preparedClientAction && !preparedClientAction.standard ? (
                   <a className={cn(buttonVariants(), 'w-full')} href={preparedClientAction.pairing.pair_uri}>
                     <Power className="h-4 w-4" /> Pair MGA Client
                   </a>
-                ) : preparedClientAction?.kind === 'launch' ? (
+                ) : preparedClientAction?.standard ? (
                   <a className={cn(buttonVariants(), 'w-full')} href={preparedClientAction.standard.launch_uri} onClick={() => beginLaunch(preparedClientAction.standard.id)}>
                     <Power className="h-4 w-4" /> Run MGA Client
                   </a>
@@ -226,13 +226,19 @@ export function ClientStatusControl() {
               ) : null}
 
               {!connected && devices.length > 0 ? (
-                preparedClientAction?.kind === 'launch' && !pendingLaunchID ? (
+                preparedClientAction?.elevated && !pendingLaunchID ? (
                   <a className={cn(buttonVariants({ variant: 'outline' }), 'w-full')} href={preparedClientAction.elevated.launch_uri} onClick={() => beginLaunch(preparedClientAction.elevated.id)}>
                     <Shield className="h-4 w-4" /> Run MGA Client as administrator
                   </a>
                 ) : (
                   <Button variant="outline" className="w-full" disabled><Shield className="h-4 w-4" /> Run MGA Client as administrator</Button>
                 )
+              ) : null}
+
+              {!connected && devices.length > 0 && preparedClientAction?.pairing && !pendingLaunchID ? (
+                <a className={cn(buttonVariants({ variant: 'outline' }), 'w-full')} href={preparedClientAction.pairing.pair_uri}>
+                  <Laptop className="h-4 w-4" /> Pair this Windows user
+                </a>
               ) : null}
 
               {!connected ? (

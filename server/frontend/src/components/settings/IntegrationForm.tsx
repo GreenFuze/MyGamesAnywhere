@@ -311,6 +311,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
         label,
         integration_type: integrationType,
         config: buildConfig(),
+        oauth_state: oauthState ?? undefined,
       })
 
       if (isOAuthRequired(result)) {
@@ -327,7 +328,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
     } finally {
       setSaving(false)
     }
-  }, [selectedPlugin, label, integrationType, buildConfig, finishCreate])
+  }, [selectedPlugin, label, integrationType, buildConfig, finishCreate, oauthState])
 
   // Listen for OAuth completion/error SSE events while on the oauth step.
   useEffect(() => {

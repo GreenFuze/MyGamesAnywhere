@@ -67,7 +67,11 @@ export function SettingsPage() {
 
       <div className="pb-8">
         {activeTab === 'integrations' ? (
-          <IntegrationsTab firstRunRestore={searchParams.get('first_run') === 'restore'} />
+          <IntegrationsTab
+            firstRunRestore={searchParams.get('first_run') === 'restore'}
+            focusIntegrationId={searchParams.get('integration') ?? undefined}
+            focusPluginId={searchParams.get('plugin') ?? undefined}
+          />
         ) : ActiveComponent ? (
           <ActiveComponent />
         ) : null}

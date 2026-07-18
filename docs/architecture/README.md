@@ -29,6 +29,10 @@ cross the server, web interface, and device agent boundaries.
 - [ADR-0016: Emulator setup and components](0016-emulator-setup-and-components.md)
 - [ADR-0017: Route-level Save Domains and provider boundaries](0017-route-save-domains.md)
 - [ADR-0018: Local save adapter discovery](0018-local-save-adapter-discovery.md)
+- [ADR-0019: Profile-owned accounts and recoverable client pairing](0019-profile-account-and-client-recovery.md)
+- [ADR-0020: Multi-server bindings for one device/OS-user client](0020-multi-server-client-bindings.md)
+- [ADR-0021: Actionable installation attention and local storage reporting](0021-actionable-attention-and-local-storage.md)
+- [ADR-0022: Actionable, contextual notifications](0022-actionable-notifications.md)
 
 ## Protocols
 
