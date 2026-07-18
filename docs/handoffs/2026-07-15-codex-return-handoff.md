@@ -1425,3 +1425,30 @@ Next bounded task: implement richer OS/storefront product observation and the
 **Use existing installation** grant before treating native-product collision
 handling as complete. Then design explicit save-sync ownership transfer for
 released/adopted games; do not couple it silently to installation ownership.
+
+## 2026-07-18 — v0.2.5 release and TV2 update
+
+This section supersedes the preceding git/release/runtime status.
+
+- committed the ADR-0023 ownership implementation to `main` as `66453bcc`
+  (`feat: isolate managed installs across MGA servers`) and pushed it;
+- fixed `publish-release.ps1` so release preparation advances both repository
+  `VERSION` and `client/VERSION`, preventing server/client version drift;
+- `publish-release.ps1 --inc` created and pushed release commit `d24ba866`,
+  annotated tag `v0.2.5`, and the latest GitHub release with verified client,
+  server-installer, portable-server, update-manifest, and checksum assets;
+- all protocol, client, server, standalone-plugin, generated API contract, and
+  frontend unit checks in the release workflow passed;
+- TV2, signed in as admin profile Orr, detected v0.2.5 from its v0.2.4 Updates
+  page. The 594.2 MB installer downloaded and verified at
+  `C:\ProgramData\MyGamesAnywhere\updates\mga-v0.2.5-windows-amd64-installer.exe`.
+  **Apply** was invoked and TV2 went offline for restart. The in-app browser's
+  private-network URL policy blocked the post-restart reload, so do not claim a
+  verified TV2 version until a user refresh confirms it;
+- this PC's packaged local server and installed MGA Client were restored on
+  v0.2.5. Local `/health` is `OK`; the client reports commit `d24ba866`.
+
+Next bounded task remains richer OS/storefront product observation and a
+locally confirmed **Use existing installation** grant, followed by explicit
+save-sync ownership transfer and reconciliation for released/adopted and
+non-local storefront games.
