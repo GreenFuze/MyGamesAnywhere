@@ -10,6 +10,7 @@ type IncludePath struct {
 	Path         string   `json:"path"`
 	Recursive    bool     `json:"recursive"`
 	ExcludePaths []string `json:"exclude_paths,omitempty"`
+	ObjectID     string   `json:"object_id,omitempty"`
 }
 
 func IsFilesystemBackedPlugin(pluginID string) bool {
@@ -39,6 +40,9 @@ func NormalizeConfig(pluginID string, config map[string]any) map[string]any {
 		}
 		if len(include.ExcludePaths) > 0 {
 			item["exclude_paths"] = include.ExcludePaths
+		}
+		if pluginID == "game-source-google-drive" && include.ObjectID != "" {
+			item["object_id"] = include.ObjectID
 		}
 		serialized = append(serialized, item)
 	}
@@ -90,8 +94,8 @@ func readIncludePaths(pluginID string, config map[string]any, applyLegacyExclude
 	}
 
 	if raw, ok := config["include_paths"]; ok {
-		if includes := parseIncludePaths(raw); len(includes) > 0 {
-			includes = dedupeIncludePaths(includes)
+		if includes := parseIncludePaths(pluginID, raw); len(includes) > 0 {
+			includes = dedupeIncludePaths(pluginID, includes)
 			if applyLegacyExcludes {
 				includes = applyLegacyExcludePaths(includes, config["exclude_paths"])
 			}
@@ -187,7 +191,7 @@ func legacyPathKey(pluginID string) string {
 	}
 }
 
-func parseIncludePaths(raw any) []IncludePath {
+func parseIncludePaths(pluginID string, raw any) []IncludePath {
 	var items []map[string]any
 	switch typed := raw.(type) {
 	case []any:
@@ -212,16 +216,22 @@ func parseIncludePaths(raw any) []IncludePath {
 			recursive = true
 		}
 		excludes := parseStringPaths(entry["exclude_paths"])
+		objectID := ""
+		if pluginID == "game-source-google-drive" {
+			objectID, _ = entry["object_id"].(string)
+			objectID = strings.TrimSpace(objectID)
+		}
 		includes = append(includes, IncludePath{
 			Path:         NormalizeLogicalPath(pathValue),
 			Recursive:    recursive,
 			ExcludePaths: excludes,
+			ObjectID:     objectID,
 		})
 	}
 	return includes
 }
 
-func dedupeIncludePaths(includes []IncludePath) []IncludePath {
+func dedupeIncludePaths(pluginID string, includes []IncludePath) []IncludePath {
 	seen := make(map[string]int, len(includes))
 	deduped := make([]IncludePath, 0, len(includes))
 	for _, include := range includes {
@@ -230,7 +240,10 @@ func dedupeIncludePaths(includes []IncludePath) []IncludePath {
 			Recursive:    include.Recursive,
 			ExcludePaths: dedupeStringPaths(include.ExcludePaths),
 		}
-		key := normalized.Path + "|" + boolKey(normalized.Recursive)
+		if pluginID == "game-source-google-drive" {
+			normalized.ObjectID = strings.TrimSpace(include.ObjectID)
+		}
+		key := normalized.Path + "|" + boolKey(normalized.Recursive) + "|" + normalized.ObjectID
 		if existingIndex, ok := seen[key]; ok {
 			deduped[existingIndex].ExcludePaths = dedupeStringPaths(append(deduped[existingIndex].ExcludePaths, normalized.ExcludePaths...))
 			continue

@@ -1,6 +1,6 @@
 {
   "plugin_id": "game-source-google-drive",
-  "plugin_version": "2.1.0",
+  "plugin_version": "2.2.0",
   "api_major": 1,
   "capabilities": ["source"],
   "provides": ["source.filesystem.list", "source.filesystem.delete", "source.file.materialize", "plugin.check_config", "auth.oauth.callback", "source.browse"],
@@ -16,6 +16,10 @@
         "properties": {
           "path": { "type": "string", "required": true },
           "recursive": { "type": "boolean" },
+          "object_id": {
+            "type": "string",
+            "description": "Stable Google Drive folder ID for a selected Shared with me folder."
+          },
           "exclude_paths": {
             "type": "array",
             "description": "Folders inside this include path to skip recursively.",

@@ -1909,3 +1909,41 @@ deployment instruction. Completion therefore requires explicit user authority
 to commit/push/release and update TV2, followed by the user's interactive Orr
 Microsoft and Google account choices on Orr's computer. Do not fabricate those
 provider logins or treat the old TV2 build as evidence.
+
+## 2026-07-19 — Google Drive Shared with me source support
+
+[`ADR-0029`](../architecture/0029-google-drive-shared-with-me.md) is accepted
+and implemented in the current intentionally uncommitted worktree. It is the
+authoritative record for this feature. Google Workspace Shared Drives remain
+out of scope.
+
+The game-source Google Drive picker now exposes **Shared with me** as a distinct
+virtual location. Concrete shared folders are persisted with a friendly path
+and stable Google file ID; scans validate and begin at that ID rather than
+resolving a same-named My Drive path. Existing path-only My Drive connections
+remain unchanged. Settings Sync and Save Sync deliberately hide Shared with me
+because their flows create and update files in My Drive.
+
+`NO_MIGRATION_NEEDED`: the optional `include_paths[].object_id` member is an
+additive integration `config_json` field. SQLite schema and migrations 1-28 are
+unchanged. Google object IDs are preserved only for the Google Drive source and
+are dropped by SMB normalization.
+
+Real packaged local UI evidence used the existing TCs Google Drive connection:
+My Drive remained browsable, Shared with me listed real account folders, and a
+concrete shared folder was selectable. The edit was cancelled so the preserved
+`Games` source and its excludes were not changed. The real Settings Sync picker
+showed no Shared with me entry. The packaged server was restarted from
+`server/bin` with `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive` and is healthy on
+`http://127.0.0.1:8900`.
+
+The exact local packaged runtime is PID `12800`, server SHA-256
+`E5339FFA645ECB63D859945A4AD0D91928FA85B5EEA72CD6A584F3E06C131A17`,
+and Drive plugin SHA-256
+`7D7964B34A7B21884CA3A5C8764FC4EF8E3E44A309345EF3B33894F198D9F6A1`.
+TV2 remains on released v0.2.7; this feature is not present there yet.
+
+Automated evidence is recorded in ADR-0029. No commit, push, release, or TV2
+deployment has been performed for this feature. A new release/update requires
+explicit user authorization; only after that can Orr select the intended shared
+folder on TV2 for real persisted scan E2E.

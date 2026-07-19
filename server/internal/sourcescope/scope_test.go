@@ -60,3 +60,42 @@ func TestValidateConfigRejectsLegacyExcludeOutsideAllIncludes(t *testing.T) {
 		t.Fatal("expected invalid legacy exclude to fail")
 	}
 }
+
+func TestGoogleDriveScopePreservesStableObjectID(t *testing.T) {
+	config := NormalizeConfig("game-source-google-drive", map[string]any{
+		"include_paths": []any{map[string]any{
+			"path":      "Shared with me/Arcade",
+			"recursive": true,
+			"object_id": " shared-folder-id ",
+		}},
+	})
+	includes := ReadIncludePaths("game-source-google-drive", config)
+	if len(includes) != 1 || includes[0].ObjectID != "shared-folder-id" {
+		t.Fatalf("includes = %#v, want preserved stable object id", includes)
+	}
+	serialized, ok := config["include_paths"].([]map[string]any)
+	if !ok || serialized[0]["object_id"] != "shared-folder-id" {
+		t.Fatalf("normalized config = %#v, want persisted stable object id", config)
+	}
+}
+
+func TestSMBScopeDropsGoogleObjectID(t *testing.T) {
+	config := NormalizeConfig("game-source-smb", map[string]any{
+		"include_paths": []any{map[string]any{
+			"path":      "Games",
+			"recursive": true,
+			"object_id": "must-not-cross-provider-boundary",
+		}},
+	})
+	includes := ReadIncludePaths("game-source-smb", config)
+	if len(includes) != 1 || includes[0].ObjectID != "" {
+		t.Fatalf("includes = %#v, want no Google object id in SMB scope", includes)
+	}
+	serialized, ok := config["include_paths"].([]map[string]any)
+	if !ok {
+		t.Fatalf("normalized config = %#v", config)
+	}
+	if _, exists := serialized[0]["object_id"]; exists {
+		t.Fatalf("normalized SMB config retained object_id: %#v", serialized[0])
+	}
+}

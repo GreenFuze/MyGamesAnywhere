@@ -39,6 +39,7 @@ cross the server, web interface, and device agent boundaries.
 - [ADR-0026: Client-authoritative local save domains and explicit writer transfer](0026-local-save-domain-authority-and-transfer.md)
 - [ADR-0027: Profile-bound OAuth drafts and request-scoped provider access](0027-profile-bound-oauth-drafts.md)
 - [ADR-0028: Strong profile isolation hardening](0028-strong-profile-isolation-hardening.md)
+- [ADR-0029: Google Drive "Shared with me" source folders](0029-google-drive-shared-with-me.md)
 
 ## Protocols
 

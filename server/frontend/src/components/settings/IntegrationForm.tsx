@@ -614,11 +614,12 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
 
           <FolderBrowser
             pluginId={selectedPlugin.plugin_id}
+            allowSharedLocations={selectedPlugin.plugin_id === 'game-source-google-drive'}
             browse={(path) => browsePlugin(selectedPlugin.plugin_id, path, { integrationId: createdIntegrationId })}
-            onSelect={async (path) => {
+            onSelect={async (selection) => {
               try {
                 await updateIntegration(createdIntegrationId, {
-                  config: { include_paths: [{ path, recursive: true }] },
+                  config: { include_paths: [{ path: selection.path, recursive: true, ...(selection.object_id ? { object_id: selection.object_id } : {}) }] },
                 })
               } catch {
                 // Non-fatal: integration was created, folder preference just wasn't saved.

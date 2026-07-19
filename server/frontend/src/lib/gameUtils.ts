@@ -145,6 +145,7 @@ export type FilesystemIncludePath = {
   path: string
   recursive: boolean
   exclude_paths?: string[]
+  object_id?: string
 }
 
 /**
@@ -177,10 +178,14 @@ export function normalizeFilesystemIncludePaths(
       .map((entry): FilesystemIncludePath | null => {
         if (!entry || typeof entry !== 'object') return null
         const value = entry as Record<string, unknown>
+        const objectId = pluginId === 'game-source-google-drive' && typeof value.object_id === 'string'
+          ? value.object_id.trim()
+          : ''
         return {
           path: typeof value.path === 'string' ? normalizeLogicalPath(value.path) : '',
           recursive: typeof value.recursive === 'boolean' ? value.recursive : true,
           exclude_paths: normalizeStringPaths(value.exclude_paths),
+          ...(objectId ? { object_id: objectId } : {}),
         }
       })
       .filter((entry): entry is FilesystemIncludePath => entry !== null)

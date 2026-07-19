@@ -2204,7 +2204,14 @@ export async function applyUpdate(): Promise<UpdateApplyResult> {
 
 // ─── Plugin Browse API ──────────────────────────────────────────────
 
-export type BrowseFolder = { name: string; path: string };
+export type BrowseFolder = {
+  name: string;
+  path: string;
+  display_path?: string;
+  object_id?: string;
+  location_kind?: "shared_with_me" | "shared_folder";
+  selectable?: boolean;
+};
 export type BrowseResponse = { folders: BrowseFolder[] };
 
 export async function browsePlugin(

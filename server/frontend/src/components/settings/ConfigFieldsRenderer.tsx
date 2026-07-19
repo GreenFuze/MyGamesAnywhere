@@ -303,8 +303,8 @@ function BrowsableStringField({
           <FolderBrowser
             pluginId={browsePluginId}
             initialPath={value}
-            onSelect={(path) => {
-              onChange(path)
+            onSelect={(selection) => {
+              onChange(selection.path)
               setShowBrowser(false)
             }}
             browse={browse}
@@ -385,8 +385,8 @@ function StringPathsField({
                 <FolderBrowser
                   pluginId={browsePluginId}
                   initialPath={entry}
-                  onSelect={(path) => {
-                    setPath(index, path)
+                  onSelect={(selection) => {
+                    setPath(index, selection.path)
                     setBrowserIndex(null)
                   }}
                   browse={browse}
@@ -431,7 +431,15 @@ function IncludePathsField({
 
   const setPath = (index: number, path: string) => {
     update(includePaths.map((entry, current) => (
-      current === index ? { ...entry, path } : entry
+      current === index ? { ...entry, path, object_id: undefined } : entry
+    )))
+  }
+
+  const setSelection = (index: number, selection: { path: string; object_id?: string }) => {
+    update(includePaths.map((entry, current) => (
+      current === index
+        ? { ...entry, path: selection.path, object_id: selection.object_id }
+        : entry
     )))
   }
 
@@ -534,8 +542,10 @@ function IncludePathsField({
                 <FolderBrowser
                   pluginId={browsePluginId}
                   initialPath={entry.path}
-                  onSelect={(path) => {
-                    setPath(index, path)
+                  initialObjectId={entry.object_id}
+                  allowSharedLocations={browsePluginId === 'game-source-google-drive'}
+                  onSelect={(selection) => {
+                    setSelection(index, selection)
                     setBrowserIndex(null)
                   }}
                   browse={browse}
@@ -590,9 +600,10 @@ function IncludePathsField({
                       {browserOpen && browsePluginId && (
                         <FolderBrowser
                           pluginId={browsePluginId}
-                          initialPath={excludePath || entry.path}
-                          onSelect={(path) => {
-                            if (!pathInsideInclude(path, entry.path)) {
+                          initialPath={entry.object_id ? entry.path : (excludePath || entry.path)}
+                          initialObjectId={entry.object_id}
+                          onSelect={(selection) => {
+                            if (!pathInsideInclude(selection.path, entry.path)) {
                               setExcludeError((prev) => ({
                                 ...prev,
                                 [errorKey]: `Excluded folder must be inside ${entry.path || '(root)'}.`,
@@ -604,7 +615,7 @@ function IncludePathsField({
                               delete next[errorKey]
                               return next
                             })
-                            setExcludePath(index, excludeIndex, path)
+                            setExcludePath(index, excludeIndex, selection.path)
                             setExcludeBrowser(null)
                           }}
                           browse={browse}
@@ -630,10 +641,12 @@ function normalizeIncludePathsValue(value: unknown): FilesystemIncludePath[] {
       .map((entry): FilesystemIncludePath | null => {
         if (!entry || typeof entry !== 'object') return null
         const item = entry as Record<string, unknown>
+        const objectId = typeof item.object_id === 'string' ? item.object_id.trim() : ''
         return {
           path: typeof item.path === 'string' ? item.path : '',
           recursive: typeof item.recursive === 'boolean' ? item.recursive : true,
           exclude_paths: normalizeStringPathsValue(item.exclude_paths),
+          ...(objectId ? { object_id: objectId } : {}),
         }
       })
       .filter((entry): entry is FilesystemIncludePath => entry !== null)

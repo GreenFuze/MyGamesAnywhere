@@ -471,8 +471,8 @@ function FirstRunWizard({ onCreated }: { onCreated: (id: string) => void }) {
                       <FolderBrowser
                         pluginId={GOOGLE_DRIVE_SYNC_PLUGIN_ID}
                         initialPath={syncPath.trim()}
-                        onSelect={(path) => {
-                          const nextPath = path || ''
+                        onSelect={(selection) => {
+                          const nextPath = selection.path || ''
                           setSyncPath(nextPath)
                           setShowFolderBrowser(false)
                           void loadRestorePoints(nextPath)

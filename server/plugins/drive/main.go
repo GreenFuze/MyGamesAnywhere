@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -60,6 +61,13 @@ var (
 )
 
 var errDrivePathNotFound = errors.New("drive path not found")
+
+const (
+	driveFolderMimeType      = "application/vnd.google-apps.folder"
+	driveSharedBrowseToken   = "mga-drive://shared-with-me"
+	driveFolderTokenPrefix   = "mga-drive://folder/"
+	driveSharedDisplayPrefix = "Shared with me"
+)
 
 // oauthConfig is lazily initialized in loadConfig after credentials are resolved.
 var oauthConfig *oauth2.Config
@@ -222,6 +230,205 @@ func resolvePathToFolderID(srv *drive.Service, rootPath string) (string, error) 
 	return currentID, nil
 }
 
+type driveBrowseLocation struct {
+	ObjectID    string
+	DisplayPath string
+}
+
+func (l driveBrowseLocation) token() (string, error) {
+	if !validDriveObjectID(l.ObjectID) {
+		return "", fmt.Errorf("invalid Google Drive folder ID")
+	}
+	l.DisplayPath = sourcescope.NormalizeLogicalPath(l.DisplayPath)
+	if l.DisplayPath == "" || (l.DisplayPath != driveSharedDisplayPrefix && !strings.HasPrefix(l.DisplayPath, driveSharedDisplayPrefix+"/")) {
+		return "", fmt.Errorf("invalid Shared with me display path")
+	}
+	return driveFolderTokenPrefix + l.ObjectID + "?path=" + url.QueryEscape(l.DisplayPath), nil
+}
+
+func driveBrowseLocationFromToken(token string) (driveBrowseLocation, error) {
+	if !strings.HasPrefix(token, driveFolderTokenPrefix) {
+		return driveBrowseLocation{}, fmt.Errorf("invalid Google Drive browse token")
+	}
+	rawLocation := strings.TrimPrefix(token, driveFolderTokenPrefix)
+	parts := strings.SplitN(rawLocation, "?path=", 2)
+	if len(parts) != 2 {
+		return driveBrowseLocation{}, fmt.Errorf("invalid Google Drive browse token")
+	}
+	displayPath, err := url.QueryUnescape(parts[1])
+	if err != nil {
+		return driveBrowseLocation{}, fmt.Errorf("decode Drive browse path: %w", err)
+	}
+	location := driveBrowseLocation{ObjectID: parts[0], DisplayPath: displayPath}
+	if !validDriveObjectID(location.ObjectID) {
+		return driveBrowseLocation{}, fmt.Errorf("invalid Google Drive folder ID")
+	}
+	location.DisplayPath = sourcescope.NormalizeLogicalPath(location.DisplayPath)
+	if location.DisplayPath == "" || (location.DisplayPath != driveSharedDisplayPrefix && !strings.HasPrefix(location.DisplayPath, driveSharedDisplayPrefix+"/")) {
+		return driveBrowseLocation{}, fmt.Errorf("invalid Shared with me display path")
+	}
+	return location, nil
+}
+
+func validDriveObjectID(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 256 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+type driveBrowseFolder struct {
+	Name         string `json:"name"`
+	Path         string `json:"path"`
+	DisplayPath  string `json:"display_path,omitempty"`
+	ObjectID     string `json:"object_id,omitempty"`
+	LocationKind string `json:"location_kind,omitempty"`
+	Selectable   bool   `json:"selectable"`
+}
+
+type driveFolderBrowser struct {
+	service *drive.Service
+}
+
+func newDriveFolderBrowser(service *drive.Service) *driveFolderBrowser {
+	return &driveFolderBrowser{service: service}
+}
+
+func (b *driveFolderBrowser) browse(rawPath string) ([]driveBrowseFolder, error) {
+	switch {
+	case rawPath == driveSharedBrowseToken:
+		return b.listSharedFolders()
+	case strings.HasPrefix(rawPath, driveFolderTokenPrefix):
+		location, err := driveBrowseLocationFromToken(rawPath)
+		if err != nil {
+			return nil, err
+		}
+		return b.listChildFolders(location)
+	default:
+		return b.listMyDriveFolders(rawPath)
+	}
+}
+
+func (b *driveFolderBrowser) listMyDriveFolders(rootPath string) ([]driveBrowseFolder, error) {
+	folderID, err := resolvePathToFolderID(b.service, rootPath)
+	if err != nil {
+		return nil, err
+	}
+	folders, err := b.listFoldersByQuery(fmt.Sprintf("'%s' in parents and mimeType = '%s' and trashed = false", folderID, driveFolderMimeType))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]driveBrowseFolder, 0, len(folders)+1)
+	if sourcescope.NormalizeLogicalPath(rootPath) == "" {
+		result = append(result, driveBrowseFolder{
+			Name:         driveSharedDisplayPrefix,
+			Path:         driveSharedBrowseToken,
+			DisplayPath:  driveSharedDisplayPrefix,
+			LocationKind: "shared_with_me",
+			Selectable:   false,
+		})
+	}
+	for _, folder := range folders {
+		entryPath := sourcescope.NormalizeLogicalPath(path.Join(rootPath, folder.Name))
+		result = append(result, driveBrowseFolder{Name: folder.Name, Path: entryPath, DisplayPath: entryPath, Selectable: true})
+	}
+	return result, nil
+}
+
+func (b *driveFolderBrowser) listSharedFolders() ([]driveBrowseFolder, error) {
+	folders, err := b.listFoldersByQuery(fmt.Sprintf("sharedWithMe = true and mimeType = '%s' and trashed = false", driveFolderMimeType))
+	if err != nil {
+		return nil, err
+	}
+	return driveFoldersForLocations(folders, driveSharedDisplayPrefix)
+}
+
+func (b *driveFolderBrowser) listChildFolders(parent driveBrowseLocation) ([]driveBrowseFolder, error) {
+	folders, err := b.listFoldersByQuery(fmt.Sprintf("'%s' in parents and mimeType = '%s' and trashed = false", parent.ObjectID, driveFolderMimeType))
+	if err != nil {
+		return nil, err
+	}
+	return driveFoldersForLocations(folders, parent.DisplayPath)
+}
+
+func (b *driveFolderBrowser) listFoldersByQuery(query string) ([]*drive.File, error) {
+	var folders []*drive.File
+	pageToken := ""
+	for {
+		call := b.service.Files.List().Q(query).
+			Fields("nextPageToken, files(id, name)").
+			OrderBy("name").
+			PageSize(1000)
+		if pageToken != "" {
+			call = call.PageToken(pageToken)
+		}
+		result, err := call.Do()
+		if err != nil {
+			return nil, err
+		}
+		folders = append(folders, result.Files...)
+		if result.NextPageToken == "" {
+			break
+		}
+		pageToken = result.NextPageToken
+	}
+	sort.SliceStable(folders, func(i, j int) bool {
+		return strings.ToLower(folders[i].Name) < strings.ToLower(folders[j].Name)
+	})
+	return folders, nil
+}
+
+func driveFoldersForLocations(folders []*drive.File, parentDisplayPath string) ([]driveBrowseFolder, error) {
+	result := make([]driveBrowseFolder, 0, len(folders))
+	for _, folder := range folders {
+		location := driveBrowseLocation{
+			ObjectID:    folder.Id,
+			DisplayPath: sourcescope.NormalizeLogicalPath(path.Join(parentDisplayPath, folder.Name)),
+		}
+		token, err := location.token()
+		if err != nil {
+			return nil, fmt.Errorf("encode folder %q: %w", folder.Name, err)
+		}
+		result = append(result, driveBrowseFolder{
+			Name:         folder.Name,
+			Path:         token,
+			DisplayPath:  location.DisplayPath,
+			ObjectID:     location.ObjectID,
+			LocationKind: "shared_folder",
+			Selectable:   true,
+		})
+	}
+	return result, nil
+}
+
+func resolveIncludeFolderID(srv *drive.Service, include sourcescope.IncludePath) (string, error) {
+	if strings.TrimSpace(include.ObjectID) == "" {
+		return resolvePathToFolderID(srv, include.Path)
+	}
+	objectID := strings.TrimSpace(include.ObjectID)
+	if !validDriveObjectID(objectID) {
+		return "", fmt.Errorf("invalid Google Drive folder ID")
+	}
+	folder, err := srv.Files.Get(objectID).Fields("id, name, mimeType, trashed").Do()
+	if err != nil {
+		return "", fmt.Errorf("read selected Google Drive folder: %w", err)
+	}
+	if folder.Trashed {
+		return "", fmt.Errorf("selected Google Drive folder is in the trash")
+	}
+	if folder.MimeType != driveFolderMimeType {
+		return "", fmt.Errorf("selected Google Drive object is not a folder")
+	}
+	return objectID, nil
+}
+
 func resolvePathToObjectID(srv *drive.Service, rootPath string) (string, error) {
 	rootPath = sourcescope.NormalizeLogicalPath(rootPath)
 	if rootPath == "" {
@@ -282,11 +489,11 @@ func listFiles(ctx context.Context, config map[string]any, includes []sourcescop
 
 	seen := make(map[string]map[string]any)
 	for _, include := range includes {
-		folderID, err := resolvePathToFolderID(srv, include.Path)
+		folderID, err := resolveIncludeFolderID(srv, include)
 		if err != nil {
 			return nil, fmt.Errorf("resolve root path %q: %w", include.Path, err)
 		}
-		log.Printf("scanning Drive folder ID %s (path=%q recursive=%t)", folderID, include.Path, include.Recursive)
+		log.Printf("scanning Drive folder ID %s (path=%q recursive=%t stable_id=%t)", folderID, include.Path, include.Recursive, include.ObjectID != "")
 
 		queue := []folderItem{{id: folderID, path: include.Path}}
 		for len(queue) > 0 {
@@ -1019,35 +1226,9 @@ func handleBrowse(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
 	}
 
-	// Resolve the path to a folder ID.
-	folderID, err := resolvePathToFolderID(srv, p.Path)
-	if err != nil {
-		return nil, &Error{Code: "RESOLVE_FAILED", Message: err.Error()}
-	}
-
-	// List immediate child folders only.
-	query := fmt.Sprintf("'%s' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false", folderID)
-	result, err := srv.Files.List().Q(query).
-		Fields("files(id, name)").
-		OrderBy("name").
-		PageSize(200).
-		Do()
+	folders, err := newDriveFolderBrowser(srv).browse(p.Path)
 	if err != nil {
 		return nil, &Error{Code: "LIST_FAILED", Message: err.Error()}
-	}
-
-	type folderEntry struct {
-		Name string `json:"name"`
-		Path string `json:"path"`
-	}
-
-	folders := make([]folderEntry, 0, len(result.Files))
-	for _, f := range result.Files {
-		entryPath := f.Name
-		if p.Path != "" {
-			entryPath = p.Path + "/" + f.Name
-		}
-		folders = append(folders, folderEntry{Name: f.Name, Path: entryPath})
 	}
 
 	return map[string]any{"folders": folders}, nil

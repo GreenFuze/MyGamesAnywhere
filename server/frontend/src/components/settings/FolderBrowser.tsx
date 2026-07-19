@@ -1,21 +1,42 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { browsePlugin, type BrowseFolder, type BrowseResponse } from '@/api/client'
 import { Button } from '@/components/ui/button'
-import { Folder, ChevronRight, Home } from 'lucide-react'
+import { Folder, ChevronRight, Home, Users } from 'lucide-react'
+import {
+  buildInitialFolderHistory,
+  filterBrowsableFolders,
+  type FolderBrowseLocation,
+} from '@/lib/driveFolderBrowse'
+
+export type FolderSelection = {
+  path: string
+  object_id?: string
+}
 
 interface FolderBrowserProps {
   pluginId: string
   initialPath?: string
-  onSelect: (path: string) => void
+  initialObjectId?: string
+  onSelect: (selection: FolderSelection) => void
   onSkip?: () => void
   browse?: (path: string) => Promise<BrowseResponse>
+  allowSharedLocations?: boolean
 }
 
-export function FolderBrowser({ pluginId, initialPath = '', onSelect, onSkip, browse }: FolderBrowserProps) {
-  const [currentPath, setCurrentPath] = useState(initialPath)
+export function FolderBrowser({
+  pluginId,
+  initialPath = '',
+  initialObjectId,
+  onSelect,
+  onSkip,
+  browse,
+  allowSharedLocations = false,
+}: FolderBrowserProps) {
+  const [history, setHistory] = useState<FolderBrowseLocation[]>(() => buildInitialFolderHistory(initialPath, initialObjectId))
   const [folders, setFolders] = useState<BrowseFolder[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const current = history[history.length - 1]
 
   const fetchFolders = useCallback(async (path: string) => {
     setLoading(true)
@@ -31,49 +52,48 @@ export function FolderBrowser({ pluginId, initialPath = '', onSelect, onSkip, br
     }
   }, [browse, pluginId])
 
-  // Fetch folders when path changes.
   useEffect(() => {
-    fetchFolders(currentPath)
-  }, [currentPath, fetchFolders])
+    fetchFolders(current.browsePath)
+  }, [current.browsePath, fetchFolders])
 
-  const navigateTo = (path: string) => {
-    setCurrentPath(path)
+  const visibleFolders = useMemo(
+    () => filterBrowsableFolders(folders, allowSharedLocations),
+    [allowSharedLocations, folders],
+  )
+
+  const navigateTo = (folder: BrowseFolder) => {
+    setHistory((previous) => [...previous, {
+      name: folder.name,
+      browsePath: folder.path,
+      displayPath: folder.display_path ?? folder.path,
+      objectId: folder.object_id,
+      selectable: folder.selectable !== false,
+      locationKind: folder.location_kind,
+    }])
   }
 
-  // Build breadcrumb segments from the current path.
-  const segments = currentPath ? currentPath.split('/') : []
-  const breadcrumbs = segments.map((seg, i) => ({
-    label: seg,
-    path: segments.slice(0, i + 1).join('/'),
-  }))
+  const navigateToHistoryIndex = (index: number) => {
+    setHistory((previous) => previous.slice(0, index + 1))
+  }
 
   return (
     <div className="space-y-4">
-      {/* Breadcrumb navigation */}
       <div className="flex items-center gap-1 text-xs text-mga-muted overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => navigateTo('')}
-          className="flex items-center gap-1 hover:text-mga-text transition-colors shrink-0"
-        >
-          <Home size={12} />
-          <span>My Drive</span>
-        </button>
-        {breadcrumbs.map((bc) => (
-          <span key={bc.path} className="flex items-center gap-1 shrink-0">
-            <ChevronRight size={10} className="text-mga-border" />
+        {history.map((location, index) => (
+          <span key={`${index}:${location.browsePath}`} className="flex items-center gap-1 shrink-0">
+            {index > 0 && <ChevronRight size={10} className="text-mga-border" />}
             <button
               type="button"
-              onClick={() => navigateTo(bc.path)}
-              className="hover:text-mga-text transition-colors"
+              onClick={() => navigateToHistoryIndex(index)}
+              className="flex items-center gap-1 hover:text-mga-text transition-colors"
             >
-              {bc.label}
+              {index === 0 && <Home size={12} />}
+              <span>{location.name}</span>
             </button>
           </span>
         ))}
       </div>
 
-      {/* Folder list */}
       <div className="border border-mga-border rounded-mga overflow-hidden max-h-64 overflow-y-auto">
         {loading ? (
           <div className="p-6 text-center text-mga-muted text-sm animate-pulse">
@@ -84,33 +104,37 @@ export function FolderBrowser({ pluginId, initialPath = '', onSelect, onSkip, br
             <p className="text-sm text-red-400">{error}</p>
             <button
               type="button"
-              onClick={() => fetchFolders(currentPath)}
+              onClick={() => fetchFolders(current.browsePath)}
               className="text-xs text-mga-accent mt-2 hover:underline"
             >
               Retry
             </button>
           </div>
-        ) : folders.length === 0 ? (
+        ) : visibleFolders.length === 0 ? (
           <div className="p-6 text-center text-mga-muted text-sm">
             No subfolders found
           </div>
         ) : (
-          folders.map((folder) => (
-            <button
-              key={folder.path}
-              type="button"
-              onClick={() => navigateTo(folder.path)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-mga-text hover:bg-mga-elevated transition-colors border-b border-mga-border last:border-b-0"
-            >
-              <Folder size={16} className="text-mga-accent shrink-0" />
-              <span className="truncate">{folder.name}</span>
-              <ChevronRight size={14} className="text-mga-muted ml-auto shrink-0" />
-            </button>
-          ))
+          visibleFolders.map((folder) => {
+            const isSharedLocation = folder.location_kind === 'shared_with_me'
+            const Icon = isSharedLocation ? Users : Folder
+            return (
+              <button
+                key={folder.path}
+                type="button"
+                onClick={() => navigateTo(folder)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-mga-text hover:bg-mga-elevated transition-colors border-b border-mga-border last:border-b-0"
+              >
+                <Icon size={16} className="text-mga-accent shrink-0" />
+                <span className="truncate">{folder.name}</span>
+                {isSharedLocation && <span className="ml-auto text-xs text-mga-muted">Location</span>}
+                <ChevronRight size={14} className={`${isSharedLocation ? '' : 'ml-auto '}text-mga-muted shrink-0`} />
+              </button>
+            )
+          })
         )}
       </div>
 
-      {/* Actions */}
       <div className="flex items-center justify-between pt-1">
         {onSkip && (
           <button
@@ -122,15 +146,18 @@ export function FolderBrowser({ pluginId, initialPath = '', onSelect, onSkip, br
           </button>
         )}
         <div className="flex gap-2 ml-auto">
-          <Button size="sm" onClick={() => onSelect(currentPath)}>
-            Select This Folder
+          <Button
+            size="sm"
+            disabled={!current.selectable}
+            onClick={() => onSelect({ path: current.displayPath, object_id: current.objectId })}
+          >
+            {current.selectable ? 'Select This Folder' : 'Choose a Folder'}
           </Button>
         </div>
       </div>
 
-      {/* Current path display */}
       <p className="text-xs text-mga-muted">
-        Selected: <span className="font-mono">{currentPath || '/ (root)'}</span>
+        Selected: <span className="font-mono">{current.displayPath || '/ (My Drive root)'}</span>
       </p>
     </div>
   )
