@@ -34,6 +34,10 @@ cross the server, web interface, and device agent boundaries.
 - [ADR-0021: Actionable installation attention and local storage reporting](0021-actionable-attention-and-local-storage.md)
 - [ADR-0022: Actionable, contextual notifications](0022-actionable-notifications.md)
 - [ADR-0023: Client-authoritative cross-server installation ownership](0023-cross-server-installation-ownership.md)
+- [ADR-0024: Installable PWA and optional managed HTTPS](0024-installable-pwa-and-managed-https.md)
+- [ADR-0025: Bounded native-product observation and launch-only existing-installation grants](0025-bounded-native-product-observation-and-use-existing.md)
+- [ADR-0026: Client-authoritative local save domains and explicit writer transfer](0026-local-save-domain-authority-and-transfer.md)
+- [ADR-0027: Profile-bound OAuth drafts and request-scoped provider access](0027-profile-bound-oauth-drafts.md)
 
 ## Protocols
 

@@ -1477,7 +1477,11 @@ func (c *PluginController) List(w http.ResponseWriter, r *http.Request) {
 	if integrations == nil {
 		integrations = make([]*core.Integration, 0)
 	}
-	json.NewEncoder(w).Encode(integrations)
+	public := make([]*core.Integration, 0, len(integrations))
+	for _, integration := range integrations {
+		public = append(public, publicIntegration(integration))
+	}
+	json.NewEncoder(w).Encode(public)
 }
 
 type IntegrationStatusEntry struct {
@@ -1563,6 +1567,76 @@ func mergeConfigUpdates(config map[string]any, updates map[string]any) {
 		}
 		config[key] = value
 	}
+}
+
+func (c *PluginController) pluginUsesOAuth(pluginID string) bool {
+	plugin, ok := c.pluginHost.GetPlugin(pluginID)
+	return ok && pluginProvidesMethod(plugin, "auth.oauth.callback")
+}
+
+func (c *PluginController) pluginOwnsProviderIdentity(pluginID string) bool {
+	return c.pluginUsesOAuth(pluginID) || pluginID == "game-source-epic"
+}
+
+var oauthOwnedConfigKeys = []string{"tokens", "steam_id", "provider_identity"}
+
+func stripOAuthOwnedConfig(config map[string]any) {
+	for _, key := range oauthOwnedConfigKeys {
+		delete(config, key)
+	}
+}
+
+func preserveOAuthOwnedConfig(config, saved map[string]any) {
+	stripOAuthOwnedConfig(config)
+	for _, key := range oauthOwnedConfigKeys {
+		if value, ok := saved[key]; ok {
+			config[key] = value
+		}
+	}
+}
+
+// publicIntegration returns the browser-safe representation of a connection.
+// OAuth tokens stay in the server-owned row and are never serialized to LAN
+// browsers. The safe provider_identity is intentionally retained so the player
+// can see which account the connection owns.
+func publicIntegration(integration *core.Integration) *core.Integration {
+	if integration == nil {
+		return nil
+	}
+	result := *integration
+	config, err := decodeIntegrationConfig(integration.ConfigJSON)
+	if err != nil {
+		result.ConfigJSON = "{}"
+		return &result
+	}
+	delete(config, "tokens")
+	encoded, err := json.Marshal(config)
+	if err != nil {
+		result.ConfigJSON = "{}"
+		return &result
+	}
+	result.ConfigJSON = string(encoded)
+	return &result
+}
+
+func validateCompletedProviderAuthorization(pluginID string, config map[string]any) error {
+	if pluginID != "game-source-xbox" {
+		return nil
+	}
+	tokenValue, ok := config["tokens"]
+	if !ok {
+		return fmt.Errorf("Xbox authorization did not return account credentials")
+	}
+	tokenMap, ok := tokenValue.(map[string]any)
+	if !ok {
+		return fmt.Errorf("Xbox authorization returned invalid account credentials")
+	}
+	xuid, _ := tokenMap["xuid"].(string)
+	refreshToken, _ := tokenMap["ms_refresh_token"].(string)
+	if strings.TrimSpace(xuid) == "" || strings.TrimSpace(refreshToken) == "" {
+		return fmt.Errorf("Xbox authorization did not identify a refreshable Microsoft account")
+	}
+	return nil
 }
 
 func (c *PluginController) writeOAuthRequired(w http.ResponseWriter, r *http.Request, pluginID string, checkResult integrationCheckResult) {
@@ -1836,7 +1910,8 @@ func (c *PluginController) CheckPluginConfig(w http.ResponseWriter, r *http.Requ
 	}
 
 	var body struct {
-		Config json.RawMessage `json:"config"`
+		Config     json.RawMessage `json:"config"`
+		OAuthState string          `json:"oauth_state,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1852,8 +1927,31 @@ func (c *PluginController) CheckPluginConfig(w http.ResponseWriter, r *http.Requ
 	if configMap == nil {
 		configMap = map[string]any{}
 	}
+	state := strings.TrimSpace(body.OAuthState)
+	usesOAuth := c.pluginUsesOAuth(pluginID)
+	ownsProviderIdentity := c.pluginOwnsProviderIdentity(pluginID)
+	if state != "" {
+		draft, ok := c.oauthStates.Peek(state)
+		if !ok {
+			http.Error(w, "OAuth sign-in state is missing or expired", http.StatusBadRequest)
+			return
+		}
+		if draft.PluginID != pluginID || draft.ProfileID != core.ProfileIDFromContext(r.Context()) {
+			http.Error(w, "OAuth sign-in state does not belong to this profile connection", http.StatusForbidden)
+			return
+		}
+		if len(draft.ConfigUpdates) == 0 {
+			http.Error(w, "OAuth sign-in has not completed", http.StatusConflict)
+			return
+		}
+		mergeConfigUpdates(configMap, draft.ConfigUpdates)
+	} else if ownsProviderIdentity {
+		// A draft supplied by the browser cannot prove ownership of a remembered
+		// plugin account. New OAuth connections always start fresh authorization.
+		stripOAuthOwnedConfig(configMap)
+	}
 
-	_, checkResult, _, err := c.validateIntegrationConfig(r.Context(), pluginID, configMap)
+	_, checkResult, _, err := c.validateIntegrationConfigWithOptions(r.Context(), pluginID, configMap, usesOAuth && state == "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1865,6 +1963,8 @@ func (c *PluginController) CheckPluginConfig(w http.ResponseWriter, r *http.Requ
 	if checkResult.Status == "" {
 		checkResult.Status = "ok"
 	}
+	// OAuth secrets remain server-side in the profile-bound draft.
+	delete(checkResult.ConfigUpdates, "tokens")
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(checkResult)
 }
@@ -2034,8 +2134,11 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 	if configMap == nil {
 		configMap = map[string]any{}
 	}
-	if strings.TrimSpace(body.OAuthState) != "" {
-		draftState, ok := c.oauthStates.Consume(strings.TrimSpace(body.OAuthState))
+	oauthState := strings.TrimSpace(body.OAuthState)
+	usesOAuth := c.pluginUsesOAuth(body.PluginID)
+	ownsProviderIdentity := c.pluginOwnsProviderIdentity(body.PluginID)
+	if oauthState != "" {
+		draftState, ok := c.oauthStates.Consume(oauthState)
 		if !ok {
 			http.Error(w, "OAuth sign-in state is missing or expired", http.StatusBadRequest)
 			return
@@ -2049,10 +2152,24 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		mergeConfigUpdates(configMap, draftState.ConfigUpdates)
+		if err := validateCompletedProviderAuthorization(body.PluginID, configMap); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	} else if ownsProviderIdentity {
+		// Never let a new OAuth connection borrow tokens copied from another
+		// connection or returned by an older frontend.
+		stripOAuthOwnedConfig(configMap)
 	}
-	_, checkResult, normalizedConfig, err := c.validateIntegrationConfig(r.Context(), body.PluginID, configMap)
+	_, checkResult, normalizedConfig, err := c.validateIntegrationConfigWithOptions(r.Context(), body.PluginID, configMap, usesOAuth && oauthState == "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.PluginID == "game-source-xbox" && oauthState == "" && checkResult.Status != "oauth_required" {
+		// A callback-capable plugin must never silently authorize a new
+		// connection from process state. If it ignores force_oauth, fail closed.
+		http.Error(w, "provider plugin did not start interactive account authorization", http.StatusBadGateway)
 		return
 	}
 
@@ -2087,7 +2204,7 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 			"error":          "duplicate_integration",
 			"message":        duplicateMessage,
 			"integration_id": duplicateIntegration.ID,
-			"integration":    duplicateIntegration,
+			"integration":    publicIntegration(duplicateIntegration),
 		})
 		return
 	}
@@ -2112,7 +2229,7 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 	})
 	c.autoPushSettingsSync(r.Context(), "integration_created", integration)
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(integration)
+	json.NewEncoder(w).Encode(publicIntegration(integration))
 }
 
 func (c *PluginController) UpdateIntegration(w http.ResponseWriter, r *http.Request) {
@@ -2157,6 +2274,16 @@ func (c *PluginController) UpdateIntegration(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "config must be a JSON object", http.StatusBadRequest)
 			return
 		}
+		if c.pluginOwnsProviderIdentity(existing.PluginID) {
+			// OAuth secrets are callback-owned. Preserve the current row's tokens
+			// and ignore stale or copied values submitted by frontend forms.
+			existingConfig, decodeErr := decodeIntegrationConfig(existing.ConfigJSON)
+			if decodeErr != nil {
+				http.Error(w, "saved connection configuration is invalid", http.StatusInternalServerError)
+				return
+			}
+			preserveOAuthOwnedConfig(configMap, existingConfig)
+		}
 
 		_, checkResult, normalizedConfig, err := c.validateIntegrationConfig(r.Context(), existing.PluginID, configMap)
 		if err != nil {
@@ -2189,7 +2316,7 @@ func (c *PluginController) UpdateIntegration(w http.ResponseWriter, r *http.Requ
 				"error":          "duplicate_integration",
 				"message":        duplicateMessage,
 				"integration_id": duplicateIntegration.ID,
-				"integration":    duplicateIntegration,
+				"integration":    publicIntegration(duplicateIntegration),
 			})
 			return
 		}
@@ -2215,11 +2342,11 @@ func (c *PluginController) UpdateIntegration(w http.ResponseWriter, r *http.Requ
 		"integration_type": existing.IntegrationType,
 	})
 	c.autoPushSettingsSync(r.Context(), "integration_updated", existing)
-	json.NewEncoder(w).Encode(existing)
+	json.NewEncoder(w).Encode(publicIntegration(existing))
 }
 
-// Browse proxies a source.browse IPC call to the specified plugin.
-// POST /api/plugins/{plugin_id}/browse  — body: {"path": "..."}
+// Browse proxies a source.browse IPC call using either the exact saved
+// profile-owned integration or the exact profile-bound OAuth draft.
 func (c *PluginController) Browse(w http.ResponseWriter, r *http.Request) {
 	pluginID := chi.URLParam(r, "plugin_id")
 	if pluginID == "" {
@@ -2228,15 +2355,61 @@ func (c *PluginController) Browse(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Path string `json:"path"`
+		Path          string         `json:"path"`
+		IntegrationID string         `json:"integration_id,omitempty"`
+		OAuthState    string         `json:"oauth_state,omitempty"`
+		Config        map[string]any `json:"config,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	configMap := body.Config
+	if configMap == nil {
+		configMap = map[string]any{}
+	}
+	if integrationID := strings.TrimSpace(body.IntegrationID); integrationID != "" {
+		integration, err := c.repo.GetByID(r.Context(), integrationID)
+		if err != nil || integration == nil {
+			http.Error(w, "connection not found for this profile", http.StatusNotFound)
+			return
+		}
+		if integration.PluginID != pluginID {
+			http.Error(w, "connection does not use the requested plugin", http.StatusBadRequest)
+			return
+		}
+		configMap, err = decodeIntegrationConfig(integration.ConfigJSON)
+		if err != nil {
+			http.Error(w, "saved connection configuration is invalid", http.StatusInternalServerError)
+			return
+		}
+	} else if state := strings.TrimSpace(body.OAuthState); state != "" {
+		draft, ok := c.oauthStates.Peek(state)
+		if !ok {
+			http.Error(w, "OAuth sign-in state is missing or expired", http.StatusBadRequest)
+			return
+		}
+		if draft.PluginID != pluginID || draft.ProfileID != core.ProfileIDFromContext(r.Context()) {
+			http.Error(w, "OAuth sign-in state does not belong to this profile connection", http.StatusForbidden)
+			return
+		}
+		if len(draft.ConfigUpdates) == 0 {
+			http.Error(w, "OAuth sign-in has not completed", http.StatusConflict)
+			return
+		}
+		mergeConfigUpdates(configMap, draft.ConfigUpdates)
+	} else if c.pluginOwnsProviderIdentity(pluginID) {
+		// OAuth browsing without a saved connection or matching draft must not
+		// accept user tokens from the browser.
+		stripOAuthOwnedConfig(configMap)
+	}
+
 	var result any
-	if err := c.pluginHost.Call(r.Context(), pluginID, "source.browse", body, &result); err != nil {
+	if err := c.pluginHost.Call(r.Context(), pluginID, "source.browse", map[string]any{
+		"path":   body.Path,
+		"config": configMap,
+	}, &result); err != nil {
 		http.Error(w, "browse failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

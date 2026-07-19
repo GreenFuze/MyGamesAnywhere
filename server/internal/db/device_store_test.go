@@ -177,6 +177,7 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 		Runtimes:        []devicev1.RuntimeInventory{{ID: "steam", Name: "Steam", Path: `C:\Steam\steam.exe`}},
 		PackageManagers: []devicev1.PackageManagerInventory{{ID: "winget", Name: "Windows Package Manager"}},
 		SaveAdapters:    []devicev1.SaveAdapterInventory{{ID: "scummvm", Name: "ScummVM", ProbeState: "complete", SaveKinds: []string{"save_file"}}},
+		SaveDomains:     []devicev1.SaveDomainObservation{{LocalSaveDomainID: "local-save-1", AdapterID: "scummvm", State: "owned_here", CanWrite: true}},
 	}
 	inventoryPayload, err := json.Marshal(inventory)
 	if err != nil {
@@ -195,7 +196,8 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 	}
 	if storedInventory == nil || len(storedInventory.Storage) != 1 || storedInventory.Storage[0].FreeBytes != 25 ||
 		len(storedInventory.Runtimes) != 1 || len(storedInventory.PackageManagers) != 1 || storedInventory.PackageManagers[0].ID != "winget" ||
-		len(storedInventory.SaveAdapters) != 1 || storedInventory.SaveAdapters[0].ID != "scummvm" {
+		len(storedInventory.SaveAdapters) != 1 || storedInventory.SaveAdapters[0].ID != "scummvm" ||
+		len(storedInventory.SaveDomains) != 1 || storedInventory.SaveDomains[0].State != "owned_here" {
 		t.Fatalf("stored inventory = %#v", storedInventory)
 	}
 
@@ -206,6 +208,46 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 		(id, profile_id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, root_path, status, created_at)
 		VALUES ('source-1', ?, 'integration-1', 'game-source-google-drive', 'archive-1', 'Game', 'windows_pc', 'base_game', 'packed', 'Games/Installers', 'found', ?)`, profile.ID, now.Unix()); err != nil {
 		t.Fatalf("insert source game: %v", err)
+	}
+	saveClaimRequest := devicev1.SaveDomainClaimRequest{GameID: "game-1", SourceGameID: "source-1", Title: "Game", AdapterID: "scummvm", RouteKind: "emulator", EmulatorID: "scummvm", RouteFingerprint: strings.Repeat("c", 64)}
+	saveClaimPayload, _ := json.Marshal(saveClaimRequest)
+	saveClaimCommand := devices.Command{ID: "command-save-claim", EndpointID: endpoint.ID, ProfileID: profile.ID, Name: devicev1.CapabilitySaveDomainClaim, SchemaVersion: 1, IdempotencyKey: "idem-save-claim", Status: devicev1.CommandDispatched, Payload: saveClaimPayload, CreatedAt: now, UpdatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	if err := store.CreateCommand(context.Background(), saveClaimCommand); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateCommandStatus(context.Background(), endpoint.ID, saveClaimCommand.ID, devicev1.CommandAccepted, nil, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateCommandStatus(context.Background(), endpoint.ID, saveClaimCommand.ID, devicev1.CommandRunning, nil, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	saveClaimResult, _ := json.Marshal(devicev1.SaveDomainClaimResult{GameID: "game-1", SourceGameID: "source-1", LocalSaveDomainID: "local-save-1", AdapterID: "scummvm", RouteFingerprint: strings.Repeat("c", 64), State: "owned_here", GrantedAt: now})
+	if err := store.CompleteCommand(context.Background(), endpoint.ID, devicev1.CommandResult{CommandID: saveClaimCommand.ID, Status: devicev1.CommandSucceeded, Payload: saveClaimResult}, now.Add(time.Second)); err != nil {
+		t.Fatalf("CompleteCommand(save claim) error = %v", err)
+	}
+	links, err := store.ListSaveDomainLinks(context.Background(), endpoint.ID)
+	if err != nil || len(links) != 1 || links[0].AuthorityState != "owned_here" || links[0].SyncState != "never_backed_up" {
+		t.Fatalf("claimed save links = %+v, error = %v", links, err)
+	}
+	snapshotRequest := devicev1.SaveDomainSnapshotRequest{GameID: "game-1", SourceGameID: "source-1", Title: "Game", LocalSaveDomainID: "local-save-1", UploadURL: "/api/device-transfers/save-domain", UploadToken: "secret"}
+	snapshotPayload, _ := json.Marshal(snapshotRequest)
+	snapshotCommand := devices.Command{ID: "command-save-snapshot", EndpointID: endpoint.ID, ProfileID: profile.ID, Name: devicev1.CapabilitySaveDomainSnapshot, SchemaVersion: 1, IdempotencyKey: "idem-save-snapshot", Status: devicev1.CommandDispatched, Payload: snapshotPayload, CreatedAt: now, UpdatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	if err := store.CreateCommand(context.Background(), snapshotCommand); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateCommandStatus(context.Background(), endpoint.ID, snapshotCommand.ID, devicev1.CommandAccepted, nil, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateCommandStatus(context.Background(), endpoint.ID, snapshotCommand.ID, devicev1.CommandRunning, nil, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	snapshotResult, _ := json.Marshal(devicev1.SaveDomainSnapshotResult{GameID: "game-1", SourceGameID: "source-1", LocalSaveDomainID: "local-save-1", LocalFingerprint: strings.Repeat("d", 64), State: "stored", ManifestHash: strings.Repeat("e", 64), CompletedAt: now})
+	if err := store.CompleteCommand(context.Background(), endpoint.ID, devicev1.CommandResult{CommandID: snapshotCommand.ID, Status: devicev1.CommandSucceeded, Payload: snapshotResult}, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("CompleteCommand(save snapshot) error = %v", err)
+	}
+	links, err = store.ListSaveDomainLinks(context.Background(), endpoint.ID)
+	if err != nil || len(links) != 1 || links[0].SyncState != "clean" || links[0].LastSnapshotManifestHash != strings.Repeat("e", 64) {
+		t.Fatalf("snapshotted save links = %+v, error = %v", links, err)
 	}
 	installRequest := devicev1.ArchiveInstallRequest{
 		GameID: "game-1", SourceGameID: "source-1", Title: "Game", ArchiveName: "game.zip", ArchiveFormat: "zip",
@@ -254,6 +296,62 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 	installations, err = store.ListInstallations(context.Background(), endpoint.ID, profile.ID)
 	if err != nil || len(installations) != 1 || installations[0].LaunchTarget != "Game/alternate.exe" {
 		t.Fatalf("updated installations = %+v, error = %v", installations, err)
+	}
+	if _, err := database.GetDB().ExecContext(context.Background(), `INSERT INTO source_games
+		(id, profile_id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, root_path, status, created_at)
+		VALUES ('source-shared', ?, 'integration-1', 'game-source-google-drive', 'archive-shared', 'Game copy', 'windows_pc', 'base_game', 'packed', 'Games/Installers', 'found', ?)`, profile.ID, now.Unix()); err != nil {
+		t.Fatalf("insert shared source game: %v", err)
+	}
+	useRequest := devicev1.UseExistingInstallationRequest{LocalInstallationID: "local-shared", GameID: "game-1", SourceGameID: "source-shared", Title: "Game"}
+	usePayload, _ := json.Marshal(useRequest)
+	useCommand := devices.Command{ID: "command-use-existing", EndpointID: endpoint.ID, ProfileID: profile.ID, Name: devicev1.CapabilityGameUseExisting, SchemaVersion: 1, IdempotencyKey: "idem-use-existing", Status: devicev1.CommandDispatched, Payload: usePayload, CreatedAt: now, UpdatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	if err := store.CreateCommand(context.Background(), useCommand); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateCommandStatus(context.Background(), endpoint.ID, useCommand.ID, devicev1.CommandAccepted, nil, nil, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateCommandStatus(context.Background(), endpoint.ID, useCommand.ID, devicev1.CommandRunning, nil, nil, now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	useResult := devicev1.UseExistingInstallationResult{LocalInstallationID: "local-shared", GameID: "game-1", SourceGameID: "source-shared", InstallRoot: `C:\Games\MGA\owner`, InstallPath: `C:\Games\MGA\owner\Game`, LaunchTarget: "game.exe", LaunchCandidates: []string{"game.exe"}, GrantedAt: now}
+	useResultPayload, _ := json.Marshal(useResult)
+	if err := store.CompleteCommand(context.Background(), endpoint.ID, devicev1.CommandResult{CommandID: useCommand.ID, Status: devicev1.CommandSucceeded, Payload: useResultPayload}, now.Add(3*time.Second)); err != nil {
+		t.Fatalf("CompleteCommand(use existing) error = %v", err)
+	}
+	installations, err = store.ListInstallations(context.Background(), endpoint.ID, profile.ID)
+	if err != nil || len(installations) != 2 {
+		t.Fatalf("shared installations = %+v, error = %v", installations, err)
+	}
+	var shared *devices.GameInstallation
+	for index := range installations {
+		if installations[index].SourceGameID == "source-shared" {
+			shared = &installations[index]
+		}
+	}
+	if shared == nil || shared.AuthorityMode != devicev1.InstallationAuthorityShared || shared.InstallKind != devicev1.InstallKindSharedExisting || shared.LocalInstallationID != "local-shared" {
+		t.Fatalf("shared installation row = %+v", shared)
+	}
+	reconcileInventory := devicev1.DeviceInventory{SchemaVersion: devicev1.InventorySchemaVersion, CapturedAt: now.Add(4 * time.Second), ManagedInstallations: []devicev1.ManagedInstallationObservation{{LocalInstallationID: "local-shared", State: "managed_elsewhere", InstallKind: devicev1.InstallKindManagedArchive, Title: "Game"}}}
+	if err := store.SaveInventory(context.Background(), endpoint.ID, reconcileInventory, now.Add(4*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	installations, _ = store.ListInstallations(context.Background(), endpoint.ID, profile.ID)
+	for index := range installations {
+		if installations[index].SourceGameID == "source-shared" && installations[index].InstallState != devicev1.InstallStateMissing {
+			t.Fatalf("revoked shared grant state = %s", installations[index].InstallState)
+		}
+	}
+	reconcileInventory.CapturedAt = now.Add(5 * time.Second)
+	reconcileInventory.ManagedInstallations[0].UseGranted = true
+	if err := store.SaveInventory(context.Background(), endpoint.ID, reconcileInventory, now.Add(5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	installations, _ = store.ListInstallations(context.Background(), endpoint.ID, profile.ID)
+	for index := range installations {
+		if installations[index].SourceGameID == "source-shared" && installations[index].InstallState != devicev1.InstallStateInstalled {
+			t.Fatalf("restored shared grant state = %s", installations[index].InstallState)
+		}
 	}
 	commands, err = store.ListCommands(context.Background(), endpoint.ID, profile.ID, 20)
 	if err != nil {

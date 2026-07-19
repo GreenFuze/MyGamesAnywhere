@@ -157,6 +157,61 @@ func (c *DeviceController) InstallArchive(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusAccepted, command)
 }
 
+func (c *DeviceController) UseExistingInstallation(w http.ResponseWriter, r *http.Request) {
+	if c.gameStore == nil {
+		http.Error(w, "game installation reuse is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	endpointID := chi.URLParam(r, "id")
+	gameID := chi.URLParam(r, "game_id")
+	var body struct {
+		LocalInstallationID string `json:"local_installation_id"`
+		SourceGameID        string `json:"source_game_id"`
+	}
+	if err := decodeJSONBody(w, r, &body); err != nil {
+		return
+	}
+	game, err := c.gameStore.GetCanonicalGameByID(r.Context(), gameID)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	if game == nil {
+		http.NotFound(w, r)
+		return
+	}
+	sourceID := strings.TrimSpace(body.SourceGameID)
+	foundSource := false
+	for _, source := range game.SourceGames {
+		if source != nil && source.ID == sourceID {
+			foundSource = true
+			break
+		}
+	}
+	if !foundSource {
+		http.Error(w, "the selected library source does not belong to this game", http.StatusBadRequest)
+		return
+	}
+	request := devicev1.UseExistingInstallationRequest{
+		LocalInstallationID: strings.TrimSpace(body.LocalInstallationID), GameID: game.ID, SourceGameID: sourceID, Title: game.Title,
+	}
+	if err := request.Validate(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	command, err := c.service.DispatchCommand(r.Context(), endpointID, core.ProfileIDFromContext(r.Context()), devicev1.CapabilityGameUseExisting, payload)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, command)
+}
+
 func (c *DeviceController) UninstallGame(w http.ResponseWriter, r *http.Request) {
 	endpointID := chi.URLParam(r, "id")
 	gameID := chi.URLParam(r, "game_id")
@@ -186,6 +241,10 @@ func (c *DeviceController) UninstallGame(w http.ResponseWriter, r *http.Request)
 	}
 	if installation == nil {
 		http.NotFound(w, r)
+		return
+	}
+	if installation.AuthorityMode == devicev1.InstallationAuthorityShared || installation.InstallKind == devicev1.InstallKindSharedExisting {
+		http.Error(w, "this server has launch-only access and cannot uninstall the existing game", http.StatusConflict)
 		return
 	}
 	var (
@@ -239,6 +298,7 @@ func (c *DeviceController) LaunchGame(w http.ResponseWriter, r *http.Request) {
 	}
 	payload, err := json.Marshal(devicev1.GameLaunchRequest{
 		GameID: gameID, SourceGameID: sourceGameID, InstallPath: installation.InstallPath, LaunchTarget: installation.LaunchTarget,
+		LocalInstallationID: installation.LocalInstallationID,
 	})
 	if err != nil {
 		writeDeviceError(w, err)

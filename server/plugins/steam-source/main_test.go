@@ -14,31 +14,18 @@ import (
 )
 
 func TestHandleGamesListRequiresConfiguration(t *testing.T) {
-	originalCfg := cfg
-	t.Cleanup(func() {
-		cfg = originalCfg
-	})
-
-	cfg = steamConfig{}
 	if _, errObj := handleGamesList(nil); errObj == nil || errObj.Code != "NOT_CONFIGURED" {
 		t.Fatalf("missing api key: got %+v, want NOT_CONFIGURED", errObj)
 	}
 
-	cfg = steamConfig{APIKey: "key-only"}
-	if _, errObj := handleGamesList(nil); errObj == nil || errObj.Code != "AUTH_REQUIRED" {
-		t.Fatalf("missing steam id: got %+v, want AUTH_REQUIRED", errObj)
+	if _, errObj := handleGamesList(json.RawMessage(`{"api_key":"key-only"}`)); errObj == nil || errObj.Code != "AUTH_REQUIRED" {
+		t.Fatalf("profile key without Steam identity: got %+v, want AUTH_REQUIRED", errObj)
 	}
 }
 
 func TestHandleGamesListUsesProfileOwnedConfig(t *testing.T) {
 	withTempWorkingDir(t)
 
-	originalCfg := cfg
-	t.Cleanup(func() {
-		cfg = originalCfg
-	})
-
-	cfg = steamConfig{}
 	params := json.RawMessage(`{"api_key":"profile-key"}`)
 	if _, errObj := handleGamesList(params); errObj == nil || errObj.Code != "AUTH_REQUIRED" {
 		t.Fatalf("profile config api_key was not used: got %+v, want AUTH_REQUIRED", errObj)
@@ -48,12 +35,6 @@ func TestHandleGamesListUsesProfileOwnedConfig(t *testing.T) {
 func TestHandleAchievementsGetUsesNestedProfileOwnedConfig(t *testing.T) {
 	withTempWorkingDir(t)
 
-	originalCfg := cfg
-	t.Cleanup(func() {
-		cfg = originalCfg
-	})
-
-	cfg = steamConfig{}
 	params := json.RawMessage(`{"external_game_id":"not-numeric","config":{"api_key":"profile-key","steam_id":"76561198012345678"}}`)
 	if _, errObj := handleAchievementsGet(params); errObj == nil || errObj.Code != "INVALID_PARAMS" {
 		t.Fatalf("nested profile config was not used before validation: got %+v, want INVALID_PARAMS", errObj)
@@ -63,10 +44,8 @@ func TestHandleAchievementsGetUsesNestedProfileOwnedConfig(t *testing.T) {
 func TestHandleAchievementsGetTreatsSteamSchema400EmptyObjectAsNoAchievements(t *testing.T) {
 	withTempWorkingDir(t)
 
-	originalCfg := cfg
 	originalFetchAchievementSchemaBaseURL := fetchAchievementSchemaBaseURL
 	t.Cleanup(func() {
-		cfg = originalCfg
 		fetchAchievementSchemaBaseURL = originalFetchAchievementSchemaBaseURL
 	})
 
@@ -82,8 +61,6 @@ func TestHandleAchievementsGetTreatsSteamSchema400EmptyObjectAsNoAchievements(t 
 	}))
 	t.Cleanup(server.Close)
 	fetchAchievementSchemaBaseURL = server.URL
-	cfg = steamConfig{}
-
 	params := json.RawMessage(`{"external_game_id":"7807","config":{"api_key":"profile-key","steam_id":"76561198012345678"}}`)
 	result, errObj := handleAchievementsGet(params)
 	if errObj != nil {
@@ -102,13 +79,13 @@ func TestHandleAchievementsGetTreatsSteamSchema400EmptyObjectAsNoAchievements(t 
 	}
 }
 
-func TestLoadConfigPrefersProfileOwnedSteamID(t *testing.T) {
+func TestLoadConfigDoesNotReadLegacyTokenFile(t *testing.T) {
 	withTempWorkingDir(t)
 
 	if err := os.WriteFile(configFile, []byte(`{"api_key":"key","steam_id":"profile-steam-id"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(tokenFile, []byte(`{"steam_id":"legacy-token-id"}`), 0600); err != nil {
+	if err := os.WriteFile("tokens.json", []byte(`{"steam_id":"legacy-token-id"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -117,17 +94,15 @@ func TestLoadConfigPrefersProfileOwnedSteamID(t *testing.T) {
 		t.Fatal(err)
 	}
 	if loaded.SteamID != "profile-steam-id" {
-		t.Fatalf("steam id = %q, want profile-owned config id", loaded.SteamID)
+		t.Fatalf("steam id = %q, want only config.json identity", loaded.SteamID)
 	}
 }
 
 func TestHandleOAuthCallbackReturnsConfigUpdate(t *testing.T) {
 	withTempWorkingDir(t)
 
-	originalCfg := cfg
 	originalPending := oauthPending
 	t.Cleanup(func() {
-		cfg = originalCfg
 		oauthPending = originalPending
 	})
 
@@ -157,9 +132,6 @@ func TestHandleOAuthCallbackReturnsConfigUpdate(t *testing.T) {
 	}
 	if updates["steam_id"] != "76561198012345678" {
 		t.Fatalf("steam_id update = %#v", updates["steam_id"])
-	}
-	if cfg.SteamID != "76561198012345678" {
-		t.Fatalf("in-memory steam id = %q", cfg.SteamID)
 	}
 }
 

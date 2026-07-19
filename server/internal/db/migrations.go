@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 26
+const latestMigrationVersion = 28
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -473,6 +473,39 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 			Name:    "device_inventory_managed_installations",
 			SQL: []string{
 				`ALTER TABLE device_inventories ADD COLUMN managed_installations_json TEXT NOT NULL DEFAULT '[]';`,
+			},
+		},
+		{
+			Version: 27,
+			Name:    "shared_existing_installation_authority",
+			SQL: []string{
+				`ALTER TABLE device_game_installations ADD COLUMN local_installation_id TEXT;`,
+				`ALTER TABLE device_game_installations ADD COLUMN authority_mode TEXT NOT NULL DEFAULT 'managed';`,
+			},
+		},
+		{
+			Version: 28,
+			Name:    "client_save_domain_authority",
+			SQL: []string{
+				`ALTER TABLE device_inventories ADD COLUMN save_domains_json TEXT NOT NULL DEFAULT '[]';`,
+				`CREATE TABLE device_save_domain_links (
+					endpoint_id TEXT NOT NULL REFERENCES device_endpoints(id) ON DELETE CASCADE,
+					game_id TEXT NOT NULL REFERENCES canonical_games(id) ON DELETE CASCADE,
+					source_game_id TEXT NOT NULL REFERENCES source_games(id) ON DELETE CASCADE,
+					route_kind TEXT NOT NULL CHECK(route_kind IN ('emulator','installed')),
+					emulator_id TEXT NOT NULL DEFAULT '',
+					local_save_domain_id TEXT NOT NULL,
+					adapter_id TEXT NOT NULL,
+					authority_state TEXT NOT NULL CHECK(authority_state IN ('observed','owned_here','owned_elsewhere','released','reconciliation_required','externally_managed')),
+					sync_state TEXT NOT NULL DEFAULT 'never_backed_up' CHECK(sync_state IN ('never_backed_up','clean','conflict','error')),
+					last_snapshot_manifest_hash TEXT,
+					created_by_profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					PRIMARY KEY(endpoint_id, game_id, source_game_id, route_kind, emulator_id),
+					UNIQUE(endpoint_id, local_save_domain_id)
+				);`,
+				`CREATE INDEX idx_device_save_domain_links_state ON device_save_domain_links(endpoint_id, authority_state);`,
 			},
 		},
 	}

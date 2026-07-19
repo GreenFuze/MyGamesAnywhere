@@ -77,14 +77,15 @@ type UnpairOptions struct {
 }
 
 type Service struct {
-	layout     clientruntime.Layout
-	configs    *clientconfig.Store
-	buildInfo  buildinfo.Info
-	httpClient *http.Client
-	logger     *log.Logger
-	logFile    *os.File
-	ownership  *OwnershipCatalog
-	operations *InstallationCoordinator
+	layout      clientruntime.Layout
+	configs     *clientconfig.Store
+	buildInfo   buildinfo.Info
+	httpClient  *http.Client
+	logger      *log.Logger
+	logFile     *os.File
+	ownership   *OwnershipCatalog
+	saveDomains *SaveDomainCatalog
+	operations  *InstallationCoordinator
 }
 
 func New(dataDir string, info buildinfo.Info, extraLogWriters ...io.Writer) (*Service, error) {
@@ -108,6 +109,11 @@ func New(dataDir string, info buildinfo.Info, extraLogWriters ...io.Writer) (*Se
 		_ = logFile.Close()
 		return nil, fmt.Errorf("open installation ownership catalog: %w", err)
 	}
+	saveDomains, err := OpenSaveDomainCatalog(layout.SaveAuthorityPath)
+	if err != nil {
+		_ = logFile.Close()
+		return nil, fmt.Errorf("open save domain authority catalog: %w", err)
+	}
 	writers := []io.Writer{logFile}
 	for _, writer := range extraLogWriters {
 		if writer != nil && writer != io.Discard {
@@ -115,14 +121,15 @@ func New(dataDir string, info buildinfo.Info, extraLogWriters ...io.Writer) (*Se
 		}
 	}
 	return &Service{
-		layout:     layout,
-		configs:    configs,
-		buildInfo:  info,
-		httpClient: &http.Client{Timeout: 15 * time.Second},
-		logger:     log.New(io.MultiWriter(writers...), "", log.Ldate|log.Ltime|log.LUTC),
-		logFile:    logFile,
-		ownership:  ownership,
-		operations: NewInstallationCoordinator(),
+		layout:      layout,
+		configs:     configs,
+		buildInfo:   info,
+		httpClient:  &http.Client{Timeout: 15 * time.Second},
+		logger:      log.New(io.MultiWriter(writers...), "", log.Ldate|log.Ltime|log.LUTC),
+		logFile:     logFile,
+		ownership:   ownership,
+		saveDomains: saveDomains,
+		operations:  NewInstallationCoordinator(),
 	}, nil
 }
 
@@ -339,6 +346,8 @@ func (s *Service) runAgentWithMode(ctx context.Context, executionMode devicev1.C
 		if ownershipErr != nil {
 			return fmt.Errorf("prepare installation ownership for %s: %w", binding.ServerURL, ownershipErr)
 		}
+		ownership.saveDomains = s.saveDomains
+		ownership.saveRoot = s.layout.SaveDomainsRoot
 		agent, agentErr := NewOwnedAgentWithExecutionMode(binding, privateKey, s.buildInfo, s.logger, executionMode, ownership)
 		if agentErr != nil {
 			return fmt.Errorf("prepare agent for %s: %w", binding.ServerURL, agentErr)
@@ -760,9 +769,15 @@ func localMetadata(displayName string, executionMode devicev1.ClientExecutionMod
 			devicev1.CapabilityGameUninstallGogInno,
 			devicev1.CapabilityGameCleanupGogInnoFailed,
 			devicev1.CapabilityGameValidateInstallations,
+			devicev1.CapabilityGameUseExisting,
 			devicev1.CapabilityGameLaunch,
 			devicev1.CapabilityGameLaunchEmulator,
 			devicev1.CapabilityEmulatorSetup,
+			devicev1.CapabilitySaveDomainClaim,
+			devicev1.CapabilitySaveDomainRelease,
+			devicev1.CapabilitySaveDomainSnapshot,
+			devicev1.CapabilitySaveDomainRestore,
+			devicev1.CapabilitySaveDomainReconcile,
 			devicev1.CapabilityInventoryRefresh,
 			devicev1.CapabilityInstallationPreflight,
 		},

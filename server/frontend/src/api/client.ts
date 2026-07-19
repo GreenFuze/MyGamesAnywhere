@@ -425,6 +425,17 @@ export type DeviceManagedInstallationObservation = {
   install_path?: string;
   can_manage?: boolean;
   can_adopt?: boolean;
+  use_granted?: boolean;
+  native_products?: DeviceNativeProductObservation[];
+};
+
+export type DeviceNativeProductObservation = {
+  provider: "windows_uninstall" | string;
+  product_id: string;
+  display_name: string;
+  version?: string;
+  publisher?: string;
+  capabilities?: string[];
 };
 
 export type DeviceGameInstallation = {
@@ -453,6 +464,8 @@ export type DeviceGameInstallation = {
   cleanup_ignored_by_profile_id?: string;
   verification_reason_code?: string;
   verification_details?: Record<string, unknown>;
+  local_installation_id?: string;
+  authority_mode: "managed" | "shared_launch" | string;
 };
 
 export type DeviceEndpoint = {
@@ -802,6 +815,18 @@ export async function installGogInnoOnDevice(
   ) as Promise<DeviceCommand>;
 }
 
+export async function useExistingInstallationOnDevice(
+  endpointId: string,
+  gameId: string,
+  sourceGameId: string,
+  localInstallationId: string,
+): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(
+    `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/use-existing`,
+    { source_game_id: sourceGameId, local_installation_id: localInstallationId },
+  ) as Promise<DeviceCommand>;
+}
+
 export async function uninstallGameFromDevice(
   endpointId: string,
   gameId: string,
@@ -846,6 +871,43 @@ export async function launchEmulatorGameOnDevice(endpointId: string, gameId: str
     `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/launch-emulator`,
     { emulator_id: emulatorId },
   ) as Promise<DeviceCommand>;
+}
+
+function saveDomainActionPath(endpointId: string, gameId: string, sourceGameId: string, action: "claim" | "release" | "snapshot" | "restore" | "reconcile"): string {
+  return `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/save-domain/${action}`;
+}
+
+export async function reconcileSaveDomain(endpointId: string, gameId: string, sourceGameId: string, integrationId: string, strategy: "keep_local" | "keep_server"): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(saveDomainActionPath(endpointId, gameId, sourceGameId, "reconcile"), {
+    integration_id: integrationId,
+    strategy,
+  }) as Promise<DeviceCommand>;
+}
+
+export async function claimScummVMSaveDomain(endpointId: string, gameId: string, sourceGameId: string, localSaveDomainId?: string): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(saveDomainActionPath(endpointId, gameId, sourceGameId, "claim"), {
+    local_save_domain_id: localSaveDomainId || undefined,
+  }) as Promise<DeviceCommand>;
+}
+
+export async function releaseSaveDomain(endpointId: string, gameId: string, sourceGameId: string, localSaveDomainId: string): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(saveDomainActionPath(endpointId, gameId, sourceGameId, "release"), {
+    local_save_domain_id: localSaveDomainId,
+  }) as Promise<DeviceCommand>;
+}
+
+export async function snapshotSaveDomain(endpointId: string, gameId: string, sourceGameId: string, integrationId: string, force = false): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(saveDomainActionPath(endpointId, gameId, sourceGameId, "snapshot"), {
+    integration_id: integrationId,
+    force,
+  }) as Promise<DeviceCommand>;
+}
+
+export async function restoreSaveDomain(endpointId: string, gameId: string, sourceGameId: string, integrationId: string, preserveLocal = false): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(saveDomainActionPath(endpointId, gameId, sourceGameId, "restore"), {
+    integration_id: integrationId,
+    preserve_local: preserveLocal,
+  }) as Promise<DeviceCommand>;
 }
 
 export async function setDeviceGameLaunchTarget(endpointId: string, gameId: string, sourceGameId: string, launchTarget: string): Promise<void> {
@@ -1026,6 +1088,9 @@ export type GameDeviceAvailabilityDTO = {
 	launch_supported: boolean;
 	launch_target?: string;
 	launch_candidates?: string[];
+	authority_mode?: "managed" | "shared_launch" | string;
+	use_existing_supported: boolean;
+	existing_installations?: DeviceManagedInstallationObservation[];
 };
 
 export type GameEmulatorRouteDTO = {
@@ -1735,12 +1800,13 @@ export async function createIntegration(body: {
 export async function checkPluginConfig(
   pluginId: string,
   config?: Record<string, unknown>,
+  oauthState?: string,
 ): Promise<PluginConfigCheckResult | OAuthRequiredResponse> {
   const path = `/api/plugins/${encodeURIComponent(pluginId)}/check-config`;
   const res = await apiFetch(`${base}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ config: config ?? {} }),
+    body: JSON.stringify({ config: config ?? {}, oauth_state: oauthState }),
   });
 
   if (res.status === 202) {
@@ -2144,10 +2210,20 @@ export type BrowseResponse = { folders: BrowseFolder[] };
 export async function browsePlugin(
   pluginId: string,
   path: string,
+  options?: {
+    integrationId?: string;
+    oauthState?: string;
+    config?: Record<string, unknown>;
+  },
 ): Promise<BrowseResponse> {
   return postJson<BrowseResponse>(
     `/api/plugins/${encodeURIComponent(pluginId)}/browse`,
-    { path },
+    {
+      path,
+      integration_id: options?.integrationId,
+      oauth_state: options?.oauthState,
+      config: options?.config,
+    },
   ) as Promise<BrowseResponse>;
 }
 

@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   listPlugins,
+  browsePlugin,
   createIntegration,
   checkPluginConfig,
   importOAuthCallback,
@@ -38,6 +39,21 @@ import { ArrowLeft, Check } from 'lucide-react'
 
 type WizardStep = 'category' | 'plugin' | 'config' | 'label' | 'oauth' | 'browse'
 type OAuthPurpose = 'create' | 'verify_config'
+
+function providerAccountLabel(pluginId: string): string {
+  switch (pluginId) {
+    case 'game-source-xbox':
+      return 'Microsoft account'
+    case 'game-source-google-drive':
+    case 'sync-settings-google-drive':
+    case 'save-sync-google-drive':
+      return 'Google account'
+    case 'game-source-steam':
+      return 'Steam account'
+    default:
+      return `${pluginLabel(pluginId)} account`
+  }
+}
 
 interface AddIntegrationWizardProps {
   onClose: () => void
@@ -105,10 +121,16 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
   }
 
   const selectPlugin = (plugin: PluginInfo) => {
+    oauthWindowRef.current?.close()
+    oauthWindowRef.current = null
     setSelectedPluginId(plugin.plugin_id)
     setConfigFields({})
     setConfigVerified(false)
     setError('')
+    setOauthState(null)
+    setOauthResponse(null)
+    setOauthError(null)
+    setOauthPurpose('create')
 
     // Pre-fill defaults from schema.
     const parsed = parsePluginConfigSchema(plugin.config as Record<string, unknown> | undefined)
@@ -167,6 +189,8 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
   // Check if the selected plugin supports folder browsing.
   const supportsBrowse = selectedPlugin?.provides?.includes('source.browse') ?? false
   const supportsOAuth = selectedPlugin?.provides?.includes('auth.oauth.callback') ?? false
+  const providerAccount = selectedPlugin ? providerAccountLabel(selectedPlugin.plugin_id) : ''
+  const needsInteractiveAccount = supportsOAuth && !oauthState
   const requiresVerifiedConfigBeforeBrowse = supportsOAuth && supportsBrowse && hasConfig
   const browseDisabledReason = 'Connect this integration first so MGA can browse remote folders.'
 
@@ -198,6 +222,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
         label,
         integration_type: integrationType,
         config: buildConfig(),
+        oauth_state: oauthState ?? undefined,
       })
 
       // OAuth consent required — open the authorize URL in a new tab.
@@ -275,7 +300,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
     setError('')
 
     try {
-      const result = await checkPluginConfig(selectedPlugin.plugin_id, buildConfig())
+      const result = await checkPluginConfig(selectedPlugin.plugin_id, buildConfig(), oauthState ?? undefined)
       if (isOAuthRequired(result)) {
         setOauthError('Authentication incomplete. Please try again.')
         return
@@ -288,7 +313,6 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
       setConfigVerified(true)
       oauthWindowRef.current?.close()
       oauthWindowRef.current = null
-      setOauthState(null)
       setOauthResponse(null)
       setOauthError(null)
       setStep('config')
@@ -297,7 +321,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
     } finally {
       setSaving(false)
     }
-  }, [buildConfig, mergeDraftConfigUpdates, selectedPlugin])
+  }, [buildConfig, mergeDraftConfigUpdates, oauthState, selectedPlugin])
 
   // After OAuth completes, retry creating the integration (tokens are now valid).
   const retryCreateAfterOAuth = useCallback(async () => {
@@ -477,6 +501,10 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
               browsePluginId={supportsBrowse ? selectedPlugin.plugin_id : null}
               browseDisabled={requiresVerifiedConfigBeforeBrowse && !configVerified}
               browseDisabledReason={browseDisabledReason}
+              browse={(path) => browsePlugin(selectedPlugin.plugin_id, path, {
+                oauthState: oauthState ?? undefined,
+                config: buildConfig(),
+              })}
             />
           )}
 
@@ -513,6 +541,17 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
             placeholder="Choose a name…"
           />
 
+          {supportsOAuth && (
+            <div className="rounded-mga border border-mga-accent/35 bg-mga-accent/10 p-4">
+              <p className="text-sm font-semibold text-mga-text">
+                Choose the {providerAccount} for this profile
+              </p>
+              <p className="mt-1 text-sm leading-6 text-mga-muted">
+                MGA will open the provider sign-in and ask you to choose an account. The resulting connection belongs only to the active MGA profile; MGA does not use the account signed into the MGA Client, Xbox app, or server computer.
+              </p>
+            </div>
+          )}
+
           {error && <p className="text-sm text-red-400">{error}</p>}
 
           <div className="flex justify-end gap-3 pt-2">
@@ -524,7 +563,9 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
               onClick={handleCreate}
               disabled={saving || !label || !integrationType}
             >
-              {saving ? 'Adding…' : 'Add connection'}
+              {saving
+                ? (needsInteractiveAccount ? 'Opening sign-in…' : 'Adding…')
+                : (needsInteractiveAccount ? `Sign in with ${providerAccount}` : 'Add connection')}
             </Button>
           </div>
         </div>
@@ -573,6 +614,7 @@ export function AddIntegrationWizard({ onClose, onSaved }: AddIntegrationWizardP
 
           <FolderBrowser
             pluginId={selectedPlugin.plugin_id}
+            browse={(path) => browsePlugin(selectedPlugin.plugin_id, path, { integrationId: createdIntegrationId })}
             onSelect={async (path) => {
               try {
                 await updateIntegration(createdIntegrationId, {
@@ -847,6 +889,7 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
               secretMask={secretMask}
               onRevealSecret={handleRevealSecret}
               browsePluginId={editSupportsBrowse ? integration.plugin_id : null}
+              browse={(path) => browsePlugin(integration.plugin_id, path, { integrationId: integration.id })}
             />
           </div>
         )}

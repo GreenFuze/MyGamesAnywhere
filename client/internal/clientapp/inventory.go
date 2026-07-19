@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -25,13 +26,22 @@ type InventoryCollector interface {
 // LocalInventoryCollector owns the bounded, platform-aware inventory probes.
 // It never enumerates arbitrary installed applications or environment values.
 type LocalInventoryCollector struct {
-	now       func() time.Time
-	ownership *OwnershipCatalog
-	bindingID string
+	now         func() time.Time
+	ownership   *OwnershipCatalog
+	saveDomains *SaveDomainCatalog
+	bindingID   string
+	programs    RegisteredProgramObserver
 }
 
 func NewOwnedLocalInventoryCollector(ownership *OwnershipCatalog, bindingID string) *LocalInventoryCollector {
-	return &LocalInventoryCollector{now: time.Now, ownership: ownership, bindingID: bindingID}
+	programs, _ := newRegisteredProgramInspector().(RegisteredProgramObserver)
+	return &LocalInventoryCollector{now: time.Now, ownership: ownership, bindingID: bindingID, programs: programs}
+}
+
+func NewOwnedLocalInventoryCollectorWithSaveDomains(ownership *OwnershipCatalog, saveDomains *SaveDomainCatalog, bindingID string) *LocalInventoryCollector {
+	collector := NewOwnedLocalInventoryCollector(ownership, bindingID)
+	collector.saveDomains = saveDomains
+	return collector
 }
 
 func NewLocalInventoryCollector() *LocalInventoryCollector {
@@ -48,23 +58,61 @@ func (c *LocalInventoryCollector) Collect(ctx context.Context) (devicev1.DeviceI
 	}
 	runtimes := collectKnownRuntimes(ctx)
 	inventory := devicev1.DeviceInventory{
-		SchemaVersion:        devicev1.InventorySchemaVersion,
-		CapturedAt:           c.now().UTC(),
-		Storage:              storage,
-		Runtimes:             runtimes,
-		PackageManagers:      collectKnownPackageManagers(),
-		SaveAdapters:         NewLocalSaveAdapterDiscoverer().Discover(runtimes),
-		ManagedInstallations: c.managedInstallationObservations(),
-	}.Normalize()
+		SchemaVersion:   devicev1.InventorySchemaVersion,
+		CapturedAt:      c.now().UTC(),
+		Storage:         storage,
+		Runtimes:        runtimes,
+		PackageManagers: collectKnownPackageManagers(),
+		SaveAdapters:    NewLocalSaveAdapterDiscoverer().Discover(runtimes),
+	}
+	managed, err := c.managedInstallationObservations()
+	if err != nil {
+		return devicev1.DeviceInventory{}, err
+	}
+	inventory.ManagedInstallations = managed
+	inventory.SaveDomains = c.saveDomainObservations()
+	inventory = inventory.Normalize()
 	if err := inventory.Validate(); err != nil {
 		return devicev1.DeviceInventory{}, err
 	}
 	return inventory, nil
 }
 
-func (c *LocalInventoryCollector) managedInstallationObservations() []devicev1.ManagedInstallationObservation {
-	if c == nil || c.ownership == nil || strings.TrimSpace(c.bindingID) == "" {
+func (c *LocalInventoryCollector) saveDomainObservations() []devicev1.SaveDomainObservation {
+	if c == nil || c.saveDomains == nil || strings.TrimSpace(c.bindingID) == "" {
 		return nil
+	}
+	records := c.saveDomains.List()
+	result := make([]devicev1.SaveDomainObservation, 0, len(records))
+	for _, record := range records {
+		item := devicev1.SaveDomainObservation{LocalSaveDomainID: record.LocalSaveDomainID, AdapterID: record.AdapterID}
+		switch record.State {
+		case SaveDomainObserved:
+			item.State = "observed"
+			item.CanClaim = true
+		case SaveDomainOwned:
+			if strings.EqualFold(record.WriterBindingID, c.bindingID) {
+				item.State = "owned_here"
+				item.CanWrite = true
+			} else {
+				item.State = "owned_elsewhere"
+			}
+		case SaveDomainReleased:
+			item.State = "released"
+			item.CanClaim = true
+		case SaveDomainReconciliationRequired:
+			item.State = "reconciliation_required"
+		default:
+			continue
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func (c *LocalInventoryCollector) managedInstallationObservations() ([]devicev1.ManagedInstallationObservation, error) {
+	if c == nil || c.ownership == nil || strings.TrimSpace(c.bindingID) == "" {
+		return nil, nil
 	}
 	records := c.ownership.List()
 	result := make([]devicev1.ManagedInstallationObservation, 0, len(records))
@@ -74,6 +122,30 @@ func (c *LocalInventoryCollector) managedInstallationObservations() []devicev1.M
 			title = "Managed game"
 		}
 		item := devicev1.ManagedInstallationObservation{LocalInstallationID: record.LocalInstallationID, InstallKind: record.InstallKind, Title: title}
+		if record.InstallKind == devicev1.InstallKindGogInno {
+			if c.programs == nil {
+				return nil, errors.New("registered product observer is unavailable")
+			}
+			products, err := c.programs.Associations(record.InstallPath)
+			if err != nil && runtime.GOOS == "windows" {
+				return nil, fmt.Errorf("observe registered product for %s: %w", title, err)
+			}
+			if err == nil {
+				for _, product := range products {
+					capabilities := []string{}
+					if product.CanUninstall {
+						capabilities = append(capabilities, "uninstall")
+					}
+					item.NativeProducts = append(item.NativeProducts, devicev1.NativeProductObservation{
+						Provider: "windows_uninstall", ProductID: product.ProductID, DisplayName: product.DisplayName,
+						Version: product.Version, Publisher: product.Publisher, Capabilities: capabilities,
+					})
+				}
+				if err := c.ownership.ReplaceNativeProducts(record.LocalInstallationID, item.NativeProducts); err != nil {
+					return nil, fmt.Errorf("record native product evidence for %s: %w", title, err)
+				}
+			}
+		}
 		switch record.State {
 		case OwnershipReleased:
 			item.State = "released"
@@ -107,9 +179,12 @@ func (c *LocalInventoryCollector) managedInstallationObservations() []devicev1.M
 		default:
 			continue
 		}
+		if (item.State == "managed_elsewhere" || item.State == "released") && c.ownership.HasUseGrant(record.LocalInstallationID, c.bindingID) {
+			item.UseGranted = true
+		}
 		result = append(result, item)
 	}
-	return result
+	return result, nil
 }
 
 type runtimeCandidate struct {

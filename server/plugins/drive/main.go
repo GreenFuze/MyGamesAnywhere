@@ -49,7 +49,6 @@ type Error struct {
 // --------------- Credentials ---------------
 
 const (
-	tokenFile  = "tokens.json"
 	configFile = "config.json"
 )
 
@@ -120,35 +119,6 @@ type savedTokens struct {
 }
 
 var tokenMu sync.Mutex
-var cachedToken *oauth2.Token
-
-func loadTokens() *oauth2.Token {
-	data, err := os.ReadFile(tokenFile)
-	if err != nil {
-		return nil
-	}
-	var st savedTokens
-	if err := json.Unmarshal(data, &st); err != nil {
-		return nil
-	}
-	return &oauth2.Token{
-		AccessToken:  st.AccessToken,
-		RefreshToken: st.RefreshToken,
-		TokenType:    st.TokenType,
-		Expiry:       st.Expiry,
-	}
-}
-
-func saveToken(tok *oauth2.Token) {
-	st := savedTokens{
-		AccessToken:  tok.AccessToken,
-		RefreshToken: tok.RefreshToken,
-		TokenType:    tok.TokenType,
-		Expiry:       tok.Expiry,
-	}
-	data, _ := json.MarshalIndent(st, "", "  ")
-	os.WriteFile(tokenFile, data, 0600)
-}
 
 func tokenFromConfig(config map[string]any) *oauth2.Token {
 	raw, ok := config["tokens"]
@@ -174,12 +144,6 @@ func tokenFromConfig(config map[string]any) *oauth2.Token {
 	}
 }
 
-func setCachedToken(tok *oauth2.Token) {
-	tokenMu.Lock()
-	cachedToken = tok
-	tokenMu.Unlock()
-}
-
 func tokenConfigUpdates(tok *oauth2.Token) map[string]any {
 	if tok == nil || (tok.AccessToken == "" && tok.RefreshToken == "") {
 		return nil
@@ -195,12 +159,11 @@ func tokenConfigUpdates(tok *oauth2.Token) map[string]any {
 }
 
 func driveAuthOKResponse(ctx context.Context, tok *oauth2.Token) map[string]any {
-	setCachedToken(tok)
 	result := map[string]any{"status": "ok"}
 	if updates := tokenConfigUpdates(tok); updates != nil {
 		result["config_updates"] = updates
 	}
-	identity, err := driveSourceIdentity(ctx)
+	identity, err := driveSourceIdentity(ctx, tok)
 	if err == nil {
 		result["source_identity"] = identity
 	}
@@ -215,13 +178,9 @@ func randomState() string {
 	return hex.EncodeToString(b)
 }
 
-func getDriveService(ctx context.Context) (*drive.Service, error) {
-	tokenMu.Lock()
-	tok := cachedToken
-	tokenMu.Unlock()
-
+func getDriveServiceForToken(ctx context.Context, tok *oauth2.Token) (*drive.Service, error) {
 	if tok == nil {
-		return nil, fmt.Errorf("not authenticated")
+		return nil, fmt.Errorf("connection is not authenticated")
 	}
 
 	src := oauthConfig.TokenSource(ctx, tok)
@@ -229,10 +188,7 @@ func getDriveService(ctx context.Context) (*drive.Service, error) {
 }
 
 func getDriveServiceForConfig(ctx context.Context, config map[string]any) (*drive.Service, error) {
-	if tok := tokenFromConfig(config); tok != nil {
-		setCachedToken(tok)
-	}
-	return getDriveService(ctx)
+	return getDriveServiceForToken(ctx, tokenFromConfig(config))
 }
 
 // --------------- Resolve path to folder ID ---------------
@@ -313,8 +269,8 @@ func resolvePathToObjectID(srv *drive.Service, rootPath string) (string, error) 
 
 // --------------- File listing (source.filesystem.list) ---------------
 
-func listFiles(ctx context.Context, includes []sourcescope.IncludePath) ([]map[string]any, error) {
-	srv, err := getDriveService(ctx)
+func listFiles(ctx context.Context, config map[string]any, includes []sourcescope.IncludePath) ([]map[string]any, error) {
+	srv, err := getDriveServiceForConfig(ctx, config)
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +452,7 @@ func ensureFolderPath(srv *drive.Service, path string) (string, error) {
 }
 
 func syncPush(ctx context.Context, params syncPushParams) (map[string]any, error) {
-	srv, err := getDriveService(ctx)
+	srv, err := getDriveServiceForConfig(ctx, params.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -571,7 +527,7 @@ func pruneOldVersions(srv *drive.Service, folderID string, maxVersions int) (int
 }
 
 func syncPull(ctx context.Context, params syncPullParams) (map[string]any, error) {
-	srv, err := getDriveService(ctx)
+	srv, err := getDriveServiceForConfig(ctx, params.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -625,7 +581,7 @@ func syncPull(ctx context.Context, params syncPullParams) (map[string]any, error
 }
 
 func syncListPayloads(ctx context.Context, params syncPullParams) (map[string]any, error) {
-	srv, err := getDriveService(ctx)
+	srv, err := getDriveServiceForConfig(ctx, params.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -670,7 +626,7 @@ func syncUpdatePayload(ctx context.Context, params syncUpdatePayloadParams) (map
 	if strings.TrimSpace(params.Data) == "" {
 		return nil, fmt.Errorf("data is required")
 	}
-	srv, err := getDriveService(ctx)
+	srv, err := getDriveServiceForConfig(ctx, params.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -741,7 +697,7 @@ func handleSaveSyncList(params json.RawMessage) (any, *Error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	srv, err := getDriveService(ctx)
+	srv, err := getDriveServiceForConfig(ctx, p.Config)
 	if err != nil {
 		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
 	}
@@ -796,7 +752,7 @@ func handleSaveSyncGet(params json.RawMessage) (any, *Error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	srv, err := getDriveService(ctx)
+	srv, err := getDriveServiceForConfig(ctx, p.Config)
 	if err != nil {
 		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
 	}
@@ -845,7 +801,7 @@ func handleSaveSyncPut(params json.RawMessage) (any, *Error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	srv, err := getDriveService(ctx)
+	srv, err := getDriveServiceForConfig(ctx, p.Config)
 	if err != nil {
 		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
 	}
@@ -891,7 +847,7 @@ func handleSaveSyncDelete(params json.RawMessage) (any, *Error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	srv, err := getDriveService(ctx)
+	srv, err := getDriveServiceForConfig(ctx, p.Config)
 	if err != nil {
 		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
 	}
@@ -918,11 +874,6 @@ func handleInit() (any, *Error) {
 		return map[string]any{"status": "not_configured", "reason": err.Error()}, nil
 	}
 
-	// Try loading cached tokens (non-blocking). Auth happens via check_config + OAuth callback.
-	tokenMu.Lock()
-	cachedToken = loadTokens()
-	tokenMu.Unlock()
-
 	return map[string]any{"status": "ok"}, nil
 }
 
@@ -930,6 +881,7 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 	var p struct {
 		Config      map[string]any `json:"config"`
 		RedirectURI string         `json:"redirect_uri"`
+		ForceOAuth  bool           `json:"force_oauth"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
@@ -938,18 +890,10 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 		return map[string]any{"status": "error", "message": err.Error()}, nil
 	}
 
-	configToken := tokenFromConfig(p.Config)
-	if configToken != nil {
-		setCachedToken(configToken)
+	tok := tokenFromConfig(p.Config)
+	if p.ForceOAuth {
+		return driveOAuthRequired(p.RedirectURI)
 	}
-
-	// Check for valid profile-owned or cached token.
-	tokenMu.Lock()
-	if cachedToken == nil {
-		cachedToken = loadTokens()
-	}
-	tok := cachedToken
-	tokenMu.Unlock()
 
 	if tok != nil && tok.Valid() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -966,16 +910,16 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 		src := oauthConfig.TokenSource(ctx, tok)
 		newTok, err := src.Token()
 		if err == nil {
-			setCachedToken(newTok)
-			saveToken(newTok)
 			log.Printf("refreshed Google token (expires %s)", newTok.Expiry.Format(time.RFC3339))
 			return driveAuthOKResponse(ctx, newTok), nil
 		}
 		log.Printf("refresh failed: %v, requesting consent", err)
 	}
 
-	// OAuth consent required. Build authorize URL.
-	redirectURI := p.RedirectURI
+	return driveOAuthRequired(p.RedirectURI)
+}
+
+func driveOAuthRequired(redirectURI string) (any, *Error) {
 	if redirectURI == "" {
 		return nil, &Error{Code: "NO_REDIRECT_URI", Message: "redirect_uri is required for OAuth flow"}
 	}
@@ -987,7 +931,11 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 	tokenMu.Unlock()
 
 	oauthConfig.RedirectURL = redirectURI
-	authorizeURL := oauthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+	authorizeURL := oauthConfig.AuthCodeURL(
+		state,
+		oauth2.AccessTypeOffline,
+		oauth2.SetAuthURLParam("prompt", "select_account consent"),
+	)
 
 	return map[string]any{
 		"status":        "oauth_required",
@@ -996,8 +944,8 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 	}, nil
 }
 
-func driveSourceIdentity(ctx context.Context) (string, error) {
-	srv, err := getDriveService(ctx)
+func driveSourceIdentity(ctx context.Context, tok *oauth2.Token) (string, error) {
+	srv, err := getDriveServiceForToken(ctx, tok)
 	if err != nil {
 		return "", err
 	}
@@ -1049,9 +997,6 @@ func handleOAuthCallback(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "TOKEN_EXCHANGE_FAILED", Message: err.Error()}
 	}
 
-	setCachedToken(tok)
-	saveToken(tok)
-
 	log.Println("Google Drive OAuth callback complete")
 	return driveAuthOKResponse(ctx, tok), nil
 }
@@ -1059,7 +1004,8 @@ func handleOAuthCallback(params json.RawMessage) (any, *Error) {
 // handleBrowse lists immediate child folders of the given path.
 func handleBrowse(params json.RawMessage) (any, *Error) {
 	var p struct {
-		Path string `json:"path"`
+		Path   string         `json:"path"`
+		Config map[string]any `json:"config"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
@@ -1068,7 +1014,7 @@ func handleBrowse(params json.RawMessage) (any, *Error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	srv, err := getDriveService(ctx)
+	srv, err := getDriveServiceForConfig(ctx, p.Config)
 	if err != nil {
 		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
 	}
@@ -1123,7 +1069,7 @@ func handleFileList(params json.RawMessage) (any, *Error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 540*time.Second)
 	defer cancel()
 
-	files, err := listFiles(ctx, includes)
+	files, err := listFiles(ctx, config, includes)
 	if err != nil {
 		return nil, &Error{Code: "SCAN_FAILED", Message: err.Error()}
 	}
@@ -1172,7 +1118,7 @@ func handleFileMaterialize(params json.RawMessage) (any, *Error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	srv, err := getDriveService(ctx)
+	srv, err := getDriveServiceForConfig(ctx, p.Config)
 	if err != nil {
 		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
 	}

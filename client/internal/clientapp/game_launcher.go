@@ -71,14 +71,24 @@ func (l *WindowsGameLauncher) Launch(ctx context.Context, request devicev1.GameL
 	if err != nil {
 		return devicev1.GameLaunchResult{}, err
 	}
-	if !isSupportedLaunchManifestVersion(manifest.SchemaVersion) || manifest.GameID != request.GameID || manifest.SourceGameID != request.SourceGameID {
+	if !isSupportedLaunchManifestVersion(manifest.SchemaVersion) {
 		return devicev1.GameLaunchResult{}, errors.New("installation manifest does not match the requested game")
 	}
-	manifest, err = ensureInstallationManifestOwnership(l.ownership, request.InstallPath, manifest)
-	if err != nil {
-		return devicev1.GameLaunchResult{}, err
+	var mutation *OwnedMutation
+	if strings.TrimSpace(request.LocalInstallationID) != "" {
+		if !strings.EqualFold(manifest.LocalInstallationID, request.LocalInstallationID) {
+			return devicev1.GameLaunchResult{}, errors.New("shared installation ID does not match its manifest")
+		}
+		mutation, err = l.ownership.AuthorizeLaunch(request.LocalInstallationID, request.InstallPath)
+	} else {
+		if manifest.GameID != request.GameID || manifest.SourceGameID != request.SourceGameID {
+			return devicev1.GameLaunchResult{}, errors.New("installation manifest does not match the requested game")
+		}
+		manifest, err = ensureInstallationManifestOwnership(l.ownership, request.InstallPath, manifest)
+		if err == nil {
+			mutation, err = l.ownership.AuthorizeMutation(manifest.LocalInstallationID, manifest.OwnerBindingID, request.InstallPath)
+		}
 	}
-	mutation, err := l.ownership.AuthorizeMutation(manifest.LocalInstallationID, manifest.OwnerBindingID, request.InstallPath)
 	if err != nil {
 		return devicev1.GameLaunchResult{}, err
 	}

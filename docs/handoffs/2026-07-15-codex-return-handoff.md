@@ -1452,3 +1452,362 @@ Next bounded task remains richer OS/storefront product observation and a
 locally confirmed **Use existing installation** grant, followed by explicit
 save-sync ownership transfer and reconciliation for released/adopted and
 non-local storefront games.
+
+## 2026-07-18 — PWA and optional managed HTTPS direction
+
+ADR-0024 records the accepted direction and priority; no runtime implementation
+or persisted configuration changed.
+
+- MGA should become an installable PWA, initially as an online shell with a
+  bounded static-asset cache—not as an offline server or MGA Client replacement;
+- remote-LAN PWA installation depends on HTTPS, so PWA follows the TLS foundation;
+- trusted-LAN HTTP remains supported and is not silently disabled for existing
+  installs;
+- Let's Encrypt does not require an API key. MGA generates an ACME account key.
+  The recommended LAN flow uses a real player-owned hostname, DNS-01, split DNS,
+  and a narrowly scoped token from the DNS provider;
+- TLS modes will cover trusted-LAN HTTP, player-supplied certificates, managed
+  ACME, and an explicitly trusted external reverse proxy;
+- HTTP-to-HTTPS activation requires a canonical-origin/client-binding migration
+  so existing endpoints and ADR-0023 installation ownership are preserved;
+- implementation requires migration 27 or later plus a client-config migration.
+  ACME account keys, certificate private keys, and DNS-provider tokens belong in
+  the protected keystore.
+
+Priority is unchanged: complete OS/storefront product observation, **Use
+existing installation**, and explicit save-sync ownership transfer first. Then
+implement canonical-origin migration, TLS/custom-certificate/reverse-proxy
+support, ACME DNS-01, and finally the installable PWA shell.
+
+## 2026-07-18 — ADR-0025 initial implementation complete
+
+This section supersedes the preceding next-task and local-runtime status. The
+worktree remains intentionally uncommitted; do not discard or overwrite it.
+
+ADR-0025 records and the implementation now enforces a bounded native-product
+and launch-only reuse model:
+
+- MGA Client observes Windows Add/Remove Programs only for exact install-path
+  associations with MGA-known installations. It reports an opaque stable
+  product identity, display name, version, publisher, and capabilities; raw
+  registry keys, uninstall commands, unrelated programs, server credentials,
+  and owning-server identity do not leave the client;
+- the client ownership catalog migrates atomically from schema 1 to schema 2
+  and persists native-product observations plus per-binding launch grants;
+- device inventory schema 5 reports bounded native products and whether the
+  receiving binding has a launch grant;
+- **Use existing installation** requires local desktop confirmation and grants
+  only that stable client binding permission to launch that client-local
+  installation. Every launch rechecks the grant, manifest, path, and launch
+  candidate under the local operation coordinator;
+- the server stores the relationship as `shared_existing` / `shared_launch`.
+  Shared records never expose uninstall, cleanup, repair, or update actions;
+  a stale grant is actionable in game details, where the user can confirm the
+  existing copy again or install a separate MGA-managed copy;
+- the Windows observer supports multiple matching native products so base
+  games, DLC, and related packages are not collapsed into one registry entry;
+- server migration 27, `shared_existing_installation_authority`, additively
+  adds `local_installation_id` and `authority_mode`. It is applied successfully
+  to the real portable database and preserved all existing rows as `managed`.
+  Migration 26 remains unchanged; migration 27 must now also remain immutable.
+
+Verification from final formatted source:
+
+```text
+protocol:        go test ./...                         PASS
+protocol quality:go vet ./...                          PASS
+client:          go test ./...                         PASS
+client quality:  go vet ./...                          PASS
+server:          go test ./...                         PASS
+server quality:  go vet ./...                          PASS
+frontend:        npm run test:unit                     PASS (10 tests)
+frontend:        npm run build                         PASS
+migration guard: server/scripts/check-migration-guard  PASS
+quality:         gofmt + git diff --check              PASS
+client package:  package-installer.ps1                 PASS
+server package:  build.ps1 -WindowsGUI                 PASS
+```
+
+Runtime evidence:
+
+- packaged portable server PID `2988`, exact
+  `server\bin\mga_server.exe`, HTTP 200 `OK` at `/health`, SHA-256
+  `63853FA5D412783107ADA1671716C3125D7A9908E059AE466EB940297EEF08CE`;
+- final local client installer SHA-256:
+  `67B4FEA1E601CD6648FDCE0D952A8BE00B94FD5D6064812ABCCB28779CDCDADA`;
+- real database reports migration 27 successful and has the new authority/local
+  installation columns. The startup backup is
+  `server\bin\data\migration_backups\20260718-124757\db.sqlite`;
+- the real packaged Devices page was reloaded in the in-app browser after the
+  final build. It showed **Client ready**, the preserved Duke attention row and
+  Plasma Pong ready row, local `C:\` storage, and no browser console warnings or
+  errors;
+- the currently installed v0.2.5 tray client is deliberately still the prior
+  release binary. Do not run the new dirty binary against its real catalog and
+  then return to the older agent: the new binary migrates the client catalog to
+  schema 2 and unknown newer schemas correctly fail closed. Install/update the
+  server and client coherently before doing the real confirmation/launch E2E.
+
+Next bounded task: design and implement explicit save-sync ownership transfer
+and reconciliation for released/adopted games and non-local storefront routes.
+Do not infer writable save authority from install ownership or a launch-only
+grant. After that, continue the canonical-origin/TLS/PWA sequence recorded by
+ADR-0024.
+
+## 2026-07-18 — ADR-0026 save-domain authority decision
+
+ADR-0026 now locks the next implementation boundary. This is documentation
+only (`NO_MIGRATION_NEEDED`); runtime code and persisted data are unchanged.
+
+- writable save authority belongs to an exact client-resolved local save
+  domain and one stable client binding, never to a title, installation owner,
+  launch grant, server URL, or profile;
+- save authority uses a separate client catalog and lifecycle. Installation
+  release/adoption and save release/transfer remain separate explicit choices;
+- local confirmation, per-domain operation leases, final-snapshot attempt, and
+  three-way reconciliation precede writer transfer. Conflict never defaults to
+  newest-wins or overwrites local files;
+- lost/disconnected server authority may be released locally without touching
+  files. A replacement writer must reconcile before restore;
+- provider-opaque storefronts remain visible but receive no MGA writer. An
+  emulator's native cloud sync also makes the domain externally managed until a
+  cooperative adapter exists;
+- the first full vertical slice is one exact ScummVM target using explicit
+  target/save-path evidence. RetroArch follows only after its override hierarchy
+  and native cloud-sync state are resolved; ROM basename guessing is forbidden.
+
+Implementation must be vertical rather than enabling a catalog-only or UI-only
+partial feature. It requires client save-authority catalog schema 1, inventory
+schema 6, server migration 28, typed commands, local confirmation, server/UI
+actions, conflict-safe snapshot/restore, packaging, and real E2E. Migration 27
+is immutable.
+
+## 2026-07-18 — ADR-0025 and ADR-0026 packaged implementation checkpoint
+
+This section supersedes the preceding next-task, migration, and runtime status.
+The complete implementation remains intentionally uncommitted; do not discard,
+reset, clean, or partially separate it.
+
+ADR-0025 is implemented together with the ADR-0026 ScummVM save-domain vertical
+slice:
+
+- the separate strict client save-authority catalog permits one writer binding
+  for an exact local domain, preserves prior/pending writer identity locally,
+  and requires explicit release plus reconciliation before another server can
+  write;
+- inventory schema 6 reports only sanitized authority facts. Local paths,
+  filenames, writer IDs, server URLs, and credentials never cross bindings;
+- typed claim, release, snapshot, restore, and reconciliation commands are
+  wired through client, server, OpenAPI, generated frontend contracts, and game
+  details;
+- exact ScummVM routes are cached by their content fingerprint. Save setup
+  requires ScummVM to identify exactly one engine-qualified game target. Once
+  managed, launch uses that full target and an explicit per-domain
+  `--savepath`; it no longer uses auto-detection for writable saves;
+- launch, backup, restore, release, and reconciliation share the local
+  operation coordinator. The launcher keeps the lease until the exact emulator
+  process exits;
+- snapshots use a deterministic ZIP bounded to 64 MiB and 4096 files. Restore
+  rejects links, special files, traversal, manifest/archive mismatches, and
+  unexpected local changes. Preserve-both uses staging plus a local backup and
+  rollback;
+- transfer capability tokens live only ten minutes, are carried in the HTTP
+  Authorization header rather than logged URLs, and uploads are single use;
+- the server persists authority/sync/manifest state and exposes player actions
+  for first backup, retry, restore, release, conflict choice, and writer
+  reconciliation. Provider-opaque storefront routes remain provider-managed
+  and receive no MGA writer.
+
+Migration 28 (`client_save_domain_authority`) is applied successfully to the
+real portable database. Its startup backup is
+`server\bin\data\migration_backups\20260718-143210\db.sqlite`. Migrations 27
+and 28 are now immutable; the next SQLite migration is 29.
+
+Fresh verification from final formatted source:
+
+```text
+protocol:        go test ./...                         PASS
+protocol quality:go vet ./...                          PASS
+client:          go test ./...                         PASS
+client quality:  go vet ./...                          PASS
+server:          go test ./...                         PASS
+server quality:  go vet ./...                          PASS
+frontend:        npm run test:unit                     PASS (10 tests)
+frontend:        npm run build                         PASS
+migration guard: server/scripts/check-migration-guard  PASS
+quality:         gofmt + git diff --check              PASS
+client package:  package-installer.ps1                 PASS
+server package:  build.ps1 -WindowsGUI                 PASS
+```
+
+The frontend retains the known approximately 868 KB production chunk warning.
+
+Packaged local runtime evidence:
+
+- packaged portable server PID `34608`, healthy at
+  `http://127.0.0.1:8900/health`, SHA-256
+  `B4DFF9F0B78E86D45C7042D0894DF13E2C63A12B0F8FA6605CDC72AACB6233A6`;
+- installed elevated client PID `48236`, endpoint
+  `eaa3b874-bfad-4020-9020-36fd45a04ff9` Ready, version 0.2.5. Installed and
+  packaged agent SHA-256 both equal
+  `B15616C1D0262984E0883A1F27281D6F17C4954C8D4445DD9051033890D6870E`;
+- local client installer SHA-256
+  `FA5BE6CBD50BCDAEEC6E030D58E6CFB6B08F598B7A3A92C73A3C8E1F33AF8676`;
+- Chrome invoked the installed elevated client through the real MGA web
+  interface. The top bar changed from **Connect client** to **Client elevated**,
+  the device changed from Offline to Ready, and Chrome reported no warnings or
+  errors;
+- Plasma Pong remains installed at `C:\Games\Plasma Pong`. The preserved Duke
+  row/tree remains `attention_required` with no cleanup marker.
+
+A destructive or synthetic save-transfer E2E was deliberately not fabricated.
+The sole profile currently has no Save Sync integration, so **Back up now** is
+correctly unavailable until the player selects or creates one. Automated tests
+cover bearer transfer, snapshot/restore, conflict, cross-server release and
+reconciliation, rollback, catalog privacy/schema, exact target detection, and
+concurrent emulator/save exclusion. A real backup E2E should use a player-
+selected Save Sync connection and a disposable ScummVM save, not mutate an
+arbitrary existing game merely to produce evidence.
+
+Next decision boundary: ADR-0024 records the accepted TLS/PWA direction, but
+managed HTTPS implementation still requires selecting the canonical-origin
+migration and certificate mode UX. Do not silently redirect trusted-LAN HTTP or
+change existing client bindings while implementing it.
+
+## 2026-07-19 — profile credential and storefront isolation checkpoint
+
+This section supersedes the preceding runtime PID and next-task status. The
+entire worktree remains intentionally uncommitted; do not reset, clean, revert,
+or discard the ADR-0025/0026 work or this new checkpoint. Migration 28 remains
+applied and immutable. This change has `NO_MIGRATION_NEEDED`; the next SQLite
+migration remains 29.
+
+ADR-0027 is accepted and implemented for the reported cross-profile account
+failures:
+
+- an unconfigured selected profile now offers optional password/PIN setup at
+  the sign-in boundary from any trusted-LAN computer, followed by automatic
+  sign-in. **Continue Without A Password** remains explicit and supported;
+- new OAuth connections always start fresh authorization. Browser-supplied
+  provider tokens/identity are ignored, and OAuth callback results remain bound
+  to the selected profile/plugin/draft or exact saved integration;
+- Google and Microsoft authorization request explicit account selection;
+- Google Drive no longer reads, writes, or falls back to process-wide
+  `tokens.json`. Check, browse, scan, materialize, source-delete, settings sync,
+  and save sync all require the exact saved integration config or matching
+  profile-bound OAuth draft;
+- draft browsing carries only the opaque OAuth state. Saved browsing names the
+  exact integration. Tokens are never returned to frontend JavaScript during
+  draft validation or browsing;
+- OAuth token/Steam identity fields are server-owned on updates, preventing a
+  stale edit form from overwriting a just-completed callback or copying another
+  connection's account;
+- Steam no longer uses its process config or legacy `tokens.json` identity for
+  scans/achievements. The exact integration must provide its API key and Steam
+  ID; forced new connection authorization ignores any remembered Steam ID;
+- Epic startup no longer opens a server-local login or loads its global token
+  file. Epic now exposes a per-connection authorization-code field, exchanges
+  the code during validation, persists tokens only into that profile's existing
+  connection config, and fails scans with `AUTH_REQUIRED` without those tokens.
+
+Existing connections are preserved. MGA cannot safely infer that an already
+stored provider account was intended for a different profile; the player must
+use **Re-auth/Reconnect** on any contaminated connection. TV2 was not updated
+and no release was created in this checkpoint.
+
+Fresh verification:
+
+```text
+server:          go test ./...                         PASS
+server HTTP:     go test ./internal/http               PASS
+Google Drive:    go test ./... (plugin module)          PASS
+Xbox:            go test ./... (plugin module)          PASS
+Steam:           go test ./... (plugin module)          PASS
+Epic:            go test ./... (plugin module)          PASS
+frontend:        npm run build                         PASS
+quality:         gofmt + git diff --check              PASS
+server package:  build.ps1 -WindowsGUI                 PASS
+```
+
+The known approximately 870 KB frontend chunk warning remains.
+
+Packaged runtime evidence:
+
+- packaged portable server PID `37240`, HTTP 200 `OK` at
+  `http://127.0.0.1:8900/health`, executable SHA-256
+  `EBC487C4CC30C467424E2B2F2B95324EB8D29B075C507C078D509DB163731426`;
+- packaged Epic plugin SHA-256
+  `EF49E2171D1B001F38D5A57D94B8D3253CD7CD5A9613D1A220A7100E2A49F9B6`;
+- real portable DB still reports schema 28. Its existing TCs Google Drive,
+  settings-sync, Xbox, and Steam rows contain profile-row tokens/identity;
+- the packaged UI was reloaded in the in-app browser. Profiles still shows the
+  existing protected TCs profile and show-password controls. Connections opens
+  normally, and the real Add Connection wizard now labels Epic as **Setup
+  required** and shows the profile connection's **Authorization Code** field
+  with its Epic help link;
+- no real Microsoft, Google, Steam, or Epic provider login was performed. Full
+  TV2/Orr E2E requires the user to choose Orr's actual provider accounts, which
+  must not be fabricated by an agent.
+
+Next bounded runtime step: install this build on TV2 (or release it when the
+user asks), select Orr, verify remote optional PIN/password setup, then reconnect
+Orr's Xbox and Google Drive connections and confirm the provider account chooser
+shows Orr's account before scanning. Do not reuse or copy TCs connection config.
+
+## 2026-07-19 — Xbox explicit-account and fail-closed isolation follow-up
+
+This section supersedes the preceding packaged PID/hash and Xbox next-task
+status. The worktree remains intentionally uncommitted. Migration 28 is still
+the latest applied migration. This follow-up has `NO_MIGRATION_NEEDED`: the safe
+`provider_identity` object is optional backward-compatible connection JSON.
+
+The Xbox connection contract is now independently enforced by the server and
+made explicit in the wizard:
+
+- the Xbox name step says that a Microsoft account must be chosen and that MGA
+  does not use the MGA Client, Windows Xbox app, server computer, or initiating
+  browser computer as connection identity;
+- the creation action is **Sign in with Microsoft account**, not a generic
+  **Add connection** action;
+- switching services clears any prior draft OAuth state, popup, response, and
+  error so one provider draft cannot leak into another selection;
+- new Xbox creation fails closed if the plugin ignores forced interactive
+  authorization, and a completed profile-bound draft must contain both an Xbox
+  user ID and refreshable Microsoft token before the row can be created;
+- Xbox ignores any legacy user tokens in plugin `config.json`. Application ID
+  and secret remain MGA app-registration credentials only;
+- every Xbox scan and achievement request still resets plugin token state from
+  the exact server-selected connection config. Plugin concurrency is one;
+- successful authorization stores a safe `provider_identity` containing the
+  Microsoft/Xbox subject and optional gamertag beside the server-only tokens;
+- integration list, create, update, and duplicate responses redact the `tokens`
+  object. The safe identity remains visible so the UI can identify the account.
+
+Verification:
+
+```text
+server:          go test ./...                         PASS
+server HTTP:     go test ./internal/http               PASS
+Xbox module:     go test ./...                         PASS
+frontend:        npm run build                         PASS
+quality:         gofmt + git diff --check              PASS
+server package:  build.ps1 -WindowsGUI                 PASS
+```
+
+The packaged portable server is running from the exact bin executable as PID
+`5740`, with HTTP 200 `OK` at `http://127.0.0.1:8900/health`. SHA-256 values:
+
+- server: `2E6453D63CB0E2C4E975F922B82F04F618B132EFDC9F5CCB96FFFAE51149E847`;
+- Xbox plugin: `D63D61A0E4F04E1C69809F1489A42CAF8BA2BFBAAB2AF512AC726CE6E538E166`.
+
+Real packaged UI evidence: Add connection -> Game Connections -> Xbox now shows
+the account-isolation explanation and **Sign in with Microsoft account**. The
+button entered the common sign-in waiting screen; the test authorization was
+then cancelled and the wizard closed. No provider callback completed and no
+test integration was created. The real DB still has exactly one Xbox connection
+(TCs); it retains server-side tokens and now also has a safe Microsoft/Xbox
+provider identity. No token values or account subject were printed.
+
+TV2 remains unchanged. Its existing Orr/TC connections must not be treated as
+evidence for this build until the player reconnects them and explicitly chooses
+the intended provider accounts.

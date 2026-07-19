@@ -68,9 +68,14 @@ func (c *DeviceController) LaunchEmulatorGame(w http.ResponseWriter, r *http.Req
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	routeFingerprint, err := devicev1.EmulatorRouteFingerprint(artifacts)
+	if err != nil {
+		http.Error(w, "MGA could not identify this exact emulator copy", http.StatusConflict)
+		return
+	}
 	request := devicev1.EmulatorLaunchRequest{
 		GameID: gameID, SourceGameID: sourceGameID, Title: game.Title, Platform: string(game.Platform),
-		EmulatorID: emulatorID, CoreID: option.ResolvedCore, ContentPath: contentPath, Artifacts: artifacts,
+		EmulatorID: emulatorID, CoreID: option.ResolvedCore, ContentPath: contentPath, Artifacts: artifacts, RouteFingerprint: routeFingerprint,
 	}
 	payload, err := json.Marshal(request)
 	if err != nil {

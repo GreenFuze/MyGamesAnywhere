@@ -17,10 +17,14 @@ import (
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/client/internal/singleinstance"
+	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/google/uuid"
 )
 
-const ownershipCatalogSchemaVersion = 1
+const (
+	ownershipCatalogSchemaVersion       = 2
+	ownershipCatalogLegacySchemaVersion = 1
+)
 
 type InstallationOwnershipState string
 
@@ -33,20 +37,27 @@ const (
 )
 
 type InstallationOwnershipRecord struct {
-	LocalInstallationID string                     `json:"local_installation_id"`
-	OwnerBindingID      string                     `json:"owner_binding_id,omitempty"`
-	State               InstallationOwnershipState `json:"state"`
-	InstallKind         string                     `json:"install_kind"`
-	InstallRoot         string                     `json:"install_root"`
-	InstallPath         string                     `json:"install_path"`
-	ProductIdentity     string                     `json:"product_identity,omitempty"`
-	GameID              string                     `json:"game_id,omitempty"`
-	SourceGameID        string                     `json:"source_game_id,omitempty"`
-	Title               string                     `json:"title,omitempty"`
-	CreatedAt           time.Time                  `json:"created_at"`
-	UpdatedAt           time.Time                  `json:"updated_at"`
-	ReleasedAt          *time.Time                 `json:"released_at,omitempty"`
-	PreviousOwners      []string                   `json:"previous_owner_binding_ids,omitempty"`
+	LocalInstallationID string                              `json:"local_installation_id"`
+	OwnerBindingID      string                              `json:"owner_binding_id,omitempty"`
+	State               InstallationOwnershipState          `json:"state"`
+	InstallKind         string                              `json:"install_kind"`
+	InstallRoot         string                              `json:"install_root"`
+	InstallPath         string                              `json:"install_path"`
+	ProductIdentity     string                              `json:"product_identity,omitempty"`
+	GameID              string                              `json:"game_id,omitempty"`
+	SourceGameID        string                              `json:"source_game_id,omitempty"`
+	Title               string                              `json:"title,omitempty"`
+	CreatedAt           time.Time                           `json:"created_at"`
+	UpdatedAt           time.Time                           `json:"updated_at"`
+	ReleasedAt          *time.Time                          `json:"released_at,omitempty"`
+	PreviousOwners      []string                            `json:"previous_owner_binding_ids,omitempty"`
+	NativeProducts      []devicev1.NativeProductObservation `json:"native_products,omitempty"`
+	UseGrants           []InstallationUseGrant              `json:"use_grants,omitempty"`
+}
+
+type InstallationUseGrant struct {
+	BindingID string    `json:"binding_id"`
+	GrantedAt time.Time `json:"granted_at"`
 }
 
 func (r InstallationOwnershipRecord) validate() error {
@@ -75,6 +86,28 @@ func (r InstallationOwnershipRecord) validate() error {
 	if r.CreatedAt.IsZero() || r.UpdatedAt.IsZero() {
 		return errors.New("ownership timestamps are required")
 	}
+	seenProducts := map[string]bool{}
+	for index, product := range r.NativeProducts {
+		if err := product.Validate(); err != nil {
+			return fmt.Errorf("native product %d: %w", index, err)
+		}
+		key := product.Provider + ":" + strings.ToLower(product.ProductID)
+		if seenProducts[key] {
+			return fmt.Errorf("duplicate native product %q", product.ProductID)
+		}
+		seenProducts[key] = true
+	}
+	seenGrants := map[string]bool{}
+	for index, grant := range r.UseGrants {
+		if _, err := uuid.Parse(grant.BindingID); err != nil || grant.GrantedAt.IsZero() {
+			return fmt.Errorf("use grant %d is invalid", index)
+		}
+		key := strings.ToLower(grant.BindingID)
+		if seenGrants[key] || strings.EqualFold(grant.BindingID, r.OwnerBindingID) {
+			return fmt.Errorf("use grant %d is duplicate or grants the owner", index)
+		}
+		seenGrants[key] = true
+	}
 	return nil
 }
 
@@ -84,12 +117,15 @@ type ownershipCatalogDocument struct {
 }
 
 func (d ownershipCatalogDocument) validate() error {
-	if d.SchemaVersion != ownershipCatalogSchemaVersion {
+	if d.SchemaVersion != ownershipCatalogSchemaVersion && d.SchemaVersion != ownershipCatalogLegacySchemaVersion {
 		return fmt.Errorf("unsupported ownership catalog schema %d", d.SchemaVersion)
 	}
 	ids := make(map[string]struct{}, len(d.Installations))
 	paths := make(map[string]struct{}, len(d.Installations))
 	for index, record := range d.Installations {
+		if d.SchemaVersion == ownershipCatalogLegacySchemaVersion && (len(record.NativeProducts) != 0 || len(record.UseGrants) != 0) {
+			return fmt.Errorf("installation %d uses schema-2 fields in a schema-1 catalog", index)
+		}
 		if err := record.validate(); err != nil {
 			return fmt.Errorf("installation %d: %w", index, err)
 		}
@@ -132,7 +168,16 @@ func OpenOwnershipCatalog(path string) (*OwnershipCatalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode ownership catalog: %w", err)
 	}
+	migrated := document.SchemaVersion == ownershipCatalogLegacySchemaVersion
+	if migrated {
+		document.SchemaVersion = ownershipCatalogSchemaVersion
+	}
 	catalog.doc = document
+	if migrated {
+		if err := catalog.saveLocked(); err != nil {
+			return nil, fmt.Errorf("migrate ownership catalog to schema %d: %w", ownershipCatalogSchemaVersion, err)
+		}
+	}
 	return catalog, nil
 }
 
@@ -176,6 +221,83 @@ func (c *OwnershipCatalog) FindByID(localID string) (InstallationOwnershipRecord
 		}
 	}
 	return InstallationOwnershipRecord{}, false
+}
+
+func (c *OwnershipCatalog) GrantUse(localID, bindingID string, grantedAt time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	lock, err := c.prepareMutationLocked()
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if _, err := uuid.Parse(bindingID); err != nil || grantedAt.IsZero() {
+		return errors.New("use grant requires a binding UUID and timestamp")
+	}
+	for index := range c.doc.Installations {
+		record := &c.doc.Installations[index]
+		if !strings.EqualFold(record.LocalInstallationID, localID) {
+			continue
+		}
+		if record.State != OwnershipOwned && record.State != OwnershipReleased {
+			return fmt.Errorf("installation is %s and cannot be shared", record.State)
+		}
+		if strings.EqualFold(record.OwnerBindingID, bindingID) {
+			return errors.New("the owning server already has access to this installation")
+		}
+		for _, grant := range record.UseGrants {
+			if strings.EqualFold(grant.BindingID, bindingID) {
+				return nil
+			}
+		}
+		record.UseGrants = append(record.UseGrants, InstallationUseGrant{BindingID: bindingID, GrantedAt: grantedAt.UTC()})
+		record.UpdatedAt = time.Now().UTC()
+		return c.saveLocked()
+	}
+	return errors.New("installation ownership record not found")
+}
+
+func (c *OwnershipCatalog) HasUseGrant(localID, bindingID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, record := range c.doc.Installations {
+		if !strings.EqualFold(record.LocalInstallationID, localID) {
+			continue
+		}
+		for _, grant := range record.UseGrants {
+			if strings.EqualFold(grant.BindingID, bindingID) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (c *OwnershipCatalog) ReplaceNativeProducts(localID string, products []devicev1.NativeProductObservation) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	lock, err := c.prepareMutationLocked()
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	products = append([]devicev1.NativeProductObservation(nil), products...)
+	sort.Slice(products, func(left, right int) bool { return products[left].ProductID < products[right].ProductID })
+	for index := range c.doc.Installations {
+		record := &c.doc.Installations[index]
+		if !strings.EqualFold(record.LocalInstallationID, localID) {
+			continue
+		}
+		current, _ := json.Marshal(record.NativeProducts)
+		next, _ := json.Marshal(products)
+		if bytes.Equal(current, next) {
+			return nil
+		}
+		record.NativeProducts = products
+		record.UpdatedAt = time.Now().UTC()
+		return c.saveLocked()
+	}
+	return errors.New("installation ownership record not found")
 }
 
 func (c *OwnershipCatalog) BeginInstall(record InstallationOwnershipRecord) error {
@@ -339,6 +461,13 @@ func (c *OwnershipCatalog) Adopt(localID, bindingID string) error {
 	record.State = OwnershipOwned
 	record.ReleasedAt = nil
 	record.UpdatedAt = time.Now().UTC()
+	grants := record.UseGrants[:0]
+	for _, grant := range record.UseGrants {
+		if !strings.EqualFold(grant.BindingID, bindingID) {
+			grants = append(grants, grant)
+		}
+	}
+	record.UseGrants = grants
 	return c.saveLocked()
 }
 
@@ -360,6 +489,9 @@ func (c *OwnershipCatalog) prepareMutationLocked() (*singleinstance.Lock, error)
 	if err != nil {
 		_ = lock.Close()
 		return nil, fmt.Errorf("refresh ownership catalog: %w", err)
+	}
+	if document.SchemaVersion == ownershipCatalogLegacySchemaVersion {
+		document.SchemaVersion = ownershipCatalogSchemaVersion
 	}
 	c.doc = document
 	return lock, nil

@@ -119,6 +119,48 @@ func TestWindowsGameLauncherRejectsResolvedTargetOutsideInstallDirectory(t *test
 	}
 }
 
+func TestWindowsGameLauncherHonorsLaunchOnlyGrantAcrossServerGameIDs(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "Games", "MGA", "owner")
+	installPath := filepath.Join(root, "Game")
+	if err := os.MkdirAll(installPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(installPath, "game.exe")
+	if err := os.WriteFile(executable, []byte("test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := writeInstallManifest(installPath, installManifest{SchemaVersion: devicev1.InstallManifestSchemaVersion, LocalInstallationID: testInstallID, OwnerBindingID: testBindingOne, OwnershipState: string(OwnershipOwned), GameID: "owner-game", SourceGameID: "owner-source", InstallRoot: root, LaunchTarget: "game.exe", LaunchCandidates: []string{"game.exe"}, InstalledAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := OpenOwnershipCatalog(filepath.Join(t.TempDir(), "ownership.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.BeginInstall(InstallationOwnershipRecord{LocalInstallationID: testInstallID, OwnerBindingID: testBindingOne, State: OwnershipInstalling, InstallKind: devicev1.InstallKindManagedArchive, InstallRoot: root, InstallPath: installPath, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.CompleteInstall(testInstallID, testBindingOne); err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.GrantUse(testInstallID, testBindingTwo, now); err != nil {
+		t.Fatal(err)
+	}
+	ownership, err := NewInstallationOwnership(testBindingTwo, "http://tv2:8900", 2, catalog, NewInstallationCoordinator())
+	if err != nil {
+		t.Fatal(err)
+	}
+	starter := &fakeGameProcessStarter{processID: 4545}
+	launcher := &WindowsGameLauncher{now: func() time.Time { return now }, start: starter, resolvePath: filepath.EvalSymlinks, ownership: ownership}
+	result, err := launcher.Launch(context.Background(), devicev1.GameLaunchRequest{GameID: "target-game", SourceGameID: "target-source", InstallPath: installPath, LaunchTarget: "game.exe", LocalInstallationID: testInstallID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.GameID != "target-game" || starter.processID != result.ProcessID {
+		t.Fatalf("shared launch = %+v", result)
+	}
+}
+
 func writeLauncherTestInstallation(t *testing.T) (string, string) {
 	t.Helper()
 	return writeLauncherTestInstallationWithSchemaVersion(t, devicev1.InstallManifestSchemaVersion)

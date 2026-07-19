@@ -42,13 +42,10 @@ type steamConfig struct {
 	SteamID string `json:"steam_id"` // resolved via Steam OpenID login
 }
 
-var cfg steamConfig
-
 const (
 	steamAPIBase   = "https://api.steampowered.com"
 	storeAPIBase   = "https://store.steampowered.com/api"
 	configFile     = "config.json"
-	tokenFile      = "tokens.json"
 	steamOpenIDURL = "https://steamcommunity.com/openid/login"
 )
 
@@ -57,28 +54,6 @@ var fetchAchievementSchemaBaseURL = steamAPIBase
 
 // oauthPending tracks OpenID state tokens for CSRF validation.
 var oauthPending = map[string]bool{}
-
-// Persisted identity — the user's Steam64 ID, resolved via OpenID login.
-type savedIdentity struct {
-	SteamID string `json:"steam_id"`
-}
-
-func loadIdentity() string {
-	data, err := os.ReadFile(tokenFile)
-	if err != nil {
-		return ""
-	}
-	var id savedIdentity
-	if err := json.Unmarshal(data, &id); err != nil {
-		return ""
-	}
-	return id.SteamID
-}
-
-func saveIdentity(steamID string) error {
-	data, _ := json.MarshalIndent(savedIdentity{SteamID: steamID}, "", "  ")
-	return os.WriteFile(tokenFile, data, 0600)
-}
 
 func randomState() string {
 	b := make([]byte, 16)
@@ -233,25 +208,16 @@ func loadConfig() (*steamConfig, error) {
 		return nil, fmt.Errorf("config.json must contain api_key")
 	}
 
-	// Prefer the profile-owned integration config. tokens.json is kept only as
-	// a legacy fallback for existing portable installs.
-	if c.SteamID == "" {
-		c.SteamID = loadIdentity()
-	}
-
 	return &c, nil
 }
 
 func configFromMap(config map[string]any) steamConfig {
-	result := cfg
+	result := steamConfig{}
 	if apiKey := configString(config, "api_key"); apiKey != "" {
 		result.APIKey = apiKey
 	}
 	if steamID := configString(config, "steam_id"); steamID != "" {
 		result.SteamID = steamID
-	}
-	if result.SteamID == "" {
-		result.SteamID = loadIdentity()
 	}
 	return result
 }
@@ -332,32 +298,9 @@ func fetchAppDetails(appID int) (*appDetails, error) {
 // --- Init ---
 
 func handleInit() (any, *Error) {
-	c, err := loadConfig()
-	if err != nil {
-		log.Printf("WARNING: %v — Steam source plugin will not be functional", err)
-		return map[string]any{"status": "not_configured", "reason": err.Error()}, nil
-	}
-
-	cfg = *c
-
-	// If no Steam identity yet, that's OK — user will authenticate via OpenID.
-	if cfg.SteamID == "" {
-		log.Printf("Steam source plugin loaded (API key present, Steam login pending)")
-		return map[string]any{"status": "ok", "message": "steam login required"}, nil
-	}
-
-	// Validate by fetching owned games count.
-	games, err := fetchOwnedGames(cfg.APIKey, cfg.SteamID)
-	if err != nil {
-		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
-	}
-
-	log.Printf("Steam source plugin initialized: %d owned games for Steam ID %s", len(games), cfg.SteamID)
-	return map[string]any{
-		"status":     "ok",
-		"steam_id":   cfg.SteamID,
-		"game_count": len(games),
-	}, nil
+	// Player credentials are supplied only by the active profile integration.
+	// Plugin startup must not inspect or validate a process-wide account.
+	return map[string]any{"status": "ok", "message": "connection sign-in required"}, nil
 }
 
 // --- Games list ---
@@ -643,6 +586,7 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 	var p struct {
 		Config      map[string]any `json:"config"`
 		RedirectURI string         `json:"redirect_uri"`
+		ForceOAuth  bool           `json:"force_oauth"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
@@ -655,19 +599,12 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 	}
 
 	steamID := configString(p.Config, "steam_id")
-	if steamID == "" {
-		steamID = cfg.SteamID
-	}
-	if steamID == "" {
-		steamID = loadIdentity()
-	}
-	if steamID != "" {
+	if steamID != "" && !p.ForceOAuth {
 		// Verify the key works with this steam ID.
 		_, err := fetchOwnedGames(apiKey, steamID)
 		if err != nil {
 			return map[string]any{"status": "error", "message": err.Error()}, nil
 		}
-		cfg.SteamID = steamID
 		return steamAuthOKResponse(steamID), nil
 	}
 
@@ -762,13 +699,6 @@ func handleOAuthCallback(params json.RawMessage) (any, *Error) {
 	if steamID == "" {
 		return nil, &Error{Code: "AUTH_FAILED", Message: "empty steam ID in claimed_id"}
 	}
-
-	// Update profile-owned integration config via the server callback result.
-	// tokens.json is only a best-effort legacy fallback for portable installs.
-	if err := saveIdentity(steamID); err != nil {
-		log.Printf("Steam OpenID legacy token cache write failed: %v", err)
-	}
-	cfg.SteamID = steamID
 
 	log.Printf("Steam OpenID login successful: Steam ID %s", steamID)
 	return steamAuthOKResponse(steamID), nil

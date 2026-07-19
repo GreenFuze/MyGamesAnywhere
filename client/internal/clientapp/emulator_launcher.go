@@ -24,22 +24,28 @@ type EmulatorLauncher interface {
 }
 
 type emulatorProcessStarter interface {
-	Start(executable string, arguments []string, workingDirectory string) (int, error)
+	Start(executable string, arguments []string, workingDirectory string) (startedEmulatorProcess, error)
+}
+
+type startedEmulatorProcess struct {
+	PID  int
+	Done <-chan struct{}
 }
 
 type execEmulatorProcessStarter struct{}
 
-func (execEmulatorProcessStarter) Start(executable string, arguments []string, workingDirectory string) (int, error) {
+func (execEmulatorProcessStarter) Start(executable string, arguments []string, workingDirectory string) (startedEmulatorProcess, error) {
 	command := exec.Command(executable, arguments...)
 	command.Dir = workingDirectory
 	if err := command.Start(); err != nil {
-		return 0, err
+		return startedEmulatorProcess{}, err
 	}
-	processID := command.Process.Pid
-	if err := command.Process.Release(); err != nil {
-		return 0, err
-	}
-	return processID, nil
+	done := make(chan struct{})
+	go func() {
+		_ = command.Wait()
+		close(done)
+	}()
+	return startedEmulatorProcess{PID: command.Process.Pid, Done: done}, nil
 }
 
 type ManagedEmulatorLauncher struct {
@@ -49,6 +55,19 @@ type ManagedEmulatorLauncher struct {
 	inventory InventoryCollector
 	start     emulatorProcessStarter
 	now       func() time.Time
+	ownership *InstallationOwnership
+}
+
+func NewOwnedManagedEmulatorLauncher(serverURL string, inventory InventoryCollector, ownership *InstallationOwnership) (*ManagedEmulatorLauncher, error) {
+	launcher, err := NewManagedEmulatorLauncher(serverURL, inventory)
+	if err != nil {
+		return nil, err
+	}
+	if ownership == nil || ownership.saveDomains == nil {
+		return nil, errors.New("save domain authority is required")
+	}
+	launcher.ownership = ownership
+	return launcher, nil
 }
 
 func NewManagedEmulatorLauncher(serverURL string, inventory InventoryCollector) (*ManagedEmulatorLauncher, error) {
@@ -93,6 +112,24 @@ func (l *ManagedEmulatorLauncher) Launch(ctx context.Context, commandID string, 
 	}
 	launchName := "ScummVM"
 	arguments := []string{"--path=" + contentRoot, "--auto-detect"}
+	var releaseSaveLease func()
+	if request.EmulatorID == "scummvm" && request.RouteFingerprint != "" && l.ownership != nil && l.ownership.saveDomains != nil {
+		domain, found := l.ownership.saveDomains.FindByRoute("scummvm", strings.ToLower(request.RouteFingerprint))
+		if found {
+			if domain.State != SaveDomainOwned || !strings.EqualFold(domain.WriterBindingID, l.ownership.bindingID) || len(domain.ResolvedPaths) != 1 || strings.TrimSpace(domain.ScummVMGameID) == "" {
+				return devicev1.EmulatorLaunchResult{}, errors.New("ScummVM save domain is not writable by this MGA Server")
+			}
+			savePath := filepath.Clean(domain.ResolvedPaths[0])
+			if info, err := os.Stat(savePath); err != nil || !info.IsDir() {
+				return devicev1.EmulatorLaunchResult{}, errors.New("managed ScummVM save folder is unavailable")
+			}
+			releaseSaveLease, err = l.ownership.coordinator.Reserve(l.ownership.bindingID, savePath, "save-domain:"+domain.LocalSaveDomainID)
+			if err != nil {
+				return devicev1.EmulatorLaunchResult{}, err
+			}
+			arguments = []string{"--path=" + contentRoot, "--savepath=" + savePath, domain.ScummVMGameID}
+		}
+	}
 	if request.EmulatorID == "retroarch" {
 		launchName = "RetroArch"
 		corePath, err := resolveRetroArchCore(executable, request.CoreID)
@@ -112,14 +149,27 @@ func (l *ManagedEmulatorLauncher) Launch(ctx context.Context, commandID string, 
 	if err := reportProgress(report, "launching", "Starting "+launchName, 98, "launch", 90); err != nil {
 		return devicev1.EmulatorLaunchResult{}, err
 	}
-	processID, err := l.start.Start(executable, arguments, contentRoot)
+	process, err := l.start.Start(executable, arguments, contentRoot)
 	if err != nil {
+		if releaseSaveLease != nil {
+			releaseSaveLease()
+		}
 		return devicev1.EmulatorLaunchResult{}, fmt.Errorf("start %s: %w", launchName, err)
+	}
+	if releaseSaveLease != nil {
+		if process.Done == nil {
+			releaseSaveLease()
+			return devicev1.EmulatorLaunchResult{}, errors.New("emulator process did not provide a lifetime signal")
+		}
+		go func() {
+			<-process.Done
+			releaseSaveLease()
+		}()
 	}
 	if err := reportProgress(report, "complete", "Started", 100, "launch", 100); err != nil {
 		return devicev1.EmulatorLaunchResult{}, err
 	}
-	return devicev1.EmulatorLaunchResult{GameID: request.GameID, SourceGameID: request.SourceGameID, EmulatorID: request.EmulatorID, CoreID: request.CoreID, ProcessID: processID, StartedAt: l.now().UTC()}, nil
+	return devicev1.EmulatorLaunchResult{GameID: request.GameID, SourceGameID: request.SourceGameID, EmulatorID: request.EmulatorID, CoreID: request.CoreID, ProcessID: process.PID, StartedAt: l.now().UTC()}, nil
 }
 
 func (l *ManagedEmulatorLauncher) resolveRuntime(ctx context.Context, emulatorID string) (devicev1.RuntimeInventory, string, error) {
@@ -170,12 +220,15 @@ func resolveRetroArchCore(executable, coreID string) (string, error) {
 }
 
 func (l *ManagedEmulatorLauncher) prepareContent(ctx context.Context, commandID string, request devicev1.EmulatorLaunchRequest, report CommandProgressReporter) (string, error) {
-	keyHasher := sha256.New()
-	_, _ = io.WriteString(keyHasher, request.GameID+"\x00"+request.SourceGameID+"\x00")
-	for _, artifact := range request.Artifacts {
-		_, _ = io.WriteString(keyHasher, artifact.Path+"\x00"+strings.ToLower(artifact.SHA256)+"\x00")
+	contentKey := strings.ToLower(strings.TrimSpace(request.RouteFingerprint))
+	if contentKey == "" {
+		keyHasher := sha256.New()
+		_, _ = io.WriteString(keyHasher, request.GameID+"\x00"+request.SourceGameID+"\x00")
+		for _, artifact := range request.Artifacts {
+			_, _ = io.WriteString(keyHasher, artifact.Path+"\x00"+strings.ToLower(artifact.SHA256)+"\x00")
+		}
+		contentKey = hex.EncodeToString(keyHasher.Sum(nil))
 	}
-	contentKey := hex.EncodeToString(keyHasher.Sum(nil))
 	if err := os.MkdirAll(l.cacheRoot, 0o700); err != nil {
 		return "", fmt.Errorf("create emulator cache: %w", err)
 	}

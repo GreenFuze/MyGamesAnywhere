@@ -48,3 +48,7 @@ func (unsupportedInstallerProcessRunner) Start(context.Context, InstallerProcess
 func (unsupportedRegisteredProgramInspector) HasAssociation(string) (bool, error) {
 	return false, ErrUnsupportedInstallerPlatform
 }
+
+func (unsupportedRegisteredProgramInspector) Associations(string) ([]RegisteredProgramObservation, error) {
+	return nil, ErrUnsupportedInstallerPlatform
+}

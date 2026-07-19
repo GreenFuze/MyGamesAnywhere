@@ -305,6 +305,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	deviceCtrl.SetInstallationValidationService(installationValidationSvc)
 	deviceCtrl.SetInstallPreferenceService(installPreferenceSvc)
 	deviceCtrl.SetEmulationService(emulationSvc)
+	deviceCtrl.SetSaveDomainDependencies(saveSyncSvc)
 
 	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
 

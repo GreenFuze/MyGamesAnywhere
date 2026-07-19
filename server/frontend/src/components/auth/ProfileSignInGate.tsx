@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Check, Clipboard, KeyRound, LifeBuoy, Save, ShieldAlert } from 'lucide-react'
 import {
   changeOwnCredential,
   getAuthSession,
   getCredentialStatus,
+  initializeCredential,
   loginProfile,
   type CredentialKind,
   type Profile,
@@ -25,6 +26,8 @@ export function ProfileSignInGate({ profile, onCancel, children }: ProfileSignIn
   const [credential, setCredential] = useState('')
   const [verifiedCredential, setVerifiedCredential] = useState('')
   const [recoveryOpen, setRecoveryOpen] = useState(false)
+  const [continueWithoutCredential, setContinueWithoutCredential] = useState(false)
+  useEffect(() => setContinueWithoutCredential(false), [profile.id])
   const credentialQuery = useQuery({
     queryKey: ['credential-status', profile.id],
     queryFn: getCredentialStatus,
@@ -46,7 +49,14 @@ export function ProfileSignInGate({ profile, onCancel, children }: ProfileSignIn
     return <SignInShell profile={profile} title="Sign-in unavailable" error={errorText(credentialQuery.error)} onCancel={onCancel} />
   }
   if (!credentialQuery.data?.configured) {
-    return children
+    if (continueWithoutCredential) return children
+    return (
+      <InitialCredentialSetup
+        profile={profile}
+        onCancel={onCancel}
+        onContinue={() => setContinueWithoutCredential(true)}
+      />
+    )
   }
 
   const signedIn = sessionQuery.data?.authenticated && sessionQuery.data.profile?.id === profile.id
@@ -84,6 +94,60 @@ export function ProfileSignInGate({ profile, onCancel, children }: ProfileSignIn
           </p>
         ) : null}
         {login.error ? <p className="text-sm text-red-400">{errorText(login.error)}</p> : null}
+      </div>
+    </SignInShell>
+  )
+}
+
+function InitialCredentialSetup({
+  profile,
+  onCancel,
+  onContinue,
+}: {
+  profile: Profile
+  onCancel: () => Promise<void>
+  onContinue: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [kind, setKind] = useState<CredentialKind>('pin')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const setup = useMutation({
+    mutationFn: async () => {
+      await initializeCredential(next, kind)
+      return loginProfile(profile.id, next)
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['auth-session'] }),
+        queryClient.invalidateQueries({ queryKey: ['credential-status', profile.id] }),
+      ])
+    },
+  })
+  const valid = next === confirm && credentialPolicy.isValid(kind, next)
+
+  return (
+    <SignInShell profile={profile} title={`Welcome, ${profile.display_name}`} onCancel={onCancel}>
+      <p className="text-sm leading-6 text-mga-muted">
+        Protect this profile with an optional password or PIN. You can do this from any computer on your MGA network.
+      </p>
+      <div className="mt-5 space-y-3">
+        <Select
+          label="Sign-in type"
+          value={kind}
+          onChange={(event) => setKind(event.target.value as CredentialKind)}
+          options={[{ value: 'pin', label: 'PIN' }, { value: 'password', label: 'Password' }]}
+        />
+        <SecretInput label={credentialPolicy.label(kind)} autoFocus value={next} onChange={(event) => setNext(event.target.value)} />
+        <SecretInput label="Confirm" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+        <Button onClick={() => setup.mutate()} disabled={!valid || setup.isPending} className="w-full">
+          <KeyRound className="h-4 w-4" /> {setup.isPending ? 'Saving…' : 'Save And Continue'}
+        </Button>
+        <Button variant="outline" onClick={onContinue} disabled={setup.isPending} className="w-full">
+          Continue Without A Password
+        </Button>
+        {confirm && next !== confirm ? <p className="text-sm text-red-400">Credentials do not match.</p> : null}
+        {setup.error ? <p className="text-sm text-red-400">{errorText(setup.error)}</p> : null}
       </div>
     </SignInShell>
   )

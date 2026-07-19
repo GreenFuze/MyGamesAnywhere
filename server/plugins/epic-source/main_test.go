@@ -11,6 +11,58 @@ import (
 	"time"
 )
 
+func TestEpicProfileIsolationIgnoresLegacyTokenFile(t *testing.T) {
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(originalDir) })
+	if err := os.WriteFile(tokenFile, []byte(`{"access_token":"legacy-global","refresh_token":"legacy-refresh"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tokenMu.Lock()
+	tokens = savedTokens{}
+	tokenMu.Unlock()
+
+	if _, errObj := handleInit(); errObj != nil {
+		t.Fatalf("handleInit() error = %+v", errObj)
+	}
+	if _, errObj := handleGamesList(json.RawMessage(`{}`)); errObj == nil || errObj.Code != "AUTH_REQUIRED" {
+		t.Fatalf("handleGamesList() error = %+v, want AUTH_REQUIRED without connection tokens", errObj)
+	}
+	tokenMu.Lock()
+	accessToken := tokens.AccessToken
+	tokenMu.Unlock()
+	if accessToken != "" {
+		t.Fatalf("legacy process token was loaded: %q", accessToken)
+	}
+}
+
+func TestEpicTokenConfigRoundTrip(t *testing.T) {
+	expires := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	config := map[string]any{"tokens": savedTokens{
+		AccessToken: "profile-access", RefreshToken: "profile-refresh", AccountID: "orr", ExpiresAt: expires,
+	}}
+	configured := tokensFromConfig(config)
+	if configured == nil || configured.AccessToken != "profile-access" || configured.AccountID != "orr" || !configured.ExpiresAt.Equal(expires) {
+		t.Fatalf("tokensFromConfig() = %+v", configured)
+	}
+}
+
+func TestEpicCheckConfigRequiresExplicitConnectionSignIn(t *testing.T) {
+	result, errObj := handleCheckConfig(json.RawMessage(`{"config":{}}`))
+	if errObj != nil {
+		t.Fatalf("handleCheckConfig() error = %+v", errObj)
+	}
+	payload, ok := result.(map[string]any)
+	if !ok || payload["status"] != "error" {
+		t.Fatalf("handleCheckConfig() = %#v, want actionable sign-in error", result)
+	}
+}
+
 func ipcCall(stdin io.Writer, stdout io.Reader, method string, params any) (*Response, error) {
 	req := Request{
 		ID:     fmt.Sprintf("test-%d", time.Now().UnixNano()),

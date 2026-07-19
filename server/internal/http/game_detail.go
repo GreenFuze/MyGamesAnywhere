@@ -79,34 +79,37 @@ type GameEmulatorRouteDTO struct {
 }
 
 type GameDeviceAvailabilityDTO struct {
-	DeviceID                string                 `json:"device_id"`
-	DisplayName             string                 `json:"display_name"`
-	OSUser                  string                 `json:"os_user"`
-	Status                  string                 `json:"status"`
-	Connected               bool                   `json:"connected"`
-	CanManage               bool                   `json:"can_manage"`
-	CanPlay                 bool                   `json:"can_play"`
-	PlatformSupported       bool                   `json:"platform_supported"`
-	EmulatorRoutes          []GameEmulatorRouteDTO `json:"emulator_routes,omitempty"`
-	FreeBytes               uint64                 `json:"free_bytes,omitempty"`
-	TotalBytes              uint64                 `json:"total_bytes,omitempty"`
-	InventoryCapturedAt     string                 `json:"inventory_captured_at,omitempty"`
-	Installed               bool                   `json:"installed"`
-	InstalledSourceID       string                 `json:"installed_source_id,omitempty"`
-	InstalledSave           *savedomain.Capability `json:"installed_save,omitempty"`
-	InstallPath             string                 `json:"install_path,omitempty"`
-	ArchiveInstallSupported bool                   `json:"archive_install_supported"`
-	GogInnoInstallSupported bool                   `json:"gog_inno_install_supported"`
-	FailedCleanupSupported  bool                   `json:"failed_cleanup_supported"`
-	UninstallSupported      bool                   `json:"uninstall_supported"`
-	LaunchSupported         bool                   `json:"launch_supported"`
-	InstallKind             string                 `json:"install_kind,omitempty"`
-	InstallState            string                 `json:"install_state,omitempty"`
-	StateReason             string                 `json:"state_reason,omitempty"`
-	CleanupMarkerID         string                 `json:"cleanup_marker_id,omitempty"`
-	CleanupIgnoredAt        string                 `json:"cleanup_ignored_at,omitempty"`
-	LaunchTarget            string                 `json:"launch_target,omitempty"`
-	LaunchCandidates        []string               `json:"launch_candidates,omitempty"`
+	DeviceID                string                                    `json:"device_id"`
+	DisplayName             string                                    `json:"display_name"`
+	OSUser                  string                                    `json:"os_user"`
+	Status                  string                                    `json:"status"`
+	Connected               bool                                      `json:"connected"`
+	CanManage               bool                                      `json:"can_manage"`
+	CanPlay                 bool                                      `json:"can_play"`
+	PlatformSupported       bool                                      `json:"platform_supported"`
+	EmulatorRoutes          []GameEmulatorRouteDTO                    `json:"emulator_routes,omitempty"`
+	FreeBytes               uint64                                    `json:"free_bytes,omitempty"`
+	TotalBytes              uint64                                    `json:"total_bytes,omitempty"`
+	InventoryCapturedAt     string                                    `json:"inventory_captured_at,omitempty"`
+	Installed               bool                                      `json:"installed"`
+	InstalledSourceID       string                                    `json:"installed_source_id,omitempty"`
+	InstalledSave           *savedomain.Capability                    `json:"installed_save,omitempty"`
+	InstallPath             string                                    `json:"install_path,omitempty"`
+	ArchiveInstallSupported bool                                      `json:"archive_install_supported"`
+	GogInnoInstallSupported bool                                      `json:"gog_inno_install_supported"`
+	FailedCleanupSupported  bool                                      `json:"failed_cleanup_supported"`
+	UninstallSupported      bool                                      `json:"uninstall_supported"`
+	LaunchSupported         bool                                      `json:"launch_supported"`
+	InstallKind             string                                    `json:"install_kind,omitempty"`
+	InstallState            string                                    `json:"install_state,omitempty"`
+	StateReason             string                                    `json:"state_reason,omitempty"`
+	CleanupMarkerID         string                                    `json:"cleanup_marker_id,omitempty"`
+	CleanupIgnoredAt        string                                    `json:"cleanup_ignored_at,omitempty"`
+	LaunchTarget            string                                    `json:"launch_target,omitempty"`
+	LaunchCandidates        []string                                  `json:"launch_candidates,omitempty"`
+	AuthorityMode           string                                    `json:"authority_mode,omitempty"`
+	UseExistingSupported    bool                                      `json:"use_existing_supported"`
+	ExistingInstallations   []devicev1.ManagedInstallationObservation `json:"existing_installations,omitempty"`
 }
 
 func (c *GameController) attachDeviceAvailability(ctx context.Context, response *GameDetailResponse, game *core.CanonicalGame) {
@@ -161,7 +164,7 @@ func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailR
 			PlatformSupported: game.Platform == core.PlatformWindowsPC && endpoint.Platform == "windows",
 		}
 		if fact.Emulators != nil {
-			c.attachEmulatorRoutes(&item, *fact.Emulators, game)
+			c.attachEmulatorRoutes(&item, *fact.Emulators, game, endpoint)
 		}
 		for _, capability := range endpoint.Capabilities {
 			switch capability {
@@ -175,6 +178,8 @@ func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailR
 				item.UninstallSupported = true
 			case devicev1.CapabilityGameLaunch:
 				item.LaunchSupported = true
+			case devicev1.CapabilityGameUseExisting:
+				item.UseExistingSupported = true
 			}
 		}
 		for _, installation := range endpoint.Installations {
@@ -195,8 +200,23 @@ func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailR
 				}
 				item.LaunchTarget = installation.LaunchTarget
 				item.LaunchCandidates = installation.LaunchCandidates
+				item.AuthorityMode = installation.AuthorityMode
 				break
 			}
+		}
+		if endpoint.Inventory != nil {
+			for _, observed := range endpoint.Inventory.ManagedInstallations {
+				if observed.State != "managed_elsewhere" && observed.State != "released" {
+					continue
+				}
+				if item.Installed && strings.EqualFold(item.InstallPath, observed.InstallPath) {
+					continue
+				}
+				item.ExistingInstallations = append(item.ExistingInstallations, observed)
+			}
+		}
+		if item.InstallKind == devicev1.InstallKindSharedExisting {
+			item.UninstallSupported = false
 		}
 		switch {
 		case item.Installed && item.InstallState != devicev1.InstallStateInstalled:
@@ -229,7 +249,7 @@ func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailR
 	}
 }
 
-func (c *GameController) attachEmulatorRoutes(item *GameDeviceAvailabilityDTO, configuration emulation.DeviceConfiguration, game *core.CanonicalGame) {
+func (c *GameController) attachEmulatorRoutes(item *GameDeviceAvailabilityDTO, configuration emulation.DeviceConfiguration, game *core.CanonicalGame, endpoint devices.Endpoint) {
 	if item == nil || game == nil {
 		return
 	}
@@ -251,6 +271,9 @@ func (c *GameController) attachEmulatorRoutes(item *GameDeviceAvailabilityDTO, c
 				save := c.saveDomainResolver().Emulator(savedomain.Source{
 					SourceGameID: source.ID, PluginID: source.PluginID,
 				}, item.DeviceID, option.ID, option.ResolvedCore)
+				if option.ID == "scummvm" {
+					attachScummVMSaveAuthority(&save, endpoint, game.ID, source.ID, item.CanManage, item.Connected)
+				}
 				route.Save = &save
 				if route.State == "ready" && !supportsEmulatorContentSource(source, c.emulatorContentRoot) {
 					route.State = "needs_setup"
@@ -274,6 +297,56 @@ func hasReadyEmulatorRoute(routes []GameEmulatorRouteDTO) bool {
 		}
 	}
 	return false
+}
+
+func attachScummVMSaveAuthority(save *savedomain.Capability, endpoint devices.Endpoint, gameID, sourceGameID string, canManage, connected bool) {
+	if save == nil {
+		return
+	}
+	save.DeviceID = endpoint.ID
+	save.SourceGameID = sourceGameID
+	save.EmulatorID = "scummvm"
+	claimReady := canManage && connected && endpointHasCapability(endpoint, devicev1.CapabilitySaveDomainClaim)
+	for _, link := range endpoint.SaveDomains {
+		if link.GameID != gameID || link.SourceGameID != sourceGameID || link.RouteKind != "emulator" || link.EmulatorID != "scummvm" {
+			continue
+		}
+		save.LocalSaveDomainID = link.LocalSaveDomainID
+		save.AuthorityState = link.AuthorityState
+		save.SyncState = link.SyncState
+		save.HasBackup = link.LastSnapshotManifestHash != ""
+		switch link.AuthorityState {
+		case "owned_here":
+			save.Access, save.Status, save.Manager = savedomain.AccessMGAManaged, savedomain.StatusAvailable, "mga"
+			save.MGARead, save.MGAWrite = true, true
+			save.CanRelease = canManage && connected && endpointHasCapability(endpoint, devicev1.CapabilitySaveDomainRelease)
+			save.CanSnapshot = canManage && connected && endpointHasCapability(endpoint, devicev1.CapabilitySaveDomainSnapshot)
+			save.CanRestore = canManage && connected && endpointHasCapability(endpoint, devicev1.CapabilitySaveDomainRestore) && link.LastSnapshotManifestHash != ""
+			switch link.SyncState {
+			case "clean":
+				save.Detail = "MGA can back up and restore this ScummVM save folder."
+			case "conflict":
+				save.Detail = "The device and saved backup both changed. Choose which copy to keep; MGA will preserve the other copy."
+			case "error":
+				save.Detail = "The last save operation did not finish. Try the backup again or restore the last good copy."
+			default:
+				save.Detail = "Save backup is connected. Create the first backup when you are ready."
+			}
+		case "released":
+			save.CanClaim = claimReady
+			save.Detail = "Save access was released. Connect it again to reconcile these local saves with this server's backup."
+		case "owned_elsewhere":
+			save.Detail = "Another MGA Server manages this exact local save folder. Release it there before connecting this server."
+		case "reconciliation_required":
+			save.Detail = "These saves need a safe choice before MGA can restore either copy."
+			save.CanReconcile = canManage && connected && endpointHasCapability(endpoint, devicev1.CapabilitySaveDomainReconcile)
+		}
+		return
+	}
+	save.CanClaim = claimReady
+	if claimReady {
+		save.Detail = "Save backup is not connected yet. Set it up to back up this exact ScummVM copy."
+	}
 }
 
 func (c *GameController) saveDomainResolver() *savedomain.Resolver {

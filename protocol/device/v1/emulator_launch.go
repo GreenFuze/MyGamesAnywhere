@@ -1,12 +1,15 @@
 package v1
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
 	"net/url"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -52,14 +55,15 @@ func (a EmulatorContentArtifact) Validate() error {
 }
 
 type EmulatorLaunchRequest struct {
-	GameID       string                    `json:"game_id"`
-	SourceGameID string                    `json:"source_game_id"`
-	Title        string                    `json:"title"`
-	Platform     string                    `json:"platform"`
-	EmulatorID   string                    `json:"emulator_id"`
-	CoreID       string                    `json:"core_id,omitempty"`
-	ContentPath  string                    `json:"content_path,omitempty"`
-	Artifacts    []EmulatorContentArtifact `json:"artifacts"`
+	GameID           string                    `json:"game_id"`
+	SourceGameID     string                    `json:"source_game_id"`
+	Title            string                    `json:"title"`
+	Platform         string                    `json:"platform"`
+	EmulatorID       string                    `json:"emulator_id"`
+	CoreID           string                    `json:"core_id,omitempty"`
+	ContentPath      string                    `json:"content_path,omitempty"`
+	Artifacts        []EmulatorContentArtifact `json:"artifacts"`
+	RouteFingerprint string                    `json:"route_fingerprint,omitempty"`
 }
 
 func (r EmulatorLaunchRequest) Validate() error {
@@ -98,7 +102,37 @@ func (r EmulatorLaunchRequest) Validate() error {
 		}
 		seen[key] = true
 	}
+	if r.RouteFingerprint != "" {
+		if !sha256Pattern.MatchString(strings.ToLower(strings.TrimSpace(r.RouteFingerprint))) {
+			return errors.New("route_fingerprint must contain 64 hexadecimal characters")
+		}
+		expected, err := EmulatorRouteFingerprint(r.Artifacts)
+		if err != nil {
+			return err
+		}
+		if !strings.EqualFold(expected, r.RouteFingerprint) {
+			return errors.New("route_fingerprint does not match emulator content")
+		}
+	}
 	return nil
+}
+
+func EmulatorRouteFingerprint(artifacts []EmulatorContentArtifact) (string, error) {
+	if len(artifacts) == 0 || len(artifacts) > 4096 {
+		return "", errors.New("emulator route requires between 1 and 4096 content artifacts")
+	}
+	items := append([]EmulatorContentArtifact(nil), artifacts...)
+	for _, artifact := range items {
+		if err := artifact.Validate(); err != nil {
+			return "", err
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return strings.ToLower(items[i].Path) < strings.ToLower(items[j].Path) })
+	hasher := sha256.New()
+	for _, artifact := range items {
+		_, _ = fmt.Fprintf(hasher, "%s\x00%d\x00%s\x00", strings.ToLower(artifact.Path), artifact.SizeBytes, strings.ToLower(artifact.SHA256))
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 type EmulatorLaunchResult struct {

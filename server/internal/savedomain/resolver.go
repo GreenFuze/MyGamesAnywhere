@@ -39,15 +39,27 @@ const (
 )
 
 type Capability struct {
-	DomainID string   `json:"domain_id"`
-	Access   Access   `json:"access"`
-	Status   Status   `json:"status"`
-	Manager  string   `json:"manager"`
-	Label    string   `json:"label"`
-	Detail   string   `json:"detail"`
-	MGARead  bool     `json:"mga_read"`
-	MGAWrite bool     `json:"mga_write"`
-	Transfer Transfer `json:"transfer"`
+	DomainID          string   `json:"domain_id"`
+	Access            Access   `json:"access"`
+	Status            Status   `json:"status"`
+	Manager           string   `json:"manager"`
+	Label             string   `json:"label"`
+	Detail            string   `json:"detail"`
+	MGARead           bool     `json:"mga_read"`
+	MGAWrite          bool     `json:"mga_write"`
+	Transfer          Transfer `json:"transfer"`
+	DeviceID          string   `json:"device_id,omitempty"`
+	SourceGameID      string   `json:"source_game_id,omitempty"`
+	EmulatorID        string   `json:"emulator_id,omitempty"`
+	LocalSaveDomainID string   `json:"local_save_domain_id,omitempty"`
+	AuthorityState    string   `json:"authority_state,omitempty"`
+	SyncState         string   `json:"sync_state,omitempty"`
+	CanClaim          bool     `json:"can_claim,omitempty"`
+	CanRelease        bool     `json:"can_release,omitempty"`
+	CanSnapshot       bool     `json:"can_snapshot,omitempty"`
+	CanRestore        bool     `json:"can_restore,omitempty"`
+	CanReconcile      bool     `json:"can_reconcile,omitempty"`
+	HasBackup         bool     `json:"has_backup,omitempty"`
 }
 
 type Source struct {

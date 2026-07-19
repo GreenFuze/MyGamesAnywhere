@@ -1583,9 +1583,155 @@ func TestPluginControllerCheckPluginConfigReturnsOAuthRequiredWithoutPersisting(
 	if repo.updated != nil {
 		t.Fatal("draft config check must not update integrations")
 	}
+	if got := host.lastCheckPayload["force_oauth"]; got != true {
+		t.Fatalf("force_oauth = %v, want true for a new OAuth connection", got)
+	}
 }
 
-func TestPluginControllerCheckPluginConfigReturnsConfigUpdates(t *testing.T) {
+func TestPluginControllerCreateFailsClosedWhenOAuthPluginIgnoresForcedAuthorization(t *testing.T) {
+	host := &fakeControllerIntegrationPluginHost{
+		plugins: map[string]*core.Plugin{
+			"game-source-xbox": {Manifest: core.PluginManifest{
+				ID: "game-source-xbox", Provides: []string{"plugin.check_config", "auth.oauth.callback"}, ConfigSchema: map[string]any{},
+			}},
+		},
+		checkResults: map[string]integrationCheckResult{"game-source-xbox": {Status: "ok"}},
+	}
+	repo := &fakeControllerIntegrationRepo{}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/integrations", strings.NewReader(`{"plugin_id":"game-source-xbox","label":"Orr","integration_type":"source","config":{"tokens":{"access_token":"copied"}}}`))
+	request = request.WithContext(core.WithProfile(request.Context(), &core.Profile{ID: "orr"}))
+	recorder := httptest.NewRecorder()
+	controller.Create(recorder, request)
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("Create() status = %d, want %d; body = %q", recorder.Code, http.StatusBadGateway, recorder.Body.String())
+	}
+	if got := host.lastCheckPayload["force_oauth"]; got != true {
+		t.Fatalf("force_oauth = %v, want true", got)
+	}
+	config, _ := host.lastCheckPayload["config"].(map[string]any)
+	if _, exists := config["tokens"]; exists {
+		t.Fatalf("browser-supplied tokens reached plugin validation: %#v", config)
+	}
+	if repo.created != nil {
+		t.Fatalf("OAuth connection was created without interactive authorization: %+v", repo.created)
+	}
+}
+
+func TestPluginControllerCreateXboxRequiresCompletedRefreshableAccount(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{}
+	host := &fakeControllerIntegrationPluginHost{
+		plugins: map[string]*core.Plugin{
+			"game-source-xbox": {Manifest: core.PluginManifest{
+				ID: "game-source-xbox", Provides: []string{"plugin.check_config", "auth.oauth.callback"}, ConfigSchema: map[string]any{},
+			}},
+		},
+		checkResults: map[string]integrationCheckResult{"game-source-xbox": {Status: "ok"}},
+	}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{}, noopLogger{}, nil)
+	controller.oauthStates = NewOAuthStateStore()
+	controller.oauthStates.Register("orr-xbox", OAuthState{
+		PluginID: "game-source-xbox", ProfileID: "orr",
+		ConfigUpdates: map[string]any{"tokens": map[string]any{"xuid": "orr-xuid"}},
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/integrations", strings.NewReader(`{"plugin_id":"game-source-xbox","label":"Orr Xbox","integration_type":"source","config":{},"oauth_state":"orr-xbox"}`))
+	request = request.WithContext(core.WithProfile(request.Context(), &core.Profile{ID: "orr"}))
+	recorder := httptest.NewRecorder()
+	controller.Create(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("Create() status = %d, want %d; body = %q", recorder.Code, http.StatusBadRequest, recorder.Body.String())
+	}
+	if repo.created != nil {
+		t.Fatalf("Xbox connection was created without a refreshable account: %+v", repo.created)
+	}
+}
+
+func TestPluginControllerCreateXboxStoresOnlyMatchingProfileAccountAndRedactsResponse(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{}
+	host := &fakeControllerIntegrationPluginHost{
+		plugins: map[string]*core.Plugin{
+			"game-source-xbox": {Manifest: core.PluginManifest{
+				ID: "game-source-xbox", Provides: []string{"plugin.check_config", "auth.oauth.callback"}, ConfigSchema: map[string]any{},
+			}},
+		},
+		checkResults: map[string]integrationCheckResult{"game-source-xbox": {Status: "ok"}},
+	}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{}, noopLogger{}, nil)
+	controller.oauthStates = NewOAuthStateStore()
+	controller.oauthStates.Register("orr-xbox-complete", OAuthState{
+		PluginID: "game-source-xbox", ProfileID: "orr",
+		ConfigUpdates: map[string]any{
+			"tokens": map[string]any{
+				"xuid":             "orr-xuid",
+				"ms_refresh_token": "orr-refresh-secret",
+			},
+			"provider_identity": map[string]any{
+				"provider":     "microsoft_xbox",
+				"subject":      "orr-xuid",
+				"display_name": "Orr",
+			},
+		},
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/integrations", strings.NewReader(`{"plugin_id":"game-source-xbox","label":"Orr Xbox","integration_type":"source","config":{},"oauth_state":"orr-xbox-complete"}`))
+	request = request.WithContext(core.WithProfile(request.Context(), &core.Profile{ID: "orr"}))
+	recorder := httptest.NewRecorder()
+	controller.Create(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("Create() status = %d, body = %q", recorder.Code, recorder.Body.String())
+	}
+	if repo.created == nil || !strings.Contains(repo.created.ConfigJSON, "orr-refresh-secret") || !strings.Contains(repo.created.ConfigJSON, `"display_name":"Orr"`) {
+		t.Fatalf("stored Xbox config = %+v, want exact profile callback account", repo.created)
+	}
+	var returned core.Integration
+	if err := json.Unmarshal(recorder.Body.Bytes(), &returned); err != nil {
+		t.Fatalf("decode create response: %v, body=%s", err, recorder.Body.String())
+	}
+	if strings.Contains(returned.ConfigJSON, "orr-refresh-secret") || strings.Contains(returned.ConfigJSON, `"tokens"`) {
+		t.Fatalf("Xbox tokens reached frontend create response: %s", returned.ConfigJSON)
+	}
+	if !strings.Contains(returned.ConfigJSON, `"display_name":"Orr"`) {
+		t.Fatalf("safe Xbox identity missing from create response: %s", returned.ConfigJSON)
+	}
+}
+
+func TestPluginControllerBrowseUsesOnlyMatchingProfileOAuthDraft(t *testing.T) {
+	host := &fakeControllerIntegrationPluginHost{
+		plugins:      map[string]*core.Plugin{"plugin.oauth": {Manifest: core.PluginManifest{ID: "plugin.oauth"}}},
+		browseResult: map[string]any{"folders": []map[string]any{{"name": "Orr", "path": "Orr"}}},
+	}
+	controller := NewPluginController(&fakeControllerIntegrationRepo{}, host, &fakeGameStore{}, staticConfig{}, noopLogger{}, nil)
+	controller.oauthStates = NewOAuthStateStore()
+	controller.oauthStates.Register("orr-drive", OAuthState{
+		PluginID: "plugin.oauth", ProfileID: "orr", ConfigUpdates: map[string]any{"tokens": map[string]any{"access_token": "orr-token"}},
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/plugins/plugin.oauth/browse", strings.NewReader(`{"path":"","oauth_state":"orr-drive"}`))
+	request = request.WithContext(core.WithProfile(request.Context(), &core.Profile{ID: "orr"}))
+	recorder := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Post("/api/plugins/{plugin_id}/browse", controller.Browse)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("Browse() status = %d, body = %q", recorder.Code, recorder.Body.String())
+	}
+	config, _ := host.lastBrowsePayload["config"].(map[string]any)
+	if config["tokens"] == nil {
+		t.Fatalf("browse config = %#v, want matching draft tokens", config)
+	}
+
+	wrongRequest := httptest.NewRequest(http.MethodPost, "/api/plugins/plugin.oauth/browse", strings.NewReader(`{"path":"","oauth_state":"orr-drive"}`))
+	wrongRequest = wrongRequest.WithContext(core.WithProfile(wrongRequest.Context(), &core.Profile{ID: "tc"}))
+	wrongRecorder := httptest.NewRecorder()
+	router.ServeHTTP(wrongRecorder, wrongRequest)
+	if wrongRecorder.Code != http.StatusForbidden {
+		t.Fatalf("wrong-profile Browse() status = %d, want %d", wrongRecorder.Code, http.StatusForbidden)
+	}
+}
+
+func TestPluginControllerCheckPluginConfigDoesNotExposeOAuthTokens(t *testing.T) {
 	host := &fakeControllerIntegrationPluginHost{
 		plugins: map[string]*core.Plugin{
 			"plugin.oauth": {
@@ -1623,8 +1769,10 @@ func TestPluginControllerCheckPluginConfigReturnsConfigUpdates(t *testing.T) {
 	if body["status"] != "ok" {
 		t.Fatalf("status payload = %v, want ok", body["status"])
 	}
-	if _, ok := body["config_updates"].(map[string]any); !ok {
-		t.Fatalf("config_updates missing from response: %#v", body)
+	if updates, ok := body["config_updates"].(map[string]any); ok {
+		if _, exposed := updates["tokens"]; exposed {
+			t.Fatalf("OAuth tokens exposed to frontend: %#v", body)
+		}
 	}
 }
 
@@ -1682,6 +1830,31 @@ func TestPluginControllerListReturnsEmptyArray(t *testing.T) {
 	}
 	if got := strings.TrimSpace(rec.Body.String()); got != "[]" {
 		t.Fatalf("body = %q, want []", got)
+	}
+}
+
+func TestPluginControllerListKeepsOAuthTokensServerSide(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{byID: map[string]*core.Integration{
+		"xbox": {
+			ID: "xbox", PluginID: "game-source-xbox", Label: "Orr Xbox",
+			ConfigJSON: `{"tokens":{"ms_refresh_token":"secret","xuid":"123"},"provider_identity":{"provider":"microsoft_xbox","subject":"123","display_name":"Orr"}}`,
+		},
+	}}
+	controller := NewPluginController(repo, nil, nil, staticConfig{}, noopLogger{}, nil)
+	recorder := httptest.NewRecorder()
+	controller.List(recorder, httptest.NewRequest(http.MethodGet, "/api/integrations", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("List() status = %d, body = %q", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "secret") || strings.Contains(recorder.Body.String(), `"tokens"`) {
+		t.Fatalf("OAuth tokens reached frontend response: %s", recorder.Body.String())
+	}
+	var integrations []core.Integration
+	if err := json.Unmarshal(recorder.Body.Bytes(), &integrations); err != nil || len(integrations) != 1 {
+		t.Fatalf("decode integrations: %v, body=%s", err, recorder.Body.String())
+	}
+	if !strings.Contains(integrations[0].ConfigJSON, `"display_name":"Orr"`) {
+		t.Fatalf("safe provider identity missing from response: %s", integrations[0].ConfigJSON)
 	}
 }
 
@@ -1745,6 +1918,33 @@ func TestPluginControllerUpdateIntegrationReturnsOAuthRequired(t *testing.T) {
 	}
 	if repo.updated != nil {
 		t.Fatal("update should not persist while oauth is still required")
+	}
+}
+
+func TestPluginControllerUpdatePreservesServerOwnedOAuthTokens(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{byID: map[string]*core.Integration{
+		"orr-drive": {
+			ID: "orr-drive", PluginID: "plugin.oauth", Label: "Orr Drive",
+			ConfigJSON: `{"root_path":"Games","tokens":{"access_token":"fresh-callback-token"}}`,
+		},
+	}}
+	host := &fakeControllerIntegrationPluginHost{
+		plugins: map[string]*core.Plugin{
+			"plugin.oauth": {Manifest: core.PluginManifest{ID: "plugin.oauth", Provides: []string{"plugin.check_config", "auth.oauth.callback"}, ConfigSchema: map[string]any{}}},
+		},
+		checkResults: map[string]integrationCheckResult{"plugin.oauth": {Status: "ok"}},
+	}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{}, noopLogger{}, nil)
+	request := httptest.NewRequest(http.MethodPut, "/api/integrations/orr-drive", strings.NewReader(`{"config":{"root_path":"Orr/Games","tokens":{"access_token":"stale-form-token"}}}`))
+	recorder := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Put("/api/integrations/{id}", controller.UpdateIntegration)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("UpdateIntegration() status = %d, body = %q", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(repo.updated.ConfigJSON, "fresh-callback-token") || strings.Contains(repo.updated.ConfigJSON, "stale-form-token") {
+		t.Fatalf("updated config = %s, want server-owned fresh OAuth token", repo.updated.ConfigJSON)
 	}
 }
 
@@ -1988,22 +2188,33 @@ func (r *fakeControllerIntegrationRepo) ListByPluginID(_ context.Context, plugin
 }
 
 type fakeControllerIntegrationPluginHost struct {
-	plugins          map[string]*core.Plugin
-	checkResults     map[string]integrationCheckResult
-	lastCheckPayload map[string]any
+	plugins           map[string]*core.Plugin
+	checkResults      map[string]integrationCheckResult
+	lastCheckPayload  map[string]any
+	browseResult      map[string]any
+	lastBrowsePayload map[string]any
 }
 
 func (f *fakeControllerIntegrationPluginHost) Discover(context.Context) error {
 	panic("unexpected call")
 }
 func (f *fakeControllerIntegrationPluginHost) Call(_ context.Context, pluginID, method string, params any, result any) error {
-	if method != "plugin.check_config" {
+	if payload, ok := params.(map[string]any); ok {
+		if method == "plugin.check_config" {
+			f.lastCheckPayload = payload
+		} else if method == "source.browse" {
+			f.lastBrowsePayload = payload
+		}
+	}
+	var payload any
+	switch method {
+	case "plugin.check_config":
+		payload = f.checkResults[pluginID]
+	case "source.browse":
+		payload = f.browseResult
+	default:
 		panic("unexpected call")
 	}
-	if payload, ok := params.(map[string]any); ok {
-		f.lastCheckPayload = payload
-	}
-	payload := f.checkResults[pluginID]
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err

@@ -121,6 +121,18 @@ export type SaveDomainCapability = {
   mga_read: boolean;
   mga_write: boolean;
   transfer: "same_domain_only" | "converter_required" | "unavailable" | "unknown" | string;
+	device_id?: string;
+	source_game_id?: string;
+	emulator_id?: string;
+	local_save_domain_id?: string;
+	authority_state?: string;
+	sync_state?: "never_backed_up" | "clean" | "conflict" | "error" | string;
+	can_claim?: boolean;
+	can_release?: boolean;
+	can_snapshot?: boolean;
+	can_restore?: boolean;
+	can_reconcile?: boolean;
+	has_backup?: boolean;
 };
 
 export type GameLaunchOptionDTO = {

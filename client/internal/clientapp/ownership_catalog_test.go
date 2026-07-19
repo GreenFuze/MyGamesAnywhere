@@ -1,6 +1,7 @@
 package clientapp
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,30 @@ import (
 	clientconfig "github.com/GreenFuze/MyGamesAnywhere/client/internal/config"
 	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 )
+
+func TestOwnershipCatalogMigratesSchemaOneAtomically(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ownership.json")
+	root := filepath.Join(t.TempDir(), "Games", "MGA", "one")
+	now := time.Now().UTC()
+	legacy := ownershipCatalogDocument{SchemaVersion: ownershipCatalogLegacySchemaVersion, Installations: []InstallationOwnershipRecord{{LocalInstallationID: testInstallID, OwnerBindingID: testBindingOne, State: OwnershipOwned, InstallKind: devicev1.InstallKindManagedArchive, InstallRoot: root, InstallPath: filepath.Join(root, "Game"), CreatedAt: now, UpdatedAt: now}}}
+	data, _ := json.Marshal(legacy)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenOwnershipCatalog(path); err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var header struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal(migrated, &header); err != nil || header.SchemaVersion != ownershipCatalogSchemaVersion {
+		t.Fatalf("migrated schema = %d, error = %v", header.SchemaVersion, err)
+	}
+}
 
 const (
 	testBindingOne = "11111111-1111-4111-8111-111111111111"
@@ -155,8 +180,14 @@ func TestManagedInstallationObservationsHideOtherServerPath(t *testing.T) {
 	if err := catalog.CompleteInstall(testInstallID, testBindingOne); err != nil {
 		t.Fatal(err)
 	}
-	here := NewOwnedLocalInventoryCollector(catalog, testBindingOne).managedInstallationObservations()
-	elsewhere := NewOwnedLocalInventoryCollector(catalog, testBindingTwo).managedInstallationObservations()
+	here, err := NewOwnedLocalInventoryCollector(catalog, testBindingOne).managedInstallationObservations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	elsewhere, err := NewOwnedLocalInventoryCollector(catalog, testBindingTwo).managedInstallationObservations()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(here) != 1 || !here[0].CanManage || here[0].InstallPath == "" || here[0].State != "managed_here" {
 		t.Fatalf("owner observation = %+v", here)
 	}

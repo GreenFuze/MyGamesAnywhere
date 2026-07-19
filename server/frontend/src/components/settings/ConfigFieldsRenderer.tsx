@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Eye, EyeOff, ExternalLink } from 'lucide-react'
 import { FolderBrowser } from './FolderBrowser'
+import type { BrowseResponse } from '@/api/client'
 
 interface ConfigFieldsRendererProps {
   /** Parsed schema fields from parsePluginConfigSchema(). */
@@ -21,6 +22,7 @@ interface ConfigFieldsRendererProps {
   /** Disables remote browsing until the integration has been verified/authenticated. */
   browseDisabled?: boolean
   browseDisabledReason?: string
+  browse?: (path: string) => Promise<BrowseResponse>
 }
 
 /**
@@ -36,6 +38,7 @@ export function ConfigFieldsRenderer({
   browsePluginId,
   browseDisabled = false,
   browseDisabledReason,
+  browse,
 }: ConfigFieldsRendererProps) {
   if (schema.length === 0) {
     return (
@@ -59,6 +62,7 @@ export function ConfigFieldsRenderer({
           browsePluginId={browsePluginId}
           browseDisabled={browseDisabled}
           browseDisabledReason={browseDisabledReason}
+          browse={browse}
         />
       ))}
     </div>
@@ -79,6 +83,7 @@ interface ConfigFieldProps {
   browsePluginId?: string | null
   browseDisabled: boolean
   browseDisabledReason?: string
+  browse?: (path: string) => Promise<BrowseResponse>
 }
 
 /** Renders field description text with an optional help link. */
@@ -105,7 +110,7 @@ function FieldHint({ field }: { field: PluginConfigField }) {
   )
 }
 
-function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal, browsePluginId, browseDisabled, browseDisabledReason }: ConfigFieldProps) {
+function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal, browsePluginId, browseDisabled, browseDisabledReason, browse }: ConfigFieldProps) {
   const [showSecret, setShowSecret] = useState(false)
   const isSecret = field['x-secret'] === true
   const isRequired = field.required === true
@@ -134,6 +139,7 @@ function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal, bro
         browsePluginId={browsePluginId}
         browseDisabled={browseDisabled}
         browseDisabledReason={browseDisabledReason}
+        browse={browse}
       />
     )
   }
@@ -148,6 +154,7 @@ function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal, bro
         browsePluginId={browsePluginId}
         browseDisabled={browseDisabled}
         browseDisabledReason={browseDisabledReason}
+        browse={browse}
       />
     )
   }
@@ -230,6 +237,7 @@ function ConfigField({ fieldKey, field, value, onChange, isMasked, onReveal, bro
         browsePluginId={browsePluginId}
         browseDisabled={browseDisabled}
         browseDisabledReason={browseDisabledReason}
+        browse={browse}
       />
     )
   }
@@ -255,6 +263,7 @@ function BrowsableStringField({
   browsePluginId,
   browseDisabled,
   browseDisabledReason,
+  browse,
 }: {
   fieldKey: string
   field: PluginConfigField
@@ -264,6 +273,7 @@ function BrowsableStringField({
   browsePluginId: string
   browseDisabled: boolean
   browseDisabledReason?: string
+  browse?: (path: string) => Promise<BrowseResponse>
 }) {
   const [showBrowser, setShowBrowser] = useState(false)
   return (
@@ -297,6 +307,7 @@ function BrowsableStringField({
               onChange(path)
               setShowBrowser(false)
             }}
+            browse={browse}
           />
         </div>
       )}
@@ -313,6 +324,7 @@ function StringPathsField({
   browsePluginId,
   browseDisabled = false,
   browseDisabledReason,
+  browse,
 }: {
   fieldKey: string
   field: PluginConfigField
@@ -321,6 +333,7 @@ function StringPathsField({
   browsePluginId?: string | null
   browseDisabled?: boolean
   browseDisabledReason?: string
+  browse?: (path: string) => Promise<BrowseResponse>
 }) {
   const [browserIndex, setBrowserIndex] = useState<number | null>(null)
   const paths = normalizeStringPathsValue(value)
@@ -376,6 +389,7 @@ function StringPathsField({
                     setPath(index, path)
                     setBrowserIndex(null)
                   }}
+                  browse={browse}
                 />
               )}
             </div>
@@ -395,6 +409,7 @@ function IncludePathsField({
   browsePluginId,
   browseDisabled = false,
   browseDisabledReason,
+  browse,
 }: {
   fieldKey: string
   field: PluginConfigField
@@ -403,6 +418,7 @@ function IncludePathsField({
   browsePluginId?: string | null
   browseDisabled?: boolean
   browseDisabledReason?: string
+  browse?: (path: string) => Promise<BrowseResponse>
 }) {
   const [browserIndex, setBrowserIndex] = useState<number | null>(null)
   const [excludeBrowser, setExcludeBrowser] = useState<{ includeIndex: number; excludeIndex: number } | null>(null)
@@ -522,6 +538,7 @@ function IncludePathsField({
                     setPath(index, path)
                     setBrowserIndex(null)
                   }}
+                  browse={browse}
                 />
               )}
             </div>
@@ -590,6 +607,7 @@ function IncludePathsField({
                             setExcludePath(index, excludeIndex, path)
                             setExcludeBrowser(null)
                           }}
+                          browse={browse}
                         />
                       )}
                     </div>

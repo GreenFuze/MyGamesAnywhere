@@ -41,6 +41,10 @@ type Service struct {
 	eventBus *events.EventBus
 }
 
+type saveDomainLinkStore interface {
+	ListSaveDomainLinks(context.Context, string) ([]SaveDomainLink, error)
+}
+
 func (s *Service) SetEventBus(eventBus *events.EventBus) { s.eventBus = eventBus }
 
 func NewService(store Store, hub *Hub) (*Service, error) {
@@ -185,6 +189,13 @@ func (s *Service) ListEndpoints(ctx context.Context, profileID string) ([]Endpoi
 			return nil, err
 		}
 		endpoints[index].Installations = installations
+		if links, ok := s.store.(saveDomainLinkStore); ok {
+			saveDomains, err := links.ListSaveDomainLinks(ctx, endpoints[index].ID)
+			if err != nil {
+				return nil, err
+			}
+			endpoints[index].SaveDomains = saveDomains
+		}
 	}
 	return endpoints, nil
 }
@@ -193,6 +204,17 @@ func (s *Service) ListEndpoints(ctx context.Context, profileID string) ([]Endpoi
 // It exposes authorization to bounded services without exposing the store.
 func (s *Service) AuthorizeEndpoint(ctx context.Context, endpointID, profileID string, required devicev1.AccessLevel) error {
 	return s.requireAccess(ctx, endpointID, profileID, required)
+}
+
+func (s *Service) ListSaveDomainLinks(ctx context.Context, endpointID, profileID string) ([]SaveDomainLink, error) {
+	if err := s.requireAccess(ctx, endpointID, profileID, devicev1.AccessView); err != nil {
+		return nil, err
+	}
+	store, ok := s.store.(saveDomainLinkStore)
+	if !ok {
+		return nil, errors.New("save domain persistence is unavailable")
+	}
+	return store.ListSaveDomainLinks(ctx, endpointID)
 }
 
 func (s *Service) EndpointForConnection(ctx context.Context, endpointID string) (*Endpoint, error) {
@@ -382,6 +404,9 @@ func (s *Service) DispatchInstallationValidation(ctx context.Context, endpointID
 	}
 	request := devicev1.InstallationValidationRequest{Trigger: strings.TrimSpace(trigger)}
 	for _, installation := range installations {
+		if installation.AuthorityMode == devicev1.InstallationAuthorityShared || installation.InstallKind == devicev1.InstallKindSharedExisting {
+			continue
+		}
 		switch installation.InstallState {
 		case devicev1.InstallStateInstalled, devicev1.InstallStateMissing, devicev1.InstallStateNeedsRepair:
 		default:
@@ -429,6 +454,27 @@ func commandPayloadForAudit(name string, payload json.RawMessage) (json.RawMessa
 			return nil, err
 		}
 		request.DownloadToken = "[redacted]"
+		return json.Marshal(request)
+	case devicev1.CapabilitySaveDomainSnapshot:
+		var request devicev1.SaveDomainSnapshotRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return nil, err
+		}
+		request.UploadToken = "[redacted]"
+		return json.Marshal(request)
+	case devicev1.CapabilitySaveDomainRestore:
+		var request devicev1.SaveDomainRestoreRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return nil, err
+		}
+		request.DownloadToken = "[redacted]"
+		return json.Marshal(request)
+	case devicev1.CapabilitySaveDomainReconcile:
+		var request devicev1.SaveDomainReconcileRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return nil, err
+		}
+		request.TransferToken = "[redacted]"
 		return json.Marshal(request)
 	case devicev1.CapabilityGameLaunchEmulator:
 		var request devicev1.EmulatorLaunchRequest
@@ -655,7 +701,10 @@ func requiredAccessForCommand(name string) (devicev1.AccessLevel, error) {
 		return devicev1.AccessOwner, nil
 	case devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameUninstall,
 		devicev1.CapabilityGameInstallGogInno, devicev1.CapabilityGameUninstallGogInno,
-		devicev1.CapabilityGameCleanupGogInnoFailed:
+		devicev1.CapabilityGameCleanupGogInnoFailed, devicev1.CapabilityGameUseExisting,
+		devicev1.CapabilitySaveDomainClaim, devicev1.CapabilitySaveDomainRelease,
+		devicev1.CapabilitySaveDomainSnapshot, devicev1.CapabilitySaveDomainRestore,
+		devicev1.CapabilitySaveDomainReconcile:
 		return devicev1.AccessManage, nil
 	default:
 		return "", fmt.Errorf("unsupported device command %q", name)
@@ -690,6 +739,13 @@ func validateCommandPayload(name string, payload json.RawMessage) error {
 		var request devicev1.ArchiveInstallRequest
 		if err := json.Unmarshal(payload, &request); err != nil {
 			return fmt.Errorf("decode archive install payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilityGameUseExisting {
+		var request devicev1.UseExistingInstallationRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode use-existing payload: %w", err)
 		}
 		return request.Validate()
 	}
@@ -739,6 +795,41 @@ func validateCommandPayload(name string, payload json.RawMessage) error {
 		var request devicev1.EmulatorSetupRequest
 		if err := json.Unmarshal(payload, &request); err != nil {
 			return fmt.Errorf("decode emulator setup payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilitySaveDomainClaim {
+		var request devicev1.SaveDomainClaimRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode save-domain claim payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilitySaveDomainRelease {
+		var request devicev1.SaveDomainReleaseRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode save-domain release payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilitySaveDomainSnapshot {
+		var request devicev1.SaveDomainSnapshotRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return err
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilitySaveDomainRestore {
+		var request devicev1.SaveDomainRestoreRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return err
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilitySaveDomainReconcile {
+		var request devicev1.SaveDomainReconcileRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return err
 		}
 		return request.Validate()
 	}

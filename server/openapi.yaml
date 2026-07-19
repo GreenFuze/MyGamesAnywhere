@@ -369,6 +369,34 @@ paths:
         500:
           description: Error response
 
+  /api/device-transfers/content:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    head:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/device-transfers/save-domain:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    put:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/devices:
     get:
       responses:
@@ -770,6 +798,126 @@ paths:
           description: Invalid installation state
         500:
           description: Internal server error
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/save-domain/claim:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/save-domain/reconcile:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/save-domain/release:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/save-domain/restore:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/save-domain/snapshot:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
 
   /api/devices/{id}/games/{game_id}/sources/{source_game_id}/uninstall:
     post:

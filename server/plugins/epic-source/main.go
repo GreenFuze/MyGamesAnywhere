@@ -43,12 +43,12 @@ const (
 	epicClientID     = "34a02cf8f4414e29b15921876da36f9a"
 	epicClientSecret = "daafbccc737745039dffe53d94fc76cf"
 
-	epicOAuthHost    = "account-public-service-prod03.ol.epicgames.com"
-	epicCatalogHost  = "catalog-public-service-prod06.ol.epicgames.com"
-	epicLibraryHost  = "library-service.live.use1a.on.epicgames.com"
+	epicOAuthHost   = "account-public-service-prod03.ol.epicgames.com"
+	epicCatalogHost = "catalog-public-service-prod06.ol.epicgames.com"
+	epicLibraryHost = "library-service.live.use1a.on.epicgames.com"
 
-	tokenFile    = "tokens.json"
-	localPort    = "9091"
+	tokenFile = "tokens.json"
+	localPort = "9091"
 )
 
 // --------------- Saved tokens ---------------
@@ -78,6 +78,44 @@ func saveTokens() error {
 		return err
 	}
 	return os.WriteFile(tokenFile, data, 0600)
+}
+
+func tokensFromConfig(config map[string]any) *savedTokens {
+	raw, ok := config["tokens"]
+	if !ok {
+		return nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var result savedTokens
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil
+	}
+	if result.AccessToken == "" && result.RefreshToken == "" {
+		return nil
+	}
+	return &result
+}
+
+func useConfiguredTokens(config map[string]any) {
+	tokenMu.Lock()
+	tokens = savedTokens{}
+	if configured := tokensFromConfig(config); configured != nil {
+		tokens = *configured
+	}
+	tokenMu.Unlock()
+}
+
+func tokenConfigUpdates() map[string]any {
+	tokenMu.Lock()
+	copy := tokens
+	tokenMu.Unlock()
+	if copy.AccessToken == "" && copy.RefreshToken == "" {
+		return nil
+	}
+	return map[string]any{"tokens": copy, "authorization_code": ""}
 }
 
 // --------------- Epic OAuth ---------------
@@ -346,6 +384,29 @@ func ensureAuthenticated() error {
 	return nil
 }
 
+// ensureConfiguredAuthenticated uses only tokens supplied by the active
+// profile integration. It never reads tokens.json and never opens a browser on
+// the MGA Server machine.
+func ensureConfiguredAuthenticated() error {
+	tokenMu.Lock()
+	defer tokenMu.Unlock()
+
+	if tokens.AccessToken != "" && time.Now().Before(tokens.ExpiresAt.Add(-5*time.Minute)) {
+		if err := verifyToken(); err == nil {
+			return nil
+		}
+	}
+	if tokens.RefreshToken == "" {
+		return fmt.Errorf("Epic connection requires sign-in")
+	}
+	tr, err := refreshAccessToken(tokens.RefreshToken)
+	if err != nil {
+		return fmt.Errorf("refresh Epic connection: %w", err)
+	}
+	applyTokenResponse(tr)
+	return nil
+}
+
 // --------------- Epic API calls ---------------
 
 var rateLimiter = time.NewTicker(300 * time.Millisecond)
@@ -394,17 +455,17 @@ type responseMetadata struct {
 // --------------- Catalog types ---------------
 
 type catalogItem struct {
-	ID               string           `json:"id"`
-	Title            string           `json:"title"`
-	Description      string           `json:"description"`
-	LongDescription  string           `json:"longDescription"`
-	Namespace        string           `json:"namespace"`
-	Developer        string           `json:"developer"`
-	Categories       []categoryInfo   `json:"categories"`
-	KeyImages        []keyImageInfo   `json:"keyImages"`
-	ReleaseInfo      []releaseInfo    `json:"releaseInfo"`
-	DlcItemList      []any            `json:"dlcItemList"`
-	MainGameItem     *mainGameRef     `json:"mainGameItem"`
+	ID              string         `json:"id"`
+	Title           string         `json:"title"`
+	Description     string         `json:"description"`
+	LongDescription string         `json:"longDescription"`
+	Namespace       string         `json:"namespace"`
+	Developer       string         `json:"developer"`
+	Categories      []categoryInfo `json:"categories"`
+	KeyImages       []keyImageInfo `json:"keyImages"`
+	ReleaseInfo     []releaseInfo  `json:"releaseInfo"`
+	DlcItemList     []any          `json:"dlcItemList"`
+	MainGameItem    *mainGameRef   `json:"mainGameItem"`
 }
 
 type categoryInfo struct {
@@ -566,28 +627,21 @@ func catalogToGameEntry(rec libraryRecord, item *catalogItem) *gameEntry {
 // --------------- IPC handlers ---------------
 
 func handleInit() (any, *Error) {
-	if err := ensureAuthenticated(); err != nil {
-		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
-	}
-
-	return map[string]any{
-		"status":       "ok",
-		"account_id":   tokens.AccountID,
-		"display_name": tokens.DisplayName,
-	}, nil
+	return map[string]any{"status": "ok", "message": "connection sign-in required"}, nil
 }
 
 func handleGamesList(params json.RawMessage) (any, *Error) {
-	tokenMu.Lock()
-	hasToken := tokens.AccessToken != ""
-	tokenMu.Unlock()
-
-	if !hasToken {
-		return map[string]any{"games": []any{}}, nil
+	var config map[string]any
+	if err := json.Unmarshal(params, &config); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 	}
+	if nested, ok := config["config"].(map[string]any); ok {
+		config = nested
+	}
+	useConfiguredTokens(config)
 
-	if err := ensureAuthenticated(); err != nil {
-		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
+	if err := ensureConfiguredAuthenticated(); err != nil {
+		return nil, &Error{Code: "AUTH_REQUIRED", Message: err.Error()}
 	}
 
 	records, err := fetchLibrary()
@@ -627,6 +681,47 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 
 	log.Printf("returning %d games (filtered from %d records)", len(games), len(records))
 	return map[string]any{"games": games}, nil
+}
+
+func handleCheckConfig(params json.RawMessage) (any, *Error) {
+	var p struct {
+		Config map[string]any `json:"config"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	useConfiguredTokens(p.Config)
+	if code, _ := p.Config["authorization_code"].(string); strings.TrimSpace(code) != "" {
+		tr, err := exchangeAuthCode(strings.TrimSpace(code))
+		if err != nil {
+			return map[string]any{"status": "error", "message": err.Error()}, nil
+		}
+		tokenMu.Lock()
+		applyTokenResponse(tr)
+		tokenMu.Unlock()
+		return map[string]any{
+			"status":          "ok",
+			"message":         "Epic Games connected as " + tr.DisplayName,
+			"source_identity": "epic:" + tr.AccountID,
+			"config_updates":  tokenConfigUpdates(),
+		}, nil
+	}
+	if err := ensureConfiguredAuthenticated(); err != nil {
+		return map[string]any{
+			"status":  "error",
+			"message": "Open the Epic Games help link, sign in to the intended account, and paste its authorizationCode.",
+		}, nil
+	}
+	tokenMu.Lock()
+	accountID := tokens.AccountID
+	displayName := tokens.DisplayName
+	tokenMu.Unlock()
+	return map[string]any{
+		"status":          "ok",
+		"message":         "Epic Games connected as " + displayName,
+		"source_identity": "epic:" + accountID,
+		"config_updates":  tokenConfigUpdates(),
+	}, nil
 }
 
 // --------------- Main ---------------
@@ -675,7 +770,12 @@ func main() {
 			}
 
 		case "plugin.check_config":
-			resp.Result = map[string]any{"status": "ok"}
+			result, errObj := handleCheckConfig(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
 
 		case "source.games.list":
 			result, errObj := handleGamesList(req.Params)

@@ -8,12 +8,14 @@ import (
 )
 
 type Layout struct {
-	DataDir        string
-	ConfigPath     string
-	PrivateKeyPath string
-	IdentityDir    string
-	LogPath        string
-	OwnershipPath  string
+	DataDir           string
+	ConfigPath        string
+	PrivateKeyPath    string
+	IdentityDir       string
+	LogPath           string
+	OwnershipPath     string
+	SaveAuthorityPath string
+	SaveDomainsRoot   string
 }
 
 func Resolve(dataDir string) (Layout, error) {
@@ -35,12 +37,14 @@ func Resolve(dataDir string) (Layout, error) {
 		return Layout{}, err
 	}
 	return Layout{
-		DataDir:        absolute,
-		ConfigPath:     filepath.Join(absolute, "config.json"),
-		PrivateKeyPath: filepath.Join(absolute, "endpoint_key.dpapi"),
-		IdentityDir:    filepath.Join(absolute, "identities"),
-		LogPath:        filepath.Join(absolute, "mga-client.log"),
-		OwnershipPath:  filepath.Join(absolute, "installation-ownership.json"),
+		DataDir:           absolute,
+		ConfigPath:        filepath.Join(absolute, "config.json"),
+		PrivateKeyPath:    filepath.Join(absolute, "endpoint_key.dpapi"),
+		IdentityDir:       filepath.Join(absolute, "identities"),
+		LogPath:           filepath.Join(absolute, "mga-client.log"),
+		OwnershipPath:     filepath.Join(absolute, "installation-ownership.json"),
+		SaveAuthorityPath: filepath.Join(absolute, "save-domain-authority.json"),
+		SaveDomainsRoot:   filepath.Join(absolute, "save-domains"),
 	}, nil
 }
 

@@ -412,6 +412,11 @@ function DeviceCard({ device, validationStatus, selectedByLink = false }: { devi
 						<div key={item.local_installation_id} className="rounded-mga bg-black/20 px-3 py-2">
 						  <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-semibold text-mga-text">{item.title}</span><span className="text-[10px] font-bold text-mga-muted">{ownershipStateLabel[item.state] ?? item.state}</span></div>
 						  {item.install_path ? <p className="mt-1 truncate text-[10px] text-mga-muted" title={item.install_path}>{item.install_path}</p> : null}
+						  {item.native_products?.length ? (
+							<div className="mt-1 space-y-1">
+							  {item.native_products.map((product) => <p key={`${product.provider}:${product.product_id}`} className="truncate text-[10px] text-mga-muted" title={`${product.publisher || ''} ${product.version || ''}`.trim()}>Windows: {product.display_name}{product.version ? ` · ${product.version}` : ''}</p>)}
+							</div>
+						  ) : null}
 						  {item.can_manage ? <Button size="sm" variant="outline" className="mt-2" onClick={() => openOwnershipAction('release', item.local_installation_id)}>Release</Button> : null}
 						  {item.can_adopt ? <Button size="sm" variant="outline" className="mt-2" onClick={() => openOwnershipAction('adopt', item.local_installation_id)}>Pick up</Button> : null}
 						</div>

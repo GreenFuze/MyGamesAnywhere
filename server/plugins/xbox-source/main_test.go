@@ -60,6 +60,7 @@ func TestConfiguredXboxTokensBecomeConfigUpdates(t *testing.T) {
 		XSTSToken:      "xsts",
 		UserHash:       "user-hash",
 		XUID:           "xuid-1",
+		Gamertag:       "Orr",
 		XSTSExpiresAt:  expiry,
 	}
 	if !useConfiguredTokens(configTokens) {
@@ -78,8 +79,52 @@ func TestConfiguredXboxTokensBecomeConfigUpdates(t *testing.T) {
 	if err := json.Unmarshal(raw, &roundTrip); err != nil {
 		t.Fatal(err)
 	}
-	if roundTrip.MSRefreshToken != "refresh" || roundTrip.XSTSToken != "xsts" || roundTrip.XUID != "xuid-1" || !roundTrip.XSTSExpiresAt.Equal(expiry) {
+	if roundTrip.MSRefreshToken != "refresh" || roundTrip.XSTSToken != "xsts" || roundTrip.XUID != "xuid-1" || roundTrip.Gamertag != "Orr" || !roundTrip.XSTSExpiresAt.Equal(expiry) {
 		t.Fatalf("roundTrip = %+v, want configured tokens", roundTrip)
+	}
+	result := xboxAuthOKResponse()
+	configUpdates, ok := result["config_updates"].(map[string]any)
+	if !ok {
+		t.Fatalf("config_updates = %#v", result["config_updates"])
+	}
+	identity, ok := configUpdates["provider_identity"].(providerIdentity)
+	if !ok || identity.Subject != "xuid-1" || identity.DisplayName != "Orr" {
+		t.Fatalf("provider_identity = %#v, want Orr/xuid-1", configUpdates["provider_identity"])
+	}
+}
+
+func TestLoadConfigIgnoresLegacyUserTokens(t *testing.T) {
+	originalClientID := builtinClientID
+	originalClientSecret := builtinClientSecret
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		builtinClientID = originalClientID
+		builtinClientSecret = originalClientSecret
+		_ = os.Chdir(originalDir)
+	})
+
+	builtinClientID = "built-in-client"
+	builtinClientSecret = "built-in-secret"
+	tempDir := t.TempDir()
+	if err := os.WriteFile(tempDir+string(os.PathSeparator)+configFile, []byte(`{"tokens":{"ms_refresh_token":"legacy","xuid":"wrong-profile"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Tokens != nil {
+		t.Fatalf("legacy process tokens were loaded: %+v", loaded.Tokens)
+	}
+	if err := os.Chdir(originalDir); err != nil {
+		t.Fatal(err)
 	}
 }
 

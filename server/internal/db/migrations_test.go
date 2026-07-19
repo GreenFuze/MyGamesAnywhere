@@ -37,7 +37,50 @@ func TestMigrationsFreshDBReachLatestAndAreIdempotent(t *testing.T) {
 	}
 }
 
-func TestMigrations25And26AddEmptyExtendedInventory(t *testing.T) {
+func TestMigration27PreservesExistingInstallationsAsManaged(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.ensureSchemaMigrationsTable(); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range dbSvc.orderedMigrations() {
+		if migration.Version > 26 {
+			break
+		}
+		if err := dbSvc.runMigration(context.Background(), migration); err != nil {
+			t.Fatalf("run migration %d: %v", migration.Version, err)
+		}
+	}
+	now := time.Now().Unix()
+	statements := []string{
+		`INSERT INTO profiles (id, display_name, role, created_at, updated_at) VALUES ('profile-27','Player','admin_player',` + fmt.Sprint(now) + `,` + fmt.Sprint(now) + `)`,
+		`INSERT INTO canonical_games (id, created_at) VALUES ('game-27',` + fmt.Sprint(now) + `)`,
+		`INSERT INTO source_games (id, profile_id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, status, review_state, created_at) VALUES ('source-27','profile-27','i','p','e','Game','windows_pc','base_game','packed','found','matched',` + fmt.Sprint(now) + `)`,
+		`INSERT INTO device_endpoints (id, client_instance_id, public_key, display_name, host_name, os_user, platform, arch, execution_mode, client_version, protocol_version, capabilities_json, status, created_at, updated_at) VALUES ('endpoint-27','instance-27','key','PC','pc','user','windows','amd64','standard','dev',1,'[]','offline',` + fmt.Sprint(now) + `,` + fmt.Sprint(now) + `)`,
+		`INSERT INTO device_game_installations (endpoint_id, game_id, source_game_id, profile_id, install_root, install_path, archive_sha256, archive_bytes, installed_at, updated_at) VALUES ('endpoint-27','game-27','source-27','profile-27','C:\Games','C:\Games\Game','hash',1,` + fmt.Sprint(now) + `,` + fmt.Sprint(now) + `)`,
+	}
+	for _, statement := range statements {
+		if _, err := dbSvc.GetDB().Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	var localID, authority string
+	if err := dbSvc.GetDB().QueryRow(`SELECT COALESCE(local_installation_id,''), authority_mode FROM device_game_installations WHERE endpoint_id='endpoint-27'`).Scan(&localID, &authority); err != nil {
+		t.Fatal(err)
+	}
+	if localID != "" || authority != "managed" {
+		t.Fatalf("migration 27 defaults = %q %q", localID, authority)
+	}
+}
+
+func TestMigrations25To28AddEmptyExtendedInventory(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
 	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
 	if err := dbSvc.Connect(); err != nil {
@@ -72,6 +115,35 @@ func TestMigrations25And26AddEmptyExtendedInventory(t *testing.T) {
 	var installations string
 	if err := dbSvc.GetDB().QueryRow(`SELECT managed_installations_json FROM device_inventories WHERE endpoint_id='endpoint-25'`).Scan(&installations); err != nil || installations != "[]" {
 		t.Fatalf("migrated managed installations = %q, error = %v", installations, err)
+	}
+	var saveDomains string
+	if err := dbSvc.GetDB().QueryRow(`SELECT save_domains_json FROM device_inventories WHERE endpoint_id='endpoint-25'`).Scan(&saveDomains); err != nil || saveDomains != "[]" {
+		t.Fatalf("migrated save domains = %q, error = %v", saveDomains, err)
+	}
+	var tableName string
+	if err := dbSvc.GetDB().QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='device_save_domain_links'`).Scan(&tableName); err != nil || tableName != "device_save_domain_links" {
+		t.Fatalf("save domain link table = %q, error = %v", tableName, err)
+	}
+	statements := []string{
+		`INSERT INTO profiles (id, display_name, role, created_at, updated_at) VALUES ('profile-28','Player','admin_player',?,?)`,
+		`INSERT INTO canonical_games (id, created_at) VALUES ('game-28',?)`,
+		`INSERT INTO source_games (id, profile_id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, status, review_state, created_at) VALUES ('source-28','profile-28','i','p','e','Game','scummvm','base_game','self_contained','found','matched',?)`,
+	}
+	for _, statement := range statements {
+		arguments := []any{now}
+		if strings.Contains(statement, "profiles") {
+			arguments = []any{now, now}
+		}
+		if _, err := dbSvc.GetDB().Exec(statement, arguments...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO device_save_domain_links (endpoint_id, game_id, source_game_id, route_kind, emulator_id, local_save_domain_id, adapter_id, authority_state, created_by_profile_id, created_at, updated_at) VALUES ('endpoint-25','game-28','source-28','emulator','scummvm','local-28','scummvm','owned_here','profile-28',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	var syncState string
+	if err := dbSvc.GetDB().QueryRow(`SELECT sync_state FROM device_save_domain_links WHERE local_save_domain_id='local-28'`).Scan(&syncState); err != nil || syncState != "never_backed_up" {
+		t.Fatalf("save domain sync default = %q, error = %v", syncState, err)
 	}
 }
 

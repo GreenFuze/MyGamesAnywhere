@@ -150,7 +150,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   }
   return (
     <ProfileContext.Provider value={value}>
-      <ProfileSignInGate profile={currentProfile} onCancel={addingPlayer ? cancelAddPlayer : clearProfile}>
+      <ProfileSignInGate key={currentProfile.id} profile={currentProfile} onCancel={addingPlayer ? cancelAddPlayer : clearProfile}>
         {addingPlayer ? (
           <AddPlayerGate
             onCancel={cancelAddPlayer}

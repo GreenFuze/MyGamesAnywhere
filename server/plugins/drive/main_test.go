@@ -8,8 +8,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 func ipcCall(stdin io.Writer, stdout io.Reader, method string, params any) (*Response, error) {
@@ -212,15 +215,6 @@ func TestHandleSourceDeleteDryRunReturnsTrashPlan(t *testing.T) {
 }
 
 func TestSourceDeleteServiceUsesTokenFromConfig(t *testing.T) {
-	tokenMu.Lock()
-	cachedToken = nil
-	tokenMu.Unlock()
-	t.Cleanup(func() {
-		tokenMu.Lock()
-		cachedToken = nil
-		tokenMu.Unlock()
-	})
-
 	_, err := getDriveServiceForConfig(context.Background(), map[string]any{
 		"tokens": map[string]any{
 			"access_token": "access-from-config",
@@ -231,11 +225,37 @@ func TestSourceDeleteServiceUsesTokenFromConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getDriveServiceForConfig returned error: %v", err)
 	}
-	tokenMu.Lock()
-	tok := cachedToken
-	tokenMu.Unlock()
-	if tok == nil || tok.AccessToken != "access-from-config" {
-		t.Fatalf("token from config = %+v, want access-from-config", tok)
+	if _, err := getDriveServiceForConfig(context.Background(), map[string]any{}); err == nil {
+		t.Fatal("missing connection-owned token must fail closed")
+	}
+}
+
+func TestCheckConfigIgnoresLegacyTokenFileAndRequestsAccountSelection(t *testing.T) {
+	oldConfig := oauthConfig
+	oauthConfig = &oauth2.Config{
+		ClientID:     "client",
+		ClientSecret: "secret",
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://accounts.example/authorize",
+			TokenURL: "https://accounts.example/token",
+		},
+	}
+	t.Cleanup(func() { oauthConfig = oldConfig })
+
+	result, errObj := handleCheckConfig(mustJSON(t, map[string]any{
+		"config":       map[string]any{},
+		"redirect_uri": "http://mga.lan/auth/google/callback/game-source-google-drive",
+	}))
+	if errObj != nil {
+		t.Fatalf("handleCheckConfig error = %s: %s", errObj.Code, errObj.Message)
+	}
+	payload, ok := result.(map[string]any)
+	if !ok || payload["status"] != "oauth_required" {
+		t.Fatalf("result = %#v, want oauth_required", result)
+	}
+	authorizeURL, _ := payload["authorize_url"].(string)
+	if !strings.Contains(authorizeURL, "prompt=select_account+consent") {
+		t.Fatalf("authorize_url = %q, want explicit account selection", authorizeURL)
 	}
 }
 

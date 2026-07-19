@@ -40,6 +40,8 @@ type DeviceController struct {
 	integrationRepo     core.IntegrationRepository
 	googleDriveRoot     string
 	archiveTransfers    *archiveTransferRegistry
+	saveDomainTransfers *saveDomainTransferRegistry
+	saveSync            core.SaveSyncService
 	validation          *InstallationValidationService
 	installPreferences  *installprefs.Service
 	emulators           *emulation.Service
@@ -57,7 +59,11 @@ func NewDeviceController(service *devices.Service, hub *devices.Hub, logger core
 	if len(clientInstallerPath) > 0 {
 		installerPath = strings.TrimSpace(clientInstallerPath[0])
 	}
-	return &DeviceController{service: service, hub: hub, logger: logger, clientInstallerPath: installerPath, archiveTransfers: newArchiveTransferRegistry()}, nil
+	return &DeviceController{service: service, hub: hub, logger: logger, clientInstallerPath: installerPath, archiveTransfers: newArchiveTransferRegistry(), saveDomainTransfers: newSaveDomainTransferRegistry()}, nil
+}
+
+func (c *DeviceController) SetSaveDomainDependencies(saveSync core.SaveSyncService) {
+	c.saveSync = saveSync
 }
 
 func (c *DeviceController) SetArchiveInstallDependencies(gameStore core.GameStore, integrationRepo core.IntegrationRepository, googleDriveDesktopRoot string) {

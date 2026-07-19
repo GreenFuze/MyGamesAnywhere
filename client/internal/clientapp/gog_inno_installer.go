@@ -84,6 +84,19 @@ type RegisteredProgramInspector interface {
 	HasAssociation(installPath string) (bool, error)
 }
 
+type RegisteredProgramObservation struct {
+	ProductID    string
+	DisplayName  string
+	Version      string
+	Publisher    string
+	CanUninstall bool
+}
+
+type RegisteredProgramObserver interface {
+	RegisteredProgramInspector
+	Associations(installPath string) ([]RegisteredProgramObservation, error)
+}
+
 type GogInnoInstaller interface {
 	Install(context.Context, string, devicev1.GogInnoInstallRequest, CommandProgressReporter) (devicev1.GogInnoInstallResult, error)
 	Uninstall(context.Context, devicev1.GogInnoUninstallRequest, CommandProgressReporter) (devicev1.GogInnoUninstallResult, error)

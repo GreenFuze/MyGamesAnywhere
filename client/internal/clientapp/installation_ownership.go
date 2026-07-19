@@ -21,6 +21,8 @@ type InstallationOwnership struct {
 	rootLabel    string
 	bindingCount int
 	catalog      *OwnershipCatalog
+	saveDomains  *SaveDomainCatalog
+	saveRoot     string
 	coordinator  *InstallationCoordinator
 }
 
@@ -149,6 +151,28 @@ func (o *InstallationOwnership) AuthorizeMutation(localID, manifestBindingID, pa
 	}
 	if !strings.EqualFold(record.LocalInstallationID, localID) || !strings.EqualFold(record.OwnerBindingID, o.bindingID) || record.State != OwnershipOwned {
 		return nil, errors.New("installation ownership does not match this MGA server")
+	}
+	release, err := o.coordinator.Reserve(o.bindingID, path, record.ProductIdentity)
+	if err != nil {
+		return nil, err
+	}
+	return &OwnedMutation{owner: o, record: record, release: release}, nil
+}
+
+func (o *InstallationOwnership) AuthorizeLaunch(localID, path string) (*OwnedMutation, error) {
+	if o == nil {
+		return nil, errors.New("installation ownership is unavailable")
+	}
+	record, found := o.catalog.FindByID(localID)
+	if !found || !sameLocalPath(record.InstallPath, path) {
+		return nil, errors.New("shared installation does not match the local catalog")
+	}
+	owner := strings.EqualFold(record.OwnerBindingID, o.bindingID) && record.State == OwnershipOwned
+	if !owner && !o.catalog.HasUseGrant(localID, o.bindingID) {
+		return nil, errors.New("this MGA Server has no local grant for the installation")
+	}
+	if record.State != OwnershipOwned && record.State != OwnershipReleased {
+		return nil, fmt.Errorf("installation is %s and cannot be launched", record.State)
 	}
 	release, err := o.coordinator.Reserve(o.bindingID, path, record.ProductIdentity)
 	if err != nil {

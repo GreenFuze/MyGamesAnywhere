@@ -25,6 +25,7 @@ import {
   clearSourceGameCanonicalPin,
   getGame,
   getGameAchievements,
+	getFrontendConfig,
 	getEndpointInstallPreference,
   installArchiveOnDevice,
   installGogInnoOnDevice,
@@ -32,6 +33,11 @@ import {
 	ignoreFailedGameOnDevice,
 	launchGameOnDevice,
 	launchEmulatorGameOnDevice,
+	claimScummVMSaveDomain,
+	releaseSaveDomain,
+	reconcileSaveDomain,
+	restoreSaveDomain,
+	snapshotSaveDomain,
   listDeviceCommands,
   mergeSourceGameCanonical,
   refreshGameMetadata,
@@ -40,6 +46,7 @@ import {
   splitSourceGameCanonical,
 	setDeviceGameLaunchTarget,
   uninstallGameFromDevice,
+	useExistingInstallationOnDevice,
   type AchievementDTO,
   type AchievementSetDTO,
   type CanonicalGameSearchResult,
@@ -1539,6 +1546,12 @@ export function GameDetailPage() {
     enabled: id.length > 0,
   })
 
+	const frontendConfig = useQuery({
+		queryKey: ['frontend-config'],
+		queryFn: getFrontendConfig,
+	})
+	const saveSyncIntegrationId = frontendConfig.data?.saveSyncActiveIntegrationId?.trim() ?? ''
+
   const deviceCommands = useQuery({
     queryKey: ['device-commands', activeDeviceCommand?.deviceId],
     queryFn: () => listDeviceCommands(activeDeviceCommand!.deviceId),
@@ -1576,6 +1589,11 @@ export function GameDetailPage() {
       setActiveDeviceCommand({ deviceId: variables.deviceId, commandId: command.id })
     },
   })
+	const useExistingInstallation = useMutation({
+		mutationFn: ({ deviceId, sourceGameId, localInstallationId }: { deviceId: string; sourceGameId: string; localInstallationId: string }) =>
+			useExistingInstallationOnDevice(deviceId, id, sourceGameId, localInstallationId),
+		onSuccess: (command, variables) => setActiveDeviceCommand({ deviceId: variables.deviceId, commandId: command.id }),
+	})
 	const launchGame = useMutation({
 		mutationFn: ({ deviceId, sourceGameId }: { deviceId: string; sourceGameId: string }) =>
 			launchGameOnDevice(deviceId, id, sourceGameId),
@@ -1584,6 +1602,21 @@ export function GameDetailPage() {
 	const launchEmulator = useMutation({
 		mutationFn: ({ deviceId, sourceGameId, emulatorId }: { deviceId: string; sourceGameId: string; emulatorId: string }) =>
 			launchEmulatorGameOnDevice(deviceId, id, sourceGameId, emulatorId),
+		onSuccess: (command, variables) => setActiveDeviceCommand({ deviceId: variables.deviceId, commandId: command.id }),
+	})
+	const saveDomainAction = useMutation({
+		mutationFn: async ({ action, deviceId, sourceGameId, localSaveDomainId }: { action: 'claim' | 'release' | 'snapshot' | 'snapshot-force' | 'restore' | 'restore-preserve' | 'reconcile-local' | 'reconcile-server'; deviceId: string; sourceGameId: string; localSaveDomainId?: string }) => {
+			switch (action) {
+				case 'claim': return claimScummVMSaveDomain(deviceId, id, sourceGameId, localSaveDomainId)
+				case 'release': return releaseSaveDomain(deviceId, id, sourceGameId, localSaveDomainId ?? '')
+				case 'snapshot': return snapshotSaveDomain(deviceId, id, sourceGameId, saveSyncIntegrationId)
+				case 'snapshot-force': return snapshotSaveDomain(deviceId, id, sourceGameId, saveSyncIntegrationId, true)
+				case 'restore': return restoreSaveDomain(deviceId, id, sourceGameId, saveSyncIntegrationId)
+				case 'restore-preserve': return restoreSaveDomain(deviceId, id, sourceGameId, saveSyncIntegrationId, true)
+				case 'reconcile-local': return reconcileSaveDomain(deviceId, id, sourceGameId, saveSyncIntegrationId, 'keep_local')
+				case 'reconcile-server': return reconcileSaveDomain(deviceId, id, sourceGameId, saveSyncIntegrationId, 'keep_server')
+			}
+		},
 		onSuccess: (command, variables) => setActiveDeviceCommand({ deviceId: variables.deviceId, commandId: command.id }),
 	})
 	const changeLaunchTarget = useMutation({
@@ -1618,6 +1651,11 @@ export function GameDetailPage() {
 			setPendingRetry(null)
 		}
 	}, [id, pendingRetry, queryClient, trackedCommand])
+
+	useEffect(() => {
+		if (!trackedCommand?.name.startsWith('save.') || !['succeeded', 'failed', 'rejected', 'canceled', 'expired'].includes(trackedCommand.status)) return
+		void queryClient.invalidateQueries({ queryKey: ['game', id] })
+	}, [id, queryClient, trackedCommand])
 
   const gameData = game.data ?? null
   const mediaCollection = useMemo(() => new GameMediaCollection(gameData?.media), [gameData?.media])
@@ -2351,6 +2389,7 @@ export function GameDetailPage() {
 				  const cleanupAvailable = Boolean(device.cleanup_marker_id && ['cleanup_required', 'cleanup_failed', 'ignored_failure'].includes(device.install_state ?? ''))
 				  const ignoredFailure = device.install_state === 'ignored_failure'
 				  const retryPackage = gogInnoSources.find(({ source }) => source.id === device.installed_source_id)
+				  const existingTargetSource = data.source_games.find((source) => source.kind === 'base_game') ?? data.source_games[0]
 					  return (
 						<div key={device.device_id} className="rounded-[14px] bg-white/[0.04] px-3 py-2.5">
 						  <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2374,7 +2413,7 @@ export function GameDetailPage() {
 								  <PlayCircle size={14} /> {route.emulator_name}{(device.emulator_routes?.length ?? 0) > 1 ? ` · ${route.source_title}` : ''}
 								</Button>
 							  ))}
-							  {device.installed && device.installed_source_id && !failureState ? (
+							  {device.installed && device.installed_source_id && !failureState && !reconciliationState ? (
 								<>
 								  <Button
 									size="sm"
@@ -2383,7 +2422,7 @@ export function GameDetailPage() {
 								  >
 									<PlayCircle size={14} /> Play
 								  </Button>
-								  <Button
+								  {device.authority_mode !== 'shared_launch' ? <Button
 									size="sm"
 									variant="outline"
 									disabled={!device.connected || !device.can_manage || !device.uninstall_supported || uninstallGame.isPending || Boolean(activeHere)}
@@ -2395,9 +2434,9 @@ export function GameDetailPage() {
 									})}
 								  >
 									<Trash2 size={14} /> Uninstall
-								  </Button>
+								  </Button> : null}
 								</>
-							  ) : reconciliationState && device.installed_source_id ? null : failureState && device.installed_source_id ? (
+							  ) : reconciliationState && device.installed_source_id && device.authority_mode !== 'shared_launch' ? null : failureState && device.installed_source_id ? (
 								<>
 								  {cleanupAvailable ? (
 									<>
@@ -2482,10 +2521,31 @@ export function GameDetailPage() {
 							  </select>
 							</label>
 						  ) : null}
+						  {(!device.installed || (device.authority_mode === 'shared_launch' && reconciliationState)) && device.use_existing_supported && device.existing_installations?.length && existingTargetSource ? (
+							<details className="mt-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/58">
+							  <summary className="cursor-pointer font-medium text-white/72">Use a game already installed on this Windows user</summary>
+							  <p className="mt-2 leading-5">Choose the exact copy. MGA Client will ask locally before giving this server launch-only access.</p>
+							  <div className="mt-2 flex flex-wrap gap-2">
+								{device.existing_installations.map((existing) => (
+								  <Button
+									key={existing.local_installation_id}
+									size="sm"
+									variant="outline"
+									disabled={!device.connected || !device.can_manage || useExistingInstallation.isPending || Boolean(activeHere)}
+									onClick={() => useExistingInstallation.mutate({ deviceId: device.device_id, sourceGameId: existingTargetSource.id, localInstallationId: existing.local_installation_id })}
+								  >
+									<FolderOpen size={14} /> {existing.title}
+								  </Button>
+								))}
+							  </div>
+							</details>
+						  ) : null}
 						  {reconciliationState ? (
 							<p className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
 							  {device.install_state === 'missing'
-								? `The installed game folder is no longer on ${device.display_name}. MGA did not remove it.`
+								? device.authority_mode === 'shared_launch'
+								  ? `MGA Client no longer sees launch permission for this existing installation on ${device.display_name}. Choose the existing copy again below, or use Install above for a separate MGA-managed copy.`
+								  : `The installed game folder is no longer on ${device.display_name}. MGA did not remove it.`
 								: `This installation is incomplete on ${device.display_name}: ${installationVerificationMessage(device.state_reason)}`}
 							</p>
 						  ) : failureState && !ignoredFailure ? (
@@ -2573,9 +2633,35 @@ export function GameDetailPage() {
 					</Badge>
 				  </div>
 				  <p className="mt-3 text-xs leading-5 text-white/58">{domain.detail}</p>
+				  {domain.authority_state === 'reconciliation_required' ? (
+					<div className="mt-3 rounded-xl border border-purple-300/20 bg-purple-300/10 p-3">
+					  <p className="text-xs leading-5 text-purple-100">This folder belonged to another MGA Server. Choose the copy this server should start with.</p>
+					  <div className="mt-2 flex flex-wrap gap-2">
+						<Button size="sm" disabled={saveDomainAction.isPending || !saveSyncIntegrationId || !domain.can_reconcile} onClick={() => saveDomainAction.mutate({ action: 'reconcile-local', deviceId: domain.device_id!, sourceGameId: domain.source_game_id!, localSaveDomainId: domain.local_save_domain_id })}>Keep this device</Button>
+						{domain.has_backup ? <Button size="sm" variant="outline" disabled={saveDomainAction.isPending || !saveSyncIntegrationId || !domain.can_reconcile} onClick={() => saveDomainAction.mutate({ action: 'reconcile-server', deviceId: domain.device_id!, sourceGameId: domain.source_game_id!, localSaveDomainId: domain.local_save_domain_id })}>Use backup, keep both</Button> : null}
+					  </div>
+					</div>
+				  ) : domain.sync_state === 'conflict' ? (
+					<div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/10 p-3">
+					  <p className="text-xs leading-5 text-amber-100">Both copies changed. MGA will not choose for you.</p>
+					  <div className="mt-2 flex flex-wrap gap-2">
+						<Button size="sm" disabled={saveDomainAction.isPending || !saveSyncIntegrationId} onClick={() => saveDomainAction.mutate({ action: 'snapshot-force', deviceId: domain.device_id!, sourceGameId: domain.source_game_id!, localSaveDomainId: domain.local_save_domain_id })}>Keep this device</Button>
+						<Button size="sm" variant="outline" disabled={saveDomainAction.isPending || !saveSyncIntegrationId || !domain.can_restore} onClick={() => saveDomainAction.mutate({ action: 'restore-preserve', deviceId: domain.device_id!, sourceGameId: domain.source_game_id!, localSaveDomainId: domain.local_save_domain_id })}>Use backup, keep both</Button>
+					  </div>
+					</div>
+				  ) : (
+					<div className="mt-3 flex flex-wrap gap-2">
+					  {domain.can_claim ? <Button size="sm" disabled={saveDomainAction.isPending} onClick={() => saveDomainAction.mutate({ action: 'claim', deviceId: domain.device_id!, sourceGameId: domain.source_game_id!, localSaveDomainId: domain.local_save_domain_id })}>Set up backup</Button> : null}
+					  {domain.can_snapshot ? <Button size="sm" disabled={saveDomainAction.isPending || !saveSyncIntegrationId} onClick={() => saveDomainAction.mutate({ action: 'snapshot', deviceId: domain.device_id!, sourceGameId: domain.source_game_id!, localSaveDomainId: domain.local_save_domain_id })}>Back up now</Button> : null}
+					  {domain.can_restore ? <Button size="sm" variant="outline" disabled={saveDomainAction.isPending || !saveSyncIntegrationId} onClick={() => saveDomainAction.mutate({ action: 'restore', deviceId: domain.device_id!, sourceGameId: domain.source_game_id!, localSaveDomainId: domain.local_save_domain_id })}>Restore</Button> : null}
+					  {domain.can_release ? <Button size="sm" variant="ghost" disabled={saveDomainAction.isPending} onClick={() => saveDomainAction.mutate({ action: 'release', deviceId: domain.device_id!, sourceGameId: domain.source_game_id!, localSaveDomainId: domain.local_save_domain_id })}>Release access</Button> : null}
+					</div>
+				  )}
+				  {(domain.can_snapshot || domain.can_restore) && !saveSyncIntegrationId ? <p className="mt-2 text-xs text-amber-200">Choose an active Save Sync connection in Settings first.</p> : null}
 				</div>
 			  ))}
 			</div>
+			{saveDomainAction.isError ? <p className="mt-3 text-sm text-red-300">{saveDomainAction.error instanceof Error ? saveDomainAction.error.message : 'MGA could not start that save action.'}</p> : null}
 		  </SectionCard>
 		) : null}
 

@@ -129,10 +129,11 @@ func (r ArchiveInstallResult) Validate() error {
 }
 
 type GameLaunchRequest struct {
-	GameID       string `json:"game_id"`
-	SourceGameID string `json:"source_game_id"`
-	InstallPath  string `json:"install_path"`
-	LaunchTarget string `json:"launch_target"`
+	GameID              string `json:"game_id"`
+	SourceGameID        string `json:"source_game_id"`
+	InstallPath         string `json:"install_path"`
+	LaunchTarget        string `json:"launch_target"`
+	LocalInstallationID string `json:"local_installation_id,omitempty"`
 }
 
 func (r GameLaunchRequest) Validate() error {

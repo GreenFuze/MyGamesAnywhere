@@ -46,6 +46,41 @@ func TestInventoryManagedInstallationObservationIsBoundedAndSanitized(t *testing
 	}
 }
 
+func TestInventoryNativeProductsAreBoundedToKnownInstallations(t *testing.T) {
+	product := NativeProductObservation{Provider: "windows_uninstall", ProductID: "windows-uninstall:abc", DisplayName: "Game", Version: "1.0", Capabilities: []string{"uninstall"}}
+	inventory := DeviceInventory{
+		SchemaVersion: InventorySchemaVersion,
+		CapturedAt:    time.Now(),
+		ManagedInstallations: []ManagedInstallationObservation{{
+			LocalInstallationID: "local-1", State: "managed_elsewhere", InstallKind: "gog_inno", Title: "Game",
+			NativeProducts: []NativeProductObservation{product},
+		}},
+	}
+	if err := inventory.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	inventory.SchemaVersion = InventorySchemaVersionWithInstallations
+	if err := inventory.Validate(); err == nil {
+		t.Fatal("schema 4 accepted native product evidence")
+	}
+}
+
+func TestInventorySaveDomainObservationsAreSanitizedAndVersioned(t *testing.T) {
+	inventory := DeviceInventory{SchemaVersion: InventorySchemaVersion, CapturedAt: time.Now(), SaveDomains: []SaveDomainObservation{{LocalSaveDomainID: "local-save-1", AdapterID: "scummvm", State: "owned_elsewhere"}}}
+	if err := inventory.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	inventory.SaveDomains[0].CanWrite = true
+	if err := inventory.Validate(); err == nil {
+		t.Fatal("another server's save domain was writable")
+	}
+	inventory.SaveDomains[0].CanWrite = false
+	inventory.SchemaVersion = InventorySchemaVersionWithNativeProducts
+	if err := inventory.Validate(); err == nil {
+		t.Fatal("schema 5 accepted save domain observations")
+	}
+}
+
 func TestInventoryValidationRejectsInvalidSaveAdapters(t *testing.T) {
 	for name, adapters := range map[string][]SaveAdapterInventory{
 		"duplicate": {{ID: "scummvm", Name: "ScummVM", ProbeState: "complete"}, {ID: "scummvm", Name: "ScummVM", ProbeState: "partial"}},

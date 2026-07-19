@@ -281,7 +281,19 @@ export class ConfigSummaryBuilder {
       if (c.steam_id) return `Steam ID: ${c.steam_id}`
       return ConfigSummaryBuilder.hintSecret(c, 'api_key')
     },
-    'game-source-xbox': (c) => ConfigSummaryBuilder.hintSecret(c, 'client_id'),
+    'game-source-xbox': (c) => {
+      const identity = c.provider_identity
+      if (identity && typeof identity === 'object') {
+        const account = identity as Record<string, unknown>
+        if (typeof account.display_name === 'string' && account.display_name) {
+          return `Microsoft account: ${account.display_name}`
+        }
+        if (typeof account.subject === 'string' && account.subject) {
+          return `Xbox account: ${account.subject}`
+        }
+      }
+      return 'Microsoft account connection'
+    },
     'metadata-igdb': (c) => ConfigSummaryBuilder.hintSecret(c, 'client_id'),
     'metadata-rawg': (c) => ConfigSummaryBuilder.hintSecret(c, 'api_key'),
     'retroachievements': (c) => (c.username ? `User: ${c.username}` : ''),

@@ -9,14 +9,17 @@ import (
 )
 
 const (
-	InventorySchemaVersion                 uint16 = 4
-	InventorySchemaVersionWithSaveAdapters uint16 = 3
-	InventorySchemaVersionPrevious         uint16 = 2
-	InventorySchemaVersionLegacy           uint16 = 1
-	maxInventoryRuntimes                          = 64
-	maxRuntimeComponents                          = 256
-	maxSaveAdapters                               = 16
-	maxManagedInstallations                       = 256
+	InventorySchemaVersion                   uint16 = 6
+	InventorySchemaVersionWithNativeProducts uint16 = 5
+	InventorySchemaVersionWithInstallations  uint16 = 4
+	InventorySchemaVersionWithSaveAdapters   uint16 = 3
+	InventorySchemaVersionPrevious           uint16 = 2
+	InventorySchemaVersionLegacy             uint16 = 1
+	maxInventoryRuntimes                            = 64
+	maxRuntimeComponents                            = 256
+	maxSaveAdapters                                 = 16
+	maxManagedInstallations                         = 256
+	maxSaveDomains                                  = 1024
 )
 
 // DeviceInventory is a bounded snapshot of facts needed to evaluate play and
@@ -30,6 +33,7 @@ type DeviceInventory struct {
 	PackageManagers      []PackageManagerInventory        `json:"package_managers,omitempty"`
 	SaveAdapters         []SaveAdapterInventory           `json:"save_adapters,omitempty"`
 	ManagedInstallations []ManagedInstallationObservation `json:"managed_installations,omitempty"`
+	SaveDomains          []SaveDomainObservation          `json:"save_domains,omitempty"`
 }
 
 type StorageInventory struct {
@@ -70,17 +74,42 @@ type SaveAdapterInventory struct {
 }
 
 type ManagedInstallationObservation struct {
-	LocalInstallationID string `json:"local_installation_id"`
-	State               string `json:"state"`
-	InstallKind         string `json:"install_kind"`
-	Title               string `json:"title"`
-	InstallPath         string `json:"install_path,omitempty"`
-	CanManage           bool   `json:"can_manage,omitempty"`
-	CanAdopt            bool   `json:"can_adopt,omitempty"`
+	LocalInstallationID string                     `json:"local_installation_id"`
+	State               string                     `json:"state"`
+	InstallKind         string                     `json:"install_kind"`
+	Title               string                     `json:"title"`
+	InstallPath         string                     `json:"install_path,omitempty"`
+	CanManage           bool                       `json:"can_manage,omitempty"`
+	CanAdopt            bool                       `json:"can_adopt,omitempty"`
+	UseGranted          bool                       `json:"use_granted,omitempty"`
+	NativeProducts      []NativeProductObservation `json:"native_products,omitempty"`
+}
+
+// NativeProductObservation is bounded evidence for a product already known to
+// MGA. It intentionally omits registry keys, uninstall commands, and unrelated
+// installed applications.
+type NativeProductObservation struct {
+	Provider     string   `json:"provider"`
+	ProductID    string   `json:"product_id"`
+	DisplayName  string   `json:"display_name"`
+	Version      string   `json:"version,omitempty"`
+	Publisher    string   `json:"publisher,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+}
+
+// SaveDomainObservation is a sanitized per-binding view of a client-local save
+// domain. It deliberately omits local paths, filenames, and the writer's
+// binding/server identity.
+type SaveDomainObservation struct {
+	LocalSaveDomainID string `json:"local_save_domain_id"`
+	AdapterID         string `json:"adapter_id"`
+	State             string `json:"state"`
+	CanWrite          bool   `json:"can_write,omitempty"`
+	CanClaim          bool   `json:"can_claim,omitempty"`
 }
 
 func (i DeviceInventory) Validate() error {
-	if i.SchemaVersion != InventorySchemaVersionLegacy && i.SchemaVersion != InventorySchemaVersionPrevious && i.SchemaVersion != InventorySchemaVersionWithSaveAdapters && i.SchemaVersion != InventorySchemaVersion {
+	if i.SchemaVersion != InventorySchemaVersionLegacy && i.SchemaVersion != InventorySchemaVersionPrevious && i.SchemaVersion != InventorySchemaVersionWithSaveAdapters && i.SchemaVersion != InventorySchemaVersionWithInstallations && i.SchemaVersion != InventorySchemaVersionWithNativeProducts && i.SchemaVersion != InventorySchemaVersion {
 		return fmt.Errorf("unsupported inventory schema version %d", i.SchemaVersion)
 	}
 	if i.CapturedAt.IsZero() {
@@ -141,7 +170,7 @@ func (i DeviceInventory) Validate() error {
 		}
 		seenAdapters[adapter.ID] = true
 	}
-	if i.SchemaVersion != InventorySchemaVersion && len(i.ManagedInstallations) != 0 {
+	if i.SchemaVersion < InventorySchemaVersionWithInstallations && len(i.ManagedInstallations) != 0 {
 		return fmt.Errorf("inventory schema %d cannot contain managed installations", i.SchemaVersion)
 	}
 	if len(i.ManagedInstallations) > maxManagedInstallations {
@@ -156,6 +185,43 @@ func (i DeviceInventory) Validate() error {
 			return fmt.Errorf("duplicate local installation id %q", installation.LocalInstallationID)
 		}
 		seenInstallations[installation.LocalInstallationID] = true
+		if i.SchemaVersion < InventorySchemaVersionWithNativeProducts && len(installation.NativeProducts) != 0 {
+			return fmt.Errorf("inventory schema %d cannot contain native product observations", i.SchemaVersion)
+		}
+	}
+	if i.SchemaVersion < InventorySchemaVersion && len(i.SaveDomains) != 0 {
+		return fmt.Errorf("inventory schema %d cannot contain save domain observations", i.SchemaVersion)
+	}
+	if len(i.SaveDomains) > maxSaveDomains {
+		return errors.New("inventory contains too many save domains")
+	}
+	seenSaveDomains := map[string]bool{}
+	for _, domain := range i.SaveDomains {
+		if err := domain.Validate(); err != nil {
+			return err
+		}
+		if seenSaveDomains[domain.LocalSaveDomainID] {
+			return fmt.Errorf("duplicate save domain id %q", domain.LocalSaveDomainID)
+		}
+		seenSaveDomains[domain.LocalSaveDomainID] = true
+	}
+	return nil
+}
+
+func (d SaveDomainObservation) Validate() error {
+	if strings.TrimSpace(d.LocalSaveDomainID) == "" || strings.TrimSpace(d.AdapterID) == "" {
+		return errors.New("save domain ID and adapter are required")
+	}
+	switch d.State {
+	case "observed", "owned_here", "owned_elsewhere", "released", "reconciliation_required":
+	default:
+		return fmt.Errorf("unsupported save domain observation state %q", d.State)
+	}
+	if d.CanWrite != (d.State == "owned_here") {
+		return errors.New("only a save domain owned here may be writable")
+	}
+	if d.CanClaim && d.State != "released" && d.State != "observed" {
+		return errors.New("only an observed or released save domain may be claimable")
 	}
 	return nil
 }
@@ -179,6 +245,46 @@ func (i ManagedInstallationObservation) Validate() error {
 	}
 	if i.CanAdopt && i.State != "released" {
 		return errors.New("only a released installation can be adopted")
+	}
+	if i.UseGranted && i.State != "managed_elsewhere" && i.State != "released" {
+		return errors.New("use grant is only reported for another or released installation")
+	}
+	if len(i.NativeProducts) > 16 {
+		return errors.New("managed installation contains too many native products")
+	}
+	seenProducts := map[string]bool{}
+	for index, product := range i.NativeProducts {
+		if err := product.Validate(); err != nil {
+			return fmt.Errorf("native product %d: %w", index, err)
+		}
+		key := product.Provider + ":" + strings.ToLower(product.ProductID)
+		if seenProducts[key] {
+			return fmt.Errorf("duplicate native product %q", product.ProductID)
+		}
+		seenProducts[key] = true
+	}
+	return nil
+}
+
+func (p NativeProductObservation) Validate() error {
+	if p.Provider != "windows_uninstall" {
+		return fmt.Errorf("unsupported native product provider %q", p.Provider)
+	}
+	if strings.TrimSpace(p.ProductID) == "" || len(p.ProductID) > 128 {
+		return errors.New("native product ID is required and must be bounded")
+	}
+	if strings.TrimSpace(p.DisplayName) == "" || len(p.DisplayName) > 256 || len(p.Version) > 128 || len(p.Publisher) > 256 {
+		return errors.New("native product display fields are missing or too long")
+	}
+	seen := map[string]bool{}
+	for _, capability := range p.Capabilities {
+		if capability != "uninstall" {
+			return fmt.Errorf("unsupported native product capability %q", capability)
+		}
+		if seen[capability] {
+			return fmt.Errorf("duplicate native product capability %q", capability)
+		}
+		seen[capability] = true
 	}
 	return nil
 }
@@ -280,6 +386,13 @@ func (i DeviceInventory) Normalize() DeviceInventory {
 	i.PackageManagers = append([]PackageManagerInventory(nil), i.PackageManagers...)
 	i.SaveAdapters = append([]SaveAdapterInventory(nil), i.SaveAdapters...)
 	i.ManagedInstallations = append([]ManagedInstallationObservation(nil), i.ManagedInstallations...)
+	i.SaveDomains = append([]SaveDomainObservation(nil), i.SaveDomains...)
+	for index := range i.ManagedInstallations {
+		i.ManagedInstallations[index].NativeProducts = append([]NativeProductObservation(nil), i.ManagedInstallations[index].NativeProducts...)
+		sort.Slice(i.ManagedInstallations[index].NativeProducts, func(left, right int) bool {
+			return i.ManagedInstallations[index].NativeProducts[left].ProductID < i.ManagedInstallations[index].NativeProducts[right].ProductID
+		})
+	}
 	for index := range i.Runtimes {
 		i.Runtimes[index].Components = append([]RuntimeComponentInventory(nil), i.Runtimes[index].Components...)
 		sort.Slice(i.Runtimes[index].Components, func(left, right int) bool {
@@ -298,6 +411,9 @@ func (i DeviceInventory) Normalize() DeviceInventory {
 	sort.Slice(i.SaveAdapters, func(left, right int) bool { return i.SaveAdapters[left].ID < i.SaveAdapters[right].ID })
 	sort.Slice(i.ManagedInstallations, func(left, right int) bool {
 		return i.ManagedInstallations[left].LocalInstallationID < i.ManagedInstallations[right].LocalInstallationID
+	})
+	sort.Slice(i.SaveDomains, func(left, right int) bool {
+		return i.SaveDomains[left].LocalSaveDomainID < i.SaveDomains[right].LocalSaveDomainID
 	})
 	return i
 }

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -218,56 +220,88 @@ func filesystemObjectIdentity(path string) (string, error) {
 const uninstallRegistryPath = `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`
 
 func (windowsRegisteredProgramInspector) HasAssociation(installPath string) (bool, error) {
-	cleanInstallPath := filepath.Clean(installPath)
-	for _, root := range []registry.Key{registry.CURRENT_USER, registry.LOCAL_MACHINE} {
-		for _, view := range []uint32{registry.WOW64_64KEY, registry.WOW64_32KEY} {
-			associated, err := registryViewHasAssociation(root, view, cleanInstallPath)
-			if err != nil {
-				return false, err
-			}
-			if associated {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
+	associations, err := (windowsRegisteredProgramInspector{}).Associations(installPath)
+	return len(associations) > 0, err
 }
 
-func registryViewHasAssociation(root registry.Key, view uint32, installPath string) (bool, error) {
+func (windowsRegisteredProgramInspector) Associations(installPath string) ([]RegisteredProgramObservation, error) {
+	cleanInstallPath := filepath.Clean(installPath)
+	var result []RegisteredProgramObservation
+	for _, root := range []struct {
+		key registry.Key
+		id  string
+	}{{registry.CURRENT_USER, "user"}, {registry.LOCAL_MACHINE, "machine"}} {
+		for _, view := range []struct {
+			flag uint32
+			id   string
+		}{{registry.WOW64_64KEY, "64"}, {registry.WOW64_32KEY, "32"}} {
+			observed, err := registryViewAssociations(root.key, root.id, view.flag, view.id, cleanInstallPath)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, observed...)
+		}
+	}
+	sort.Slice(result, func(left, right int) bool { return result[left].ProductID < result[right].ProductID })
+	return result, nil
+}
+
+func registryViewAssociations(root registry.Key, scope string, view uint32, viewID, installPath string) ([]RegisteredProgramObservation, error) {
 	key, err := registry.OpenKey(root, uninstallRegistryPath, registry.READ|view)
 	if errors.Is(err, registry.ErrNotExist) {
-		return false, nil
+		return nil, nil
 	}
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	defer key.Close()
 	names, err := key.ReadSubKeyNames(-1)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
+	result := make([]RegisteredProgramObservation, 0, 1)
 	for _, name := range names {
 		entry, openErr := registry.OpenKey(key, name, registry.READ|view)
 		if errors.Is(openErr, registry.ErrNotExist) {
 			continue
 		}
 		if openErr != nil {
-			return false, openErr
+			return nil, openErr
 		}
 		location, _, locationErr := entry.GetStringValue("InstallLocation")
 		uninstall, _, uninstallErr := entry.GetStringValue("UninstallString")
+		displayName, _, displayNameErr := entry.GetStringValue("DisplayName")
+		version, _, versionErr := entry.GetStringValue("DisplayVersion")
+		publisher, _, publisherErr := entry.GetStringValue("Publisher")
 		entry.Close()
 		if locationErr != nil && !errors.Is(locationErr, registry.ErrNotExist) {
-			return false, locationErr
+			return nil, locationErr
 		}
 		if uninstallErr != nil && !errors.Is(uninstallErr, registry.ErrNotExist) {
-			return false, uninstallErr
+			return nil, uninstallErr
+		}
+		for _, valueErr := range []error{displayNameErr, versionErr, publisherErr} {
+			if valueErr != nil && !errors.Is(valueErr, registry.ErrNotExist) {
+				return nil, valueErr
+			}
 		}
 		if registryInstallLocationMatches(location, installPath) || registryUninstallExecutableMatches(uninstall, installPath) {
-			return true, nil
+			displayName = strings.TrimSpace(displayName)
+			if displayName == "" {
+				displayName = filepath.Base(installPath)
+			}
+			result = append(result, RegisteredProgramObservation{
+				ProductID: registeredProgramProductID(scope, viewID, name), DisplayName: displayName,
+				Version: strings.TrimSpace(version), Publisher: strings.TrimSpace(publisher), CanUninstall: strings.TrimSpace(uninstall) != "",
+			})
 		}
 	}
-	return false, nil
+	return result, nil
+}
+
+func registeredProgramProductID(scope, view, keyName string) string {
+	digest := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(scope)) + "\x00" + strings.TrimSpace(view) + "\x00" + strings.ToLower(strings.TrimSpace(keyName))))
+	return "windows-uninstall:" + hex.EncodeToString(digest[:])
 }
 
 func registryInstallLocationMatches(location, installPath string) bool {

@@ -81,7 +81,14 @@ type savedTokens struct {
 	XSTSToken      string    `json:"xsts_token"`
 	UserHash       string    `json:"user_hash"`
 	XUID           string    `json:"xuid"`
+	Gamertag       string    `json:"gamertag,omitempty"`
 	XSTSExpiresAt  time.Time `json:"xsts_expires_at"`
+}
+
+type providerIdentity struct {
+	Provider    string `json:"provider"`
+	Subject     string `json:"subject"`
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 var tokens savedTokens
@@ -110,9 +117,12 @@ func currentTokensConfigUpdate() map[string]any {
 func xboxAuthOKResponse() map[string]any {
 	tokenMu.Lock()
 	xuid := tokens.XUID
+	gamertag := tokens.Gamertag
 	tokenMu.Unlock()
-	result := map[string]any{"status": "ok", "xuid": xuid}
+	identity := providerIdentity{Provider: "microsoft_xbox", Subject: xuid, DisplayName: gamertag}
+	result := map[string]any{"status": "ok", "xuid": xuid, "source_identity": xuid}
 	if updates := currentTokensConfigUpdate(); updates != nil {
+		updates["provider_identity"] = identity
 		result["config_updates"] = updates
 	}
 	return result
@@ -138,6 +148,10 @@ func loadConfig() (*xboxConfig, error) {
 	if c.ClientID == "" || c.ClientSecret == "" {
 		return nil, fmt.Errorf("no client credentials: set via build-time ldflags or config.json")
 	}
+	// config.json may contain user tokens from pre-profile builds. It is only an
+	// application-registration override now; user identity must come from the
+	// exact connection config supplied with each request.
+	c.Tokens = nil
 	return &c, nil
 }
 
@@ -322,6 +336,7 @@ func fullXboxAuth(msAccessToken string) error {
 	if len(xstsResp.DisplayClaims.Xui) > 0 {
 		tokens.UserHash = xstsResp.DisplayClaims.Xui[0].Uhs
 		tokens.XUID = xstsResp.DisplayClaims.Xui[0].Xid
+		tokens.Gamertag = xstsResp.DisplayClaims.Xui[0].Gtg
 	}
 	if xstsResp.NotAfter != "" {
 		tokens.XSTSExpiresAt, _ = time.Parse(time.RFC3339, xstsResp.NotAfter)

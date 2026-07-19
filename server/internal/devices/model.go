@@ -29,6 +29,25 @@ type Endpoint struct {
 	AccessLevel      devicev1.AccessLevel         `json:"access_level"`
 	Inventory        *devicev1.DeviceInventory    `json:"inventory,omitempty"`
 	Installations    []GameInstallation           `json:"installations,omitempty"`
+	SaveDomains      []SaveDomainLink             `json:"save_domains,omitempty"`
+}
+
+// SaveDomainLink is the server-side view of one exact client-local save
+// domain. It deliberately contains no local path or client binding identity.
+type SaveDomainLink struct {
+	EndpointID               string    `json:"endpoint_id"`
+	GameID                   string    `json:"game_id"`
+	SourceGameID             string    `json:"source_game_id"`
+	RouteKind                string    `json:"route_kind"`
+	EmulatorID               string    `json:"emulator_id,omitempty"`
+	LocalSaveDomainID        string    `json:"local_save_domain_id"`
+	AdapterID                string    `json:"adapter_id"`
+	AuthorityState           string    `json:"authority_state"`
+	SyncState                string    `json:"sync_state"`
+	LastSnapshotManifestHash string    `json:"last_snapshot_manifest_hash,omitempty"`
+	CreatedByProfileID       string    `json:"created_by_profile_id,omitempty"`
+	CreatedAt                time.Time `json:"created_at"`
+	UpdatedAt                time.Time `json:"updated_at"`
 }
 
 type PairingChallenge struct {
@@ -119,6 +138,8 @@ type GameInstallation struct {
 	CleanupIgnoredByProfileID string                        `json:"cleanup_ignored_by_profile_id,omitempty"`
 	VerificationReasonCode    string                        `json:"verification_reason_code,omitempty"`
 	VerificationDetails       json.RawMessage               `json:"verification_details,omitempty"`
+	LocalInstallationID       string                        `json:"local_installation_id,omitempty"`
+	AuthorityMode             string                        `json:"authority_mode"`
 }
 
 type InstallationEvent struct {

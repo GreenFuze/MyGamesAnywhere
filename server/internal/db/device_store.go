@@ -245,6 +245,50 @@ func (s *DeviceStore) RenameEndpoint(ctx context.Context, endpointID, displayNam
 	return nil
 }
 
+func reconcileSharedInstallations(ctx context.Context, tx *sql.Tx, endpointID string, observations []devicev1.ManagedInstallationObservation, checkedAt time.Time) error {
+	authorized := make(map[string]bool, len(observations))
+	for _, observation := range observations {
+		if observation.UseGranted || observation.State == "managed_here" {
+			authorized[strings.ToLower(observation.LocalInstallationID)] = true
+		}
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT game_id, source_game_id, COALESCE(local_installation_id,''), install_state
+		FROM device_game_installations WHERE endpoint_id=? AND authority_mode=?`, endpointID, devicev1.InstallationAuthorityShared)
+	if err != nil {
+		return fmt.Errorf("list shared installations for reconciliation: %w", err)
+	}
+	type sharedRow struct{ gameID, sourceID, localID, state string }
+	var shared []sharedRow
+	for rows.Next() {
+		var row sharedRow
+		if err := rows.Scan(&row.gameID, &row.sourceID, &row.localID, &row.state); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		shared = append(shared, row)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, row := range shared {
+		nextState, reason := devicev1.InstallStateMissing, "shared_grant_unavailable"
+		if authorized[strings.ToLower(row.localID)] {
+			nextState, reason = devicev1.InstallStateInstalled, ""
+		}
+		var stateChanged any
+		if row.state != nextState {
+			stateChanged = checkedAt.Unix()
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE device_game_installations SET install_state=?, state_reason=?, verification_reason_code=?,
+			last_verified_at=?, state_changed_at=COALESCE(?, state_changed_at), updated_at=?
+			WHERE endpoint_id=? AND game_id=? AND source_game_id=? AND authority_mode=?`, nextState, nullIfEmpty(reason), nullIfEmpty(reason),
+			checkedAt.Unix(), stateChanged, checkedAt.Unix(), endpointID, row.gameID, row.sourceID, devicev1.InstallationAuthorityShared); err != nil {
+			return fmt.Errorf("reconcile shared installation: %w", err)
+		}
+	}
+	return nil
+}
+
 func (s *DeviceStore) DeleteEndpoint(ctx context.Context, endpointID string) error {
 	result, err := s.db.GetDB().ExecContext(ctx, `DELETE FROM device_endpoints WHERE id=?`, endpointID)
 	if err != nil {
@@ -480,6 +524,201 @@ func (s *DeviceStore) CompleteCommand(ctx context.Context, endpointID string, re
 			InstallKind: devicev1.InstallKindManagedArchive, InstallState: devicev1.InstallStateInstalled,
 		}, updatedAt); err != nil {
 			return err
+		}
+	}
+	if commandName == devicev1.CapabilityGameUseExisting && result.Status == devicev1.CommandSucceeded {
+		var request devicev1.UseExistingInstallationRequest
+		var shared devicev1.UseExistingInstallationResult
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode use-existing command: %w", err)
+		}
+		if err := json.Unmarshal(result.Payload, &shared); err != nil {
+			return fmt.Errorf("decode use-existing result: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
+		if err := shared.Validate(); err != nil {
+			return err
+		}
+		if shared.LocalInstallationID != request.LocalInstallationID || shared.GameID != request.GameID || shared.SourceGameID != request.SourceGameID {
+			return errors.New("use-existing result does not match command")
+		}
+		if err := upsertGameInstallation(ctx, tx, endpointID, profileID, devices.GameInstallation{
+			GameID: shared.GameID, SourceGameID: shared.SourceGameID, InstallRoot: shared.InstallRoot, InstallPath: shared.InstallPath,
+			ArchiveSHA256: "shared:" + shared.LocalInstallationID, InstalledAt: shared.GrantedAt,
+			LaunchTarget: shared.LaunchTarget, LaunchCandidates: shared.LaunchCandidates,
+			InstallKind: devicev1.InstallKindSharedExisting, InstallState: devicev1.InstallStateInstalled,
+			LocalInstallationID: shared.LocalInstallationID, AuthorityMode: devicev1.InstallationAuthorityShared,
+		}, updatedAt); err != nil {
+			return err
+		}
+	}
+	if commandName == devicev1.CapabilitySaveDomainClaim && result.Status == devicev1.CommandSucceeded {
+		var request devicev1.SaveDomainClaimRequest
+		var claimed devicev1.SaveDomainClaimResult
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode save-domain claim command: %w", err)
+		}
+		if err := json.Unmarshal(result.Payload, &claimed); err != nil {
+			return fmt.Errorf("decode save-domain claim result: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
+		if err := claimed.Validate(); err != nil {
+			return err
+		}
+		if claimed.GameID != request.GameID || claimed.SourceGameID != request.SourceGameID || claimed.AdapterID != request.AdapterID || claimed.RouteFingerprint != request.RouteFingerprint || (request.LocalSaveDomainID != "" && request.LocalSaveDomainID != claimed.LocalSaveDomainID) {
+			return errors.New("save-domain claim result does not match command")
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO device_save_domain_links
+			(endpoint_id, game_id, source_game_id, route_kind, emulator_id, local_save_domain_id, adapter_id, authority_state, created_by_profile_id, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(endpoint_id, game_id, source_game_id, route_kind, emulator_id) DO UPDATE SET
+				local_save_domain_id=excluded.local_save_domain_id, adapter_id=excluded.adapter_id,
+				authority_state=excluded.authority_state, created_by_profile_id=excluded.created_by_profile_id, updated_at=excluded.updated_at`,
+			endpointID, request.GameID, request.SourceGameID, request.RouteKind, request.EmulatorID, claimed.LocalSaveDomainID, claimed.AdapterID, claimed.State, profileID, claimed.GrantedAt.Unix(), updatedAt.Unix()); err != nil {
+			return fmt.Errorf("persist save-domain claim: %w", err)
+		}
+	}
+	if commandName == devicev1.CapabilitySaveDomainRelease && result.Status == devicev1.CommandSucceeded {
+		var request devicev1.SaveDomainReleaseRequest
+		var released devicev1.SaveDomainReleaseResult
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode save-domain release command: %w", err)
+		}
+		if err := json.Unmarshal(result.Payload, &released); err != nil {
+			return fmt.Errorf("decode save-domain release result: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
+		if err := released.Validate(); err != nil {
+			return err
+		}
+		if released.GameID != request.GameID || released.SourceGameID != request.SourceGameID || released.LocalSaveDomainID != request.LocalSaveDomainID {
+			return errors.New("save-domain release result does not match command")
+		}
+		update, err := tx.ExecContext(ctx, `UPDATE device_save_domain_links SET authority_state='released', updated_at=?
+			WHERE endpoint_id=? AND game_id=? AND source_game_id=? AND local_save_domain_id=? AND authority_state='owned_here'`,
+			updatedAt.Unix(), endpointID, request.GameID, request.SourceGameID, request.LocalSaveDomainID)
+		if err != nil {
+			return fmt.Errorf("persist save-domain release: %w", err)
+		}
+		if rows, err := update.RowsAffected(); err != nil || rows != 1 {
+			if err != nil {
+				return err
+			}
+			return errors.New("save-domain release did not match an owned server link")
+		}
+	}
+	if commandName == devicev1.CapabilitySaveDomainSnapshot {
+		var request devicev1.SaveDomainSnapshotRequest
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode save-domain snapshot command: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
+		syncState := "error"
+		manifestHash := ""
+		if result.Status == devicev1.CommandSucceeded {
+			var snapshot devicev1.SaveDomainSnapshotResult
+			if err := json.Unmarshal(result.Payload, &snapshot); err != nil {
+				return fmt.Errorf("decode save-domain snapshot result: %w", err)
+			}
+			if err := snapshot.Validate(); err != nil {
+				return err
+			}
+			if snapshot.GameID != request.GameID || snapshot.SourceGameID != request.SourceGameID || snapshot.LocalSaveDomainID != request.LocalSaveDomainID {
+				return errors.New("save-domain snapshot result does not match command")
+			}
+			if snapshot.State == "stored" {
+				syncState, manifestHash = "clean", snapshot.ManifestHash
+			} else {
+				syncState = "conflict"
+			}
+		}
+		update, err := tx.ExecContext(ctx, `UPDATE device_save_domain_links SET sync_state=?,
+			last_snapshot_manifest_hash=CASE WHEN ?<>'' THEN ? ELSE last_snapshot_manifest_hash END, updated_at=?
+			WHERE endpoint_id=? AND game_id=? AND source_game_id=? AND local_save_domain_id=? AND authority_state='owned_here'`,
+			syncState, manifestHash, manifestHash, updatedAt.Unix(), endpointID, request.GameID, request.SourceGameID, request.LocalSaveDomainID)
+		if err != nil {
+			return fmt.Errorf("persist save-domain snapshot result: %w", err)
+		}
+		if rows, err := update.RowsAffected(); err != nil || rows != 1 {
+			return errors.New("save-domain snapshot did not match an owned server link")
+		}
+	}
+	if commandName == devicev1.CapabilitySaveDomainRestore {
+		var request devicev1.SaveDomainRestoreRequest
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode save-domain restore command: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
+		syncState := "error"
+		if result.Status == devicev1.CommandSucceeded {
+			var restored devicev1.SaveDomainRestoreResult
+			if err := json.Unmarshal(result.Payload, &restored); err != nil {
+				return fmt.Errorf("decode save-domain restore result: %w", err)
+			}
+			if err := restored.Validate(); err != nil {
+				return err
+			}
+			if restored.GameID != request.GameID || restored.SourceGameID != request.SourceGameID || restored.LocalSaveDomainID != request.LocalSaveDomainID || restored.ManifestHash != request.ManifestHash {
+				return errors.New("save-domain restore result does not match command")
+			}
+			syncState = "clean"
+		} else if result.Error != nil && result.Error.Code == "save_domain_local_conflict" {
+			syncState = "conflict"
+		}
+		update, err := tx.ExecContext(ctx, `UPDATE device_save_domain_links SET sync_state=?, updated_at=?
+			WHERE endpoint_id=? AND game_id=? AND source_game_id=? AND local_save_domain_id=? AND authority_state='owned_here'`,
+			syncState, updatedAt.Unix(), endpointID, request.GameID, request.SourceGameID, request.LocalSaveDomainID)
+		if err != nil {
+			return fmt.Errorf("persist save-domain restore result: %w", err)
+		}
+		if rows, err := update.RowsAffected(); err != nil || rows != 1 {
+			return errors.New("save-domain restore did not match an owned server link")
+		}
+	}
+	if commandName == devicev1.CapabilitySaveDomainReconcile {
+		var request devicev1.SaveDomainReconcileRequest
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode save-domain reconciliation command: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
+		if result.Status != devicev1.CommandSucceeded {
+			if _, err := tx.ExecContext(ctx, `UPDATE device_save_domain_links SET sync_state='error', updated_at=?
+				WHERE endpoint_id=? AND game_id=? AND source_game_id=? AND local_save_domain_id=? AND authority_state='reconciliation_required'`,
+				updatedAt.Unix(), endpointID, request.GameID, request.SourceGameID, request.LocalSaveDomainID); err != nil {
+				return err
+			}
+		} else {
+			var reconciled devicev1.SaveDomainReconcileResult
+			if err := json.Unmarshal(result.Payload, &reconciled); err != nil {
+				return fmt.Errorf("decode save-domain reconciliation result: %w", err)
+			}
+			if err := reconciled.Validate(); err != nil {
+				return err
+			}
+			if reconciled.GameID != request.GameID || reconciled.SourceGameID != request.SourceGameID || reconciled.LocalSaveDomainID != request.LocalSaveDomainID || reconciled.Strategy != request.Strategy {
+				return errors.New("save-domain reconciliation result does not match command")
+			}
+			update, err := tx.ExecContext(ctx, `UPDATE device_save_domain_links SET authority_state='owned_here', sync_state='clean',
+				last_snapshot_manifest_hash=?, updated_at=? WHERE endpoint_id=? AND game_id=? AND source_game_id=?
+				AND local_save_domain_id=? AND authority_state='reconciliation_required'`, reconciled.ManifestHash, updatedAt.Unix(), endpointID, request.GameID, request.SourceGameID, request.LocalSaveDomainID)
+			if err != nil {
+				return fmt.Errorf("persist save-domain reconciliation: %w", err)
+			}
+			if rows, err := update.RowsAffected(); err != nil || rows != 1 {
+				return errors.New("save-domain reconciliation did not match its pending server link")
+			}
 		}
 	}
 	if commandName == devicev1.CapabilityGameInstallGogInno && (result.Status == devicev1.CommandSucceeded || result.Status == devicev1.CommandFailed) {
@@ -835,15 +1074,20 @@ func saveDeviceInventory(ctx context.Context, tx *sql.Tx, endpointID string, inv
 	if err != nil {
 		return fmt.Errorf("encode managed installation inventory: %w", err)
 	}
+	saveDomainsJSON, err := json.Marshal(inventory.SaveDomains)
+	if err != nil {
+		return fmt.Errorf("encode save domain inventory: %w", err)
+	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO device_inventories
-		(endpoint_id, schema_version, captured_at, storage_json, runtimes_json, package_managers_json, save_adapters_json, managed_installations_json, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(endpoint_id, schema_version, captured_at, storage_json, runtimes_json, package_managers_json, save_adapters_json, managed_installations_json, save_domains_json, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(endpoint_id) DO UPDATE SET schema_version=excluded.schema_version,
 			captured_at=excluded.captured_at, storage_json=excluded.storage_json,
 			runtimes_json=excluded.runtimes_json, package_managers_json=excluded.package_managers_json,
 			save_adapters_json=excluded.save_adapters_json, managed_installations_json=excluded.managed_installations_json,
+			save_domains_json=excluded.save_domains_json,
 			updated_at=excluded.updated_at`,
-		endpointID, inventory.SchemaVersion, inventory.CapturedAt.Unix(), string(storageJSON), string(runtimesJSON), string(packageManagersJSON), string(saveAdaptersJSON), string(managedInstallationsJSON), updatedAt.Unix())
+		endpointID, inventory.SchemaVersion, inventory.CapturedAt.Unix(), string(storageJSON), string(runtimesJSON), string(packageManagersJSON), string(saveAdaptersJSON), string(managedInstallationsJSON), string(saveDomainsJSON), updatedAt.Unix())
 	if err != nil {
 		return fmt.Errorf("persist device inventory: %w", err)
 	}
@@ -853,15 +1097,61 @@ func saveDeviceInventory(ctx context.Context, tx *sql.Tx, endpointID string, inv
 		}
 		return devices.ErrEndpointNotFound
 	}
+	if inventory.SchemaVersion >= devicev1.InventorySchemaVersionWithNativeProducts {
+		if err := reconcileSharedInstallations(ctx, tx, endpointID, inventory.ManagedInstallations, updatedAt); err != nil {
+			return err
+		}
+	}
+	if inventory.SchemaVersion >= devicev1.InventorySchemaVersion {
+		if err := reconcileSaveDomainLinks(ctx, tx, endpointID, inventory.SaveDomains, updatedAt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func reconcileSaveDomainLinks(ctx context.Context, tx *sql.Tx, endpointID string, observations []devicev1.SaveDomainObservation, updatedAt time.Time) error {
+	observed := make(map[string]devicev1.SaveDomainObservation, len(observations))
+	for _, observation := range observations {
+		observed[observation.LocalSaveDomainID] = observation
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT local_save_domain_id FROM device_save_domain_links WHERE endpoint_id=?`, endpointID)
+	if err != nil {
+		return err
+	}
+	localIDs := make([]string, 0)
+	for rows.Next() {
+		var localID string
+		if err := rows.Scan(&localID); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		localIDs = append(localIDs, localID)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, localID := range localIDs {
+		state := "reconciliation_required"
+		if observation, ok := observed[localID]; ok {
+			state = observation.State
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE device_save_domain_links SET authority_state=?, updated_at=? WHERE endpoint_id=? AND local_save_domain_id=?`, state, updatedAt.Unix(), endpointID, localID); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func (s *DeviceStore) GetInventory(ctx context.Context, endpointID string) (*devicev1.DeviceInventory, error) {
 	var schemaVersion uint16
 	var capturedAt int64
-	var storageJSON, runtimesJSON, packageManagersJSON, saveAdaptersJSON, managedInstallationsJSON string
-	err := s.db.GetDB().QueryRowContext(ctx, `SELECT schema_version, captured_at, storage_json, runtimes_json, package_managers_json, save_adapters_json, managed_installations_json
-		FROM device_inventories WHERE endpoint_id=?`, endpointID).Scan(&schemaVersion, &capturedAt, &storageJSON, &runtimesJSON, &packageManagersJSON, &saveAdaptersJSON, &managedInstallationsJSON)
+	var storageJSON, runtimesJSON, packageManagersJSON, saveAdaptersJSON, managedInstallationsJSON, saveDomainsJSON string
+	err := s.db.GetDB().QueryRowContext(ctx, `SELECT schema_version, captured_at, storage_json, runtimes_json, package_managers_json, save_adapters_json, managed_installations_json, save_domains_json
+		FROM device_inventories WHERE endpoint_id=?`, endpointID).Scan(&schemaVersion, &capturedAt, &storageJSON, &runtimesJSON, &packageManagersJSON, &saveAdaptersJSON, &managedInstallationsJSON, &saveDomainsJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -884,10 +1174,39 @@ func (s *DeviceStore) GetInventory(ctx context.Context, endpointID string) (*dev
 	if err := json.Unmarshal([]byte(managedInstallationsJSON), &inventory.ManagedInstallations); err != nil {
 		return nil, fmt.Errorf("decode managed installation inventory: %w", err)
 	}
+	if err := json.Unmarshal([]byte(saveDomainsJSON), &inventory.SaveDomains); err != nil {
+		return nil, fmt.Errorf("decode save domain inventory: %w", err)
+	}
 	if err := inventory.Validate(); err != nil {
 		return nil, fmt.Errorf("validate persisted device inventory: %w", err)
 	}
 	return inventory, nil
+}
+
+func (s *DeviceStore) ListSaveDomainLinks(ctx context.Context, endpointID string) ([]devices.SaveDomainLink, error) {
+	rows, err := s.db.GetDB().QueryContext(ctx, `SELECT endpoint_id, game_id, source_game_id, route_kind, emulator_id,
+		local_save_domain_id, adapter_id, authority_state, sync_state, COALESCE(last_snapshot_manifest_hash,''),
+		COALESCE(created_by_profile_id,''), created_at, updated_at
+		FROM device_save_domain_links WHERE endpoint_id=?
+		ORDER BY game_id, source_game_id, route_kind, emulator_id`, endpointID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	links := make([]devices.SaveDomainLink, 0)
+	for rows.Next() {
+		var link devices.SaveDomainLink
+		var createdAt, updatedAt int64
+		if err := rows.Scan(&link.EndpointID, &link.GameID, &link.SourceGameID, &link.RouteKind, &link.EmulatorID,
+			&link.LocalSaveDomainID, &link.AdapterID, &link.AuthorityState, &link.SyncState, &link.LastSnapshotManifestHash,
+			&link.CreatedByProfileID, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		link.CreatedAt = time.Unix(createdAt, 0).UTC()
+		link.UpdatedAt = time.Unix(updatedAt, 0).UTC()
+		links = append(links, link)
+	}
+	return links, rows.Err()
 }
 
 func (s *DeviceStore) ListCommands(ctx context.Context, endpointID, profileID string, limit int) ([]devices.Command, error) {
@@ -979,6 +1298,7 @@ func (s *DeviceStore) ListInstallations(ctx context.Context, endpointID, profile
 		COALESCE(uninstall_target,''), COALESCE(install_state, 'installed'), COALESCE(state_reason,''), last_verified_at, state_changed_at
 		, COALESCE(cleanup_marker_id,''), cleanup_ignored_at, COALESCE(cleanup_ignored_by_profile_id,''),
 		COALESCE(verification_reason_code,''), COALESCE(verification_details_json,'{}')
+		, COALESCE(local_installation_id,''), COALESCE(authority_mode,'managed')
 		FROM device_game_installations WHERE endpoint_id=? AND profile_id=? ORDER BY installed_at DESC`, endpointID, profileID)
 	if err != nil {
 		return nil, err
@@ -996,7 +1316,7 @@ func (s *DeviceStore) ListInstallations(ctx context.Context, endpointID, profile
 			&installation.InstallKind, &installation.InstallerFamily, &installerFiles,
 			&installation.UninstallTarget, &installation.InstallState, &installation.StateReason, &lastVerifiedAt, &stateChangedAt,
 			&installation.CleanupMarkerID, &cleanupIgnoredAt, &installation.CleanupIgnoredByProfileID,
-			&installation.VerificationReasonCode, &verificationDetails); err != nil {
+			&installation.VerificationReasonCode, &verificationDetails, &installation.LocalInstallationID, &installation.AuthorityMode); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(launchCandidates), &installation.LaunchCandidates); err != nil {
@@ -1027,9 +1347,18 @@ func (s *DeviceStore) ListInstallations(ctx context.Context, endpointID, profile
 
 func upsertGameInstallation(ctx context.Context, tx *sql.Tx, endpointID, profileID string, installation devices.GameInstallation, updatedAt time.Time) error {
 	switch installation.InstallKind {
-	case devicev1.InstallKindManagedArchive, devicev1.InstallKindGogInno:
+	case devicev1.InstallKindManagedArchive, devicev1.InstallKindGogInno, devicev1.InstallKindSharedExisting:
 	default:
 		return fmt.Errorf("unsupported install_kind %q", installation.InstallKind)
+	}
+	if installation.AuthorityMode == "" {
+		installation.AuthorityMode = devicev1.InstallationAuthorityManaged
+	}
+	if installation.AuthorityMode != devicev1.InstallationAuthorityManaged && installation.AuthorityMode != devicev1.InstallationAuthorityShared {
+		return fmt.Errorf("unsupported installation authority %q", installation.AuthorityMode)
+	}
+	if installation.AuthorityMode == devicev1.InstallationAuthorityShared && (installation.InstallKind != devicev1.InstallKindSharedExisting || strings.TrimSpace(installation.LocalInstallationID) == "") {
+		return errors.New("shared installation requires shared kind and local installation ID")
 	}
 	switch installation.InstallState {
 	case devicev1.InstallStateInstalled, devicev1.InstallStateMissing, devicev1.InstallStateNeedsRepair,
@@ -1060,8 +1389,9 @@ func upsertGameInstallation(ctx context.Context, tx *sql.Tx, endpointID, profile
 	if _, err := tx.ExecContext(ctx, `INSERT INTO device_game_installations
 		(endpoint_id, game_id, source_game_id, profile_id, install_root, install_path, archive_sha256, archive_bytes, installed_at, updated_at,
 		 launch_target, launch_candidates_json, install_kind, installer_family, installer_files_json, uninstall_target, install_state, state_reason, state_changed_at,
-		 cleanup_marker_id, cleanup_ignored_at, cleanup_ignored_by_profile_id, verification_reason_code, verification_details_json)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 cleanup_marker_id, cleanup_ignored_at, cleanup_ignored_by_profile_id, verification_reason_code, verification_details_json,
+		 local_installation_id, authority_mode)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(endpoint_id, game_id, source_game_id) DO UPDATE SET
 			profile_id=excluded.profile_id, install_root=excluded.install_root, install_path=excluded.install_path,
 			archive_sha256=excluded.archive_sha256, archive_bytes=excluded.archive_bytes,
@@ -1071,12 +1401,14 @@ func upsertGameInstallation(ctx context.Context, tx *sql.Tx, endpointID, profile
 			uninstall_target=excluded.uninstall_target, install_state=excluded.install_state, state_reason=excluded.state_reason,
 			state_changed_at=excluded.state_changed_at, cleanup_marker_id=excluded.cleanup_marker_id,
 			cleanup_ignored_at=excluded.cleanup_ignored_at, cleanup_ignored_by_profile_id=excluded.cleanup_ignored_by_profile_id,
-			verification_reason_code=NULL, verification_details_json='{}'`,
+			verification_reason_code=NULL, verification_details_json='{}', local_installation_id=excluded.local_installation_id,
+			authority_mode=excluded.authority_mode`,
 		endpointID, installation.GameID, installation.SourceGameID, profileID, installation.InstallRoot, installation.InstallPath,
 		installation.ArchiveSHA256, installation.ArchiveBytes, installedAt.Unix(), updatedAt.Unix(), installation.LaunchTarget, string(launchCandidates),
 		installation.InstallKind, nullIfEmpty(installation.InstallerFamily), string(installerFiles), nullIfEmpty(installation.UninstallTarget),
 		installation.InstallState, nullIfEmpty(installation.StateReason), stateChangedAt, nullIfEmpty(installation.CleanupMarkerID),
-		unixOrNil(installation.CleanupIgnoredAt), nullIfEmpty(installation.CleanupIgnoredByProfileID), nil, `{}`); err != nil {
+		unixOrNil(installation.CleanupIgnoredAt), nullIfEmpty(installation.CleanupIgnoredByProfileID), nil, `{}`,
+		nullIfEmpty(installation.LocalInstallationID), installation.AuthorityMode); err != nil {
 		return fmt.Errorf("persist device game installation: %w", err)
 	}
 	return nil

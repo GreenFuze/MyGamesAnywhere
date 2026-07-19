@@ -3,10 +3,26 @@
 package clientapp
 
 import (
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows"
 )
+
+func TestRegisteredProgramMatchingUsesExactPathAndOpaqueStableIdentity(t *testing.T) {
+	installPath := `C:\Games\Game`
+	if !registryInstallLocationMatches(`"C:\Games\Game"`, installPath) || registryInstallLocationMatches(`C:\Games\Game Two`, installPath) {
+		t.Fatal("registry install location matching was not exact")
+	}
+	if !registryUninstallExecutableMatches(`"C:\Games\Game\unins000.exe" /SILENT`, installPath) || registryUninstallExecutableMatches(`"C:\Games\Other\unins000.exe"`, installPath) {
+		t.Fatal("registry uninstall association crossed the install boundary")
+	}
+	one := registeredProgramProductID("user", "64", "Game_is1")
+	two := registeredProgramProductID("user", "64", "Game_is1")
+	if one != two || one == registeredProgramProductID("machine", "64", "Game_is1") || strings.Contains(strings.ToLower(one), "game") {
+		t.Fatalf("registered product identity is not stable and opaque: %q", one)
+	}
+}
 
 func TestStorageVolumeEligible(t *testing.T) {
 	tests := []struct {

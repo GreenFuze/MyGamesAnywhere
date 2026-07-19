@@ -22,9 +22,15 @@ const (
 	CapabilityGameUninstallGogInno      = "game.uninstall_gog_inno"
 	CapabilityGameCleanupGogInnoFailed  = "game.cleanup_gog_inno_failed"
 	CapabilityGameValidateInstallations = "game.validate_installations"
+	CapabilityGameUseExisting           = "game.use_existing"
 	CapabilityGameLaunch                = "game.launch"
 	CapabilityGameLaunchEmulator        = "game.launch_emulator"
 	CapabilityEmulatorSetup             = "emulator.setup"
+	CapabilitySaveDomainClaim           = "save.domain_claim"
+	CapabilitySaveDomainRelease         = "save.domain_release"
+	CapabilitySaveDomainSnapshot        = "save.domain_snapshot"
+	CapabilitySaveDomainRestore         = "save.domain_restore"
+	CapabilitySaveDomainReconcile       = "save.domain_reconcile"
 )
 
 type ClientExecutionMode string

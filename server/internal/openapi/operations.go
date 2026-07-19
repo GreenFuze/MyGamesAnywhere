@@ -833,6 +833,14 @@ func Operations() []OperationDoc {
 		},
 		{
 			Method:         "POST",
+			Path:           "/api/devices/{id}/games/{game_id}/use-existing",
+			Summary:        "Use an existing installation for this game",
+			Description:    "Requests a launch-only grant for one client-local installation. MGA Client verifies local evidence and requires confirmation on the device; the server receives no update, repair, cleanup, or uninstall authority.",
+			RequestBodyDoc: "JSON: { source_game_id: string, local_installation_id: string }",
+			ResponseDocs:   map[string]string{"202": "DeviceCommand JSON", "400": "Invalid game/source selection", "403": "Manage access required", "404": "Device or game not found", "409": "Device unavailable or client does not support local reuse", "500": "Internal server error"},
+		},
+		{
+			Method:         "POST",
 			Path:           "/api/devices/{id}/games/{game_id}/sources/{source_game_id}/uninstall",
 			Summary:        "Uninstall a managed game from a device",
 			Description:    "Dispatches the installation-family-specific typed uninstall command using only persisted installation evidence. GOG Inno uninstall uses the recorded publisher uninstaller and retains native destructive confirmation.",

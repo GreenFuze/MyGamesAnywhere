@@ -37,6 +37,8 @@ type Agent struct {
 	emulator      EmulatorLauncher
 	emulatorSetup EmulatorSetupManager
 	validator     InstallationValidator
+	existing      ExistingInstallationUser
+	saveDomains   SaveDomainManager
 }
 
 func NewAgent(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger) (*Agent, error) {
@@ -96,12 +98,29 @@ func newAgentWithOwnership(config clientconfig.Binding, privateKey ed25519.Priva
 		return nil, err
 	}
 	var inventory *LocalInventoryCollector
+	var existing ExistingInstallationUser
+	var saveDomains SaveDomainManager
 	if ownership == nil {
 		inventory = NewLocalInventoryCollector()
 	} else {
-		inventory = NewOwnedLocalInventoryCollector(ownership.catalog, config.BindingID)
+		inventory = NewOwnedLocalInventoryCollectorWithSaveDomains(ownership.catalog, ownership.saveDomains, config.BindingID)
+		existing, err = NewLocalExistingInstallationUser(ownership, config.ServerURL)
+		if err != nil {
+			return nil, err
+		}
+		if ownership.saveDomains != nil {
+			saveDomains, err = NewLocalSaveDomainManager(ownership, config.ServerURL)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
-	emulator, err := NewManagedEmulatorLauncher(config.ServerURL, inventory)
+	var emulator *ManagedEmulatorLauncher
+	if ownership == nil || ownership.saveDomains == nil {
+		emulator, err = NewManagedEmulatorLauncher(config.ServerURL, inventory)
+	} else {
+		emulator, err = NewOwnedManagedEmulatorLauncher(config.ServerURL, inventory, ownership)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +131,7 @@ func newAgentWithOwnership(config clientconfig.Binding, privateKey ed25519.Priva
 	return &Agent{
 		config: config, privateKey: privateKey, buildInfo: info, logger: logger, executionMode: executionMode,
 		inventory: inventory, installer: installer, gogInstaller: gogInstaller,
-		launcher: NewOwnedWindowsGameLauncher(ownership), emulator: emulator, emulatorSetup: emulatorSetup, validator: validator,
+		launcher: NewOwnedWindowsGameLauncher(ownership), emulator: emulator, emulatorSetup: emulatorSetup, validator: validator, existing: existing, saveDomains: saveDomains,
 	}, nil
 }
 
@@ -488,6 +507,102 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 		result, err := a.validator.Validate(ctx, request, report)
 		if err != nil {
 			return nil, false, "validation_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilityGameUseExisting:
+		if a.existing == nil {
+			return nil, false, "use_existing_unavailable", errors.New("existing installation service is unavailable")
+		}
+		var request devicev1.UseExistingInstallationRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.existing.Use(ctx, request)
+		if errors.Is(err, ErrUseExistingDeclined) {
+			return nil, false, "local_confirmation_declined", err
+		}
+		if err != nil {
+			return nil, false, "use_existing_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilitySaveDomainClaim:
+		if a.saveDomains == nil {
+			return nil, false, "save_domain_unavailable", errors.New("save domain manager is unavailable")
+		}
+		var request devicev1.SaveDomainClaimRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.saveDomains.Claim(ctx, request)
+		if errors.Is(err, ErrSaveDomainConfirmationDeclined) {
+			return nil, false, "local_confirmation_declined", err
+		}
+		if err != nil {
+			return nil, false, "save_domain_claim_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilitySaveDomainRelease:
+		if a.saveDomains == nil {
+			return nil, false, "save_domain_unavailable", errors.New("save domain manager is unavailable")
+		}
+		var request devicev1.SaveDomainReleaseRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.saveDomains.Release(ctx, request)
+		if errors.Is(err, ErrSaveDomainConfirmationDeclined) {
+			return nil, false, "local_confirmation_declined", err
+		}
+		if err != nil {
+			return nil, false, "save_domain_release_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilitySaveDomainSnapshot:
+		if a.saveDomains == nil {
+			return nil, false, "save_domain_unavailable", errors.New("save domain manager is unavailable")
+		}
+		var request devicev1.SaveDomainSnapshotRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.saveDomains.Snapshot(ctx, request)
+		if err != nil {
+			return nil, false, "save_domain_snapshot_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilitySaveDomainRestore:
+		if a.saveDomains == nil {
+			return nil, false, "save_domain_unavailable", errors.New("save domain manager is unavailable")
+		}
+		var request devicev1.SaveDomainRestoreRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.saveDomains.Restore(ctx, request)
+		if errors.Is(err, ErrSaveDomainConfirmationDeclined) {
+			return nil, false, "local_confirmation_declined", err
+		}
+		if errors.Is(err, ErrSaveDomainLocalConflict) {
+			return nil, false, "save_domain_local_conflict", err
+		}
+		if err != nil {
+			return nil, false, "save_domain_restore_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilitySaveDomainReconcile:
+		if a.saveDomains == nil {
+			return nil, false, "save_domain_unavailable", errors.New("save domain manager is unavailable")
+		}
+		var request devicev1.SaveDomainReconcileRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.saveDomains.Reconcile(ctx, request)
+		if errors.Is(err, ErrSaveDomainConfirmationDeclined) {
+			return nil, false, "local_confirmation_declined", err
+		}
+		if err != nil {
+			return nil, false, "save_domain_reconcile_failed", err
 		}
 		return result, false, "", nil
 	default:
