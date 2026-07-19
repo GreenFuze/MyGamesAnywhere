@@ -5,6 +5,7 @@ import type {
 } from '@/api/client'
 import { SELECTED_PROFILE_STORAGE_KEY } from '@/api/client'
 import { platformLabel, sourceLabel } from '@/lib/displayText'
+import { profileStorageKey, selectedProfileIdFromStorage } from '@/lib/profileStorage'
 
 export type BrowserPlayRuntime = 'emulatorjs' | 'jsdos' | 'scummvm'
 
@@ -19,6 +20,7 @@ export type BrowserPlaySessionFile = {
 
 export type BrowserPlaySession =
   | {
+	  ownerProfileId?: string
       runtime: 'emulatorjs'
       title: string
       sourceGameId: string
@@ -28,6 +30,7 @@ export type BrowserPlaySession =
       nativeSaveSync?: boolean
     }
   | {
+	  ownerProfileId?: string
       runtime: 'jsdos'
       title: string
       sourceGameId: string
@@ -38,6 +41,7 @@ export type BrowserPlaySession =
       bundleUrl?: string
     }
   | {
+	  ownerProfileId?: string
       runtime: 'scummvm'
       title: string
       sourceGameId: string
@@ -215,11 +219,11 @@ function readSelectedMGAProfileId(): string {
 }
 
 function sourcePreferenceKey(gameId: string, runtime: BrowserPlayRuntime): string {
-  return `${SOURCE_PREFERENCE_PREFIX}${gameId}.${runtime}`
+  return profileStorageKey(`${SOURCE_PREFERENCE_PREFIX}${gameId}.${runtime}`)
 }
 
 function jsdosExecutablePreferenceKey(gameId: string, sourceGameId: string): string {
-  return `${JSDOS_EXECUTABLE_PREFERENCE_PREFIX}${gameId}.${sourceGameId}`
+  return profileStorageKey(`${JSDOS_EXECUTABLE_PREFERENCE_PREFIX}${gameId}.${sourceGameId}`)
 }
 
 export function readBrowserPlaySourcePreference(
@@ -811,11 +815,13 @@ export function browserPlaySelectionIsReady(selection: BrowserPlaySelection): bo
 }
 
 export function persistBrowserPlaySession(session: BrowserPlaySession): string {
+	const ownerProfileId = selectedProfileIdFromStorage()
+	if (!ownerProfileId) throw new Error('Select a profile before starting browser play.')
   const token =
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  sessionStorage.setItem(`${SESSION_PREFIX}${token}`, JSON.stringify(session))
+  sessionStorage.setItem(`${SESSION_PREFIX}${token}`, JSON.stringify({ ...session, ownerProfileId }))
   return token
 }
 

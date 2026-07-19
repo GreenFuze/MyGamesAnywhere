@@ -23,23 +23,31 @@ func NewWithDir(dir string) *FileKeyStore {
 	return &FileKeyStore{dir: dir}
 }
 
-func (k *FileKeyStore) keyPath() string {
-	return filepath.Join(k.dir, "sync_key")
+func (k *FileKeyStore) keyPath(profileID string) (string, error) {
+	return profileKeyPath(k.dir, profileID, "sync_key")
 }
 
-func (k *FileKeyStore) Store(passphrase string) error {
+func (k *FileKeyStore) Store(profileID, passphrase string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if err := ensureDir(k.dir); err != nil {
+	keyPath, err := k.keyPath(profileID)
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(k.keyPath(), []byte(passphrase), 0o600)
+	if err := ensureDir(filepath.Dir(keyPath)); err != nil {
+		return err
+	}
+	return os.WriteFile(keyPath, []byte(passphrase), 0o600)
 }
 
-func (k *FileKeyStore) Load() (string, error) {
+func (k *FileKeyStore) Load(profileID string) (string, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	data, err := os.ReadFile(k.keyPath())
+	keyPath, err := k.keyPath(profileID)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(keyPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", ErrNoKey
@@ -49,17 +57,25 @@ func (k *FileKeyStore) Load() (string, error) {
 	return string(data), nil
 }
 
-func (k *FileKeyStore) Clear() error {
+func (k *FileKeyStore) Clear(profileID string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	err := os.Remove(k.keyPath())
+	keyPath, err := k.keyPath(profileID)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(keyPath)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	return err
 }
 
-func (k *FileKeyStore) HasKey() bool {
-	_, err := os.Stat(filepath.Join(k.dir, "sync_key"))
+func (k *FileKeyStore) HasKey(profileID string) bool {
+	keyPath, err := k.keyPath(profileID)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(keyPath)
 	return err == nil
 }

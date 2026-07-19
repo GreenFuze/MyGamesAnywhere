@@ -1,3 +1,5 @@
+import { profileStorageKey } from '@/lib/profileStorage'
+
 export type BulkReclassifyQueueItem = {
   gameId: string
   sourceGameId: string
@@ -6,7 +8,11 @@ export type BulkReclassifyQueueItem = {
   pluginId?: string
 }
 
-const STORAGE_KEY = 'mga.bulkReclassifyQueue'
+const STORAGE_KEY = 'bulkReclassifyQueue'
+
+function storageKey(): string {
+  return profileStorageKey(STORAGE_KEY)
+}
 
 function parseQueue(raw: string | null): BulkReclassifyQueueItem[] {
   if (!raw) return []
@@ -41,16 +47,16 @@ function parseQueue(raw: string | null): BulkReclassifyQueueItem[] {
 
 export function readBulkReclassifyQueue(): BulkReclassifyQueueItem[] {
   if (typeof window === 'undefined') return []
-  return parseQueue(window.sessionStorage.getItem(STORAGE_KEY))
+  return parseQueue(window.sessionStorage.getItem(storageKey()))
 }
 
 export function writeBulkReclassifyQueue(items: BulkReclassifyQueueItem[]): void {
   if (typeof window === 'undefined') return
   if (items.length === 0) {
-    window.sessionStorage.removeItem(STORAGE_KEY)
+    window.sessionStorage.removeItem(storageKey())
     return
   }
-  window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(items))
+  window.sessionStorage.setItem(storageKey(), JSON.stringify(items))
 }
 
 export function clearBulkReclassifyQueue(): void {

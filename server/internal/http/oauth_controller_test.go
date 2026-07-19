@@ -20,6 +20,7 @@ func TestOAuthControllerImportGoogleCallbackCompletesAndPersistsUpdates(t *testi
 		byID: map[string]*core.Integration{
 			"int-google": {
 				ID:         "int-google",
+				ProfileID:  "profile-1",
 				PluginID:   "sync-settings-google-drive",
 				Label:      "Google Sync",
 				ConfigJSON: `{"path":"Games/mga_sync"}`,
@@ -36,7 +37,7 @@ func TestOAuthControllerImportGoogleCallbackCompletesAndPersistsUpdates(t *testi
 	}
 	controller := NewOAuthController(host, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil, repo)
 	controller.states = NewOAuthStateStore()
-	controller.states.Register("state-google", OAuthState{IntegrationID: "int-google", PluginID: "sync-settings-google-drive"})
+	controller.states.Register("state-google", OAuthState{IntegrationID: "int-google", ProfileID: "profile-1", PluginID: "sync-settings-google-drive"})
 
 	rec := httptest.NewRecorder()
 	req := importCallbackRequest(t, "sync-settings-google-drive", "http://127.0.0.1:8900/auth/google/callback/sync-settings-google-drive?code=abc&state=state-google")
@@ -61,7 +62,7 @@ func TestOAuthControllerImportXboxCallbackPathVariants(t *testing.T) {
 		t.Run(callbackURL, func(t *testing.T) {
 			repo := &fakeControllerIntegrationRepo{
 				byID: map[string]*core.Integration{
-					"int-xbox": {ID: "int-xbox", PluginID: "game-source-xbox", ConfigJSON: `{}`},
+					"int-xbox": {ID: "int-xbox", ProfileID: "profile-1", PluginID: "game-source-xbox", ConfigJSON: `{}`},
 				},
 			}
 			host := &fakeOAuthCallbackPluginHost{
@@ -71,7 +72,7 @@ func TestOAuthControllerImportXboxCallbackPathVariants(t *testing.T) {
 			}
 			controller := NewOAuthController(host, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil, repo)
 			controller.states = NewOAuthStateStore()
-			controller.states.Register("state-xbox", OAuthState{IntegrationID: "int-xbox", PluginID: "game-source-xbox"})
+			controller.states.Register("state-xbox", OAuthState{IntegrationID: "int-xbox", ProfileID: "profile-1", PluginID: "game-source-xbox"})
 
 			rec := httptest.NewRecorder()
 			controller.ImportCallback(rec, importCallbackRequest(t, "game-source-xbox", callbackURL))
@@ -85,7 +86,7 @@ func TestOAuthControllerImportXboxCallbackPathVariants(t *testing.T) {
 func TestOAuthControllerImportCallbackClearsAuthAchievementFailuresAndPublishesIntegrationID(t *testing.T) {
 	repo := &fakeControllerIntegrationRepo{
 		byID: map[string]*core.Integration{
-			"int-xbox": {ID: "int-xbox", PluginID: "game-source-xbox", ConfigJSON: `{}`},
+			"int-xbox": {ID: "int-xbox", ProfileID: "profile-1", PluginID: "game-source-xbox", ConfigJSON: `{}`},
 		},
 	}
 	host := &fakeOAuthCallbackPluginHost{
@@ -100,7 +101,7 @@ func TestOAuthControllerImportCallbackClearsAuthAchievementFailuresAndPublishesI
 	controller := NewOAuthController(host, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, bus, repo)
 	controller.SetGameStore(store)
 	controller.states = NewOAuthStateStore()
-	controller.states.Register("state-xbox", OAuthState{IntegrationID: "int-xbox", PluginID: "game-source-xbox"})
+	controller.states.Register("state-xbox", OAuthState{IntegrationID: "int-xbox", ProfileID: "profile-1", PluginID: "game-source-xbox"})
 
 	rec := httptest.NewRecorder()
 	controller.ImportCallback(rec, importCallbackRequest(t, "game-source-xbox", "http://127.0.0.1:8900/api/auth/callback/game-source-xbox?code=abc&state=state-xbox"))
@@ -137,7 +138,7 @@ func TestOAuthControllerImportCallbackClearsAuthAchievementFailuresAndPublishesI
 func TestOAuthControllerImportSteamOpenIDPreservesParams(t *testing.T) {
 	repo := &fakeControllerIntegrationRepo{
 		byID: map[string]*core.Integration{
-			"int-steam": {ID: "int-steam", PluginID: "game-source-steam", ConfigJSON: `{}`},
+			"int-steam": {ID: "int-steam", ProfileID: "profile-1", PluginID: "game-source-steam", ConfigJSON: `{}`},
 		},
 	}
 	host := &fakeOAuthCallbackPluginHost{
@@ -147,7 +148,7 @@ func TestOAuthControllerImportSteamOpenIDPreservesParams(t *testing.T) {
 	}
 	controller := NewOAuthController(host, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil, repo)
 	controller.states = NewOAuthStateStore()
-	controller.states.Register("state-steam", OAuthState{IntegrationID: "int-steam", PluginID: "game-source-steam"})
+	controller.states.Register("state-steam", OAuthState{IntegrationID: "int-steam", ProfileID: "profile-1", PluginID: "game-source-steam"})
 
 	callbackURL := "http://127.0.0.1:8900/api/auth/callback/game-source-steam?state=state-steam&openid.mode=id_res&openid.claimed_id=https%3A%2F%2Fsteamcommunity.com%2Fopenid%2Fid%2F7656119"
 	rec := httptest.NewRecorder()
@@ -172,7 +173,7 @@ func TestOAuthControllerImportDraftCallbackWithPluginOwnedState(t *testing.T) {
 	}
 	controller := NewOAuthController(host, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil)
 	controller.states = NewOAuthStateStore()
-	controller.states.Register("state-draft", OAuthState{PluginID: "plugin.oauth"})
+	controller.states.Register("state-draft", OAuthState{ProfileID: "profile-1", PluginID: "plugin.oauth"})
 
 	rec := httptest.NewRecorder()
 	controller.ImportCallback(rec, importCallbackRequest(t, "plugin.oauth", "http://127.0.0.1:8900/api/auth/callback/plugin.oauth?code=abc&state=state-draft"))
@@ -191,7 +192,7 @@ func TestOAuthControllerImportDraftCallbackWithPluginOwnedState(t *testing.T) {
 func TestOAuthControllerImportRejectsBadCallbacks(t *testing.T) {
 	controller := NewOAuthController(&fakeOAuthCallbackPluginHost{}, staticConfig{values: map[string]string{"PORT": "8900", "LISTEN_IP": "127.0.0.1"}}, noopLogger{}, nil, &fakeControllerIntegrationRepo{})
 	controller.states = NewOAuthStateStore()
-	controller.states.Register("known", OAuthState{PluginID: "plugin.oauth"})
+	controller.states.Register("known", OAuthState{ProfileID: "profile-1", PluginID: "plugin.oauth"})
 
 	cases := []struct {
 		name        string
@@ -211,6 +212,61 @@ func TestOAuthControllerImportRejectsBadCallbacks(t *testing.T) {
 			controller.ImportCallback(rec, importCallbackRequest(t, tc.pluginID, tc.callbackURL))
 			if rec.Code < 400 {
 				t.Fatalf("status = %d, want failure", rec.Code)
+			}
+		})
+	}
+}
+
+func TestOAuthStateStoreExpiresRejectsReplayAndDoesNotSurviveRestart(t *testing.T) {
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	store := NewOAuthStateStore()
+	store.now = func() time.Time { return now }
+	store.ttl = time.Minute
+	store.Register("state-a", OAuthState{ProfileID: "profile-a", PluginID: "plugin-a"})
+	if state, ok := store.ClaimCallback("state-a"); !ok || state.ProfileID != "profile-a" {
+		t.Fatalf("first callback claim = %+v, %v", state, ok)
+	}
+	if _, ok := store.ClaimCallback("state-a"); ok {
+		t.Fatal("concurrent/replayed callback claimed the same state")
+	}
+	store.FinishCallback("state-a", true)
+	if _, ok := store.ClaimCallback("state-a"); ok {
+		t.Fatal("completed callback state was replayable")
+	}
+
+	store.Register("state-expired", OAuthState{ProfileID: "profile-a", PluginID: "plugin-a"})
+	now = now.Add(2 * time.Minute)
+	if _, ok := store.Peek("state-expired"); ok {
+		t.Fatal("expired OAuth state remained available")
+	}
+	if _, ok := NewOAuthStateStore().Peek("state-a"); ok {
+		t.Fatal("OAuth state unexpectedly survived a server restart")
+	}
+}
+
+func TestOAuthCallbackStateRejectsWrongPluginConnectionAndProfile(t *testing.T) {
+	cases := []struct {
+		name        string
+		state       OAuthState
+		integration *core.Integration
+		pluginID    string
+	}{
+		{name: "wrong state plugin", state: OAuthState{ProfileID: "profile-a", PluginID: "plugin-a"}, pluginID: "plugin-b"},
+		{name: "wrong connection plugin", state: OAuthState{ProfileID: "profile-a", PluginID: "plugin-a", IntegrationID: "int-a"}, integration: &core.Integration{ID: "int-a", ProfileID: "profile-a", PluginID: "plugin-b"}, pluginID: "plugin-a"},
+		{name: "wrong connection profile", state: OAuthState{ProfileID: "profile-a", PluginID: "plugin-a", IntegrationID: "int-a"}, integration: &core.Integration{ID: "int-a", ProfileID: "profile-b", PluginID: "plugin-a"}, pluginID: "plugin-a"},
+		{name: "missing connection", state: OAuthState{ProfileID: "profile-a", PluginID: "plugin-a", IntegrationID: "missing"}, pluginID: "plugin-a"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeControllerIntegrationRepo{byID: map[string]*core.Integration{}}
+			if tc.integration != nil {
+				repo.byID[tc.integration.ID] = tc.integration
+			}
+			controller := NewOAuthController(&fakeOAuthCallbackPluginHost{}, staticConfig{}, noopLogger{}, nil, repo)
+			controller.states = NewOAuthStateStore()
+			controller.states.Register("state", tc.state)
+			if err := controller.validateCallbackState(context.Background(), tc.pluginID, "state"); err == nil {
+				t.Fatal("invalid OAuth state was accepted")
 			}
 		})
 	}

@@ -1,4 +1,5 @@
 import type { GameMediaDetailDTO } from '@/api/client'
+import { selectedProfileIdFromStorage } from '@/lib/profileStorage'
 
 const HERO_MEDIA_TYPES = ['screenshot', 'background', 'banner', 'artwork', 'hero', 'cover']
 const NON_IMAGE_MEDIA_TYPES = new Set(['video', 'trailer', 'manual', 'document', 'audio', 'soundtrack'])
@@ -8,7 +9,11 @@ function urlHasExtension(url: string, extensions: string[]): boolean {
 }
 
 export function mediaUrl(media: GameMediaDetailDTO): string {
-  if (media.local_path) return `/api/media/${media.asset_id}`
+  if (media.local_path) {
+	const profileId = selectedProfileIdFromStorage()
+	const query = profileId ? `?profile_id=${encodeURIComponent(profileId)}` : ''
+	return `/api/media/${media.asset_id}${query}`
+  }
   return media.url
 }
 

@@ -61,6 +61,10 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 
 	r.Route("/api", func(api chi.Router) {
 		if b != nil {
+			// Public/session bootstrap: these routes establish, describe, replace,
+			// or end authority and therefore cannot require normal profile access.
+			// Credential initialization is create-only; removal/change validates
+			// its own current session/credential contract in AuthController.
 			api.Get("/auth/session", b.AuthCtrl.Session)
 			api.Post("/auth/login", b.AuthCtrl.Login)
 			api.Post("/auth/logout", b.AuthCtrl.Logout)
@@ -68,6 +72,9 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.With(ProfileContextMiddleware(b.ProfileRepo)).Get("/auth/credential", b.AuthCtrl.CredentialStatus)
 			api.With(ProfileContextMiddleware(b.ProfileRepo)).Post("/auth/credential", b.AuthCtrl.InitializeCredential)
 			api.With(ProfileContextMiddleware(b.ProfileRepo)).Delete("/auth/credential", b.AuthCtrl.RemoveCredential)
+			// Opaque capability/client bootstrap: pairing, launch redemption and
+			// transfers require their own expiring purpose-bound proof. Installer
+			// bytes and metadata contain no player data.
 			api.Post("/devices/pair", b.DeviceCtrl.Pair)
 			api.Post("/devices/client-launches/redeem", b.DeviceCtrl.RedeemClientLaunch)
 			api.Get("/devices/connect", b.DeviceCtrl.Connect)
@@ -80,17 +87,23 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Head("/device-transfers/content", b.DeviceCtrl.ServeArchiveTransfer)
 			api.Get("/device-transfers/save-domain", b.DeviceCtrl.ServeSaveDomainTransfer)
 			api.Put("/device-transfers/save-domain", b.DeviceCtrl.ServeSaveDomainTransfer)
+			// First-run setup is public only while the server has no initialized
+			// profile set. Restore uses an explicit passphrase and provider OAuth
+			// state rather than a remembered profile key.
 			api.Get("/setup/status", b.ProfileCtrl.SetupStatus)
 			api.Post("/setup/start-fresh", b.ProfileCtrl.StartFresh)
 			api.Post("/setup/restore-sync/check", b.ProfileCtrl.CheckRestoreSync)
 			api.Post("/setup/restore-sync/browse", b.ProfileCtrl.BrowseRestoreSync)
 			api.Post("/setup/restore-sync/points", b.ProfileCtrl.RestoreSyncPoints)
 			api.Post("/setup/restore-sync", b.ProfileCtrl.RestoreSync)
+			// The profile picker exposes only safe display identity. Provider
+			// callbacks are authorized by expiring profile/plugin/connection state.
 			api.Get("/profiles", b.ProfileCtrl.ListProfiles)
-			api.Get("/media/{assetID}", b.MediaCtrl.ServeMedia)
+			api.With(ProfileContextMiddleware(b.ProfileRepo), RequireProfileAccess(b.AuthService)).Get("/media/{assetID}", b.MediaCtrl.ServeMedia)
 			api.Get("/auth/callback/{plugin_id}", b.OAuthCtrl.Callback)
 			api.Post("/auth/callback/import", b.OAuthCtrl.ImportCallback)
-			api.Put("/media/{assetID}/metadata", ProfileContextMiddleware(b.ProfileRepo)(RequireAdminProfile(http.HandlerFunc(b.MediaCtrl.UpdateMediaMetadata))).ServeHTTP)
+			api.Put("/media/{assetID}/metadata", ProfileContextMiddleware(b.ProfileRepo)(RequireProfileAccess(b.AuthService)(RequireAdminProfile(http.HandlerFunc(b.MediaCtrl.UpdateMediaMetadata)))).ServeHTTP)
+			// Product/version and license text are deliberately server-global.
 			api.Get("/about", b.AboutCtrl.GetAbout)
 			api.Get("/about/license", b.AboutCtrl.GetLicense)
 
@@ -98,7 +111,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				return RequireAdminProfile(http.HandlerFunc(h)).ServeHTTP
 			}
 
-			api.With(ProfileContextMiddleware(b.ProfileRepo)).Post("/games/sources/delete-batch", adminOnly(b.GameCtrl.DeleteSourceGames))
+			api.With(ProfileContextMiddleware(b.ProfileRepo), RequireProfileAccess(b.AuthService)).Post("/games/sources/delete-batch", adminOnly(b.GameCtrl.DeleteSourceGames))
 
 			api.Group(func(r chi.Router) {
 				r.Use(ProfileContextMiddleware(b.ProfileRepo))
@@ -150,6 +163,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 					r.Use(middleware.Timeout(middlewareTimeout))
 				}
 				r.Use(ProfileContextMiddleware(b.ProfileRepo))
+				r.Use(RequireProfileAccess(b.AuthService))
 				r.Get("/games", b.GameCtrl.ListGames)
 				r.Delete("/games", adminOnly(b.GameCtrl.DeleteAll))
 				r.Get("/games/{id}/detail", b.GameCtrl.GetDetail)
@@ -249,18 +263,21 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			// Browser play streams can be large; enforce profile context without request timeout.
 			api.Group(func(r chi.Router) {
 				r.Use(ProfileContextMiddleware(b.ProfileRepo))
+				r.Use(RequireProfileAccess(b.AuthService))
 				r.Get("/games/{id}/play", b.GameCtrl.ServePlayFile)
 				r.Head("/games/{id}/play", b.GameCtrl.ServePlayFile)
 			})
 
 			api.Group(func(r chi.Router) {
-				r.Use(OptionalProfileContextMiddleware(b.ProfileRepo))
+				r.Use(ProfileContextMiddleware(b.ProfileRepo))
+				r.Use(RequireProfileAccess(b.AuthService))
 				r.Get("/events", b.SSECtrl.Events)
 			})
 
 			// Scan can take many minutes; no middleware timeout.
 			api.Group(func(r chi.Router) {
 				r.Use(ProfileContextMiddleware(b.ProfileRepo))
+				r.Use(RequireProfileAccess(b.AuthService))
 				r.Use(RequireAdminProfile)
 				r.Get("/scan", b.DiscoCtrl.Scan)
 				r.Post("/scan", b.DiscoCtrl.Scan)

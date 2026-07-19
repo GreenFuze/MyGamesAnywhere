@@ -53,7 +53,7 @@ func TestPublishEventWithContextInjectsJobID(t *testing.T) {
 	defer bus.Unsubscribe(sub)
 
 	o := &Orchestrator{eventBus: bus, logger: eventTestLogger{}}
-	o.publishEventWithContext(WithScanJobID(context.Background(), "job-123"), "scan_started", map[string]any{
+	o.publishEventWithContext(WithScanJobID(scanTestContext(), "job-123"), "scan_started", map[string]any{
 		"integration_count": 2,
 	})
 
@@ -128,7 +128,7 @@ func TestFilterSourceIntegrationsIncludesOnlySourceParticipants(t *testing.T) {
 }
 
 func TestRunScanContinuesAfterStorefrontSourceAuthError(t *testing.T) {
-	ctx := context.Background()
+	ctx := scanTestContext()
 	store := newManualReviewTestStore(t)
 	bus := events.New()
 	defer bus.Close()
@@ -231,7 +231,7 @@ func TestRunScanContinuesAfterStorefrontSourceAuthError(t *testing.T) {
 }
 
 func TestRunScanReconcilesSuccessfulEmptySource(t *testing.T) {
-	ctx := context.Background()
+	ctx := scanTestContext()
 	store := newManualReviewTestStore(t)
 	callCount := 0
 	caller := &mockCaller{
@@ -320,7 +320,7 @@ func TestBuildScanLibraryChangesReportsReplacementInsteadOfNetZero(t *testing.T)
 }
 
 func TestRunScanPreparesMultipleIntegrationsConcurrently(t *testing.T) {
-	ctx := context.Background()
+	ctx := scanTestContext()
 	store := newManualReviewTestStore(t)
 
 	started := make(chan string, 2)
@@ -399,7 +399,7 @@ func TestRunScanPreparesMultipleIntegrationsConcurrently(t *testing.T) {
 }
 
 func TestRunScanCompletesBeforePendingMediaEnqueueReturns(t *testing.T) {
-	ctx := context.Background()
+	ctx := scanTestContext()
 	store := newManualReviewTestStore(t)
 	bus := events.New()
 	defer bus.Close()

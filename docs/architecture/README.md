@@ -38,6 +38,7 @@ cross the server, web interface, and device agent boundaries.
 - [ADR-0025: Bounded native-product observation and launch-only existing-installation grants](0025-bounded-native-product-observation-and-use-existing.md)
 - [ADR-0026: Client-authoritative local save domains and explicit writer transfer](0026-local-save-domain-authority-and-transfer.md)
 - [ADR-0027: Profile-bound OAuth drafts and request-scoped provider access](0027-profile-bound-oauth-drafts.md)
+- [ADR-0028: Strong profile isolation hardening](0028-strong-profile-isolation-hardening.md)
 
 ## Protocols
 
@@ -48,6 +49,7 @@ cross the server, web interface, and device agent boundaries.
 - [Decision responsibility and escalation boundary](agent-responsibility-boundary.md)
 - [Unified library, play, installation, and save plan](unified-library-and-play-plan.md)
 - [Player-facing language and information architecture](player-facing-language.md)
+- [Profile isolation scope ledger](profile-isolation-scope-ledger.md)
 
 An accepted decision is the implementation source of truth until it is
 superseded by another decision record. Protocol documents identify both the

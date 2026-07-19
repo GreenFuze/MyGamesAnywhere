@@ -401,7 +401,11 @@ gui_launcher_chooser=grid
         ;({ ScummvmFS } = await import(`./scummvm_fs.js?v=${runtimeAssetVersion}`))
         removeCanvasResolutionListeners = installCanvasResolutionSync()
         const session = JSON.parse(rawSession)
-        if (session.runtime !== 'scummvm') {
+        const selectedProfileId = localStorage.getItem('mga.selectedProfileId') || ''
+        if (!session.ownerProfileId || session.ownerProfileId !== selectedProfileId) {
+          progressElement.hidden = true
+          setStatus('Unable to launch ScummVM: this session belongs to another MGA profile.', true)
+        } else if (session.runtime !== 'scummvm') {
           progressElement.hidden = true
           setStatus('Unable to launch ScummVM: invalid runtime session.', true)
         } else {

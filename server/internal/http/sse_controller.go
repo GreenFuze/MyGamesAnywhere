@@ -64,9 +64,12 @@ func (c *SSEController) Events(w http.ResponseWriter, r *http.Request) {
 }
 
 func sseEventVisibleToProfile(ev events.Event, profileID string) bool {
-	eventProfileID := sseEventProfileID(ev)
+	eventProfileID := strings.TrimSpace(ev.ProfileID)
 	if eventProfileID == "" {
-		return true
+		eventProfileID = sseEventProfileID(ev)
+	}
+	if eventProfileID == "" {
+		return events.IsGlobalEventType(ev.Type)
 	}
 	return profileID != "" && eventProfileID == profileID
 }

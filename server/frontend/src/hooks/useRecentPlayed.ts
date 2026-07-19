@@ -5,8 +5,9 @@ import {
   type FrontendConfig,
   type RecentPlayedEntry,
 } from '@/api/client'
+import { profileStorageKey } from '@/lib/profileStorage'
 
-const STORAGE_KEY = 'mga.recentPlayed'
+const STORAGE_KEY = 'recentPlayed'
 const MAX_RECENT_PLAYED = 6
 
 function isRecentPlayedEntry(value: unknown): value is RecentPlayedEntry {
@@ -37,7 +38,7 @@ function normalizeEntries(raw: unknown): RecentPlayedEntry[] {
 
 function readLocal(): RecentPlayedEntry[] {
   try {
-    return normalizeEntries(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]'))
+    return normalizeEntries(JSON.parse(localStorage.getItem(profileStorageKey(STORAGE_KEY)) ?? '[]'))
   } catch {
     return []
   }
@@ -45,7 +46,7 @@ function readLocal(): RecentPlayedEntry[] {
 
 function writeLocal(entries: RecentPlayedEntry[]) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
+    localStorage.setItem(profileStorageKey(STORAGE_KEY), JSON.stringify(entries))
   } catch {
     /* ignore */
   }

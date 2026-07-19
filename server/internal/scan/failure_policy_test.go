@@ -32,7 +32,7 @@ func (d metadataPolicyTestDiscovery) GetPluginIDsProviding(method string) []stri
 }
 
 func TestRunScanContinuesAfterMetadataProviderFailureAndReportsDegradedStatus(t *testing.T) {
-	ctx := context.Background()
+	ctx := scanTestContext()
 	store := newManualReviewTestStore(t)
 	bus := events.New()
 	defer bus.Close()
@@ -125,7 +125,7 @@ func TestRunScanContinuesAfterMetadataProviderFailureAndReportsDegradedStatus(t 
 func TestRunMetadataRefreshContinuesAndLogsWarningOnProviderError(t *testing.T) {
 	// When a metadata provider fails, RunMetadataRefresh should NOT abort — it should
 	// continue with the remaining providers and succeed (the failure is a non-fatal warning).
-	ctx := context.Background()
+	ctx := scanTestContext()
 	store := newManualReviewTestStore(t)
 	persistMetadataRefreshTestBatch(t, ctx, store, "source-1", "scan:refresh-1")
 
@@ -164,7 +164,7 @@ func TestRunMetadataRefreshContinuesAndLogsWarningOnProviderError(t *testing.T) 
 func TestRefreshGameMetadataWarnsOnProviderFailureAndSucceeds(t *testing.T) {
 	// When a metadata provider fails, RefreshGameMetadata must NOT abort — it continues
 	// using the remaining providers and surfaces the failure as a warning in the result.
-	ctx := context.Background()
+	ctx := scanTestContext()
 	store := newManualReviewTestStore(t)
 	persistMetadataRefreshTestBatch(t, ctx, store, "source-1", "scan:refresh-1")
 
@@ -215,7 +215,7 @@ func TestRefreshGameMetadataWarnsOnProviderFailureAndSucceeds(t *testing.T) {
 }
 
 func TestRefreshGameMetadataDoesNotDropUnrelatedDetectedGames(t *testing.T) {
-	ctx := context.Background()
+	ctx := scanTestContext()
 	store := newManualReviewTestStore(t)
 	if err := store.PersistScanResults(ctx, &core.ScanBatch{
 		IntegrationID: "source-1",
@@ -337,7 +337,7 @@ func TestRefreshGameMetadataDoesNotDropUnrelatedDetectedGames(t *testing.T) {
 }
 
 func TestManualReviewApplyFailsFastWhenFillProviderFails(t *testing.T) {
-	ctx := context.Background()
+	ctx := scanTestContext()
 	store := newManualReviewTestStore(t)
 	persistMetadataRefreshTestBatch(t, ctx, store, "source-1", "scan:manual-review-1")
 

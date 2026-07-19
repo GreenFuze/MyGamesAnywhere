@@ -20,10 +20,10 @@ type GameGroup struct {
 // FileGrouper groups annotated files into game candidates using directory
 // structure, name-based heuristics, and multi-file clustering.
 type FileGrouper struct {
-	containerKeywords      map[string]bool
-	platformKeywords       []string
-	anchorContainerThresh  int
-	anchorRatioThresh      float64
+	containerKeywords     map[string]bool
+	platformKeywords      []string
+	anchorContainerThresh int
+	anchorRatioThresh     float64
 }
 
 func NewFileGrouper() *FileGrouper {

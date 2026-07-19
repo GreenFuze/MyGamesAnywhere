@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,29 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
 	"github.com/go-chi/chi/v5"
 )
+
+func TestScanJobIsOpaqueAndUncancellableAcrossProfiles(t *testing.T) {
+	runner := &blockingScanRunner{started: make(chan struct{}), release: make(chan struct{})}
+	defer close(runner.release)
+	manager := newScanJobManager(runner, events.New(), noopLogger{}, nil)
+	profileA := core.WithProfile(context.Background(), &core.Profile{ID: "profile-a"})
+	profileB := core.WithProfile(context.Background(), &core.Profile{ID: "profile-b"})
+
+	job, _, err := manager.Start(profileA, ScanRequest{Trigger: "manual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-runner.started
+	if foreign, busy, err := manager.Start(profileB, ScanRequest{}); !errors.Is(err, ErrProfileJobBusy) || !busy || foreign != nil {
+		t.Fatalf("foreign start = job %+v busy %v err %v", foreign, busy, err)
+	}
+	if got := manager.GetForProfile("profile-b", job.JobID); got != nil {
+		t.Fatalf("foreign profile observed job: %+v", got)
+	}
+	if got, result := manager.Cancel("profile-b", job.JobID); got != nil || result != scanCancelNotFound {
+		t.Fatalf("foreign cancel = job %+v result %v", got, result)
+	}
+}
 
 type contextCaptureScanRunner struct {
 	observed chan context.Context
@@ -64,6 +88,7 @@ func TestDiscoveryControllerCancelScanJobLifecycle(t *testing.T) {
 	controller := NewDiscoveryController(runner, &fakeGameStore{}, noopLogger{}, bus)
 
 	router := chi.NewRouter()
+	router.Use(testProfileMiddleware("profile-1"))
 	router.Post("/api/scan", controller.Scan)
 	router.Get("/api/scan/jobs/{job_id}", controller.GetScanJob)
 	router.Post("/api/scan/jobs/{job_id}/cancel", controller.CancelScanJob)
@@ -86,6 +111,7 @@ func TestDiscoveryControllerCancelScanJobLifecycle(t *testing.T) {
 	}
 
 	events.PublishJSON(bus, "scan_started", map[string]any{
+		"profile_id":        "profile-1",
 		"job_id":            started.JobID,
 		"integration_count": 1,
 		"integrations": []map[string]any{{
@@ -95,12 +121,14 @@ func TestDiscoveryControllerCancelScanJobLifecycle(t *testing.T) {
 		}},
 	})
 	events.PublishJSON(bus, "scan_integration_started", map[string]any{
+		"profile_id":     "profile-1",
 		"job_id":         started.JobID,
 		"integration_id": "library-1",
 		"plugin_id":      "source-filesystem",
 		"label":          "Main Library",
 	})
 	events.PublishJSON(bus, "scan_scanner_progress", map[string]any{
+		"profile_id":      "profile-1",
 		"job_id":          started.JobID,
 		"integration_id":  "library-1",
 		"processed_count": 25,
@@ -160,6 +188,7 @@ func TestDiscoveryControllerCancelCompletedScanJobConflicts(t *testing.T) {
 	controller := NewDiscoveryController(runner, &fakeGameStore{}, noopLogger{}, events.New())
 
 	router := chi.NewRouter()
+	router.Use(testProfileMiddleware("profile-1"))
 	router.Post("/api/scan", controller.Scan)
 	router.Post("/api/scan/jobs/{job_id}/cancel", controller.CancelScanJob)
 
@@ -213,6 +242,7 @@ func TestScanJobTracksMetadataProvidersByIntegrationID(t *testing.T) {
 	controller := NewDiscoveryController(runner, &fakeGameStore{}, noopLogger{}, bus)
 
 	router := chi.NewRouter()
+	router.Use(testProfileMiddleware("profile-1"))
 	router.Post("/api/scan", controller.Scan)
 
 	recStart := httptest.NewRecorder()
@@ -233,6 +263,7 @@ func TestScanJobTracksMetadataProvidersByIntegrationID(t *testing.T) {
 	}
 
 	events.PublishJSON(bus, "scan_started", map[string]any{
+		"profile_id":        "profile-1",
 		"job_id":            started.JobID,
 		"integration_count": 1,
 		"integrations": []map[string]any{{
@@ -242,12 +273,14 @@ func TestScanJobTracksMetadataProvidersByIntegrationID(t *testing.T) {
 		}},
 	})
 	events.PublishJSON(bus, "scan_integration_started", map[string]any{
+		"profile_id":     "profile-1",
 		"job_id":         started.JobID,
 		"integration_id": "library-1",
 		"plugin_id":      "source-filesystem",
 		"label":          "Main Library",
 	})
 	events.PublishJSON(bus, "scan_metadata_started", map[string]any{
+		"profile_id":     "profile-1",
 		"job_id":         started.JobID,
 		"integration_id": "library-1",
 		"game_count":     132,
@@ -270,6 +303,7 @@ func TestScanJobTracksMetadataProvidersByIntegrationID(t *testing.T) {
 		},
 	})
 	events.PublishJSON(bus, "scan_metadata_plugin_started", map[string]any{
+		"profile_id":              "profile-1",
 		"job_id":                  started.JobID,
 		"integration_id":          "library-1",
 		"metadata_integration_id": "metadata-steam-primary",
@@ -279,6 +313,7 @@ func TestScanJobTracksMetadataProvidersByIntegrationID(t *testing.T) {
 		"batch_size":              132,
 	})
 	events.PublishJSON(bus, "scan_metadata_plugin_error", map[string]any{
+		"profile_id":              "profile-1",
 		"job_id":                  started.JobID,
 		"integration_id":          "library-1",
 		"metadata_integration_id": "metadata-steam-primary",
@@ -340,6 +375,7 @@ func TestMetadataOnlyScanJobRecordsProgressAndRefreshEvents(t *testing.T) {
 	controller := NewDiscoveryController(runner, &fakeGameStore{}, noopLogger{}, bus)
 
 	router := chi.NewRouter()
+	router.Use(testProfileMiddleware("profile-1"))
 	router.Post("/api/scan", controller.Scan)
 
 	recStart := httptest.NewRecorder()
@@ -365,6 +401,7 @@ func TestMetadataOnlyScanJobRecordsProgressAndRefreshEvents(t *testing.T) {
 	}
 
 	events.PublishJSON(bus, "scan_started", map[string]any{
+		"profile_id":        "profile-1",
 		"job_id":            started.JobID,
 		"metadata_only":     true,
 		"integration_count": 1,
@@ -375,12 +412,14 @@ func TestMetadataOnlyScanJobRecordsProgressAndRefreshEvents(t *testing.T) {
 		}},
 	})
 	events.PublishJSON(bus, "scan_integration_started", map[string]any{
+		"profile_id":     "profile-1",
 		"job_id":         started.JobID,
 		"integration_id": "metadata-refresh",
 		"plugin_id":      "metadata-refresh",
 		"label":          "Metadata Refresh",
 	})
 	events.PublishJSON(bus, "scan_metadata_started", map[string]any{
+		"profile_id":     "profile-1",
 		"job_id":         started.JobID,
 		"integration_id": "metadata-refresh",
 		"game_count":     2,
@@ -393,6 +432,7 @@ func TestMetadataOnlyScanJobRecordsProgressAndRefreshEvents(t *testing.T) {
 		}},
 	})
 	events.PublishJSON(bus, "scan_metadata_plugin_started", map[string]any{
+		"profile_id":              "profile-1",
 		"job_id":                  started.JobID,
 		"integration_id":          "metadata-refresh",
 		"metadata_integration_id": "metadata-retroachievements",
@@ -402,6 +442,7 @@ func TestMetadataOnlyScanJobRecordsProgressAndRefreshEvents(t *testing.T) {
 		"batch_size":              2,
 	})
 	events.PublishJSON(bus, "scan_metadata_game_progress", map[string]any{
+		"profile_id":              "profile-1",
 		"job_id":                  started.JobID,
 		"integration_id":          "metadata-refresh",
 		"metadata_integration_id": "metadata-retroachievements",

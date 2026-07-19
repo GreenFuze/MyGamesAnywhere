@@ -21,7 +21,8 @@ type integrationRefreshRunner interface {
 }
 
 type integrationRefreshJobRecord struct {
-	status *core.IntegrationRefreshJobStatus
+	profileID string
+	status    *core.IntegrationRefreshJobStatus
 }
 
 type integrationRefreshJobManager struct {
@@ -48,6 +49,13 @@ func (m *integrationRefreshJobManager) Start(parent context.Context, integration
 	if integration == nil || integration.ID == "" {
 		return nil, false, http.ErrMissingFile
 	}
+	profileID := core.ProfileIDFromContext(parent)
+	if profileID == "" {
+		return nil, false, ErrProfileRequired
+	}
+	if integration.ProfileID != profileID {
+		return nil, false, core.ErrProfileForbidden
+	}
 
 	m.mu.Lock()
 	if activeJobID, ok := m.activeByIntegration[integration.ID]; ok {
@@ -68,7 +76,7 @@ func (m *integrationRefreshJobManager) Start(parent context.Context, integration
 		Status:        "queued",
 		StartedAt:     now,
 	}
-	m.jobs[status.JobID] = &integrationRefreshJobRecord{status: status}
+	m.jobs[status.JobID] = &integrationRefreshJobRecord{profileID: profileID, status: status}
 	m.activeByIntegration[integration.ID] = status.JobID
 	out := cloneIntegrationRefreshJobStatus(status)
 	m.mu.Unlock()
@@ -87,6 +95,16 @@ func (m *integrationRefreshJobManager) Get(jobID string) *core.IntegrationRefres
 	return cloneIntegrationRefreshJobStatus(record.status)
 }
 
+func (m *integrationRefreshJobManager) GetForProfile(profileID, jobID string) *core.IntegrationRefreshJobStatus {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	record := m.jobs[jobID]
+	if record == nil || record.profileID != profileID {
+		return nil
+	}
+	return cloneIntegrationRefreshJobStatus(record.status)
+}
+
 func (m *integrationRefreshJobManager) run(parent context.Context, integration *core.Integration, jobID string) {
 	ctx := context.Background()
 	if profile, ok := core.ProfileFromContext(parent); ok {
@@ -96,7 +114,7 @@ func (m *integrationRefreshJobManager) run(parent context.Context, integration *
 		status.Status = "running"
 		status.Phase = "starting"
 	})
-	m.publish("integration_refresh_started", cloneIntegrationRefreshJobStatus(m.Get(jobID)))
+	m.publish(jobID, "integration_refresh_started", cloneIntegrationRefreshJobStatus(m.Get(jobID)))
 
 	err := m.runner.RunIntegrationRefresh(ctx, integration, scan.IntegrationRefreshCallbacks{
 		SetPhase: func(phase string, total int) {
@@ -106,7 +124,7 @@ func (m *integrationRefreshJobManager) run(parent context.Context, integration *
 				status.ItemsCompleted = 0
 				status.CurrentItem = ""
 			})
-			m.publish("integration_refresh_phase", map[string]any{
+			m.publish(jobID, "integration_refresh_phase", map[string]any{
 				"job_id":         jobID,
 				"integration_id": integration.ID,
 				"phase":          phase,
@@ -121,7 +139,7 @@ func (m *integrationRefreshJobManager) run(parent context.Context, integration *
 				}
 				status.CurrentItem = item
 			})
-			m.publish("integration_refresh_progress", map[string]any{
+			m.publish(jobID, "integration_refresh_progress", map[string]any{
 				"job_id":          jobID,
 				"integration_id":  integration.ID,
 				"phase":           m.Get(jobID).Phase,
@@ -137,7 +155,7 @@ func (m *integrationRefreshJobManager) run(parent context.Context, integration *
 					status.Warnings = append(status.Warnings, message)
 				}
 			})
-			m.publish("integration_refresh_warning", map[string]any{
+			m.publish(jobID, "integration_refresh_warning", map[string]any{
 				"job_id":         jobID,
 				"integration_id": integration.ID,
 				"message":        message,
@@ -153,7 +171,7 @@ func (m *integrationRefreshJobManager) run(parent context.Context, integration *
 			status.Error = err.Error()
 			status.FinishedAt = finishedAt
 		})
-		m.publish("integration_refresh_failed", map[string]any{
+		m.publish(jobID, "integration_refresh_failed", map[string]any{
 			"job_id":         jobID,
 			"integration_id": integration.ID,
 			"error":          err.Error(),
@@ -165,7 +183,7 @@ func (m *integrationRefreshJobManager) run(parent context.Context, integration *
 			status.FinishedAt = finishedAt
 			status.CurrentItem = ""
 		})
-		m.publish("integration_refresh_complete", map[string]any{
+		m.publish(jobID, "integration_refresh_complete", map[string]any{
 			"job_id":          jobID,
 			"integration_id":  integration.ID,
 			"warning_count":   m.Get(jobID).WarningCount,
@@ -192,16 +210,25 @@ func (m *integrationRefreshJobManager) update(jobID string, mutate func(*core.In
 	mutate(record.status)
 }
 
-func (m *integrationRefreshJobManager) publish(eventType string, payload any) {
+func (m *integrationRefreshJobManager) publish(jobID, eventType string, payload any) {
 	if m.bus == nil {
 		return
 	}
-	data, err := json.Marshal(payload)
+	data, err := marshalProfileOwnedJobEvent(payload, m.profileID(jobID))
 	if err != nil {
 		m.logger.Warn("integration refresh: event marshal failed", "error", err)
 		return
 	}
 	m.bus.Publish(events.Event{Type: eventType, Data: data})
+}
+
+func (m *integrationRefreshJobManager) profileID(jobID string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if record := m.jobs[jobID]; record != nil {
+		return record.profileID
+	}
+	return ""
 }
 
 func cloneIntegrationRefreshJobStatus(status *core.IntegrationRefreshJobStatus) *core.IntegrationRefreshJobStatus {
@@ -284,7 +311,7 @@ func (c *IntegrationRefreshController) GetJob(w http.ResponseWriter, r *http.Req
 		http.Error(w, "job_id is required", http.StatusBadRequest)
 		return
 	}
-	status := c.jobs.Get(jobID)
+	status := c.jobs.GetForProfile(core.ProfileIDFromContext(r.Context()), jobID)
 	if status == nil {
 		http.NotFound(w, r)
 		return

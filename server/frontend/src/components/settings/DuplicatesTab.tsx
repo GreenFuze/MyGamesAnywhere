@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { CoverImage } from '@/components/ui/cover-image'
 import { BatchSourceHardDeleteDialog, type BatchSourceDeleteTarget } from '@/components/library/BatchSourceHardDeleteDialog'
 import { platformLabel, selectCoverUrl } from '@/lib/gameUtils'
+import { profileStorageKey } from '@/lib/profileStorage'
 
 const MODES: Array<{ id: DuplicateGameMode; label: string; description: string }> = [
   {
@@ -61,7 +62,7 @@ const DUPLICATE_DELETE_SELECTION_STORAGE_KEY = 'mga.settings.duplicates.markedFo
 function loadStoredSelectedIds(): Set<string> {
   if (typeof window === 'undefined') return new Set()
   try {
-    const raw = window.sessionStorage.getItem(DUPLICATE_DELETE_SELECTION_STORAGE_KEY)
+    const raw = window.sessionStorage.getItem(profileStorageKey(DUPLICATE_DELETE_SELECTION_STORAGE_KEY))
     if (!raw) return new Set()
     const ids = JSON.parse(raw)
     return Array.isArray(ids) ? new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0)) : new Set()
@@ -131,7 +132,7 @@ export function DuplicatesTab() {
 
   useEffect(() => {
     try {
-      window.sessionStorage.setItem(DUPLICATE_DELETE_SELECTION_STORAGE_KEY, JSON.stringify(Array.from(selectedIds)))
+      window.sessionStorage.setItem(profileStorageKey(DUPLICATE_DELETE_SELECTION_STORAGE_KEY), JSON.stringify(Array.from(selectedIds)))
     } catch {
       // Best-effort navigation persistence only.
     }

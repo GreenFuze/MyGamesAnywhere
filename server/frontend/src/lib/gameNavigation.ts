@@ -1,3 +1,5 @@
+import { profileStorageKey } from '@/lib/profileStorage'
+
 export type GameOriginLabel = 'Home' | 'Library' | 'Play' | 'Achievements'
 
 export type GameRouteState = {
@@ -17,7 +19,7 @@ export type FocusRouteState = {
 const STORAGE_PREFIX = 'mga.returnScroll.'
 
 function storageKey(route: string): string {
-  return `${STORAGE_PREFIX}${route}`
+  return profileStorageKey(`${STORAGE_PREFIX}${route}`)
 }
 
 export function inferOriginLabel(pathname: string): GameOriginLabel {

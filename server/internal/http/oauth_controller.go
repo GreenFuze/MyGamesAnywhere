@@ -56,28 +56,40 @@ func (c *OAuthController) SetGameStore(gameStore core.GameStore) {
 
 var defaultOAuthStateStore = NewOAuthStateStore()
 
+const oauthStateLifetime = 10 * time.Minute
+
 type OAuthState struct {
-	IntegrationID string
-	ProfileID     string
-	PluginID      string
-	ConfigUpdates map[string]any
+	IntegrationID     string
+	ProfileID         string
+	PluginID          string
+	ConfigUpdates     map[string]any
+	CreatedAt         time.Time
+	ExpiresAt         time.Time
+	CallbackClaimed   bool
+	CallbackCompleted bool
 }
 
 type OAuthStateStore struct {
 	mu     sync.Mutex
 	states map[string]OAuthState
+	now    func() time.Time
+	ttl    time.Duration
 }
 
 func NewOAuthStateStore() *OAuthStateStore {
-	return &OAuthStateStore{states: make(map[string]OAuthState)}
+	return &OAuthStateStore{states: make(map[string]OAuthState), now: time.Now, ttl: oauthStateLifetime}
 }
 
 func (s *OAuthStateStore) Register(state string, value OAuthState) {
-	if s == nil || strings.TrimSpace(state) == "" || (strings.TrimSpace(value.IntegrationID) == "" && strings.TrimSpace(value.PluginID) == "") {
+	if s == nil || strings.TrimSpace(state) == "" || strings.TrimSpace(value.ProfileID) == "" || strings.TrimSpace(value.PluginID) == "" {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := s.now().UTC()
+	s.cleanupExpiredLocked(now)
+	value.CreatedAt = now
+	value.ExpiresAt = now.Add(s.ttl)
 	s.states[state] = value
 }
 
@@ -87,6 +99,7 @@ func (s *OAuthStateStore) Peek(state string) (OAuthState, bool) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cleanupExpiredLocked(s.now().UTC())
 	value, ok := s.states[state]
 	return value, ok
 }
@@ -97,6 +110,7 @@ func (s *OAuthStateStore) Consume(state string) (OAuthState, bool) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cleanupExpiredLocked(s.now().UTC())
 	value, ok := s.states[state]
 	if ok {
 		delete(s.states, state)
@@ -110,6 +124,7 @@ func (s *OAuthStateStore) SetConfigUpdates(state string, updates map[string]any)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cleanupExpiredLocked(s.now().UTC())
 	value, ok := s.states[state]
 	if !ok {
 		return false
@@ -120,6 +135,47 @@ func (s *OAuthStateStore) SetConfigUpdates(state string, updates map[string]any)
 	}
 	s.states[state] = value
 	return true
+}
+
+func (s *OAuthStateStore) ClaimCallback(state string) (OAuthState, bool) {
+	if s == nil || strings.TrimSpace(state) == "" {
+		return OAuthState{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cleanupExpiredLocked(s.now().UTC())
+	value, ok := s.states[state]
+	if !ok || value.CallbackClaimed || value.CallbackCompleted {
+		return OAuthState{}, false
+	}
+	value.CallbackClaimed = true
+	s.states[state] = value
+	return value, true
+}
+
+func (s *OAuthStateStore) FinishCallback(state string, success bool) {
+	if s == nil || strings.TrimSpace(state) == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value, ok := s.states[state]
+	if !ok {
+		return
+	}
+	value.CallbackClaimed = false
+	if success {
+		value.CallbackCompleted = true
+	}
+	s.states[state] = value
+}
+
+func (s *OAuthStateStore) cleanupExpiredLocked(now time.Time) {
+	for state, value := range s.states {
+		if value.ExpiresAt.IsZero() || !now.Before(value.ExpiresAt) {
+			delete(s.states, state)
+		}
+	}
 }
 
 // Callback handles GET /api/auth/callback/{plugin_id}.
@@ -244,6 +300,9 @@ func (c *OAuthController) validateCallbackState(ctx context.Context, pluginID, s
 	if strings.TrimSpace(oauthState.PluginID) != "" && oauthState.PluginID != pluginID {
 		return fmt.Errorf("OAuth state plugin mismatch: got %s, want %s", pluginID, oauthState.PluginID)
 	}
+	if strings.TrimSpace(oauthState.ProfileID) == "" {
+		return fmt.Errorf("OAuth state has no owning profile")
+	}
 	if strings.TrimSpace(oauthState.IntegrationID) == "" || c.repo == nil {
 		return nil
 	}
@@ -260,6 +319,9 @@ func (c *OAuthController) validateCallbackState(ctx context.Context, pluginID, s
 	}
 	if integration.PluginID != pluginID {
 		return fmt.Errorf("OAuth state plugin mismatch: got %s, want %s", pluginID, integration.PluginID)
+	}
+	if integration.ProfileID != oauthState.ProfileID {
+		return fmt.Errorf("OAuth state profile mismatch")
 	}
 	return nil
 }
@@ -380,7 +442,15 @@ func (c *OAuthController) handleOpenIDCallback(w http.ResponseWriter, r *http.Re
 // config updates, and publishes the common completion event used by callback
 // redirects and pasted callback imports.
 func (c *OAuthController) completeCallback(ctx context.Context, pluginID, state string, ipcPayload map[string]any) error {
-	oauthState, hasOAuthState := c.states.Peek(state)
+	if err := c.validateCallbackState(ctx, pluginID, state); err != nil {
+		return err
+	}
+	oauthState, hasOAuthState := c.states.ClaimCallback(state)
+	if !hasOAuthState {
+		return fmt.Errorf("OAuth state is already being completed or was already used")
+	}
+	succeeded := false
+	defer func() { c.states.FinishCallback(state, succeeded) }()
 	var result oauthCallbackResult
 	err := c.pluginHost.Call(ctx, pluginID, "auth.oauth.callback", ipcPayload, &result)
 
@@ -398,17 +468,20 @@ func (c *OAuthController) completeCallback(ctx context.Context, pluginID, state 
 	if err := c.persistOAuthConfigUpdates(ctx, pluginID, state, result.ConfigUpdates); err != nil {
 		return err
 	}
+	succeeded = true
 	if hasOAuthState && strings.TrimSpace(oauthState.IntegrationID) != "" {
 		if err := c.clearAuthRelatedAchievementRefreshFailures(ctx, oauthState); err != nil {
 			return err
 		}
+		c.states.FinishCallback(state, true)
 		c.states.Consume(state)
 	}
 
 	// Success — publish SSE event so the frontend wizard knows.
 	payload := map[string]any{
-		"plugin_id": pluginID,
-		"state":     state,
+		"profile_id": oauthState.ProfileID,
+		"plugin_id":  pluginID,
+		"state":      state,
 	}
 	if hasOAuthState && strings.TrimSpace(oauthState.IntegrationID) != "" {
 		payload["integration_id"] = oauthState.IntegrationID
@@ -493,10 +566,15 @@ func (c *OAuthController) publishErrorAndRender(w http.ResponseWriter, pluginID,
 }
 
 func (c *OAuthController) publishOAuthError(pluginID, state, errMsg string) {
+	oauthState, ok := c.states.Peek(state)
+	if !ok || strings.TrimSpace(oauthState.ProfileID) == "" {
+		return
+	}
 	events.PublishJSON(c.eventBus, "oauth_error", map[string]any{
-		"plugin_id": pluginID,
-		"state":     state,
-		"error":     errMsg,
+		"profile_id": oauthState.ProfileID,
+		"plugin_id":  pluginID,
+		"state":      state,
+		"error":      errMsg,
 	})
 }
 

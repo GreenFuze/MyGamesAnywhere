@@ -24,7 +24,7 @@ const (
 
 type backgroundScanJobCoordinator interface {
 	StartScan(ctx context.Context, req ScanRequest) (*core.ScanJobStatus, bool, error)
-	ScanJobStatus(jobID string) *core.ScanJobStatus
+	ScanJobStatus(profileID, jobID string) *core.ScanJobStatus
 }
 
 type backgroundScanProfileState struct {
@@ -134,7 +134,7 @@ func (s *BackgroundScanService) tickProfile(ctx context.Context, profileID strin
 	s.mu.Unlock()
 
 	if activeJobID != "" {
-		job := s.coordinator.ScanJobStatus(activeJobID)
+		job := s.coordinator.ScanJobStatus(profileID, activeJobID)
 		if job == nil {
 			s.finishJob(profileID, nil, config, now, "background scan job disappeared")
 			return nil
@@ -303,7 +303,7 @@ func (s *BackgroundScanService) Status(ctx context.Context) (*core.LibraryScanSc
 	activeJobID := state.activeJobID
 	s.mu.Unlock()
 	if activeJobID != "" {
-		status.ActiveJob = s.coordinator.ScanJobStatus(activeJobID)
+		status.ActiveJob = s.coordinator.ScanJobStatus(profileID, activeJobID)
 	}
 	return &status, nil
 }
@@ -357,8 +357,8 @@ func (c *DiscoveryController) SetBackgroundScanService(service *BackgroundScanSe
 	c.backgroundScans = service
 }
 
-func (c *DiscoveryController) ScanJobStatus(jobID string) *core.ScanJobStatus {
-	return c.scanJobs.Get(jobID)
+func (c *DiscoveryController) ScanJobStatus(profileID, jobID string) *core.ScanJobStatus {
+	return c.scanJobs.GetForProfile(profileID, jobID)
 }
 
 func (c *DiscoveryController) GetBackgroundScanStatus(w stdhttp.ResponseWriter, r *stdhttp.Request) {

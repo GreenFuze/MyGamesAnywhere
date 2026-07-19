@@ -861,7 +861,7 @@ func (s *Service) progressPayload(status *core.UpdateStatus) map[string]any {
 }
 
 func (s *Service) publish(eventType string, payload map[string]any) {
-	events.PublishJSON(s.eventBus, eventType, payload)
+	events.PublishGlobalJSON(s.eventBus, eventType, payload)
 }
 
 func compareVersions(latest, current string) (int, bool) {

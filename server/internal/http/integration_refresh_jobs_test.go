@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -37,9 +38,10 @@ func TestIntegrationRefreshControllerStartsAndTracksWarnings(t *testing.T) {
 	repo := &fakeControllerIntegrationRepo{
 		byID: map[string]*core.Integration{
 			"steam-1": {
-				ID:       "steam-1",
-				PluginID: "game-source-steam",
-				Label:    "Steam",
+				ID:        "steam-1",
+				ProfileID: "profile-1",
+				PluginID:  "game-source-steam",
+				Label:     "Steam",
 			},
 		},
 	}
@@ -67,6 +69,7 @@ func TestIntegrationRefreshControllerStartsAndTracksWarnings(t *testing.T) {
 	)
 
 	router := chi.NewRouter()
+	router.Use(testProfileMiddleware("profile-1"))
 	router.Post("/api/integrations/{id}/refresh", controller.Start)
 	router.Get("/api/integration-refresh/jobs/{job_id}", controller.GetJob)
 
@@ -103,9 +106,10 @@ func TestIntegrationRefreshControllerRejectsIneligibleIntegration(t *testing.T) 
 	repo := &fakeControllerIntegrationRepo{
 		byID: map[string]*core.Integration{
 			"sync-1": {
-				ID:       "sync-1",
-				PluginID: "sync-settings-google-drive",
-				Label:    "Settings Sync",
+				ID:        "sync-1",
+				ProfileID: "profile-1",
+				PluginID:  "sync-settings-google-drive",
+				Label:     "Settings Sync",
 			},
 		},
 	}
@@ -130,12 +134,22 @@ func TestIntegrationRefreshControllerRejectsIneligibleIntegration(t *testing.T) 
 	)
 
 	router := chi.NewRouter()
+	router.Use(testProfileMiddleware("profile-1"))
 	router.Post("/api/integrations/{id}/refresh", controller.Start)
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/integrations/sync-1/refresh", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestIntegrationRefreshJobRejectsForeignOwner(t *testing.T) {
+	manager := newIntegrationRefreshJobManager(integrationRefreshTestRunner{run: func(context.Context, *core.Integration, integrationRefreshCallbacks) error { return nil }}, events.New(), noopLogger{})
+	ctx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-b"})
+	job, reused, err := manager.Start(ctx, &core.Integration{ID: "integration-a", ProfileID: "profile-a"})
+	if !errors.Is(err, core.ErrProfileForbidden) || reused || job != nil {
+		t.Fatalf("foreign integration start = job %+v reused %v err %v", job, reused, err)
 	}
 }
 

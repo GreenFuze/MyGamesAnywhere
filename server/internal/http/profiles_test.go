@@ -45,7 +45,7 @@ func (restoreSyncService) RestoreBootstrap(context.Context, core.RestoreSyncRequ
 }
 func (restoreSyncService) Status(context.Context) (*core.SyncStatus, error) { return nil, nil }
 func (restoreSyncService) StoreKey(context.Context, string, string) error   { return nil }
-func (restoreSyncService) ClearKey() error                                  { return nil }
+func (restoreSyncService) ClearKey(context.Context) error                   { return nil }
 
 type restoreScanStarter struct {
 	started   bool

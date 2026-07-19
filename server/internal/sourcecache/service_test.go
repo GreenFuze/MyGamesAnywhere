@@ -32,6 +32,8 @@ func (testLogger) Warn(string, ...any)         {}
 
 type testIntegrationRepo struct {
 	integration *core.Integration
+	mu          sync.Mutex
+	lastProfile string
 }
 
 func (r *testIntegrationRepo) Create(context.Context, *core.Integration) error   { return nil }
@@ -41,8 +43,18 @@ func (r *testIntegrationRepo) List(context.Context) ([]*core.Integration, error)
 func (r *testIntegrationRepo) ListByPluginID(context.Context, string) ([]*core.Integration, error) {
 	return nil, nil
 }
-func (r *testIntegrationRepo) GetByID(context.Context, string) (*core.Integration, error) {
+
+func (r *testIntegrationRepo) GetByID(ctx context.Context, _ string) (*core.Integration, error) {
+	r.mu.Lock()
+	r.lastProfile = core.ProfileIDFromContext(ctx)
+	r.mu.Unlock()
 	return r.integration, nil
+}
+
+func (r *testIntegrationRepo) observedProfile() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastProfile
 }
 
 type testPluginHost struct {
@@ -130,7 +142,7 @@ func (h *testPluginHost) maxConcurrentCalls() int {
 }
 
 func TestServicePrepareMaterializesAndReusesCache(t *testing.T) {
-	ctx := context.Background()
+	ctx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-1", Role: core.ProfileRoleAdminPlayer})
 	dbPath := filepath.Join(t.TempDir(), "cache.db")
 	cacheRoot := filepath.Join(t.TempDir(), "source-cache")
 
@@ -143,10 +155,14 @@ func TestServicePrepareMaterializesAndReusesCache(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if _, err := database.GetDB().ExecContext(ctx, `INSERT INTO profiles (id, display_name, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+		"profile-1", "Player One", string(core.ProfileRoleAdminPlayer), time.Now().Unix(), time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := database.GetDB().ExecContext(ctx, `INSERT INTO source_games
-		(id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, root_path, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"source-1", "integration-1", "game-source-google-drive", "drive-file-1", "Drive Game",
+		(id, profile_id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, root_path, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"source-1", "profile-1", "integration-1", "game-source-google-drive", "drive-file-1", "Drive Game",
 		string(core.PlatformGBA), string(core.GameKindBaseGame), string(core.GroupKindSelfContained), "Drive/Game", "found", time.Now().Unix(),
 	); err != nil {
 		t.Fatal(err)
@@ -162,9 +178,10 @@ func TestServicePrepareMaterializesAndReusesCache(t *testing.T) {
 		},
 		body: []byte("gba-data"),
 	}
+	integrations := &testIntegrationRepo{integration: &core.Integration{ID: "integration-1", ProfileID: "profile-1", PluginID: "game-source-google-drive", ConfigJSON: `{}`}}
 	svc := NewService(
 		store,
-		&testIntegrationRepo{integration: &core.Integration{ID: "integration-1", PluginID: "game-source-google-drive", ConfigJSON: `{}`}},
+		integrations,
 		host,
 		testConfig{values: map[string]string{"SOURCE_CACHE_ROOT": cacheRoot}},
 		testLogger{},
@@ -227,6 +244,9 @@ func TestServicePrepareMaterializesAndReusesCache(t *testing.T) {
 	}
 	if completed == nil {
 		t.Fatalf("job did not complete: %+v", job)
+	}
+	if got := integrations.observedProfile(); got != "profile-1" {
+		t.Fatalf("background materialization integration owner = %q, want profile-1", got)
 	}
 	if calls := host.callCount(); calls != 1 {
 		t.Fatalf("materialize calls = %d, want 1", calls)

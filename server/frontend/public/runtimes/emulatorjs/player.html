@@ -401,7 +401,10 @@
           renderError('Browser-play session was not found.')
         } else {
           const session = JSON.parse(raw)
-          if (session.runtime !== 'emulatorjs') {
+          const selectedProfileId = localStorage.getItem('mga.selectedProfileId') || ''
+          if (!session.ownerProfileId || session.ownerProfileId !== selectedProfileId) {
+            renderError('This browser-play session belongs to another MGA profile.')
+          } else if (session.runtime !== 'emulatorjs') {
             renderError('Invalid EmulatorJS session payload.')
           } else {
             const runtimeVersion = 'mga-20260430-save-ram-sync'

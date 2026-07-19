@@ -16,6 +16,10 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
 )
 
+func saveSyncTestContext() context.Context {
+	return core.WithProfile(context.Background(), &core.Profile{ID: "profile-1", Role: core.ProfileRoleAdminPlayer})
+}
+
 func TestValidateSlotRefAgainstGameAllowsCanonicalPlatformFallback(t *testing.T) {
 	game := &core.CanonicalGame{
 		ID:       "game-1",
@@ -146,11 +150,12 @@ func TestKnownSlotIDsIncludeLegacyAndEmulatorJSNativeSlots(t *testing.T) {
 }
 
 func TestPutSlotWritesLocalCacheBeforeRemoteUploadCompletes(t *testing.T) {
-	ctx := context.Background()
+	ctx := saveSyncTestContext()
 	svc, host, gameID := newTestService(t)
 	host.blockPut = make(chan struct{})
 
 	ref := core.SaveSyncSlotRef{
+		OwnerProfileID:  "profile-1",
 		CanonicalGameID: gameID,
 		SourceGameID:    "source-1",
 		Runtime:         "emulatorjs",
@@ -178,7 +183,7 @@ func TestPutSlotWritesLocalCacheBeforeRemoteUploadCompletes(t *testing.T) {
 	}
 
 	close(host.blockPut)
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		summary, err := svc.readSlotSummaryFromCache(ref)
 		if err != nil {
@@ -196,10 +201,11 @@ func TestPutSlotWritesLocalCacheBeforeRemoteUploadCompletes(t *testing.T) {
 }
 
 func TestPrefetchCachesRemoteSlotsAndMarksMissingSlots(t *testing.T) {
-	ctx := context.Background()
+	ctx := saveSyncTestContext()
 	svc, host, gameID := newTestService(t)
 
 	ref := core.SaveSyncSlotRef{
+		OwnerProfileID:  "profile-1",
 		CanonicalGameID: gameID,
 		SourceGameID:    "source-1",
 		Runtime:         "emulatorjs",
@@ -257,6 +263,7 @@ func TestPrefetchCachesRemoteSlotsAndMarksMissingSlots(t *testing.T) {
 	}
 
 	missingSummary, err := svc.readSlotSummaryFromCache(core.SaveSyncSlotRef{
+		OwnerProfileID:  "profile-1",
 		CanonicalGameID: ref.CanonicalGameID,
 		SourceGameID:    ref.SourceGameID,
 		Runtime:         ref.Runtime,
@@ -278,13 +285,49 @@ func TestPrefetchCachesRemoteSlotsAndMarksMissingSlots(t *testing.T) {
 	}
 }
 
+func TestSaveSyncJobsCachesAndUploadQueuesAreProfileOwned(t *testing.T) {
+	svc, _, gameID := newTestService(t)
+	job, err := svc.StartPrefetch(saveSyncTestContext(), core.SaveSyncPrefetchRequest{
+		CanonicalGameID: gameID,
+		SourceGameID:    "source-1",
+		Runtime:         "emulatorjs",
+		IntegrationID:   "integration-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignCtx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-2", Role: core.ProfileRolePlayer})
+	if status, err := svc.GetPrefetchStatus(foreignCtx, job.JobID); err != nil || status != nil {
+		t.Fatalf("foreign prefetch status = %+v, %v", status, err)
+	}
+	// The service intentionally runs prefetch in the background. Wait for the
+	// owning profile's job before TempDir cleanup so this isolation test cannot
+	// race a legitimate cache write during teardown.
+	waitPrefetch(t, svc, job.JobID)
+
+	base := core.SaveSyncSlotRef{CanonicalGameID: gameID, SourceGameID: "source-1", Runtime: "emulatorjs", SlotID: "state-1", IntegrationID: "integration-1"}
+	refA, refB := base, base
+	refA.OwnerProfileID = "profile-1"
+	refB.OwnerProfileID = "profile-2"
+	if svc.cacheSlotDir(refA) == svc.cacheSlotDir(refB) {
+		t.Fatal("two profiles share the same save cache directory")
+	}
+	if svc.slotQueueKey(refA) == svc.slotQueueKey(refB) {
+		t.Fatal("two profiles share the same upload worker key")
+	}
+	if err := svc.uploadSlotFromCache(refA, &core.Profile{ID: "profile-2"}); err == nil {
+		t.Fatal("foreign upload worker profile was accepted")
+	}
+}
+
 func TestPrefetchDownloadsRemoteSlotsConcurrently(t *testing.T) {
-	ctx := context.Background()
+	ctx := saveSyncTestContext()
 	svc, host, gameID := newTestService(t)
 	host.getDelay = 100 * time.Millisecond
 
 	for _, slotID := range emulatorJSSlotIDs() {
 		ref := core.SaveSyncSlotRef{
+			OwnerProfileID:  "profile-1",
 			CanonicalGameID: gameID,
 			SourceGameID:    "source-1",
 			Runtime:         "emulatorjs",
@@ -334,11 +377,12 @@ func TestPrefetchDownloadsRemoteSlotsConcurrently(t *testing.T) {
 }
 
 func TestUploadFailureMarksCachedSlotFailed(t *testing.T) {
-	ctx := context.Background()
+	ctx := saveSyncTestContext()
 	svc, host, gameID := newTestService(t)
 	host.putErr = true
 
 	ref := core.SaveSyncSlotRef{
+		OwnerProfileID:  "profile-1",
 		CanonicalGameID: gameID,
 		SourceGameID:    "source-1",
 		Runtime:         "emulatorjs",
@@ -353,7 +397,10 @@ func TestUploadFailureMarksCachedSlotFailed(t *testing.T) {
 		t.Fatalf("put slot: %v", err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
+	// Windows filesystem and SQLite work can be noticeably slower under the
+	// full parallel package suite. Keep the poll bounded, but do not turn a
+	// scheduler delay into a flaky worker-lifecycle failure.
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		summary, err := svc.readSlotSummaryFromCache(ref)
 		if err != nil {
@@ -498,7 +545,7 @@ func (h *saveSyncTestPluginHost) putRemote(path string, data []byte) {
 
 func newTestService(t *testing.T) (*service, *saveSyncTestPluginHost, string) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := saveSyncTestContext()
 	database := dbpkg.NewSQLiteDatabase(saveSyncTestLogger{}, saveSyncTestConfig{
 		values: map[string]string{"DB_PATH": filepath.Join(t.TempDir(), "mga.db")},
 	})
@@ -606,9 +653,12 @@ func setJSONResult(result any, value any) {
 
 func waitPrefetch(t *testing.T, svc *service, jobID string) *core.SaveSyncPrefetchStatus {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	// The full package suite runs filesystem, SQLite, and plugin tests in
+	// parallel. Keep this bounded while allowing a slow Windows scheduler to
+	// finish the deliberately concurrent prefetch workers.
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		status, err := svc.GetPrefetchStatus(context.Background(), jobID)
+		status, err := svc.GetPrefetchStatus(saveSyncTestContext(), jobID)
 		if err != nil {
 			t.Fatal(err)
 		}

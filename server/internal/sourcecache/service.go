@@ -209,7 +209,8 @@ func (s *Service) Prepare(ctx context.Context, req core.SourceCachePrepareReques
 		return nil, false, err
 	}
 
-	go s.runPrepare(job, entry, req.Profile, sourceGame, files)
+	owner, _ := core.ProfileFromContext(ctx)
+	go s.runPrepare(owner, job, entry, req.Profile, sourceGame, files)
 	return job, false, nil
 }
 
@@ -291,8 +292,12 @@ func (s *Service) ResolveCachedFile(ctx context.Context, sourceGameID, profile, 
 	return entry, file, filepath.Join(s.cacheRoot(), filepath.FromSlash(file.LocalPath)), nil
 }
 
-func (s *Service) runPrepare(job *core.SourceCacheJobStatus, entry *core.SourceCacheEntry, profile string, sourceGame *core.SourceGame, files []core.GameFile) {
+func (s *Service) runPrepare(owner *core.Profile, job *core.SourceCacheJobStatus, entry *core.SourceCacheEntry, profile string, sourceGame *core.SourceGame, files []core.GameFile) {
 	ctx := context.Background()
+	if owner != nil && strings.TrimSpace(owner.ID) != "" {
+		profileCopy := *owner
+		ctx = core.WithProfile(ctx, &profileCopy)
+	}
 	job.Status = "running"
 	job.Message = "materializing source files"
 	if err := s.store.UpdateJob(ctx, job); err != nil {

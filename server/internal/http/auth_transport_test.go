@@ -106,6 +106,40 @@ func (r lanProfileRepository) EnsureDefaultForExistingData(context.Context) (*co
 	return r.profile, nil
 }
 
+type multiLANProfileRepository struct {
+	profiles map[string]*core.Profile
+}
+
+func (r multiLANProfileRepository) Create(context.Context, *core.Profile) error { return nil }
+func (r multiLANProfileRepository) Update(context.Context, *core.Profile) error { return nil }
+func (r multiLANProfileRepository) Delete(_ context.Context, id string) error {
+	delete(r.profiles, id)
+	return nil
+}
+func (r multiLANProfileRepository) List(context.Context) ([]*core.Profile, error) {
+	profiles := make([]*core.Profile, 0, len(r.profiles))
+	for _, profile := range r.profiles {
+		profiles = append(profiles, profile)
+	}
+	return profiles, nil
+}
+func (r multiLANProfileRepository) GetByID(_ context.Context, id string) (*core.Profile, error) {
+	return r.profiles[id], nil
+}
+func (r multiLANProfileRepository) Count(context.Context) (int, error) { return len(r.profiles), nil }
+func (r multiLANProfileRepository) CountAdmins(context.Context) (int, error) {
+	count := 0
+	for _, profile := range r.profiles {
+		if profile.Role == core.ProfileRoleAdminPlayer {
+			count++
+		}
+	}
+	return count, nil
+}
+func (r multiLANProfileRepository) EnsureDefaultForExistingData(context.Context) (*core.Profile, error) {
+	return nil, nil
+}
+
 func TestProfileLoginAndDeviceSessionAllowHTTPFromLAN(t *testing.T) {
 	profile := &core.Profile{ID: "admin-1", DisplayName: "Admin", Role: core.ProfileRoleAdminPlayer}
 	store := newLANAuthStore()
@@ -175,6 +209,116 @@ func TestInitialCredentialSetupAllowsHTTPFromLAN(t *testing.T) {
 	status, err := service.CredentialStatus(context.Background(), profile.ID)
 	if err != nil || !status.Configured || status.Kind != auth.CredentialPIN {
 		t.Fatalf("CredentialStatus() = %+v, %v", status, err)
+	}
+}
+
+func TestProfileAccessPolicySeparatesProtectedProfiles(t *testing.T) {
+	profiles := multiLANProfileRepository{profiles: map[string]*core.Profile{
+		"admin":       {ID: "admin", Role: core.ProfileRoleAdminPlayer},
+		"player":      {ID: "player", Role: core.ProfileRolePlayer},
+		"unprotected": {ID: "unprotected", Role: core.ProfileRolePlayer},
+	}}
+	store := newLANAuthStore()
+	service, err := auth.NewService(store, profiles)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	for _, profileID := range []string{"admin", "player"} {
+		if err := service.InitializeCredential(context.Background(), profileID, "1234", auth.CredentialPIN); err != nil {
+			t.Fatalf("InitializeCredential(%s) error = %v", profileID, err)
+		}
+	}
+	adminToken, _, err := service.Login(context.Background(), "admin", "1234")
+	if err != nil {
+		t.Fatalf("Login(admin) error = %v", err)
+	}
+	playerToken, _, err := service.Login(context.Background(), "player", "1234")
+	if err != nil {
+		t.Fatalf("Login(player) error = %v", err)
+	}
+
+	profileHandler := ProfileContextMiddleware(profiles)(RequireProfileAccess(service)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	adminHandler := ProfileContextMiddleware(profiles)(RequireProfileAccess(service)(RequireAdminProfile(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))))
+
+	tests := []struct {
+		name      string
+		profileID string
+		token     string
+		handler   http.Handler
+		want      int
+	}{
+		{name: "protected anonymous", profileID: "admin", handler: profileHandler, want: http.StatusUnauthorized},
+		{name: "unprotected anonymous", profileID: "unprotected", handler: profileHandler, want: http.StatusNoContent},
+		{name: "correct protected session", profileID: "admin", token: adminToken, handler: profileHandler, want: http.StatusNoContent},
+		{name: "wrong protected session", profileID: "admin", token: playerToken, handler: profileHandler, want: http.StatusForbidden},
+		{name: "anonymous administrator", profileID: "admin", handler: adminHandler, want: http.StatusUnauthorized},
+		{name: "authenticated administrator", profileID: "admin", token: adminToken, handler: adminHandler, want: http.StatusNoContent},
+		{name: "authenticated non-administrator", profileID: "player", token: playerToken, handler: adminHandler, want: http.StatusForbidden},
+		{name: "deleted profile", profileID: "deleted", token: adminToken, handler: profileHandler, want: http.StatusBadRequest},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+			request.Header.Set(profileHeader, test.profileID)
+			if test.token != "" {
+				request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: test.token})
+			}
+			recorder := httptest.NewRecorder()
+			test.handler.ServeHTTP(recorder, request)
+			if recorder.Code != test.want {
+				t.Fatalf("status = %d, want %d, body = %q", recorder.Code, test.want, recorder.Body.String())
+			}
+		})
+	}
+
+	for tokenHash, session := range store.sessions {
+		if session.ProfileID == "admin" {
+			session.ExpiresAt = time.Now().Add(-time.Minute)
+			store.sessions[tokenHash] = session
+		}
+	}
+	expiredRequest := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	expiredRequest.Header.Set(profileHeader, "admin")
+	expiredRequest.AddCookie(&http.Cookie{Name: sessionCookieName, Value: adminToken})
+	expiredRecorder := httptest.NewRecorder()
+	profileHandler.ServeHTTP(expiredRecorder, expiredRequest)
+	if expiredRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expired session status = %d, want %d", expiredRecorder.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestProfileAccessPolicyRejectsMustChangeSession(t *testing.T) {
+	profile := &core.Profile{ID: "admin", Role: core.ProfileRoleAdminPlayer}
+	profiles := lanProfileRepository{profile: profile}
+	store := newLANAuthStore()
+	service, err := auth.NewService(store, profiles)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	if err := service.InitializeCredential(context.Background(), profile.ID, "1234", auth.CredentialPIN); err != nil {
+		t.Fatalf("InitializeCredential() error = %v", err)
+	}
+	credential := store.credentials[profile.ID]
+	credential.MustChange = true
+	store.credentials[profile.ID] = credential
+	token, _, err := service.Login(context.Background(), profile.ID, "1234")
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	handler := ProfileContextMiddleware(profiles)(RequireProfileAccess(service)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	request := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	request.Header.Set(profileHeader, profile.ID)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %q", recorder.Code, http.StatusForbidden, recorder.Body.String())
 	}
 }
 

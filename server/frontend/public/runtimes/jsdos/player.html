@@ -200,6 +200,11 @@
 
         const session = JSON.parse(raw)
         currentSession = session
+        const selectedProfileId = localStorage.getItem('mga.selectedProfileId') || ''
+        if (!session.ownerProfileId || session.ownerProfileId !== selectedProfileId) {
+          setStatus('Unable to launch', 'This browser-play session belongs to another MGA profile.', true)
+          return
+        }
         if (session.runtime !== 'jsdos') {
           setStatus('Unable to launch', 'Invalid js-dos session payload.', true)
           return

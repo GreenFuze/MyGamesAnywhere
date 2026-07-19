@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -21,7 +22,8 @@ type achievementRefreshRunner interface {
 }
 
 type achievementRefreshJobRecord struct {
-	status *core.AchievementRefreshJobStatus
+	profileID string
+	status    *core.AchievementRefreshJobStatus
 }
 
 type achievementRefreshJobManager struct {
@@ -44,9 +46,17 @@ func newAchievementRefreshJobManager(runner achievementRefreshRunner, bus *event
 }
 
 func (m *achievementRefreshJobManager) Start(parent context.Context, trigger string) (*core.AchievementRefreshJobStatus, bool, error) {
+	profileID := core.ProfileIDFromContext(parent)
+	if profileID == "" {
+		return nil, false, ErrProfileRequired
+	}
 	m.mu.Lock()
 	if m.activeJobID != "" {
 		if record := m.jobs[m.activeJobID]; record != nil && !achievementRefreshTerminal(record.status.Status) {
+			if record.profileID != profileID {
+				m.mu.Unlock()
+				return nil, true, ErrProfileJobBusy
+			}
 			out := cloneAchievementRefreshJobStatus(record.status)
 			m.mu.Unlock()
 			return out, true, nil
@@ -65,7 +75,7 @@ func (m *achievementRefreshJobManager) Start(parent context.Context, trigger str
 		StartedAt: now,
 		Trigger:   trigger,
 	}
-	m.jobs[status.JobID] = &achievementRefreshJobRecord{status: status}
+	m.jobs[status.JobID] = &achievementRefreshJobRecord{profileID: profileID, status: status}
 	m.activeJobID = status.JobID
 	out := cloneAchievementRefreshJobStatus(status)
 	m.mu.Unlock()
@@ -84,11 +94,21 @@ func (m *achievementRefreshJobManager) Get(jobID string) *core.AchievementRefres
 	return cloneAchievementRefreshJobStatus(record.status)
 }
 
+func (m *achievementRefreshJobManager) GetForProfile(profileID, jobID string) *core.AchievementRefreshJobStatus {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	record := m.jobs[jobID]
+	if record == nil || record.profileID != profileID {
+		return nil
+	}
+	return cloneAchievementRefreshJobStatus(record.status)
+}
+
 func (m *achievementRefreshJobManager) run(ctx context.Context, jobID string) {
 	m.update(jobID, func(status *core.AchievementRefreshJobStatus) {
 		status.Status = "running"
 	})
-	m.publish("achievement_refresh_started", cloneAchievementRefreshJobStatus(m.Get(jobID)))
+	m.publish(jobID, "achievement_refresh_started", cloneAchievementRefreshJobStatus(m.Get(jobID)))
 
 	result, err := m.runner.RefreshAll(ctx, scan.AchievementRefreshCallbacks{
 		SetTotal: func(total int) {
@@ -114,7 +134,7 @@ func (m *achievementRefreshJobManager) run(ctx context.Context, jobID string) {
 				status.WaitingUntil = wait.WaitingUntil
 				status.Message = wait.Message
 			})
-			m.publish("achievement_refresh_waiting", map[string]any{
+			m.publish(jobID, "achievement_refresh_waiting", map[string]any{
 				"job_id":          jobID,
 				"provider_id":     wait.ProviderID,
 				"provider_label":  wait.ProviderLabel,
@@ -133,7 +153,7 @@ func (m *achievementRefreshJobManager) run(ctx context.Context, jobID string) {
 					status.Warnings = append(status.Warnings, message)
 				}
 			})
-			m.publish("achievement_refresh_warning", map[string]any{
+			m.publish(jobID, "achievement_refresh_warning", map[string]any{
 				"job_id":  jobID,
 				"message": message,
 			})
@@ -153,7 +173,7 @@ func (m *achievementRefreshJobManager) run(ctx context.Context, jobID string) {
 			status.Error = err.Error()
 			status.FinishedAt = finishedAt
 		})
-		m.publish("achievement_refresh_failed", map[string]any{
+		m.publish(jobID, "achievement_refresh_failed", map[string]any{
 			"job_id":      jobID,
 			"error":       err.Error(),
 			"finished_at": finishedAt,
@@ -174,7 +194,7 @@ func (m *achievementRefreshJobManager) run(ctx context.Context, jobID string) {
 				status.ItemsCompleted = result.Targets
 			}
 		})
-		m.publish("achievement_refresh_completed", map[string]any{
+		m.publish(jobID, "achievement_refresh_completed", map[string]any{
 			"job_id":          jobID,
 			"items_total":     m.Get(jobID).ItemsTotal,
 			"items_completed": m.Get(jobID).ItemsCompleted,
@@ -208,7 +228,7 @@ func (m *achievementRefreshJobManager) applyProgress(jobID string, progress scan
 		status.Message = progress.Message
 		status.WaitingUntil = progress.WaitingUntil
 	})
-	m.publish("achievement_refresh_progress", map[string]any{
+	m.publish(jobID, "achievement_refresh_progress", map[string]any{
 		"job_id":          jobID,
 		"provider_id":     progress.ProviderID,
 		"provider_label":  progress.ProviderLabel,
@@ -230,16 +250,25 @@ func (m *achievementRefreshJobManager) update(jobID string, mutate func(*core.Ac
 	mutate(record.status)
 }
 
-func (m *achievementRefreshJobManager) publish(eventType string, payload any) {
+func (m *achievementRefreshJobManager) publish(jobID, eventType string, payload any) {
 	if m.bus == nil {
 		return
 	}
-	data, err := json.Marshal(payload)
+	data, err := marshalProfileOwnedJobEvent(payload, m.profileID(jobID))
 	if err != nil {
 		m.logger.Warn("achievement refresh: event marshal failed", "error", err)
 		return
 	}
 	m.bus.Publish(events.Event{Type: eventType, Data: data})
+}
+
+func (m *achievementRefreshJobManager) profileID(jobID string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if record := m.jobs[jobID]; record != nil {
+		return record.profileID
+	}
+	return ""
 }
 
 func cloneAchievementRefreshJobStatus(status *core.AchievementRefreshJobStatus) *core.AchievementRefreshJobStatus {
@@ -270,6 +299,10 @@ func NewAchievementRefreshController(runner achievementRefreshRunner, eventBus *
 func (c *AchievementRefreshController) Start(w http.ResponseWriter, r *http.Request) {
 	status, alreadyRunning, err := c.StartAutomatic(r.Context(), "manual")
 	if err != nil {
+		if errors.Is(err, ErrProfileJobBusy) {
+			http.Error(w, "achievement refresh is busy", http.StatusConflict)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -295,7 +328,7 @@ func (c *AchievementRefreshController) GetJob(w http.ResponseWriter, r *http.Req
 		http.Error(w, "job_id is required", http.StatusBadRequest)
 		return
 	}
-	status := c.jobs.Get(jobID)
+	status := c.jobs.GetForProfile(core.ProfileIDFromContext(r.Context()), jobID)
 	if status == nil {
 		http.NotFound(w, r)
 		return

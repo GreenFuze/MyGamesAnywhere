@@ -36,6 +36,7 @@ const (
 )
 
 type scanJobRecord struct {
+	profileID             string
 	status                *core.ScanJobStatus
 	cancel                context.CancelFunc
 	cancelRequested       bool
@@ -64,8 +65,16 @@ func newScanJobManager(runner scanRunner, bus *events.EventBus, logger core.Logg
 }
 
 func (m *scanJobManager) Start(parent context.Context, req ScanRequest) (*core.ScanJobStatus, bool, error) {
+	profileID := core.ProfileIDFromContext(parent)
+	if profileID == "" {
+		return nil, false, ErrProfileRequired
+	}
 	m.mu.Lock()
 	if current := m.activeRunningJobLocked(); current != nil {
+		if current.profileID != profileID {
+			m.mu.Unlock()
+			return nil, true, ErrProfileJobBusy
+		}
 		out := cloneScanJobStatus(current.status)
 		m.mu.Unlock()
 		return out, true, nil
@@ -105,6 +114,7 @@ func (m *scanJobManager) Start(parent context.Context, req ScanRequest) (*core.S
 	job.IntegrationCount = len(job.Integrations)
 
 	record := &scanJobRecord{
+		profileID:             profileID,
 		status:                job,
 		cancel:                cancel,
 		completedIntegrations: make(map[string]bool),
@@ -118,6 +128,16 @@ func (m *scanJobManager) Start(parent context.Context, req ScanRequest) (*core.S
 	return out, false, nil
 }
 
+func (m *scanJobManager) GetForProfile(profileID, jobID string) *core.ScanJobStatus {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	record := m.jobs[jobID]
+	if record == nil || record.profileID != profileID {
+		return nil
+	}
+	return cloneScanJobStatus(record.status)
+}
+
 func (m *scanJobManager) Get(jobID string) *core.ScanJobStatus {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -128,10 +148,10 @@ func (m *scanJobManager) Get(jobID string) *core.ScanJobStatus {
 	return cloneScanJobStatus(record.status)
 }
 
-func (m *scanJobManager) Cancel(jobID string) (*core.ScanJobStatus, scanCancelResult) {
+func (m *scanJobManager) Cancel(profileID, jobID string) (*core.ScanJobStatus, scanCancelResult) {
 	m.mu.Lock()
 	record := m.jobs[jobID]
-	if record == nil {
+	if record == nil || record.profileID != profileID {
 		m.mu.Unlock()
 		return nil, scanCancelNotFound
 	}
@@ -156,6 +176,7 @@ func (m *scanJobManager) Cancel(jobID string) (*core.ScanJobStatus, scanCancelRe
 
 	if cancel != nil {
 		events.PublishJSON(m.bus, "scan_cancel_requested", map[string]any{
+			"profile_id":           profileID,
 			"job_id":               jobID,
 			"integration_id":       status.CurrentIntegrationID,
 			"label":                status.CurrentIntegrationLabel,
@@ -167,6 +188,7 @@ func (m *scanJobManager) Cancel(jobID string) (*core.ScanJobStatus, scanCancelRe
 	}
 
 	events.PublishJSON(m.bus, "scan_cancel_requested", map[string]any{
+		"profile_id":           profileID,
 		"job_id":               jobID,
 		"integration_id":       status.CurrentIntegrationID,
 		"label":                status.CurrentIntegrationLabel,
@@ -246,6 +268,7 @@ func (m *scanJobManager) run(jobID string, req ScanRequest, ctx context.Context)
 			})
 		})
 		events.PublishJSON(m.bus, "scan_cancelled", map[string]any{
+			"profile_id":    m.profileID(jobID),
 			"job_id":        jobID,
 			"finished_at":   finishedAt,
 			"current_phase": "cancelled",
@@ -272,6 +295,7 @@ func (m *scanJobManager) startAchievementRefreshAfterScan(scanJobID string, ctx 
 	if err != nil {
 		m.logger.Error("start post-scan achievement refresh", err, "scan_job_id", scanJobID)
 		events.PublishJSON(m.bus, "achievement_refresh_failed", map[string]any{
+			"profile_id":  m.profileID(scanJobID),
 			"scan_job_id": scanJobID,
 			"error":       err.Error(),
 		})
@@ -285,10 +309,20 @@ func (m *scanJobManager) startAchievementRefreshAfterScan(scanJobID string, ctx 
 		eventType = "achievement_refresh_already_running"
 	}
 	events.PublishJSON(m.bus, eventType, map[string]any{
+		"profile_id":  m.profileID(scanJobID),
 		"scan_job_id": scanJobID,
 		"job_id":      status.JobID,
 		"status":      status.Status,
 	})
+}
+
+func (m *scanJobManager) profileID(jobID string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if record := m.jobs[jobID]; record != nil {
+		return record.profileID
+	}
+	return ""
 }
 
 func (m *scanJobManager) watch(jobID string, sub <-chan events.Event, done <-chan struct{}) {

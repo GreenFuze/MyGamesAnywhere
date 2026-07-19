@@ -575,12 +575,13 @@ func (b *ScanBatch) Validate() error {
 
 // SyncPayload is the JSON document exchanged during push/pull settings sync.
 type SyncPayload struct {
-	Version      int               `json:"version"`
-	ExportedAt   time.Time         `json:"exported_at"`
-	MGAVersion   string            `json:"mga_version"`
-	Profiles     []Profile         `json:"profiles,omitempty"`
-	Integrations []SyncIntegration `json:"integrations"`
-	Settings     []Setting         `json:"settings"`
+	Version        int               `json:"version"`
+	OwnerProfileID string            `json:"owner_profile_id,omitempty"`
+	ExportedAt     time.Time         `json:"exported_at"`
+	MGAVersion     string            `json:"mga_version"`
+	Profiles       []Profile         `json:"profiles,omitempty"`
+	Integrations   []SyncIntegration `json:"integrations"`
+	Settings       []Setting         `json:"settings"`
 }
 
 // SyncIntegration is an integration record within a sync payload.
@@ -848,6 +849,7 @@ type AchievementRefreshJobStatus struct {
 }
 
 type SaveSyncSlotRef struct {
+	OwnerProfileID  string `json:"-"`
 	CanonicalGameID string `json:"canonical_game_id"`
 	SourceGameID    string `json:"source_game_id"`
 	Runtime         string `json:"runtime"`

@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -25,6 +26,7 @@ func TestAchievementRefreshControllerStartsRejectsDuplicateAndPolls(t *testing.T
 	controller := NewAchievementRefreshController(runner, bus, noopLogger{})
 
 	router := chi.NewRouter()
+	router.Use(testProfileMiddleware("profile-1"))
 	router.Post("/api/achievements/refresh", controller.Start)
 	router.Get("/api/achievements/refresh/jobs/{job_id}", controller.GetJob)
 
@@ -79,6 +81,25 @@ func TestAchievementRefreshControllerStartsRejectsDuplicateAndPolls(t *testing.T
 	router.ServeHTTP(recGet, httptest.NewRequest(http.MethodGet, "/api/achievements/refresh/jobs/"+started.JobID, nil))
 	if recGet.Code != http.StatusOK {
 		t.Fatalf("get status = %d, want 200 body=%s", recGet.Code, recGet.Body.String())
+	}
+}
+
+func TestAchievementRefreshJobIsOpaqueAcrossProfiles(t *testing.T) {
+	runner := &blockingAchievementRefreshRunner{started: make(chan struct{}), release: make(chan struct{})}
+	defer close(runner.release)
+	manager := newAchievementRefreshJobManager(runner, events.New(), noopLogger{})
+	profileA := core.WithProfile(context.Background(), &core.Profile{ID: "profile-a"})
+	profileB := core.WithProfile(context.Background(), &core.Profile{ID: "profile-b"})
+	job, _, err := manager.Start(profileA, "manual")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-runner.started
+	if foreign, busy, err := manager.Start(profileB, "manual"); !errors.Is(err, ErrProfileJobBusy) || !busy || foreign != nil {
+		t.Fatalf("foreign start = job %+v busy %v err %v", foreign, busy, err)
+	}
+	if got := manager.GetForProfile("profile-b", job.JobID); got != nil {
+		t.Fatalf("foreign profile observed job: %+v", got)
 	}
 }
 

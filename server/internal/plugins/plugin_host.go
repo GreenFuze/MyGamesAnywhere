@@ -122,7 +122,7 @@ func (h *pluginHost) onPluginStdoutClosed(pluginID string, readErr error, unexpe
 	if readErr != nil {
 		detail = readErr.Error()
 	}
-	events.PublishJSON(h.eventBus, "plugin_process_exited", map[string]any{
+	events.PublishGlobalJSON(h.eventBus, "plugin_process_exited", map[string]any{
 		"plugin_id": pluginID,
 		"reason":    "unexpected_disconnect",
 		"detail":    detail,

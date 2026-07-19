@@ -18,7 +18,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const payloadVersion = 2
+const payloadVersion = 3
 
 // PluginHost is the subset of plugins.PluginHost that SyncService needs.
 type PluginHost = plugins.PluginHost
@@ -80,11 +80,15 @@ func NewSyncService(
 	}
 }
 
-func (s *syncService) resolveKey(passphrase string) (string, error) {
+func (s *syncService) resolveKey(ctx context.Context, passphrase string) (string, error) {
 	if passphrase != "" {
 		return passphrase, nil
 	}
-	key, err := s.keyStore.Load()
+	profileID, err := selectedProfileID(ctx)
+	if err != nil {
+		return "", err
+	}
+	key, err := s.keyStore.Load(profileID)
 	if err != nil {
 		if errors.Is(err, keystore.ErrNoKey) {
 			return "", fmt.Errorf("no encryption key available — provide a passphrase or configure a server-stored key via POST /api/sync/key")
@@ -132,7 +136,7 @@ func (s *syncService) findSyncIntegration(ctx context.Context) (string, map[stri
 }
 
 func (s *syncService) Push(ctx context.Context, passphrase string) (*core.PushResult, error) {
-	key, err := s.resolveKey(passphrase)
+	key, err := s.resolveKey(ctx, passphrase)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +185,7 @@ func (s *syncService) Push(ctx context.Context, passphrase string) (*core.PushRe
 }
 
 func (s *syncService) Pull(ctx context.Context, passphrase string) (*core.PullResult, error) {
-	key, err := s.resolveKey(passphrase)
+	key, err := s.resolveKey(ctx, passphrase)
 	if err != nil {
 		return nil, err
 	}
@@ -230,9 +234,11 @@ func (s *syncService) RestoreBootstrap(ctx context.Context, req core.RestoreSync
 		return nil, fmt.Errorf("first-run restore requires an empty profile set")
 	}
 
-	key, err := s.resolveKey(req.Passphrase)
-	if err != nil {
-		return nil, err
+	key := req.Passphrase
+	if key == "" {
+		// First-run restore has no selected profile and therefore cannot consume
+		// another profile's server-stored key.
+		return nil, fmt.Errorf("first-run restore requires an explicit passphrase")
 	}
 	req.PluginID = strings.TrimSpace(req.PluginID)
 	if req.PluginID == "" {
@@ -310,7 +316,7 @@ func (s *syncService) RestoreBootstrap(ctx context.Context, req core.RestoreSync
 		return nil, err
 	}
 	if req.StoreKey && strings.TrimSpace(req.Passphrase) != "" {
-		if err := s.StoreKey(ctx, req.Passphrase, ""); err != nil {
+		if err := s.StoreKey(core.WithProfile(ctx, &core.Profile{ID: profileID, Role: core.ProfileRoleAdminPlayer}), req.Passphrase, ""); err != nil {
 			return nil, err
 		}
 	}
@@ -481,7 +487,8 @@ func (s *syncService) ensureBootstrapIntegration(ctx context.Context, profileID 
 		integrationType = "sync"
 	}
 
-	existing, err := s.integrationRepo.List(ctx)
+	profileCtx := core.WithProfile(ctx, &core.Profile{ID: profileID, Role: core.ProfileRoleAdminPlayer})
+	existing, err := s.integrationRepo.List(profileCtx)
 	if err != nil {
 		return "", fmt.Errorf("list integrations: %w", err)
 	}
@@ -506,8 +513,7 @@ func (s *syncService) ensureBootstrapIntegration(ctx context.Context, profileID 
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	createCtx := core.WithProfile(ctx, &core.Profile{ID: profileID, Role: core.ProfileRoleAdminPlayer})
-	if err := s.integrationRepo.Create(createCtx, ig); err != nil {
+	if err := s.integrationRepo.Create(profileCtx, ig); err != nil {
 		return "", fmt.Errorf("create bootstrap sync integration: %w", err)
 	}
 	return ig.ID, nil
@@ -519,7 +525,10 @@ func (s *syncService) Status(ctx context.Context) (*core.SyncStatus, error) {
 
 	st := &core.SyncStatus{
 		Configured:   configured,
-		HasStoredKey: s.keyStore.HasKey(),
+		HasStoredKey: false,
+	}
+	if profileID, err := selectedProfileID(ctx); err == nil {
+		st.HasStoredKey = s.keyStore.HasKey(profileID)
 	}
 
 	if push, err := s.settingRepo.Get(ctx, "last_sync_push"); err == nil && push != nil {
@@ -535,10 +544,14 @@ func (s *syncService) StoreKey(ctx context.Context, passphrase string, currentPa
 	if passphrase == "" {
 		return fmt.Errorf("passphrase cannot be empty")
 	}
-	current, err := s.keyStore.Load()
+	profileID, err := selectedProfileID(ctx)
+	if err != nil {
+		return err
+	}
+	current, err := s.keyStore.Load(profileID)
 	if err != nil {
 		if errors.Is(err, keystore.ErrNoKey) {
-			return s.keyStore.Store(passphrase)
+			return s.keyStore.Store(profileID, passphrase)
 		}
 		return fmt.Errorf("load stored key: %w", err)
 	}
@@ -554,7 +567,7 @@ func (s *syncService) StoreKey(ctx context.Context, passphrase string, currentPa
 	if err := s.reencryptRemotePayloads(ctx, current, passphrase); err != nil {
 		return err
 	}
-	return s.keyStore.Store(passphrase)
+	return s.keyStore.Store(profileID, passphrase)
 }
 
 func (s *syncService) reencryptRemotePayloads(ctx context.Context, oldKey string, newKey string) error {
@@ -637,23 +650,44 @@ func reencryptSyncPayloadData(data string, oldKey string, newKey string) (string
 	return string(updated), nil
 }
 
-func (s *syncService) ClearKey() error {
-	return s.keyStore.Clear()
+func (s *syncService) ClearKey(ctx context.Context) error {
+	profileID, err := selectedProfileID(ctx)
+	if err != nil {
+		return err
+	}
+	return s.keyStore.Clear(profileID)
+}
+
+func selectedProfileID(ctx context.Context) (string, error) {
+	profileID := strings.TrimSpace(core.ProfileIDFromContext(ctx))
+	if profileID == "" {
+		return "", fmt.Errorf("selected profile is required")
+	}
+	return profileID, nil
 }
 
 func (s *syncService) buildPayload(ctx context.Context, key string) (*core.SyncPayload, error) {
+	owner, ok := core.ProfileFromContext(ctx)
+	if !ok || owner == nil || strings.TrimSpace(owner.ID) == "" {
+		return nil, fmt.Errorf("selected profile is required")
+	}
+	owner, err := s.profileRepo.GetByID(ctx, owner.ID)
+	if err != nil {
+		return nil, fmt.Errorf("load owner profile: %w", err)
+	}
+	if owner == nil {
+		return nil, fmt.Errorf("owner profile not found")
+	}
 	integrations, err := s.integrationRepo.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list integrations: %w", err)
 	}
 
-	profiles, err := s.profileRepo.List(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("list profiles: %w", err)
-	}
-
 	syncInts := make([]core.SyncIntegration, 0, len(integrations))
 	for _, ig := range integrations {
+		if ig == nil || ig.ProfileID != owner.ID {
+			return nil, fmt.Errorf("integration list returned a foreign profile row")
+		}
 		encrypted, err := crypto.Encrypt([]byte(ig.ConfigJSON), key)
 		if err != nil {
 			return nil, fmt.Errorf("encrypt config for %s: %w", ig.PluginID, err)
@@ -675,12 +709,13 @@ func (s *syncService) buildPayload(ctx context.Context, key string) (*core.SyncP
 	}
 
 	return &core.SyncPayload{
-		Version:      payloadVersion,
-		ExportedAt:   time.Now().UTC(),
-		MGAVersion:   buildinfo.Version,
-		Profiles:     derefProfiles(profiles),
-		Integrations: syncInts,
-		Settings:     allSettings,
+		Version:        payloadVersion,
+		OwnerProfileID: owner.ID,
+		ExportedAt:     time.Now().UTC(),
+		MGAVersion:     buildinfo.Version,
+		Profiles:       []core.Profile{*owner},
+		Integrations:   syncInts,
+		Settings:       allSettings,
 	}, nil
 }
 
@@ -702,9 +737,16 @@ func (s *syncService) listAllSettings(ctx context.Context) ([]core.Setting, erro
 func (s *syncService) mergePayload(ctx context.Context, payload *core.SyncPayload, key string) (*core.PullResult, error) {
 	pr := &core.PullResult{RemoteExportedAt: payload.ExportedAt}
 
-	profileMap, err := s.ensurePayloadProfiles(ctx, payload)
+	profileMap, err := s.preparePayloadProfiles(ctx, payload)
 	if err != nil {
 		return nil, err
+	}
+	if core.ProfileIDFromContext(ctx) == "" {
+		profileID := strings.TrimSpace(profileMap[""])
+		if profileID == "" {
+			return nil, fmt.Errorf("sync payload did not resolve an owner profile")
+		}
+		ctx = core.WithProfile(ctx, &core.Profile{ID: profileID, Role: core.ProfileRoleAdminPlayer})
 	}
 
 	existing, err := s.integrationRepo.List(ctx)
@@ -871,6 +913,174 @@ func derefProfiles(profiles []*core.Profile) []core.Profile {
 		out = append(out, *profile)
 	}
 	return out
+}
+
+func (s *syncService) preparePayloadProfiles(ctx context.Context, payload *core.SyncPayload) (map[string]string, error) {
+	if payload == nil {
+		return nil, fmt.Errorf("sync payload is required")
+	}
+	selected, selectedOK := core.ProfileFromContext(ctx)
+	if !selectedOK || selected == nil || strings.TrimSpace(selected.ID) == "" {
+		remoteOwnerID, remoteOwner, err := selectRemoteOwner(payload, "")
+		if err != nil {
+			return nil, err
+		}
+		if remoteOwner != nil {
+			payload.Profiles = []core.Profile{*remoteOwner}
+		} else {
+			payload.Profiles = nil
+		}
+		payload.Integrations = filterSyncIntegrationsByOwner(payload.Integrations, remoteOwnerID)
+		payload.Settings = filterSyncSettingsByOwner(payload.Settings, remoteOwnerID)
+		profileMap, err := s.ensurePayloadProfiles(ctx, payload)
+		if err != nil {
+			return nil, err
+		}
+		if remoteOwnerID != "" && profileMap[remoteOwnerID] == "" {
+			profileMap[remoteOwnerID] = profileMap[""]
+		}
+		return profileMap, nil
+	}
+
+	local, err := s.profileRepo.GetByID(ctx, selected.ID)
+	if err != nil {
+		return nil, fmt.Errorf("load selected profile: %w", err)
+	}
+	if local == nil {
+		return nil, fmt.Errorf("selected profile not found")
+	}
+
+	remoteOwnerID, remoteOwner, err := selectRemoteOwner(payload, local.ID)
+	if err != nil {
+		return nil, err
+	}
+	if remoteOwner != nil && remoteOwner.UpdatedAt.After(local.UpdatedAt) {
+		updated := *local
+		if strings.TrimSpace(remoteOwner.DisplayName) != "" {
+			updated.DisplayName = remoteOwner.DisplayName
+		}
+		updated.AvatarKey = remoteOwner.AvatarKey
+		updated.UpdatedAt = remoteOwner.UpdatedAt
+		// Role is local authorization policy and is never elevated by a player's
+		// remote Settings Sync payload.
+		if err := s.profileRepo.Update(ctx, &updated); err != nil {
+			return nil, fmt.Errorf("update selected profile: %w", err)
+		}
+		local = &updated
+	}
+
+	filteredIntegrations := make([]core.SyncIntegration, 0, len(payload.Integrations))
+	for _, integration := range payload.Integrations {
+		ownerID := strings.TrimSpace(integration.ProfileID)
+		if payload.Version == payloadVersion && ownerID != remoteOwnerID {
+			return nil, fmt.Errorf("version 3 payload contains a foreign integration owner")
+		}
+		if ownerID != "" && ownerID != remoteOwnerID {
+			continue
+		}
+		integration.ProfileID = local.ID
+		filteredIntegrations = append(filteredIntegrations, integration)
+	}
+	payload.Integrations = filteredIntegrations
+
+	filteredSettings := make([]core.Setting, 0, len(payload.Settings))
+	for _, setting := range payload.Settings {
+		ownerID := strings.TrimSpace(setting.ProfileID)
+		if payload.Version == payloadVersion && ownerID != remoteOwnerID {
+			return nil, fmt.Errorf("version 3 payload contains a foreign setting owner")
+		}
+		if ownerID != "" && ownerID != remoteOwnerID {
+			continue
+		}
+		setting.ProfileID = local.ID
+		filteredSettings = append(filteredSettings, setting)
+	}
+	payload.Settings = filteredSettings
+	payload.Profiles = []core.Profile{*local}
+	payload.OwnerProfileID = local.ID
+	return map[string]string{"": local.ID, remoteOwnerID: local.ID, local.ID: local.ID}, nil
+}
+
+func filterSyncIntegrationsByOwner(integrations []core.SyncIntegration, ownerID string) []core.SyncIntegration {
+	filtered := make([]core.SyncIntegration, 0, len(integrations))
+	for _, integration := range integrations {
+		rowOwner := strings.TrimSpace(integration.ProfileID)
+		if rowOwner == "" || rowOwner == ownerID {
+			filtered = append(filtered, integration)
+		}
+	}
+	return filtered
+}
+
+func filterSyncSettingsByOwner(settings []core.Setting, ownerID string) []core.Setting {
+	filtered := make([]core.Setting, 0, len(settings))
+	for _, setting := range settings {
+		rowOwner := strings.TrimSpace(setting.ProfileID)
+		if rowOwner == "" || rowOwner == ownerID {
+			filtered = append(filtered, setting)
+		}
+	}
+	return filtered
+}
+
+func selectRemoteOwner(payload *core.SyncPayload, selectedProfileID string) (string, *core.Profile, error) {
+	if payload.Version == payloadVersion {
+		if err := validateV3OwnerPayload(payload); err != nil {
+			return "", nil, err
+		}
+		owner := payload.Profiles[0]
+		return payload.OwnerProfileID, &owner, nil
+	}
+	if payload.Version != 2 {
+		return "", nil, fmt.Errorf("unsupported sync payload version %d", payload.Version)
+	}
+	for i := range payload.Profiles {
+		if payload.Profiles[i].ID == selectedProfileID {
+			return selectedProfileID, &payload.Profiles[i], nil
+		}
+	}
+	if len(payload.Profiles) == 1 && strings.TrimSpace(payload.Profiles[0].ID) != "" {
+		return payload.Profiles[0].ID, &payload.Profiles[0], nil
+	}
+	owners := make(map[string]struct{})
+	for _, integration := range payload.Integrations {
+		if owner := strings.TrimSpace(integration.ProfileID); owner != "" {
+			owners[owner] = struct{}{}
+		}
+	}
+	for _, setting := range payload.Settings {
+		if owner := strings.TrimSpace(setting.ProfileID); owner != "" {
+			owners[owner] = struct{}{}
+		}
+	}
+	if len(payload.Profiles) == 0 && len(owners) <= 1 {
+		for owner := range owners {
+			return owner, nil, nil
+		}
+		return "", nil, nil
+	}
+	return "", nil, fmt.Errorf("legacy version 2 payload contains multiple profiles; choose or restore an unambiguous owner before importing")
+}
+
+func validateV3OwnerPayload(payload *core.SyncPayload) error {
+	ownerID := strings.TrimSpace(payload.OwnerProfileID)
+	if ownerID == "" {
+		return fmt.Errorf("version 3 sync payload has no owner_profile_id")
+	}
+	if len(payload.Profiles) != 1 || payload.Profiles[0].ID != ownerID {
+		return fmt.Errorf("version 3 sync payload must contain exactly its owner profile")
+	}
+	for _, integration := range payload.Integrations {
+		if strings.TrimSpace(integration.ProfileID) != ownerID {
+			return fmt.Errorf("version 3 payload contains a foreign integration owner")
+		}
+	}
+	for _, setting := range payload.Settings {
+		if strings.TrimSpace(setting.ProfileID) != ownerID {
+			return fmt.Errorf("version 3 payload contains a foreign setting owner")
+		}
+	}
+	return nil
 }
 
 func (s *syncService) ensurePayloadProfiles(ctx context.Context, payload *core.SyncPayload) (map[string]string, error) {

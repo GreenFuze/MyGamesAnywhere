@@ -108,6 +108,9 @@ func (o *Orchestrator) publishEventWithContext(ctx context.Context, eventType st
 		return
 	}
 	if m, ok := payload.(map[string]any); ok {
+		if profileID := core.ProfileIDFromContext(ctx); profileID != "" {
+			m["profile_id"] = profileID
+		}
 		if jobID, ok := ScanJobIDFromContext(ctx); ok {
 			if _, exists := m["job_id"]; !exists {
 				m["job_id"] = jobID

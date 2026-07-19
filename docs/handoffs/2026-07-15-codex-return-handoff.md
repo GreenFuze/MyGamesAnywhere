@@ -1811,3 +1811,101 @@ provider identity. No token values or account subject were printed.
 TV2 remains unchanged. Its existing Orr/TC connections must not be treated as
 evidence for this build until the player reconnects them and explicitly chooses
 the intended provider accounts.
+
+## 2026-07-19 — strong profile-isolation audit and remediation plan
+
+This checkpoint supersedes every earlier "next task" statement in this handoff.
+The next implementation priority is
+[`ADR-0028`](../architecture/0028-strong-profile-isolation-hardening.md), whose
+checkboxes are the authoritative completion ledger for the strong
+profile-isolation work. Do not check an item merely because code was written:
+each item requires its focused tests and runtime evidence, and all items plus
+the final packaged evidence gate must be checked before reporting the
+remediation complete. New problems discovered during implementation must first
+be added to that ledger rather than fixed only in working memory.
+
+The audit established live packaged-server evidence that anonymous callers can
+currently read a protected profile's games, connections (with token objects
+redacted), update status, and scan reports by supplying its profile ID, while
+the device endpoint correctly returns `401`. It also found unowned background
+jobs, broadly visible unowned SSE events, cross-profile save-sync enumeration,
+Settings Sync exporting all profile identities, frontend caches/storage that
+are not consistently profile-keyed, incomplete OAuth-state lifecycle checks,
+and persisted scopes that need an explicit ownership ledger. ADR-0028 records
+the locked access policy and detailed remediation/test plan for all of them.
+
+The fresh audit requested by the user is deliberately not part of the current
+completion ledger. Run it only after every ADR-0028 box is checked and the first
+remediation completion has been reported; it must independently attempt to
+resurface old issues and discover new ones.
+
+`NO_MIGRATION_NEEDED` for this checkpoint: it changes documentation only and
+does not alter runtime persistence. Migrations 1–28 remain immutable; migration
+29 is next if ADR-0028 implementation needs a SQLite schema change. No commit,
+push, release, deployment, or runtime modification is authorized by this
+planning checkpoint.
+
+## 2026-07-19 — ADR-0028 implementation and real-E2E decision boundary
+
+This section supersedes the preceding ADR-0028 implementation status. The
+authoritative ledger is still
+[`ADR-0028`](../architecture/0028-strong-profile-isolation-hardening.md). It now
+has 59 of 63 checkboxes completed. The four open boxes are the real TCs/Orr
+browser E2E, remote trusted-LAN E2E, explicit shared-device-grant E2E, and the
+final all-evidence completion claim. Do not check those from synthetic fixtures.
+
+Implemented boundaries include exact-profile optional-credential authorization
+on all profile-owned routes; authorized-admin composition; immutable job owners;
+fail-closed and explicitly allowlisted SSE publication; profile-preserving save
+workers and source-cache materialization; strict integration repository scope;
+Settings Sync v3 single-owner payloads and per-profile protected keys; expiring,
+single-claim OAuth state; profile-scoped browser cache/storage/play sessions; and
+the complete profile-isolation scope ledger. `NO_SQLITE_MIGRATION_NEEDED` is
+recorded; migrations 1-28 remain immutable and migration 29 does not exist.
+
+Fresh final code evidence:
+
+```text
+server:          go test ./... -count=1                PASS
+server quality:  go vet ./...                          PASS
+protocol:        go test ./... -count=1 + go vet       PASS
+client:          go test ./... -count=1 + go vet       PASS
+standalone:      seven plugin modules test + vet        PASS
+frontend:        generate:api-contracts                 PASS
+frontend:        test:unit                              PASS (13 tests)
+frontend:        build                                  PASS
+migration guard: check-migration-guard.ps1              PASS
+quality:         changed-file gofmt + git diff --check  PASS
+server package:  build.ps1 -WindowsGUI                  PASS
+client package:  package-installer.ps1                  PASS
+```
+
+The known frontend chunk warning remains (872.32 kB main JS). A full-suite
+Windows scheduling flake in the concurrent save-prefetch test was fixed by
+waiting for the owner job before TempDir cleanup and retaining a bounded
+ten-second completion deadline; five repeated package runs and the final full
+server suite pass.
+
+Final packaged local runtime:
+
+- server PID `5240`, health HTTP 200 at `http://127.0.0.1:8900/health`, SHA-256
+  `173D4078F11515531A5C8597EAEBC207F04BF7533C177B64D4CF13B5CBC02F01`;
+- client installer SHA-256
+  `9F7612E8A76FF6C08195CD31F9BB984DCD4988AD359AD806615DEEE4BA28FB90`;
+- packaged client SHA-256
+  `71209939ECE9DED14925FA351BDE001B8A0AF3A212655CC7DE099793621AF198`;
+- installed elevated agent PID `48236`; the packaged UI reports **Client
+  elevated** after the server rebuild;
+- anonymous requests selecting protected TCs return HTTP 401 for games,
+  integrations, update status, scan reports, and devices;
+- authenticated TCs packaged UI shows 273 games, 13 connections, the safe Xbox
+  identity, profile-keyed notifications, and no credential-field names in the
+  rendered DOM.
+
+TCs is the only profile in the preserved local portable database. Orr exists on
+TV2. TV2 still runs the prior released build; deploying this intentionally
+uncommitted hardening build would violate the standing no-commit/no-release/no-
+deployment instruction. Completion therefore requires explicit user authority
+to commit/push/release and update TV2, followed by the user's interactive Orr
+Microsoft and Google account choices on Orr's computer. Do not fabricate those
+provider logins or treat the old TV2 build as evidence.

@@ -261,6 +261,42 @@ func (s *Service) Authenticate(ctx context.Context, token string) (*Session, err
 	return session, nil
 }
 
+// AuthorizeProfileAccess applies MGA's optional-credential policy to one exact
+// selected profile. An unprotected profile is intentionally open on the
+// trusted LAN. Once a credential exists, only a valid, non-must-change session
+// for that same profile is accepted.
+func (s *Service) AuthorizeProfileAccess(ctx context.Context, profileID, token string) (*Session, error) {
+	profileID = strings.TrimSpace(profileID)
+	if profileID == "" {
+		return nil, ErrProfileNotFound
+	}
+	profile, err := s.profiles.GetByID(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	if profile == nil {
+		return nil, ErrProfileNotFound
+	}
+	credential, err := s.store.GetCredential(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	if credential == nil {
+		return nil, nil
+	}
+	session, err := s.Authenticate(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	if session.ProfileID != profileID {
+		return nil, ErrForbidden
+	}
+	if session.MustChange {
+		return nil, ErrCredentialChange
+	}
+	return session, nil
+}
+
 func (s *Service) ChangeOwnCredential(ctx context.Context, session *Session, currentValue, newValue string, kind CredentialKind) (string, *Session, error) {
 	if session == nil {
 		return "", nil, ErrUnauthenticated

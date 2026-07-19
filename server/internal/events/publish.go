@@ -19,5 +19,24 @@ func PublishJSON(bus *EventBus, typ string, payload map[string]any) {
 	if err != nil {
 		return
 	}
-	bus.Publish(Event{Type: typ, Data: data})
+	profileID, _ := m["profile_id"].(string)
+	bus.Publish(Event{Type: typ, Data: data, ProfileID: profileID})
+}
+
+// PublishGlobalJSON is reserved for explicitly classified server-global event
+// families. Profile-owned callers must use PublishJSON with profile_id.
+func PublishGlobalJSON(bus *EventBus, typ string, payload map[string]any) {
+	if bus == nil || payload == nil || !IsGlobalEventType(typ) {
+		return
+	}
+	m := make(map[string]any, len(payload)+1)
+	for key, value := range payload {
+		m[key] = value
+	}
+	m["ts"] = time.Now().UTC().Format(time.RFC3339Nano)
+	data, err := json.Marshal(m)
+	if err != nil {
+		return
+	}
+	bus.Publish(Event{Type: typ, Data: data, Global: true})
 }

@@ -1226,6 +1226,10 @@ func (c *DiscoveryController) Scan(w http.ResponseWriter, r *http.Request) {
 		Trigger:      "manual",
 	})
 	if err != nil {
+		if errors.Is(err, ErrProfileJobBusy) {
+			http.Error(w, "library scan is busy", http.StatusConflict)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1244,7 +1248,7 @@ func (c *DiscoveryController) GetScanJob(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "job_id is required", http.StatusBadRequest)
 		return
 	}
-	status := c.scanJobs.Get(jobID)
+	status := c.scanJobs.GetForProfile(core.ProfileIDFromContext(r.Context()), jobID)
 	if status == nil {
 		http.NotFound(w, r)
 		return
@@ -1259,7 +1263,7 @@ func (c *DiscoveryController) CancelScanJob(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "job_id is required", http.StatusBadRequest)
 		return
 	}
-	status, result := c.scanJobs.Cancel(jobID)
+	status, result := c.scanJobs.Cancel(core.ProfileIDFromContext(r.Context()), jobID)
 	if result == scanCancelNotFound {
 		http.NotFound(w, r)
 		return
@@ -1402,6 +1406,7 @@ func (c *PluginController) autoPushSettingsSync(ctx context.Context, reason stri
 			}
 			c.logger.Warn("settings sync auto-push failed", "reason", reason, "integration_id", integration.ID, "error", err)
 			c.publishNotification("settings_sync_auto_push_failed", map[string]any{
+				"profile_id":     integration.ProfileID,
 				"reason":         reason,
 				"integration_id": integration.ID,
 				"plugin_id":      integration.PluginID,
@@ -1411,6 +1416,7 @@ func (c *PluginController) autoPushSettingsSync(ctx context.Context, reason stri
 			return
 		}
 		c.publishNotification("settings_sync_auto_push_complete", map[string]any{
+			"profile_id":         integration.ProfileID,
 			"reason":             reason,
 			"integration_id":     integration.ID,
 			"plugin_id":          integration.PluginID,
@@ -1658,7 +1664,8 @@ func (c *PluginController) Status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	total := len(integrations)
-	c.publishNotification("integration_status_run_started", map[string]any{"total": total})
+	profileID := core.ProfileIDFromContext(r.Context())
+	c.publishNotification("integration_status_run_started", map[string]any{"profile_id": profileID, "total": total})
 
 	results := make([]IntegrationStatusEntry, len(integrations))
 	var wg sync.WaitGroup
@@ -1671,17 +1678,18 @@ func (c *PluginController) Status(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 			entry := c.checkOneIntegration(r.Context(), integrationCopy)
 			results[resultIndex] = entry
-			c.publishIntegrationStatusChecked(idx, total, entry)
+			c.publishIntegrationStatusChecked(profileID, idx, total, entry)
 		}()
 	}
 	wg.Wait()
-	c.publishNotification("integration_status_run_complete", map[string]any{"total": total})
+	c.publishNotification("integration_status_run_complete", map[string]any{"profile_id": profileID, "total": total})
 	json.NewEncoder(w).Encode(results)
 }
 
-func (c *PluginController) publishIntegrationStatusChecked(index, total int, entry IntegrationStatusEntry) {
+func (c *PluginController) publishIntegrationStatusChecked(profileID string, index, total int, entry IntegrationStatusEntry) {
 	c.publishNotification("integration_status_checked", map[string]any{
-		"index": index, "total": total,
+		"profile_id": profileID,
+		"index":      index, "total": total,
 		"integration_id": entry.IntegrationID, "plugin_id": entry.PluginID, "label": entry.Label,
 		"status": entry.Status, "message": entry.Message,
 	})
@@ -2222,6 +2230,7 @@ func (c *PluginController) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.publishNotification("integration_created", map[string]any{
+		"profile_id":       integration.ProfileID,
 		"integration_id":   integration.ID,
 		"plugin_id":        integration.PluginID,
 		"label":            integration.Label,
@@ -2336,6 +2345,7 @@ func (c *PluginController) UpdateIntegration(w http.ResponseWriter, r *http.Requ
 	}
 
 	c.publishNotification("integration_updated", map[string]any{
+		"profile_id":       existing.ProfileID,
 		"integration_id":   existing.ID,
 		"plugin_id":        existing.PluginID,
 		"label":            existing.Label,
@@ -2455,6 +2465,7 @@ func (c *PluginController) DeleteIntegration(w http.ResponseWriter, r *http.Requ
 	}
 
 	c.publishNotification("integration_deleted", map[string]any{
+		"profile_id":     existing.ProfileID,
 		"integration_id": existing.ID,
 		"plugin_id":      existing.PluginID,
 		"label":          existing.Label,

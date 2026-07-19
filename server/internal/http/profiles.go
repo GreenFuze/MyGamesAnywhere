@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/auth"
 	appconfig "github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/go-chi/chi/v5"
@@ -472,6 +473,11 @@ func OptionalProfileContextMiddleware(repo core.ProfileRepository) func(http.Han
 
 func RequireAdminProfile(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		access, authorized := auth.ProfileAccessFromContext(r.Context())
+		if !authorized || access.ProfileID != core.ProfileIDFromContext(r.Context()) {
+			http.Error(w, auth.ErrUnauthenticated.Error(), http.StatusUnauthorized)
+			return
+		}
 		if !core.ProfileIsAdmin(r.Context()) {
 			http.Error(w, core.ErrProfileForbidden.Error(), http.StatusForbidden)
 			return

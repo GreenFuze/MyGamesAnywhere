@@ -34,8 +34,8 @@ func newDataBlob(d []byte) *dataBlob {
 // DPAPIKeyStore uses Windows DPAPI to protect the sync encryption key.
 // Only the same Windows user on the same machine can decrypt it.
 type DPAPIKeyStore struct {
-	dir  string
-	mu   sync.Mutex
+	dir string
+	mu  sync.Mutex
 }
 
 func New() *DPAPIKeyStore {
@@ -46,29 +46,37 @@ func NewWithDir(dir string) *DPAPIKeyStore {
 	return &DPAPIKeyStore{dir: dir}
 }
 
-func (k *DPAPIKeyStore) keyPath() string {
-	return filepath.Join(k.dir, "sync_key.enc")
+func (k *DPAPIKeyStore) keyPath(profileID string) (string, error) {
+	return profileKeyPath(k.dir, profileID, "sync_key.enc")
 }
 
-func (k *DPAPIKeyStore) Store(passphrase string) error {
+func (k *DPAPIKeyStore) Store(profileID, passphrase string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	keyPath, err := k.keyPath(profileID)
+	if err != nil {
+		return err
+	}
 
 	encrypted, err := dpProtect([]byte(passphrase))
 	if err != nil {
 		return fmt.Errorf("DPAPI encrypt: %w", err)
 	}
-	if err := ensureDir(k.dir); err != nil {
+	if err := ensureDir(filepath.Dir(keyPath)); err != nil {
 		return err
 	}
-	return os.WriteFile(k.keyPath(), encrypted, 0o600)
+	return os.WriteFile(keyPath, encrypted, 0o600)
 }
 
-func (k *DPAPIKeyStore) Load() (string, error) {
+func (k *DPAPIKeyStore) Load(profileID string) (string, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	keyPath, err := k.keyPath(profileID)
+	if err != nil {
+		return "", err
+	}
 
-	data, err := os.ReadFile(k.keyPath())
+	data, err := os.ReadFile(keyPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", ErrNoKey
@@ -82,18 +90,26 @@ func (k *DPAPIKeyStore) Load() (string, error) {
 	return string(plain), nil
 }
 
-func (k *DPAPIKeyStore) Clear() error {
+func (k *DPAPIKeyStore) Clear(profileID string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	err := os.Remove(k.keyPath())
+	keyPath, err := k.keyPath(profileID)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(keyPath)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	return err
 }
 
-func (k *DPAPIKeyStore) HasKey() bool {
-	_, err := os.Stat(filepath.Join(k.dir, "sync_key.enc"))
+func (k *DPAPIKeyStore) HasKey(profileID string) bool {
+	keyPath, err := k.keyPath(profileID)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(keyPath)
 	return err == nil
 }
 

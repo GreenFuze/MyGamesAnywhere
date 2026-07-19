@@ -29,7 +29,7 @@ func (c *backgroundTestCoordinator) StartScan(ctx context.Context, req ScanReque
 	return cloneScanJobStatus(job), false, nil
 }
 
-func (c *backgroundTestCoordinator) ScanJobStatus(jobID string) *core.ScanJobStatus {
+func (c *backgroundTestCoordinator) ScanJobStatus(_ string, jobID string) *core.ScanJobStatus {
 	return cloneScanJobStatus(c.jobs[jobID])
 }
 

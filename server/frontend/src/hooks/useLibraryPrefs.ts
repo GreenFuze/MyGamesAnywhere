@@ -5,6 +5,7 @@ import {
   type LibraryPrefs,
 } from '@/api/client'
 import { defaultSections, sanitizeSections } from '@/lib/collectionSections'
+import { profileStorageKey } from '@/lib/profileStorage'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -26,17 +27,7 @@ const DEFAULTS: LibraryPrefs = {
 // ---------------------------------------------------------------------------
 
 function storageKey(page: LibraryPrefsPage): string {
-  return `mga.libraryPrefs.${page}`
-}
-
-function readLegacyLocal(): Partial<LibraryPrefs> {
-  try {
-    const raw = localStorage.getItem('mga.libraryPrefs')
-    if (raw) return JSON.parse(raw) as Partial<LibraryPrefs>
-  } catch {
-    /* private mode or corrupt data */
-  }
-  return {}
+  return profileStorageKey(`libraryPrefs.${page}`)
 }
 
 function readLocal(page: LibraryPrefsPage): Partial<LibraryPrefs> {
@@ -46,7 +37,7 @@ function readLocal(page: LibraryPrefsPage): Partial<LibraryPrefs> {
   } catch {
     /* private mode or corrupt data */
   }
-  return readLegacyLocal()
+  return {}
 }
 
 function writeLocal(page: LibraryPrefsPage, prefs: LibraryPrefs) {

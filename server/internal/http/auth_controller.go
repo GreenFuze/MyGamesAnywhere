@@ -216,6 +216,38 @@ func RequireDeviceSession(service *auth.Service) func(http.Handler) http.Handler
 	}
 }
 
+// RequireProfileAccess enforces the common profile boundary after
+// ProfileContextMiddleware selected and validated the profile. Unprotected
+// profiles remain available on the trusted LAN; protected profiles require an
+// exact, non-must-change session.
+func RequireProfileAccess(service *auth.Service) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if service == nil {
+				http.Error(w, "profile access service is unavailable", http.StatusInternalServerError)
+				return
+			}
+			profileID := core.ProfileIDFromContext(r.Context())
+			session, err := service.AuthorizeProfileAccess(r.Context(), profileID, sessionToken(r))
+			if err != nil {
+				status := http.StatusUnauthorized
+				if errors.Is(err, auth.ErrForbidden) || errors.Is(err, auth.ErrCredentialChange) {
+					status = http.StatusForbidden
+				} else if !errors.Is(err, auth.ErrUnauthenticated) && !errors.Is(err, auth.ErrProfileNotFound) {
+					status = http.StatusInternalServerError
+				}
+				http.Error(w, err.Error(), status)
+				return
+			}
+			ctx := auth.WithProfileAccess(r.Context(), auth.ProfileAccess{ProfileID: profileID, Session: session})
+			if session != nil {
+				ctx = auth.WithSession(ctx, session)
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, target any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	decoder := json.NewDecoder(r.Body)

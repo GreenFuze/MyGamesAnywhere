@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	dbstore "github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
@@ -98,7 +99,15 @@ func newManualReviewTestStoreWithDB(t *testing.T) (core.GameStore, *sql.DB) {
 	if err := database.EnsureSchema(); err != nil {
 		t.Fatal(err)
 	}
+	profile := &core.Profile{ID: "profile-1", DisplayName: "Player One", Role: core.ProfileRoleAdminPlayer, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := dbstore.NewProfileRepository(database).Create(context.Background(), profile); err != nil {
+		t.Fatal(err)
+	}
 	return dbstore.NewGameStore(database, testLogger{}), database.GetDB()
+}
+
+func scanTestContext() context.Context {
+	return core.WithProfile(context.Background(), &core.Profile{ID: "profile-1", DisplayName: "Player One", Role: core.ProfileRoleAdminPlayer})
 }
 
 func TestManualReviewServiceApplyPersistsSelectedMatchAndFillResult(t *testing.T) {

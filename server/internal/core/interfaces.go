@@ -290,7 +290,7 @@ type SyncService interface {
 	RestoreBootstrap(ctx context.Context, req RestoreSyncRequest) (*RestoreSyncResult, error)
 	Status(ctx context.Context) (*SyncStatus, error)
 	StoreKey(ctx context.Context, passphrase string, currentPassphrase string) error
-	ClearKey() error
+	ClearKey(ctx context.Context) error
 }
 
 type UpdateService interface {
@@ -366,10 +366,10 @@ type SourceCacheService interface {
 
 // KeyStore persists the sync encryption key using OS-level protection.
 type KeyStore interface {
-	Store(passphrase string) error
-	Load() (string, error)
-	Clear() error
-	HasKey() bool
+	Store(profileID, passphrase string) error
+	Load(profileID string) (string, error)
+	Clear(profileID string) error
+	HasKey(profileID string) bool
 }
 
 // Server defines the interface for the HTTP server.

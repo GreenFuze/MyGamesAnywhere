@@ -78,6 +78,7 @@ func TestDiscoveryControllerScanJobLifecycleAndConflict(t *testing.T) {
 	controller := NewDiscoveryController(runner, &fakeGameStore{}, noopLogger{}, events.New())
 
 	router := chi.NewRouter()
+	router.Use(testProfileMiddleware("profile-1"))
 	router.Post("/api/scan", controller.Scan)
 	router.Get("/api/scan/jobs/{job_id}", controller.GetScanJob)
 

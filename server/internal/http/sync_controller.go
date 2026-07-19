@@ -21,6 +21,7 @@ func NewSyncController(syncSvc core.SyncService, logger core.Logger, eventBus *e
 }
 
 func (c *SyncController) Push(w http.ResponseWriter, r *http.Request) {
+	profileID := core.ProfileIDFromContext(r.Context())
 	var body struct {
 		Passphrase string `json:"passphrase"`
 	}
@@ -31,20 +32,22 @@ func (c *SyncController) Push(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	events.PublishJSON(c.eventBus, "sync_operation_started", map[string]any{"operation": "push"})
+	events.PublishJSON(c.eventBus, "sync_operation_started", map[string]any{"profile_id": profileID, "operation": "push"})
 	result, err := c.syncSvc.Push(r.Context(), body.Passphrase)
 	if err != nil {
 		c.logger.Error("sync push", err)
 		events.PublishJSON(c.eventBus, "sync_operation_finished", map[string]any{
-			"operation": "push",
-			"ok":        false,
-			"error":     err.Error(),
+			"profile_id": profileID,
+			"operation":  "push",
+			"ok":         false,
+			"error":      err.Error(),
 		})
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	events.PublishJSON(c.eventBus, "sync_operation_finished", map[string]any{
+		"profile_id":          profileID,
 		"operation":           "push",
 		"ok":                  true,
 		"integrations":        result.Integrations,
@@ -63,6 +66,7 @@ func (c *SyncController) Push(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *SyncController) Pull(w http.ResponseWriter, r *http.Request) {
+	profileID := core.ProfileIDFromContext(r.Context())
 	var body struct {
 		Passphrase string `json:"passphrase"`
 	}
@@ -73,20 +77,22 @@ func (c *SyncController) Pull(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	events.PublishJSON(c.eventBus, "sync_operation_started", map[string]any{"operation": "pull"})
+	events.PublishJSON(c.eventBus, "sync_operation_started", map[string]any{"profile_id": profileID, "operation": "pull"})
 	result, err := c.syncSvc.Pull(r.Context(), body.Passphrase)
 	if err != nil {
 		c.logger.Error("sync pull", err)
 		events.PublishJSON(c.eventBus, "sync_operation_finished", map[string]any{
-			"operation": "pull",
-			"ok":        false,
-			"error":     err.Error(),
+			"profile_id": profileID,
+			"operation":  "pull",
+			"ok":         false,
+			"error":      err.Error(),
 		})
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	events.PublishJSON(c.eventBus, "sync_operation_finished", map[string]any{
+		"profile_id":                 profileID,
 		"operation":                  "pull",
 		"ok":                         true,
 		"integrations_added":         result.IntegrationsAdded,
@@ -117,6 +123,7 @@ func (c *SyncController) Status(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *SyncController) StoreKey(w http.ResponseWriter, r *http.Request) {
+	profileID := core.ProfileIDFromContext(r.Context())
 	var body struct {
 		Passphrase        string `json:"passphrase"`
 		CurrentPassphrase string `json:"current_passphrase"`
@@ -133,7 +140,7 @@ func (c *SyncController) StoreKey(w http.ResponseWriter, r *http.Request) {
 	if err := c.syncSvc.StoreKey(r.Context(), body.Passphrase, body.CurrentPassphrase); err != nil {
 		c.logger.Error("store sync key", err)
 		events.PublishJSON(c.eventBus, "operation_error", map[string]any{
-			"scope": "sync_key", "operation": "store", "error": err.Error(),
+			"profile_id": profileID, "scope": "sync_key", "operation": "store", "error": err.Error(),
 		})
 		if errors.Is(err, core.ErrSyncKeyCurrentRequired) || errors.Is(err, core.ErrSyncKeyCurrentIncorrect) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -143,22 +150,23 @@ func (c *SyncController) StoreKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	events.PublishJSON(c.eventBus, "sync_key_stored", map[string]any{"status": "ok"})
+	events.PublishJSON(c.eventBus, "sync_key_stored", map[string]any{"profile_id": profileID, "status": "ok"})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func (c *SyncController) ClearKey(w http.ResponseWriter, r *http.Request) {
-	if err := c.syncSvc.ClearKey(); err != nil {
+	profileID := core.ProfileIDFromContext(r.Context())
+	if err := c.syncSvc.ClearKey(r.Context()); err != nil {
 		c.logger.Error("clear sync key", err)
 		events.PublishJSON(c.eventBus, "operation_error", map[string]any{
-			"scope": "sync_key", "operation": "clear", "error": err.Error(),
+			"profile_id": profileID, "scope": "sync_key", "operation": "clear", "error": err.Error(),
 		})
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	events.PublishJSON(c.eventBus, "sync_key_cleared", map[string]any{"status": "ok"})
+	events.PublishJSON(c.eventBus, "sync_key_cleared", map[string]any{"profile_id": profileID, "status": "ok"})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }

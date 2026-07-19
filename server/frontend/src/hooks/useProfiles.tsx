@@ -29,6 +29,8 @@ import { useSSE } from '@/hooks/useSSE'
 import { pluginLabel } from '@/lib/gameUtils'
 import { writeStoredScanJobId } from '@/lib/scanJobStorage'
 import { ProfileSignInGate } from '@/components/auth/ProfileSignInGate'
+import { discardAmbiguousLegacyProfileStorage } from '@/lib/profileStorage'
+import { clearProfileOwnedQueryCache } from '@/lib/profileCacheBoundary'
 
 type ProfileContextValue = {
   profiles: Profile[]
@@ -71,6 +73,22 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const [selectedProfileId, setSelectedProfileId] = useState(() => readSelectedProfileId())
   const [addingPlayer, setAddingPlayer] = useState(false)
 
+  useEffect(() => {
+    discardAmbiguousLegacyProfileStorage()
+  }, [])
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.storageArea !== window.localStorage || event.key !== SELECTED_PROFILE_STORAGE_KEY) return
+      // A profile switch in another tab must remove the old profile's cache
+      // before React can render under the newly selected owner.
+      void clearProfileOwnedQueryCache(queryClient)
+      setSelectedProfileId(event.newValue?.trim() ?? '')
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [queryClient])
+
   const setupQuery = useQuery({
     queryKey: ['setup-status'],
     queryFn: getSetupStatus,
@@ -96,17 +114,17 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   }, [currentProfile, profiles.length, selectedProfileId])
 
   const selectProfile = useCallback(async (id: string) => {
+    await clearProfileOwnedQueryCache(queryClient)
     await logoutProfile()
     writeSelectedProfileId(id)
     setSelectedProfileId(id)
-    queryClient.invalidateQueries()
   }, [queryClient])
 
   const clearProfile = useCallback(async () => {
+    await clearProfileOwnedQueryCache(queryClient)
     await logoutProfile()
     writeSelectedProfileId('')
     setSelectedProfileId('')
-    queryClient.invalidateQueries()
   }, [queryClient])
 
   const refreshProfiles = useCallback(() => {

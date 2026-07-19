@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/auth"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	dbpkg "github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
 	"github.com/go-chi/chi/v5"
@@ -314,6 +315,13 @@ func TestGameControllerServePlayFileSupportsHead(t *testing.T) {
 		},
 	}
 	ctrl := NewGameController(store, nil, nil, nil, nil, noopLogger{})
+	profiles := fakePlayProfileRepo{byID: map[string]*core.Profile{
+		"profile-1": {ID: "profile-1", Role: core.ProfileRoleAdminPlayer},
+	}}
+	authService, err := auth.NewService(newLANAuthStore(), profiles)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
 	router := BuildRouter(
 		&RouteBuilder{
 			GameCtrl:        ctrl,
@@ -328,9 +336,8 @@ func TestGameControllerServePlayFileSupportsHead(t *testing.T) {
 			SaveSyncCtrl:    &SaveSyncController{},
 			SSECtrl:         &SSEController{},
 			OAuthCtrl:       &OAuthController{},
-			ProfileRepo: fakePlayProfileRepo{byID: map[string]*core.Profile{
-				"profile-1": {ID: "profile-1", Role: core.ProfileRoleAdminPlayer},
-			}},
+			ProfileRepo:     profiles,
+			AuthService:     authService,
 		},
 		0,
 		"",

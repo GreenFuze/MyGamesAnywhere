@@ -58,8 +58,8 @@ type service struct {
 	cacheRoot string
 
 	mu                sync.RWMutex
-	jobs              map[string]*core.SaveSyncMigrationStatus
-	prefetchJobs      map[string]*core.SaveSyncPrefetchStatus
+	jobs              map[string]*migrationJob
+	prefetchJobs      map[string]*prefetchJob
 	uploadWorkers     map[string]*slotUploadWorker
 	cachePathReplacer *regexp.Regexp
 }
@@ -67,6 +67,18 @@ type service struct {
 type slotUploadWorker struct {
 	running bool
 	pending bool
+	profile *core.Profile
+	ref     core.SaveSyncSlotRef
+}
+
+type migrationJob struct {
+	profile *core.Profile
+	status  *core.SaveSyncMigrationStatus
+}
+
+type prefetchJob struct {
+	profile *core.Profile
+	status  *core.SaveSyncPrefetchStatus
 }
 
 type saveSyncStoredManifest struct {
@@ -108,14 +120,18 @@ func NewService(
 		logger:            logger,
 		eventBus:          eventBus,
 		cacheRoot:         defaultSaveSyncCacheRoot(),
-		jobs:              make(map[string]*core.SaveSyncMigrationStatus),
-		prefetchJobs:      make(map[string]*core.SaveSyncPrefetchStatus),
+		jobs:              make(map[string]*migrationJob),
+		prefetchJobs:      make(map[string]*prefetchJob),
 		uploadWorkers:     make(map[string]*slotUploadWorker),
 		cachePathReplacer: regexp.MustCompile(`[^A-Za-z0-9._-]+`),
 	}
 }
 
 func (s *service) ListSlots(ctx context.Context, req core.SaveSyncListRequest) ([]core.SaveSyncSlotSummary, error) {
+	profile, err := requireSaveSyncProfile(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.validateSlotListRequest(ctx, req); err != nil {
 		return nil, err
 	}
@@ -126,6 +142,7 @@ func (s *service) ListSlots(ctx context.Context, req core.SaveSyncListRequest) (
 	summaries := make([]core.SaveSyncSlotSummary, 0, len(slotIDs))
 	for _, slotID := range slotIDs {
 		ref := core.SaveSyncSlotRef{
+			OwnerProfileID:  profile.ID,
 			CanonicalGameID: req.CanonicalGameID,
 			SourceGameID:    req.SourceGameID,
 			Runtime:         req.Runtime,
@@ -142,6 +159,11 @@ func (s *service) ListSlots(ctx context.Context, req core.SaveSyncListRequest) (
 }
 
 func (s *service) GetSlot(ctx context.Context, req core.SaveSyncSlotRef) (*core.SaveSyncSnapshot, error) {
+	profile, err := requireSaveSyncProfile(ctx)
+	if err != nil {
+		return nil, err
+	}
+	req.OwnerProfileID = profile.ID
 	if err := s.validateSlotRef(ctx, req); err != nil {
 		return nil, err
 	}
@@ -152,6 +174,11 @@ func (s *service) GetSlot(ctx context.Context, req core.SaveSyncSlotRef) (*core.
 }
 
 func (s *service) PutSlot(ctx context.Context, req core.SaveSyncPutRequest) (*core.SaveSyncPutResult, error) {
+	profile, err := requireSaveSyncProfile(ctx)
+	if err != nil {
+		return nil, err
+	}
+	req.OwnerProfileID = profile.ID
 	if err := s.validatePutRequest(ctx, req); err != nil {
 		return nil, err
 	}
@@ -221,7 +248,7 @@ func (s *service) PutSlot(ctx context.Context, req core.SaveSyncPutRequest) (*co
 	}); err != nil {
 		return nil, err
 	}
-	s.enqueueUpload(req.SaveSyncSlotRef)
+	s.enqueueUpload(req.SaveSyncSlotRef, profile)
 
 	return &core.SaveSyncPutResult{
 		OK: true,
@@ -240,6 +267,10 @@ func (s *service) PutSlot(ctx context.Context, req core.SaveSyncPutRequest) (*co
 }
 
 func (s *service) StartMigration(ctx context.Context, req core.SaveSyncMigrationRequest) (*core.SaveSyncMigrationStatus, error) {
+	profile, err := requireSaveSyncProfile(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if req.SourceIntegrationID == "" || req.TargetIntegrationID == "" {
 		return nil, fmt.Errorf("source_integration_id and target_integration_id are required")
 	}
@@ -271,25 +302,33 @@ func (s *service) StartMigration(ctx context.Context, req core.SaveSyncMigration
 	}
 
 	s.mu.Lock()
-	s.jobs[status.JobID] = cloneMigrationStatus(status)
+	s.jobs[status.JobID] = &migrationJob{profile: cloneProfile(profile), status: cloneMigrationStatus(status)}
 	s.mu.Unlock()
-	s.publishMigrationEvent("save_sync_migration_started", status)
+	s.publishMigrationEvent("save_sync_migration_started", profile.ID, status)
 
-	go s.runMigration(req, status.JobID)
+	go s.runMigration(req, status.JobID, cloneProfile(profile))
 	return cloneMigrationStatus(status), nil
 }
 
-func (s *service) GetMigrationStatus(_ context.Context, jobID string) (*core.SaveSyncMigrationStatus, error) {
+func (s *service) GetMigrationStatus(ctx context.Context, jobID string) (*core.SaveSyncMigrationStatus, error) {
+	profile, err := requireSaveSyncProfile(ctx)
+	if err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	status, ok := s.jobs[jobID]
-	if !ok {
+	job, ok := s.jobs[jobID]
+	if !ok || job.profile == nil || job.profile.ID != profile.ID {
 		return nil, nil
 	}
-	return cloneMigrationStatus(status), nil
+	return cloneMigrationStatus(job.status), nil
 }
 
 func (s *service) StartPrefetch(ctx context.Context, req core.SaveSyncPrefetchRequest) (*core.SaveSyncPrefetchStatus, error) {
+	profile, err := requireSaveSyncProfile(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.validateSlotListRequest(ctx, core.SaveSyncListRequest{
 		CanonicalGameID: req.CanonicalGameID,
 		SourceGameID:    req.SourceGameID,
@@ -316,26 +355,30 @@ func (s *service) StartPrefetch(ctx context.Context, req core.SaveSyncPrefetchRe
 	}
 
 	s.mu.Lock()
-	s.prefetchJobs[status.JobID] = clonePrefetchStatus(status)
+	s.prefetchJobs[status.JobID] = &prefetchJob{profile: cloneProfile(profile), status: clonePrefetchStatus(status)}
 	s.mu.Unlock()
-	s.publishPrefetchEvent("save_sync_prefetch_started", status)
+	s.publishPrefetchEvent("save_sync_prefetch_started", profile.ID, status)
 
-	go s.runPrefetch(req, status.JobID)
+	go s.runPrefetch(req, status.JobID, cloneProfile(profile))
 	return clonePrefetchStatus(status), nil
 }
 
-func (s *service) GetPrefetchStatus(_ context.Context, jobID string) (*core.SaveSyncPrefetchStatus, error) {
+func (s *service) GetPrefetchStatus(ctx context.Context, jobID string) (*core.SaveSyncPrefetchStatus, error) {
+	profile, err := requireSaveSyncProfile(ctx)
+	if err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	status, ok := s.prefetchJobs[jobID]
-	if !ok {
+	job, ok := s.prefetchJobs[jobID]
+	if !ok || job.profile == nil || job.profile.ID != profile.ID {
 		return nil, nil
 	}
-	return clonePrefetchStatus(status), nil
+	return clonePrefetchStatus(job.status), nil
 }
 
-func (s *service) runPrefetch(req core.SaveSyncPrefetchRequest, jobID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+func (s *service) runPrefetch(req core.SaveSyncPrefetchRequest, jobID string, profile *core.Profile) {
+	ctx, cancel := context.WithTimeout(core.WithProfile(context.Background(), profile), 5*time.Minute)
 	defer cancel()
 
 	_, integration, err := s.resolveIntegrationForSaveSync(ctx, req.IntegrationID)
@@ -419,6 +462,7 @@ func (s *service) runPrefetch(req core.SaveSyncPrefetchRequest, jobID string) {
 
 func (s *service) prefetchSlot(ctx context.Context, integration *core.Integration, req core.SaveSyncPrefetchRequest, existingManifests map[string]bool, jobID string, slotID string) error {
 	ref := core.SaveSyncSlotRef{
+		OwnerProfileID:  core.ProfileIDFromContext(ctx),
 		CanonicalGameID: req.CanonicalGameID,
 		SourceGameID:    req.SourceGameID,
 		Runtime:         req.Runtime,
@@ -484,8 +528,8 @@ func (s *service) prefetchSlot(ctx context.Context, integration *core.Integratio
 	return nil
 }
 
-func (s *service) runMigration(req core.SaveSyncMigrationRequest, jobID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+func (s *service) runMigration(req core.SaveSyncMigrationRequest, jobID string, profile *core.Profile) {
+	ctx, cancel := context.WithTimeout(core.WithProfile(context.Background(), profile), 30*time.Minute)
 	defer cancel()
 
 	targets, err := s.enumerateMigrationTargets(ctx, req)
@@ -586,6 +630,7 @@ func (s *service) enumerateMigrationTargets(ctx context.Context, req core.SaveSy
 			for _, slotID := range slotIDs {
 				targets = append(targets, migrationTarget{
 					Source: core.SaveSyncSlotRef{
+						OwnerProfileID:  core.ProfileIDFromContext(ctx),
 						CanonicalGameID: game.ID,
 						SourceGameID:    sourceGame.ID,
 						Runtime:         runtime,
@@ -593,6 +638,7 @@ func (s *service) enumerateMigrationTargets(ctx context.Context, req core.SaveSy
 						IntegrationID:   req.SourceIntegrationID,
 					},
 					Target: core.SaveSyncSlotRef{
+						OwnerProfileID:  core.ProfileIDFromContext(ctx),
 						CanonicalGameID: game.ID,
 						SourceGameID:    sourceGame.ID,
 						Runtime:         runtime,
@@ -616,11 +662,18 @@ func (s *service) finishMigration(jobID string, err error) {
 
 func (s *service) updateMigration(jobID string, mutate func(*core.SaveSyncMigrationStatus)) {
 	s.mu.Lock()
-	status, ok := s.jobs[jobID]
+	job, ok := s.jobs[jobID]
 	if ok {
-		mutate(status)
+		mutate(job.status)
 	}
-	updated := cloneMigrationStatus(status)
+	var updated *core.SaveSyncMigrationStatus
+	var profileID string
+	if job != nil {
+		updated = cloneMigrationStatus(job.status)
+		if job.profile != nil {
+			profileID = job.profile.ID
+		}
+	}
 	s.mu.Unlock()
 	if !ok || updated == nil {
 		return
@@ -628,19 +681,20 @@ func (s *service) updateMigration(jobID string, mutate func(*core.SaveSyncMigrat
 
 	switch updated.Status {
 	case "completed":
-		s.publishMigrationEvent("save_sync_migration_completed", updated)
+		s.publishMigrationEvent("save_sync_migration_completed", profileID, updated)
 	case "failed":
-		s.publishMigrationEvent("save_sync_migration_failed", updated)
+		s.publishMigrationEvent("save_sync_migration_failed", profileID, updated)
 	default:
-		s.publishMigrationEvent("save_sync_migration_progress", updated)
+		s.publishMigrationEvent("save_sync_migration_progress", profileID, updated)
 	}
 }
 
-func (s *service) publishMigrationEvent(eventType string, status *core.SaveSyncMigrationStatus) {
+func (s *service) publishMigrationEvent(eventType, profileID string, status *core.SaveSyncMigrationStatus) {
 	if s.eventBus == nil || status == nil {
 		return
 	}
 	events.PublishJSON(s.eventBus, eventType, map[string]any{
+		"profile_id":            profileID,
 		"job_id":                status.JobID,
 		"status":                status.Status,
 		"scope":                 status.Scope,
@@ -676,11 +730,18 @@ func (s *service) finishPrefetch(jobID string, err error) {
 
 func (s *service) updatePrefetch(jobID string, mutate func(*core.SaveSyncPrefetchStatus)) {
 	s.mu.Lock()
-	status, ok := s.prefetchJobs[jobID]
+	job, ok := s.prefetchJobs[jobID]
 	if ok {
-		mutate(status)
+		mutate(job.status)
 	}
-	updated := clonePrefetchStatus(status)
+	var updated *core.SaveSyncPrefetchStatus
+	var profileID string
+	if job != nil {
+		updated = clonePrefetchStatus(job.status)
+		if job.profile != nil {
+			profileID = job.profile.ID
+		}
+	}
 	s.mu.Unlock()
 	if !ok || updated == nil {
 		return
@@ -688,19 +749,20 @@ func (s *service) updatePrefetch(jobID string, mutate func(*core.SaveSyncPrefetc
 
 	switch updated.Status {
 	case "completed":
-		s.publishPrefetchEvent("save_sync_prefetch_completed", updated)
+		s.publishPrefetchEvent("save_sync_prefetch_completed", profileID, updated)
 	case "failed":
-		s.publishPrefetchEvent("save_sync_prefetch_failed", updated)
+		s.publishPrefetchEvent("save_sync_prefetch_failed", profileID, updated)
 	default:
-		s.publishPrefetchEvent("save_sync_prefetch_progress", updated)
+		s.publishPrefetchEvent("save_sync_prefetch_progress", profileID, updated)
 	}
 }
 
-func (s *service) publishPrefetchEvent(eventType string, status *core.SaveSyncPrefetchStatus) {
+func (s *service) publishPrefetchEvent(eventType, profileID string, status *core.SaveSyncPrefetchStatus) {
 	if s.eventBus == nil || status == nil {
 		return
 	}
 	events.PublishJSON(s.eventBus, eventType, map[string]any{
+		"profile_id":        profileID,
 		"job_id":            status.JobID,
 		"status":            status.Status,
 		"message":           status.Message,
@@ -877,13 +939,18 @@ func (s *service) removeSlotCachePayload(ref core.SaveSyncSlotRef) error {
 	return nil
 }
 
-func (s *service) enqueueUpload(ref core.SaveSyncSlotRef) {
+func (s *service) enqueueUpload(ref core.SaveSyncSlotRef, profile *core.Profile) {
 	key := s.slotQueueKey(ref)
 	s.mu.Lock()
 	worker := s.uploadWorkers[key]
 	if worker == nil {
-		worker = &slotUploadWorker{}
+		worker = &slotUploadWorker{profile: cloneProfile(profile), ref: ref}
 		s.uploadWorkers[key] = worker
+	}
+	if worker.profile == nil || worker.profile.ID != ref.OwnerProfileID {
+		s.mu.Unlock()
+		s.logger.Error("save-sync upload ownership mismatch", fmt.Errorf("upload worker owner mismatch"), "profile_id", ref.OwnerProfileID)
+		return
 	}
 	worker.pending = true
 	if worker.running {
@@ -893,10 +960,10 @@ func (s *service) enqueueUpload(ref core.SaveSyncSlotRef) {
 	worker.running = true
 	s.mu.Unlock()
 
-	go s.runUploadWorker(key, ref)
+	go s.runUploadWorker(key)
 }
 
-func (s *service) runUploadWorker(key string, ref core.SaveSyncSlotRef) {
+func (s *service) runUploadWorker(key string) {
 	for {
 		s.mu.Lock()
 		worker := s.uploadWorkers[key]
@@ -908,17 +975,22 @@ func (s *service) runUploadWorker(key string, ref core.SaveSyncSlotRef) {
 			return
 		}
 		worker.pending = false
+		profile := cloneProfile(worker.profile)
+		ref := worker.ref
 		s.mu.Unlock()
 
-		if err := s.uploadSlotFromCache(ref); err != nil {
+		if err := s.uploadSlotFromCache(ref, profile); err != nil {
 			s.logger.Error("save-sync upload failed", err, "slot_id", ref.SlotID, "source_game_id", ref.SourceGameID)
 			_ = s.markSlotUploadFailed(ref, err)
 		}
 	}
 }
 
-func (s *service) uploadSlotFromCache(ref core.SaveSyncSlotRef) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+func (s *service) uploadSlotFromCache(ref core.SaveSyncSlotRef, profile *core.Profile) error {
+	if profile == nil || profile.ID == "" || profile.ID != ref.OwnerProfileID {
+		return fmt.Errorf("save-sync upload profile mismatch")
+	}
+	ctx, cancel := context.WithTimeout(core.WithProfile(context.Background(), profile), 5*time.Minute)
 	defer cancel()
 
 	_, integration, err := s.resolveIntegrationForSaveSync(ctx, ref.IntegrationID)
@@ -1219,6 +1291,7 @@ func slotArchivePath(ref core.SaveSyncSlotRef) string {
 func (s *service) cacheSlotDir(ref core.SaveSyncSlotRef) string {
 	return filepath.Join(
 		s.cacheRoot,
+		s.safeCacheSegment(ref.OwnerProfileID),
 		s.safeCacheSegment(ref.IntegrationID),
 		s.safeCacheSegment(ref.CanonicalGameID),
 		s.safeCacheSegment(ref.SourceGameID),
@@ -1249,12 +1322,29 @@ func (s *service) safeCacheSegment(value string) string {
 
 func (s *service) slotQueueKey(ref core.SaveSyncSlotRef) string {
 	return strings.Join([]string{
+		ref.OwnerProfileID,
 		ref.IntegrationID,
 		ref.CanonicalGameID,
 		ref.SourceGameID,
 		ref.Runtime,
 		ref.SlotID,
 	}, "\x00")
+}
+
+func requireSaveSyncProfile(ctx context.Context) (*core.Profile, error) {
+	profile, ok := core.ProfileFromContext(ctx)
+	if !ok || profile == nil || strings.TrimSpace(profile.ID) == "" {
+		return nil, fmt.Errorf("profile is required")
+	}
+	return profile, nil
+}
+
+func cloneProfile(profile *core.Profile) *core.Profile {
+	if profile == nil {
+		return nil
+	}
+	clone := *profile
+	return &clone
 }
 
 func defaultSaveSyncCacheRoot() string {
