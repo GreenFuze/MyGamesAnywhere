@@ -26,16 +26,58 @@ type SaveDomainManager interface {
 	Reconcile(context.Context, devicev1.SaveDomainReconcileRequest) (devicev1.SaveDomainReconcileResult, error)
 }
 
+// SaveDomainClaimPreview contains only the exact, client-verified route and
+// client-owned location that will be affected by a claim. It is deliberately
+// separate from the server request so an untrusted server cannot choose or
+// obscure the local save path shown to the user.
+type SaveDomainClaimPreview struct {
+	Title       string
+	Server      string
+	Adapter     string
+	ExactTarget string
+	SaveKind    string
+	LocalPath   string
+}
+
+func (p SaveDomainClaimPreview) Validate() error {
+	for name, value := range map[string]string{
+		"game title":   p.Title,
+		"server":       p.Server,
+		"adapter":      p.Adapter,
+		"exact target": p.ExactTarget,
+		"save kind":    p.SaveKind,
+		"local path":   p.LocalPath,
+	} {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("%s is required", name)
+		}
+		if strings.ContainsAny(value, "\r\n") {
+			return fmt.Errorf("%s must be a single line", name)
+		}
+	}
+	if !filepath.IsAbs(p.LocalPath) {
+		return errors.New("local save path must be absolute")
+	}
+	return nil
+}
+
 type SaveDomainConfirmer interface {
-	ConfirmClaim(context.Context, string, string) (bool, error)
+	ConfirmClaim(context.Context, SaveDomainClaimPreview) (bool, error)
 	ConfirmRelease(context.Context, string, string) (bool, error)
 	ConfirmRestore(context.Context, string, string) (bool, error)
 }
 
 type desktopSaveDomainConfirmer struct{}
 
-func (desktopSaveDomainConfirmer) ConfirmClaim(ctx context.Context, title, server string) (bool, error) {
-	return desktop.ConfirmSaveDomainClaim(ctx, title, server)
+func (desktopSaveDomainConfirmer) ConfirmClaim(ctx context.Context, preview SaveDomainClaimPreview) (bool, error) {
+	return desktop.ConfirmSaveDomainClaim(ctx, desktop.SaveDomainClaimDetails{
+		Title:       preview.Title,
+		Server:      preview.Server,
+		Adapter:     preview.Adapter,
+		ExactTarget: preview.ExactTarget,
+		SaveKind:    preview.SaveKind,
+		LocalPath:   preview.LocalPath,
+	})
 }
 
 func (desktopSaveDomainConfirmer) ConfirmRelease(ctx context.Context, title, server string) (bool, error) {
@@ -116,7 +158,18 @@ func (m *LocalSaveDomainManager) Claim(ctx context.Context, request devicev1.Sav
 		return result, err
 	}
 	domain, _ = m.catalog.FindByID(domain.LocalSaveDomainID)
-	approved, err := m.confirmer.ConfirmClaim(ctx, request.Title, m.serverURL)
+	preview := SaveDomainClaimPreview{
+		Title:       request.Title,
+		Server:      m.serverURL,
+		Adapter:     "ScummVM",
+		ExactTarget: gameID,
+		SaveKind:    "ScummVM save files",
+		LocalPath:   savePath,
+	}
+	if err := preview.Validate(); err != nil {
+		return result, fmt.Errorf("prepare save-domain review: %w", err)
+	}
+	approved, err := m.confirmer.ConfirmClaim(ctx, preview)
 	if err != nil {
 		return result, err
 	}

@@ -13,9 +13,10 @@ import (
 )
 
 type fakeSaveDomainConfirmer struct {
-	claim   bool
-	release bool
-	claims  int
+	claim        bool
+	release      bool
+	claims       int
+	claimPreview SaveDomainClaimPreview
 }
 
 type fixedScummVMRouteDetector struct{ gameID string }
@@ -24,8 +25,9 @@ func (d fixedScummVMRouteDetector) Detect(context.Context, string) (string, erro
 	return d.gameID, nil
 }
 
-func (f *fakeSaveDomainConfirmer) ConfirmClaim(context.Context, string, string) (bool, error) {
+func (f *fakeSaveDomainConfirmer) ConfirmClaim(_ context.Context, preview SaveDomainClaimPreview) (bool, error) {
 	f.claims++
+	f.claimPreview = preview
 	return f.claim, nil
 }
 
@@ -49,6 +51,18 @@ func TestLocalSaveDomainManagerRequiresConfirmationAndPreservesFilesOnRelease(t 
 	request := devicev1.SaveDomainClaimRequest{GameID: "game-1", SourceGameID: "source-1", Title: "Game", AdapterID: "scummvm", RouteKind: "emulator", EmulatorID: "scummvm", RouteFingerprint: strings.Repeat("a", 64)}
 	if _, err := manager.Claim(context.Background(), request); err != ErrSaveDomainConfirmationDeclined {
 		t.Fatalf("declined claim error = %v", err)
+	}
+	expectedPath := filepath.Join(root, "save-domains", "scummvm", strings.Repeat("a", 16))
+	if confirmer.claimPreview.Title != "Game" ||
+		confirmer.claimPreview.Server != "http://mga:8900" ||
+		confirmer.claimPreview.Adapter != "ScummVM" ||
+		confirmer.claimPreview.ExactTarget != "scumm:test" ||
+		confirmer.claimPreview.SaveKind != "ScummVM save files" ||
+		confirmer.claimPreview.LocalPath != expectedPath {
+		t.Fatalf("claim preview = %+v", confirmer.claimPreview)
+	}
+	if _, err := os.Stat(expectedPath); !os.IsNotExist(err) {
+		t.Fatalf("declined claim prepared save folder: %v", err)
 	}
 	confirmer.claim = true
 	confirmer.release = true

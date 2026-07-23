@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/ncruces/zenity"
@@ -110,12 +111,51 @@ func ConfirmUseExistingInstallation(ctx context.Context, title, path, server str
 	return false, fmt.Errorf("show use-existing dialog: %w", err)
 }
 
-func ConfirmSaveDomainClaim(ctx context.Context, title, server string) (bool, error) {
-	if strings.TrimSpace(title) == "" || strings.TrimSpace(server) == "" {
-		return false, fmt.Errorf("game title and server are required")
+type SaveDomainClaimDetails struct {
+	Title       string
+	Server      string
+	Adapter     string
+	ExactTarget string
+	SaveKind    string
+	LocalPath   string
+}
+
+func (d SaveDomainClaimDetails) Validate() error {
+	for name, value := range map[string]string{
+		"game title":   d.Title,
+		"server":       d.Server,
+		"adapter":      d.Adapter,
+		"exact target": d.ExactTarget,
+		"save kind":    d.SaveKind,
+		"local path":   d.LocalPath,
+	} {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("%s is required", name)
+		}
+		if strings.ContainsAny(value, "\r\n") {
+			return fmt.Errorf("%s must be a single line", name)
+		}
+	}
+	if !filepath.IsAbs(d.LocalPath) {
+		return fmt.Errorf("local save path must be absolute")
+	}
+	return nil
+}
+
+func ConfirmSaveDomainClaim(ctx context.Context, details SaveDomainClaimDetails) (bool, error) {
+	if err := details.Validate(); err != nil {
+		return false, err
 	}
 	err := zenity.Question(
-		fmt.Sprintf("Let this MGA Server manage ScummVM saves for %s?\n\nServer:\n%s\n\nOnly this MGA Server will be allowed to restore these local saves. MGA will keep the save folder on this Windows user and will not give another server write access without another local confirmation.", title, server),
+		fmt.Sprintf(
+			"Let this MGA Server manage saves for %s?\n\nServer:\n%s\n\nGame route:\n%s — %s\n\nSave data:\n%s\n\nLocal folder:\n%s\n\nOnly this MGA Server will be allowed to restore this exact route's local saves. Another server needs a separate local confirmation.",
+			details.Title,
+			details.Server,
+			details.Adapter,
+			details.ExactTarget,
+			details.SaveKind,
+			details.LocalPath,
+		),
 		zenity.Title("MGA Client — Manage game saves"), zenity.OKLabel("Allow save backup"), zenity.CancelLabel("Cancel"), zenity.QuestionIcon, zenity.DefaultCancel(), zenity.Context(ctx),
 	)
 	if err == nil {
