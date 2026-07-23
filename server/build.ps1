@@ -71,7 +71,7 @@ if ((Test-Path $fePkg) -and -not $SkipFrontend) {
 # --- Server ---
 Write-Host "Building server..." -ForegroundColor Cyan
 
-$ext = if ($IsLinux -or $IsMacOS) { "" } else { ".exe" }
+$ext = if ($env:OS -eq "Windows_NT") { ".exe" } else { "" }
 $serverBin = Join-Path $BinDir "mga_server$ext"
 $buildInfoPkg = "github.com/GreenFuze/MyGamesAnywhere/server/internal/buildinfo"
 $versionFile = Join-Path $RootDir "..\VERSION"

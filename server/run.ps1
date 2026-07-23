@@ -3,7 +3,7 @@
 $ErrorActionPreference = "Stop"
 $RootDir = $PSScriptRoot
 $BinDir  = Join-Path $RootDir "bin"
-$ext     = if ($IsLinux -or $IsMacOS) { "" } else { ".exe" }
+$ext     = if ($env:OS -eq "Windows_NT") { ".exe" } else { "" }
 $server  = Join-Path $BinDir "mga_server$ext"
 
 if (-not (Test-Path $server)) {
