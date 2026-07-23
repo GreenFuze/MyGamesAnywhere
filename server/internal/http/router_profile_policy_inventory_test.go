@@ -6,24 +6,53 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/auth"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/go-chi/chi/v5"
 )
 
-// TestEveryNonPublicAPIRouteFailsClosedForAnonymousProtectedProfile is the
+// TestEveryNonPublicAPIRouteFailsClosedForInvalidProfileSessions is the
 // route-policy inventory. Adding a route requires either placing it behind the
 // profile/device policy or explicitly adding it to this reviewed public list.
-func TestEveryNonPublicAPIRouteFailsClosedForAnonymousProtectedProfile(t *testing.T) {
+func TestEveryNonPublicAPIRouteFailsClosedForInvalidProfileSessions(t *testing.T) {
 	profile := &core.Profile{ID: "protected-admin", DisplayName: "Protected", Role: core.ProfileRoleAdminPlayer}
-	profiles := multiLANProfileRepository{profiles: map[string]*core.Profile{profile.ID: profile}}
+	otherProfile := &core.Profile{ID: "other-player", DisplayName: "Other", Role: core.ProfileRolePlayer}
+	profiles := multiLANProfileRepository{profiles: map[string]*core.Profile{
+		profile.ID:      profile,
+		otherProfile.ID: otherProfile,
+	}}
 	store := newLANAuthStore()
 	authService, err := auth.NewService(store, profiles)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := authService.InitializeCredential(context.Background(), profile.ID, "test", auth.CredentialPassword); err != nil {
+		t.Fatal(err)
+	}
+	if err := authService.InitializeCredential(context.Background(), otherProfile.ID, "test", auth.CredentialPassword); err != nil {
+		t.Fatal(err)
+	}
+	wrongProfileToken, _, err := authService.Login(context.Background(), otherProfile.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredToken, expiredSession, err := authService.Login(context.Background(), profile.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for tokenHash, session := range store.sessions {
+		if session.ID == expiredSession.ID {
+			session.ExpiresAt = time.Now().Add(-time.Minute)
+			store.sessions[tokenHash] = session
+		}
+	}
+	deletedToken, _, err := authService.Login(context.Background(), profile.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := authService.Logout(context.Background(), deletedToken); err != nil {
 		t.Fatal(err)
 	}
 
@@ -72,6 +101,16 @@ func TestEveryNonPublicAPIRouteFailsClosedForAnonymousProtectedProfile(t *testin
 		"GET /api/about/license":                   "public license text",
 	}
 	parameter := regexp.MustCompile(`\{[^}]+\}`)
+	probes := []struct {
+		name       string
+		token      string
+		wantStatus int
+	}{
+		{name: "anonymous", wantStatus: http.StatusUnauthorized},
+		{name: "wrong-profile", token: wrongProfileToken, wantStatus: http.StatusForbidden},
+		{name: "expired-session", token: expiredToken, wantStatus: http.StatusUnauthorized},
+		{name: "deleted-session", token: deletedToken, wantStatus: http.StatusUnauthorized},
+	}
 	if err := chi.Walk(router, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		key := method + " " + route
 		if _, ok := public[key]; ok || route == "/*" || route == "/" {
@@ -80,12 +119,18 @@ func TestEveryNonPublicAPIRouteFailsClosedForAnonymousProtectedProfile(t *testin
 		if len(route) < 5 || route[:5] != "/api/" {
 			return nil
 		}
-		request := httptest.NewRequest(method, parameter.ReplaceAllString(route, "test-id"), nil)
-		request.Header.Set("X-MGA-Profile-ID", profile.ID)
-		response := httptest.NewRecorder()
-		router.ServeHTTP(response, request)
-		if response.Code != http.StatusUnauthorized && response.Code != http.StatusForbidden {
-			t.Errorf("%s lacks a fail-closed profile/device policy: anonymous status=%d body=%q", key, response.Code, response.Body.String())
+		for _, probe := range probes {
+			request := httptest.NewRequest(method, parameter.ReplaceAllString(route, "test-id"), nil)
+			request.Header.Set("X-MGA-Profile-ID", profile.ID)
+			if probe.token != "" {
+				request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: probe.token})
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			if response.Code != probe.wantStatus {
+				t.Errorf("%s lacks a fail-closed profile/device policy: %s status=%d, want=%d, body=%q",
+					key, probe.name, response.Code, probe.wantStatus, response.Body.String())
+			}
 		}
 		return nil
 	}); err != nil {

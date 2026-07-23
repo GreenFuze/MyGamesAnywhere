@@ -1199,12 +1199,15 @@ func (s *DeviceStore) GetInventory(ctx context.Context, endpointID string) (*dev
 	return inventory, nil
 }
 
-func (s *DeviceStore) ListSaveDomainLinks(ctx context.Context, endpointID string) ([]devices.SaveDomainLink, error) {
-	rows, err := s.db.GetDB().QueryContext(ctx, `SELECT endpoint_id, game_id, source_game_id, route_kind, emulator_id,
-		local_save_domain_id, adapter_id, authority_state, sync_state, COALESCE(last_snapshot_manifest_hash,''),
-		COALESCE(created_by_profile_id,''), created_at, updated_at
-		FROM device_save_domain_links WHERE endpoint_id=?
-		ORDER BY game_id, source_game_id, route_kind, emulator_id`, endpointID)
+func (s *DeviceStore) ListSaveDomainLinks(ctx context.Context, endpointID, profileID string) ([]devices.SaveDomainLink, error) {
+	rows, err := s.db.GetDB().QueryContext(ctx, `SELECT links.endpoint_id, links.game_id, links.source_game_id,
+		links.route_kind, links.emulator_id, links.local_save_domain_id, links.adapter_id, links.authority_state,
+		links.sync_state, COALESCE(links.last_snapshot_manifest_hash,''), COALESCE(links.created_by_profile_id,''),
+		links.created_at, links.updated_at
+		FROM device_save_domain_links links
+		INNER JOIN source_games source ON source.id=links.source_game_id
+		WHERE links.endpoint_id=? AND source.profile_id=?
+		ORDER BY links.game_id, links.source_game_id, links.route_kind, links.emulator_id`, endpointID, profileID)
 	if err != nil {
 		return nil, err
 	}

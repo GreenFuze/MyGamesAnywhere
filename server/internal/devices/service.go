@@ -43,7 +43,7 @@ type Service struct {
 }
 
 type saveDomainLinkStore interface {
-	ListSaveDomainLinks(context.Context, string) ([]SaveDomainLink, error)
+	ListSaveDomainLinks(context.Context, string, string) ([]SaveDomainLink, error)
 }
 
 func (s *Service) SetEventBus(eventBus *events.EventBus) { s.eventBus = eventBus }
@@ -218,7 +218,7 @@ func (s *Service) ListEndpoints(ctx context.Context, profileID string) ([]Endpoi
 		}
 		endpoints[index].Installations = installations
 		if links, ok := s.store.(saveDomainLinkStore); ok {
-			saveDomains, err := links.ListSaveDomainLinks(ctx, endpoints[index].ID)
+			saveDomains, err := links.ListSaveDomainLinks(ctx, endpoints[index].ID, profileID)
 			if err != nil {
 				return nil, err
 			}
@@ -242,7 +242,7 @@ func (s *Service) ListSaveDomainLinks(ctx context.Context, endpointID, profileID
 	if !ok {
 		return nil, errors.New("save domain persistence is unavailable")
 	}
-	return store.ListSaveDomainLinks(ctx, endpointID)
+	return store.ListSaveDomainLinks(ctx, endpointID, profileID)
 }
 
 func (s *Service) EndpointForConnection(ctx context.Context, endpointID string) (*Endpoint, error) {

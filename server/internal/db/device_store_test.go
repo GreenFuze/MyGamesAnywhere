@@ -246,9 +246,27 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 	if err := store.CompleteCommand(context.Background(), endpoint.ID, devicev1.CommandResult{CommandID: saveClaimCommand.ID, Status: devicev1.CommandSucceeded, Payload: saveClaimResult}, now.Add(time.Second)); err != nil {
 		t.Fatalf("CompleteCommand(save claim) error = %v", err)
 	}
-	links, err := store.ListSaveDomainLinks(context.Background(), endpoint.ID)
+	links, err := store.ListSaveDomainLinks(context.Background(), endpoint.ID, profile.ID)
 	if err != nil || len(links) != 1 || links[0].AuthorityState != "owned_here" || links[0].SyncState != "never_backed_up" {
 		t.Fatalf("claimed save links = %+v, error = %v", links, err)
+	}
+	foreignLinks, err := store.ListSaveDomainLinks(context.Background(), endpoint.ID, secondProfile.ID)
+	if err != nil {
+		t.Fatalf("ListSaveDomainLinks(shared profile) error = %v", err)
+	}
+	if len(foreignLinks) != 0 {
+		t.Fatalf("shared profile observed foreign save links = %+v", foreignLinks)
+	}
+	deviceService, err := devices.NewService(store, devices.NewHub())
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	secondProfileEndpoints, err := deviceService.ListEndpoints(context.Background(), secondProfile.ID)
+	if err != nil {
+		t.Fatalf("ListEndpoints(shared profile) error = %v", err)
+	}
+	if len(secondProfileEndpoints) != 1 || len(secondProfileEndpoints[0].SaveDomains) != 0 {
+		t.Fatalf("shared profile endpoint projection leaked save domains = %+v", secondProfileEndpoints)
 	}
 	snapshotRequest := devicev1.SaveDomainSnapshotRequest{GameID: "game-1", SourceGameID: "source-1", Title: "Game", LocalSaveDomainID: "local-save-1", UploadURL: "/api/device-transfers/save-domain", UploadToken: "secret"}
 	snapshotPayload, _ := json.Marshal(snapshotRequest)
@@ -266,7 +284,7 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 	if err := store.CompleteCommand(context.Background(), endpoint.ID, devicev1.CommandResult{CommandID: snapshotCommand.ID, Status: devicev1.CommandSucceeded, Payload: snapshotResult}, now.Add(2*time.Second)); err != nil {
 		t.Fatalf("CompleteCommand(save snapshot) error = %v", err)
 	}
-	links, err = store.ListSaveDomainLinks(context.Background(), endpoint.ID)
+	links, err = store.ListSaveDomainLinks(context.Background(), endpoint.ID, profile.ID)
 	if err != nil || len(links) != 1 || links[0].SyncState != "clean" || links[0].LastSnapshotManifestHash != strings.Repeat("e", 64) {
 		t.Fatalf("snapshotted save links = %+v, error = %v", links, err)
 	}
