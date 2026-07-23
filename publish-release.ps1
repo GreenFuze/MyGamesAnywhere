@@ -95,6 +95,32 @@ function Get-HashLine {
     return "$hash *$($file.Name)"
 }
 
+function Test-GitHubReleaseExists {
+    param([Parameter(Mandatory = $true)][string]$Tag)
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Windows PowerShell promotes expected native stderr to a terminating
+        # NativeCommandError while the script-wide preference is Stop.
+        $ErrorActionPreference = "Continue"
+        $output = @(& gh release view $Tag --json tagName 2>&1)
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($exitCode -eq 0) {
+        return $true
+    }
+
+    $message = ($output | Out-String).Trim()
+    if ($message -match '(?i)\brelease not found\b') {
+        return $false
+    }
+
+    throw "Unable to check whether GitHub release $Tag exists. $message"
+}
+
 if ($Version -eq '--inc') {
     if ($Inc) {
         throw "Use either --inc or -Inc, not both."
@@ -194,8 +220,7 @@ Invoke-InDirectory $repoRoot {
         throw "Remote Git tag already exists: $tag"
     }
 
-    gh release view $tag *> $null
-    if ($LASTEXITCODE -eq 0) {
+    if (Test-GitHubReleaseExists -Tag $tag) {
         throw "GitHub release already exists: $tag"
     }
 
