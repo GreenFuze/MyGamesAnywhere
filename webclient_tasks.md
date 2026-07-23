@@ -1,10 +1,9 @@
-[ ] in the game page + list view options, add an option to "move to source...". In case I have multiple "file-backed" sources (like TV2 has SMB share + Google drive), lets the user move the files/directory to another source. For example, I want to move games from "SMB" to "Google Drive". When the user chooses to move, open a table that allows them to choose a target directory (starting from the root of the source + allow them create a directory) and apply it to multiple games. once all the games have target directories, allow the use to apply and the move will happen. If a game doesn't have a target directory, it won't be moved (skipped). If the game files are ALL the files in a directory, move the directory as a whole (make sure its clear to the user). Also of course fix the database.
-- I saw when I tried to delete some games, I'm getting an error that the game files doesn't exist:
-  [ ] add in "integrations" for file-backed sources a "validate files" that goes over all the games and validates the file existance, if there are games that their files doesn't exist, open a dialog with all those games and ask the user if they want to remove the games.
-  [ ] if we ask to hard delete a game, and the files are not found, that is okay - remove the game and don't delete the files that doesn't exist.
-[ ] Games in library/play are loaded dynamically in the background and added. this is great, but make a progress bar that shows the progress and when it is complete. currently games just pop into the page while it is shown (which is fine), but the user needs to have some progress to know when its done.
-[ ] There's the text "base_game" shown in many places. I don't think this label is really required, DLCs and such are not of kind "game" so they won't be displayed on their own. DLCs should be inside the game page.
-[ ] http://tv2:8900/game/009e63f6-36cd-4fb2-8be4-e0fe552aa343 - (1) The game was manually classified to Launchbox entry, but no images or metadata is defined. (2) There's an error 'EmulatorJS needs a root launch file for "ad&d - eye of the beholder (u)".'
-[ ] When hard deleting files - you must check after removing all the files (recusively starting at the leafs), if the directory is empty - also delete the directory. go all the way up to the game root directory.
-[ ] if during hard delete dialog is open I switch to another window and get back, the page refreshes, causing the deletion process and going over the games to delete to re-run (even if during delete).
-[ ] add Download game for file-backed sources
+# Archived task list
+
+All open items from this file were migrated to the
+[MGA Jira backlog](https://greenfuzer.atlassian.net/jira/software/c/projects/MGA/boards/69/backlog)
+on 2026-07-23.
+
+Do not add or track work here. Jira is the only source of truth for open work,
+priority, assignment, and progress. This file remains only as a compatibility
+pointer for old links.

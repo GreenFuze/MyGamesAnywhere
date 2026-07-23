@@ -1,41 +1,9 @@
-# MyGamesAnywhere Public Roadmap
+# MyGamesAnywhere Roadmap
 
-This is the product-facing roadmap. Cross-component technical decisions live in
-the [`architecture`](architecture/README.md) documentation.
+The roadmap and all open work now live in the
+[MGA Jira backlog](https://greenfuzer.atlassian.net/jira/software/c/projects/MGA/boards/69/backlog).
 
-## Now
-
-- Monitor the v0.2.2 server, standalone client, migrations, and auto-update flow on clean machines.
-- Keep improving the Play-first library, statistics, achievements, and game detail experience.
-- Expand integration reliability for Steam, Xbox, RetroAchievements, LaunchBox, Google Drive, SMB, browser-play materialization, and local save sync.
-- Continue cleanup around metadata detection, source provenance, duplicate review, canonical split/merge, local profiles, and profile-owned integration behavior.
-- Harden the released MGA Client v1 foundation and expand clean install/update/uninstall coverage.
-
-## Next
-
-- Define the standalone MGA Client signing and independent update policy.
-- Define minimum-client-version policy and implement restricted purple update-required recovery mode.
-- Continue hardening Windows update recovery, tray/service restart behavior, and troubleshooting documentation.
-- Add a Settings surface for server host/port visibility and LAN binding guidance.
-- Continue game-page UX work around cards, media, actions, badges, and achievements.
-- Continue source-backed version UX for launch options, achievements, and save-sync status.
-- Improve public screenshots, release notes, and comparison docs.
-
-## Later
-
-- Polish local desktop visuals: brand MGA Client confirmation dialogs with the
-  MGA logo, improve the client tray icon, and redesign the server tray icon for
-  crisp rendering at Windows notification-area sizes.
-- Expand MGA Client command coverage for game installation, launch/stop, emulator management, and machine-local repair workflows.
-- Cross-platform installers.
-- Mobile companion client.
-- Remote credential provisioning, recovery, and broader account-management policy beyond local optional profile credentials.
-- Cross-source user file and profile view.
-- More source, metadata, runtime, and save-sync integrations.
-
-## Policy
-
-- Keep user data safe during upgrades.
-- Prefer local-first behavior by default.
-- Keep planned work clearly separated from shipped behavior.
-- Avoid hiding detection failures; expose review and repair paths instead.
+This repository no longer maintains a parallel roadmap. Current product,
+architecture, UX, security, and operating guidance lives in the
+[MGA Confluence space](https://greenfuzer.atlassian.net/wiki/spaces/MG/overview).
+This file remains only as a compatibility pointer for old links.

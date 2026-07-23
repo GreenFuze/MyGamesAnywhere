@@ -8,9 +8,9 @@
 
 Most launchers start from a storefront or a folder. MGA starts from the game identity. Every detected source, provider match, file location, achievement system, and runtime remains visible, so you can understand, launch, fix, and curate the game instead of trusting a hidden match.
 
-[Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest) · [View screenshots](#screenshots) · [GitHub Pages](https://greenfuze.github.io/MyGamesAnywhere/) · [GitHub](https://github.com/GreenFuze/MyGamesAnywhere) · [Public roadmap](docs/public-roadmap.md)
+[Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest) · [View screenshots](#screenshots) · [GitHub Pages](https://greenfuze.github.io/MyGamesAnywhere/) · [GitHub](https://github.com/GreenFuze/MyGamesAnywhere) · [Roadmap](https://greenfuzer.atlassian.net/jira/software/c/projects/MGA/boards/69/backlog)
 
-**Current release line:** `v0.2.3`
+**Current release:** see [`VERSION`](VERSION) and [GitHub Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest)
 **Status:** pre-1.0, actively moving, local-first by design
 
 ![A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation](docs/screenshots/canonical-game-page.png)
@@ -91,11 +91,11 @@ available. The top bar uses signed `mga://start` challenges to identify and wake
 the current per-user client while server presence drives its status. Game
 installation, game launch/stop, emulator management, and
 client self-update command families remain later work and are not claimed as
-shipped release capabilities. The component, identity, authorization, and
-technology decisions are recorded in
-[`docs/architecture/0001-mga-client-architecture.md`](docs/architecture/0001-mga-client-architecture.md),
-with the first wire contract in
-[`docs/architecture/mga-device-protocol-v1.md`](docs/architecture/mga-device-protocol-v1.md).
+shipped release capabilities. Current product and architecture guidance lives
+in the
+[MGA Confluence space](https://greenfuzer.atlassian.net/wiki/spaces/MG/overview).
+Code-coupled decisions and the wire contract remain versioned under
+[`docs/architecture`](docs/architecture/README.md).
 
 ## Source-Backed Canonical Game Pages
 
@@ -370,19 +370,18 @@ Yes. MGA exposes a local REST API and a React frontend over the same local libra
 
 ## Roadmap
 
-The public roadmap lives in [docs/public-roadmap.md](docs/public-roadmap.md).
-Cross-component technical decisions live in
-[docs/architecture](docs/architecture/README.md).
-
-The important split is:
-
-- **Available now**: canonical game merge, local-first runtime, source-backed pages, profile-owned favorites, local profiles, profile-owned integrations/library data, statistics pages, platform-aware manual review with numeral-aware manual search, canonical split/merge controls, source-backed achievements with background refresh, browser-play surfaces, EmulatorJS save-sync, nested source-scan excludes, compact source-file inventories, safer duplicate hard-delete review, configurable listen IP, Windows portable/installer packaging, and auto-update v1
-- **In active development**: packaging hardening, UX refinement, broader metadata/runtime coverage, and better public proof/docs
-- **Planned later**: Linux packaging, mobile client, and deeper multi-user flows
+The [MGA Jira backlog](https://greenfuzer.atlassian.net/jira/software/c/projects/MGA/boards/69/backlog)
+is the only current roadmap and work-status source. Current product,
+architecture, UX, security, and operating guidance lives in
+[MGA Confluence](https://greenfuzer.atlassian.net/wiki/spaces/MG/overview).
+The repository keeps code-coupled decisions, protocols, migrations, tests, and
+published release evidence alongside the code.
 
 ## Release And Upgrade Safety
 
-MGA carries a repository version source at [`VERSION`](VERSION). The current stable line is **`0.2.3`**.
+MGA carries its repository version source at [`VERSION`](VERSION). Published
+versions and release notes are available on
+[GitHub Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases).
 
 Upgrade policy:
 

@@ -1,13 +1,17 @@
 # MGA Architecture Decisions
 
-> **Current implementation status:** Before continuing the active dirty worktree,
-> read [`../handoffs/2026-07-15-codex-return-handoff.md`](../handoffs/2026-07-15-codex-return-handoff.md).
-> That dated handoff is authoritative for live status, verification gaps, and next
-> actions. ADRs here remain authoritative for accepted design; older roadmaps and
-> release pages are not current implementation status.
+> **Current guidance:** Start with
+> [`../agent-bootstrap.md`](../agent-bootstrap.md). The
+> [MGA Confluence space](https://greenfuzer.atlassian.net/wiki/spaces/MG/overview)
+> is authoritative for current architecture, product, UX, security, and
+> operating guidance. The
+> [MGA Jira backlog](https://greenfuzer.atlassian.net/jira/software/c/projects/MGA/boards/69/backlog)
+> is authoritative for open work and progress.
 
 This directory records architectural decisions and protocol contracts that
-cross the server, web interface, and device agent boundaries.
+cross the server, web interface, and device agent boundaries. These local files
+remain code-adjacent decision evidence and implementation contracts. Dated
+handoffs and deferred-work sections are historical context, not current status.
 
 ## Decisions
 
@@ -53,9 +57,10 @@ cross the server, web interface, and device agent boundaries.
 - [Player-facing language and information architecture](player-facing-language.md)
 - [Profile isolation scope ledger](profile-isolation-scope-ledger.md)
 
-An accepted decision is the implementation source of truth until it is
-superseded by another decision record. Protocol documents identify both the
-implemented foundation and work that remains intentionally deferred.
+An accepted local decision remains a code-coupled implementation contract until
+it is superseded. Confluence carries the current consolidated decision log.
+Any remaining implementation work must be represented in Jira rather than
+tracked in an ADR checklist or handoff.
 
 Working product architecture documents capture agreed direction and unresolved
 decisions before they are split into implementation ADRs. They are not a claim

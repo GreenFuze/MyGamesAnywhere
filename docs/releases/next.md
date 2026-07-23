@@ -1,20 +1,9 @@
-# Next Release Notes (Development)
+# Future release planning moved to Jira
 
-These notes track upgrade-sensitive work after v0.2.3. They are renamed or
-folded into the numbered release notes when the next version is selected.
+Open release work and progress live in the
+[MGA Jira backlog](https://greenfuzer.atlassian.net/jira/software/c/projects/MGA/boards/69/backlog).
+Current release and upgrade guidance lives in
+[MGA Confluence](https://greenfuzer.atlassian.net/wiki/spaces/MG/pages/2785302).
 
-## Changes
-
-- MGA Client now separates new managed installations by MGA Server and blocks
-  cross-server path/product races.
-- Devices show games managed here, managed elsewhere, or released for pickup.
-  Release and Pick up require native client confirmation and preserve files.
-
-## Upgrade and migration notes
-
-- Client config schema 3 adds stable per-server binding IDs and migrates older
-  bindings only after their protected keys are verified.
-- Client ownership-catalog schema 1, archive manifest schema 3, and GOG
-  manifest schema 4 enforce local owner identity. A single-binding legacy
-  manifest is claimed lazily; ambiguous multi-binding legacy state fails closed.
-- Server migration 26 adds managed-install observations to device inventory.
+This file must not be used as a task list. Published, version-specific release
+notes remain in this directory and on GitHub Releases.

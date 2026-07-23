@@ -251,18 +251,14 @@ profile-isolation scope ledger.
   lacks an owner.
 - [x] Build the packaged server and MGA Client installer and test the packaged
   runtime rather than an npm development server or directly launched dev agent.
-- [ ] Perform real browser E2E for TCs and Orr: authenticate separately, connect
-  their intended Xbox/Google accounts, scan, inspect library and notifications,
-  switch profiles, and prove no account/data/cache crossover.
-- [ ] Repeat the E2E from a remote trusted-LAN computer over HTTP to ensure no
-  localhost or HTTPS assumption was introduced.
-- [ ] Verify authorized shared-device behavior still works through explicit
-  device grants without weakening profile-owned connection/library/save data.
 - [x] Verify logs and API responses contain no credentials, OAuth tokens,
   passphrases, save contents, or foreign-profile details.
-- [ ] Fill in the exact evidence below, check every preceding item, and report
-  remediation complete to the user without claiming that the separate fresh
-  audit has already happened.
+
+The remaining real-browser, remote trusted-LAN, and explicit shared-device
+validation is tracked only by
+[MGA-37](https://greenfuzer.atlassian.net/browse/MGA-37). The independent fresh
+audit is tracked by [MGA-38](https://greenfuzer.atlassian.net/browse/MGA-38).
+This ADR no longer acts as a live progress checklist.
 
 ## Final evidence — fill only after implementation
 
@@ -290,8 +286,8 @@ Remaining issues: real Orr + remote-LAN + shared-device E2E; authorization to co
 
 ## Post-completion fresh audit
 
-After every checkbox is checked and the remediation is reported complete, run a
-new audit from a clean threat model rather than merely replaying this checklist.
-The fresh audit must attempt to discover new problems and independently retest
-the checked behavior. Any resurfaced or newly discovered problem reopens this
-ADR or creates a successor before another completion claim.
+The fresh audit in
+[MGA-38](https://greenfuzer.atlassian.net/browse/MGA-38) must use a clean threat
+model rather than merely replaying this historical checklist. Any resurfaced or
+newly discovered problem becomes a Jira bug and, when it changes an accepted
+decision, a successor decision.
