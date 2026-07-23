@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 29
+const latestMigrationVersion = 30
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -523,6 +523,54 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 					revoked_at INTEGER
 				);`,
 				`CREATE INDEX idx_profile_credential_tickets_profile ON profile_credential_tickets(profile_id, expires_at);`,
+			},
+		},
+		{
+			Version: 30,
+			Name:    "save_compatibility_registry",
+			SQL: []string{
+				`CREATE TABLE save_converter_registry (
+					id TEXT NOT NULL CHECK(length(trim(id)) BETWEEN 1 AND 128),
+					version TEXT NOT NULL CHECK(length(trim(version)) BETWEEN 1 AND 64),
+					source_format_id TEXT NOT NULL CHECK(length(trim(source_format_id)) BETWEEN 1 AND 128),
+					source_format_version TEXT NOT NULL CHECK(length(trim(source_format_version)) BETWEEN 1 AND 64),
+					target_format_id TEXT NOT NULL CHECK(length(trim(target_format_id)) BETWEEN 1 AND 128),
+					target_format_version TEXT NOT NULL CHECK(length(trim(target_format_version)) BETWEEN 1 AND 64),
+					attribution TEXT NOT NULL CHECK(length(trim(attribution)) BETWEEN 1 AND 256),
+					implementation_kind TEXT NOT NULL CHECK(implementation_kind = 'builtin'),
+					reversible INTEGER NOT NULL CHECK(reversible IN (0, 1)),
+					enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					PRIMARY KEY(id, version)
+				);`,
+				`CREATE TABLE save_compatibility_rules (
+					id TEXT PRIMARY KEY CHECK(length(trim(id)) BETWEEN 1 AND 128),
+					source_format_id TEXT NOT NULL CHECK(length(trim(source_format_id)) BETWEEN 1 AND 128),
+					source_format_version TEXT NOT NULL CHECK(length(trim(source_format_version)) BETWEEN 1 AND 64),
+					target_format_id TEXT NOT NULL CHECK(length(trim(target_format_id)) BETWEEN 1 AND 128),
+					target_format_version TEXT NOT NULL CHECK(length(trim(target_format_version)) BETWEEN 1 AND 64),
+					relationship TEXT NOT NULL CHECK(relationship IN ('same_format', 'converter')),
+					converter_id TEXT,
+					converter_version TEXT,
+					evidence_source TEXT NOT NULL CHECK(length(trim(evidence_source)) BETWEEN 1 AND 256),
+					evidence_version TEXT NOT NULL CHECK(length(trim(evidence_version)) BETWEEN 1 AND 64),
+					evidence_json TEXT NOT NULL CHECK(length(evidence_json) <= 8192 AND json_valid(evidence_json)),
+					reversible INTEGER NOT NULL CHECK(reversible IN (0, 1)),
+					enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					CHECK(
+						(relationship = 'same_format' AND converter_id IS NULL AND converter_version IS NULL)
+						OR
+						(relationship = 'converter' AND length(trim(converter_id)) BETWEEN 1 AND 128 AND length(trim(converter_version)) BETWEEN 1 AND 64)
+					),
+					FOREIGN KEY(converter_id, converter_version) REFERENCES save_converter_registry(id, version)
+				);`,
+				`CREATE UNIQUE INDEX idx_save_compatibility_exact_pair ON save_compatibility_rules(
+					source_format_id, source_format_version, target_format_id, target_format_version
+				);`,
+				`CREATE INDEX idx_save_compatibility_enabled ON save_compatibility_rules(enabled, source_format_id, source_format_version);`,
 			},
 		},
 	}

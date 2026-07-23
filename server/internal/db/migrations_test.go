@@ -78,6 +78,66 @@ func TestMigration29AddsCredentialTicketsWithoutChangingCredentials(t *testing.T
 	}
 }
 
+func TestMigration30AddsEmptySaveCompatibilityRegistryWithoutChangingProfiles(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.ensureSchemaMigrationsTable(); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range dbSvc.orderedMigrations() {
+		if migration.Version > 29 {
+			break
+		}
+		if err := dbSvc.runMigration(context.Background(), migration); err != nil {
+			t.Fatalf("run migration %d: %v", migration.Version, err)
+		}
+	}
+	now := time.Now().Unix()
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO profiles(id, display_name, role, created_at, updated_at)
+		VALUES ('profile-30','Player','player',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	assertLatestMigrationVersion(t, dbSvc.GetDB())
+
+	var profiles, converters, rules int
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM profiles WHERE id='profile-30'`).Scan(&profiles); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM save_converter_registry`).Scan(&converters); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM save_compatibility_rules`).Scan(&rules); err != nil {
+		t.Fatal(err)
+	}
+	if profiles != 1 || converters != 0 || rules != 0 {
+		t.Fatalf("migration 30 state: profiles=%d converters=%d rules=%d", profiles, converters, rules)
+	}
+
+	rows, err := dbSvc.GetDB().Query(`PRAGMA table_info(save_compatibility_rules)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(strings.ToLower(name), "title") {
+			t.Fatalf("title-derived compatibility column was added: %s", name)
+		}
+	}
+}
+
 func TestMigration27PreservesExistingInstallationsAsManaged(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
 	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
