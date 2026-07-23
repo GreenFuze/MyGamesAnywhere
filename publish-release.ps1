@@ -91,7 +91,15 @@ function Get-HashLine {
     param([Parameter(Mandatory = $true)][string]$Path)
 
     $file = Get-Item -LiteralPath $Path
-    $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    $stream = [System.IO.File]::OpenRead($file.FullName)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha256.ComputeHash($stream)
+        $hash = ($hashBytes | ForEach-Object { $_.ToString("x2") }) -join ""
+    } finally {
+        $sha256.Dispose()
+        $stream.Dispose()
+    }
     return "$hash *$($file.Name)"
 }
 
