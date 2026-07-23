@@ -151,6 +151,37 @@ func TestDeletionServiceDeletesOneEligibleSourceRecord(t *testing.T) {
 	}
 }
 
+func TestDeletionServiceRemovesSourceRecordWhenBackingFilesAreAlreadyMissing(t *testing.T) {
+	ctx := context.Background()
+	store := newDeletionTestStore(t)
+	canonicalID := persistDeletionTestSources(t, ctx, store, true)
+
+	repo := deletionTestIntegrationRepo{items: map[string]*core.Integration{
+		"source-a": {
+			ID:         "source-a",
+			PluginID:   "game-source-smb",
+			ConfigJSON: `{"host":"test","share":"games","username":"u","password":"p","include_paths":[{"path":"Games","recursive":true}]}`,
+		},
+	}}
+	caller := &deletionTestPluginCaller{err: errors.New("no such file")}
+	service := NewDeletionService(store, repo, caller, deletionTestLogger{})
+
+	result, err := service.DeleteSourceGame(ctx, canonicalID, "scan:source-a")
+	if err != nil {
+		t.Fatalf("DeleteSourceGame with missing files: %v", err)
+	}
+	if len(result.Warnings) != 1 {
+		t.Fatalf("warnings = %v, want missing-file warning", result.Warnings)
+	}
+	remaining, err := store.GetManualReviewCandidate(ctx, "scan:source-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining != nil {
+		t.Fatal("source record remains after backing files were already absent")
+	}
+}
+
 func TestDeletionServicePreviewsSourceRecordDeleteWithoutMutation(t *testing.T) {
 	ctx := context.Background()
 	store := newDeletionTestStore(t)

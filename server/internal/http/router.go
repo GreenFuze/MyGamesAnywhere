@@ -221,6 +221,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Get("/integrations/{id}/games", adminOnly(b.PluginCtrl.IntegrationGames))
 				r.Get("/integrations/{id}/enriched-games", adminOnly(b.PluginCtrl.IntegrationEnrichedGames))
 				r.Post("/integrations/{id}/validate-files", adminOnly(b.PluginCtrl.ValidateIntegrationFiles))
+				r.Post("/integrations/{id}/remove-missing-records", adminOnly(b.PluginCtrl.RemoveMissingIntegrationRecords))
 				r.Get("/review-candidates", adminOnly(b.ReviewCtrl.ListCandidates))
 				r.Post("/review-candidates/redetect", adminOnly(b.ReviewCtrl.RedetectActive))
 				r.Get("/review-candidates/{id}", adminOnly(b.ReviewCtrl.GetCandidate))

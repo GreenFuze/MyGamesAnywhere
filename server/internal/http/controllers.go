@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/emulation"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/gamesvc"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/savedomain"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
@@ -1353,18 +1353,28 @@ func (c *ConfigController) Set(w http.ResponseWriter, r *http.Request) {
 }
 
 type PluginController struct {
-	repo        core.IntegrationRepository
-	pluginHost  plugins.PluginHost
-	gameStore   core.GameStore
-	config      core.Configuration
-	logger      core.Logger
-	eventBus    *events.EventBus
-	syncSvc     core.SyncService
-	oauthStates *OAuthStateStore
+	repo              core.IntegrationRepository
+	pluginHost        plugins.PluginHost
+	gameStore         core.GameStore
+	config            core.Configuration
+	logger            core.Logger
+	eventBus          *events.EventBus
+	syncSvc           core.SyncService
+	oauthStates       *OAuthStateStore
+	fileValidationSvc gamesvc.FileValidationService
 }
 
 func NewPluginController(repo core.IntegrationRepository, pluginHost plugins.PluginHost, gameStore core.GameStore, config core.Configuration, logger core.Logger, eventBus *events.EventBus, syncSvc ...core.SyncService) *PluginController {
-	ctrl := &PluginController{repo: repo, pluginHost: pluginHost, gameStore: gameStore, config: config, logger: logger, eventBus: eventBus, oauthStates: defaultOAuthStateStore}
+	ctrl := &PluginController{
+		repo:              repo,
+		pluginHost:        pluginHost,
+		gameStore:         gameStore,
+		config:            config,
+		logger:            logger,
+		eventBus:          eventBus,
+		oauthStates:       defaultOAuthStateStore,
+		fileValidationSvc: gamesvc.NewFileValidationService(repo, gameStore, pluginHost),
+	}
 	if len(syncSvc) > 0 {
 		ctrl.syncSvc = syncSvc[0]
 	}
@@ -2982,27 +2992,9 @@ func (c *AchievementController) configuredAchievementSources(ctx context.Context
 	return sources
 }
 
-// validateFilesGame is a single game entry returned by ValidateIntegrationFiles.
-type validateFilesGame struct {
-	ID       string              `json:"id"`
-	Title    string              `json:"title"`
-	RootPath string              `json:"root_path,omitempty"`
-	Files    []validateFilesFile `json:"files"`
-}
-
-// validateFilesFile is a file entry returned by ValidateIntegrationFiles.
-type validateFilesFile struct {
-	Path string `json:"path"`
-}
-
-// validateFilesResponse is the response body for POST /api/integrations/{id}/validate-files.
-type validateFilesResponse struct {
-	Missing      []validateFilesGame `json:"missing"`
-	TotalChecked int                 `json:"total_checked"`
-}
-
-// ValidateIntegrationFiles checks which source games in an integration have files
-// that no longer exist on disk. Returns a list of games with missing files.
+// ValidateIntegrationFiles asks the owning file-backed connection for an
+// authoritative listing and compares it with that connection's stored library
+// records. It never treats the MGA Server's local filesystem as source truth.
 func (c *PluginController) ValidateIntegrationFiles(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -3010,51 +3002,49 @@ func (c *PluginController) ValidateIntegrationFiles(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Verify the integration exists.
-	integration, err := c.repo.GetByID(r.Context(), id)
+	response, err := c.fileValidationSvc.Validate(r.Context(), id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.writeFileValidationError(w, r, id, err)
 		return
 	}
-	if integration == nil {
-		http.NotFound(w, r)
-		return
-	}
-
-	// Load all found source games for this integration.
-	sourceGames, err := c.gameStore.GetFoundSourceGameRecords(r.Context(), []string{id})
-	if err != nil {
-		c.logger.Error("GetFoundSourceGameRecords failed", err, "integration_id", id)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	response := validateFilesResponse{
-		Missing:      []validateFilesGame{},
-		TotalChecked: len(sourceGames),
-	}
-
-	// For each source game, check if its files exist on disk.
-	for _, sg := range sourceGames {
-		missingFiles := make([]validateFilesFile, 0)
-		for _, f := range sg.Files {
-			if strings.TrimSpace(f.Path) == "" {
-				continue
-			}
-			if _, statErr := os.Stat(f.Path); os.IsNotExist(statErr) {
-				missingFiles = append(missingFiles, validateFilesFile{Path: f.Path})
-			}
-		}
-		if len(missingFiles) > 0 {
-			response.Missing = append(response.Missing, validateFilesGame{
-				ID:       sg.ID,
-				Title:    sg.RawTitle,
-				RootPath: sg.RootPath,
-				Files:    missingFiles,
-			})
-		}
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
+}
+
+// RemoveMissingIntegrationRecords revalidates the selected records and removes
+// only stale library rows. It never invokes the source file-delete capability.
+func (c *PluginController) RemoveMissingIntegrationRecords(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		SourceGameIDs []string `json:"source_game_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid cleanup request", http.StatusBadRequest)
+		return
+	}
+
+	response, err := c.fileValidationSvc.RemoveMissingRecords(r.Context(), id, body.SourceGameIDs)
+	if err != nil {
+		c.writeFileValidationError(w, r, id, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
+}
+
+func (c *PluginController) writeFileValidationError(w http.ResponseWriter, r *http.Request, integrationID string, err error) {
+	c.logger.Error("file validation failed", err, "integration_id", integrationID)
+	switch {
+	case errors.Is(err, core.ErrSourceGameDeleteNotFound):
+		http.NotFound(w, r)
+	case errors.Is(err, gamesvc.ErrFileValidationNotSupported),
+		errors.Is(err, gamesvc.ErrFileValidationSelection):
+		http.Error(w, err.Error(), http.StatusConflict)
+	default:
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+	}
 }

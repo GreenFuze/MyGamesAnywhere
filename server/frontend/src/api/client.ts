@@ -1919,6 +1919,59 @@ export async function getIntegrationEnrichedGames(
   );
 }
 
+export type FileValidationFile = {
+  path: string;
+  object_id?: string;
+};
+
+export type FileValidationGame = {
+  id: string;
+  title: string;
+  root_path?: string;
+  missing_files: FileValidationFile[];
+};
+
+export type FileValidationFailure = {
+  source_game_id?: string;
+  title?: string;
+  message: string;
+};
+
+export type FileValidationReport = {
+  integration_id: string;
+  integration_label: string;
+  plugin_id: string;
+  total_checked: number;
+  files_checked: number;
+  missing_file_count: number;
+  missing: FileValidationGame[];
+  failures: FileValidationFailure[];
+};
+
+export type RemoveMissingRecordsResult = {
+  removed_source_game_ids: string[];
+  remaining_missing: number;
+};
+
+export async function validateIntegrationFiles(
+  id: string,
+): Promise<FileValidationReport> {
+  return postJson<FileValidationReport>(
+    `/api/integrations/${encodeURIComponent(id)}/validate-files`,
+    {},
+  ) as Promise<FileValidationReport>;
+}
+
+export async function removeMissingIntegrationRecords(
+  id: string,
+  sourceGameIds: string[],
+): Promise<RemoveMissingRecordsResult> {
+  return postJson<RemoveMissingRecordsResult>(
+    `/api/integrations/${encodeURIComponent(id)}/remove-missing-records`,
+    { source_game_ids: sourceGameIds },
+  ) as Promise<RemoveMissingRecordsResult>;
+}
+
 export async function startIntegrationRefresh(
   id: string,
 ): Promise<TriggerIntegrationRefreshResult> {

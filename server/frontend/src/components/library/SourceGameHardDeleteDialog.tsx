@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FileText, Loader2 } from 'lucide-react'
 import {
   ApiError,
@@ -10,6 +10,12 @@ import {
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
+import {
+  HardDeleteOperationRegistry,
+  type HardDeleteOperationSnapshot,
+} from '@/lib/hardDeleteOperation'
+
+const hardDeleteOperations = new HardDeleteOperationRegistry<DeleteSourceGameResponse>()
 
 function formatBytes(value: number): string {
   if (value <= 0) return '0 B'
@@ -51,8 +57,26 @@ export function SourceGameHardDeleteDialog({
   const [preview, setPreview] = useState<DeleteSourceGamePreview | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const [previewBusy, setPreviewBusy] = useState(false)
-  const [deleteBusy, setDeleteBusy] = useState(false)
   const [error, setError] = useState('')
+  const operationKey = canonicalGameId && source ? `${canonicalGameId}:${source.id}` : ''
+  const operation = useMemo(
+    () => (operationKey ? hardDeleteOperations.get(operationKey) : null),
+    [operationKey],
+  )
+  const [operationState, setOperationState] = useState<HardDeleteOperationSnapshot<DeleteSourceGameResponse>>({
+    status: 'idle',
+    result: null,
+    error: null,
+  })
+  const deleteBusy = operationState.status === 'submitting'
+
+  useEffect(() => {
+    if (!operation) {
+      setOperationState({ status: 'idle', result: null, error: null })
+      return
+    }
+    return operation.subscribe(setOperationState)
+  }, [operation])
 
   useEffect(() => {
     let cancelled = false
@@ -63,12 +87,12 @@ export function SourceGameHardDeleteDialog({
 
     if (!canonicalGameId || !source) {
       setPreviewBusy(false)
-      setDeleteBusy(false)
       return
     }
 
+    const sourceId = source.id
     setPreviewBusy(true)
-    previewDeleteSourceGame(canonicalGameId, source.id)
+    previewDeleteSourceGame(canonicalGameId, sourceId)
       .then((nextPreview) => {
         if (cancelled) return
         setPreview(nextPreview)
@@ -85,7 +109,7 @@ export function SourceGameHardDeleteDialog({
     return () => {
       cancelled = true
     }
-  }, [canonicalGameId, source])
+  }, [canonicalGameId, source?.id])
 
   const requestClose = () => {
     if (previewBusy || deleteBusy) return
@@ -93,17 +117,24 @@ export function SourceGameHardDeleteDialog({
   }
 
   const confirmDelete = async () => {
-    if (!canonicalGameId || !source || !preview || preview.items.length === 0 || !confirmed || deleteBusy) return
-    setDeleteBusy(true)
+    if (!canonicalGameId || !source || !preview || preview.items.length === 0 || !confirmed || deleteBusy || !operation) return
+    const authorizedSource = source
     setError('')
     try {
-      const result = await deleteSourceGame(canonicalGameId, source.id)
-      await onDeleted(result, source)
+      await operation.authorize(async () => {
+        const result = await deleteSourceGame(canonicalGameId, authorizedSource.id)
+        await onDeleted(result, authorizedSource)
+        return result
+      })
     } catch (err) {
       setError(errorText(err, 'Hard delete failed.'))
-    } finally {
-      setDeleteBusy(false)
     }
+  }
+
+  const prepareRetry = () => {
+    if (!operation?.prepareRetry()) return
+    setConfirmed(false)
+    setError('')
   }
 
   return (
@@ -155,6 +186,24 @@ export function SourceGameHardDeleteDialog({
             </p>
           ) : null}
           {error ? <p className="text-xs text-red-400">{error}</p> : null}
+          {operationState.status === 'submitting' ? (
+            <p className="rounded-mga border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+              Delete is already in progress. Returning to this window will not submit it again.
+            </p>
+          ) : null}
+          {operationState.status === 'succeeded' ? (
+            <p className="rounded-mga border border-green-500/25 bg-green-500/10 px-3 py-2 text-xs text-green-300">
+              Delete completed. MGA is updating the library.
+            </p>
+          ) : null}
+          {operationState.status === 'failed' ? (
+            <div className="flex items-center justify-between gap-3 rounded-mga border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+              <span>The delete did not complete. Retry requires a new confirmation.</span>
+              <Button type="button" variant="outline" size="sm" onClick={prepareRetry}>
+                Try again
+              </Button>
+            </div>
+          ) : null}
           {source.hard_delete?.reason && !source.hard_delete.eligible ? (
             <p className="text-xs text-amber-300">{source.hard_delete.reason}</p>
           ) : null}
@@ -164,7 +213,7 @@ export function SourceGameHardDeleteDialog({
                 type="checkbox"
                 checked={confirmed}
                 onChange={(event) => setConfirmed(event.target.checked)}
-                disabled={deleteBusy || preview.items.length === 0}
+                disabled={operationState.status !== 'idle' || preview.items.length === 0}
                 className="mt-1 h-4 w-4 rounded border-red-400 bg-mga-bg accent-red-600"
               />
               <span>I understand this is the real delete action and want to continue.</span>
@@ -179,7 +228,7 @@ export function SourceGameHardDeleteDialog({
                 type="button"
                 variant="outline"
                 onClick={() => void confirmDelete()}
-                disabled={deleteBusy || preview.items.length === 0 || !confirmed}
+                disabled={operationState.status !== 'idle' || preview.items.length === 0 || !confirmed}
                 className="border-red-500/30 text-red-200 hover:bg-red-500/10"
               >
                 <FileText size={16} />

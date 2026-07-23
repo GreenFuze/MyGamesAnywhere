@@ -177,7 +177,19 @@ func TestManualReviewServiceApplyPersistsSelectedMatchAndFillResult(t *testing.T
 		Kind:                  string(core.GameKindBaseGame),
 		ExternalID:            "manual-1",
 		URL:                   "https://example.com/manual-1",
+		Description:           "The selected record description.",
+		ReleaseDate:           "1992",
+		Genres:                []string{"Role-Playing"},
+		Developer:             "Selected Studio",
+		Publisher:             "Selected Publisher",
+		Rating:                84,
+		MaxPlayers:            2,
 		ImageURL:              "https://example.com/manual-1-cover.png",
+		Media: []core.MediaItem{{
+			Type:   core.MediaTypeScreenshot,
+			URL:    "https://example.com/manual-1-screen.png",
+			Source: "metadata-manual",
+		}},
 	}, core.ManualReviewApplyOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -213,6 +225,12 @@ func TestManualReviewServiceApplyPersistsSelectedMatchAndFillResult(t *testing.T
 	if manualMatch == nil || manualMatch.Title != "Chosen Game" || manualMatch.ExternalID != "manual-1" {
 		t.Fatalf("manual match = %+v, want sticky chosen match", manualMatch)
 	}
+	if manualMatch.Description != "The selected record description." ||
+		manualMatch.Developer != "Selected Studio" ||
+		manualMatch.Publisher != "Selected Publisher" ||
+		len(manualMatch.Media) != 2 {
+		t.Fatalf("manual match metadata/media = %+v, want full selected evidence", manualMatch)
+	}
 	if filledMatch == nil || filledMatch.Outvoted {
 		t.Fatalf("filled match = %+v, want corroborating fill result", filledMatch)
 	}
@@ -234,6 +252,15 @@ func TestManualReviewServiceApplyPersistsSelectedMatchAndFillResult(t *testing.T
 	}
 	if game.Title != "Chosen Game" {
 		t.Fatalf("canonical title = %q, want %q", game.Title, "Chosen Game")
+	}
+	if game.Description != "The selected record description." ||
+		game.Developer != "Selected Studio" ||
+		game.Publisher != "Selected Publisher" ||
+		game.ReleaseDate != "1992" ||
+		game.Rating != 84 ||
+		game.MaxPlayers != 2 ||
+		len(game.Media) != 2 {
+		t.Fatalf("canonical metadata/media = %+v, want full selected evidence", game)
 	}
 }
 
@@ -274,7 +301,7 @@ func TestManualReviewServiceAuthoritativeReclassifyReplacesMatchesMovesCanonical
 				PluginID:      "game-source-local",
 				ExternalID:    "new-mate",
 				RawTitle:      "selected mate",
-				Platform:      core.PlatformGenesis,
+				Platform:      core.PlatformSNES,
 				Kind:          core.GameKindBaseGame,
 				GroupKind:     core.GroupKindSelfContained,
 				RootPath:      "Games/New Mate",
@@ -296,6 +323,7 @@ func TestManualReviewServiceAuthoritativeReclassifyReplacesMatchesMovesCanonical
 				PluginID:   "metadata-igdb",
 				ExternalID: "selected-game",
 				Title:      "Selected Game",
+				Platform:   string(core.PlatformSNES),
 			}},
 		},
 		MediaItems: map[string][]core.MediaRef{
@@ -357,7 +385,7 @@ func TestManualReviewServiceAuthoritativeReclassifyReplacesMatchesMovesCanonical
 		ProviderIntegrationID: "meta-igdb",
 		ProviderPluginID:      "metadata-igdb",
 		Title:                 "Selected Game",
-		Platform:              string(core.PlatformGenesis),
+		Platform:              string(core.PlatformSNES),
 		Kind:                  string(core.GameKindBaseGame),
 		ExternalID:            "selected-game",
 		URL:                   "https://example.com/selected",
@@ -381,6 +409,13 @@ func TestManualReviewServiceAuthoritativeReclassifyReplacesMatchesMovesCanonical
 	}
 	if got := canonicalIDForSource(t, sqlDB, "scan:old-mate"); got == targetCanonicalID {
 		t.Fatal("target stayed grouped with old stale match")
+	}
+	targetCandidate, err := store.GetManualReviewCandidate(ctx, "scan:target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if targetCandidate == nil || targetCandidate.Platform != core.PlatformSNES {
+		t.Fatalf("target platform = %+v, want selected platform %q", targetCandidate, core.PlatformSNES)
 	}
 
 	matches := resolverMatchesForSource(t, sqlDB, "scan:target")

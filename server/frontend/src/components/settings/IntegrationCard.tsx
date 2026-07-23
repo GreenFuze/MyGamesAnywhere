@@ -19,6 +19,7 @@ import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import { FileValidationDialog } from "./FileValidationDialog";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -184,6 +185,7 @@ export function IntegrationCard({
     integration.config_json,
   );
   const [expanded, setExpanded] = useState(false);
+  const [fileValidationOpen, setFileValidationOpen] = useState(false);
   const { format: formatDT } = useDateTimeFormat();
 
   // Sync passphrase local state.
@@ -208,6 +210,9 @@ export function IntegrationCard({
       (plugin?.provides?.includes("achievements.game.get") ?? false));
   const refreshesMetadata = plugin?.provides?.includes("metadata.game.lookup") ?? false;
   const refreshesAchievements = plugin?.provides?.includes("achievements.game.get") ?? false;
+  const supportsFileValidation =
+    capability === "source" &&
+    (plugin?.provides?.includes("source.filesystem.list") ?? false);
   const refreshLabel = refreshesMetadata && refreshesAchievements
     ? "Refresh game info"
     : refreshesAchievements
@@ -249,6 +254,13 @@ export function IntegrationCard({
       label: refreshState?.active ? refreshBusyLabel : refreshLabel,
       onSelect: () => onRefresh?.(integration.id),
       disabled: refreshDisabled || refreshState?.active,
+    });
+  }
+  if (supportsFileValidation) {
+    secondaryActions.push({
+      label: "Check files",
+      onSelect: () => setFileValidationOpen(true),
+      disabled: mutationDisabled || Boolean(scanState?.active),
     });
   }
   if (capability === "sync" && onPull) {
@@ -545,6 +557,13 @@ export function IntegrationCard({
           confirmLabel="Back up"
         />
       )}
+      {supportsFileValidation ? (
+        <FileValidationDialog
+          integration={integration}
+          open={fileValidationOpen}
+          onClose={() => setFileValidationOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

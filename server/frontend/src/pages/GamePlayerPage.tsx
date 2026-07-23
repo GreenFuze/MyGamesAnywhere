@@ -17,6 +17,7 @@ import {
   type SaveSyncSlotSummary,
 } from '@/api/client'
 import { BrandBadge, BrandIcon } from '@/components/ui/brand-icon'
+import { BrowserPlayIssueNotice } from '@/components/play/BrowserPlayIssueNotice'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -1106,11 +1107,19 @@ export function GamePlayerPage() {
 
         {!hasBrowserPlaySupport(data) ? (
           <section className="rounded-mga border border-mga-border bg-mga-surface p-6 text-sm text-mga-muted">
-            {selectionIssue?.message ?? 'This platform is not part of the supported browser-play set for Phase 6.'}
+            {selectionIssue ? (
+              <BrowserPlayIssueNotice issue={selectionIssue} />
+            ) : (
+              'This platform is not part of the supported browser-play set for Phase 6.'
+            )}
           </section>
         ) : !selection ? (
           <section className="rounded-mga border border-mga-border bg-mga-surface p-6 text-sm text-mga-muted">
-            {selectionIssue?.message ?? 'Browser Play is supported for this platform, but no launchable source file was found for this game yet.'}
+            {selectionIssue ? (
+              <BrowserPlayIssueNotice issue={selectionIssue} />
+            ) : (
+              'Browser Play is supported for this platform, but no launchable source file was found for this game yet.'
+            )}
           </section>
         ) : requiresPrepare && !selectionReady ? (
           <section className="rounded-mga border border-mga-border bg-mga-surface p-6 text-sm text-mga-muted">
@@ -1160,7 +1169,11 @@ export function GamePlayerPage() {
           </section>
         ) : !session || !playerUrl ? (
           <section className="rounded-mga border border-red-500/30 bg-red-500/10 p-6 text-sm text-red-200">
-            {selectionIssue?.message ?? 'Failed to assemble a browser-play launch session for this game.'}
+            {selectionIssue ? (
+              <BrowserPlayIssueNotice issue={selectionIssue} />
+            ) : (
+              'Failed to assemble a browser-play launch session for this game.'
+            )}
           </section>
         ) : (
           <>

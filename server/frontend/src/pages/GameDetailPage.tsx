@@ -65,6 +65,7 @@ import { useRecentPlayed } from '@/hooks/useRecentPlayed'
 import { useProfiles } from '@/hooks/useProfiles'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { SourceGameHardDeleteDialog } from '@/components/library/SourceGameHardDeleteDialog'
+import { BrowserPlayIssueNotice } from '@/components/play/BrowserPlayIssueNotice'
 import { BrandBadge, BrandIcon } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -1715,6 +1716,23 @@ export function GameDetailPage() {
     () => collectUnifiedMetadataSources(gameData?.source_games ?? [], gameData?.media),
     [gameData?.media, gameData?.source_games],
   )
+  const limitedManualMetadata = useMemo(() => {
+    if (!gameData) return null
+    const selectedMatch = gameData.source_games
+      .flatMap((source) => source.resolver_matches)
+      .find((match) => match.manual_selection && !match.outvoted)
+    if (!selectedMatch) return null
+
+    const missing: string[] = []
+    if (!gameData.description?.trim()) missing.push('description')
+    if (mergedMedia.length === 0) missing.push('artwork')
+    if (missing.length === 0) return null
+
+    return {
+      provider: pluginLabel(selectedMatch.plugin_id),
+      missing,
+    }
+  }, [gameData, mergedMedia.length])
   const achievementSets = useMemo(() => (achievements.data ?? []).map(sortAchievementSet), [achievements.data])
   const launchableSourceCount = browserPlaySelections.length
   const heroDescription = useMemo(() => splitHeroDescription(gameData?.description), [gameData?.description])
@@ -2118,6 +2136,36 @@ export function GameDetailPage() {
                 </p>
               </div>
 
+              {limitedManualMetadata ? (
+                <div className="max-w-2xl rounded-[18px] border border-amber-300/20 bg-amber-300/[0.08] px-4 py-3 text-sm text-amber-50">
+                  <p className="font-medium">Limited details from {limitedManualMetadata.provider}</p>
+                  <p className="mt-1 text-xs leading-5 text-amber-50/72">
+                    The selected match did not provide {limitedManualMetadata.missing.join(' or ')}.
+                    Refresh details to ask the other connected providers, or choose another match.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRefreshMetadata}
+                      disabled={refreshBusy}
+                      className="border-amber-200/20 bg-black/15 text-amber-50 hover:bg-black/25"
+                    >
+                      {refreshBusy ? <Loader2 size={13} className="animate-spin" /> : null}
+                      Refresh details
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleReclassify}
+                      className="text-amber-50 hover:bg-black/20"
+                    >
+                      Choose another match
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
               {browserPlayable && (browserPlaySelections.length > 1 || browserPlayIssue?.code === 'invalid_remembered_source') ? (
                 <div className="max-w-2xl rounded-[24px] bg-black/18 p-4 backdrop-blur-[6px]">
                   <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-white/42">Launch source</label>
@@ -2196,12 +2244,16 @@ export function GameDetailPage() {
               </div>
 
               {browserSupported && !browserPlayable ? (
-                <p className="text-xs text-white/58">
-                  {browserPlayIssue?.message ?? 'Browser Play is supported for this platform, but no launchable source file was found yet.'}
-                </p>
+                browserPlayIssue ? (
+                  <BrowserPlayIssueNotice issue={browserPlayIssue} className="max-w-xl text-xs text-white/58" />
+                ) : (
+                  <p className="text-xs text-white/58">
+                    Browser Play is supported for this platform, but no launchable source file was found yet.
+                  </p>
+                )
               ) : null}
               {browserSupported && browserPlayable && !browserPlayResolution?.canLaunch && browserPlayIssue ? (
-                <p className="text-xs text-amber-300">{browserPlayIssue.message}</p>
+                <BrowserPlayIssueNotice issue={browserPlayIssue} className="max-w-xl text-xs text-amber-300" />
               ) : null}
               {refreshBusy ? (
                 <div className="flex max-w-xl items-center gap-3 rounded-[18px] border border-sky-300/20 bg-sky-300/[0.08] px-4 py-3 text-sm text-sky-50 shadow-[0_12px_28px_rgba(0,0,0,0.2)]">

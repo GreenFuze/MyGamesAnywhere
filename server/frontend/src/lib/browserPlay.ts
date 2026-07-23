@@ -6,6 +6,12 @@ import type {
 import { SELECTED_PROFILE_STORAGE_KEY } from '@/api/client'
 import { platformLabel, sourceLabel } from '@/lib/displayText'
 import { profileStorageKey, selectedProfileIdFromStorage } from '@/lib/profileStorage'
+import {
+  BrowserPlayIssueResolver,
+  type BrowserPlaySelectionIssue,
+} from '@/lib/browserPlayDiagnostics'
+
+export type { BrowserPlaySelectionIssue } from '@/lib/browserPlayDiagnostics'
 
 export type BrowserPlayRuntime = 'emulatorjs' | 'jsdos' | 'scummvm'
 
@@ -68,20 +74,6 @@ export type BrowserSourceProfile =
   | 'browser.emulatorjs'
   | 'browser.jsdos'
   | 'browser.scummvm'
-
-export type BrowserPlaySelectionIssue = {
-  code:
-    | 'unsupported_platform'
-    | 'missing_launch_source'
-    | 'ambiguous_launch_source'
-    | 'invalid_requested_source'
-    | 'invalid_remembered_source'
-    | 'missing_root_file'
-    | 'missing_runtime_core'
-    | 'missing_source_files'
-    | 'missing_scummvm_files'
-  message: string
-}
 
 export type BrowserPlaySelectionResolution =
   | {
@@ -530,13 +522,20 @@ function selectionIssueForSelection(
   game: GameDetailResponse,
   selection: BrowserPlaySelection,
 ): BrowserPlaySelectionIssue | null {
+  const issueResolver = new BrowserPlayIssueResolver(game.title, {
+    integrationId: selection.sourceGame.integration_id,
+    integrationLabel: selection.sourceGame.integration_label,
+    rawTitle: selection.sourceGame.raw_title,
+    rootPath: selection.sourceGame.root_path,
+    files: selection.sourceGame.files,
+  })
   if (selection.runtime === 'emulatorjs') {
     const effectivePlatform = effectiveBrowserPlayPlatform(game.platform, selection.sourceGame.platform)
     if (!selection.rootFile) {
-      return {
-        code: 'missing_root_file',
-        message: `EmulatorJS needs a root launch file for "${selection.sourceGame.raw_title || game.title}".`,
-      }
+      return issueResolver.missingRootFile(
+        'EmulatorJS',
+        selection.deliveryProfile.root_file_id ?? selection.sourceGame.play?.root_file_id,
+      )
     }
     if (!emulatorJsCoreForSelection(game.platform, selection)) {
       return {
@@ -545,20 +544,17 @@ function selectionIssueForSelection(
       }
     }
     if (!emulatorJsGameName(selection)) {
-      return {
-        code: 'missing_root_file',
-        message: `EmulatorJS needs a valid root launch file for "${selection.sourceGame.raw_title || game.title}".`,
-      }
+      return issueResolver.missingRootFile('EmulatorJS')
     }
     return null
   }
 
   if (selection.runtime === 'jsdos') {
     if (!selection.rootFile) {
-      return {
-        code: 'missing_root_file',
-        message: `js-dos needs a root launch file for "${selection.sourceGame.raw_title || game.title}".`,
-      }
+      return issueResolver.missingRootFile(
+        'js-dos',
+        selection.deliveryProfile.root_file_id ?? selection.sourceGame.play?.root_file_id,
+      )
     }
     if (selection.sourceGame.files.length === 0) {
       return {

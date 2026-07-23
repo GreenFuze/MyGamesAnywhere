@@ -659,12 +659,12 @@ func applyUnifiedFields(g *core.Game, sources []MetadataSource) {
 			}
 			titleSet = true
 		}
-		if m.Platform != "" && g.Platform == core.PlatformUnknown {
+		if m.Platform != "" && (m.ManualSelection || g.Platform == core.PlatformUnknown) {
 			if normalized := core.NormalizePlatformAlias(m.Platform); normalized != core.PlatformUnknown {
 				g.Platform = normalized
 			}
 		}
-		if m.Kind != "" && g.Kind == core.GameKindBaseGame {
+		if m.Kind != "" && (m.ManualSelection || g.Kind == core.GameKindBaseGame) {
 			g.Kind = core.GameKind(m.Kind)
 		}
 		if m.ParentGameID != "" && g.ParentGameID == "" {

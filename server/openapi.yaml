@@ -1784,7 +1784,7 @@ paths:
   /api/integrations/{id}/validate-files:
     post:
       summary: Validate files for an integration
-      description: Checks which source games in the integration have files that no longer exist on disk. Returns a list of games with missing files along with the total number of source games checked. Useful for detecting stale library entries after files are moved or deleted outside MGA.
+      description: Asks the owning file-backed source plugin for an authoritative current listing, then compares stable object IDs and source-relative paths with this profile's stored source records. A connection/listing failure never classifies prior content as missing.
       parameters:
         - name: id
           in: path
@@ -1793,13 +1793,17 @@ paths:
             type: string
       responses:
         200:
-          description: 'validateFilesResponse: { missing: [{id, title, root_path, files: [{path}]}], total_checked: number }'
+          description: FileValidationReport with connection context, game/file counts, missing game paths, and per-record failures
         400:
           description: id is required
         404:
           description: Integration not found
+        409:
+          description: Integration does not support file validation
+        422:
+          description: Connection listing or validation failed
         500:
-          description: Internal server error
+          description: Error response
 
   /api/media/cache/clear:
     post:
