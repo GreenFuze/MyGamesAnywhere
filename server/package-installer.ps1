@@ -55,9 +55,18 @@ function Resolve-ISCC {
 function Get-FileHashEntry {
     param([string]$Path)
     $file = Get-Item $Path
+    $stream = [System.IO.File]::OpenRead($file.FullName)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha256.ComputeHash($stream)
+        $hash = ($hashBytes | ForEach-Object { $_.ToString("x2") }) -join ""
+    } finally {
+        $sha256.Dispose()
+        $stream.Dispose()
+    }
     [ordered]@{
         name = $file.Name
-        sha256 = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLowerInvariant()
+        sha256 = $hash
         size = $file.Length
     }
 }

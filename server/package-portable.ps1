@@ -43,6 +43,20 @@ function Test-SemVer {
     return $Value -match '^\d+\.\d+\.\d+(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9A-Za-z][0-9A-Za-z.-]*)?$'
 }
 
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha256.ComputeHash($stream)
+        return ($hashBytes | ForEach-Object { $_.ToString("x2") }) -join ""
+    } finally {
+        $sha256.Dispose()
+        $stream.Dispose()
+    }
+}
+
 Require-WindowsAmd64
 
 $rootDir = $PSScriptRoot
@@ -130,7 +144,7 @@ Get-ChildItem (Join-Path $stageDir "plugins") -Recurse -File | Where-Object {
 
 Compress-Archive -Path $stageDir -DestinationPath $zipPath -CompressionLevel Optimal -Force
 
-$hash = (Get-FileHash -Algorithm SHA256 $zipPath).Hash.ToLowerInvariant()
+$hash = Get-Sha256Hex -Path $zipPath
 Set-Content -Path $checksumPath -Value ("{0} *{1}" -f $hash, (Split-Path $zipPath -Leaf)) -NoNewline
 
 Write-Host ""
