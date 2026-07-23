@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 28
+const latestMigrationVersion = 29
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -506,6 +506,23 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 					UNIQUE(endpoint_id, local_save_domain_id)
 				);`,
 				`CREATE INDEX idx_device_save_domain_links_state ON device_save_domain_links(endpoint_id, authority_state);`,
+			},
+		},
+		{
+			Version: 29,
+			Name:    "profile_credential_tickets",
+			SQL: []string{
+				`CREATE TABLE profile_credential_tickets (
+					id TEXT PRIMARY KEY,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					token_hash TEXT NOT NULL UNIQUE,
+					created_by_profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+					created_at INTEGER NOT NULL,
+					expires_at INTEGER NOT NULL,
+					used_at INTEGER,
+					revoked_at INTEGER
+				);`,
+				`CREATE INDEX idx_profile_credential_tickets_profile ON profile_credential_tickets(profile_id, expires_at);`,
 			},
 		},
 	}

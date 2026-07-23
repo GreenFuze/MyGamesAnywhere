@@ -186,32 +186,6 @@ func TestProfileLoginAndDeviceSessionAllowHTTPFromLAN(t *testing.T) {
 	}
 }
 
-func TestInitialCredentialSetupAllowsHTTPFromLAN(t *testing.T) {
-	profile := &core.Profile{ID: "player-1", DisplayName: "Player", Role: core.ProfileRolePlayer}
-	store := newLANAuthStore()
-	service, err := auth.NewService(store, lanProfileRepository{profile: profile})
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
-	controller, err := NewAuthController(service, lanProfileRepository{profile: profile}, noopLogger{})
-	if err != nil {
-		t.Fatalf("NewAuthController() error = %v", err)
-	}
-
-	request := httptest.NewRequest(http.MethodPost, "/api/auth/credential/initialize", strings.NewReader(`{"new":"1234","kind":"pin"}`))
-	request.RemoteAddr = "192.168.68.22:55000"
-	request = request.WithContext(core.WithProfile(request.Context(), profile))
-	recorder := httptest.NewRecorder()
-	controller.InitializeCredential(recorder, request)
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("InitializeCredential() status = %d, body = %q", recorder.Code, recorder.Body.String())
-	}
-	status, err := service.CredentialStatus(context.Background(), profile.ID)
-	if err != nil || !status.Configured || status.Kind != auth.CredentialPIN {
-		t.Fatalf("CredentialStatus() = %+v, %v", status, err)
-	}
-}
-
 func TestProfileAccessPolicySeparatesProtectedProfiles(t *testing.T) {
 	profiles := multiLANProfileRepository{profiles: map[string]*core.Profile{
 		"admin":       {ID: "admin", Role: core.ProfileRoleAdminPlayer},

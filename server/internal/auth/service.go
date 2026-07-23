@@ -33,6 +33,7 @@ const (
 	argonSaltLength  = 16
 	argonKeyLength   = 32
 	sessionDuration  = 7 * 24 * time.Hour
+	ticketDuration   = 10 * time.Minute
 )
 
 var (
@@ -43,6 +44,7 @@ var (
 	ErrCredentialChange     = errors.New("profile credential must be changed")
 	ErrCredentialConfigured = errors.New("profile credential is already configured")
 	ErrProfileNotFound      = errors.New("profile not found")
+	ErrCredentialTicket     = errors.New("credential setup link is invalid, expired, revoked, or already used")
 )
 
 type Credential struct {
@@ -77,6 +79,28 @@ type CredentialStatus struct {
 	Configured bool           `json:"configured"`
 	Kind       CredentialKind `json:"kind,omitempty"`
 	MustChange bool           `json:"must_change"`
+}
+
+type CredentialTicket struct {
+	ID                 string     `json:"id"`
+	ProfileID          string     `json:"profile_id"`
+	CreatedByProfileID string     `json:"created_by_profile_id,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	ExpiresAt          time.Time  `json:"expires_at"`
+	UsedAt             *time.Time `json:"used_at,omitempty"`
+	RevokedAt          *time.Time `json:"revoked_at,omitempty"`
+}
+
+type IssuedCredentialTicket struct {
+	CredentialTicket
+	Token string `json:"token"`
+}
+
+type credentialTicketStore interface {
+	CreateCredentialTicket(context.Context, CredentialTicket, string, time.Time) error
+	GetActiveCredentialTicket(context.Context, string, time.Time) (*CredentialTicket, error)
+	RevokeCredentialTicket(context.Context, string, string, time.Time) error
+	RedeemCredentialTicket(context.Context, string, string, time.Time, Credential) error
 }
 
 type Service struct {
@@ -191,6 +215,98 @@ func (s *Service) InitializeCredential(ctx context.Context, profileID, value str
 		Hash:      hash,
 		UpdatedAt: s.now(),
 	})
+}
+
+func (s *Service) CreateCredentialTicket(ctx context.Context, session *Session, targetProfileID string) (*IssuedCredentialTicket, error) {
+	if err := s.requireAdminSession(ctx, session); err != nil {
+		return nil, err
+	}
+	targetProfileID = strings.TrimSpace(targetProfileID)
+	target, err := s.profiles.GetByID(ctx, targetProfileID)
+	if err != nil {
+		return nil, err
+	}
+	if target == nil {
+		return nil, ErrProfileNotFound
+	}
+	store, ok := s.store.(credentialTicketStore)
+	if !ok {
+		return nil, errors.New("credential ticket persistence is unavailable")
+	}
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return nil, fmt.Errorf("generate credential ticket: %w", err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	now := s.now()
+	ticket := CredentialTicket{
+		ID: uuid.NewString(), ProfileID: targetProfileID, CreatedByProfileID: session.ProfileID,
+		CreatedAt: now, ExpiresAt: now.Add(ticketDuration),
+	}
+	if err := store.CreateCredentialTicket(ctx, ticket, tokenHash(token), now); err != nil {
+		return nil, err
+	}
+	return &IssuedCredentialTicket{CredentialTicket: ticket, Token: token}, nil
+}
+
+func (s *Service) ActiveCredentialTicket(ctx context.Context, session *Session, targetProfileID string) (*CredentialTicket, error) {
+	if err := s.requireAdminSession(ctx, session); err != nil {
+		return nil, err
+	}
+	store, ok := s.store.(credentialTicketStore)
+	if !ok {
+		return nil, errors.New("credential ticket persistence is unavailable")
+	}
+	return store.GetActiveCredentialTicket(ctx, strings.TrimSpace(targetProfileID), s.now())
+}
+
+func (s *Service) RevokeCredentialTicket(ctx context.Context, session *Session, targetProfileID, ticketID string) error {
+	if err := s.requireAdminSession(ctx, session); err != nil {
+		return err
+	}
+	store, ok := s.store.(credentialTicketStore)
+	if !ok {
+		return errors.New("credential ticket persistence is unavailable")
+	}
+	return store.RevokeCredentialTicket(ctx, strings.TrimSpace(targetProfileID), strings.TrimSpace(ticketID), s.now())
+}
+
+func (s *Service) RedeemCredentialTicket(ctx context.Context, targetProfileID, token, value string, kind CredentialKind) error {
+	targetProfileID = strings.TrimSpace(targetProfileID)
+	if targetProfileID == "" || strings.TrimSpace(token) == "" {
+		return ErrCredentialTicket
+	}
+	if err := validateNewCredential(kind, value); err != nil {
+		return err
+	}
+	hash, err := hashCredential(value)
+	if err != nil {
+		return err
+	}
+	store, ok := s.store.(credentialTicketStore)
+	if !ok {
+		return errors.New("credential ticket persistence is unavailable")
+	}
+	return store.RedeemCredentialTicket(ctx, tokenHash(token), targetProfileID, s.now(), Credential{
+		ProfileID: targetProfileID, Kind: kind, Hash: hash, UpdatedAt: s.now(),
+	})
+}
+
+func (s *Service) requireAdminSession(ctx context.Context, session *Session) error {
+	if session == nil {
+		return ErrUnauthenticated
+	}
+	if session.MustChange {
+		return ErrCredentialChange
+	}
+	profile, err := s.profiles.GetByID(ctx, session.ProfileID)
+	if err != nil {
+		return err
+	}
+	if profile == nil || profile.Role != core.ProfileRoleAdminPlayer {
+		return ErrForbidden
+	}
+	return nil
 }
 
 func (s *Service) RemoveOwnCredential(ctx context.Context, session *Session, profileID string) error {

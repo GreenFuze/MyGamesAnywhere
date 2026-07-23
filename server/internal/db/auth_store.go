@@ -3,12 +3,100 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/auth"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
+
+func (s *AuthStore) CreateCredentialTicket(ctx context.Context, ticket auth.CredentialTicket, tokenHash string, now time.Time) error {
+	tx, err := s.db.GetDB().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE profile_credential_tickets SET revoked_at=?
+		WHERE profile_id=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>?`,
+		now.Unix(), ticket.ProfileID, now.Unix()); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO profile_credential_tickets
+		(id, profile_id, token_hash, created_by_profile_id, created_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?)`, ticket.ID, ticket.ProfileID, tokenHash, ticket.CreatedByProfileID,
+		ticket.CreatedAt.Unix(), ticket.ExpiresAt.Unix()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *AuthStore) GetActiveCredentialTicket(ctx context.Context, profileID string, now time.Time) (*auth.CredentialTicket, error) {
+	row := s.db.GetDB().QueryRowContext(ctx, `SELECT id, profile_id, COALESCE(created_by_profile_id,''), created_at, expires_at
+		FROM profile_credential_tickets
+		WHERE profile_id=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>?
+		ORDER BY created_at DESC LIMIT 1`, profileID, now.Unix())
+	var ticket auth.CredentialTicket
+	var createdAt, expiresAt int64
+	if err := row.Scan(&ticket.ID, &ticket.ProfileID, &ticket.CreatedByProfileID, &createdAt, &expiresAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	ticket.CreatedAt = time.Unix(createdAt, 0)
+	ticket.ExpiresAt = time.Unix(expiresAt, 0)
+	return &ticket, nil
+}
+
+func (s *AuthStore) RevokeCredentialTicket(ctx context.Context, profileID, ticketID string, now time.Time) error {
+	result, err := s.db.GetDB().ExecContext(ctx, `UPDATE profile_credential_tickets SET revoked_at=?
+		WHERE id=? AND profile_id=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>?`,
+		now.Unix(), ticketID, profileID, now.Unix())
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return auth.ErrCredentialTicket
+	}
+	return nil
+}
+
+func (s *AuthStore) RedeemCredentialTicket(ctx context.Context, tokenHash, profileID string, now time.Time, credential auth.Credential) error {
+	tx, err := s.db.GetDB().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var ticketID string
+	err = tx.QueryRowContext(ctx, `SELECT id FROM profile_credential_tickets
+		WHERE token_hash=? AND profile_id=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>?`,
+		tokenHash, profileID, now.Unix()).Scan(&ticketID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return auth.ErrCredentialTicket
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO profile_credentials (profile_id, kind, hash, must_change, updated_at)
+		VALUES (?, ?, ?, 0, ?)
+		ON CONFLICT(profile_id) DO UPDATE SET kind=excluded.kind, hash=excluded.hash, must_change=0, updated_at=excluded.updated_at`,
+		credential.ProfileID, string(credential.Kind), credential.Hash, credential.UpdatedAt.Unix()); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM auth_sessions WHERE profile_id=?`, profileID); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE profile_credential_tickets SET used_at=?
+		WHERE id=? AND used_at IS NULL AND revoked_at IS NULL`, now.Unix(), ticketID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return auth.ErrCredentialTicket
+	}
+	return tx.Commit()
+}
 
 type AuthStore struct {
 	db core.Database

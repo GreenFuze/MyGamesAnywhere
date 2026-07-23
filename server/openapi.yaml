@@ -192,13 +192,15 @@ paths:
           description: Error response
         500:
           description: Error response
-    post:
+    put:
       responses:
         400:
           description: Error response
         500:
           description: Error response
-    put:
+
+  /api/auth/credential-tickets/redeem:
+    post:
       responses:
         400:
           description: Error response
@@ -1997,6 +1999,53 @@ paths:
 
   /api/profiles:
     get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/profiles/{id}/credential-tickets:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/profiles/{id}/credential-tickets/active:
+    get:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/profiles/{id}/credential-tickets/{ticket_id}:
+    delete:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: ticket_id
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         400:
           description: Error response

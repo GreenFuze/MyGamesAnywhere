@@ -11,112 +11,90 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-func TestProfileAuthenticationBootstrapAndCredentialChange(t *testing.T) {
-	t.Parallel()
-
-	database := NewSQLiteDatabase(testLogger{}, testDBConfig{dbPath: filepath.Join(t.TempDir(), "auth.sqlite")})
+func TestCredentialTicketsRequireAdminAndRedeemOnce(t *testing.T) {
+	database := NewSQLiteDatabase(testLogger{}, testDBConfig{dbPath: filepath.Join(t.TempDir(), "auth-tickets.sqlite")})
 	if err := database.Connect(); err != nil {
-		t.Fatalf("Connect() error = %v", err)
+		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	if err := database.EnsureSchema(); err != nil {
-		t.Fatalf("EnsureSchema() error = %v", err)
+		t.Fatal(err)
 	}
 	profiles := NewProfileRepository(database)
-	profile := &core.Profile{ID: "admin-1", DisplayName: "Admin", Role: core.ProfileRoleAdminPlayer, CreatedAt: time.Now(), UpdatedAt: time.Now()}
-	if err := profiles.Create(context.Background(), profile); err != nil {
-		t.Fatalf("Create(profile) error = %v", err)
+	now := time.Now().Truncate(time.Second)
+	admin := &core.Profile{ID: "admin", DisplayName: "Admin", Role: core.ProfileRoleAdminPlayer, CreatedAt: now, UpdatedAt: now}
+	player := &core.Profile{ID: "player", DisplayName: "Player", Role: core.ProfileRolePlayer, CreatedAt: now, UpdatedAt: now}
+	for _, profile := range []*core.Profile{admin, player} {
+		if err := profiles.Create(context.Background(), profile); err != nil {
+			t.Fatal(err)
+		}
 	}
-	service, err := auth.NewService(NewAuthStore(database), profiles)
+	store := NewAuthStore(database)
+	service, err := auth.NewService(store, profiles)
 	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
+		t.Fatal(err)
 	}
-	if err := service.EnsureBootstrapCredential(context.Background()); err != nil {
-		t.Fatalf("EnsureBootstrapCredential() error = %v", err)
+	if err := service.InitializeCredential(context.Background(), admin.ID, "admin-pass", auth.CredentialPassword); err != nil {
+		t.Fatal(err)
 	}
-	token, session, err := service.Login(context.Background(), profile.ID, auth.BootstrapPassword)
+	if err := service.InitializeCredential(context.Background(), player.ID, "old-pin", auth.CredentialPassword); err != nil {
+		t.Fatal(err)
+	}
+	_, adminSession, err := service.Login(context.Background(), admin.ID, "admin-pass")
 	if err != nil {
-		t.Fatalf("Login(bootstrap) error = %v", err)
+		t.Fatal(err)
 	}
-	if token == "" || !session.MustChange {
-		t.Fatalf("bootstrap session = %+v, token empty = %v", session, token == "")
-	}
-	if err := service.RequireDeviceAuthority(session, profile.ID); !errors.Is(err, auth.ErrCredentialChange) {
-		t.Fatalf("RequireDeviceAuthority() error = %v, want ErrCredentialChange", err)
-	}
-	newToken, nextSession, err := service.ChangeOwnCredential(context.Background(), session, auth.BootstrapPassword, "246810", auth.CredentialPIN)
+	playerToken, playerSession, err := service.Login(context.Background(), player.ID, "old-pin")
 	if err != nil {
-		t.Fatalf("ChangeOwnCredential() error = %v", err)
+		t.Fatal(err)
 	}
-	if newToken == "" || nextSession.MustChange {
-		t.Fatalf("changed session = %+v, token empty = %v", nextSession, newToken == "")
+	if _, err := service.CreateCredentialTicket(context.Background(), playerSession, admin.ID); !errors.Is(err, auth.ErrForbidden) {
+		t.Fatalf("non-admin ticket error = %v, want forbidden", err)
 	}
-	if err := service.RequireDeviceAuthority(nextSession, profile.ID); err != nil {
-		t.Fatalf("RequireDeviceAuthority() error = %v", err)
-	}
-	if _, _, err := service.Login(context.Background(), profile.ID, auth.BootstrapPassword); !errors.Is(err, auth.ErrInvalidCredential) {
-		t.Fatalf("Login(old credential) error = %v, want ErrInvalidCredential", err)
-	}
-	if _, _, err := service.Login(context.Background(), profile.ID, "246810"); err != nil {
-		t.Fatalf("Login(new PIN) error = %v", err)
-	}
-	if err := service.ResetCredentialToBootstrap(context.Background(), profile.ID); err != nil {
-		t.Fatalf("ResetCredentialToBootstrap() error = %v", err)
-	}
-	if _, err := service.Authenticate(context.Background(), newToken); !errors.Is(err, auth.ErrUnauthenticated) {
-		t.Fatalf("Authenticate(pre-recovery session) error = %v, want ErrUnauthenticated", err)
-	}
-	_, recoveredSession, err := service.Login(context.Background(), profile.ID, auth.BootstrapPassword)
+	first, err := service.CreateCredentialTicket(context.Background(), adminSession, player.ID)
 	if err != nil {
-		t.Fatalf("Login(recovered bootstrap) error = %v", err)
+		t.Fatal(err)
 	}
-	if !recoveredSession.MustChange {
-		t.Fatalf("recovered session = %+v, want MustChange", recoveredSession)
-	}
-	if err := service.ResetCredentialToBootstrap(context.Background(), "missing-profile"); !errors.Is(err, auth.ErrProfileNotFound) {
-		t.Fatalf("ResetCredentialToBootstrap(missing) error = %v, want ErrProfileNotFound", err)
-	}
-}
-
-func TestOptionalProfileCredentialCanBeInitializedAndRemoved(t *testing.T) {
-	t.Parallel()
-
-	database := NewSQLiteDatabase(testLogger{}, testDBConfig{dbPath: filepath.Join(t.TempDir(), "optional-auth.sqlite")})
-	if err := database.Connect(); err != nil {
-		t.Fatalf("Connect() error = %v", err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	if err := database.EnsureSchema(); err != nil {
-		t.Fatalf("EnsureSchema() error = %v", err)
-	}
-	profiles := NewProfileRepository(database)
-	profile := &core.Profile{ID: "player-1", DisplayName: "Player", Role: core.ProfileRolePlayer, CreatedAt: time.Now(), UpdatedAt: time.Now()}
-	if err := profiles.Create(context.Background(), profile); err != nil {
-		t.Fatalf("Create(profile) error = %v", err)
-	}
-	service, err := auth.NewService(NewAuthStore(database), profiles)
+	second, err := service.CreateCredentialTicket(context.Background(), adminSession, player.ID)
 	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
+		t.Fatal(err)
 	}
-	status, err := service.CredentialStatus(context.Background(), profile.ID)
-	if err != nil || status.Configured {
-		t.Fatalf("initial credential status = %+v, error = %v", status, err)
+	var persistedTokenHash string
+	if err := database.GetDB().QueryRow(`SELECT token_hash FROM profile_credential_tickets WHERE id=?`, second.ID).Scan(&persistedTokenHash); err != nil {
+		t.Fatal(err)
 	}
-	if err := service.InitializeCredential(context.Background(), profile.ID, "246810", auth.CredentialPIN); err != nil {
-		t.Fatalf("InitializeCredential() error = %v", err)
+	if persistedTokenHash == second.Token || persistedTokenHash == "" {
+		t.Fatal("raw credential ticket was persisted")
 	}
-	if err := service.InitializeCredential(context.Background(), profile.ID, "135790", auth.CredentialPIN); !errors.Is(err, auth.ErrCredentialConfigured) {
-		t.Fatalf("duplicate InitializeCredential() error = %v, want ErrCredentialConfigured", err)
+	if err := service.RedeemCredentialTicket(context.Background(), player.ID, first.Token, "1234", auth.CredentialPIN); !errors.Is(err, auth.ErrCredentialTicket) {
+		t.Fatalf("replaced ticket error = %v", err)
 	}
-	_, session, err := service.Login(context.Background(), profile.ID, "246810")
-	if err != nil {
-		t.Fatalf("Login() error = %v", err)
+	if err := service.RedeemCredentialTicket(context.Background(), player.ID, second.Token, "1234", auth.CredentialPIN); err != nil {
+		t.Fatal(err)
 	}
-	if err := service.RemoveOwnCredential(context.Background(), session, profile.ID); err != nil {
-		t.Fatalf("RemoveOwnCredential() error = %v", err)
+	if _, err := service.Authenticate(context.Background(), playerToken); !errors.Is(err, auth.ErrUnauthenticated) {
+		t.Fatalf("old session authentication error = %v", err)
 	}
-	status, err = service.CredentialStatus(context.Background(), profile.ID)
-	if err != nil || status.Configured {
-		t.Fatalf("removed credential status = %+v, error = %v", status, err)
+	if _, _, err := service.Login(context.Background(), player.ID, "1234"); err != nil {
+		t.Fatalf("login with redeemed PIN: %v", err)
+	}
+	if err := service.RedeemCredentialTicket(context.Background(), player.ID, second.Token, "5678", auth.CredentialPIN); !errors.Is(err, auth.ErrCredentialTicket) {
+		t.Fatalf("replayed ticket error = %v", err)
+	}
+	expired := auth.CredentialTicket{
+		ID: "expired", ProfileID: player.ID, CreatedByProfileID: admin.ID,
+		CreatedAt: now.Add(-time.Hour), ExpiresAt: now.Add(-time.Minute),
+	}
+	if err := store.CreateCredentialTicket(context.Background(), expired, "expired-hash", expired.CreatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RedeemCredentialTicket(context.Background(), "expired-hash", player.ID, now, auth.Credential{
+		ProfileID: player.ID, Kind: auth.CredentialPIN, Hash: "unused", UpdatedAt: now,
+	}); !errors.Is(err, auth.ErrCredentialTicket) {
+		t.Fatalf("expired ticket error = %v", err)
+	}
+	active, err := service.ActiveCredentialTicket(context.Background(), adminSession, player.ID)
+	if err != nil || active != nil {
+		t.Fatalf("active ticket after redemption = %+v, %v", active, err)
 	}
 }

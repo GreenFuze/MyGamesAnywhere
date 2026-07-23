@@ -371,12 +371,38 @@ export async function getCredentialStatus(): Promise<CredentialStatus> {
   return getJson<CredentialStatus>("/api/auth/credential");
 }
 
-export async function initializeCredential(next: string, kind: CredentialKind): Promise<CredentialStatus> {
-  return postJson<CredentialStatus>("/api/auth/credential", { new: next, kind }) as Promise<CredentialStatus>;
-}
-
 export async function removeOwnCredential(): Promise<void> {
   return deleteRequest("/api/auth/credential");
+}
+
+export type CredentialTicket = {
+  id: string;
+  profile_id: string;
+  created_by_profile_id?: string;
+  created_at: string;
+  expires_at: string;
+};
+
+export type IssuedCredentialTicket = {
+  ticket: CredentialTicket;
+  token: string;
+  setup_url: string;
+};
+
+export async function createCredentialTicket(profileId: string): Promise<IssuedCredentialTicket> {
+  return postJson<IssuedCredentialTicket>(`/api/profiles/${encodeURIComponent(profileId)}/credential-tickets`, {}) as Promise<IssuedCredentialTicket>;
+}
+
+export async function getActiveCredentialTicket(profileId: string): Promise<{ ticket: CredentialTicket | null }> {
+  return getJson<{ ticket: CredentialTicket | null }>(`/api/profiles/${encodeURIComponent(profileId)}/credential-tickets/active`);
+}
+
+export async function revokeCredentialTicket(profileId: string, ticketId: string): Promise<void> {
+  return deleteRequest(`/api/profiles/${encodeURIComponent(profileId)}/credential-tickets/${encodeURIComponent(ticketId)}`);
+}
+
+export async function redeemCredentialTicket(profileId: string, token: string, next: string, kind: CredentialKind): Promise<void> {
+  await postJson("/api/auth/credential-tickets/redeem", { profile_id: profileId, token, new: next, kind });
 }
 
 export async function logoutProfile(): Promise<void> {

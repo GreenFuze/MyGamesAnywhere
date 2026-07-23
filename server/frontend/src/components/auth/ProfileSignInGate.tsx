@@ -5,7 +5,6 @@ import {
   changeOwnCredential,
   getAuthSession,
   getCredentialStatus,
-  initializeCredential,
   loginProfile,
   type CredentialKind,
   type Profile,
@@ -108,46 +107,18 @@ function InitialCredentialSetup({
   onCancel: () => Promise<void>
   onContinue: () => void
 }) {
-  const queryClient = useQueryClient()
-  const [kind, setKind] = useState<CredentialKind>('pin')
-  const [next, setNext] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const setup = useMutation({
-    mutationFn: async () => {
-      await initializeCredential(next, kind)
-      return loginProfile(profile.id, next)
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['auth-session'] }),
-        queryClient.invalidateQueries({ queryKey: ['credential-status', profile.id] }),
-      ])
-    },
-  })
-  const valid = next === confirm && credentialPolicy.isValid(kind, next)
-
   return (
     <SignInShell profile={profile} title={`Welcome, ${profile.display_name}`} onCancel={onCancel}>
       <p className="text-sm leading-6 text-mga-muted">
-        Protect this profile with an optional password or PIN. You can do this from any computer on your MGA network.
+        This profile is intentionally passwordless. You can keep using it this way on your trusted MGA network.
       </p>
       <div className="mt-5 space-y-3">
-        <Select
-          label="Sign-in type"
-          value={kind}
-          onChange={(event) => setKind(event.target.value as CredentialKind)}
-          options={[{ value: 'pin', label: 'PIN' }, { value: 'password', label: 'Password' }]}
-        />
-        <SecretInput label={credentialPolicy.label(kind)} autoFocus value={next} onChange={(event) => setNext(event.target.value)} />
-        <SecretInput label="Confirm" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
-        <Button onClick={() => setup.mutate()} disabled={!valid || setup.isPending} className="w-full">
-          <KeyRound className="h-4 w-4" /> {setup.isPending ? 'Saving…' : 'Save And Continue'}
-        </Button>
-        <Button variant="outline" onClick={onContinue} disabled={setup.isPending} className="w-full">
+        <div className="rounded-mga border border-mga-border bg-mga-bg/70 p-4 text-sm leading-6 text-mga-muted">
+          To add a password or PIN, ask an administrator to create a private setup link in Settings → Profiles. Open that link on any MGA computer and choose your own secret.
+        </div>
+        <Button onClick={onContinue} className="w-full">
           Continue Without A Password
         </Button>
-        {confirm && next !== confirm ? <p className="text-sm text-red-400">Credentials do not match.</p> : null}
-        {setup.error ? <p className="text-sm text-red-400">{errorText(setup.error)}</p> : null}
       </div>
     </SignInShell>
   )
@@ -227,8 +198,9 @@ function RecoveryInstructions({ profile }: { profile: Profile }) {
   return (
     <div className="space-y-3 rounded-mga border border-mga-border bg-mga-bg/70 p-4">
       <p className="text-sm leading-6 text-mga-muted">
-        Recovery is intentionally performed on the MGA Server machine, under its OS permissions—not by an unauthenticated web reset. Open a terminal in the MGA application directory and run the command matching the installation.
+        Ask an MGA administrator to open Settings → Profiles and create a private setup link for {profile.display_name}. Open it on this computer and choose a new password or PIN. The administrator never sees your new secret.
       </p>
+      <p className="text-xs leading-5 text-mga-muted">If no administrator can sign in, use the server-local break-glass command matching the installation:</p>
       {commands.map(({ mode, command }) => (
         <div key={mode} className="space-y-1">
           <div className="text-xs font-bold uppercase tracking-[0.14em] text-mga-muted">{mode}</div>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, KeyRound, Plus, Save, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
-import { changeOwnCredential, createProfile, deleteProfile, getCredentialStatus, initializeCredential, removeOwnCredential, updateProfile, type CredentialKind, type Profile, type ProfileRole } from '@/api/client'
+import { Check, Copy, KeyRound, Plus, Save, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
+import { changeOwnCredential, createCredentialTicket, createProfile, deleteProfile, getActiveCredentialTicket, getCredentialStatus, removeOwnCredential, revokeCredentialTicket, updateProfile, type CredentialKind, type Profile, type ProfileRole } from '@/api/client'
 import { AvatarChooser, ProfileAvatar, profileAvatarFor, useProfiles, type ProfileAvatarKey } from '@/hooks/useProfiles'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -106,15 +106,6 @@ function ProfileCredentialPanel({ profile }: { profile: Profile }) {
     queryKey: ['credential-status', profile.id],
     queryFn: getCredentialStatus,
   })
-  const initialize = useMutation({
-    mutationFn: () => initializeCredential(next, kind),
-    onSuccess: async () => {
-      setNext('')
-      setConfirm('')
-      await queryClient.invalidateQueries({ queryKey: ['credential-status', profile.id] })
-      await queryClient.invalidateQueries({ queryKey: ['auth-session'] })
-    },
-  })
   const change = useMutation({
     mutationFn: () => changeOwnCredential(current, next, kind),
     onSuccess: async () => {
@@ -141,9 +132,8 @@ function ProfileCredentialPanel({ profile }: { profile: Profile }) {
     setConfirm('')
   }
   const nextValid = next === confirm && credentialPolicy.isValid(kind, next)
-  const initializeValid = nextValid
   const changeValid = Boolean(current) && nextValid
-  const mutationError = status.error || initialize.error || change.error || disable.error
+  const mutationError = status.error || change.error || disable.error
 
   return (
     <section className="rounded-mga border border-mga-border bg-mga-surface p-5 shadow-lg">
@@ -189,21 +179,12 @@ function ProfileCredentialPanel({ profile }: { profile: Profile }) {
           </div>
         </div>
       ) : status.data ? (
-        <div className="mt-4 grid gap-3 lg:grid-cols-[12rem_1fr_1fr_auto] lg:items-end">
-          <Select
-            label="Credential type"
-            value={kind}
-            onChange={(event) => setKind(event.target.value as CredentialKind)}
-            options={[{ value: 'password', label: 'Password' }, { value: 'pin', label: 'PIN' }]}
-          />
-          <SecretInput label={credentialPolicy.label(kind)} value={next} onChange={(event) => setNext(event.target.value)} />
-          <SecretInput label="Confirm credential" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
-          <Button onClick={() => initialize.mutate()} disabled={!initializeValid || initialize.isPending}><KeyRound className="h-4 w-4" /> Enable</Button>
+        <div className="mt-4 rounded-mga border border-mga-border bg-mga-bg px-4 py-3 text-sm leading-6 text-mga-muted">
+          This profile is passwordless. An administrator can create a private setup link below; the player opens it on any MGA computer and chooses their own password or PIN.
         </div>
       ) : null}
       {next !== confirm && confirm ? <p className="mt-3 text-sm text-red-400">Credentials do not match.</p> : null}
       {mutationError ? <p className="mt-3 text-sm text-red-400">{errorText(mutationError, 'Credential update failed')}</p> : null}
-      {!status.data?.configured ? <p className="mt-3 text-xs text-mga-muted">You can set this up from any computer on your MGA network.</p> : null}
     </section>
   )
 }
@@ -308,9 +289,66 @@ function ManagedProfileCard({
         {editing ? (
           <div className="mt-4 border-t border-mga-border pt-4">
             <ProfileEditor profile={profile} isCurrent={isCurrent} onChanged={onChanged} />
+            <CredentialTicketPanel profile={profile} />
           </div>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+function CredentialTicketPanel({ profile }: { profile: Profile }) {
+  const queryClient = useQueryClient()
+  const [setupUrl, setSetupUrl] = useState('')
+  const [copied, setCopied] = useState(false)
+  const status = useQuery({
+    queryKey: ['credential-ticket', profile.id],
+    queryFn: () => getActiveCredentialTicket(profile.id),
+  })
+  const create = useMutation({
+    mutationFn: () => createCredentialTicket(profile.id),
+    onSuccess: async (result) => {
+      setSetupUrl(result.setup_url)
+      setCopied(false)
+      await queryClient.invalidateQueries({ queryKey: ['credential-ticket', profile.id] })
+    },
+  })
+  const revoke = useMutation({
+    mutationFn: () => revokeCredentialTicket(profile.id, status.data?.ticket?.id ?? ''),
+    onSuccess: async () => {
+      setSetupUrl('')
+      await queryClient.invalidateQueries({ queryKey: ['credential-ticket', profile.id] })
+    },
+  })
+  const error = status.error || create.error || revoke.error
+
+  return (
+    <div className="mt-4 rounded-mga border border-mga-border bg-mga-surface p-4">
+      <div className="text-sm font-bold text-mga-text">Password setup or recovery</div>
+      <p className="mt-1 text-xs leading-5 text-mga-muted">
+        Create a one-use link valid for 10 minutes. The player chooses the secret; MGA never shows it to the administrator.
+      </p>
+      {setupUrl ? (
+        <div className="mt-3 space-y-2">
+          <Input label="Private setup link" value={setupUrl} readOnly />
+          <Button variant="outline" size="sm" onClick={async () => {
+            await navigator.clipboard.writeText(setupUrl)
+            setCopied(true)
+          }}>
+            <Copy className="h-4 w-4" /> {copied ? 'Copied' : 'Copy Link'}
+          </Button>
+        </div>
+      ) : null}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button size="sm" onClick={() => create.mutate()} disabled={create.isPending}>
+          <KeyRound className="h-4 w-4" /> {status.data?.ticket ? 'Replace Setup Link' : 'Create Setup Link'}
+        </Button>
+        {status.data?.ticket ? (
+          <Button variant="outline" size="sm" onClick={() => revoke.mutate()} disabled={revoke.isPending}>Revoke Link</Button>
+        ) : null}
+      </div>
+      {status.data?.ticket ? <p className="mt-2 text-xs text-mga-muted">Active until {new Date(status.data.ticket.expires_at).toLocaleString()}.</p> : null}
+      {error ? <p className="mt-2 text-sm text-red-400">{errorText(error, 'Setup link action failed')}</p> : null}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { SearchProvider } from '@/hooks/useSearchContext'
 import { ProfileProvider, useProfiles } from '@/hooks/useProfiles'
@@ -19,6 +19,7 @@ import { SettingsPage } from '@/pages/SettingsPage'
 import { GameDetailPage } from '@/pages/GameDetailPage'
 import { GameMediaPage } from '@/pages/GameMediaPage'
 import { GamePlayerPage } from '@/pages/GamePlayerPage'
+import { CredentialSetupPage } from '@/pages/CredentialSetupPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -37,11 +38,27 @@ export function App() {
           <SearchProvider>
             <BrowserRouter>
               <ErrorBoundary>
-                <ProfileProvider>
-                  <ProfileScopedToastProvider>
-                    <AppNotifications />
-                    <AppQueryInvalidation />
-                    <Routes>
+                <ProfileAwareRoutes />
+              </ErrorBoundary>
+            </BrowserRouter>
+          </SearchProvider>
+        </ThemeProvider>
+      </SSEProvider>
+    </QueryClientProvider>
+  )
+}
+
+function ProfileAwareRoutes() {
+  const location = useLocation()
+  if (location.pathname === '/credential-setup') {
+    return <Routes><Route path="/credential-setup" element={<CredentialSetupPage />} /></Routes>
+  }
+  return (
+    <ProfileProvider>
+      <ProfileScopedToastProvider>
+        <AppNotifications />
+        <AppQueryInvalidation />
+        <Routes>
                       <Route path="/" element={<AppLayout />}>
                         <Route index element={<Navigate to="/play" replace />} />
                         <Route path="play" element={<PlayPage />} />
@@ -61,15 +78,9 @@ export function App() {
                       <Route path="/game/:id/media" element={<GameMediaPage />} />
                       <Route path="/game/:id" element={<GameDetailPage />} />
                       <Route path="*" element={<Navigate to="/play" replace />} />
-                    </Routes>
-                  </ProfileScopedToastProvider>
-                </ProfileProvider>
-              </ErrorBoundary>
-            </BrowserRouter>
-          </SearchProvider>
-        </ThemeProvider>
-      </SSEProvider>
-    </QueryClientProvider>
+        </Routes>
+      </ProfileScopedToastProvider>
+    </ProfileProvider>
   )
 }
 

@@ -5,12 +5,14 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/auth"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/go-chi/chi/v5"
 )
 
 const sessionCookieName = "mga_session"
@@ -71,29 +73,84 @@ func (c *AuthController) CredentialStatus(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, status)
 }
 
-func (c *AuthController) InitializeCredential(w http.ResponseWriter, r *http.Request) {
+func (c *AuthController) CreateCredentialTicket(w http.ResponseWriter, r *http.Request) {
+	session, ok := auth.SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, auth.ErrUnauthenticated.Error(), http.StatusUnauthorized)
+		return
+	}
+	targetProfileID := chi.URLParam(r, "id")
+	ticket, err := c.service.CreateCredentialTicket(r.Context(), session, targetProfileID)
+	if err != nil {
+		writeCredentialTicketError(w, err)
+		return
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	setupURL := scheme + "://" + r.Host + "/credential-setup?profile_id=" +
+		url.QueryEscape(ticket.ProfileID) + "#ticket=" + url.QueryEscape(ticket.Token)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"ticket": ticket.CredentialTicket, "token": ticket.Token, "setup_url": setupURL,
+	})
+}
+
+func (c *AuthController) CredentialTicketStatus(w http.ResponseWriter, r *http.Request) {
+	session, ok := auth.SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, auth.ErrUnauthenticated.Error(), http.StatusUnauthorized)
+		return
+	}
+	ticket, err := c.service.ActiveCredentialTicket(r.Context(), session, chi.URLParam(r, "id"))
+	if err != nil {
+		writeCredentialTicketError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ticket": ticket})
+}
+
+func (c *AuthController) RevokeCredentialTicket(w http.ResponseWriter, r *http.Request) {
+	session, ok := auth.SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, auth.ErrUnauthenticated.Error(), http.StatusUnauthorized)
+		return
+	}
+	if err := c.service.RevokeCredentialTicket(r.Context(), session, chi.URLParam(r, "id"), chi.URLParam(r, "ticket_id")); err != nil {
+		writeCredentialTicketError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (c *AuthController) RedeemCredentialTicket(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		New  string              `json:"new"`
-		Kind auth.CredentialKind `json:"kind"`
+		ProfileID string              `json:"profile_id"`
+		Token     string              `json:"token"`
+		New       string              `json:"new"`
+		Kind      auth.CredentialKind `json:"kind"`
 	}
 	if err := decodeJSONBody(w, r, &body); err != nil {
 		return
 	}
-	profileID := core.ProfileIDFromContext(r.Context())
-	if err := c.service.InitializeCredential(r.Context(), profileID, body.New, body.Kind); err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, auth.ErrCredentialConfigured) {
-			status = http.StatusConflict
-		}
-		http.Error(w, err.Error(), status)
+	if err := c.service.RedeemCredentialTicket(r.Context(), body.ProfileID, body.Token, body.New, body.Kind); err != nil {
+		writeCredentialTicketError(w, err)
 		return
 	}
-	credentialStatus, err := c.service.CredentialStatus(r.Context(), profileID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	writeJSON(w, http.StatusOK, map[string]string{"status": "credential_configured"})
+}
+
+func writeCredentialTicketError(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
+	switch {
+	case errors.Is(err, auth.ErrUnauthenticated):
+		status = http.StatusUnauthorized
+	case errors.Is(err, auth.ErrForbidden), errors.Is(err, auth.ErrCredentialChange):
+		status = http.StatusForbidden
+	case errors.Is(err, auth.ErrProfileNotFound):
+		status = http.StatusNotFound
 	}
-	writeJSON(w, http.StatusCreated, credentialStatus)
+	http.Error(w, err.Error(), status)
 }
 
 func (c *AuthController) RemoveCredential(w http.ResponseWriter, r *http.Request) {

@@ -37,6 +37,47 @@ func TestMigrationsFreshDBReachLatestAndAreIdempotent(t *testing.T) {
 	}
 }
 
+func TestMigration29AddsCredentialTicketsWithoutChangingCredentials(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.ensureSchemaMigrationsTable(); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range dbSvc.orderedMigrations() {
+		if migration.Version > 28 {
+			break
+		}
+		if err := dbSvc.runMigration(context.Background(), migration); err != nil {
+			t.Fatalf("run migration %d: %v", migration.Version, err)
+		}
+	}
+	now := time.Now().Unix()
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO profiles(id, display_name, role, created_at, updated_at)
+		VALUES ('profile-29','Player','player',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO profile_credentials(profile_id, kind, hash, must_change, updated_at)
+		VALUES ('profile-29','pin','existing-hash',0,?)`, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	var hash string
+	if err := dbSvc.GetDB().QueryRow(`SELECT hash FROM profile_credentials WHERE profile_id='profile-29'`).Scan(&hash); err != nil || hash != "existing-hash" {
+		t.Fatalf("existing credential changed: hash=%q err=%v", hash, err)
+	}
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO profile_credential_tickets
+		(id, profile_id, token_hash, created_by_profile_id, created_at, expires_at)
+		VALUES ('ticket-29','profile-29','token-hash','profile-29',?,?)`, now, now+600); err != nil {
+		t.Fatalf("insert credential ticket: %v", err)
+	}
+}
+
 func TestMigration27PreservesExistingInstallationsAsManaged(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
 	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)

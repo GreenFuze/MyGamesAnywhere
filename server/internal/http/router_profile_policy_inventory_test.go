@@ -74,7 +74,7 @@ func TestEveryNonPublicAPIRouteFailsClosedForInvalidProfileSessions(t *testing.T
 		"POST /api/auth/logout":                    "session teardown",
 		"PUT /api/auth/credential":                 "must-change credential replacement",
 		"GET /api/auth/credential":                 "credential bootstrap status",
-		"POST /api/auth/credential":                "create-only initial credential bootstrap",
+		"POST /api/auth/credential-tickets/redeem": "opaque one-time credential setup capability",
 		"DELETE /api/auth/credential":              "self-authenticated credential removal",
 		"POST /api/devices/pair":                   "opaque pairing capability",
 		"POST /api/devices/client-launches/redeem": "opaque one-time launch capability",
