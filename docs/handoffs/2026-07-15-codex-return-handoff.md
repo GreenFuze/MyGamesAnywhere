@@ -2029,3 +2029,36 @@ session correctly stopped at the protected TCs sign-in and no remembered
 credential was reused. The preserved authenticated Orr session on TV2 confirms
 the real v0.2.8 Updates page and is ready for the authorized web-driven upgrade
 after publication.
+
+### Final release and deployment evidence
+
+Release v0.2.9 is published and marked latest:
+<https://github.com/GreenFuze/MyGamesAnywhere/releases/tag/v0.2.9>. Release
+commit/tag/origin were all exactly `5a4048f2`. The public release contains the
+server installer, portable ZIP, MGA Client installer, update manifest, and
+combined checksums. The manifest's Windows installer is 623,485,832 bytes with
+SHA-256
+`3a6625089da181a433053f9990fd90f053d82d0adad0e230d0bc05e216a88621`;
+the portable ZIP is 678,895,410 bytes with SHA-256
+`2bfea471b03b652f84ddc88f8e3c4fac600001fae88de4aa19cafd82fcc58c43`.
+
+TV2 was upgraded through Orr's authenticated MGA web interface, not through
+direct process or filesystem manipulation. Its v0.2.8 page checked for 0.2.9,
+downloaded the 594.6 MB installer, reported **Download verified**, applied it,
+went offline for the controlled install, and returned as v0.2.9 commit
+`5a4048f2`. The new bundle was reloaded and visibly confirmed the hourly-check
+message plus the requested action states:
+
+- **Download only** / **Download and apply** before a package is detected;
+- **Redownload** / **Apply** after the retained package is detected.
+
+The same TV2 session non-destructively opened Orr's Google Drive game-source
+picker. Its first screen now shows **Google Drive** with **My Drive** and
+**Shared with me** as peer locations. The edit was cancelled without saving.
+
+The local packaged server was restarted from `server/bin` with
+`MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive`; it is PID `46824`, reports v0.2.9
+commit `5a4048f2`, and has server SHA-256
+`B4DA33E0CE34C99B833295D3BD725A15358AF6CDDE8A909A91625D62A4DC1468`.
+The packaged Drive plugin SHA-256 is
+`A3560EE32ED173A2B0EEA16C2510110C6FB07CA03580341620B52C60DD066CAE`.

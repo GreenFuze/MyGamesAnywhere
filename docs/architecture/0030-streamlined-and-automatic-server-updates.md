@@ -79,5 +79,44 @@ update flow and ignores no new persisted state.
 - [x] A newly discovered version creates one actionable notification per
       server process and invalidates cached update status in the web UI.
 - [x] Automatic check failures are non-fatal and low-noise.
-- [ ] Focused update, event-isolation, frontend unit, production build, full Go,
+- [x] Focused update, event-isolation, frontend unit, production build, full Go,
       migration guard, packaging, and real update checks pass.
+
+## Verification evidence
+
+Release v0.2.9 was published from commit `5a4048f2`. The public update manifest
+contains both Windows installer and portable assets with their exact sizes and
+SHA-256 hashes, and GitHub reports v0.2.9 as the latest release.
+
+TV2's authenticated Orr session performed the real v0.2.8 to v0.2.9 installed
+update entirely through MGA's Updates page: Check found 0.2.9, the 594.6 MB
+installer downloaded to `C:\ProgramData\MyGamesAnywhere\updates`, reached
+**Download verified**, Apply launched the updater, and MGA returned as v0.2.9
+commit `5a4048f2`. After reloading the new frontend:
+
+- the page states that MGA checks automatically every hour;
+- the not-downloaded presentation shows **Download only** and
+  **Download and apply**; and
+- after Check detects the retained verified package, it shows **Redownload**
+  and **Apply**.
+
+Automated release evidence:
+
+```text
+migration guard:              PASS
+protocol:                     go test ./... PASS
+client:                       go test ./... PASS
+server:                       go test ./... PASS
+standalone plugin modules:    go test ./... PASS
+frontend API generation:      clean
+frontend unit tests:          PASS (20 tests)
+portable package:             PASS
+server installer package:     PASS
+client installer package:     PASS
+public tag/assets/manifest:   PASS
+TV2 installed update/restart: PASS
+```
+
+The production frontend retains its known large-main-chunk warning. The release
+install also reported the existing npm audit findings; no dependency versions
+or lockfile were changed by this decision.
