@@ -2209,7 +2209,7 @@ export type BrowseFolder = {
   path: string;
   display_path?: string;
   object_id?: string;
-  location_kind?: "shared_with_me" | "shared_folder";
+  location_kind?: "my_drive" | "shared_with_me" | "shared_folder";
   selectable?: boolean;
 };
 export type BrowseResponse = { folders: BrowseFolder[] };

@@ -32,7 +32,9 @@ export function FolderBrowser({
   browse,
   allowSharedLocations = false,
 }: FolderBrowserProps) {
-  const [history, setHistory] = useState<FolderBrowseLocation[]>(() => buildInitialFolderHistory(initialPath, initialObjectId))
+  const [history, setHistory] = useState<FolderBrowseLocation[]>(() => (
+    buildInitialFolderHistory(initialPath, initialObjectId, allowSharedLocations)
+  ))
   const [folders, setFolders] = useState<BrowseFolder[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -127,8 +129,8 @@ export function FolderBrowser({
               >
                 <Icon size={16} className="text-mga-accent shrink-0" />
                 <span className="truncate">{folder.name}</span>
-                {isSharedLocation && <span className="ml-auto text-xs text-mga-muted">Location</span>}
-                <ChevronRight size={14} className={`${isSharedLocation ? '' : 'ml-auto '}text-mga-muted shrink-0`} />
+                {folder.location_kind && <span className="ml-auto text-xs text-mga-muted">Location</span>}
+                <ChevronRight size={14} className={`${folder.location_kind ? '' : 'ml-auto '}text-mga-muted shrink-0`} />
               </button>
             )
           })

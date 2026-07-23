@@ -63,10 +63,12 @@ var (
 var errDrivePathNotFound = errors.New("drive path not found")
 
 const (
-	driveFolderMimeType      = "application/vnd.google-apps.folder"
-	driveSharedBrowseToken   = "mga-drive://shared-with-me"
-	driveFolderTokenPrefix   = "mga-drive://folder/"
-	driveSharedDisplayPrefix = "Shared with me"
+	driveFolderMimeType       = "application/vnd.google-apps.folder"
+	driveLocationsBrowseToken = "mga-drive://locations"
+	driveMyDriveBrowseToken   = "mga-drive://my-drive"
+	driveSharedBrowseToken    = "mga-drive://shared-with-me"
+	driveFolderTokenPrefix    = "mga-drive://folder/"
+	driveSharedDisplayPrefix  = "Shared with me"
 )
 
 // oauthConfig is lazily initialized in loadConfig after credentials are resolved.
@@ -303,6 +305,10 @@ func newDriveFolderBrowser(service *drive.Service) *driveFolderBrowser {
 
 func (b *driveFolderBrowser) browse(rawPath string) ([]driveBrowseFolder, error) {
 	switch {
+	case rawPath == driveLocationsBrowseToken:
+		return b.listDriveLocations(), nil
+	case rawPath == driveMyDriveBrowseToken:
+		return b.listMyDriveFolders("")
 	case rawPath == driveSharedBrowseToken:
 		return b.listSharedFolders()
 	case strings.HasPrefix(rawPath, driveFolderTokenPrefix):
@@ -325,21 +331,31 @@ func (b *driveFolderBrowser) listMyDriveFolders(rootPath string) ([]driveBrowseF
 	if err != nil {
 		return nil, err
 	}
-	result := make([]driveBrowseFolder, 0, len(folders)+1)
-	if sourcescope.NormalizeLogicalPath(rootPath) == "" {
-		result = append(result, driveBrowseFolder{
-			Name:         driveSharedDisplayPrefix,
-			Path:         driveSharedBrowseToken,
-			DisplayPath:  driveSharedDisplayPrefix,
-			LocationKind: "shared_with_me",
-			Selectable:   false,
-		})
-	}
+	result := make([]driveBrowseFolder, 0, len(folders))
 	for _, folder := range folders {
 		entryPath := sourcescope.NormalizeLogicalPath(path.Join(rootPath, folder.Name))
 		result = append(result, driveBrowseFolder{Name: folder.Name, Path: entryPath, DisplayPath: entryPath, Selectable: true})
 	}
 	return result, nil
+}
+
+func (b *driveFolderBrowser) listDriveLocations() []driveBrowseFolder {
+	return []driveBrowseFolder{
+		{
+			Name:         "My Drive",
+			Path:         driveMyDriveBrowseToken,
+			DisplayPath:  "",
+			LocationKind: "my_drive",
+			Selectable:   true,
+		},
+		{
+			Name:         driveSharedDisplayPrefix,
+			Path:         driveSharedBrowseToken,
+			DisplayPath:  driveSharedDisplayPrefix,
+			LocationKind: "shared_with_me",
+			Selectable:   false,
+		},
+	}
 }
 
 func (b *driveFolderBrowser) listSharedFolders() ([]driveBrowseFolder, error) {

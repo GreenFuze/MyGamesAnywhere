@@ -40,6 +40,7 @@ cross the server, web interface, and device agent boundaries.
 - [ADR-0027: Profile-bound OAuth drafts and request-scoped provider access](0027-profile-bound-oauth-drafts.md)
 - [ADR-0028: Strong profile isolation hardening](0028-strong-profile-isolation-hardening.md)
 - [ADR-0029: Google Drive "Shared with me" source folders](0029-google-drive-shared-with-me.md)
+- [ADR-0030: Streamlined and automatic server updates](0030-streamlined-and-automatic-server-updates.md)
 
 ## Protocols
 

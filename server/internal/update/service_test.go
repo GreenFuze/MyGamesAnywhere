@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -315,6 +316,77 @@ func TestCheckDetectsExistingVerifiedDownload(t *testing.T) {
 	}
 }
 
+func TestAutomaticCheckPublishesOneActionableEventPerVersion(t *testing.T) {
+	oldVersion := buildinfo.Version
+	buildinfo.Version = "1.0.0"
+	defer func() { buildinfo.Version = oldVersion }()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{
+			"version":"1.1.0",
+			"release_notes_url":"https://example.invalid/releases/1.1.0",
+			"assets":[
+				{"os":"%s","arch":"%s","type":"portable","name":"mga.zip","url":"https://example.invalid/mga.zip","sha256":"abc","size":12}
+			]
+		}`, runtimeGOOS(), runtimeGOARCH())
+	}))
+	defer server.Close()
+
+	bus := events.New()
+	ch := bus.Subscribe()
+	defer bus.Unsubscribe(ch)
+	svc := NewService(testConfig{
+		"UPDATE_MANIFEST_URL": server.URL,
+		"APP_INSTALL_TYPE":    "portable",
+		"UPDATES_DIR":         t.TempDir(),
+	}, testLogger{}, bus)
+
+	svc.checkAutomatically(context.Background())
+	svc.checkAutomatically(context.Background())
+
+	select {
+	case event := <-ch:
+		if event.Type != "update_available" || !event.Global {
+			t.Fatalf("event = %+v", event)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload["current_version"] != "1.0.0" || payload["latest_version"] != "1.1.0" {
+			t.Fatalf("payload versions = %#v", payload)
+		}
+		if payload["release_notes_url"] != "https://example.invalid/releases/1.1.0" {
+			t.Fatalf("release_notes_url = %#v", payload["release_notes_url"])
+		}
+	default:
+		t.Fatal("missing update_available event")
+	}
+	select {
+	case event := <-ch:
+		t.Fatalf("duplicate automatic update event = %+v", event)
+	default:
+	}
+}
+
+func TestAutomaticCheckFailureIsSilentAndNonFatal(t *testing.T) {
+	bus := events.New()
+	ch := bus.Subscribe()
+	defer bus.Unsubscribe(ch)
+	svc := NewService(testConfig{
+		"UPDATE_MANIFEST_URL": "http://127.0.0.1:1/manifest.json",
+		"APP_INSTALL_TYPE":    "portable",
+	}, testLogger{}, bus)
+
+	svc.checkAutomatically(context.Background())
+
+	select {
+	case event := <-ch:
+		t.Fatalf("failed automatic check published event = %+v", event)
+	default:
+	}
+}
+
 func TestDownloadPublishesProgressEvents(t *testing.T) {
 	oldVersion := buildinfo.Version
 	buildinfo.Version = "1.0.0"
@@ -372,6 +444,111 @@ func TestDownloadPublishesProgressEvents(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+func TestDownloadReplacesExistingVerifiedAsset(t *testing.T) {
+	oldVersion := buildinfo.Version
+	buildinfo.Version = "1.0.0"
+	defer func() { buildinfo.Version = oldVersion }()
+
+	assetBytes := []byte("verified-update")
+	sum := sha256.Sum256(assetBytes)
+	want := hex.EncodeToString(sum[:])
+	assetRequests := 0
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/manifest.json" {
+			_, _ = fmt.Fprintf(w, `{
+				"version":"1.1.0",
+				"assets":[
+					{"os":"%s","arch":"%s","type":"portable","name":"mga.zip","url":"%s/mga.zip","sha256":"%s","size":%d}
+				]
+			}`, runtimeGOOS(), runtimeGOARCH(), server.URL, want, len(assetBytes))
+			return
+		}
+		assetRequests++
+		_, _ = w.Write(assetBytes)
+	}))
+	defer server.Close()
+
+	updatesDir := t.TempDir()
+	path := filepath.Join(updatesDir, "mga.zip")
+	if err := os.WriteFile(path, assetBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(testConfig{
+		"UPDATE_MANIFEST_URL": server.URL + "/manifest.json",
+		"APP_INSTALL_TYPE":    "portable",
+		"UPDATES_DIR":         updatesDir,
+	}, testLogger{})
+
+	result, err := svc.Download(context.Background())
+	if err != nil {
+		t.Fatalf("Download() redownload error = %v", err)
+	}
+	if result.Path != path || assetRequests != 1 {
+		t.Fatalf("result path = %q, asset requests = %d", result.Path, assetRequests)
+	}
+	if _, err := os.Stat(path + ".previous"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("redownload backup was not cleaned up: %v", err)
+	}
+}
+
+func TestApplyDownloadsBeforeLaunchingWhenNoVerifiedPackageExists(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows updater launch behavior")
+	}
+	oldVersion := buildinfo.Version
+	buildinfo.Version = "1.0.0"
+	defer func() { buildinfo.Version = oldVersion }()
+	oldStarter := startDetachedCommand
+	t.Cleanup(func() { startDetachedCommand = oldStarter })
+
+	started := false
+	startDetachedCommand = func(cmd *exec.Cmd) error {
+		started = true
+		return nil
+	}
+	assetBytes := []byte("installer")
+	sum := sha256.Sum256(assetBytes)
+	want := hex.EncodeToString(sum[:])
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/manifest.json" {
+			_, _ = fmt.Fprintf(w, `{
+				"version":"1.1.0",
+				"assets":[
+					{"os":"%s","arch":"%s","type":"installer","name":"mga.exe","url":"%s/mga.exe","sha256":"%s","size":%d}
+				]
+			}`, runtimeGOOS(), runtimeGOARCH(), server.URL, want, len(assetBytes))
+			return
+		}
+		_, _ = w.Write(assetBytes)
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	appDir := filepath.Join(root, "app")
+	if err := os.MkdirAll(filepath.Join(appDir, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(testConfig{
+		"UPDATE_MANIFEST_URL": server.URL + "/manifest.json",
+		"APP_INSTALL_TYPE":    "user",
+		"PLUGINS_DIR":         filepath.Join(appDir, "plugins"),
+		"UPDATES_DIR":         filepath.Join(root, "updates"),
+	}, testLogger{})
+
+	result, err := svc.Apply(context.Background())
+	if err != nil {
+		t.Fatalf("Apply() combined flow error = %v", err)
+	}
+	if !result.Applied || !started {
+		t.Fatalf("result = %+v, updater started = %v", result, started)
+	}
+	if _, err := os.Stat(filepath.Join(root, "updates", "mga.exe")); err != nil {
+		t.Fatalf("combined flow did not retain verified download: %v", err)
 	}
 }
 

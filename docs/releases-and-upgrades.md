@@ -114,10 +114,12 @@ Windows updater script that restarts MGA while replacing immutable app files.
 Recommended user flow:
 
 1. open Settings -> Update
-2. check for updates
-3. download and verify the portable ZIP
-4. apply the update and wait for MGA to restart
-5. verify the Settings/About version metadata
+2. choose **Download and apply**
+3. wait for MGA to download and verify the portable ZIP, apply it, and restart
+4. verify the Settings/About version metadata
+
+**Download only** keeps the verified package for later. Once downloaded, the
+page offers **Apply** and **Redownload**.
 
 The portable updater preserves `config.json`, `data/`, `media/`,
 `source_cache/`, `updates/`, and `logs/`.
@@ -151,6 +153,10 @@ Auto-update checks use SemVer precedence. A stable release is newer than a
 prerelease with the same numeric version, so an installed `v0.0.8-beta` build
 will detect `v0.0.8` as an available update once the stable manifest is
 published. Build metadata such as `+build.1` is ignored for precedence.
+
+MGA checks once shortly after startup and then hourly. A newly available
+version creates an actionable notification that opens Settings -> Updates.
+Automatic checks never download or apply an update.
 
 Installed Windows updates launch the verified installer in silent update mode.
 Per-user installs stop and restart the user-mode server process. All-users

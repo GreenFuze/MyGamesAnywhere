@@ -26,24 +26,28 @@ import (
 )
 
 const (
-	assetTypeInstaller = "installer"
-	assetTypePortable  = "portable"
-	defaultInstallType = "portable"
-	defaultManifestURL = "https://github.com/GreenFuze/MyGamesAnywhere/releases/latest/download/mga-update.json"
+	assetTypeInstaller           = "installer"
+	assetTypePortable            = "portable"
+	defaultInstallType           = "portable"
+	defaultManifestURL           = "https://github.com/GreenFuze/MyGamesAnywhere/releases/latest/download/mga-update.json"
+	automaticCheckInitialDelay   = time.Minute
+	automaticUpdateCheckInterval = time.Hour
 )
 
 var githubReleasesAPIBase = "https://api.github.com/repos"
 var startDetachedCommand = func(cmd *exec.Cmd) error { return cmd.Start() }
 
 type Service struct {
-	cfg            core.Configuration
-	logger         core.Logger
-	client         *http.Client
-	downloadClient *http.Client
-	eventBus       *events.EventBus
-	mu             sync.Mutex
-	lastStatus     core.UpdateStatus
-	exitProcess    func(int)
+	cfg                 core.Configuration
+	logger              core.Logger
+	client              *http.Client
+	downloadClient      *http.Client
+	eventBus            *events.EventBus
+	operationMu         sync.Mutex
+	mu                  sync.Mutex
+	lastStatus          core.UpdateStatus
+	lastNotifiedVersion string
+	exitProcess         func(int)
 }
 
 type githubRelease struct {
@@ -71,6 +75,66 @@ func NewService(cfg core.Configuration, logger core.Logger, eventBus ...*events.
 	}
 }
 
+// Start begins the process-wide, read-only update checker. Check failures are
+// deliberately non-fatal: the running server remains useful and retries on the
+// next scheduled check.
+func (s *Service) Start(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("automatic update check context is required")
+	}
+	go s.runAutomaticChecks(ctx)
+	return nil
+}
+
+func (s *Service) runAutomaticChecks(ctx context.Context) {
+	timer := time.NewTimer(automaticCheckInitialDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return
+	case <-timer.C:
+		s.checkAutomatically(ctx)
+	}
+
+	ticker := time.NewTicker(automaticUpdateCheckInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.checkAutomatically(ctx)
+		}
+	}
+}
+
+func (s *Service) checkAutomatically(ctx context.Context) {
+	status, err := s.Check(ctx)
+	if err != nil {
+		s.logger.Warn("automatic update check failed", "error", err)
+		return
+	}
+	version := strings.TrimSpace(status.LatestVersion)
+	if !status.UpdateAvailable || version == "" {
+		return
+	}
+
+	s.mu.Lock()
+	if s.lastNotifiedVersion == version {
+		s.mu.Unlock()
+		return
+	}
+	s.lastNotifiedVersion = version
+	s.mu.Unlock()
+
+	s.publish("update_available", map[string]any{
+		"current_version":   status.CurrentVersion,
+		"latest_version":    version,
+		"release_notes_url": status.ReleaseNotesURL,
+		"message":           status.Message,
+	})
+}
+
 func (s *Service) Status(ctx context.Context) (*core.UpdateStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -88,6 +152,12 @@ func (s *Service) Status(ctx context.Context) (*core.UpdateStatus, error) {
 }
 
 func (s *Service) Check(ctx context.Context) (*core.UpdateStatus, error) {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+	return s.check(ctx)
+}
+
+func (s *Service) check(ctx context.Context) (*core.UpdateStatus, error) {
 	manifest, err := s.fetchManifest(ctx)
 	if err != nil {
 		return nil, err
@@ -111,7 +181,10 @@ func (s *Service) Check(ctx context.Context) (*core.UpdateStatus, error) {
 }
 
 func (s *Service) Download(ctx context.Context) (*core.UpdateDownloadResult, error) {
-	status, err := s.Check(ctx)
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+
+	status, err := s.check(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -667,11 +740,37 @@ func (s *Service) downloadAndVerify(ctx context.Context, url, path, expectedSHA 
 		_ = os.Remove(tmp)
 		return "", 0, fmt.Errorf("update SHA256 mismatch: expected %s got %s", expectedSHA, actual)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := replaceVerifiedDownload(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return "", 0, fmt.Errorf("move update download into place: %w", err)
 	}
 	return actual, size, nil
+}
+
+func replaceVerifiedDownload(source, destination string) error {
+	if _, err := os.Stat(destination); errors.Is(err, os.ErrNotExist) {
+		return os.Rename(source, destination)
+	} else if err != nil {
+		return err
+	}
+
+	backup := destination + ".previous"
+	if err := os.Remove(backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove stale update backup: %w", err)
+	}
+	if err := os.Rename(destination, backup); err != nil {
+		return fmt.Errorf("preserve existing verified update: %w", err)
+	}
+	if err := os.Rename(source, destination); err != nil {
+		if restoreErr := os.Rename(backup, destination); restoreErr != nil {
+			return fmt.Errorf("replace verified update: %w (restore also failed: %v)", err, restoreErr)
+		}
+		return fmt.Errorf("replace verified update: %w", err)
+	}
+	// Cleanup is best effort after the verified replacement is already in
+	// place. A stale backup is removed before the next replacement attempt.
+	_ = os.Remove(backup)
+	return nil
 }
 
 type progressReader struct {

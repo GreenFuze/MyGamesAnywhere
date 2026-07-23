@@ -57,3 +57,14 @@ silent in notification history.
 | `installation_validation_started` | A manual or scheduled check dispatches to a connected endpoint | `profile_id`, `endpoint_id`, `command_id`, `trigger`, `total` |
 | `installation_validation_finished` | The typed command reaches a terminal state | `profile_id`, `endpoint_id`, `command_id`, `trigger`, `status`, `total`, `changed_missing`, `changed_needs_repair`, `restored`, `error` |
 | `installation_validation_schedule_updated` | A profile changes its automatic-check interval or paused state | `profile_id`, `enabled`, `interval_minutes` |
+
+### Server updates
+
+Server update lifecycle events are explicitly server-global. They contain only
+public release metadata and update progress, never profile or provider data.
+
+| `event` | When | Payload (excerpt) |
+|---------|------|-------------------|
+| `update_available` | The hourly checker first discovers a newer version during this server process | `current_version`, `latest_version`, `release_notes_url`, `message` |
+| `update_download_started` / `update_download_progress` / `update_download_complete` / `update_download_error` | A player-started update download changes state | version, byte progress, verified local update path, coarse error |
+| `update_apply_started` / `update_apply_error` | The verified updater is launched or cannot be launched | version, state, coarse error |

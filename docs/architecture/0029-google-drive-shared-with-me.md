@@ -16,9 +16,12 @@ provider collection with different membership and API semantics.
 
 ## Decision
 
-1. The Google Drive folder picker exposes **Shared with me** as a virtual browse
-   location alongside the folders in My Drive. The virtual collection itself is
-   not selectable; the player selects a concrete folder inside it.
+1. The Google Drive game-source picker starts at a provider-level **Google
+   Drive** location chooser. **My Drive** and **Shared with me** are peer
+   locations; neither is presented as a child of the other. The Shared with me
+   collection itself is not selectable; the player selects a concrete folder
+   inside it. Write-oriented Settings Sync and Save Sync pickers continue to
+   start directly at My Drive.
 2. A selected shared folder is persisted with both:
    - a friendly logical `path`, used in the UI and MGA library paths; and
    - its stable Google Drive file ID in `include_paths[].object_id`.
@@ -62,6 +65,8 @@ shared folder after returning to a supporting version restores the ID.
 
 - [x] My Drive browsing and existing path-only scans are unchanged.
 - [x] The game-source picker visibly offers Shared with me after Google sign-in.
+- [x] The game-source picker starts at Google Drive and presents My Drive and
+      Shared with me as peer locations.
 - [x] Shared folder browsing is paginated and concrete selections persist a
       friendly path plus stable object ID.
 - [x] A shared-folder scan begins at the stored object ID and returns logical
@@ -101,3 +106,34 @@ server package:  build.ps1                             PASS
 
 The production build retains the known large-main-chunk warning. No connection
 configuration or provider data was changed during the real UI verification.
+
+## 2026-07-23 UX correction
+
+The v0.2.8 implementation technically exposed Shared with me, but its browser
+still used **My Drive** as the breadcrumb root. That made Shared with me look
+like a folder inside My Drive and made it easy to miss, especially when the
+desired library exists only in the shared collection.
+
+The accepted location model is therefore clarified: game-source browsing begins
+at **Google Drive**, with **My Drive** and **Shared with me** as two explicit
+choices. This changes no persisted configuration or provider identity behavior.
+`NO_MIGRATION_NEEDED`: the correction changes only transient browse tokens and
+picker presentation; existing My Drive paths and shared-folder object IDs keep
+their current meaning.
+
+Automated correction evidence:
+
+```text
+Drive plugin + scope tests: PASS
+Frontend unit tests:       PASS (17 tests)
+Frontend production build: PASS
+Full server tests + vet:   PASS
+Migration guard:           PASS
+Packaged server build:     PASS
+```
+
+The packaged browser check reached a fresh protected-profile sign-in screen;
+the agent did not reuse a remembered credential. A second check in Chrome was
+blocked by an open extension UI. No saved integration was changed. The pure
+location-history test and Drive browse-service test directly assert the
+corrected first screen and its two peer locations.

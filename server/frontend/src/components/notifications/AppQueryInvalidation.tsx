@@ -40,6 +40,9 @@ export function AppQueryInvalidation() {
         queryClient.invalidateQueries({ queryKey: ['installed-games'] })
         queryClient.invalidateQueries({ queryKey: ['game-detail'] })
       }),
+      subscribe('update_available', () => {
+        queryClient.invalidateQueries({ queryKey: ['update-status'] })
+      }),
     ]
 
     return () => {

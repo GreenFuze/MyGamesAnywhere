@@ -143,8 +143,32 @@ func TestDriveFolderBrowserListsMyDriveAndPaginatedSharedFolders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("browse My Drive root: %v", err)
 	}
-	if len(root) != 2 || root[0].LocationKind != "shared_with_me" || root[0].Selectable || root[1].Path != "Games" {
+	if len(root) != 1 || root[0].Path != "Games" || root[0].LocationKind != "" {
 		t.Fatalf("root folders = %#v", root)
+	}
+
+	locations, err := browser.browse(driveLocationsBrowseToken)
+	if err != nil {
+		t.Fatalf("browse Drive locations: %v", err)
+	}
+	if len(locations) != 2 ||
+		locations[0].Name != "My Drive" ||
+		locations[0].Path != driveMyDriveBrowseToken ||
+		locations[0].LocationKind != "my_drive" ||
+		!locations[0].Selectable ||
+		locations[1].Name != "Shared with me" ||
+		locations[1].Path != driveSharedBrowseToken ||
+		locations[1].LocationKind != "shared_with_me" ||
+		locations[1].Selectable {
+		t.Fatalf("Drive locations = %#v", locations)
+	}
+
+	myDrive, err := browser.browse(driveMyDriveBrowseToken)
+	if err != nil {
+		t.Fatalf("browse My Drive location: %v", err)
+	}
+	if len(myDrive) != 1 || myDrive[0].Path != "Games" {
+		t.Fatalf("My Drive folders = %#v", myDrive)
 	}
 
 	shared, err := browser.browse(driveSharedBrowseToken)

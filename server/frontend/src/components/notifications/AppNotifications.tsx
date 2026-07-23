@@ -170,6 +170,16 @@ export function AppNotifications() {
           action: readString(data.endpoint_id) ? { label: 'Review installed games', href: `/settings?tab=devices&device=${encodeURIComponent(readString(data.endpoint_id)!)}` } : undefined,
         })
       }),
+      subscribe('update_available', (raw) => {
+        const data = (raw ?? {}) as EventPayload
+        const version = readString(data.latest_version)
+        notify({
+          tone: 'info',
+          title: version ? `MGA ${version} is available` : 'An MGA update is available',
+          description: 'A newer MGA Server version is ready when you are.',
+          action: { label: 'Open updates', href: '/settings?tab=update' },
+        })
+      }),
       subscribe('integration_status_checked', (raw) => {
         const data = (raw ?? {}) as EventPayload
         const integrationId = readString(data.integration_id)

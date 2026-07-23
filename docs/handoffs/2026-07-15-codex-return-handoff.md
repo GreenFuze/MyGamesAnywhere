@@ -1947,3 +1947,85 @@ Automated evidence is recorded in ADR-0029. No commit, push, release, or TV2
 deployment has been performed for this feature. A new release/update requires
 explicit user authorization; only after that can Orr select the intended shared
 folder on TV2 for real persisted scan E2E.
+
+## 2026-07-23 — Drive picker top-level location correction
+
+TV2 is confirmed on released v0.2.8 (`17a4b370`). That release contains
+ADR-0029's stable-ID Shared with me implementation, but the picker still starts
+with a **My Drive** breadcrumb and renders Shared with me like a child row. The
+user correctly identified this as a product/UX defect.
+
+The current intentionally uncommitted worktree corrects the transient location
+model. Google Drive game-source browsing now starts at **Google Drive** with
+**My Drive** and **Shared with me** as peer locations. Settings Sync and Save
+Sync still start directly in My Drive. Existing path-only My Drive scopes and
+stable shared-folder object IDs are unchanged.
+
+`NO_MIGRATION_NEEDED`: only transient browse tokens, frontend breadcrumb state,
+and Drive plugin presentation changed. Plugin version is now 2.2.1. Focused
+Drive/scope tests, 18 frontend unit tests, the frontend production build, full
+server tests/vet, migration guard, and packaged server build pass. The exact
+packaged local server is running from `server/bin` as PID `7296`, health HTTP
+200, server SHA-256
+`8E5E0151BEA7703381B6E2A7A3F80A6348A119FAE4A8F5339E52CF842E37440A`,
+and Drive plugin SHA-256
+`22BB4D95E83F94B9294B3D4F85DA5FE2BAD7FC47773FB1548EBC18D8462E75CD`.
+
+No commit, push, release, or TV2 deployment has been performed for this
+correction. Publishing the next MGA version and updating TV2 require explicit
+user authorization.
+
+## 2026-07-23 — streamlined and automatic server updates
+
+The user has now explicitly authorized committing, pushing, publishing the next
+release, and updating TV2 through MGA's web interface. This supersedes the
+authorization warning immediately above.
+
+[`ADR-0030`](../architecture/0030-streamlined-and-automatic-server-updates.md)
+is accepted and implemented in the current worktree. Before a package exists,
+the Updates page now presents **Download and apply** as its primary action and
+**Download only** as its secondary action. After verification those actions
+become **Apply** and **Redownload**. The existing server Apply operation already
+provided the safe combined backend path; the web UI no longer blocks it.
+
+The server now starts one process-wide update checker one minute after startup
+and hourly thereafter. It performs manifest checks only, serializes itself with
+manual checks and downloads, and publishes one server-global
+`update_available` notification per newly discovered version per process. The
+notification opens the exact `settings?tab=update` route. Check failures remain
+non-fatal and low-noise.
+
+Windows redownload replacement was hardened while implementing the requested
+state: the current verified package is preserved until its replacement has
+downloaded and passed SHA-256 verification. Replacement and rollback behavior
+has focused regression coverage.
+
+`NO_MIGRATION_NEEDED`: the schedule and notification deduplication are
+in-memory runtime state. No SQLite, persisted configuration, manifest, API, or
+protocol shape changes. Migrations 1-28 remain immutable and migration 29 does
+not exist.
+
+Pre-release evidence:
+
+```text
+focused update/events/http: PASS
+server:                     go test ./... -count=1 PASS
+server quality:             go vet ./... PASS
+client:                     tests + vet PASS
+protocol:                   tests + vet PASS
+standalone plugins:         tests + vet PASS
+frontend:                   20 unit tests + production build PASS
+migration guard:            PASS
+quality:                    gofmt + git diff --check PASS
+packaged server build:      PASS
+```
+
+The packaged local server is running from `server/bin` as PID `35992`, health
+HTTP 200, server SHA-256
+`B4C034CE8AF1448F59A6D6906814DA594F6BCB4F5B3A39F069FCBFB318601CE3`,
+with `MGA_GOOGLE_DRIVE_DESKTOP_ROOT=G:\My Drive`. Its build metadata remains
+v0.2.8/`17a4b370` until the release commit exists. The fresh local browser
+session correctly stopped at the protected TCs sign-in and no remembered
+credential was reused. The preserved authenticated Orr session on TV2 confirms
+the real v0.2.8 Updates page and is ready for the authorized web-driven upgrade
+after publication.

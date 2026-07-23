@@ -1,6 +1,6 @@
 {
   "plugin_id": "game-source-google-drive",
-  "plugin_version": "2.2.0",
+  "plugin_version": "2.2.1",
   "api_major": 1,
   "capabilities": ["source"],
   "provides": ["source.filesystem.list", "source.filesystem.delete", "source.file.materialize", "plugin.check_config", "auth.oauth.callback", "source.browse"],

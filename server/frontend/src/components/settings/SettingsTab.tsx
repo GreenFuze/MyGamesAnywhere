@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSSE } from '@/hooks/useSSE'
+import { resolveUpdateActionPresentation } from '@/lib/updateActions'
 
 function UpdateInfoCard({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
@@ -243,6 +244,8 @@ export function UpdateTab() {
   const downloadBytes = update?.download_bytes || update?.downloaded_size || 0
   const downloadTotal = update?.download_total_bytes || update?.selected_asset?.size || 0
   const downloaded = !!update?.downloaded_path
+  const actionPresentation = resolveUpdateActionPresentation(downloaded)
+  const actionableUpdate = !!update?.update_available && !!update?.selected_asset
   const applyWaitSeconds = applyStartedAt ? Math.floor((Date.now() - applyStartedAt) / 1000) : 0
   const applyLooksStuck =
     applyWaiting &&
@@ -256,6 +259,7 @@ export function UpdateTab() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-mga-text">Updates</h2>
+            <p className="mt-1 text-sm text-mga-muted">MGA checks for new versions automatically every hour.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -271,18 +275,26 @@ export function UpdateTab() {
               type="button"
               variant="outline"
               onClick={() => downloadMutation.mutate()}
-              disabled={updateBusy || downloadInProgress || applyWaiting || !update?.selected_asset}
+              disabled={updateBusy || downloadInProgress || applyWaiting || !actionableUpdate}
             >
               {downloaded ? <RotateCw size={16} /> : <Download size={16} />}
-              {downloaded ? 'Re-download' : downloadInProgress ? 'Downloading...' : 'Download'}
+              {downloadMutation.isPending || (downloadInProgress && !applyMutation.isPending)
+                ? 'Downloading...'
+                : actionPresentation.secondaryLabel}
             </Button>
             <Button
               type="button"
               onClick={() => applyMutation.mutate()}
-              disabled={updateBusy || applyWaiting || !update?.downloaded_path}
+              disabled={updateBusy || applyWaiting || !actionableUpdate}
             >
               <Play size={16} />
-              {applyWaiting ? 'Applying...' : 'Apply'}
+              {applyWaiting
+                ? 'Applying...'
+                : applyMutation.isPending
+                  ? downloadInProgress
+                    ? 'Downloading...'
+                    : 'Starting update...'
+                  : actionPresentation.primaryLabel}
             </Button>
           </div>
         </div>
@@ -345,7 +357,7 @@ export function UpdateTab() {
                 {applyRuntimeError ? <p className="mt-2 break-words">{applyRuntimeError}</p> : null}
                 {applyLooksStuck ? (
                   <p className="mt-2">
-                    MGA is still responding on the old version after {applyWaitSeconds}s. The updater may have failed before restarting the service. Check the update/install log on the server, then try Re-download and Apply again.
+                    MGA is still responding on the old version after {applyWaitSeconds}s. The updater may have failed before restarting the service. Check the update/install log on the server, then try Redownload and Apply again.
                   </p>
                 ) : null}
               </div>

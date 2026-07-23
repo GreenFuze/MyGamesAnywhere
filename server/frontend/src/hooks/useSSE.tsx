@@ -97,6 +97,7 @@ const knownTypes = [
   'oauth_error',
 
   // Update flow events.
+  'update_available',
   'update_download_started',
   'update_download_progress',
   'update_download_complete',
