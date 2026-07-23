@@ -20,6 +20,7 @@ import (
 var (
 	ErrInvalidPairingCode   = errors.New("pairing code is invalid, expired, or already used")
 	ErrClientAlreadyPaired  = errors.New("this MGA Client installation is already paired")
+	ErrPairingIdentity      = errors.New("existing MGA Client identity could not be verified")
 	ErrEndpointNotFound     = errors.New("device endpoint not found")
 	ErrDeviceForbidden      = errors.New("profile does not have access to this device endpoint")
 	ErrEndpointOffline      = errors.New("device endpoint is offline")
@@ -155,6 +156,33 @@ func (s *Service) Pair(ctx context.Context, request devicev1.PairingRequest, web
 		Status:           devicev1.EndpointOffline,
 		CreatedAt:        now,
 		UpdatedAt:        now,
+	}
+	if strings.TrimSpace(request.ExistingEndpointID) != "" {
+		existing, err := s.store.GetEndpoint(ctx, strings.TrimSpace(request.ExistingEndpointID))
+		if err != nil {
+			return devicev1.PairingResponse{}, err
+		}
+		if existing == nil ||
+			existing.ClientInstanceID != request.ClientInstanceID ||
+			existing.PublicKey != request.PublicKey {
+			return devicev1.PairingResponse{}, ErrPairingIdentity
+		}
+		signingBytes, err := request.SigningBytes()
+		if err != nil {
+			return devicev1.PairingResponse{}, err
+		}
+		publicKey, keyErr := base64.RawURLEncoding.DecodeString(existing.PublicKey)
+		signature, signatureErr := base64.RawURLEncoding.DecodeString(request.Signature)
+		if keyErr != nil || signatureErr != nil ||
+			!ed25519.Verify(ed25519.PublicKey(publicKey), signingBytes, signature) {
+			return devicev1.PairingResponse{}, ErrPairingIdentity
+		}
+		endpoint = *existing
+		endpoint.ClientVersion = strings.TrimSpace(request.ClientVersion)
+		endpoint.ExecutionMode = executionMode
+		endpoint.ProtocolVersion = selected
+		endpoint.Capabilities = request.Metadata.SortedCapabilities()
+		endpoint.UpdatedAt = now
 	}
 	if _, err := s.store.PairEndpoint(ctx, hashPairingCode(request.Code), now, endpoint); err != nil {
 		return devicev1.PairingResponse{}, err

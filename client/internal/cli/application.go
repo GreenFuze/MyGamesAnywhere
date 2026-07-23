@@ -195,14 +195,11 @@ func newProtocolCommand(service ClientService) *cobra.Command {
 			if parsed.Host != "pair" {
 				return errors.New("unsupported MGA protocol URI")
 			}
-			config, err := service.Pair(command.Context(), clientapp.PairOptions{
+			_, err = service.Pair(command.Context(), clientapp.PairOptions{
 				ServerURL: parsed.Query().Get("server"),
 				Code:      parsed.Query().Get("code"),
 			})
 			if err != nil {
-				return err
-			}
-			if _, err = fmt.Fprintf(command.OutOrStdout(), "Paired %s as %s. Connecting agent…\n", config.DisplayName, config.EndpointID); err != nil {
 				return err
 			}
 			return service.RunAgentReplacingExisting(command.Context())

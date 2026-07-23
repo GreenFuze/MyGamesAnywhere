@@ -74,6 +74,27 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 	if endpoints[0].ExecutionMode != devicev1.ClientExecutionModeStandard {
 		t.Fatalf("endpoint execution mode = %q, want standard", endpoints[0].ExecutionMode)
 	}
+	secondChallenge := devices.PairingChallenge{ID: "challenge-2", CodeHash: "code-hash-2", ProfileID: secondProfile.ID, CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	if err := store.CreatePairingChallenge(context.Background(), secondChallenge); err != nil {
+		t.Fatalf("CreatePairingChallenge(second) error = %v", err)
+	}
+	if pairedProfileID, err = store.PairEndpoint(context.Background(), secondChallenge.CodeHash, now, endpoint); err != nil || pairedProfileID != secondProfile.ID {
+		t.Fatalf("PairEndpoint(existing) profile=%q error=%v", pairedProfileID, err)
+	}
+	if _, err := store.PairEndpoint(context.Background(), secondChallenge.CodeHash, now, endpoint); !errors.Is(err, devices.ErrInvalidPairingCode) {
+		t.Fatalf("PairEndpoint(replayed existing challenge) error=%v, want ErrInvalidPairingCode", err)
+	}
+	expiredChallenge := devices.PairingChallenge{ID: "challenge-expired", CodeHash: "code-hash-expired", ProfileID: secondProfile.ID, CreatedAt: now.Add(-2 * time.Minute), ExpiresAt: now.Add(-time.Minute)}
+	if err := store.CreatePairingChallenge(context.Background(), expiredChallenge); err != nil {
+		t.Fatalf("CreatePairingChallenge(expired) error = %v", err)
+	}
+	if _, err := store.PairEndpoint(context.Background(), expiredChallenge.CodeHash, now, endpoint); !errors.Is(err, devices.ErrInvalidPairingCode) {
+		t.Fatalf("PairEndpoint(expired existing challenge) error=%v, want ErrInvalidPairingCode", err)
+	}
+	secondEndpoints, err := store.ListEndpoints(context.Background(), secondProfile.ID)
+	if err != nil || len(secondEndpoints) != 1 || secondEndpoints[0].ID != endpoint.ID || secondEndpoints[0].AccessLevel != devicev1.AccessOwner {
+		t.Fatalf("existing endpoint grant = %+v, error=%v", secondEndpoints, err)
+	}
 	if err := store.SetGrant(context.Background(), endpoint.ID, secondProfile.ID, devicev1.AccessView, now); err != nil {
 		t.Fatalf("SetGrant(view) error = %v", err)
 	}

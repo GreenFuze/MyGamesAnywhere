@@ -30,6 +30,9 @@ func (s *DeviceStore) CreatePairingChallenge(ctx context.Context, challenge devi
 	return err
 }
 
+// NO_MIGRATION_NEEDED: adding another profile grant for an existing endpoint
+// reuses the pairing-challenge, endpoint, and grant schema created by migration
+// 12. Existing rows and client binding documents remain valid and unchanged.
 func (s *DeviceStore) PairEndpoint(ctx context.Context, codeHash string, now time.Time, endpoint devices.Endpoint) (string, error) {
 	if endpoint.ExecutionMode == "" {
 		endpoint.ExecutionMode = devicev1.ClientExecutionModeStandard
@@ -52,25 +55,38 @@ func (s *DeviceStore) PairEndpoint(ctx context.Context, codeHash string, now tim
 		}
 		return "", err
 	}
-	capabilities, err := json.Marshal(endpoint.Capabilities)
-	if err != nil {
-		return "", fmt.Errorf("marshal endpoint capabilities: %w", err)
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO device_endpoints
-		(id, client_instance_id, public_key, display_name, host_name, os_user, platform, arch, client_version,
-		 execution_mode, protocol_version, capabilities_json, status, status_reason, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)`,
-		endpoint.ID, endpoint.ClientInstanceID, endpoint.PublicKey, endpoint.DisplayName, endpoint.HostName, endpoint.OSUser,
-		endpoint.Platform, endpoint.Arch, endpoint.ClientVersion, endpoint.ExecutionMode, endpoint.ProtocolVersion, string(capabilities),
-		string(devicev1.EndpointOffline), now.Unix(), now.Unix())
-	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			return "", devices.ErrClientAlreadyPaired
+	var storedInstanceID, storedPublicKey string
+	existingErr := tx.QueryRowContext(ctx, `SELECT client_instance_id, public_key FROM device_endpoints WHERE id=?`, endpoint.ID).
+		Scan(&storedInstanceID, &storedPublicKey)
+	switch {
+	case existingErr == nil:
+		if storedInstanceID != endpoint.ClientInstanceID || storedPublicKey != endpoint.PublicKey {
+			return "", devices.ErrPairingIdentity
 		}
-		return "", err
+	case !errors.Is(existingErr, sql.ErrNoRows):
+		return "", existingErr
+	default:
+		capabilities, marshalErr := json.Marshal(endpoint.Capabilities)
+		if marshalErr != nil {
+			return "", fmt.Errorf("marshal endpoint capabilities: %w", marshalErr)
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO device_endpoints
+			(id, client_instance_id, public_key, display_name, host_name, os_user, platform, arch, client_version,
+			 execution_mode, protocol_version, capabilities_json, status, status_reason, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)`,
+			endpoint.ID, endpoint.ClientInstanceID, endpoint.PublicKey, endpoint.DisplayName, endpoint.HostName, endpoint.OSUser,
+			endpoint.Platform, endpoint.Arch, endpoint.ClientVersion, endpoint.ExecutionMode, endpoint.ProtocolVersion, string(capabilities),
+			string(devicev1.EndpointOffline), now.Unix(), now.Unix())
+		if err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				return "", devices.ErrClientAlreadyPaired
+			}
+			return "", err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO device_grants
-		(endpoint_id, profile_id, access_level, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+		(endpoint_id, profile_id, access_level, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(endpoint_id, profile_id) DO UPDATE SET access_level=excluded.access_level, updated_at=excluded.updated_at`,
 		endpoint.ID, profileID, string(devicev1.AccessOwner), now.Unix(), now.Unix()); err != nil {
 		return "", err
 	}

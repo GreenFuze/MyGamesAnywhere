@@ -4,7 +4,11 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -197,19 +201,65 @@ func TestClearBindingRemovesOnlyRequestedServerAndKey(t *testing.T) {
 	}
 }
 
-func TestPairRejectsEquivalentExistingServerBeforeNetworkRequest(t *testing.T) {
+func TestPairUsesExistingIdentityToAddProfileGrant(t *testing.T) {
 	service, err := New(t.TempDir(), buildinfo.Info{Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = service.Close() })
-	binding := serviceTestBinding("one", "http://localhost:8900")
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var received devicev1.PairingRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/devices/pair" || r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		signingBytes, err := received.SigningBytes()
+		signature, signatureErr := base64.RawURLEncoding.DecodeString(received.Signature)
+		if err != nil || signatureErr != nil || !ed25519.Verify(publicKey, signingBytes, signature) {
+			http.Error(w, "invalid identity proof", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(devicev1.PairingResponse{
+			EndpointID:      "one",
+			ProtocolVersion: devicev1.Version,
+			WebSocketURL:    "ws" + strings.TrimPrefix(serverURLForRequest(r), "http") + "/api/devices/connect",
+		})
+	}))
+	defer server.Close()
+	binding := serviceTestBinding("one", server.URL)
 	if err := service.configs.Save(clientconfig.Document{SchemaVersion: clientconfig.SchemaVersion, Bindings: []clientconfig.Binding{binding}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Pair(context.Background(), PairOptions{ServerURL: "http://127.0.0.1:8900", Code: "unused"}); err == nil || !strings.Contains(err.Error(), "already paired") {
+	if err := service.identityStore(binding).Save(privateKey); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.Pair(context.Background(), PairOptions{ServerURL: server.URL, Code: "profile-grant-code"})
+	if err != nil {
 		t.Fatalf("Pair() error = %v", err)
 	}
+	if updated.BindingID != binding.BindingID || updated.EndpointID != binding.EndpointID {
+		t.Fatalf("binding identity changed: got=%+v want=%+v", updated, binding)
+	}
+	if received.ExistingEndpointID != binding.EndpointID ||
+		received.ClientInstanceID != binding.ClientInstanceID ||
+		received.PublicKey != base64.RawURLEncoding.EncodeToString(publicKey) ||
+		received.Code != "profile-grant-code" {
+		t.Fatalf("existing grant request = %+v", received)
+	}
+}
+
+func serverURLForRequest(r *http.Request) string {
+	return "http://" + r.Host
 }
 
 func TestLoadBindingsRejectsEquivalentLoopbackOrigins(t *testing.T) {

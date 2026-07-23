@@ -2,6 +2,7 @@ package v1
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -104,12 +105,14 @@ func (m EndpointMetadata) SortedCapabilities() []string {
 
 // PairingRequest is sent over HTTPS to atomically consume a single-use code.
 type PairingRequest struct {
-	Code             string           `json:"code"`
-	ClientInstanceID string           `json:"client_instance_id"`
-	PublicKey        string           `json:"public_key"`
-	ClientVersion    string           `json:"client_version"`
-	Versions         VersionRange     `json:"versions"`
-	Metadata         EndpointMetadata `json:"metadata"`
+	Code               string           `json:"code"`
+	ClientInstanceID   string           `json:"client_instance_id"`
+	PublicKey          string           `json:"public_key"`
+	ClientVersion      string           `json:"client_version"`
+	Versions           VersionRange     `json:"versions"`
+	Metadata           EndpointMetadata `json:"metadata"`
+	ExistingEndpointID string           `json:"existing_endpoint_id,omitempty"`
+	Signature          string           `json:"signature,omitempty"`
 }
 
 // Validate rejects malformed pairing material before it reaches persistence.
@@ -133,7 +136,49 @@ func (r PairingRequest) Validate() error {
 	if _, err := NegotiateVersion(r.Versions, SupportedVersionRange()); err != nil {
 		return err
 	}
-	return r.Metadata.Validate()
+	if err := r.Metadata.Validate(); err != nil {
+		return err
+	}
+	hasEndpoint := strings.TrimSpace(r.ExistingEndpointID) != ""
+	hasSignature := strings.TrimSpace(r.Signature) != ""
+	if hasEndpoint != hasSignature {
+		return errors.New("existing_endpoint_id and signature must be supplied together")
+	}
+	if hasSignature {
+		signature, err := base64.RawURLEncoding.DecodeString(r.Signature)
+		if err != nil || len(signature) != 64 {
+			return errors.New("signature must be a base64url Ed25519 signature")
+		}
+	}
+	return nil
+}
+
+// SigningBytes returns the stable payload an already-paired endpoint signs
+// before a one-time pairing challenge may add another profile grant.
+func (r PairingRequest) SigningBytes() ([]byte, error) {
+	if strings.TrimSpace(r.ExistingEndpointID) == "" {
+		return nil, errors.New("existing_endpoint_id is required for grant signing")
+	}
+	payload := struct {
+		Purpose            string           `json:"purpose"`
+		Code               string           `json:"code"`
+		ClientInstanceID   string           `json:"client_instance_id"`
+		PublicKey          string           `json:"public_key"`
+		ClientVersion      string           `json:"client_version"`
+		Versions           VersionRange     `json:"versions"`
+		Metadata           EndpointMetadata `json:"metadata"`
+		ExistingEndpointID string           `json:"existing_endpoint_id"`
+	}{
+		Purpose:            "mga-device-v1-profile-grant",
+		Code:               strings.TrimSpace(r.Code),
+		ClientInstanceID:   strings.TrimSpace(r.ClientInstanceID),
+		PublicKey:          strings.TrimSpace(r.PublicKey),
+		ClientVersion:      strings.TrimSpace(r.ClientVersion),
+		Versions:           r.Versions,
+		Metadata:           r.Metadata,
+		ExistingEndpointID: strings.TrimSpace(r.ExistingEndpointID),
+	}
+	return json.Marshal(payload)
 }
 
 // PairingResponse is returned once the endpoint and Owner grant are durable.

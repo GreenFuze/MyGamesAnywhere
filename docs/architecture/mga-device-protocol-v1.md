@@ -123,8 +123,19 @@ reusable credential and cannot carry an arbitrary executable or device command.
 
 Pairing fails fast if the challenge is expired, already consumed, belongs to a
 different authenticated pairing flow, or requests an unsupported protocol.
-Re-pairing creates or explicitly replaces an endpoint; it must not silently
-take over an existing endpoint identity.
+When the same client is already bound to that server but the active profile has
+no grant, the client signs the complete one-time pairing request with the
+existing endpoint private key. The server verifies the endpoint ID, client
+instance ID, public key, and signature, then atomically consumes the challenge
+and adds an `Owner` grant for only that profile. The endpoint identity and local
+binding remain unchanged. A request without valid proof must never take over or
+replace an existing endpoint identity.
+
+`NO_MIGRATION_NEEDED`: this profile-grant flow reuses the existing
+`device_pairing_challenges`, `device_endpoints`, and `device_grants` schema and
+the existing client binding document. Existing installations require no SQLite
+or client-config rewrite; older server/client combinations continue to reject
+the unsupported existing-binding grant attempt rather than changing identity.
 
 ## Connection authentication
 

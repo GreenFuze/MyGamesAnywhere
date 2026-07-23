@@ -17,6 +17,9 @@ import (
 type launchTestStore struct {
 	endpoint      Endpoint
 	grant         devicev1.AccessLevel
+	paired        Endpoint
+	pairProfileID string
+	pairErr       error
 	installations []GameInstallation
 	updatedTarget string
 	failureState  string
@@ -59,6 +62,63 @@ func TestCommandPayloadForAuditRedactsArchiveDownloadToken(t *testing.T) {
 	}
 }
 
+func TestPairAddsGrantOnlyAfterExistingEndpointIdentityProof(t *testing.T) {
+	t.Parallel()
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := Endpoint{
+		ID:               "endpoint-1",
+		ClientInstanceID: "instance-1",
+		PublicKey:        base64.RawURLEncoding.EncodeToString(publicKey),
+		DisplayName:      "PC / player",
+		HostName:         "PC",
+		OSUser:           "player",
+		Platform:         "windows",
+		Arch:             "amd64",
+		ClientVersion:    "old",
+		ProtocolVersion:  devicev1.Version,
+		Capabilities:     []string{devicev1.CapabilityEndpointPing},
+		Status:           devicev1.EndpointReady,
+	}
+	store := &launchTestStore{endpoint: endpoint, pairProfileID: "profile-2"}
+	service, err := NewService(store, NewHub())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := devicev1.PairingRequest{
+		Code:             "profile-2-code",
+		ClientInstanceID: endpoint.ClientInstanceID,
+		PublicKey:        endpoint.PublicKey,
+		ClientVersion:    "new",
+		Versions:         devicev1.SupportedVersionRange(),
+		Metadata: devicev1.EndpointMetadata{
+			DisplayName: "PC / player", HostName: "PC", OSUser: "player", Platform: "windows", Arch: "amd64",
+			Capabilities: []string{devicev1.CapabilityEndpointPing},
+		},
+		ExistingEndpointID: endpoint.ID,
+	}
+	signingBytes, err := request.SigningBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, signingBytes))
+	response, err := service.Pair(context.Background(), request, "ws://mga.test/api/devices/connect")
+	if err != nil {
+		t.Fatalf("Pair() error = %v", err)
+	}
+	if response.EndpointID != endpoint.ID || store.paired.ID != endpoint.ID || store.paired.ClientVersion != "new" {
+		t.Fatalf("response=%+v paired=%+v", response, store.paired)
+	}
+
+	request.Code = "tampered"
+	if _, err := service.Pair(context.Background(), request, "ws://mga.test/api/devices/connect"); !errors.Is(err, ErrPairingIdentity) {
+		t.Fatalf("Pair(tampered) error = %v, want ErrPairingIdentity", err)
+	}
+}
+
 func (s *launchTestStore) GetGrant(_ context.Context, endpointID, profileID string) (devicev1.AccessLevel, error) {
 	if endpointID != s.endpoint.ID || profileID != "profile-1" {
 		return "", ErrDeviceForbidden
@@ -69,8 +129,9 @@ func (s *launchTestStore) GetGrant(_ context.Context, endpointID, profileID stri
 func (*launchTestStore) CreatePairingChallenge(context.Context, PairingChallenge) error {
 	return errors.New("unexpected call")
 }
-func (*launchTestStore) PairEndpoint(context.Context, string, time.Time, Endpoint) (string, error) {
-	return "", errors.New("unexpected call")
+func (s *launchTestStore) PairEndpoint(_ context.Context, _ string, _ time.Time, endpoint Endpoint) (string, error) {
+	s.paired = endpoint
+	return s.pairProfileID, s.pairErr
 }
 func (s *launchTestStore) ListEndpoints(context.Context, string) ([]Endpoint, error) {
 	return []Endpoint{s.endpoint}, nil

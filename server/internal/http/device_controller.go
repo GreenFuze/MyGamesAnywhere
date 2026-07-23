@@ -481,6 +481,8 @@ func writeDeviceError(w http.ResponseWriter, err error) {
 		status = http.StatusNotFound
 	case errors.Is(err, devices.ErrClientAlreadyPaired):
 		status = http.StatusConflict
+	case errors.Is(err, devices.ErrPairingIdentity):
+		status = http.StatusForbidden
 	case errors.Is(err, devices.ErrClientLaunchNotFound):
 		status = http.StatusNotFound
 	case errors.Is(err, devices.ErrClientLaunchExpired), errors.Is(err, devices.ErrClientLaunchUsed):

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -12,6 +13,12 @@ import (
 )
 
 type fakeClientService struct{}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("console unavailable")
+}
 
 func (fakeClientService) Pair(context.Context, clientapp.PairOptions) (clientconfig.Binding, error) {
 	return clientconfig.Binding{}, nil
@@ -90,5 +97,25 @@ func TestUnknownCommandFails(t *testing.T) {
 	}
 	if err := application.Execute(context.Background(), []string{"unknown"}); err == nil {
 		t.Fatal("Execute() error = nil, want unknown command error")
+	}
+}
+
+func TestProtocolPairDoesNotRequireConsoleOutput(t *testing.T) {
+	t.Parallel()
+
+	application, err := NewApplication(Dependencies{
+		Out:       failingWriter{},
+		Err:       &bytes.Buffer{},
+		BuildInfo: buildinfo.Info{Version: "test"},
+		Client:    fakeClientService{},
+	})
+	if err != nil {
+		t.Fatalf("NewApplication() error = %v", err)
+	}
+	if err := application.Execute(context.Background(), []string{
+		"protocol",
+		"mga://pair?server=http%3A%2F%2Ftv2%3A8900&code=one-time",
+	}); err != nil {
+		t.Fatalf("Execute(protocol pair) error = %v", err)
 	}
 }

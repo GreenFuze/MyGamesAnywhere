@@ -33,6 +33,48 @@ func TestPairingRequestValidate(t *testing.T) {
 	}
 }
 
+func TestExistingEndpointPairingRequestRequiresAndSignsIdentityProof(t *testing.T) {
+	t.Parallel()
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	request := PairingRequest{
+		Code:               "profile-grant-code",
+		ClientInstanceID:   "instance-1",
+		PublicKey:          base64.RawURLEncoding.EncodeToString(publicKey),
+		ClientVersion:      "dev",
+		Versions:           SupportedVersionRange(),
+		Metadata:           validEndpointMetadata(),
+		ExistingEndpointID: "endpoint-1",
+	}
+	if err := request.Validate(); err == nil {
+		t.Fatal("Validate() without signature error = nil, want error")
+	}
+	signingBytes, err := request.SigningBytes()
+	if err != nil {
+		t.Fatalf("SigningBytes() error = %v", err)
+	}
+	request.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, signingBytes))
+	if err := request.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	repeated, err := request.SigningBytes()
+	if err != nil || string(repeated) != string(signingBytes) {
+		t.Fatalf("SigningBytes() is unstable: %q != %q, err=%v", repeated, signingBytes, err)
+	}
+	request.Code = "tampered-code"
+	tampered, err := request.SigningBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature, _ := base64.RawURLEncoding.DecodeString(request.Signature)
+	if ed25519.Verify(publicKey, tampered, signature) {
+		t.Fatal("signature remained valid after pairing code changed")
+	}
+}
+
 func TestPairingResponseValidate(t *testing.T) {
 	t.Parallel()
 

@@ -160,15 +160,15 @@ func (s *Service) Pair(ctx context.Context, options PairOptions) (clientconfig.B
 	} else if err != nil {
 		return clientconfig.Binding{}, err
 	}
-	if _, found := findBinding(document.Bindings, serverURL); found {
-		return clientconfig.Binding{}, fmt.Errorf("MGA Client is already paired with %s", serverURL)
-	}
-	if len(document.Bindings) >= clientconfig.MaxBindings {
-		return clientconfig.Binding{}, fmt.Errorf("MGA Client already has the maximum of %d server bindings", clientconfig.MaxBindings)
-	}
 	metadata, err := localMetadata(options.DisplayName, currentExecutionMode())
 	if err != nil {
 		return clientconfig.Binding{}, err
+	}
+	if existing, found := findBinding(document.Bindings, serverURL); found {
+		return s.addProfileGrant(ctx, document, existing, strings.TrimSpace(options.Code), metadata)
+	}
+	if len(document.Bindings) >= clientconfig.MaxBindings {
+		return clientconfig.Binding{}, fmt.Errorf("MGA Client already has the maximum of %d server bindings", clientconfig.MaxBindings)
 	}
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -194,35 +194,8 @@ func (s *Service) Pair(ctx context.Context, options PairOptions) (clientconfig.B
 		Versions:         devicev1.SupportedVersionRange(),
 		Metadata:         metadata,
 	}
-	if err := pairingRequest.Validate(); err != nil {
-		return clientconfig.Binding{}, err
-	}
-	body, err := json.Marshal(pairingRequest)
+	pairingResponse, err := s.submitPairing(ctx, serverURL, pairingRequest)
 	if err != nil {
-		return clientconfig.Binding{}, err
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, serverURL+"/api/devices/pair", bytes.NewReader(body))
-	if err != nil {
-		return clientconfig.Binding{}, err
-	}
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "application/json")
-	response, err := s.httpClient.Do(request)
-	if err != nil {
-		return clientconfig.Binding{}, fmt.Errorf("pair with MGA Server: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusCreated {
-		message, _ := io.ReadAll(io.LimitReader(response.Body, 8*1024))
-		return clientconfig.Binding{}, fmt.Errorf("pair with MGA Server: %s: %s", response.Status, strings.TrimSpace(string(message)))
-	}
-	var pairingResponse devicev1.PairingResponse
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 64*1024))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&pairingResponse); err != nil {
-		return clientconfig.Binding{}, fmt.Errorf("decode pairing response: %w", err)
-	}
-	if err := pairingResponse.Validate(); err != nil {
 		return clientconfig.Binding{}, err
 	}
 	binding.WebSocketURL = pairingResponse.WebSocketURL
@@ -234,6 +207,91 @@ func (s *Service) Pair(ctx context.Context, options PairOptions) (clientconfig.B
 	paired = true
 	s.Logf("paired endpoint %s as %s", binding.EndpointID, binding.DisplayName)
 	return binding, nil
+}
+
+func (s *Service) addProfileGrant(
+	ctx context.Context,
+	document clientconfig.Document,
+	binding clientconfig.Binding,
+	code string,
+	metadata devicev1.EndpointMetadata,
+) (clientconfig.Binding, error) {
+	privateKey, err := s.identityStore(binding).Load()
+	if err != nil {
+		return clientconfig.Binding{}, fmt.Errorf("load existing endpoint identity: %w", err)
+	}
+	publicKey, ok := privateKey.Public().(ed25519.PublicKey)
+	if !ok {
+		return clientconfig.Binding{}, errors.New("existing endpoint identity is not Ed25519")
+	}
+	request := devicev1.PairingRequest{
+		Code:               code,
+		ClientInstanceID:   binding.ClientInstanceID,
+		PublicKey:          base64.RawURLEncoding.EncodeToString(publicKey),
+		ClientVersion:      s.buildInfo.Version,
+		Versions:           devicev1.SupportedVersionRange(),
+		Metadata:           metadata,
+		ExistingEndpointID: binding.EndpointID,
+	}
+	signingBytes, err := request.SigningBytes()
+	if err != nil {
+		return clientconfig.Binding{}, err
+	}
+	request.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, signingBytes))
+	response, err := s.submitPairing(ctx, binding.ServerURL, request)
+	if err != nil {
+		return clientconfig.Binding{}, err
+	}
+	if response.EndpointID != binding.EndpointID {
+		return clientconfig.Binding{}, errors.New("MGA Server returned a different endpoint identity while adding profile access")
+	}
+	binding.WebSocketURL = response.WebSocketURL
+	for index := range document.Bindings {
+		if document.Bindings[index].BindingID == binding.BindingID {
+			document.Bindings[index] = binding
+			if err := s.configs.Save(document); err != nil {
+				return clientconfig.Binding{}, fmt.Errorf("save refreshed client binding: %w", err)
+			}
+			s.Logf("added profile grant for existing endpoint %s", binding.EndpointID)
+			return binding, nil
+		}
+	}
+	return clientconfig.Binding{}, errors.New("existing MGA Client binding disappeared before it could be saved")
+}
+
+func (s *Service) submitPairing(ctx context.Context, serverURL string, pairingRequest devicev1.PairingRequest) (devicev1.PairingResponse, error) {
+	if err := pairingRequest.Validate(); err != nil {
+		return devicev1.PairingResponse{}, err
+	}
+	body, err := json.Marshal(pairingRequest)
+	if err != nil {
+		return devicev1.PairingResponse{}, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, serverURL+"/api/devices/pair", bytes.NewReader(body))
+	if err != nil {
+		return devicev1.PairingResponse{}, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	response, err := s.httpClient.Do(request)
+	if err != nil {
+		return devicev1.PairingResponse{}, fmt.Errorf("pair with MGA Server: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		message, _ := io.ReadAll(io.LimitReader(response.Body, 8*1024))
+		return devicev1.PairingResponse{}, fmt.Errorf("pair with MGA Server: %s: %s", response.Status, strings.TrimSpace(string(message)))
+	}
+	var pairingResponse devicev1.PairingResponse
+	decoder := json.NewDecoder(io.LimitReader(response.Body, 64*1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&pairingResponse); err != nil {
+		return devicev1.PairingResponse{}, fmt.Errorf("decode pairing response: %w", err)
+	}
+	if err := pairingResponse.Validate(); err != nil {
+		return devicev1.PairingResponse{}, err
+	}
+	return pairingResponse, nil
 }
 
 func (s *Service) Status() (Status, error) {
