@@ -200,6 +200,113 @@ func TestPutSlotWritesLocalCacheBeforeRemoteUploadCompletes(t *testing.T) {
 	t.Fatal("slot did not become synced after remote upload unblocked")
 }
 
+func TestPutSlotSerializesOfflineSameBaseRaceAndRetainsWinnerHistory(t *testing.T) {
+	ctx := saveSyncTestContext()
+	svc, _, gameID := newTestService(t)
+	ref := core.SaveSyncSlotRef{
+		OwnerProfileID: "profile-1", CanonicalGameID: gameID, SourceGameID: "source-1",
+		Runtime: "emulatorjs", SlotID: "autosave", IntegrationID: "integration-1",
+	}
+	first, err := svc.PutSlot(ctx, core.SaveSyncPutRequest{SaveSyncSlotRef: ref, Force: true, Snapshot: testSnapshot(ref, nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := first.Summary.ManifestHash
+	type outcome struct {
+		result *core.SaveSyncPutResult
+		err    error
+	}
+	start := make(chan struct{})
+	outcomes := make(chan outcome, 2)
+	for index := 0; index < 2; index++ {
+		go func(offset int) {
+			<-start
+			snapshot := testSnapshot(ref, nil)
+			snapshot.UpdatedAt = time.Now().Add(time.Duration(offset+1) * 365 * 24 * time.Hour)
+			result, err := svc.PutSlot(ctx, core.SaveSyncPutRequest{
+				SaveSyncSlotRef: ref, BaseManifestHash: base, Snapshot: snapshot,
+			})
+			outcomes <- outcome{result: result, err: err}
+		}(index)
+	}
+	close(start)
+	successes, conflicts := 0, 0
+	for index := 0; index < 2; index++ {
+		value := <-outcomes
+		if value.err != nil {
+			t.Fatal(value.err)
+		}
+		if value.result.Conflict != nil {
+			conflicts++
+			if value.result.Conflict.DomainID == "" || value.result.Conflict.CurrentRoute == "" || value.result.Conflict.IncomingOrigin == "" {
+				t.Fatalf("conflict lacks safe evidence: %+v", value.result.Conflict)
+			}
+		} else if value.result.OK {
+			successes++
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("race outcomes: successes=%d conflicts=%d", successes, conflicts)
+	}
+	versions, err := svc.history.repository.ListVersions(ctx, "profile-1", saveDomainIDForTest(ref))
+	if err != nil || len(versions) != 1 || versions[0].ManifestHash != base {
+		t.Fatalf("retained history=%+v err=%v", versions, err)
+	}
+}
+
+func TestRecoverSaveDomainVersionArchivesCurrentBeforePromotion(t *testing.T) {
+	ctx := saveSyncTestContext()
+	svc, _, gameID := newTestService(t)
+	ref := core.SaveSyncSlotRef{
+		OwnerProfileID: "profile-1", CanonicalGameID: gameID, SourceGameID: "source-1",
+		Runtime: "emulatorjs", SlotID: "autosave", IntegrationID: "integration-1",
+	}
+	oldReported := time.Now().Add(-365 * 24 * time.Hour).UTC()
+	oldSnapshot := testSnapshot(ref, nil)
+	oldSnapshot.UpdatedAt = oldReported
+	first, err := svc.PutSlot(ctx, core.SaveSyncPutRequest{SaveSyncSlotRef: ref, Force: true, Snapshot: oldSnapshot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newReported := time.Now().Add(365 * 24 * time.Hour).UTC()
+	newSnapshot := testSnapshot(ref, nil)
+	newSnapshot.UpdatedAt = newReported
+	if _, err := svc.PutSlot(ctx, core.SaveSyncPutRequest{
+		SaveSyncSlotRef: ref, BaseManifestHash: first.Summary.ManifestHash, Snapshot: newSnapshot,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	domainID := saveDomainIDForTest(ref)
+	history, err := svc.GetSaveDomainHistory(ctx, domainID)
+	if err != nil || len(history.Versions) != 1 {
+		t.Fatalf("history=%+v err=%v", history, err)
+	}
+	result, err := svc.RecoverSaveDomainVersion(ctx, history.Versions[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK || result.Summary.OriginLabel != "Recovered MGA save" {
+		t.Fatalf("recovery result=%+v", result)
+	}
+	current, _, err := svc.readSlotManifestFromCache(ref)
+	if err != nil || current == nil || current.ReportedAt == nil || !current.ReportedAt.Equal(oldReported) {
+		t.Fatalf("recovered manifest=%+v err=%v", current, err)
+	}
+	history, err = svc.GetSaveDomainHistory(ctx, domainID)
+	if err != nil || len(history.Versions) != 2 {
+		t.Fatalf("history after recovery=%+v err=%v", history, err)
+	}
+	if history.Versions[0].ReportedAt == nil || history.Versions[0].ReportedAt.Unix() != newReported.Unix() {
+		t.Fatalf("current version was not retained before recovery: %+v", history.Versions)
+	}
+}
+
+func saveDomainIDForTest(ref core.SaveSyncSlotRef) string {
+	svc := &service{}
+	svc.normalizeSaveDomainEvidence(&ref)
+	return ref.SaveDomainID
+}
+
 func TestPrefetchCachesRemoteSlotsAndMarksMissingSlots(t *testing.T) {
 	ctx := saveSyncTestContext()
 	svc, host, gameID := newTestService(t)
@@ -556,6 +663,11 @@ func newTestService(t *testing.T) (*service, *saveSyncTestPluginHost, string) {
 	if err := database.EnsureSchema(); err != nil {
 		t.Fatal(err)
 	}
+	now := time.Now().Unix()
+	if _, err := database.GetDB().Exec(`INSERT INTO profiles(id, display_name, role, created_at, updated_at)
+		VALUES ('profile-1','Player','admin_player',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
 	integrationRepo := dbpkg.NewIntegrationRepository(database)
 	gameStore := dbpkg.NewGameStore(database, saveSyncTestLogger{})
 	if err := integrationRepo.Create(ctx, &core.Integration{
@@ -609,7 +721,6 @@ func newTestService(t *testing.T) (*service, *saveSyncTestPluginHost, string) {
 		t.Fatal(err)
 	}
 	gameID := "game-1"
-	now := time.Now().Unix()
 	if _, err := database.GetDB().ExecContext(ctx, `INSERT OR IGNORE INTO canonical_games (id, created_at) VALUES (?, ?)`, gameID, now); err != nil {
 		t.Fatal(err)
 	}
@@ -617,8 +728,11 @@ func newTestService(t *testing.T) (*service, *saveSyncTestPluginHost, string) {
 		t.Fatal(err)
 	}
 	host := &saveSyncTestPluginHost{remote: make(map[string][]byte)}
-	svc := NewService(integrationRepo, gameStore, host, saveSyncTestLogger{}, nil).(*service)
+	svc := NewService(integrationRepo, gameStore, host, saveSyncTestLogger{}, nil)
 	svc.cacheRoot = t.TempDir()
+	if err := svc.SetHistoryRepository(dbpkg.NewSaveHistoryRepository(database)); err != nil {
+		t.Fatal(err)
+	}
 	return svc, host, gameID
 }
 

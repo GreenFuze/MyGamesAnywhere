@@ -103,7 +103,11 @@ func (c *DeviceController) SnapshotSaveDomain(w http.ResponseWriter, r *http.Req
 		writeDeviceError(w, err)
 		return
 	}
-	ref := core.SaveSyncSlotRef{CanonicalGameID: gameID, SourceGameID: sourceGameID, Runtime: "scummvm", SlotID: devicev1.SaveDomainSlotID, IntegrationID: strings.TrimSpace(body.IntegrationID)}
+	ref := core.SaveSyncSlotRef{
+		CanonicalGameID: gameID, SourceGameID: sourceGameID, Runtime: "scummvm",
+		SlotID: devicev1.SaveDomainSlotID, IntegrationID: strings.TrimSpace(body.IntegrationID),
+		SaveDomainID: link.LocalSaveDomainID, OriginLabel: "This MGA Client device", RouteLabel: "ScummVM on this device",
+	}
 	token, err := c.saveDomainTransfers.CreateUpload(saveDomainUpload{Ref: ref, BaseManifestHash: link.LastSnapshotManifestHash, Force: body.Force})
 	if err != nil {
 		writeDeviceError(w, err)

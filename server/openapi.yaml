@@ -2292,6 +2292,48 @@ paths:
         500:
           description: Internal server error
 
+  /api/save-sync/domains/{domain_id}/history:
+    get:
+      parameters:
+        - name: domain_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/save-sync/domains/{domain_id}/history-policy:
+    put:
+      parameters:
+        - name: domain_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/save-sync/history/{version_id}/recover:
+    post:
+      parameters:
+        - name: version_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/save-sync/migrations:
     post:
       summary: Start a save-sync migration job

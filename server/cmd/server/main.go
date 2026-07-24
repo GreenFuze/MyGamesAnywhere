@@ -238,6 +238,9 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	syncSvc := mgasync.NewSyncService(integrationRepo, settingRepo, profileRepo, pluginHost, ks, logSvc)
 	updateSvc := mgaupdate.NewService(configSvc, logSvc, eventBus)
 	saveSyncSvc := saveSync.NewService(integrationRepo, gameStore, pluginHost, logSvc, eventBus)
+	if err := saveSyncSvc.SetHistoryRepository(db.NewSaveHistoryRepository(dbSvc)); err != nil {
+		return fmt.Errorf("configure save history: %w", err)
+	}
 	cacheSvc := sourcecache.NewService(cacheStore, integrationRepo, pluginHost, configSvc, logSvc)
 	mediaSvc := media.NewService(gameStore, configSvc, logSvc)
 	orchestrator := scan.NewOrchestrator(pluginHost, pluginHost, integrationRepo, gameStore, mediaSvc, logSvc)

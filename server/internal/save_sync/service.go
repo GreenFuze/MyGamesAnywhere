@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/savehistory"
 	"github.com/google/uuid"
 )
 
@@ -56,8 +58,11 @@ type service struct {
 	eventBus        *events.EventBus
 
 	cacheRoot string
+	history   *saveHistoryManager
 
 	mu                sync.RWMutex
+	slotLocksMu       sync.Mutex
+	slotLocks         map[string]*sync.Mutex
 	jobs              map[string]*migrationJob
 	prefetchJobs      map[string]*prefetchJob
 	uploadWorkers     map[string]*slotUploadWorker
@@ -91,6 +96,10 @@ type saveSyncStoredManifest struct {
 	FileCount       int                         `json:"file_count"`
 	TotalSize       int64                       `json:"total_size"`
 	Files           []core.SaveSyncSnapshotFile `json:"files"`
+	SaveDomainID    string                      `json:"save_domain_id,omitempty"`
+	OriginLabel     string                      `json:"origin_label,omitempty"`
+	RouteLabel      string                      `json:"route_label,omitempty"`
+	ReportedAt      *time.Time                  `json:"reported_at,omitempty"`
 }
 
 type saveSyncPluginFile struct {
@@ -112,7 +121,7 @@ func NewService(
 	pluginHost PluginHost,
 	logger core.Logger,
 	eventBus *events.EventBus,
-) core.SaveSyncService {
+) *service {
 	return &service{
 		integrationRepo:   integrationRepo,
 		gameStore:         gameStore,
@@ -120,11 +129,20 @@ func NewService(
 		logger:            logger,
 		eventBus:          eventBus,
 		cacheRoot:         defaultSaveSyncCacheRoot(),
+		slotLocks:         make(map[string]*sync.Mutex),
 		jobs:              make(map[string]*migrationJob),
 		prefetchJobs:      make(map[string]*prefetchJob),
 		uploadWorkers:     make(map[string]*slotUploadWorker),
 		cachePathReplacer: regexp.MustCompile(`[^A-Za-z0-9._-]+`),
 	}
+}
+
+func (s *service) SetHistoryRepository(repository savehistory.Repository) error {
+	if s == nil || repository == nil {
+		return errors.New("save history repository is required")
+	}
+	s.history = &saveHistoryManager{repository: repository, root: filepath.Join(s.cacheRoot, "history"), now: time.Now}
+	return nil
 }
 
 func (s *service) ListSlots(ctx context.Context, req core.SaveSyncListRequest) ([]core.SaveSyncSlotSummary, error) {
@@ -185,6 +203,9 @@ func (s *service) PutSlot(ctx context.Context, req core.SaveSyncPutRequest) (*co
 	if _, _, err := s.resolveIntegrationForSaveSync(ctx, req.IntegrationID); err != nil {
 		return nil, err
 	}
+	s.normalizeSaveDomainEvidence(&req.SaveSyncSlotRef)
+	unlock := s.lockSlot(req.SaveSyncSlotRef)
+	defer unlock()
 
 	currentSummary, err := s.readSlotSummaryFromCache(req.SaveSyncSlotRef)
 	if err != nil {
@@ -210,6 +231,11 @@ func (s *service) PutSlot(ctx context.Context, req core.SaveSyncPutRequest) (*co
 				RemoteUpdatedAt:    currentSummary.UpdatedAt,
 				RemoteFileCount:    currentSummary.FileCount,
 				RemoteTotalSize:    currentSummary.TotalSize,
+				DomainID:           req.SaveDomainID,
+				CurrentOrigin:      currentSummary.OriginLabel,
+				CurrentRoute:       currentSummary.RouteLabel,
+				IncomingOrigin:     req.OriginLabel,
+				IncomingRoute:      req.RouteLabel,
 			},
 		}, nil
 	}
@@ -227,7 +253,7 @@ func (s *service) PutSlot(ctx context.Context, req core.SaveSyncPutRequest) (*co
 
 	updatedAt := time.Now().UTC()
 	manifest := saveSyncStoredManifest{
-		Version:         1,
+		Version:         2,
 		CanonicalGameID: req.CanonicalGameID,
 		SourceGameID:    req.SourceGameID,
 		Runtime:         req.Runtime,
@@ -236,12 +262,24 @@ func (s *service) PutSlot(ctx context.Context, req core.SaveSyncPutRequest) (*co
 		FileCount:       len(files),
 		TotalSize:       sumSnapshotSize(files),
 		Files:           files,
+		SaveDomainID:    req.SaveDomainID,
+		OriginLabel:     req.OriginLabel,
+		RouteLabel:      req.RouteLabel,
+	}
+	if !req.Snapshot.UpdatedAt.IsZero() {
+		reportedAt := req.Snapshot.UpdatedAt.UTC()
+		manifest.ReportedAt = &reportedAt
 	}
 	manifestBytes, manifestHash, err := marshalManifest(manifest)
 	if err != nil {
 		return nil, err
 	}
 
+	if currentSummary.Exists && s.history != nil {
+		if err := s.history.ArchiveCurrent(ctx, req.SaveSyncSlotRef, s); err != nil {
+			return nil, fmt.Errorf("retain current save before replacement: %w", err)
+		}
+	}
 	if err := s.writeSlotCache(req.SaveSyncSlotRef, manifestBytes, archiveBytes, saveSyncCacheStatus{
 		SyncState: "uploading",
 		UpdatedAt: updatedAt,
@@ -811,6 +849,50 @@ func (s *service) validatePutRequest(ctx context.Context, req core.SaveSyncPutRe
 	return nil
 }
 
+func (s *service) normalizeSaveDomainEvidence(ref *core.SaveSyncSlotRef) {
+	if ref == nil {
+		return
+	}
+	if strings.TrimSpace(ref.SaveDomainID) == "" {
+		hash := sha256.Sum256([]byte(strings.Join([]string{"browser", ref.SourceGameID, ref.Runtime}, "\x00")))
+		ref.SaveDomainID = "save:" + hex.EncodeToString(hash[:])
+	}
+	ref.OriginLabel = safeSaveEvidenceLabel(ref.OriginLabel, "This browser")
+	ref.RouteLabel = safeSaveEvidenceLabel(ref.RouteLabel, browserRouteLabel(ref.Runtime))
+}
+
+func safeSaveEvidenceLabel(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 128 || strings.ContainsAny(value, "\r\n\x00") {
+		return fallback
+	}
+	return value
+}
+
+func browserRouteLabel(runtime string) string {
+	switch runtime {
+	case "scummvm":
+		return "Browser play with ScummVM"
+	case "jsdos":
+		return "Browser play with DOS"
+	default:
+		return "Browser play"
+	}
+}
+
+func (s *service) lockSlot(ref core.SaveSyncSlotRef) func() {
+	key := strings.Join([]string{ref.OwnerProfileID, ref.SaveDomainID, ref.IntegrationID, ref.SlotID}, "\x00")
+	s.slotLocksMu.Lock()
+	lock := s.slotLocks[key]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		s.slotLocks[key] = lock
+	}
+	s.slotLocksMu.Unlock()
+	lock.Lock()
+	return lock.Unlock
+}
+
 func (s *service) readSlotSummaryFromCache(ref core.SaveSyncSlotRef) (core.SaveSyncSlotSummary, error) {
 	status, _ := s.readSlotCacheStatus(ref)
 	manifest, manifestHash, err := s.readSlotManifestFromCache(ref)
@@ -836,6 +918,8 @@ func (s *service) readSlotSummaryFromCache(ref core.SaveSyncSlotRef) (core.SaveS
 		TotalSize:    manifest.TotalSize,
 		Cached:       true,
 		SyncState:    "synced",
+		OriginLabel:  manifest.OriginLabel,
+		RouteLabel:   manifest.RouteLabel,
 	}
 	if status != nil {
 		summary.SyncState = status.SyncState

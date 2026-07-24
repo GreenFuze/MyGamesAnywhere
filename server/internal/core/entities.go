@@ -855,6 +855,9 @@ type SaveSyncSlotRef struct {
 	Runtime         string `json:"runtime"`
 	SlotID          string `json:"slot_id"`
 	IntegrationID   string `json:"integration_id"`
+	SaveDomainID    string `json:"-"`
+	OriginLabel     string `json:"-"`
+	RouteLabel      string `json:"-"`
 }
 
 type SaveSyncListRequest struct {
@@ -894,6 +897,8 @@ type SaveSyncSlotSummary struct {
 	SyncState     string `json:"sync_state,omitempty"`
 	LastSyncError string `json:"last_sync_error,omitempty"`
 	UploadPending bool   `json:"upload_pending,omitempty"`
+	OriginLabel   string `json:"origin_label,omitempty"`
+	RouteLabel    string `json:"route_label,omitempty"`
 }
 
 type SaveSyncConflict struct {
@@ -903,6 +908,11 @@ type SaveSyncConflict struct {
 	RemoteUpdatedAt    string `json:"remote_updated_at"`
 	RemoteFileCount    int    `json:"remote_file_count"`
 	RemoteTotalSize    int64  `json:"remote_total_size"`
+	DomainID           string `json:"domain_id,omitempty"`
+	CurrentOrigin      string `json:"current_origin,omitempty"`
+	CurrentRoute       string `json:"current_route,omitempty"`
+	IncomingOrigin     string `json:"incoming_origin,omitempty"`
+	IncomingRoute      string `json:"incoming_route,omitempty"`
 }
 
 type SaveSyncPutRequest struct {
@@ -972,6 +982,29 @@ type SaveSyncMigrationStatus struct {
 	SlotsMigrated       int                    `json:"slots_migrated"`
 	SlotsSkipped        int                    `json:"slots_skipped"`
 	Error               string                 `json:"error,omitempty"`
+}
+
+type SaveDomainHistoryPolicy struct {
+	DomainID       string `json:"domain_id"`
+	RetainVersions int    `json:"retain_versions"`
+	RetainDays     int    `json:"retain_days"`
+}
+
+type SaveDomainHistoryVersion struct {
+	ID           string     `json:"id"`
+	DomainID     string     `json:"domain_id"`
+	ManifestHash string     `json:"manifest_hash"`
+	OriginLabel  string     `json:"origin_label"`
+	RouteLabel   string     `json:"route_label"`
+	AcceptedAt   time.Time  `json:"accepted_at"`
+	ReportedAt   *time.Time `json:"reported_at,omitempty"`
+	FileCount    int        `json:"file_count"`
+	TotalSize    int64      `json:"total_size"`
+}
+
+type SaveDomainHistory struct {
+	Policy   SaveDomainHistoryPolicy    `json:"policy"`
+	Versions []SaveDomainHistoryVersion `json:"versions"`
 }
 
 // LibraryStats is the JSON body for GET /api/stats.

@@ -138,6 +138,45 @@ func TestMigration30AddsEmptySaveCompatibilityRegistryWithoutChangingProfiles(t 
 	}
 }
 
+func TestMigration31AddsEmptyProfileScopedSaveHistory(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.ensureSchemaMigrationsTable(); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range dbSvc.orderedMigrations() {
+		if migration.Version > 30 {
+			break
+		}
+		if err := dbSvc.runMigration(context.Background(), migration); err != nil {
+			t.Fatalf("run migration %d: %v", migration.Version, err)
+		}
+	}
+	now := time.Now().Unix()
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO profiles(id, display_name, role, created_at, updated_at)
+		VALUES ('profile-31','Player','player',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	assertLatestMigrationVersion(t, dbSvc.GetDB())
+	for _, table := range []string{"save_domain_policies", "save_domain_versions"} {
+		var count int
+		if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("%s count=%d err=%v", table, count, err)
+		}
+	}
+	var profiles int
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM profiles WHERE id='profile-31'`).Scan(&profiles); err != nil || profiles != 1 {
+		t.Fatalf("profile preserved=%d err=%v", profiles, err)
+	}
+}
+
 func TestMigration27PreservesExistingInstallationsAsManaged(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
 	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)

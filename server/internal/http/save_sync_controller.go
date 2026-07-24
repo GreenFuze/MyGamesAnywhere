@@ -199,3 +199,54 @@ func (c *SaveSyncController) GetMigrationStatus(w http.ResponseWriter, r *http.R
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(status)
 }
+
+func (c *SaveSyncController) GetDomainHistory(w http.ResponseWriter, r *http.Request) {
+	domainID, err := decodedPathParam(r, "domain_id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	history, err := c.service.GetSaveDomainHistory(r.Context(), domainID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, history)
+}
+
+func (c *SaveSyncController) SetDomainHistoryPolicy(w http.ResponseWriter, r *http.Request) {
+	domainID, err := decodedPathParam(r, "domain_id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		RetainVersions int `json:"retain_versions"`
+		RetainDays     int `json:"retain_days"`
+	}
+	if err := decodeJSONBody(w, r, &body); err != nil {
+		return
+	}
+	history, err := c.service.SetSaveDomainHistoryPolicy(r.Context(), core.SaveDomainHistoryPolicy{
+		DomainID: domainID, RetainVersions: body.RetainVersions, RetainDays: body.RetainDays,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, history)
+}
+
+func (c *SaveSyncController) RecoverDomainVersion(w http.ResponseWriter, r *http.Request) {
+	versionID, err := decodedPathParam(r, "version_id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	result, err := c.service.RecoverSaveDomainVersion(r.Context(), versionID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, result)
+}

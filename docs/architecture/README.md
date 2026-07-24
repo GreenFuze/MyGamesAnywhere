@@ -46,6 +46,7 @@ handoffs and deferred-work sections are historical context, not current status.
 - [ADR-0029: Google Drive "Shared with me" source folders](0029-google-drive-shared-with-me.md)
 - [ADR-0030: Streamlined and automatic server updates](0030-streamlined-and-automatic-server-updates.md)
 - [ADR-0031: Persisted save compatibility and converter registry](0031-save-compatibility-and-converter-registry.md)
+- [ADR-0032: Save Domain conflicts and bounded recovery history](0032-save-domain-conflicts-and-history.md)
 
 ## Protocols
 

@@ -51,6 +51,18 @@ func (f *fakeSaveSyncService) GetMigrationStatus(context.Context, string) (*core
 	panic("unexpected call")
 }
 
+func (f *fakeSaveSyncService) GetSaveDomainHistory(context.Context, string) (*core.SaveDomainHistory, error) {
+	panic("unexpected call")
+}
+
+func (f *fakeSaveSyncService) SetSaveDomainHistoryPolicy(context.Context, core.SaveDomainHistoryPolicy) (*core.SaveDomainHistory, error) {
+	panic("unexpected call")
+}
+
+func (f *fakeSaveSyncService) RecoverSaveDomainVersion(context.Context, string) (*core.SaveSyncPutResult, error) {
+	panic("unexpected call")
+}
+
 func TestCanonicalToGameDetailRejectsUnknownRootlessScummVMLaunch(t *testing.T) {
 	game := &core.CanonicalGame{
 		ID:       "game-3",

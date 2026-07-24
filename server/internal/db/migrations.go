@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 30
+const latestMigrationVersion = 31
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -571,6 +571,40 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 					source_format_id, source_format_version, target_format_id, target_format_version
 				);`,
 				`CREATE INDEX idx_save_compatibility_enabled ON save_compatibility_rules(enabled, source_format_id, source_format_version);`,
+			},
+		},
+		{
+			Version: 31,
+			Name:    "save_domain_history",
+			SQL: []string{
+				`CREATE TABLE save_domain_policies (
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					domain_id TEXT NOT NULL CHECK(length(trim(domain_id)) BETWEEN 1 AND 128),
+					retain_versions INTEGER NOT NULL CHECK(retain_versions BETWEEN 1 AND 50),
+					retain_days INTEGER NOT NULL CHECK(retain_days BETWEEN 1 AND 365),
+					updated_at INTEGER NOT NULL,
+					PRIMARY KEY(profile_id, domain_id)
+				);`,
+				`CREATE TABLE save_domain_versions (
+					id TEXT PRIMARY KEY,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					domain_id TEXT NOT NULL CHECK(length(trim(domain_id)) BETWEEN 1 AND 128),
+					canonical_game_id TEXT NOT NULL,
+					source_game_id TEXT NOT NULL,
+					runtime TEXT NOT NULL,
+					slot_id TEXT NOT NULL,
+					integration_id TEXT NOT NULL,
+					manifest_hash TEXT NOT NULL CHECK(length(manifest_hash) = 64),
+					origin_label TEXT NOT NULL CHECK(length(trim(origin_label)) BETWEEN 1 AND 128),
+					route_label TEXT NOT NULL CHECK(length(trim(route_label)) BETWEEN 1 AND 128),
+					accepted_at INTEGER NOT NULL,
+					reported_at INTEGER,
+					file_count INTEGER NOT NULL CHECK(file_count >= 0),
+					total_size INTEGER NOT NULL CHECK(total_size >= 0),
+					payload_key TEXT NOT NULL UNIQUE CHECK(length(trim(payload_key)) BETWEEN 1 AND 128),
+					created_at INTEGER NOT NULL
+				);`,
+				`CREATE INDEX idx_save_domain_versions_profile_domain_time ON save_domain_versions(profile_id, domain_id, accepted_at DESC, id DESC);`,
 			},
 		},
 	}

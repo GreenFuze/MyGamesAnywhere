@@ -309,6 +309,9 @@ type SaveSyncService interface {
 	GetPrefetchStatus(ctx context.Context, jobID string) (*SaveSyncPrefetchStatus, error)
 	StartMigration(ctx context.Context, req SaveSyncMigrationRequest) (*SaveSyncMigrationStatus, error)
 	GetMigrationStatus(ctx context.Context, jobID string) (*SaveSyncMigrationStatus, error)
+	GetSaveDomainHistory(ctx context.Context, domainID string) (*SaveDomainHistory, error)
+	SetSaveDomainHistoryPolicy(ctx context.Context, policy SaveDomainHistoryPolicy) (*SaveDomainHistory, error)
+	RecoverSaveDomainVersion(ctx context.Context, versionID string) (*SaveSyncPutResult, error)
 }
 
 // BackgroundService starts long-lived background work that stops when ctx is cancelled.
