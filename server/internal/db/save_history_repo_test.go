@@ -36,7 +36,7 @@ func TestSaveHistoryRepositoryRetainsByServerAcceptanceAndScopesProfiles(t *test
 		ProfileID: "profile-history-a", DomainID: "save:domain-a",
 		RetainVersions: 2, RetainDays: 30,
 	}
-	if err := repository.UpsertPolicy(ctx, policy); err != nil {
+	if _, err := repository.UpsertPolicy(ctx, policy); err != nil {
 		t.Fatal(err)
 	}
 	reportedFuture := now.Add(365 * 24 * time.Hour)
@@ -71,6 +71,15 @@ func TestSaveHistoryRepositoryRetainsByServerAcceptanceAndScopesProfiles(t *test
 	}
 	if version, err := repository.GetVersion(ctx, "profile-history-b", "version-c"); err != nil || version != nil {
 		t.Fatalf("foreign version lookup = %+v, %v", version, err)
+	}
+	policy.RetainVersions = 1
+	pruned, err := repository.UpsertPolicy(ctx, policy)
+	if err != nil || len(pruned) != 1 || pruned[0].ID != "version-b" {
+		t.Fatalf("policy reduction pruned = %+v, %v", pruned, err)
+	}
+	versions, err = repository.ListVersions(ctx, policy.ProfileID, policy.DomainID)
+	if err != nil || len(versions) != 1 || versions[0].ID != "version-c" {
+		t.Fatalf("history after policy reduction = %+v, %v", versions, err)
 	}
 }
 

@@ -537,6 +537,8 @@ export type SaveSyncSlotSummary = {
   sync_state?: string;
   last_sync_error?: string;
   upload_pending?: boolean;
+  origin_label?: string;
+  route_label?: string;
 };
 
 export type SaveSyncConflict = {
@@ -546,12 +548,40 @@ export type SaveSyncConflict = {
   remote_updated_at: string;
   remote_file_count: number;
   remote_total_size: number;
+  domain_id?: string;
+  current_origin?: string;
+  current_route?: string;
+  incoming_origin?: string;
+  incoming_route?: string;
 };
 
 export type SaveSyncPutResult = {
   ok: boolean;
   summary: SaveSyncSlotSummary;
   conflict?: SaveSyncConflict;
+};
+
+export type SaveDomainHistoryPolicy = {
+  domain_id: string;
+  retain_versions: number;
+  retain_days: number;
+};
+
+export type SaveDomainHistoryVersion = {
+  id: string;
+  domain_id: string;
+  manifest_hash: string;
+  origin_label: string;
+  route_label: string;
+  accepted_at: string;
+  reported_at?: string;
+  file_count: number;
+  total_size: number;
+};
+
+export type SaveDomainHistory = {
+  policy: SaveDomainHistoryPolicy;
+  versions: SaveDomainHistoryVersion[];
 };
 
 export type SaveSyncPrefetchStatus = {

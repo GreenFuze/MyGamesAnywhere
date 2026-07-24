@@ -38,20 +38,32 @@ func (r *SaveHistoryRepository) GetPolicy(ctx context.Context, profileID, domain
 	return policy, nil
 }
 
-func (r *SaveHistoryRepository) UpsertPolicy(ctx context.Context, policy savehistory.Policy) error {
+func (r *SaveHistoryRepository) UpsertPolicy(ctx context.Context, policy savehistory.Policy) ([]savehistory.Version, error) {
 	if err := policy.Validate(); err != nil {
-		return err
+		return nil, err
 	}
-	now := r.now().UTC().Unix()
-	_, err := r.database.GetDB().ExecContext(ctx, `INSERT INTO save_domain_policies
+	now := r.now().UTC()
+	tx, err := r.database.GetDB().BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `INSERT INTO save_domain_policies
 		(profile_id, domain_id, retain_versions, retain_days, updated_at) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(profile_id, domain_id) DO UPDATE SET
 			retain_versions=excluded.retain_versions, retain_days=excluded.retain_days, updated_at=excluded.updated_at`,
-		policy.ProfileID, policy.DomainID, policy.RetainVersions, policy.RetainDays, now)
+		policy.ProfileID, policy.DomainID, policy.RetainVersions, policy.RetainDays, now.Unix())
 	if err != nil {
-		return fmt.Errorf("persist save history policy: %w", err)
+		return nil, fmt.Errorf("persist save history policy: %w", err)
 	}
-	return nil
+	pruned, err := pruneSaveHistoryVersions(ctx, tx, policy, now)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return pruned, nil
 }
 
 func (r *SaveHistoryRepository) RecordVersion(ctx context.Context, version savehistory.Version, policy savehistory.Policy) ([]savehistory.Version, error) {
@@ -84,12 +96,28 @@ func (r *SaveHistoryRepository) RecordVersion(ctx context.Context, version saveh
 	if err != nil {
 		return nil, fmt.Errorf("record save history version: %w", err)
 	}
-	cutoff := r.now().UTC().AddDate(0, 0, -policy.RetainDays).UnixNano()
+	pruned, err := pruneSaveHistoryVersions(ctx, tx, policy, r.now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return pruned, nil
+}
+
+type saveHistoryTransaction interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func pruneSaveHistoryVersions(ctx context.Context, tx saveHistoryTransaction, policy savehistory.Policy, now time.Time) ([]savehistory.Version, error) {
+	cutoff := now.AddDate(0, 0, -policy.RetainDays).UnixNano()
 	rows, err := tx.QueryContext(ctx, `SELECT id, profile_id, domain_id, canonical_game_id, source_game_id,
 		runtime, slot_id, integration_id, manifest_hash, origin_label, route_label, accepted_at, reported_at,
 		file_count, total_size, payload_key, created_at
 		FROM save_domain_versions WHERE profile_id=? AND domain_id=?
-		ORDER BY accepted_at DESC, id DESC`, version.ProfileID, version.DomainID)
+		ORDER BY accepted_at DESC, id DESC`, policy.ProfileID, policy.DomainID)
 	if err != nil {
 		return nil, err
 	}
@@ -111,9 +139,6 @@ func (r *SaveHistoryRepository) RecordVersion(ctx context.Context, version saveh
 			}
 			pruned = append(pruned, item)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
 	}
 	return pruned, nil
 }

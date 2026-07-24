@@ -74,8 +74,8 @@ func (m *saveHistoryManager) ArchiveCurrent(ctx context.Context, ref core.SaveSy
 		return err
 	}
 	cleanup = false
-	for _, item := range pruned {
-		_ = os.RemoveAll(filepath.Join(m.root, item.PayloadKey))
+	if err := m.RemovePayloads(pruned); err != nil {
+		return err
 	}
 	return nil
 }
@@ -111,10 +111,26 @@ func (s *service) SetSaveDomainHistoryPolicy(ctx context.Context, request core.S
 		ProfileID: profile.ID, DomainID: request.DomainID,
 		RetainVersions: request.RetainVersions, RetainDays: request.RetainDays,
 	}
-	if err := s.history.repository.UpsertPolicy(ctx, policy); err != nil {
+	pruned, err := s.history.repository.UpsertPolicy(ctx, policy)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.history.RemovePayloads(pruned); err != nil {
 		return nil, err
 	}
 	return s.GetSaveDomainHistory(ctx, request.DomainID)
+}
+
+func (m *saveHistoryManager) RemovePayloads(versions []savehistory.Version) error {
+	if m == nil {
+		return fmt.Errorf("save history is unavailable")
+	}
+	for _, version := range versions {
+		if err := os.RemoveAll(filepath.Join(m.root, version.PayloadKey)); err != nil {
+			return fmt.Errorf("remove pruned save history payload: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *service) RecoverSaveDomainVersion(ctx context.Context, versionID string) (*core.SaveSyncPutResult, error) {

@@ -15,11 +15,14 @@ import {
   putGameSaveSyncSlot,
   startGameSaveSyncPrefetch,
   type SaveSyncSlotSummary,
+  type SaveSyncConflict,
+  type SaveSyncSnapshot,
 } from '@/api/client'
 import { BrandBadge, BrandIcon } from '@/components/ui/brand-icon'
 import { BrowserPlayIssueNotice } from '@/components/play/BrowserPlayIssueNotice'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Dialog } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PlatformIcon } from '@/components/ui/platform-icon'
 import { useRecentPlayed } from '@/hooks/useRecentPlayed'
@@ -45,6 +48,7 @@ import {
   type BrowserPlaySession,
 } from '@/lib/browserPlay'
 import { hasBrowserPlaySupport } from '@/lib/gameUtils'
+import { SaveHistoryPresenter } from '@/lib/saveHistory'
 import {
   EMULATORJS_SAVE_RAM_SLOT_ID,
   SAVE_SYNC_SLOT_IDS,
@@ -131,6 +135,12 @@ export function GamePlayerPage() {
   const [saveSyncBusy, setSaveSyncBusy] = useState(false)
   const [saveSyncMessage, setSaveSyncMessage] = useState('')
   const [saveSyncError, setSaveSyncError] = useState('')
+  const [pendingSaveConflict, setPendingSaveConflict] = useState<{
+    conflict: SaveSyncConflict
+    snapshot: SaveSyncSnapshot
+    localFiles: RuntimeSaveFile[]
+    slotId: string
+  } | null>(null)
   const [baselineLocalHash, setBaselineLocalHash] = useState<string | null>(null)
   const [baselineRemoteManifestHash, setBaselineRemoteManifestHash] = useState<string | null>(null)
   const [runtimeError, setRuntimeError] = useState('')
@@ -154,6 +164,7 @@ export function GamePlayerPage() {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const playerShellRef = useRef<HTMLElement | null>(null)
   const pendingBridgeRef = useRef<Map<string, PendingBridgeRequest>>(new Map())
+  const nativeSlotManifestRef = useRef<Map<string, string>>(new Map())
   const [playerFullscreen, setPlayerFullscreen] = useState(false)
 
   const frontendConfig = useQuery({
@@ -229,9 +240,16 @@ export function GamePlayerPage() {
         runtime: baseSession.runtime,
       })
     },
-    enabled: baseSaveSyncEnabled && baseSession?.runtime !== 'emulatorjs',
+    enabled: baseSaveSyncEnabled && (baseSession?.runtime !== 'emulatorjs' || nativeSaveSyncPrefetchReady),
     retry: false,
   })
+  useEffect(() => {
+    const manifests = new Map<string, string>()
+    for (const slot of slotsQuery.data ?? []) {
+      if (slot.exists && slot.manifest_hash) manifests.set(slot.slot_id, slot.manifest_hash)
+    }
+    nativeSlotManifestRef.current = manifests
+  }, [slotsQuery.data])
   const nativeSaveSyncPrefetchRequired = Boolean(baseSession?.runtime === 'emulatorjs' && baseSaveSyncEnabled)
   const nativeSaveSyncPending = Boolean(nativeSaveSyncPrefetchRequired && !nativeSaveSyncPrefetchReady)
   const nativeSaveSyncAvailable = Boolean(nativeSaveSyncPrefetchRequired && nativeSaveSyncPrefetchSucceeded)
@@ -570,12 +588,18 @@ export function GamePlayerPage() {
         integrationId: activeIntegrationId,
         sourceGameId: session.sourceGameId,
         runtime: session.runtime,
-        force: true,
+        baseManifestHash: nativeSlotManifestRef.current.get(slotId),
         snapshot,
       })
-      if (!result.ok) {
-        throw new Error(result.conflict?.message || 'Save sync failed.')
+      if (result.conflict) {
+        setPendingSaveConflict({ conflict: result.conflict, snapshot, localFiles: files, slotId })
+        setSaveSyncMessage('Both copies changed. Review them before choosing which save MGA should use.')
+        throw new Error('MGA needs you to choose which save to keep.')
       }
+      if (!result.ok) {
+        throw new Error('Save sync failed.')
+      }
+      if (result.summary.manifest_hash) nativeSlotManifestRef.current.set(slotId, result.summary.manifest_hash)
     }
 
     const loadNativeFiles = async (slotId: string): Promise<RuntimeSaveFile[] | null> => {
@@ -869,26 +893,13 @@ export function GamePlayerPage() {
       })
 
       if (result.conflict) {
-        const confirmed = window.confirm(
-          `Remote ${saveSyncSnapshotLabel} changed on ${new Date(result.conflict.remote_updated_at).toLocaleString()}. Overwrite it with local data?`,
-        )
-        if (!confirmed) {
-          setSaveSyncMessage('Save canceled.')
-          return
-        }
-        result = await putGameSaveSyncSlot({
-          gameId: id,
-          slotId: effectiveSelectedSlot,
-          integrationId: activeIntegrationId,
-          sourceGameId: session.sourceGameId,
-          runtime: session.runtime,
-          force: true,
-          snapshot,
-        })
+        setPendingSaveConflict({ conflict: result.conflict, snapshot, localFiles: local.files, slotId: effectiveSelectedSlot })
+        setSaveSyncMessage('Both copies changed. Review them before choosing which save MGA should use.')
+        return
       }
 
       if (!result.ok) {
-        throw new Error(result.conflict?.message || 'Save sync failed.')
+        throw new Error('Save sync failed.')
       }
 
       setBaselineRemoteManifestHash(result.summary.manifest_hash ?? null)
@@ -900,6 +911,40 @@ export function GamePlayerPage() {
     } finally {
       setSaveSyncBusy(false)
     }
+  }
+
+  const handleOverwriteSaveConflict = async () => {
+    if (!session || !activeIntegrationId || !pendingSaveConflict) return
+    const pending = pendingSaveConflict
+    setSaveSyncBusy(true)
+    setSaveSyncError('')
+    try {
+      const result = await putGameSaveSyncSlot({
+        gameId: id,
+        slotId: pending.slotId,
+        integrationId: activeIntegrationId,
+        sourceGameId: session.sourceGameId,
+        runtime: session.runtime,
+        force: true,
+        snapshot: pending.snapshot,
+      })
+      if (!result.ok) throw new Error(result.conflict?.message || 'Save sync failed.')
+      setBaselineRemoteManifestHash(result.summary.manifest_hash ?? null)
+      setBaselineLocalHash(await computeLocalSnapshotHash(pending.localFiles))
+      if (result.summary.manifest_hash) nativeSlotManifestRef.current.set(pending.slotId, result.summary.manifest_hash)
+      setPendingSaveConflict(null)
+      setSaveSyncMessage(`Saved ${saveSyncSnapshotLabel}. MGA kept the previous backup in Past saves.`)
+      await slotsQuery.refetch()
+    } catch (error) {
+      setSaveSyncError(error instanceof Error ? error.message : 'Save failed.')
+    } finally {
+      setSaveSyncBusy(false)
+    }
+  }
+
+  const handleCancelSaveConflict = () => {
+    setPendingSaveConflict(null)
+    setSaveSyncMessage('Kept the current backup. This browser save is still open and unchanged.')
   }
 
   const handleLoad = async () => {
@@ -1324,6 +1369,48 @@ export function GamePlayerPage() {
             xCloud stays external in Phase 6. Browser Play and xCloud are separate launch paths.
           </p>
         )}
+
+        <Dialog
+          open={pendingSaveConflict !== null}
+          onClose={saveSyncBusy ? () => undefined : handleCancelSaveConflict}
+          title="Choose which save to keep"
+        >
+          <p className="text-sm leading-6 text-mga-muted">
+            The current backup and this browser both changed. MGA will not guess from device clocks.
+          </p>
+          {pendingSaveConflict ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {SaveHistoryPresenter.conflictSides(pendingSaveConflict.conflict).map((side, index) => (
+                <div key={side.title} className="rounded-mga border border-mga-border bg-mga-bg p-3">
+                  <p className="text-xs font-semibold text-mga-text">{side.title}</p>
+                  <p className="mt-2 text-sm text-mga-text">{side.origin}</p>
+                  <p className="mt-1 text-xs text-mga-muted">{side.route}</p>
+                  <p className="mt-2 text-[11px] text-mga-muted">
+                    {index === 0
+                      ? `${pendingSaveConflict.conflict.remote_file_count} files · ${SaveHistoryPresenter.formatBytes(pendingSaveConflict.conflict.remote_total_size)}`
+                      : `${pendingSaveConflict.snapshot.file_count ?? pendingSaveConflict.snapshot.files.length} files · ${SaveHistoryPresenter.formatBytes(pendingSaveConflict.snapshot.total_size ?? 0)}`}
+                  </p>
+                  <p className="mt-1 text-[11px] text-mga-muted">
+                    {index === 0
+                      ? `Accepted by MGA ${new Date(pendingSaveConflict.conflict.remote_updated_at).toLocaleString()}`
+                      : 'Not saved to MGA yet'}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <p className="mt-4 text-xs leading-5 text-mga-muted">
+            Replacing the backup is reversible: MGA keeps the current copy in Past saves first. Cancel keeps the current backup and leaves this browser save untouched.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="ghost" disabled={saveSyncBusy} onClick={handleCancelSaveConflict}>
+              Keep current backup
+            </Button>
+            <Button type="button" disabled={saveSyncBusy} onClick={handleOverwriteSaveConflict}>
+              {saveSyncBusy ? 'Saving…' : 'Use this browser save'}
+            </Button>
+          </div>
+        </Dialog>
       </div>
     </div>
   )

@@ -23,6 +23,8 @@ import type {
   SourceDeliveryDTO,
   SaveSyncMigrationRequest,
   SaveSyncMigrationStatus,
+  SaveDomainHistory,
+  SaveDomainHistoryPolicy,
   SaveSyncPrefetchStatus,
   SaveSyncPutResult,
   SaveSyncSlotSummary,
@@ -72,6 +74,9 @@ export type {
   SourceCacheJobStatus,
   SourceDeliveryDTO,
   SaveSyncConflict,
+  SaveDomainHistory,
+  SaveDomainHistoryPolicy,
+  SaveDomainHistoryVersion,
   SaveSyncMigrationRequest,
   SaveSyncMigrationScope,
   SaveSyncMigrationStatus,
@@ -2427,6 +2432,29 @@ export async function getSaveSyncMigrationStatus(
   return getJson<SaveSyncMigrationStatus>(
     `/api/save-sync/migrations/${encodeURIComponent(jobId)}`,
   );
+}
+
+export async function getSaveDomainHistory(domainId: string): Promise<SaveDomainHistory> {
+  return getJson<SaveDomainHistory>(
+    `/api/save-sync/domains/${encodeURIComponent(domainId)}/history`,
+  );
+}
+
+export async function setSaveDomainHistoryPolicy(
+  domainId: string,
+  policy: Pick<SaveDomainHistoryPolicy, "retain_versions" | "retain_days">,
+): Promise<SaveDomainHistory> {
+  return putJson<SaveDomainHistory>(
+    `/api/save-sync/domains/${encodeURIComponent(domainId)}/history-policy`,
+    policy,
+  ) as Promise<SaveDomainHistory>;
+}
+
+export async function recoverSaveDomainVersion(versionId: string): Promise<SaveSyncPutResult> {
+  return postJson<SaveSyncPutResult>(
+    `/api/save-sync/history/${encodeURIComponent(versionId)}/recover`,
+    {},
+  ) as Promise<SaveSyncPutResult>;
 }
 
 export async function prepareGameCache(params: {

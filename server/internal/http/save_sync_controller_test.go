@@ -18,6 +18,9 @@ type fakeSaveSyncService struct {
 	getSlot       func(context.Context, core.SaveSyncSlotRef) (*core.SaveSyncSnapshot, error)
 	putSlot       func(context.Context, core.SaveSyncPutRequest) (*core.SaveSyncPutResult, error)
 	startPrefetch func(context.Context, core.SaveSyncPrefetchRequest) (*core.SaveSyncPrefetchStatus, error)
+	getHistory    func(context.Context, string) (*core.SaveDomainHistory, error)
+	setPolicy     func(context.Context, core.SaveDomainHistoryPolicy) (*core.SaveDomainHistory, error)
+	recover       func(context.Context, string) (*core.SaveSyncPutResult, error)
 }
 
 func (f *fakeSaveSyncService) ListSlots(ctx context.Context, req core.SaveSyncListRequest) ([]core.SaveSyncSlotSummary, error) {
@@ -51,16 +54,25 @@ func (f *fakeSaveSyncService) GetMigrationStatus(context.Context, string) (*core
 	panic("unexpected call")
 }
 
-func (f *fakeSaveSyncService) GetSaveDomainHistory(context.Context, string) (*core.SaveDomainHistory, error) {
-	panic("unexpected call")
+func (f *fakeSaveSyncService) GetSaveDomainHistory(ctx context.Context, domainID string) (*core.SaveDomainHistory, error) {
+	if f.getHistory == nil {
+		panic("unexpected call")
+	}
+	return f.getHistory(ctx, domainID)
 }
 
-func (f *fakeSaveSyncService) SetSaveDomainHistoryPolicy(context.Context, core.SaveDomainHistoryPolicy) (*core.SaveDomainHistory, error) {
-	panic("unexpected call")
+func (f *fakeSaveSyncService) SetSaveDomainHistoryPolicy(ctx context.Context, policy core.SaveDomainHistoryPolicy) (*core.SaveDomainHistory, error) {
+	if f.setPolicy == nil {
+		panic("unexpected call")
+	}
+	return f.setPolicy(ctx, policy)
 }
 
-func (f *fakeSaveSyncService) RecoverSaveDomainVersion(context.Context, string) (*core.SaveSyncPutResult, error) {
-	panic("unexpected call")
+func (f *fakeSaveSyncService) RecoverSaveDomainVersion(ctx context.Context, versionID string) (*core.SaveSyncPutResult, error) {
+	if f.recover == nil {
+		panic("unexpected call")
+	}
+	return f.recover(ctx, versionID)
 }
 
 func TestCanonicalToGameDetailRejectsUnknownRootlessScummVMLaunch(t *testing.T) {
@@ -267,4 +279,75 @@ func TestSaveSyncControllerStartsPrefetch(t *testing.T) {
 	if body.JobID != "job-10" || body.ProgressTotal != 10 {
 		t.Fatalf("unexpected body: %+v", body)
 	}
+}
+
+func TestSaveSyncControllerHistoryPolicyAndRecovery(t *testing.T) {
+	acceptedAt := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	service := &fakeSaveSyncService{
+		getHistory: func(_ context.Context, domainID string) (*core.SaveDomainHistory, error) {
+			if domainID != "save:domain-one" {
+				t.Fatalf("domain id = %q", domainID)
+			}
+			return &core.SaveDomainHistory{
+				Policy: core.SaveDomainHistoryPolicy{DomainID: domainID, RetainVersions: 10, RetainDays: 30},
+				Versions: []core.SaveDomainHistoryVersion{{
+					ID: "version-1", DomainID: domainID, ManifestHash: "hash", OriginLabel: "TV2",
+					RouteLabel: "ScummVM", AcceptedAt: acceptedAt, FileCount: 2, TotalSize: 4096,
+				}},
+			}, nil
+		},
+		setPolicy: func(_ context.Context, policy core.SaveDomainHistoryPolicy) (*core.SaveDomainHistory, error) {
+			if policy.DomainID != "save:domain-one" || policy.RetainVersions != 4 || policy.RetainDays != 14 {
+				t.Fatalf("policy = %+v", policy)
+			}
+			return &core.SaveDomainHistory{Policy: policy, Versions: []core.SaveDomainHistoryVersion{}}, nil
+		},
+		recover: func(_ context.Context, versionID string) (*core.SaveSyncPutResult, error) {
+			if versionID != "version-one" {
+				t.Fatalf("version id = %q", versionID)
+			}
+			return &core.SaveSyncPutResult{OK: true, Summary: core.SaveSyncSlotSummary{SlotID: "autosave", Exists: true}}, nil
+		},
+	}
+	controller := NewSaveSyncController(service, noopLogger{})
+	router := chi.NewRouter()
+	router.Get("/api/save-sync/domains/{domain_id}/history", controller.GetDomainHistory)
+	router.Put("/api/save-sync/domains/{domain_id}/history-policy", controller.SetDomainHistoryPolicy)
+	router.Post("/api/save-sync/history/{version_id}/recover", controller.RecoverDomainVersion)
+
+	t.Run("history", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/save-sync/domains/save%3Adomain-one/history", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+		}
+		var history core.SaveDomainHistory
+		if err := json.Unmarshal(rec.Body.Bytes(), &history); err != nil || len(history.Versions) != 1 || history.Versions[0].OriginLabel != "TV2" {
+			t.Fatalf("history = %+v err=%v", history, err)
+		}
+	})
+
+	t.Run("policy", func(t *testing.T) {
+		data := bytes.NewBufferString(`{"retain_versions":4,"retain_days":14}`)
+		req := httptest.NewRequest(http.MethodPut, "/api/save-sync/domains/save%3Adomain-one/history-policy", data)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("recover", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/save-sync/history/version-one/recover", bytes.NewBufferString(`{}`))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+		}
+		var result core.SaveSyncPutResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil || !result.OK {
+			t.Fatalf("result = %+v err=%v", result, err)
+		}
+	})
 }

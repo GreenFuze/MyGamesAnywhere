@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -298,6 +299,54 @@ func TestRecoverSaveDomainVersionArchivesCurrentBeforePromotion(t *testing.T) {
 	}
 	if history.Versions[0].ReportedAt == nil || history.Versions[0].ReportedAt.Unix() != newReported.Unix() {
 		t.Fatalf("current version was not retained before recovery: %+v", history.Versions)
+	}
+}
+
+func TestSetSaveDomainHistoryPolicyPrunesVersionsAndPayloadsImmediately(t *testing.T) {
+	ctx := saveSyncTestContext()
+	svc, _, gameID := newTestService(t)
+	ref := core.SaveSyncSlotRef{
+		OwnerProfileID: "profile-1", CanonicalGameID: gameID, SourceGameID: "source-1",
+		Runtime: "emulatorjs", SlotID: "autosave", IntegrationID: "integration-1",
+	}
+	first, err := svc.PutSlot(ctx, core.SaveSyncPutRequest{SaveSyncSlotRef: ref, Force: true, Snapshot: testSnapshot(ref, nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.PutSlot(ctx, core.SaveSyncPutRequest{
+		SaveSyncSlotRef: ref, BaseManifestHash: first.Summary.ManifestHash, Snapshot: testSnapshot(ref, nil),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.PutSlot(ctx, core.SaveSyncPutRequest{
+		SaveSyncSlotRef: ref, BaseManifestHash: second.Summary.ManifestHash, Snapshot: testSnapshot(ref, nil),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	domainID := saveDomainIDForTest(ref)
+	history, err := svc.GetSaveDomainHistory(ctx, domainID)
+	if err != nil || len(history.Versions) != 2 {
+		t.Fatalf("history before policy reduction = %+v, %v", history, err)
+	}
+	dirs, err := os.ReadDir(svc.history.root)
+	if err != nil || len(dirs) != 2 {
+		t.Fatalf("payloads before policy reduction = %d, %v", len(dirs), err)
+	}
+	history, err = svc.SetSaveDomainHistoryPolicy(ctx, core.SaveDomainHistoryPolicy{
+		DomainID: domainID, RetainVersions: 1, RetainDays: 30,
+	})
+	if err != nil || len(history.Versions) != 1 || history.Policy.RetainVersions != 1 {
+		t.Fatalf("history after policy reduction = %+v, %v", history, err)
+	}
+	dirs, err = os.ReadDir(svc.history.root)
+	if err != nil || len(dirs) != 1 {
+		t.Fatalf("payloads after policy reduction = %d, %v", len(dirs), err)
+	}
+	if _, err := svc.SetSaveDomainHistoryPolicy(ctx, core.SaveDomainHistoryPolicy{
+		DomainID: domainID, RetainVersions: 0, RetainDays: 30,
+	}); err == nil {
+		t.Fatal("expected invalid retention bounds to fail")
 	}
 }
 

@@ -66,6 +66,7 @@ import { useProfiles } from '@/hooks/useProfiles'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { SourceGameHardDeleteDialog } from '@/components/library/SourceGameHardDeleteDialog'
 import { BrowserPlayIssueNotice } from '@/components/play/BrowserPlayIssueNotice'
+import { SaveDomainHistoryPanel } from '@/components/saves/SaveDomainHistoryPanel'
 import { BrandBadge, BrandIcon } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -2710,6 +2711,9 @@ export function GameDetailPage() {
 					</div>
 				  )}
 				  {(domain.can_snapshot || domain.can_restore) && !saveSyncIntegrationId ? <p className="mt-2 text-xs text-amber-200">Choose an active Save Sync connection in Settings first.</p> : null}
+				  {(domain.access === 'mga_managed' || domain.can_snapshot || domain.can_restore) ? (
+					<SaveDomainHistoryPanel domainId={domain.domain_id} domainLabel={domain.label} />
+				  ) : null}
 				</div>
 			  ))}
 			</div>

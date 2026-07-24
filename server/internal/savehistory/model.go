@@ -90,7 +90,7 @@ func (v Version) Validate() error {
 
 type Repository interface {
 	GetPolicy(context.Context, string, string) (Policy, error)
-	UpsertPolicy(context.Context, Policy) error
+	UpsertPolicy(context.Context, Policy) ([]Version, error)
 	RecordVersion(context.Context, Version, Policy) ([]Version, error)
 	ListVersions(context.Context, string, string) ([]Version, error)
 	GetVersion(context.Context, string, string) (*Version, error)
