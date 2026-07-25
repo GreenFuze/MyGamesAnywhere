@@ -48,6 +48,7 @@ handoffs and deferred-work sections are historical context, not current status.
 - [ADR-0031: Persisted save compatibility and converter registry](0031-save-compatibility-and-converter-registry.md)
 - [ADR-0032: Save Domain conflicts and bounded recovery history](0032-save-domain-conflicts-and-history.md)
 - [ADR-0033: Steam family-shared library visibility](0033-steam-family-library-visibility.md)
+- [ADR-0034: Auto-provisioned zero-setup connections for new profiles](0034-auto-provisioned-zero-setup-connections.md)
 
 ## Protocols
 

@@ -69,6 +69,68 @@ func (c restoreConfig) Validate() error          { return nil }
 func (c restoreConfig) Path() string             { return "" }
 func (c restoreConfig) Set(string, string) error { return nil }
 
+// recordingProvisioner captures the profile it was asked to provision.
+type recordingProvisioner struct {
+	profileID string
+	calls     int
+	err       error
+}
+
+func (p *recordingProvisioner) ProvisionDefaults(_ context.Context, profileID string) ([]*core.Integration, error) {
+	p.calls++
+	p.profileID = profileID
+	return nil, p.err
+}
+
+func newProfileControllerForCreate(provisioner defaultConnectionProvisioner) *ProfileController {
+	ctrl := NewProfileController(restoreProfileRepo{}, restoreSyncService{}, &restoreScanStarter{}, restoreConfig{}, nil)
+	if provisioner != nil {
+		ctrl.SetDefaultConnectionProvisioner(provisioner)
+	}
+	return ctrl
+}
+
+func createProfileRequest(t *testing.T, ctrl *ProfileController) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/profiles", strings.NewReader(`{"display_name":"Orr"}`))
+	req = req.WithContext(core.WithProfile(req.Context(), &core.Profile{ID: "admin-1", Role: core.ProfileRoleAdminPlayer}))
+	rec := httptest.NewRecorder()
+	ctrl.CreateProfile(rec, req)
+	return rec
+}
+
+func TestCreateProfileProvisionsDefaultConnectionsForTheNewProfile(t *testing.T) {
+	provisioner := &recordingProvisioner{}
+	rec := createProfileRequest(t, newProfileControllerForCreate(provisioner))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (body %s)", rec.Code, rec.Body.String())
+	}
+	if provisioner.calls != 1 {
+		t.Fatalf("provisioner calls = %d, want 1", provisioner.calls)
+	}
+	// It must provision the newly created profile, not the admin making the call.
+	if provisioner.profileID == "" || provisioner.profileID == "admin-1" {
+		t.Fatalf("provisioned profile = %q, want the new profile's ID", provisioner.profileID)
+	}
+	if !strings.Contains(rec.Body.String(), provisioner.profileID) {
+		t.Fatalf("response %s does not describe provisioned profile %s", rec.Body.String(), provisioner.profileID)
+	}
+}
+
+func TestCreateProfileSucceedsWhenProvisioningFailsOrIsUnavailable(t *testing.T) {
+	// A provisioning failure must not fail an already-created profile.
+	failing := &recordingProvisioner{err: context.DeadlineExceeded}
+	if rec := createProfileRequest(t, newProfileControllerForCreate(failing)); rec.Code != http.StatusCreated {
+		t.Fatalf("status with failing provisioner = %d, want 201", rec.Code)
+	}
+
+	// No provisioner configured (e.g. no plugin host) still creates profiles.
+	if rec := createProfileRequest(t, newProfileControllerForCreate(nil)); rec.Code != http.StatusCreated {
+		t.Fatalf("status without provisioner = %d, want 201", rec.Code)
+	}
+}
+
 func TestRestoreSyncStartsFirstRunScanForRestoredProfile(t *testing.T) {
 	scanner := &restoreScanStarter{}
 	ctrl := NewProfileController(

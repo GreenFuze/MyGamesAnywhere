@@ -25,6 +25,20 @@ type ProfileController struct {
 	config      core.Configuration
 	logger      core.Logger
 	auth        interface{ EnsureBootstrapCredential(context.Context) error }
+	provisioner defaultConnectionProvisioner
+}
+
+// defaultConnectionProvisioner adds the zero-setup connections a new profile
+// needs so its first scan can identify games without manual setup.
+type defaultConnectionProvisioner interface {
+	ProvisionDefaults(ctx context.Context, profileID string) ([]*core.Integration, error)
+}
+
+// SetDefaultConnectionProvisioner enables automatic zero-setup connections for
+// newly created profiles. Provisioning stays optional so a controller built
+// without a plugin host still creates profiles.
+func (c *ProfileController) SetDefaultConnectionProvisioner(provisioner defaultConnectionProvisioner) {
+	c.provisioner = provisioner
 }
 
 func (c *ProfileController) SetAuthService(service interface{ EnsureBootstrapCredential(context.Context) error }) {
@@ -364,6 +378,16 @@ func (c *ProfileController) CreateProfile(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// Connect the zero-setup plugins so the profile's first scan can identify
+	// games immediately. The profile itself already exists, so a provisioning
+	// failure is reported and logged without failing profile creation.
+	if c.provisioner != nil {
+		if _, err := c.provisioner.ProvisionDefaults(r.Context(), profile.ID); err != nil && c.logger != nil {
+			c.logger.Error("provision default profile connections", err, "profile_id", profile.ID)
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(profile)

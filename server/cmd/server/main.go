@@ -31,6 +31,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/logger"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/media"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/profileprovision"
 	mgaruntime "github.com/GreenFuze/MyGamesAnywhere/server/internal/runtime"
 	saveSync "github.com/GreenFuze/MyGamesAnywhere/server/internal/save_sync"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
@@ -283,6 +284,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	oauthCtrl.SetGameStore(gameStore)
 	profileCtrl := http.NewProfileController(profileRepo, syncSvc, discoCtrl, configSvc, logSvc)
 	profileCtrl.SetAuthService(authSvc)
+	profileCtrl.SetDefaultConnectionProvisioner(profileprovision.New(pluginHost, integrationRepo, logSvc))
 	authCtrl, err := http.NewAuthController(authSvc, profileRepo, logSvc)
 	if err != nil {
 		return fmt.Errorf("configure auth controller: %w", err)
