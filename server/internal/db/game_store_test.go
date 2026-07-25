@@ -3237,6 +3237,48 @@ func TestPermanentlyFailedMediaIsRemovedAndNotRelinkedOnRescan(t *testing.T) {
 	}
 }
 
+func TestPersistSteamSharedSourcePreservesSharedFlag(t *testing.T) {
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	sourceGame := &core.SourceGame{
+		ID:            "scan:steam-shared",
+		IntegrationID: "integration-1",
+		PluginID:      "game-source-steam",
+		ExternalID:    "440",
+		RawTitle:      "Borrowed Game",
+		Platform:      core.PlatformWindowsPC,
+		Kind:          core.GameKindBaseGame,
+		GroupKind:     core.GroupKindSelfContained,
+		Status:        "found",
+	}
+	sharedMatch := core.ResolverMatch{
+		PluginID:    "game-source-steam",
+		Title:       "Borrowed Game",
+		ExternalID:  "440",
+		Shared:      true,
+		SharedOwner: "76561198000000001",
+	}
+
+	persistBatch(t, ctx, store, &core.ScanBatch{
+		IntegrationID:   "integration-1",
+		SourceGames:     []*core.SourceGame{sourceGame},
+		ResolverMatches: map[string][]core.ResolverMatch{sourceGame.ID: {sharedMatch}},
+	})
+
+	canonicalID := canonicalIDForSource(t, ctx, db, sourceGame.ID)
+	game, err := store.GetCanonicalGameByID(ctx, canonicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if game == nil {
+		t.Fatal("expected canonical game")
+	}
+	if !game.Shared || game.SharedOwner != "76561198000000001" {
+		t.Fatalf("shared fields were not preserved: shared=%v owner=%q", game.Shared, game.SharedOwner)
+	}
+}
+
 func TestPersistMetadataRefreshPreservesXboxSourceRowsAndClearsStaleMetadataRows(t *testing.T) {
 	ctx := context.Background()
 	db, store := newTestGameStore(t)

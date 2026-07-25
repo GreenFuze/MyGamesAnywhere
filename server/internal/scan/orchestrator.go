@@ -1014,6 +1014,8 @@ func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID s
 			XcloudAvailable bool       `json:"xcloud_available,omitempty"`
 			StoreProductID  string     `json:"store_product_id,omitempty"`
 			XcloudURL       string     `json:"xcloud_url,omitempty"`
+			Shared          bool       `json:"shared,omitempty"`
+			SharedOwner     string     `json:"shared_owner,omitempty"`
 		} `json:"games"`
 	}
 	if err := o.pluginCaller.Call(ctx, pluginID, sourceGamesListMethod, config, &result); err != nil {
@@ -1076,6 +1078,8 @@ func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID s
 				XcloudAvailable: sg.XcloudAvailable,
 				StoreProductID:  sg.StoreProductID,
 				XcloudURL:       sg.XcloudURL,
+				Shared:          sg.Shared,
+				SharedOwner:     sg.SharedOwner,
 			}},
 			Description: sg.Description,
 			ReleaseDate: sg.ReleaseDate,

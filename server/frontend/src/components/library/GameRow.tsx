@@ -104,6 +104,7 @@ export function GameRow({ game }: GameRowProps) {
         <div className="flex flex-wrap gap-1">
           {game.xcloud_available && <StatusBadge kind="xcloud" className="border-sky-500/20 bg-mga-surface text-mga-text" />}
           {game.is_game_pass && <StatusBadge kind="gamepass" className="border-emerald-500/20 bg-mga-surface text-mga-text" />}
+          {game.shared && <StatusBadge kind="shared" className="border-blue-500/20 bg-mga-surface text-blue-200" />}
           {playable && <StatusBadge kind="playable" className="border-green-500/20 bg-mga-surface text-green-300" />}
         </div>
       </td>

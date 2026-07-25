@@ -1,6 +1,6 @@
 {
   "plugin_id": "game-source-steam",
-  "plugin_version": "1.1.0",
+  "plugin_version": "1.2.0",
   "api_major": 1,
   "capabilities": ["source", "achievements"],
   "provides": ["source.games.list", "achievements.game.get", "plugin.check_config", "auth.oauth.callback"],
@@ -14,6 +14,13 @@
       "x-secret": true,
       "x-help-url": "https://steamcommunity.com/dev/apikey",
       "description": "Steam Web API Key"
+    },
+    "access_token": {
+      "type": "string",
+      "required": false,
+      "x-secret": true,
+      "x-help-url": "https://store.steampowered.com/pointssummary/ajaxgetasyncconfig",
+      "description": "Optional Steam access token (webapi_token) for showing Steam Family shared games. Open the help link while signed in to Steam and copy the webapi_token value. It expires roughly daily; re-paste to refresh."
     }
   }
 }

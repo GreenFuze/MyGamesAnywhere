@@ -53,7 +53,7 @@ func Operations() []OperationDoc {
 			Method:       "GET",
 			Path:         "/api/games/{id}/detail",
 			Summary:      "Get game detail",
-			Description:  "Full metadata, media (with local_path/hash when known), external IDs, merged files, unified Xbox/xCloud fields (is_game_pass, xcloud_available, store_product_id, xcloud_url when present), and all source games with resolver_matches. Source records also include generic delivery metadata per profile (`delivery.profiles`) so clients can decide whether a source is direct, materialized, or unavailable. Legacy browser-play fields remain as a compatibility shim.",
+			Description:  "Full metadata, media (with local_path/hash when known), external IDs, merged files, unified Xbox/xCloud fields (is_game_pass, xcloud_available, store_product_id, xcloud_url when present), Steam Families sharing fields (shared, shared_owner when a title is borrowed), and all source games with resolver_matches. Source records also include generic delivery metadata per profile (`delivery.profiles`) so clients can decide whether a source is direct, materialized, or unavailable. Legacy browser-play fields remain as a compatibility shim.",
 			ResponseDocs: map[string]string{"200": "Game detail object", "404": "Game not found", "500": "Internal server error"},
 		},
 		{

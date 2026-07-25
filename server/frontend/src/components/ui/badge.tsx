@@ -13,6 +13,7 @@ const variants = cva(
         playable: 'bg-green-500/20 text-green-400',
         xcloud:   'bg-mga-accent/20 text-mga-accent',
         gamepass: 'bg-purple-500/20 text-purple-400',
+        shared:   'bg-blue-500/20 text-blue-400',
         platform: 'bg-mga-elevated/80 text-mga-text border border-mga-border',
         source:   'bg-mga-muted/15 text-mga-muted',
       },

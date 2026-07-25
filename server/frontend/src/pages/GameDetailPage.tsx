@@ -1113,6 +1113,7 @@ function summarizeResolverMatch(match: ResolverMatchDTO): string[] {
   if (match.max_players && match.max_players > 0) facts.push(`${match.max_players} players`)
   if (match.xcloud_available) facts.push('xCloud ready')
   if (match.is_game_pass) facts.push('Game Pass')
+  if (match.shared) facts.push(match.shared_owner ? `Shared (owner ${match.shared_owner})` : 'Shared')
   return facts
 }
 
@@ -1128,6 +1129,7 @@ function ResolverMatchRow({ match }: { match: ResolverMatchDTO }) {
             {match.outvoted ? <Badge variant="muted">Outvoted</Badge> : <Badge variant="accent">Active</Badge>}
             {match.xcloud_available ? <BrandBadge brand="xcloud" label="xCloud" /> : null}
             {match.is_game_pass ? <Badge variant="gamepass">Game Pass</Badge> : null}
+            {match.shared ? <Badge variant="shared">Shared</Badge> : null}
           </div>
           <p className="text-sm font-semibold text-mga-text">{match.title ?? 'Unknown title'}</p>
         </div>
@@ -2405,6 +2407,7 @@ export function GameDetailPage() {
                   {sources.map((source) => <SourceBadge key={source} source={source} className="bg-white/5 text-white" />)}
                   {data.xcloud_available ? <BrandBadge brand="xcloud" label="xCloud" /> : null}
                   {data.is_game_pass ? <Badge variant="gamepass">Game Pass</Badge> : null}
+                  {data.shared ? <Badge variant="shared">Shared</Badge> : null}
                   {browserPlayable ? <Badge variant="playable">Browser Play</Badge> : null}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">

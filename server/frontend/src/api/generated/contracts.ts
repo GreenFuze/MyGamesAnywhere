@@ -252,6 +252,8 @@ export type ResolverMatchDTO = {
   xcloud_available?: boolean;
   store_product_id?: string;
   xcloud_url?: string;
+  shared?: boolean;
+  shared_owner?: string;
   metadata_json?: string;
 };
 

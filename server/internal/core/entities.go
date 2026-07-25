@@ -177,6 +177,10 @@ type ResolverMatch struct {
 	XcloudAvailable bool   `json:"xcloud_available,omitempty"`
 	StoreProductID  string `json:"store_product_id,omitempty"`
 	XcloudURL       string `json:"xcloud_url,omitempty"`
+	// Shared marks a borrowed source (e.g. a Steam Families shared title);
+	// SharedOwner attributes the lending account (ADR-0033).
+	Shared      bool   `json:"shared,omitempty"`
+	SharedOwner string `json:"shared_owner,omitempty"`
 	// MetadataJSON is the raw DB metadata_json blob (extra fields merged via parseMetadataJSON).
 	MetadataJSON string `json:"metadata_json,omitempty"`
 }
@@ -470,6 +474,10 @@ type CanonicalGame struct {
 	XcloudAvailable bool
 	StoreProductID  string
 	XcloudURL       string
+	// Shared marks a title available only as a borrowed (e.g. Steam Families)
+	// copy; SharedOwner attributes the lender (ADR-0033).
+	Shared      bool
+	SharedOwner string
 }
 
 // GameIdentity is the version-aware identity layered over the legacy

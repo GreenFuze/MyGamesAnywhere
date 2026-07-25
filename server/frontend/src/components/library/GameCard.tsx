@@ -534,6 +534,7 @@ export function GameCard({
     <>
       {game.xcloud_available && <StatusBadge kind="xcloud" />}
       {game.is_game_pass && <StatusBadge kind="gamepass" />}
+      {game.shared && <StatusBadge kind="shared" />}
       {playable && <StatusBadge kind="playable" />}
 			{emulatorRoutes.length > 0 && <StatusBadge kind="emulator" />}
 			{installedOnDevice && <StatusBadge kind="installed" />}
@@ -746,6 +747,7 @@ export function GameCard({
                 {playable ? <StatusBadge kind="playable" /> : null}
                 {game.xcloud_available ? <StatusBadge kind="xcloud" /> : null}
                 {!playable && !game.xcloud_available && game.is_game_pass ? <StatusBadge kind="gamepass" /> : null}
+                {!playable && !game.xcloud_available && !game.is_game_pass && game.shared ? <StatusBadge kind="shared" /> : null}
               </div>
               <div className="flex gap-1.5">
                 {achievementLabel ? (

@@ -40,17 +40,39 @@ type Error struct {
 type steamConfig struct {
 	APIKey  string `json:"api_key"`
 	SteamID string `json:"steam_id"` // resolved via Steam OpenID login
+	// AccessToken is an optional, short-lived Steam webapi_token the player
+	// pastes from their own logged-in Steam session. It is the only credential
+	// capable of reading the Steam Families shared library (ADR-0033). Absent
+	// or expired tokens degrade to owned-games-only; MGA never handles a Steam
+	// password.
+	AccessToken string `json:"access_token"`
 }
 
 const (
 	steamAPIBase   = "https://api.steampowered.com"
-	storeAPIBase   = "https://store.steampowered.com/api"
 	configFile     = "config.json"
 	steamOpenIDURL = "https://steamcommunity.com/openid/login"
 )
 
+// storeAPIBase is a var (not const) so tests can point appdetails enrichment at
+// an httptest server.
+var storeAPIBase = "https://store.steampowered.com/api"
+
 var errNoAchievementSchema = errors.New("steam achievement schema is unavailable")
 var fetchAchievementSchemaBaseURL = steamAPIBase
+
+// errNoFamilyGroup means the account is not a member of any Steam Family group,
+// so there is no shared library to enumerate. This is a normal, non-error state.
+var errNoFamilyGroup = errors.New("steam account is not in a family group")
+
+// errAccessTokenRejected means the pasted webapi_token is missing/expired.
+// Owned games still list; the shared portion degrades and the integration is
+// flagged as needing a refreshed token (ADR-0033).
+var errAccessTokenRejected = errors.New("steam access token was rejected (expired or invalid)")
+
+// steamFamilyAPIBase is overridable in tests to point IFamilyGroupsService
+// calls at an httptest server.
+var steamFamilyAPIBase = steamAPIBase
 
 // oauthPending tracks OpenID state tokens for CSRF validation.
 var oauthPending = map[string]bool{}
@@ -189,6 +211,10 @@ type gameEntry struct {
 	Publisher       string      `json:"publisher,omitempty"`
 	Media           []mediaItem `json:"media,omitempty"`
 	PlaytimeMinutes int         `json:"playtime_minutes,omitempty"`
+	// Shared marks a Steam Families borrowed title (ADR-0033). SharedOwner is
+	// the lending account's SteamID for attribution.
+	Shared      bool   `json:"shared,omitempty"`
+	SharedOwner string `json:"shared_owner,omitempty"`
 }
 
 // --- Config loading ---
@@ -218,6 +244,9 @@ func configFromMap(config map[string]any) steamConfig {
 	}
 	if steamID := configString(config, "steam_id"); steamID != "" {
 		result.SteamID = steamID
+	}
+	if accessToken := configString(config, "access_token"); accessToken != "" {
+		result.AccessToken = accessToken
 	}
 	return result
 }
@@ -260,6 +289,131 @@ func fetchOwnedGames(apiKey, steamID string) ([]ownedGame, error) {
 		return nil, fmt.Errorf("decode owned games: %w", err)
 	}
 	return result.Response.Games, nil
+}
+
+// --- Steam Families (shared library) API ---
+
+type familyGroupResponse struct {
+	Response struct {
+		FamilyGroupID         string `json:"family_groupid"`
+		IsNotMemberOfAnyGroup bool   `json:"is_not_member_of_any_group"`
+	} `json:"response"`
+}
+
+type sharedLibraryResponse struct {
+	Response struct {
+		Apps []sharedApp `json:"apps"`
+	} `json:"response"`
+}
+
+type sharedApp struct {
+	AppID         int      `json:"appid"`
+	Name          string   `json:"name"`
+	OwnerSteamIDs []string `json:"owner_steamids"`
+	ExcludeReason int      `json:"exclude_reason"`
+}
+
+// steamFamilyClient issues authenticated IFamilyGroupsService requests using a
+// player-supplied webapi_token. Absent tokens never reach here.
+func steamFamilyGet(path string, query url.Values) (*http.Response, error) {
+	requestURL := fmt.Sprintf("%s/%s/?%s", steamFamilyAPIBase, path, query.Encode())
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(requestURL)
+	if err != nil {
+		return nil, err
+	}
+	// A short-lived webapi_token that has expired returns 401/403. Surface this
+	// as a distinct, recoverable condition so the owned scan is unaffected.
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		resp.Body.Close()
+		return nil, errAccessTokenRejected
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return resp, nil
+}
+
+// fetchFamilyGroupID resolves the caller's Steam Family group id. Returns
+// errNoFamilyGroup when the account belongs to no group.
+func fetchFamilyGroupID(accessToken, steamID string) (string, error) {
+	query := url.Values{"access_token": {accessToken}, "steamid": {steamID}}
+	resp, err := steamFamilyGet("IFamilyGroupsService/GetFamilyGroupForUser/v1", query)
+	if err != nil {
+		return "", fmt.Errorf("family group lookup: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result familyGroupResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decode family group: %w", err)
+	}
+	if result.Response.IsNotMemberOfAnyGroup || strings.TrimSpace(result.Response.FamilyGroupID) == "" {
+		return "", errNoFamilyGroup
+	}
+	return result.Response.FamilyGroupID, nil
+}
+
+// fetchSharedLibraryApps lists apps shared into the family library by other
+// members. Apps the caller already owns are excluded via include_own=false;
+// each returned app is attributed to an owning SteamID other than the caller.
+func fetchSharedLibraryApps(accessToken, familyGroupID, selfSteamID string) ([]sharedApp, error) {
+	query := url.Values{
+		"access_token":   {accessToken},
+		"family_groupid": {familyGroupID},
+		"include_own":    {"false"},
+		"include_free":   {"false"},
+	}
+	resp, err := steamFamilyGet("IFamilyGroupsService/GetSharedLibraryApps/v1", query)
+	if err != nil {
+		return nil, fmt.Errorf("shared library apps: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result sharedLibraryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode shared library: %w", err)
+	}
+
+	shared := make([]sharedApp, 0, len(result.Response.Apps))
+	for _, app := range result.Response.Apps {
+		if app.AppID <= 0 || strings.TrimSpace(app.Name) == "" {
+			continue
+		}
+		// Defensive: only treat an app as shared when a lender other than the
+		// caller owns it. Guards against include_own being ignored upstream.
+		if !isSharedFromOther(app, selfSteamID) {
+			continue
+		}
+		shared = append(shared, app)
+	}
+	return shared, nil
+}
+
+// isSharedFromOther reports whether the app is owned by someone other than the
+// caller (i.e. genuinely borrowed).
+func isSharedFromOther(app sharedApp, selfSteamID string) bool {
+	if len(app.OwnerSteamIDs) == 0 {
+		return false
+	}
+	for _, owner := range app.OwnerSteamIDs {
+		if strings.TrimSpace(owner) != "" && owner != selfSteamID {
+			return true
+		}
+	}
+	return false
+}
+
+// sharedOwnerLabel returns a lender SteamID to attribute a borrowed title to.
+func sharedOwnerLabel(app sharedApp, selfSteamID string) string {
+	for _, owner := range app.OwnerSteamIDs {
+		if strings.TrimSpace(owner) != "" && owner != selfSteamID {
+			return owner
+		}
+	}
+	return ""
 }
 
 func fetchAppDetails(appID int) (*appDetails, error) {
@@ -325,68 +479,137 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 	log.Printf("fetched %d owned games, enriching with store details...", len(owned))
 
 	games := make([]gameEntry, 0, len(owned))
+	ownedAppIDs := make(map[int]bool, len(owned))
 	for i, og := range owned {
+		ownedAppIDs[og.AppID] = true
 		if og.Name == "" {
 			continue
 		}
 
-		appIDStr := fmt.Sprintf("%d", og.AppID)
-		entry := gameEntry{
-			ExternalID:      appIDStr,
+		base := gameEntry{
+			ExternalID:      fmt.Sprintf("%d", og.AppID),
 			Title:           og.Name,
 			Platform:        "windows_pc",
 			URL:             fmt.Sprintf("https://store.steampowered.com/app/%d", og.AppID),
 			PlaytimeMinutes: og.PlaytimeForever,
 		}
-
 		if og.ImgIconURL != "" {
-			entry.Media = append(entry.Media, mediaItem{
+			base.Media = append(base.Media, mediaItem{
 				Type: "icon",
 				URL:  fmt.Sprintf("https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/%d/%s.jpg", og.AppID, og.ImgIconURL),
 			})
 		}
 
-		detail, err := fetchAppDetails(og.AppID)
-		if err != nil {
-			log.Printf("  [%d/%d] %s: detail fetch failed: %v", i+1, len(owned), og.Name, err)
-		} else {
-			if detail.Type != "game" && detail.Type != "demo" {
-				continue
-			}
-			entry.Description = detail.ShortDescription
-			entry.ReleaseDate = detail.ReleaseDate.Date
-			if detail.HeaderImage != "" {
-				entry.Media = append(entry.Media, mediaItem{Type: "cover", URL: detail.HeaderImage})
-			}
-			if len(detail.Developers) > 0 {
-				entry.Developer = detail.Developers[0]
-			}
-			if len(detail.Publishers) > 0 {
-				entry.Publisher = detail.Publishers[0]
-			}
-			for _, g := range detail.Genres {
-				entry.Genres = append(entry.Genres, g.Description)
-			}
-			for _, ss := range detail.Screenshots {
-				if ss.PathFull != "" {
-					entry.Media = append(entry.Media, mediaItem{Type: "screenshot", URL: ss.PathFull})
-				}
-			}
-			for _, mv := range detail.Movies {
-				if mv.Webm.Max != "" {
-					entry.Media = append(entry.Media, mediaItem{Type: "video", URL: mv.Webm.Max})
-				}
-			}
+		entry, keep := enrichEntry(base, og.AppID)
+		if !keep {
+			continue
 		}
-
 		games = append(games, entry)
 		if (i+1)%25 == 0 {
 			log.Printf("  enriched %d/%d games", i+1, len(owned))
 		}
 	}
 
-	log.Printf("returning %d games (filtered from %d owned)", len(games), len(owned))
-	return map[string]any{"games": games}, nil
+	result := map[string]any{}
+
+	// Steam Families shared library (ADR-0033). Only attempted when the player
+	// supplied a webapi_token. Any failure here degrades to owned-games-only and
+	// never fails the scan; an expired token is reported so the integration can
+	// flag that a refreshed token is needed.
+	if effectiveCfg.AccessToken != "" {
+		shared, sharedErr := fetchSharedGames(effectiveCfg, ownedAppIDs)
+		if sharedErr != nil {
+			if errors.Is(sharedErr, errNoFamilyGroup) {
+				log.Printf("no Steam Family group for this account; shared library skipped")
+			} else {
+				log.Printf("shared library unavailable (owned games unaffected): %v", sharedErr)
+				result["shared_library_error"] = sharedErr.Error()
+				if errors.Is(sharedErr, errAccessTokenRejected) {
+					result["shared_library_token_expired"] = true
+				}
+			}
+		} else {
+			log.Printf("adding %d shared (family) games", len(shared))
+			games = append(games, shared...)
+		}
+	}
+
+	log.Printf("returning %d games (owned=%d)", len(games), len(owned))
+	result["games"] = games
+	return result, nil
+}
+
+// fetchSharedGames resolves and enriches the Steam Families shared library for
+// the configured account. Apps already owned are skipped.
+func fetchSharedGames(cfg steamConfig, ownedAppIDs map[int]bool) ([]gameEntry, error) {
+	familyGroupID, err := fetchFamilyGroupID(cfg.AccessToken, cfg.SteamID)
+	if err != nil {
+		return nil, err
+	}
+	apps, err := fetchSharedLibraryApps(cfg.AccessToken, familyGroupID, cfg.SteamID)
+	if err != nil {
+		return nil, err
+	}
+
+	shared := make([]gameEntry, 0, len(apps))
+	for _, app := range apps {
+		if ownedAppIDs[app.AppID] {
+			continue
+		}
+		base := gameEntry{
+			ExternalID:  fmt.Sprintf("%d", app.AppID),
+			Title:       app.Name,
+			Platform:    "windows_pc",
+			URL:         fmt.Sprintf("https://store.steampowered.com/app/%d", app.AppID),
+			Shared:      true,
+			SharedOwner: sharedOwnerLabel(app, cfg.SteamID),
+		}
+		entry, keep := enrichEntry(base, app.AppID)
+		if !keep {
+			continue
+		}
+		shared = append(shared, entry)
+	}
+	return shared, nil
+}
+
+// enrichEntry augments a base game entry with Steam store detail. It preserves
+// the base entry's identity and shared attribution. Returns keep=false when the
+// store classifies the app as something other than a game/demo (e.g. DLC, tool).
+func enrichEntry(entry gameEntry, appID int) (gameEntry, bool) {
+	detail, err := fetchAppDetails(appID)
+	if err != nil {
+		log.Printf("  %s: detail fetch failed: %v", entry.Title, err)
+		return entry, true
+	}
+	if detail.Type != "game" && detail.Type != "demo" {
+		return entry, false
+	}
+	entry.Description = detail.ShortDescription
+	entry.ReleaseDate = detail.ReleaseDate.Date
+	if detail.HeaderImage != "" {
+		entry.Media = append(entry.Media, mediaItem{Type: "cover", URL: detail.HeaderImage})
+	}
+	if len(detail.Developers) > 0 {
+		entry.Developer = detail.Developers[0]
+	}
+	if len(detail.Publishers) > 0 {
+		entry.Publisher = detail.Publishers[0]
+	}
+	for _, g := range detail.Genres {
+		entry.Genres = append(entry.Genres, g.Description)
+	}
+	for _, ss := range detail.Screenshots {
+		if ss.PathFull != "" {
+			entry.Media = append(entry.Media, mediaItem{Type: "screenshot", URL: ss.PathFull})
+		}
+	}
+	for _, mv := range detail.Movies {
+		if mv.Webm.Max != "" {
+			entry.Media = append(entry.Media, mediaItem{Type: "video", URL: mv.Webm.Max})
+		}
+	}
+	return entry, true
 }
 
 // --- Achievement fetching ---
@@ -745,7 +968,7 @@ func main() {
 		case "plugin.info":
 			resp.Result = map[string]any{
 				"plugin_id":      "game-source-steam",
-				"plugin_version": "1.1.0",
+				"plugin_version": "1.2.0",
 				"capabilities":   []string{"source", "achievements"},
 			}
 

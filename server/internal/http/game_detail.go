@@ -41,6 +41,8 @@ type GameDetailResponse struct {
 	XcloudAvailable    bool                        `json:"xcloud_available,omitempty"`
 	StoreProductID     string                      `json:"store_product_id,omitempty"`
 	XcloudURL          string                      `json:"xcloud_url,omitempty"`
+	Shared             bool                        `json:"shared,omitempty"`
+	SharedOwner        string                      `json:"shared_owner,omitempty"`
 	Play               *GamePlayDTO                `json:"play,omitempty"`
 	AchievementSummary *AchievementSummaryDTO      `json:"achievement_summary,omitempty"`
 	Identity           *core.GameIdentity          `json:"identity,omitempty"`
@@ -461,6 +463,8 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 		XcloudAvailable: cg.XcloudAvailable,
 		StoreProductID:  cg.StoreProductID,
 		XcloudURL:       cg.XcloudURL,
+		Shared:          cg.Shared,
+		SharedOwner:     cg.SharedOwner,
 		Identity:        cg.Identity,
 		Play: &GamePlayDTO{
 			PlatformSupported: supportsBrowserPlayPlatform(cg.Platform),

@@ -4823,6 +4823,12 @@ func (s *gameStore) computeUnifiedView(cg *core.CanonicalGame) {
 		if m.XcloudURL != "" && cg.XcloudURL == "" {
 			cg.XcloudURL = m.XcloudURL
 		}
+		if m.Shared {
+			cg.Shared = true
+		}
+		if m.SharedOwner != "" && cg.SharedOwner == "" {
+			cg.SharedOwner = m.SharedOwner
+		}
 	}
 
 	// Fallback: if no resolver set a title, use the first source game's raw title.
@@ -4853,6 +4859,8 @@ type metadataExtra struct {
 	XcloudAvailable bool                 `json:"xcloud_available,omitempty"`
 	StoreProductID  string               `json:"store_product_id,omitempty"`
 	XcloudURL       string               `json:"xcloud_url,omitempty"`
+	Shared          bool                 `json:"shared,omitempty"`
+	SharedOwner     string               `json:"shared_owner,omitempty"`
 	// Media stores the full provider media list so it survives metadata refreshes.
 	// Without this, resolver matches lose their images each time they are re-read
 	// from the database, causing source_game_media to be wiped on every refresh.
@@ -4871,6 +4879,8 @@ func buildMetadataJSON(m core.ResolverMatch) (string, error) {
 		XcloudAvailable: m.XcloudAvailable,
 		StoreProductID:  m.StoreProductID,
 		XcloudURL:       m.XcloudURL,
+		Shared:          m.Shared,
+		SharedOwner:     m.SharedOwner,
 		Media:           m.Media,
 	}
 	b, err := json.Marshal(extra)
@@ -4901,6 +4911,8 @@ func parseMetadataJSON(s string, m *core.ResolverMatch) {
 	m.XcloudAvailable = extra.XcloudAvailable
 	m.StoreProductID = extra.StoreProductID
 	m.XcloudURL = extra.XcloudURL
+	m.Shared = extra.Shared
+	m.SharedOwner = extra.SharedOwner
 	// Restore media only when the stored list is non-empty; older rows that
 	// pre-date this field will have an empty/missing array and should not
 	// overwrite media that was already populated from another source.

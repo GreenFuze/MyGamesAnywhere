@@ -970,6 +970,8 @@ export type GameSummary = {
   xcloud_available?: boolean;
   store_product_id?: string;
   xcloud_url?: string;
+  shared?: boolean;
+  shared_owner?: string;
 };
 
 export type ExternalIDDTO = {
@@ -1081,6 +1083,8 @@ export type GameDetailResponse = {
   xcloud_available?: boolean;
   store_product_id?: string;
   xcloud_url?: string;
+  shared?: boolean;
+  shared_owner?: string;
   play?: GamePlayDTO;
   achievement_summary?: AchievementSummaryDTO;
   identity?: GameIdentityDTO;

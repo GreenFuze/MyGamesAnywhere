@@ -1,12 +1,12 @@
-import { Gamepad2, HardDrive, Play } from 'lucide-react'
+import { Gamepad2, HardDrive, Play, Users } from 'lucide-react'
 import { BrandIcon } from '@/components/ui/brand-icon'
 import { cn } from '@/lib/utils'
 
-type StatusBadgeKind = 'playable' | 'xcloud' | 'gamepass' | 'emulator' | 'installed'
+type StatusBadgeKind = 'playable' | 'xcloud' | 'gamepass' | 'emulator' | 'installed' | 'shared'
 
 const STATUS_META: Record<
   StatusBadgeKind,
-  { label: string; icon: 'play' | 'xcloud' | 'xbox' | 'emulator' | 'installed'; className: string }
+  { label: string; icon: 'play' | 'xcloud' | 'xbox' | 'emulator' | 'installed' | 'shared'; className: string }
 > = {
   playable: {
     label: 'Playable',
@@ -33,6 +33,11 @@ const STATUS_META: Record<
     icon: 'installed',
     className: 'border-amber-400/30 bg-black/70 text-amber-200',
   },
+  shared: {
+    label: 'Shared from another Steam account',
+    icon: 'shared',
+    className: 'border-blue-400/30 bg-black/70 text-blue-200',
+  },
 }
 
 interface StatusBadgeProps {
@@ -46,6 +51,7 @@ function StatusBadgeIcon({ kind }: { kind: StatusBadgeKind }) {
   if (icon === 'xbox') return <BrandIcon brand="xbox" className="h-3.5 w-3.5" />
   if (icon === 'emulator') return <Gamepad2 size={13} strokeWidth={2.25} />
   if (icon === 'installed') return <HardDrive size={13} strokeWidth={2.25} />
+  if (icon === 'shared') return <Users size={13} strokeWidth={2.25} />
   return <Play size={12} strokeWidth={2.25} />
 }
 

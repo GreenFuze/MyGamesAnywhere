@@ -102,6 +102,7 @@ function GameListRow({ game, selected, onToggleSelected }: { game: GameDetailRes
           {playable ? <StatusBadge kind="playable" /> : null}
           {game.xcloud_available ? <StatusBadge kind="xcloud" /> : null}
           {game.is_game_pass ? <StatusBadge kind="gamepass" /> : null}
+          {game.shared ? <StatusBadge kind="shared" /> : null}
           {achievements ? (
             <span className="inline-flex h-6 items-center gap-1 rounded-full border border-yellow-400/25 bg-yellow-500/10 px-2 text-xs text-yellow-100">
               <Trophy size={12} />

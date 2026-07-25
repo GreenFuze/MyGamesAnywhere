@@ -58,6 +58,9 @@ type GameSummary struct {
 	XcloudAvailable bool   `json:"xcloud_available,omitempty"`
 	StoreProductID  string `json:"store_product_id,omitempty"`
 	XcloudURL       string `json:"xcloud_url,omitempty"`
+	// Shared marks a borrowed (e.g. Steam Families) title; SharedOwner is the lender (ADR-0033).
+	Shared      bool   `json:"shared,omitempty"`
+	SharedOwner string `json:"shared_owner,omitempty"`
 }
 
 // ExternalIDDTO is a reference to an external metadata database.
@@ -1145,6 +1148,8 @@ func canonicalToSummary(cg *core.CanonicalGame) GameSummary {
 		XcloudAvailable: cg.XcloudAvailable,
 		StoreProductID:  cg.StoreProductID,
 		XcloudURL:       cg.XcloudURL,
+		Shared:          cg.Shared,
+		SharedOwner:     cg.SharedOwner,
 	}
 
 	// Collect files from all source games.
