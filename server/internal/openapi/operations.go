@@ -498,6 +498,28 @@ func Operations() []OperationDoc {
 			},
 		},
 		{
+			Method:      "POST",
+			Path:        "/api/auth/qr/{plugin_id}/begin",
+			Summary:     "Start an app-approval (QR) sign-in",
+			Description: "Asks the plugin to begin a sign-in the player approves in the provider's own mobile app, and returns the challenge URL plus the session identifiers to poll with. No password or second factor is ever entered into MGA.",
+			ResponseDocs: map[string]string{
+				"200": "Challenge JSON with client_id, request_id, challenge_url, and interval_seconds",
+				"400": "plugin_id or profile missing",
+				"502": "The provider did not return a usable challenge",
+			},
+		},
+		{
+			Method:      "POST",
+			Path:        "/api/auth/qr/{plugin_id}/poll",
+			Summary:     "Poll an app-approval (QR) sign-in",
+			Description: "Reports whether the player has approved the challenge yet. While pending it returns status \"pending\"; once approved it stores the returned long-lived credential on the calling profile's own connection and clears any re-authentication flag.",
+			ResponseDocs: map[string]string{
+				"200": "Poll JSON with status \"pending\" or \"ok\" (plus account_name when known)",
+				"400": "Missing session fields, unknown connection, plugin mismatch, another profile's connection, or an expired challenge",
+				"500": "Credentials could not be saved",
+			},
+		},
+		{
 			Method:       "GET",
 			Path:         "/api/integrations/{id}/games",
 			Summary:      "List games discovered by one source integration",

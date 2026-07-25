@@ -13,16 +13,25 @@ import (
 // GetFamilyGroupForUser, GetSharedLibraryApps, and store appdetails. Callers
 // point steamFamilyAPIBase and storeAPIBase at it.
 type familyTestConfig struct {
-	familyStatus  int
-	familyBody    string
-	sharedBody    string
-	appTypes      map[string]string // appid -> store "type" (default "game")
+	familyStatus int
+	familyBody   string
+	sharedBody   string
+	appTypes     map[string]string // appid -> store "type" (default "game")
+	// renewBody overrides the access-token renewal response. Empty means a
+	// valid token is minted from the refresh token.
+	renewBody string
 }
 
 func startFamilyTestServer(t *testing.T, cfg familyTestConfig) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case strings.HasPrefix(r.URL.Path, "/IAuthenticationService/GenerateAccessTokenForApp/"):
+			if cfg.renewBody != "" {
+				fmt.Fprint(w, cfg.renewBody)
+				return
+			}
+			fmt.Fprint(w, `{"response":{"access_token":"minted-access-token"}}`)
 		case strings.HasPrefix(r.URL.Path, "/IFamilyGroupsService/GetFamilyGroupForUser/"):
 			if cfg.familyStatus != 0 && cfg.familyStatus != http.StatusOK {
 				w.WriteHeader(cfg.familyStatus)
@@ -48,12 +57,14 @@ func startFamilyTestServer(t *testing.T, cfg familyTestConfig) *httptest.Server 
 	}))
 	t.Cleanup(server.Close)
 
-	originalFamily, originalStore := steamFamilyAPIBase, storeAPIBase
+	originalFamily, originalStore, originalAuth := steamFamilyAPIBase, storeAPIBase, steamAuthAPIBase
 	steamFamilyAPIBase = server.URL
 	storeAPIBase = server.URL
+	steamAuthAPIBase = server.URL
 	t.Cleanup(func() {
 		steamFamilyAPIBase = originalFamily
 		storeAPIBase = originalStore
+		steamAuthAPIBase = originalAuth
 	})
 	return server
 }
@@ -70,7 +81,7 @@ func TestFetchSharedGamesMergesFiltersAndDedups(t *testing.T) {
 		]}}`,
 	})
 
-	cfg := steamConfig{APIKey: "k", SteamID: "SELF", AccessToken: "tok"}
+	cfg := steamConfig{APIKey: "k", SteamID: "SELF", RefreshToken: "refresh-tok"}
 	shared, err := fetchSharedGames(cfg, map[int]bool{30: true})
 	if err != nil {
 		t.Fatalf("fetchSharedGames error: %v", err)
@@ -95,7 +106,7 @@ func TestFetchSharedGamesDropsNonGameTypes(t *testing.T) {
 		appTypes:   map[string]string{"40": "dlc"},
 	})
 
-	cfg := steamConfig{APIKey: "k", SteamID: "SELF", AccessToken: "tok"}
+	cfg := steamConfig{APIKey: "k", SteamID: "SELF", RefreshToken: "refresh-tok"}
 	shared, err := fetchSharedGames(cfg, map[int]bool{})
 	if err != nil {
 		t.Fatalf("fetchSharedGames error: %v", err)
@@ -108,7 +119,7 @@ func TestFetchSharedGamesDropsNonGameTypes(t *testing.T) {
 func TestFetchSharedGamesTokenExpired(t *testing.T) {
 	startFamilyTestServer(t, familyTestConfig{familyStatus: http.StatusUnauthorized})
 
-	cfg := steamConfig{APIKey: "k", SteamID: "SELF", AccessToken: "expired"}
+	cfg := steamConfig{APIKey: "k", SteamID: "SELF", RefreshToken: "expired-refresh"}
 	_, err := fetchSharedGames(cfg, map[int]bool{})
 	if !errors.Is(err, errAccessTokenRejected) {
 		t.Fatalf("error = %v, want errAccessTokenRejected", err)
@@ -151,9 +162,65 @@ func TestIsSharedFromOtherAndOwnerLabel(t *testing.T) {
 	}
 }
 
-func TestConfigFromMapReadsAccessToken(t *testing.T) {
-	cfg := configFromMap(map[string]any{"api_key": "k", "steam_id": "s", "access_token": " tok "})
-	if cfg.AccessToken != "tok" {
-		t.Fatalf("access_token = %q, want trimmed 'tok'", cfg.AccessToken)
+func TestConfigFromMapReadsRefreshToken(t *testing.T) {
+	cfg := configFromMap(map[string]any{"api_key": "k", "steam_id": "s", "refresh_token": " tok "})
+	if cfg.RefreshToken != "tok" {
+		t.Fatalf("refresh_token = %q, want trimmed 'tok'", cfg.RefreshToken)
+	}
+	// The retired manual access_token field must no longer be honoured.
+	legacy := configFromMap(map[string]any{"api_key": "k", "access_token": "manual"})
+	if legacy.RefreshToken != "" {
+		t.Fatalf("legacy access_token was accepted as %q, want ignored", legacy.RefreshToken)
+	}
+}
+
+func TestFetchSharedGamesRejectedRefreshTokenDegrades(t *testing.T) {
+	// Steam returns no access token for a dead refresh token.
+	startFamilyTestServer(t, familyTestConfig{renewBody: `{"response":{}}`})
+
+	cfg := steamConfig{APIKey: "k", SteamID: "SELF", RefreshToken: "dead-refresh"}
+	_, err := fetchSharedGames(cfg, map[int]bool{})
+	if !errors.Is(err, errAccessTokenRejected) {
+		t.Fatalf("error = %v, want errAccessTokenRejected", err)
+	}
+}
+
+func TestFetchSharedGamesUsesMintedAccessTokenNotRefreshToken(t *testing.T) {
+	var familyTokens []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/IAuthenticationService/GenerateAccessTokenForApp/"):
+			fmt.Fprint(w, `{"response":{"access_token":"minted-access-token"}}`)
+		case strings.HasPrefix(r.URL.Path, "/IFamilyGroupsService/"):
+			familyTokens = append(familyTokens, r.URL.Query().Get("access_token"))
+			if strings.Contains(r.URL.Path, "GetFamilyGroupForUser") {
+				fmt.Fprint(w, `{"response":{"family_groupid":"9001"}}`)
+				return
+			}
+			fmt.Fprint(w, `{"response":{"apps":[]}}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	originalFamily, originalAuth := steamFamilyAPIBase, steamAuthAPIBase
+	steamFamilyAPIBase, steamAuthAPIBase = server.URL, server.URL
+	t.Cleanup(func() { steamFamilyAPIBase, steamAuthAPIBase = originalFamily, originalAuth })
+
+	cfg := steamConfig{APIKey: "k", SteamID: "SELF", RefreshToken: "secret-refresh"}
+	if _, err := fetchSharedGames(cfg, map[int]bool{}); err != nil {
+		t.Fatalf("fetchSharedGames error: %v", err)
+	}
+	if len(familyTokens) == 0 {
+		t.Fatal("no family API calls were made")
+	}
+	for _, token := range familyTokens {
+		if token != "minted-access-token" {
+			t.Fatalf("family call used token %q, want the minted access token", token)
+		}
+		if token == "secret-refresh" {
+			t.Fatal("refresh token leaked to the family API")
+		}
 	}
 }

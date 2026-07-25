@@ -31,6 +31,7 @@ import { Button } from '@/components/ui/button'
 import { PluginIcon } from './PluginIcon'
 import { ConfigFieldsRenderer } from './ConfigFieldsRenderer'
 import { OAuthCallbackPanel } from './OAuthCallbackPanel'
+import { QRSignIn } from './QRSignIn'
 import { ArrowLeft, Check } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -685,6 +686,9 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
   // Folder browsing for plugins that support source.browse.
   const editSupportsBrowse = plugin?.provides?.includes('source.browse') ?? false
 
+  // App-approval sign-in for plugins that declare the QR auth methods.
+  const editSupportsQRSignIn = plugin?.provides?.includes('auth.qr.begin') ?? false
+
   // Secret fields — start masked, reveal on "Change" click.
   const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set())
   const secretMask = useMemo(() => {
@@ -893,6 +897,16 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
               browse={(path) => browsePlugin(integration.plugin_id, path, { integrationId: integration.id })}
             />
           </div>
+        )}
+
+        {/* Providers that authenticate by app approval instead of a pasted secret. */}
+        {editSupportsQRSignIn && (
+          <QRSignIn
+            pluginId={integration.plugin_id}
+            integrationId={integration.id}
+            providerAppName={pluginLabel(integration.plugin_id)}
+            onSignedIn={() => onSaved()}
+          />
         )}
 
         {oauthResponse ? (

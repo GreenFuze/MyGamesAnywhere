@@ -40,12 +40,12 @@ type Error struct {
 type steamConfig struct {
 	APIKey  string `json:"api_key"`
 	SteamID string `json:"steam_id"` // resolved via Steam OpenID login
-	// AccessToken is an optional, short-lived Steam webapi_token the player
-	// pastes from their own logged-in Steam session. It is the only credential
-	// capable of reading the Steam Families shared library (ADR-0033). Absent
-	// or expired tokens degrade to owned-games-only; MGA never handles a Steam
-	// password.
-	AccessToken string `json:"access_token"`
+	// RefreshToken is the long-lived Steam token obtained by scanning a QR
+	// challenge with the Steam mobile app. It is the credential that lets MGA
+	// read the Steam Families shared library (ADR-0033): MGA mints short-lived
+	// access tokens from it on demand. Absent or rejected tokens degrade to
+	// owned-games-only; MGA never handles a Steam password.
+	RefreshToken string `json:"refresh_token"`
 }
 
 const (
@@ -245,8 +245,8 @@ func configFromMap(config map[string]any) steamConfig {
 	if steamID := configString(config, "steam_id"); steamID != "" {
 		result.SteamID = steamID
 	}
-	if accessToken := configString(config, "access_token"); accessToken != "" {
-		result.AccessToken = accessToken
+	if refreshToken := configString(config, "refresh_token"); refreshToken != "" {
+		result.RefreshToken = refreshToken
 	}
 	return result
 }
@@ -516,7 +516,7 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 	// supplied a webapi_token. Any failure here degrades to owned-games-only and
 	// never fails the scan; an expired token is reported so the integration can
 	// flag that a refreshed token is needed.
-	if effectiveCfg.AccessToken != "" {
+	if effectiveCfg.RefreshToken != "" {
 		shared, sharedErr := fetchSharedGames(effectiveCfg, ownedAppIDs)
 		if sharedErr != nil {
 			if errors.Is(sharedErr, errNoFamilyGroup) {
@@ -542,11 +542,19 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 // fetchSharedGames resolves and enriches the Steam Families shared library for
 // the configured account. Apps already owned are skipped.
 func fetchSharedGames(cfg steamConfig, ownedAppIDs map[int]bool) ([]gameEntry, error) {
-	familyGroupID, err := fetchFamilyGroupID(cfg.AccessToken, cfg.SteamID)
+	// Mint a short-lived access token from the stored refresh token. A rejected
+	// refresh token surfaces as errAccessTokenRejected so the caller degrades to
+	// owned-games-only and flags that the player should sign in again.
+	accessToken, err := newSteamAuthClient().AccessTokenFor(cfg.RefreshToken, cfg.SteamID)
 	if err != nil {
 		return nil, err
 	}
-	apps, err := fetchSharedLibraryApps(cfg.AccessToken, familyGroupID, cfg.SteamID)
+
+	familyGroupID, err := fetchFamilyGroupID(accessToken, cfg.SteamID)
+	if err != nil {
+		return nil, err
+	}
+	apps, err := fetchSharedLibraryApps(accessToken, familyGroupID, cfg.SteamID)
 	if err != nil {
 		return nil, err
 	}
@@ -868,6 +876,64 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 	}, nil
 }
 
+// --- QR sign-in (auth.qr.begin / auth.qr.poll) ---
+
+// handleQRBegin starts a Steam QR sign-in and returns the challenge to show.
+func handleQRBegin(json.RawMessage) (any, *Error) {
+	session, err := newSteamAuthClient().BeginQRSession()
+	if err != nil {
+		return nil, &Error{Code: "AUTH_ERROR", Message: err.Error()}
+	}
+	return map[string]any{
+		"status":           "pending",
+		"client_id":        session.ClientID,
+		"request_id":       session.RequestID,
+		"challenge_url":    session.ChallengeURL,
+		"interval_seconds": session.IntervalSecs,
+	}, nil
+}
+
+// handleQRPoll reports whether the player approved the QR challenge. On success
+// it returns config_updates so the server persists the refresh token and the
+// signed-in Steam identity.
+func handleQRPoll(params json.RawMessage) (any, *Error) {
+	var p struct {
+		ClientID  string `json:"client_id"`
+		RequestID string `json:"request_id"`
+		SteamID   string `json:"steam_id"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+
+	client := newSteamAuthClient()
+	refreshToken, accountName, err := client.PollQRSession(p.ClientID, p.RequestID)
+	switch {
+	case errors.Is(err, errAuthPending):
+		return map[string]any{"status": "pending"}, nil
+	case errors.Is(err, errAuthSessionExpired):
+		return nil, &Error{Code: "AUTH_EXPIRED", Message: err.Error()}
+	case err != nil:
+		return nil, &Error{Code: "AUTH_ERROR", Message: err.Error()}
+	}
+
+	// The QR sign-in proves the account identity, but the shared-library calls
+	// also need the numeric Steam ID. Reuse the one already configured by the
+	// existing OpenID sign-in when the caller supplied it.
+	updates := map[string]any{"refresh_token": refreshToken}
+	steamID := strings.TrimSpace(p.SteamID)
+	if steamID != "" {
+		updates["steam_id"] = steamID
+	}
+
+	log.Printf("steam QR sign-in completed for account %q", accountName)
+	return map[string]any{
+		"status":         "ok",
+		"account_name":   accountName,
+		"config_updates": updates,
+	}, nil
+}
+
 func configString(config map[string]any, key string) string {
 	value, _ := config[key].(string)
 	return strings.TrimSpace(value)
@@ -968,7 +1034,7 @@ func main() {
 		case "plugin.info":
 			resp.Result = map[string]any{
 				"plugin_id":      "game-source-steam",
-				"plugin_version": "1.2.0",
+				"plugin_version": "1.3.0",
 				"capabilities":   []string{"source", "achievements"},
 			}
 
@@ -982,6 +1048,22 @@ func main() {
 
 		case "auth.oauth.callback":
 			result, errObj := handleOAuthCallback(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "auth.qr.begin":
+			result, errObj := handleQRBegin(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+
+		case "auth.qr.poll":
+			result, errObj := handleQRPoll(req.Params)
 			if errObj != nil {
 				resp.Error = errObj
 			} else {

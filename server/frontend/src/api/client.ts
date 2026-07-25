@@ -2274,6 +2274,41 @@ export async function getAboutInfo(): Promise<AboutInfo> {
   return getJson<AboutInfo>("/api/about");
 }
 
+// QR sign-in: the player approves in the provider's own mobile app, so no
+// password or second factor is ever entered into MGA.
+export type QRSignInChallenge = {
+  status: string;
+  client_id: string;
+  request_id: string;
+  challenge_url: string;
+  interval_seconds?: number;
+};
+
+export type QRSignInPoll = {
+  status: string;
+  account_name?: string;
+};
+
+export async function beginQRSignIn(pluginId: string, integrationId: string): Promise<QRSignInChallenge> {
+  return postJson<QRSignInChallenge>(
+    `/api/auth/qr/${encodeURIComponent(pluginId)}/begin`,
+    { integration_id: integrationId },
+  ) as Promise<QRSignInChallenge>;
+}
+
+export async function pollQRSignIn(
+  pluginId: string,
+  integrationId: string,
+  clientId: string,
+  requestId: string,
+): Promise<QRSignInPoll> {
+  return postJson<QRSignInPoll>(`/api/auth/qr/${encodeURIComponent(pluginId)}/poll`, {
+    integration_id: integrationId,
+    client_id: clientId,
+    request_id: requestId,
+  }) as Promise<QRSignInPoll>;
+}
+
 export async function getUpdateStatus(): Promise<UpdateStatus> {
   return getJson<UpdateStatus>("/api/update/status");
 }

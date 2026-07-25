@@ -213,6 +213,10 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Post("/integrations", adminOnly(b.PluginCtrl.Create))
 				r.Get("/integrations/{id}/status", adminOnly(b.PluginCtrl.StatusOne))
 				r.Post("/integrations/{id}/authorize", adminOnly(b.PluginCtrl.StartIntegrationAuth))
+				// QR sign-in: the player approves in their own provider app, so
+				// these run under the profile's own authorization.
+				r.Post("/auth/qr/{plugin_id}/begin", adminOnly(b.OAuthCtrl.QRBegin))
+				r.Post("/auth/qr/{plugin_id}/poll", adminOnly(b.OAuthCtrl.QRPoll))
 				r.Post("/plugins/{plugin_id}/check-config", adminOnly(b.PluginCtrl.CheckPluginConfig))
 				if b.IntegrationRefreshCtrl != nil {
 					r.Post("/integrations/{id}/refresh", adminOnly(b.IntegrationRefreshCtrl.Start))
@@ -411,6 +415,8 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Post("/integrations", noopHandler())
 			api.Get("/integrations/{id}/status", noopHandler())
 			api.Post("/integrations/{id}/authorize", noopHandler())
+			api.Post("/auth/qr/{plugin_id}/begin", noopHandler())
+			api.Post("/auth/qr/{plugin_id}/poll", noopHandler())
 			api.Post("/plugins/{plugin_id}/check-config", noopHandler())
 			api.Post("/integrations/{id}/refresh", noopHandler())
 			api.Get("/integrations/{id}/games", noopHandler())

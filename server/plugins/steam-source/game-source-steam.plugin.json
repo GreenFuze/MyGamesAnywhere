@@ -1,9 +1,9 @@
 {
   "plugin_id": "game-source-steam",
-  "plugin_version": "1.2.0",
+  "plugin_version": "1.3.0",
   "api_major": 1,
   "capabilities": ["source", "achievements"],
-  "provides": ["source.games.list", "achievements.game.get", "plugin.check_config", "auth.oauth.callback"],
+  "provides": ["source.games.list", "achievements.game.get", "plugin.check_config", "auth.oauth.callback", "auth.qr.begin", "auth.qr.poll"],
   "exec": "steam-source.exe",
   "default_timeout_ms": 120000,
   "max_concurrency": 1,
@@ -15,12 +15,12 @@
       "x-help-url": "https://steamcommunity.com/dev/apikey",
       "description": "Steam Web API Key"
     },
-    "access_token": {
+    "refresh_token": {
       "type": "string",
       "required": false,
       "x-secret": true,
-      "x-help-url": "https://store.steampowered.com/pointssummary/ajaxgetasyncconfig",
-      "description": "Optional Steam access token (webapi_token) for showing Steam Family shared games. Open the help link while signed in to Steam and copy the webapi_token value. It expires roughly daily; re-paste to refresh."
+      "x-auth-method": "qr",
+      "description": "Steam sign-in for Steam Family shared games. Obtained by scanning a QR code with the Steam mobile app, not entered by hand — your Steam password and Steam Guard code never reach MGA. Lasts for months and renews automatically."
     }
   }
 }

@@ -223,6 +223,42 @@ paths:
         500:
           description: Error response
 
+  /api/auth/qr/{plugin_id}/begin:
+    post:
+      summary: Start an app-approval (QR) sign-in
+      description: Asks the plugin to begin a sign-in the player approves in the provider's own mobile app, and returns the challenge URL plus the session identifiers to poll with. No password or second factor is ever entered into MGA.
+      parameters:
+        - name: plugin_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Challenge JSON with client_id, request_id, challenge_url, and interval_seconds
+        400:
+          description: plugin_id or profile missing
+        500:
+          description: Error response
+
+  /api/auth/qr/{plugin_id}/poll:
+    post:
+      summary: Poll an app-approval (QR) sign-in
+      description: Reports whether the player has approved the challenge yet. While pending it returns status "pending"; once approved it stores the returned long-lived credential on the calling profile's own connection and clears any re-authentication flag.
+      parameters:
+        - name: plugin_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Poll JSON with status "pending" or "ok" (plus account_name when known)
+        400:
+          description: Missing session fields, unknown connection, plugin mismatch, another profile's connection, or an expired challenge
+        500:
+          description: Credentials could not be saved
+
   /api/auth/session:
     get:
       responses:
