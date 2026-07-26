@@ -5,7 +5,7 @@ type AssociationChangeDetail = {
   endpointID: string
 }
 
-/** Shared browser/profile preference used by both the top bar and Play page. */
+/** Profile-scoped Play target preference. It is not browser-local presence proof. */
 export class ClientEndpointAssociation {
   static key(profileID: string): string {
     return `mga.clientEndpoint.${profileID}`

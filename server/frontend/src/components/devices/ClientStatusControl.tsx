@@ -14,8 +14,13 @@ import {
   type DeviceEndpoint,
 } from '@/api/client'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { useBrowserClientAssociation } from '@/hooks/useBrowserClientAssociation'
 import { useProfiles } from '@/hooks/useProfiles'
-import { useClientEndpointAssociation } from '@/hooks/useClientEndpointAssociation'
+import {
+  findNewConnectedEndpointIDs,
+  resolveNewlyPairedEndpointID,
+} from '@/lib/browserClientAssociation'
+import { resolveClientStatusPresentation } from '@/lib/clientStatusPresentation'
 import { cn } from '@/lib/utils'
 
 const connectedStates = new Set<DeviceEndpoint['status']>(['ready', 'busy', 'update_required', 'error'])
@@ -30,6 +35,10 @@ export function ClientStatusControl() {
   const [launchStartedAt, setLaunchStartedAt] = useState(0)
   const [launchMessage, setLaunchMessage] = useState('')
   const [confirmStop, setConfirmStop] = useState(false)
+  const [pairingAttempt, setPairingAttempt] = useState<{
+    baselineEndpointIDs: string[]
+    startedAt: number
+  } | null>(null)
 
   const profileID = currentProfile?.id ?? ''
   const sessionQuery = useQuery({
@@ -72,16 +81,20 @@ export function ClientStatusControl() {
   })
 
   const devices = devicesQuery.data ?? []
-  const { associated, selectEndpoint } = useClientEndpointAssociation(profileID, devices)
+  const {
+    associated,
+    selectEndpoint,
+    storedID: browserEndpointID,
+  } = useBrowserClientAssociation(devices)
   const connected = Boolean(associated && connectedStates.has(associated.status))
-  const onlineCount = devices.filter((device) => connectedStates.has(device.status)).length
+  const requiresPairing = Boolean(browserEndpointID && !associated) || devices.length === 0
 
   const preparedClientActionQuery = useQuery({
-    queryKey: ['device-client-actions', profileID, devices.length === 0 ? 'pair' : 'launch'],
+    queryKey: ['device-client-actions', profileID, requiresPairing ? 'pair' : 'launch'],
     queryFn: async () => {
       const pairing = await createDevicePairingChallenge()
       if (!pairing.pair_uri) throw new Error('MGA Server did not return a client pairing URI')
-      if (devices.length === 0) {
+      if (requiresPairing) {
         return { pairing }
       }
       const [standard, elevated] = await Promise.all([
@@ -91,7 +104,7 @@ export function ClientStatusControl() {
       if (!standard.launch_uri || !elevated.launch_uri) throw new Error('MGA Server did not return MGA Client launch links')
       return { pairing, standard, elevated }
     },
-    enabled: open && deviceAuthority && devicesQuery.isSuccess && !connected && !pendingLaunchID,
+    enabled: open && deviceAuthority && devicesQuery.isSuccess && !connected && !pendingLaunchID && !pairingAttempt,
     retry: false,
     staleTime: 30_000,
   })
@@ -121,6 +134,31 @@ export function ClientStatusControl() {
   }, [currentProfile, launchQuery.data, queryClient, selectEndpoint])
 
   useEffect(() => {
+    if (!pairingAttempt) return
+    const candidates = findNewConnectedEndpointIDs(pairingAttempt.baselineEndpointIDs, devices)
+    if (candidates.length > 1) {
+      setPairingAttempt(null)
+      setLaunchMessage('More than one new client appeared. Try pairing again.')
+      return
+    }
+    const endpointID = resolveNewlyPairedEndpointID(pairingAttempt.baselineEndpointIDs, devices)
+    if (!endpointID) return
+    selectEndpoint(endpointID)
+    setPairingAttempt(null)
+    setLaunchMessage('')
+  }, [devices, pairingAttempt, selectEndpoint])
+
+  useEffect(() => {
+    if (!pairingAttempt) return
+    const remaining = Math.max(0, 120_000 - (Date.now() - pairingAttempt.startedAt))
+    const timeout = window.setTimeout(() => {
+      setPairingAttempt(null)
+      setLaunchMessage('Pairing expired. Try again.')
+    }, remaining)
+    return () => window.clearTimeout(timeout)
+  }, [pairingAttempt])
+
+  useEffect(() => {
     if (!open) return
     const close = (event: PointerEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) {
@@ -142,7 +180,7 @@ export function ClientStatusControl() {
     }
   }, [open])
 
-  const presentation = statusPresentation(deviceAuthority, associated, connected, onlineCount)
+  const presentation = resolveClientStatusPresentation(deviceAuthority, associated, connected)
   const canStop = Boolean(
     associated
       && connected
@@ -161,8 +199,16 @@ export function ClientStatusControl() {
     setLaunchStartedAt(Date.now())
     setLaunchMessage('')
   }
+  const beginPairing = () => {
+    setPairingAttempt({
+      baselineEndpointIDs: devices.map((device) => device.id),
+      startedAt: Date.now(),
+    })
+    setLaunchMessage('')
+  }
   const retryLaunch = () => {
     setPendingLaunchID('')
+    setPairingAttempt(null)
     setLaunchStartedAt(0)
     setLaunchMessage('')
     void preparedClientActionQuery.refetch()
@@ -198,6 +244,8 @@ export function ClientStatusControl() {
               <p className="mt-0.5 text-xs leading-5 text-mga-muted">
                 {associated
                   ? `${associated.display_name} (${associated.os_user})`
+                  : browserEndpointID
+                    ? 'Pair this Windows user with the active profile to continue.'
                   : deviceAuthority
                     ? 'Open or pair MGA Client for this Windows user.'
                     : authorized
@@ -210,10 +258,10 @@ export function ClientStatusControl() {
           {deviceAuthority ? (
             <div className="mt-3 space-y-2">
               {!connected ? (
-                pendingLaunchID ? (
+                pendingLaunchID || pairingAttempt ? (
                   <Button className="w-full" disabled><LoaderCircle className="h-4 w-4 animate-spin" /> Waiting…</Button>
                 ) : preparedClientAction && !preparedClientAction.standard ? (
-                  <a className={cn(buttonVariants(), 'w-full')} href={preparedClientAction.pairing.pair_uri}>
+                  <a className={cn(buttonVariants(), 'w-full')} href={preparedClientAction.pairing.pair_uri} onClick={beginPairing}>
                     <Power className="h-4 w-4" /> Pair MGA Client
                   </a>
                 ) : preparedClientAction?.standard ? (
@@ -225,7 +273,7 @@ export function ClientStatusControl() {
                 )
               ) : null}
 
-              {!connected && devices.length > 0 ? (
+              {!connected && !requiresPairing ? (
                 preparedClientAction?.elevated && !pendingLaunchID ? (
                   <a className={cn(buttonVariants({ variant: 'outline' }), 'w-full')} href={preparedClientAction.elevated.launch_uri} onClick={() => beginLaunch(preparedClientAction.elevated.id)}>
                     <Shield className="h-4 w-4" /> Run MGA Client as administrator
@@ -235,8 +283,8 @@ export function ClientStatusControl() {
                 )
               ) : null}
 
-              {!connected && devices.length > 0 && preparedClientAction?.pairing && !pendingLaunchID ? (
-                <a className={cn(buttonVariants({ variant: 'outline' }), 'w-full')} href={preparedClientAction.pairing.pair_uri}>
+              {!connected && !requiresPairing && preparedClientAction?.pairing && !pendingLaunchID && !pairingAttempt ? (
+                <a className={cn(buttonVariants({ variant: 'outline' }), 'w-full')} href={preparedClientAction.pairing.pair_uri} onClick={beginPairing}>
                   <Laptop className="h-4 w-4" /> Pair this Windows user
                 </a>
               ) : null}
@@ -272,7 +320,7 @@ export function ClientStatusControl() {
               {launchUnanswered || launchMessage || preparedClientActionQuery.error || launchQuery.error ? (
                 <div className="rounded-mga border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs leading-5 text-mga-muted">
                   <p>{launchMessage || 'MGA Client did not respond. Open it or try again.'}</p>
-                  {pendingLaunchID ? <Button variant="outline" size="sm" className="mt-2 w-full" onClick={retryLaunch}>Try again</Button> : null}
+                  {pendingLaunchID || pairingAttempt ? <Button variant="outline" size="sm" className="mt-2 w-full" onClick={retryLaunch}>Try again</Button> : null}
                 </div>
               ) : null}
               {stop.error ? <p className="text-xs text-red-300">{stop.error instanceof Error ? stop.error.message : 'Could not stop MGA Client.'}</p> : null}
@@ -305,18 +353,4 @@ export function ClientStatusControl() {
       ) : null}
     </div>
   )
-}
-
-function statusPresentation(authorized: boolean, endpoint: DeviceEndpoint | undefined, connected: boolean, onlineCount: number) {
-  if (!authorized) return { label: 'Client unavailable', dot: 'bg-slate-500', border: 'border-slate-500/30', text: 'text-mga-muted' }
-  if (!endpoint) {
-    if (onlineCount > 0) return { label: `${onlineCount} clients online`, dot: 'bg-amber-400', border: 'border-amber-500/35', text: 'text-amber-300' }
-    return { label: 'Connect client', dot: 'bg-red-400', border: 'border-red-500/35', text: 'text-red-300' }
-  }
-  if (!connected) return { label: 'Connect client', dot: 'bg-red-400', border: 'border-red-500/35', text: 'text-red-300' }
-  if (endpoint.status === 'update_required') return { label: 'Client needs update', dot: 'bg-purple-400', border: 'border-purple-500/40', text: 'text-purple-300' }
-  if (endpoint.status === 'error') return { label: 'Client error', dot: 'bg-red-400', border: 'border-red-500/40', text: 'text-red-300' }
-  if (endpoint.status === 'busy') return { label: 'Client busy', dot: 'bg-amber-400', border: 'border-amber-500/40', text: 'text-amber-300' }
-  if (endpoint.execution_mode === 'elevated') return { label: 'Client elevated', dot: 'bg-emerald-400', border: 'border-emerald-500/35', text: 'text-emerald-300' }
-  return { label: 'Client ready', dot: 'bg-emerald-400', border: 'border-emerald-500/35', text: 'text-emerald-300' }
 }
