@@ -539,6 +539,25 @@ table {
 
 .proof-grid {
   align-items: start;
+  grid-template-columns: 1fr;
+  gap: 2rem;
+}
+
+.proof-grid .shot a {
+  display: block;
+  overflow: hidden;
+  background: #05070c;
+}
+
+.proof-grid .shot a:hover img {
+  transform: scale(1.01);
+  filter: brightness(1.06);
+}
+
+.proof-grid .shot img {
+  width: 100%;
+  aspect-ratio: auto;
+  transition: transform 160ms ease, filter 160ms ease;
 }
 
 .shot img {

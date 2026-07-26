@@ -4,14 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MGA Screenshots | Current MyGamesAnywhere interface</title>
-    <meta name="description" content="Current MyGamesAnywhere screenshots from a privacy-safe fictional demo library." />
+    <meta name="description" content="Current MyGamesAnywhere screenshots from a privacy-safe demo game library." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
     <nav class="site-nav" aria-label="Primary">
       <a class="site-nav__brand" href="./"><span class="brand-mark">M</span><span>MyGamesAnywhere</span></a>
       <div class="site-nav__links">
-        <a href="./features.html">Why MGA</a><a href="./integrations.html">Connections</a>
+        <a href="./features.html">Why MGA</a><a href="./integrations.html">Works with</a>
         <a href="./screenshots.html">Screenshots</a><a href="./install.html">Install</a>
         <a href="./faq.html">FAQ</a><a class="nav-cta" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
       </div>
@@ -20,30 +20,38 @@
       <section class="section">
         <div class="section__inner">
           <p class="eyebrow">Current interface</p>
-          <h1>Captured from the app, without exposing a real library.</h1>
-          <p class="section__intro">These images were produced from the current MGA build using an isolated fictional profile, generated covers, and no credentials. They show the real interface rather than a hand-drawn marketing mockup.</p>
+          <h1>The real MGA interface, filled with a safe demo library.</h1>
+          <p class="section__intro">These images come from the current MGA build using a separate demo player and no personal accounts or credentials. Select any image to open it at full size.</p>
           <div class="gallery proof-grid">
             <figure class="shot">
-              <img src="./screenshots/library-current.png" alt="The current MGA Library showing a demo collection, favorites, shelves, sorting, grouping, and several sources" />
-              <figcaption>The Library brings every configured connection together while keeping favorites, sorting, grouping, and concrete copies available.</figcaption>
+              <a href="./screenshots/library-current.png" target="_blank" rel="noopener" aria-label="Open the MGA Library screenshot at full size">
+                <img src="./screenshots/library-current.png" alt="MGA showing a privacy-safe demo library with favorites and several game sources" />
+              </a>
+              <figcaption>Browse every game together, then sort, group, or jump into a favorite whenever you like.</figcaption>
             </figure>
             <figure class="shot">
-              <img src="./screenshots/play-current.png" alt="The current MGA Play page showing client state, installed-game awareness, favorites, and playable game cards" />
-              <figcaption>Play separates what is installed on a connected device from browser and cloud-ready choices.</figcaption>
+              <a href="./screenshots/play-current.png" target="_blank" rel="noopener" aria-label="Open the MGA Play screenshot at full size">
+                <img src="./screenshots/play-current.png" alt="The MGA Play page showing favorites plus browser and cloud-ready choices while no Client is connected" />
+              </a>
+              <figcaption>Play keeps installed games separate from browser and cloud-ready choices, and clearly shows when the Client is not connected.</figcaption>
             </figure>
             <figure class="shot">
-              <img src="./screenshots/game-current.png" alt="The current MGA game page for the fictional Celestial Drift demo title" />
-              <figcaption>A game page leads with the next action, favorite state, availability, and player-facing metadata.</figcaption>
+              <a href="./screenshots/game-current.png" target="_blank" rel="noopener" aria-label="Open the MGA game screenshot at full size">
+                <img src="./screenshots/game-current.png" alt="The MGA game page showing Hades artwork, game details, and the main Play action" />
+              </a>
+              <figcaption>Each game page leads with its artwork, the next action, and the details you care about.</figcaption>
             </figure>
             <figure class="shot">
-              <img src="./screenshots/game-copies-current.png" alt="The current MGA game page showing Steam and Xbox copies, xCloud, Game Pass, and save ownership" />
-              <figcaption>Copies and play methods stay explicit. Save handling remains attached to the provider or compatible route that actually owns it.</figcaption>
+              <a href="./screenshots/game-copies-current.png" target="_blank" rel="noopener" aria-label="Open the MGA play choices screenshot at full size">
+                <img src="./screenshots/game-copies-current.png" alt="The MGA game page showing Steam, Xbox, xCloud, Game Pass, achievements, and save choices" />
+              </a>
+              <figcaption>Every store version and way to play stays clear, including which achievements and saves go with it.</figcaption>
             </figure>
           </div>
           <p class="note">The repeatable fixture lives in <a href="https://github.com/GreenFuze/MyGamesAnywhere/tree/main/server/cmd/publicdemo"><code>server/cmd/publicdemo</code></a>. Older screenshots remain in repository history, not in the current public gallery.</p>
         </div>
       </section>
     </main>
-    <footer class="footer"><div class="footer__inner"><div><strong>MyGamesAnywhere</strong><p>Your games, one place to play.</p></div><nav><a href="./">Home</a><a href="./features.html">Why MGA</a><a href="./install.html">Install</a></nav></div></footer>
+    <footer class="footer"><div class="footer__inner"><div><strong>MyGamesAnywhere</strong><p>Your home game library.</p></div><nav><a href="./">Home</a><a href="./features.html">Why MGA</a><a href="./install.html">Install</a></nav></div></footer>
   </body>
 </html>

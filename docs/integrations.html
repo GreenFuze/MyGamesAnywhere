@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MGA Integrations | Game sources, metadata providers, achievements, runtimes, sync</title>
-    <meta name="description" content="Available MyGamesAnywhere integrations grouped by game sources, metadata providers, achievement providers, runtime surfaces, and storage/sync providers." />
+    <title>MGA Connections | Stores, game folders, achievements, and saves</title>
+    <meta name="description" content="Connect MyGamesAnywhere to your stores, subscriptions, game folders, artwork, achievements, emulators, and saves." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
     <nav class="site-nav" aria-label="Primary">
       <a class="site-nav__brand" href="./"><span class="brand-mark">M</span><span>MyGamesAnywhere</span></a>
       <div class="site-nav__links">
-        <a href="./features.html">Why MGA</a><a href="./integrations.html">Connections</a>
+        <a href="./features.html">Why MGA</a><a href="./integrations.html">Works with</a>
         <a href="./screenshots.html">Screenshots</a><a href="./install.html">Install</a>
         <a href="./faq.html">FAQ</a><a class="nav-cta" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
       </div>
@@ -19,97 +19,76 @@
     <main>
       <section class="section">
         <div class="section__inner">
-          <p class="eyebrow">Connections</p>
+          <p class="eyebrow">Works with</p>
           <h1>Bring in the places your games live.</h1>
-          <p class="section__intro">
-            Connect each profile to its stores, cloud services, folders, achievement providers,
-            and save locations. MGA keeps the connection visible on every copy it contributes.
-          </p>
-        </div>
-      </section>
-
-      <section class="section section--alt">
-        <div class="section__inner">
-          <h2>Game sources</h2>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Integration</th><th>Plugin ID(s)</th><th>What MGA uses it for</th><th>Config / notes</th></tr></thead>
-              <tbody>
-                <tr><td>Steam</td><td><code>game-source-steam</code></td><td>Game source discovery and Steam-backed achievements</td><td>Steam Web API key</td></tr>
-                <tr><td>Xbox / PC Game Pass</td><td><code>game-source-xbox</code></td><td>Xbox library source, Game Pass / xCloud availability, Xbox achievements</td><td>OAuth-backed</td></tr>
-                <tr><td>Epic Games</td><td><code>game-source-epic</code></td><td>Epic library source</td><td>Source listing</td></tr>
-                <tr><td>Google Drive</td><td><code>game-source-google-drive</code></td><td>Drive-backed game source, file operations, and browser-play materialization</td><td>OAuth-backed; include paths with nested recursive excludes; delete flows move explicit files to Drive trash after preview</td></tr>
-                <tr><td>SMB / network shares</td><td><code>game-source-smb</code></td><td>Network-share game source, filesystem operations, and browser-play materialization</td><td>Host/share credentials and include paths with nested recursive excludes; delete flows remove only explicit files after preview</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section class="section">
-        <div class="section__inner">
-          <h2>Metadata providers</h2>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Provider</th><th>Plugin ID(s)</th><th>What MGA uses it for</th><th>Config / notes</th></tr></thead>
-              <tbody>
-                <tr><td>LaunchBox</td><td><code>metadata-launchbox</code></td><td>Metadata lookup, platform-aware matching, media enrichment</td><td>Bundled metadata provider; manual search tries roman/arabic numeral variants</td></tr>
-                <tr><td>IGDB</td><td><code>metadata-igdb</code></td><td>Metadata lookup and enrichment</td><td>Twitch/IGDB client ID and secret</td></tr>
-                <tr><td>RAWG</td><td><code>metadata-rawg</code></td><td>Metadata lookup and enrichment</td><td>RAWG API key</td></tr>
-                <tr><td>GOG</td><td><code>metadata-gog</code></td><td>Metadata lookup</td><td>Metadata provider</td></tr>
-                <tr><td>HowLongToBeat</td><td><code>metadata-hltb</code></td><td>Completion-time lookup</td><td>Metadata provider</td></tr>
-                <tr><td>MAME DAT</td><td><code>metadata-mame-dat</code></td><td>Arcade / MAME metadata lookup</td><td>Metadata provider</td></tr>
-                <tr><td>Steam metadata</td><td><code>metadata-steam</code></td><td>Steam metadata lookup</td><td>Works with Steam-backed catalog data</td></tr>
-              </tbody>
-            </table>
+          <p class="section__intro">Each player connects their own stores, cloud accounts, folders, achievements, and saves. MGA keeps those connections with the player who added them.</p>
+          <div class="feature-grid feature-grid--three">
+            <article class="feature-card"><h3>Stores & subscriptions</h3><p>Bring in supported Steam and Xbox libraries, Game Pass availability, and experimental Epic discovery.</p></article>
+            <article class="feature-card"><h3>Game folders</h3><p>Find games in Google Drive, a NAS, shared folders, and your own installers.</p></article>
+            <article class="feature-card"><h3>Artwork & details</h3><p>Fill the library with covers, descriptions, platforms, and play-time estimates.</p></article>
+            <article class="feature-card"><h3>Achievements</h3><p>See Steam, Xbox, and RetroAchievements progress with the right version of each game.</p></article>
+            <article class="feature-card"><h3>Emulators & browser play</h3><p>Choose between your installed emulators or play supported classics in the browser.</p></article>
+            <article class="feature-card"><h3>Saves</h3><p>Use the current save-sync foundations only where MGA knows the versions are compatible.</p></article>
           </div>
         </div>
       </section>
 
       <section class="section section--alt">
         <div class="section__inner">
-          <h2>Achievement providers</h2>
+          <p class="eyebrow">What you can connect today</p>
+          <h2>Stores, subscriptions, and game folders</h2>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Provider</th><th>Plugin ID(s)</th><th>What MGA uses it for</th><th>Config / notes</th></tr></thead>
+              <thead><tr><th>Connection</th><th>Status</th><th>What it brings into MGA</th><th>What you need</th></tr></thead>
               <tbody>
-                <tr><td>Steam</td><td><code>game-source-steam</code></td><td>Steam-backed achievement progress</td><td>Steam Web API key</td></tr>
-                <tr><td>Xbox</td><td><code>game-source-xbox</code></td><td>Xbox-backed achievement progress</td><td>OAuth-backed</td></tr>
-                <tr><td>RetroAchievements</td><td><code>retroachievements</code></td><td>RetroAchievements metadata and source-backed achievement sets</td><td>API key and username</td></tr>
+                <tr><td>Steam</td><td>Supported</td><td>Your owned and Steam Families games, plus achievements</td><td>A Steam Web API key and the Steam account details requested by MGA</td></tr>
+                <tr><td>Xbox / PC Game Pass</td><td>Supported</td><td>Your Xbox library, Game Pass and xCloud availability, and achievements</td><td>Sign in with the Xbox account for this player</td></tr>
+                <tr><td>Epic Games</td><td>Experimental</td><td>Early Epic library discovery; do not expect a complete launch or install workflow yet</td><td>The connection details shown by the experimental setup</td></tr>
+                <tr><td>Google Drive</td><td>Supported</td><td>Games, archives, installers, and browser-play files stored in Drive</td><td>Sign in and choose the folders you want MGA to see</td></tr>
+                <tr><td>NAS / SMB folders</td><td>Supported</td><td>Games, archives, and installers kept on shared storage</td><td>The share address and, if needed, its username and password</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">ROMs and installers are content inside a configured Google Drive or SMB/NAS connection; they are not separate account connections. MGA does not include games, ROMs, firmware, or store entitlements.</p>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__inner">
+          <h2>Artwork and game details</h2>
+          <p class="section__intro">MGA can recognize games and fill in covers, descriptions, platforms, and useful details from several services.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Service</th><th>What it adds</th><th>What you need</th></tr></thead>
+              <tbody>
+                <tr><td>LaunchBox</td><td>Game matching, platforms, descriptions, and artwork</td><td>Included with MGA</td></tr>
+                <tr><td>IGDB</td><td>Game details and artwork</td><td>A free Twitch/IGDB app key</td></tr>
+                <tr><td>RAWG</td><td>Game details and artwork</td><td>A RAWG API key</td></tr>
+                <tr><td>GOG & Steam metadata</td><td>Store-specific game details</td><td>Metadata lookup; MGA does not currently provide a dedicated GOG library connection</td></tr>
+                <tr><td>HowLongToBeat</td><td>Typical completion times</td><td>No game-store sign-in</td></tr>
+                <tr><td>MAME DAT</td><td>Arcade game names and details</td><td>Your MAME data files</td></tr>
               </tbody>
             </table>
           </div>
         </div>
       </section>
 
-      <section class="section">
-        <div class="section__inner split-grid">
+      <section class="section section--alt">
+        <div class="section__inner">
           <div>
-            <h2>Runtime / launch providers</h2>
-            <ul class="compact-list">
-              <li>Configured browser-play surfaces for EmulatorJS</li>
-              <li>Configured browser-play surfaces for js-dos</li>
-              <li>Configured browser-play surfaces for ScummVM</li>
-              <li>Server-provided launch options for concrete source/version selection</li>
-              <li>Local materialization for remote/network-backed browser play where required</li>
-              <li>EmulatorJS-native save-state and save-RAM sync through MGA save-sync integrations</li>
-              <li>Xbox-backed xCloud availability where the connected source exposes it</li>
+            <p class="eyebrow">Progress that belongs to you</p>
+            <h2>Achievements and saves</h2>
+            <p class="section__intro">Follow achievements from Steam, Xbox, and RetroAchievements. Save sync is still a bounded foundation: MGA should only offer it where the source, destination, and game versions are known to be compatible.</p>
+            <ul class="check-list">
+              <li>Steam and Xbox progress stays with the correct account and game version</li>
+              <li>RetroAchievements can add goals to supported classic games</li>
+              <li>EmulatorJS save states and save RAM can sync through MGA</li>
+              <li>MGA only offers save sharing where the formats are known to be compatible</li>
             </ul>
-          </div>
-          <div>
-            <h2>Storage / sync providers</h2>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Provider</th><th>Plugin ID(s)</th><th>What MGA uses it for</th><th>Config / notes</th></tr></thead>
-                <tbody>
-                  <tr><td>Local disk</td><td><code>save-sync-local-disk</code></td><td>Local save-sync target</td><td>No external service required</td></tr>
-                  <tr><td>Google Drive</td><td><code>save-sync-google-drive</code>, <code>sync-settings-google-drive</code></td><td>Save sync and settings sync</td><td>OAuth-backed; EmulatorJS saves are cached locally before cloud upload</td></tr>
-                </tbody>
-              </table>
-            </div>
           </div>
         </div>
       </section>
     </main>
+    <footer class="footer"><div class="footer__inner"><div><strong>MyGamesAnywhere</strong><p>Your home game library.</p></div><nav><a href="./">Home</a><a href="./comparison.html">Compare</a><a href="./install.html">Install</a></nav></div></footer>
   </body>
 </html>

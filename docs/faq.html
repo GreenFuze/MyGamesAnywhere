@@ -4,14 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MGA FAQ | MyGamesAnywhere</title>
-    <meta name="description" content="Answers about MyGamesAnywhere profiles, devices, game copies, play options, achievements, saves, LAN access, and local ownership." />
+    <meta name="description" content="Answers about MyGamesAnywhere players, devices, stores, emulators, achievements, saves, and home-network access." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
     <nav class="site-nav" aria-label="Primary">
       <a class="site-nav__brand" href="./"><span class="brand-mark">M</span><span>MyGamesAnywhere</span></a>
       <div class="site-nav__links">
-        <a href="./features.html">Why MGA</a><a href="./integrations.html">Connections</a>
+        <a href="./features.html">Why MGA</a><a href="./integrations.html">Works with</a>
         <a href="./screenshots.html">Screenshots</a><a href="./install.html">Install</a>
         <a href="./faq.html">FAQ</a><a class="nav-cta" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
       </div>
@@ -24,12 +24,12 @@
 
           <div class="question">
             <h3>Is MGA a Playnite alternative?</h3>
-            <p>It can be. Playnite is a mature, customizable desktop launcher. MGA is aimed at households that also want a web interface, several devices and profiles, and multiple concrete copies and play options kept distinct.</p>
+            <p>It can be. Playnite is a mature, customizable desktop launcher. MGA is aimed at homes that also want a browser interface, several gaming devices and players, and every store version and way to play kept clear.</p>
           </div>
 
           <div class="question">
             <h3>Is MGA a LaunchBox alternative?</h3>
-            <p>Partly. LaunchBox is strong at collection presentation and emulation. MGA focuses on web access, device control, profile separation, and keeping each copy's source, install state, achievements, and play options visible.</p>
+            <p>Partly. LaunchBox is strong at collection presentation and emulation. MGA focuses on opening the library from any screen, controlling several PCs, separating each player's accounts, and showing where every version can be played.</p>
           </div>
 
           <div class="question">
@@ -38,8 +38,18 @@
           </div>
 
           <div class="question">
+            <h3>Does MGA stream games from my gaming PC?</h3>
+            <p>No. MGA is not a general PC game-streaming service. It can offer configured browser-emulator routes and show xCloud availability supplied by an Xbox connection.</p>
+          </div>
+
+          <div class="question">
+            <h3>What can MGA install today?</h3>
+            <p>Managed installation is currently limited to ZIP, 7z, and RAR archives plus a bounded flow for signed GOG Inno installers. Storefront-owned installs and updates still belong to their original apps, and arbitrary EXE or MSI installers are not supported.</p>
+          </div>
+
+          <div class="question">
             <h3>Does MGA store my data locally?</h3>
-            <p>Yes. MGA is local-first. The database, media cache, config, and plugins live on your machine unless you explicitly configure sync integrations.</p>
+            <p>Yes. MGA runs on your hardware. Your library, artwork, settings, and connections stay on your MGA Server unless you choose to connect a sync service.</p>
           </div>
 
           <div class="question">
@@ -48,13 +58,13 @@
           </div>
 
           <div class="question">
-            <h3>Can one game have multiple playable copies or versions?</h3>
-            <p>Yes. MGA can group the copies for browsing while keeping the Steam, Xbox, regional ROM, remaster, or other concrete version available as its own play option.</p>
+            <h3>What if I own the same game in more than one place?</h3>
+            <p>MGA can show Steam, Xbox, regional ROMs, remasters, and other editions together while keeping every version available in the Play menu.</p>
           </div>
 
           <div class="question">
             <h3>Can achievements differ by source or platform?</h3>
-            <p>Yes. Achievement sets remain attached to their provider and copy, so an arcade version and a console version can show different progress.</p>
+            <p>Yes. Achievements stay with the store or platform that awarded them, so an arcade version and a console version can show different progress.</p>
           </div>
 
           <div class="question">
@@ -69,7 +79,7 @@
 
           <div class="question">
             <h3>What happens when detection is wrong?</h3>
-            <p>MGA puts the item in a visible review list. You can try detection again, search for the correct game, apply a better match, split or merge copies, or identify add-on content.</p>
+            <p>MGA puts the item in a visible review list. You can try again, search for the correct game, choose a better match, separate versions that do not belong together, or mark add-on content.</p>
           </div>
 
           <div class="question">
@@ -79,7 +89,7 @@
 
           <div class="question">
             <h3>Can I inspect where a game came from?</h3>
-            <p>Yes. A game page can show its connections, copies, files, folders, provider links, and technical matching details.</p>
+            <p>Yes. A game page can show its stores, versions, files, folders, and the details MGA used to recognize it.</p>
           </div>
 
           <div class="question">
@@ -101,8 +111,19 @@
             <h3>Can MGA listen on my LAN?</h3>
             <p>Yes. A personal or portable setup can remain on <code>127.0.0.1:8900</code>; an all-users install can serve a trusted LAN. Plain HTTP is supported for private LAN use. Do not expose MGA directly to the public internet.</p>
           </div>
+
+          <div class="question">
+            <h3>Can I use MGA away from home?</h3>
+            <p>Not as a supported direct-internet setup today. The current release is designed for one PC or a trusted home network.</p>
+          </div>
+
+          <div class="question">
+            <h3>Why is the Server download much larger than the Client?</h3>
+            <p>The current pre-1.0 Server package includes the web interface and offline browser-play runtimes. The Client is a small Windows tray app, so its download is much smaller.</p>
+          </div>
         </div>
       </section>
     </main>
+    <footer class="footer"><div class="footer__inner"><div><strong>MyGamesAnywhere</strong><p>Your home game library.</p></div><nav><a href="./">Home</a><a href="./comparison.html">Compare</a><a href="./install.html">Install</a></nav></div></footer>
   </body>
 </html>
