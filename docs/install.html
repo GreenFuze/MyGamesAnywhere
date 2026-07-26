@@ -3,70 +3,60 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Install MGA | Windows portable and installer local-first game launcher</title>
-    <meta name="description" content="Install MyGamesAnywhere as a Windows portable ZIP or installer-based local-first game launcher and self-hosted game library running on 127.0.0.1:8900." />
+    <title>Install MGA on Windows</title>
+    <meta name="description" content="Install the MyGamesAnywhere Server and pair the MGA Client for local play, installs, and device management." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
     <nav class="site-nav" aria-label="Primary">
-      <a class="site-nav__brand" href="./">MGA</a>
+      <a class="site-nav__brand" href="./"><span class="brand-mark">M</span><span>MyGamesAnywhere</span></a>
       <div class="site-nav__links">
-        <a href="./install.html">Install</a>
-        <a href="./features.html">Features</a>
-        <a href="./integrations.html">Integrations</a>
-        <a href="./screenshots.html">Screenshots</a>
-        <a href="./comparison.html">Comparison</a>
-        <a href="./faq.html">FAQ</a>
-        <a href="./releases.html">Releases</a>
-        <a href="./roadmap.html">Roadmap</a>
+        <a href="./features.html">Why MGA</a><a href="./integrations.html">Connections</a>
+        <a href="./screenshots.html">Screenshots</a><a href="./install.html">Install</a>
+        <a href="./faq.html">FAQ</a><a class="nav-cta" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
       </div>
     </nav>
     <main>
       <section class="section">
         <div class="section__inner split-grid">
           <div>
-            <p class="eyebrow">Windows release</p>
-            <h1>Install MGA as portable, for-me-only, or all-users mode.</h1>
-            <p class="section__intro">
-              MGA ships as a Windows portable ZIP and a Windows installer. It runs
-              locally, keeps portable installs self-contained, moves installed mutable data and logs
-              out of the app directory, and keeps portable/for-me installs on <code>127.0.0.1:8900</code>.
-            </p>
-            <p class="note">
-              The app is a web client served by the local MGA server. Use <code>127.0.0.1</code> on the host machine; all-users service installs can intentionally expose the same web client on your LAN.
-            </p>
-            <ol class="steps">
-              <li>Download the latest Windows portable ZIP or installer from <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">GitHub Releases</a>.</li>
-              <li>For portable, extract it into a writable folder such as <code>C:\Games\MGA</code> and run <code>Start MGA.cmd</code>.</li>
-              <li>For installer, choose <strong>For me only</strong> for a login process under your Windows profile, or <strong>All users</strong> for an administrator-approved Windows service.</li>
-              <li>Open <code>http://127.0.0.1:8900</code>.</li>
-              <li>Create or select a local profile in the first-run/profile picker flow.</li>
-              <li>From MGA's Devices settings or the top-bar client control, install <code>mga-client-windows-amd64-installer.exe</code> for each Windows user who needs machine-local actions.</li>
-            </ol>
+            <p class="eyebrow">Install on Windows</p>
+            <h1>Start with the server. Add clients where you play.</h1>
+            <p class="section__intro">The MGA Server hosts your library and web interface. The MGA Client is a small, windowless tray app that installs and launches games for one Windows user.</p>
+            <div class="hero__actions">
+              <a class="button button--primary" href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download latest release</a>
+              <a class="button" href="#client">Set up a device</a>
+            </div>
           </div>
           <aside class="aside-card">
-            <h3>Local-first runtime</h3>
-            <p>The current package behaves more like a self-hosted game library running on your own machine than a cloud-first account shell.</p>
+            <h3>Before you begin</h3>
             <ul class="compact-list">
-              <li>local server</li>
-              <li>local database</li>
-              <li>local media cache</li>
-              <li>local config</li>
-              <li>plugin-backed integrations</li>
+              <li>Windows is the supported packaged platform today.</li>
+              <li>The default web address is <code>http://127.0.0.1:8900</code>.</li>
+              <li>LAN access is intended for a trusted home network.</li>
+              <li>MGA is pre-1.0; keep a backup of its data directory.</li>
             </ul>
           </aside>
         </div>
       </section>
 
       <section class="section section--alt">
-        <div class="section__inner split-grid">
-          <div>
-            <h2>Portable build notes</h2>
-            <p class="note">Avoid extracting the portable build under <code>Program Files</code>. Portable runtime writes config, database, media, logs, update cache, and local state inside the portable folder. The shipped config uses <code>LISTEN_IP: "127.0.0.1"</code> and <code>PORT: "8900"</code>; LAN binding is opt-in by editing <code>config.json</code>.</p>
-          </div>
-          <div>
-            <h2>Installer notes</h2>
-            <p class="note"><strong>For me only</strong> installs place app files under <code>%LOCALAPPDATA%\Programs\MyGamesAnywhere</code> and data/logs under <code>%LOCALAPPDATA%\MyGamesAnywhere</code>; MGA starts after that Windows user signs in, uses the built-in tray menu, and listens only on this PC by default. <strong>All users</strong> installs place app files under <code>%ProgramFiles%\MyGamesAnywhere</code> and data/logs under <code>%ProgramData%\MyGamesAnywhere</code>; MGA runs as a Windows service, requires administrator approval, starts even when nobody is signed in, uses a tray companion for status/control, and enables LAN access by default with an explicit firewall-rule choice.</p>
+        <div class="section__inner">
+          <p class="eyebrow">Step 1</p>
+          <h2>Choose how the server runs</h2>
+          <div class="feature-grid feature-grid--three">
+            <article>
+              <h3>For me only</h3>
+              <p>Best for a personal PC. MGA starts after you sign in and listens only on that computer by default. No administrator approval is needed for normal server use.</p>
+            </article>
+            <article>
+              <h3>All users</h3>
+              <p>Best for an always-on household server. MGA runs as a Windows service, can serve the trusted LAN, and requires administrator approval during setup.</p>
+            </article>
+            <article>
+              <h3>Portable ZIP</h3>
+              <p>Best for evaluation or a self-contained setup. Extract it to a writable folder such as <code>C:\Games\MGA</code> and run <code>Start MGA.cmd</code>.</p>
+            </article>
           </div>
         </div>
       </section>
@@ -74,20 +64,59 @@
       <section class="section">
         <div class="section__inner split-grid">
           <div>
-            <h2>Portable upgrade policy</h2>
+            <p class="eyebrow">Step 2</p>
+            <h2>Open MGA and create the first profile</h2>
             <ol class="steps">
-              <li>Use Settings -> Update to check the release manifest.</li>
-              <li>MGA downloads and verifies the portable ZIP with SHA256.</li>
-              <li>The portable updater restarts MGA, replaces app files, and preserves <code>config.json</code>, <code>data/</code>, <code>media/</code>, <code>source_cache/</code>, <code>updates/</code>, and <code>logs/</code>.</li>
-              <li>Verify the version in Settings after restart.</li>
+              <li>Open <code>http://127.0.0.1:8900</code> on the server PC.</li>
+              <li>Create the first admin profile. The initial password is <code>changeme</code>; change it immediately.</li>
+              <li>Add family profiles as needed. A PIN needs at least four digits; a password needs at least four characters.</li>
+              <li>Add each person's stores and folders from <strong>Settings → Connections</strong>. Connections and credentials belong to the active profile.</li>
             </ol>
           </div>
+          <aside class="aside-card">
+            <h3>Opening MGA from another device</h3>
+            <p>All-users installs can be opened using the server name or LAN address, for example <code>http://tv-room:8900</code>. Plain HTTP is supported for trusted LANs. Do not expose the server directly to the public internet.</p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section section--alt" id="client">
+        <div class="section__inner split-grid">
           <div>
-            <h2>Auto-update v1</h2>
-            <p class="note">Settings -> Update can check a release manifest, download the matching asset, and verify SHA256. Installed Windows layouts launch the verified installer with silent update arguments. Portable Windows layouts launch an external updater script so the running server never overwrites itself.</p>
+            <p class="eyebrow">Step 3</p>
+            <h2>Pair the PCs that install or play games</h2>
+            <ol class="steps">
+              <li>On the target PC, open MGA and use the client control in the top bar.</li>
+              <li>Choose <strong>Download</strong> if the MGA Client is not installed.</li>
+              <li>After installation, choose <strong>Run</strong> or <strong>Run as administrator</strong>. The elevated choice lasts until the client exits or Windows restarts.</li>
+              <li>Choose <strong>Pair</strong> and approve the device for the current profile when prompted.</li>
+              <li>A green client indicator means this browser can reach the client for its current Windows user.</li>
+            </ol>
           </div>
+          <aside class="aside-card">
+            <h3>Why one client per Windows user?</h3>
+            <p>Local game access belongs to both the computer and the signed-in Windows user. This avoids running a permanent privileged service and lets another user pair their own client independently.</p>
+            <p>The same client can bind to more than one MGA Server. Each server receives a separate managed root so one server cannot silently overwrite another server's files.</p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__inner split-grid">
+          <div>
+            <p class="eyebrow">Updates</p>
+            <h2>Download and apply in one flow</h2>
+            <p class="section__intro">MGA checks periodically for releases and notifies an admin when one is available. Settings can download, verify, apply, and restart the server. A downloaded update can also be applied later or downloaded again.</p>
+          </div>
+          <aside class="aside-card">
+            <h3>Where data lives</h3>
+            <p><strong>For me only:</strong> app files under <code>%LOCALAPPDATA%\Programs\MyGamesAnywhere</code>; data and logs under <code>%LOCALAPPDATA%\MyGamesAnywhere</code>.</p>
+            <p><strong>All users:</strong> app files under <code>%ProgramFiles%\MyGamesAnywhere</code>; data and logs under <code>%ProgramData%\MyGamesAnywhere</code>.</p>
+            <p><strong>Portable:</strong> mutable data remains inside the extracted folder and is preserved during a verified portable update.</p>
+          </aside>
         </div>
       </section>
     </main>
+    <footer class="footer"><div class="footer__inner"><div><strong>MyGamesAnywhere</strong><p>Your games, one place to play.</p></div><nav><a href="./">Home</a><a href="./faq.html">FAQ</a><a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Releases</a></nav></div></footer>
   </body>
 </html>

@@ -3,111 +3,76 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MGA Comparison | Playnite alternative, LaunchBox alternative, canonical game library</title>
-    <meta name="description" content="Compare MyGamesAnywhere with typical store launchers and ROM frontends using canonical merge, visible provenance, local-first ownership, and manual review." />
+    <title>How MGA fits alongside Playnite, LaunchBox, LANCommander, and store apps</title>
+    <meta name="description" content="A fair comparison of what MGA emphasizes: web-first multi-device control, concrete game copies, multiple play routes, profile separation, and local ownership." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
     <nav class="site-nav" aria-label="Primary">
-      <a class="site-nav__brand" href="./">MGA</a>
+      <a class="site-nav__brand" href="./"><span class="brand-mark">M</span><span>MyGamesAnywhere</span></a>
       <div class="site-nav__links">
-        <a href="./install.html">Install</a>
-        <a href="./features.html">Features</a>
-        <a href="./integrations.html">Integrations</a>
-        <a href="./screenshots.html">Screenshots</a>
-        <a href="./comparison.html">Comparison</a>
-        <a href="./faq.html">FAQ</a>
-        <a href="./releases.html">Releases</a>
-        <a href="./roadmap.html">Roadmap</a>
+        <a href="./features.html">Why MGA</a><a href="./integrations.html">Connections</a>
+        <a href="./screenshots.html">Screenshots</a><a href="./install.html">Install</a>
+        <a href="./faq.html">FAQ</a><a class="nav-cta" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
       </div>
     </nav>
     <main>
       <section class="section">
         <div class="section__inner">
-          <p class="eyebrow">Honest positioning</p>
-          <h1>MGA is not just another game launcher.</h1>
-          <p class="section__intro">
-            If you are searching for a Playnite alternative, LaunchBox alternative, local game
-            library, source-backed game launcher, or game collection manager, the question is not
-            only “can it launch games?” The harder question is “can it explain what this game is,
-            where it came from, and how to repair it when the collection is messy?”
-          </p>
+          <p class="eyebrow">A different center of gravity</p>
+          <h1>MGA does not need other launchers to be bad.</h1>
+          <p class="section__intro">Playnite, LaunchBox, LANCommander, and the Xbox app each solve real problems well. MGA is for a different combination: a household-accessible web interface, several devices, concrete game copies, and multiple ways to play without flattening the collection.</p>
+          <div class="feature-grid cards-4">
+            <article><h3>Store apps</h3><p>Best for buying, installing, updating, and playing inside their own ecosystems. MGA sits above those connections instead of replacing them.</p></article>
+            <article><h3>Playnite</h3><p>Strong desktop unification, customization, themes, extensions, and fullscreen use across stores and emulators.</p></article>
+            <article><h3>LaunchBox</h3><p>Strong collection presentation, rich media, emulation, metadata, and living-room frontend workflows.</p></article>
+            <article><h3>LANCommander</h3><p>Strong self-hosted game distribution for private networks, install archives, launchers, and LAN-focused libraries.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section--alt">
+        <div class="section__inner">
+          <p class="eyebrow">MGA's focus</p>
+          <h2>The source, play option, and target are separate choices.</h2>
           <div class="table-wrap">
             <table>
-              <thead>
-                <tr>
-                  <th>Capability</th>
-                  <th>MGA</th>
-                  <th>Typical store launcher</th>
-                  <th>Typical ROM frontend</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Question</th><th>How MGA answers it</th></tr></thead>
               <tbody>
-                <tr>
-                  <td>Canonical merge across stores, ROMs, cloud, and files</td>
-                  <td>Core model</td>
-                  <td>Usually no</td>
-                  <td>Usually no</td>
-                </tr>
-                <tr>
-                  <td>Source provenance per game</td>
-                  <td>Visible by design</td>
-                  <td>Rare</td>
-                  <td>Rare</td>
-                </tr>
-                <tr>
-                  <td>Local-first database, media, and config</td>
-                  <td>Yes</td>
-                  <td>Often no</td>
-                  <td>Usually local, narrower scope</td>
-                </tr>
-                <tr>
-                  <td>Manual review when detection fails</td>
-                  <td>Explicit workflow</td>
-                  <td>Rare</td>
-                  <td>Varies</td>
-                </tr>
-                <tr>
-                  <td>Game page with metadata, media, achievements, files, and source records</td>
-                  <td>Yes</td>
-                  <td>Partial</td>
-                  <td>Partial</td>
-                </tr>
-                <tr>
-                  <td>Source-backed versions, launch options, and achievement sets</td>
-                  <td>Core model</td>
-                  <td>Rare</td>
-                  <td>Varies by frontend</td>
-                </tr>
-                <tr>
-                  <td>Server-persisted favorites across library and play views</td>
-                  <td>Yes</td>
-                  <td>Usually account-specific</td>
-                  <td>Usually local-only</td>
-                </tr>
-                <tr>
-                  <td>SMB / NAS / removable drive awareness</td>
-                  <td>Core scenario</td>
-                  <td>Rare</td>
-                  <td>Sometimes</td>
-                </tr>
-                <tr>
-                  <td>Browser / cloud / runtime launch flows</td>
-                  <td>Available where configured, with local materialization for remote/network files</td>
-                  <td>Limited</td>
-                  <td>Runtime-specific</td>
-                </tr>
-                <tr>
-                  <td>REST API over the same local library</td>
-                  <td>Yes</td>
-                  <td>Rare</td>
-                  <td>Rare</td>
-                </tr>
+                <tr><td>What games do I have access to?</td><td>One profile library across configured stores, subscriptions, files, ROMs, shared storage, and cloud services.</td></tr>
+                <tr><td>Where did this version come from?</td><td>Concrete copies retain their connection, platform, edition, files, and ownership—even when grouped under one game.</td></tr>
+                <tr><td>How can I play it?</td><td>One Play menu can offer installed, storefront, browser, emulator, cloud, or remote-device routes.</td></tr>
+                <tr><td>Where will it run?</td><td>The browser chooses a paired device and Windows user; MGA checks capability and local state there.</td></tr>
+                <tr><td>Will progress follow?</td><td>Achievements remain provider-aware, and save compatibility is explicit rather than assumed.</td></tr>
+                <tr><td>Who controls the data?</td><td>The local server owns the database, media, profiles, bindings, and managed install roots.</td></tr>
               </tbody>
             </table>
           </div>
         </div>
       </section>
+
+      <section class="section">
+        <div class="section__inner split-grid">
+          <div>
+            <p class="eyebrow">Choose MGA when</p>
+            <h2>Your collection crosses boundaries.</h2>
+            <ul class="check-list">
+              <li>You want to browse and act from a TV, phone, tablet, or another PC</li>
+              <li>More than one person needs isolated storefront and cloud connections</li>
+              <li>The same game exists in several stores, editions, regions, or emulators</li>
+              <li>You want local installs, browser play, and cloud play in one decision</li>
+              <li>You want self-hosted control without losing provenance or device ownership</li>
+            </ul>
+          </div>
+          <aside class="aside-card">
+            <h3>Use the best tool for the job</h3>
+            <p>MGA is pre-1.0. If you primarily want a polished desktop launcher today, Playnite may be the better fit. If rich collection presentation is the priority, consider LaunchBox. If packaged LAN distribution is the whole job, LANCommander is purpose-built for it.</p>
+            <p>MGA earns its place when those concerns overlap and the collection must remain understandable across people, devices, sources, and play methods.</p>
+            <p class="note">Learn from the products themselves: <a href="https://playnite.link/">Playnite</a>, <a href="https://www.launchbox-app.com/about">LaunchBox</a>, <a href="https://lancommander.app/">LANCommander</a>, and the <a href="https://www.xbox.com/en-us/apps/xbox-app-on-pc">Xbox app</a>.</p>
+          </aside>
+        </div>
+      </section>
     </main>
+    <footer class="footer"><div class="footer__inner"><div><strong>MyGamesAnywhere</strong><p>Your games, one place to play.</p></div><nav><a href="./">Home</a><a href="./features.html">Why MGA</a><a href="./install.html">Install</a></nav></div></footer>
   </body>
 </html>

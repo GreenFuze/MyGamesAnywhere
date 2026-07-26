@@ -3,101 +3,47 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MGA Screenshots | Canonical game pages, provenance, repair workflow, integrations</title>
-    <meta name="description" content="Screenshot proof for MyGamesAnywhere showing canonical game pages, visible provenance, repair workflow, achievements, mixed library browsing, and integrations." />
+    <title>MGA Screenshots | Current MyGamesAnywhere interface</title>
+    <meta name="description" content="Current MyGamesAnywhere screenshots from a privacy-safe fictional demo library." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
     <nav class="site-nav" aria-label="Primary">
-      <a class="site-nav__brand" href="./">MGA</a>
+      <a class="site-nav__brand" href="./"><span class="brand-mark">M</span><span>MyGamesAnywhere</span></a>
       <div class="site-nav__links">
-        <a href="./install.html">Install</a>
-        <a href="./features.html">Features</a>
-        <a href="./integrations.html">Integrations</a>
-        <a href="./screenshots.html">Screenshots</a>
-        <a href="./comparison.html">Comparison</a>
-        <a href="./faq.html">FAQ</a>
-        <a href="./releases.html">Releases</a>
-        <a href="./roadmap.html">Roadmap</a>
+        <a href="./features.html">Why MGA</a><a href="./integrations.html">Connections</a>
+        <a href="./screenshots.html">Screenshots</a><a href="./install.html">Install</a>
+        <a href="./faq.html">FAQ</a><a class="nav-cta" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
       </div>
     </nav>
     <main>
       <section class="section">
         <div class="section__inner">
-          <p class="eyebrow">Screenshot proof</p>
-          <h1>Real MGA surfaces from the current app.</h1>
-          <p class="section__intro">
-            The goal is not just to show that MGA has a UI. The goal is to prove that MGA solves
-            the hard identity and provenance problem for fragmented collections.
-          </p>
+          <p class="eyebrow">Current interface</p>
+          <h1>Captured from the app, without exposing a real library.</h1>
+          <p class="section__intro">These images were produced from the current MGA build using an isolated fictional profile, generated covers, and no credentials. They show the real interface rather than a hand-drawn marketing mockup.</p>
           <div class="gallery proof-grid">
             <figure class="shot">
-              <img src="./screenshots/canonical-game-page.png" alt="A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation" />
-              <figcaption>A source-backed canonical game page: one page combines metadata, launch availability, media, files, source-backed navigation, and provider evidence.</figcaption>
+              <img src="./screenshots/library-current.png" alt="The current MGA Library showing a demo collection, favorites, shelves, sorting, grouping, and several sources" />
+              <figcaption>The Library brings every configured connection together while keeping favorites, sorting, grouping, and concrete copies available.</figcaption>
             </figure>
             <figure class="shot">
-              <img src="./screenshots/play-v0.0.12.png" alt="The Play page showing the poster-first browser-ready library with filters and shelf/grid controls" />
-              <figcaption>Play is the default landing surface for browser-ready and cloud-ready games.</figcaption>
+              <img src="./screenshots/play-current.png" alt="The current MGA Play page showing client state, installed-game awareness, favorites, and playable game cards" />
+              <figcaption>Play separates what is installed on a connected device from browser and cloud-ready choices.</figcaption>
             </figure>
             <figure class="shot">
-              <img src="./screenshots/library-list-bulk-v0.0.13.png" alt="The Library List view showing sticky bulk controls, eligible and skipped counts, and source/file columns" />
-              <figcaption>Library List view adds dense rows, sticky bulk controls, partial reclassify/delete actions, and skipped-row review before cleanup.</figcaption>
+              <img src="./screenshots/game-current.png" alt="The current MGA game page for the fictional Celestial Drift demo title" />
+              <figcaption>A game page leads with the next action, favorite state, availability, and player-facing metadata.</figcaption>
             </figure>
             <figure class="shot">
-              <img src="./screenshots/canonical-split-merge-v0.0.12.png" alt="A game detail source-record section showing split, merge, clear grouping, and hard delete controls for individual source records" />
-              <figcaption>Canonical grouping can be repaired source by source through split, merge, and clear-grouping controls.</figcaption>
+              <img src="./screenshots/game-copies-current.png" alt="The current MGA game page showing Steam and Xbox copies, xCloud, Game Pass, and save ownership" />
+              <figcaption>Copies and play methods stay explicit. Save handling remains attached to the provider or compatible route that actually owns it.</figcaption>
             </figure>
-            <figure class="shot">
-              <img src="./screenshots/duplicates-v0.0.12.png" alt="Settings duplicates page showing duplicate source rows with cover art, canonical links, and hard-delete marking controls" />
-              <figcaption>Duplicate cleanup shows canonical cover links and file-backed hard-delete marking before applying selected deletions.</figcaption>
-            </figure>
-            <figure class="shot">
-              <img src="./screenshots/achievements-v0.0.12.png" alt="The Achievements page with provider tabs, stored achievement progress, and refresh status" />
-              <figcaption>Achievements are provider-aware, stored server-side, and refresh in the background with visible progress.</figcaption>
-            </figure>
-            <figure class="shot">
-              <img src="./screenshots/stats-library-v0.0.12.png" alt="The Library Statistics page showing coverage tiles, platform bars, and source integration breakdowns" />
-              <figcaption>Library Statistics shows coverage, platform, source integration, metadata, media, and achievement-readiness signals from the local database.</figcaption>
-            </figure>
-            <figure class="shot">
-              <img src="./screenshots/source-provenance.png" alt="A provenance-focused game section showing source records, integration labels, root paths, file counts, and resolver match counts" />
-              <figcaption>One canonical game instead of duplicate rows: MGA keeps source records and resolver evidence visible.</figcaption>
-            </figure>
-            <figure class="shot">
-              <img src="./screenshots/manual-review-addon-v0.0.12.png" alt="The Undetected Games workflow showing pending review candidates, metadata search, source files, and repair actions" />
-              <figcaption>Detection failures stay fixable: unresolved source records remain reviewable, searchable with fuzzy platform-aware matching, repairable, and manually archivable as DLC/Add-on content.</figcaption>
-            </figure>
-            <figure class="shot">
-              <img src="./screenshots/game-detail.png" alt="An achievement section showing Xbox completion stats, a progress ring, and achievement cards" />
-              <figcaption>Progress follows the game, not just the store row: achievement summaries and known unlocks stay attached to the canonical page.</figcaption>
-            </figure>
-            <figure class="shot">
-              <img src="./screenshots/library-gba.png" alt="A shelf-based library view showing grouped platform rows and poster-first browsing across a mixed collection" />
-              <figcaption>Storefronts, ROMs, cloud-ready entries, and file-backed records can live in one unified game library.</figcaption>
-            </figure>
-            <figure class="shot">
-              <img src="./screenshots/settings.png" alt="The integrations settings page showing configured sources, metadata providers, scan status, and control actions" />
-              <figcaption>Integrations are explicit and local: sources, metadata providers, and scan state remain understandable control surfaces.</figcaption>
-            </figure>
-            <article class="note-card">
-              <h3>Profiles and first run</h3>
-              <p>Current builds include a first-run Admin Player setup, a browser-local profile picker, and a header profile menu for switching or logging out.</p>
-            </article>
-            <article class="note-card">
-              <h3>Installer and update surfaces</h3>
-              <p>Settings exposes update status, check, download, and apply actions; installer builds support for-me-only process installs and all-users service installs while keeping mutable data outside Program Files.</p>
-            </article>
-            <article class="note-card">
-              <h3>Media cache</h3>
-              <p>Settings -> Cache shows asynchronous media download status plus retry and clear-cache controls for local artwork/video files.</p>
-            </article>
-            <article class="note-card">
-              <h3>Add-on installer cleanup</h3>
-              <p>Packed Windows installer names with strong DLC/add-on signals are archived as add-on content, and manual review can mark or restore source records when the scanner needs a human decision.</p>
-            </article>
           </div>
+          <p class="note">The repeatable fixture lives in <a href="https://github.com/GreenFuze/MyGamesAnywhere/tree/main/server/cmd/publicdemo"><code>server/cmd/publicdemo</code></a>. Older screenshots remain in repository history, not in the current public gallery.</p>
         </div>
       </section>
     </main>
+    <footer class="footer"><div class="footer__inner"><div><strong>MyGamesAnywhere</strong><p>Your games, one place to play.</p></div><nav><a href="./">Home</a><a href="./features.html">Why MGA</a><a href="./install.html">Install</a></nav></div></footer>
   </body>
 </html>

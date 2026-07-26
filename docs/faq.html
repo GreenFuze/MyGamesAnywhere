@@ -3,22 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MGA FAQ | Playnite alternative, LaunchBox alternative, local-first game launcher</title>
-    <meta name="description" content="Frequently asked questions about MyGamesAnywhere, a local-first game launcher, unified game library, and source-backed game collection manager." />
+    <title>MGA FAQ | MyGamesAnywhere</title>
+    <meta name="description" content="Answers about MyGamesAnywhere profiles, devices, game copies, play options, achievements, saves, LAN access, and local ownership." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
     <nav class="site-nav" aria-label="Primary">
-      <a class="site-nav__brand" href="./">MGA</a>
+      <a class="site-nav__brand" href="./"><span class="brand-mark">M</span><span>MyGamesAnywhere</span></a>
       <div class="site-nav__links">
-        <a href="./install.html">Install</a>
-        <a href="./features.html">Features</a>
-        <a href="./integrations.html">Integrations</a>
-        <a href="./screenshots.html">Screenshots</a>
-        <a href="./comparison.html">Comparison</a>
-        <a href="./faq.html">FAQ</a>
-        <a href="./releases.html">Releases</a>
-        <a href="./roadmap.html">Roadmap</a>
+        <a href="./features.html">Why MGA</a><a href="./integrations.html">Connections</a>
+        <a href="./screenshots.html">Screenshots</a><a href="./install.html">Install</a>
+        <a href="./faq.html">FAQ</a><a class="nav-cta" href="https://github.com/GreenFuze/MyGamesAnywhere">GitHub</a>
       </div>
     </nav>
     <main>
@@ -29,17 +24,17 @@
 
           <div class="question">
             <h3>Is MGA a Playnite alternative?</h3>
-            <p>It can be, depending on what you want. If you care most about canonical merge, provenance, manual repair, and a local web/API surface, MGA is aimed at that problem. If you mainly want a polished storefront shell, Playnite may still feel closer today.</p>
+            <p>It can be. Playnite is a mature, customizable desktop launcher. MGA is aimed at households that also want a web interface, several devices and profiles, and multiple concrete copies and play options kept distinct.</p>
           </div>
 
           <div class="question">
             <h3>Is MGA a LaunchBox alternative?</h3>
-            <p>Partly. MGA overlaps with LaunchBox-style mixed-library organization, but its strongest differentiator is not themeing or cabinet presentation. It is source-backed canonical game identity, local ownership, and visible repair workflow.</p>
+            <p>Partly. LaunchBox is strong at collection presentation and emulation. MGA focuses on web access, device control, profile separation, and keeping each copy's source, install state, achievements, and play options visible.</p>
           </div>
 
           <div class="question">
             <h3>Does MGA replace Steam, Xbox, or Epic?</h3>
-            <p>No. MGA sits above those systems as a local game library and launcher layer. It consumes source and provider data; it does not replace the services themselves.</p>
+            <p>No. MGA connects to those services and presents their games alongside the rest of your collection. Purchases, downloads, and service-specific actions still rely on the original service.</p>
           </div>
 
           <div class="question">
@@ -53,38 +48,38 @@
           </div>
 
           <div class="question">
-            <h3>Can one canonical game have multiple playable versions?</h3>
-            <p>Yes. MGA keeps concrete source records under the canonical game and exposes source-backed launch options so clients can choose the specific source/version to run.</p>
+            <h3>Can one game have multiple playable copies or versions?</h3>
+            <p>Yes. MGA can group the copies for browsing while keeping the Steam, Xbox, regional ROM, remaster, or other concrete version available as its own play option.</p>
           </div>
 
           <div class="question">
             <h3>Can achievements differ by source or platform?</h3>
-            <p>Yes. Achievement sets are source-backed, so a canonical game can show multiple sets such as an arcade version and a console version when both are detected.</p>
+            <p>Yes. Achievement sets remain attached to their provider and copy, so an arcade version and a console version can show different progress.</p>
           </div>
 
           <div class="question">
             <h3>How does browser play work with cloud or network files?</h3>
-            <p>Remote and network-backed files can be materialized into a local server cache before launch, so browser runtimes do not have to stream many small files directly from Drive or SMB during play.</p>
+            <p>MGA first prepares remote or network files in a local cache. The browser runtime can then load a ready local copy instead of repeatedly reading small files from Drive or SMB.</p>
           </div>
 
           <div class="question">
             <h3>Does save sync work inside EmulatorJS?</h3>
-            <p>MGA can hook EmulatorJS save-state and save-RAM actions through the server-side save-sync cache when a save-sync integration is active.</p>
+            <p>MGA can route EmulatorJS save states and save RAM through its save-sync cache when a compatible save connection is active.</p>
           </div>
 
           <div class="question">
             <h3>What happens when detection is wrong?</h3>
-            <p>MGA keeps unresolved or questionable records visible in a manual review workflow. You can re-detect, search configured metadata providers with fuzzy platform-aware matching, apply a better match, or archive a false positive.</p>
+            <p>MGA puts the item in a visible review list. You can try detection again, search for the correct game, apply a better match, split or merge copies, or identify add-on content.</p>
           </div>
 
           <div class="question">
-            <h3>Can MGA delete false-positive source files?</h3>
-            <p>For file-backed sources, yes. MGA asks the source plugin for a dry-delete preview, displays the exact returned targets, and requires a checkbox before enabling the real delete action. Google Drive files move to Drive trash; SMB deletes only explicit file targets.</p>
+            <h3>Can MGA delete files it identified incorrectly?</h3>
+            <p>For supported file connections, yes. MGA first shows the exact files that would be affected and requires confirmation. Google Drive files move to Drive trash; SMB cleanup is limited to explicit file targets.</p>
           </div>
 
           <div class="question">
             <h3>Can I inspect where a game came from?</h3>
-            <p>Yes. Canonical pages keep source records, files, root paths, resolver matches, provider links, and other provenance visible.</p>
+            <p>Yes. A game page can show its connections, copies, files, folders, provider links, and technical matching details.</p>
           </div>
 
           <div class="question">
@@ -104,7 +99,7 @@
 
           <div class="question">
             <h3>Can MGA listen on my LAN?</h3>
-            <p>The server supports <code>LISTEN_IP</code> in <code>config.json</code>, including loopback, a concrete LAN IP, and <code>0.0.0.0</code>. Portable releases ship local-only on <code>127.0.0.1:8900</code> by default.</p>
+            <p>Yes. A personal or portable setup can remain on <code>127.0.0.1:8900</code>; an all-users install can serve a trusted LAN. Plain HTTP is supported for private LAN use. Do not expose MGA directly to the public internet.</p>
           </div>
         </div>
       </section>

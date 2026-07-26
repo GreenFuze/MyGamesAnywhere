@@ -1,410 +1,116 @@
 # MyGamesAnywhere (MGA)
 
-![MyGamesAnywhere — title banner](docs/branding/title-text.png)
+![MyGamesAnywhere](docs/branding/title-text.png)
 
-## One canonical game library for every place your games live.
+## Your games, one place to play
 
-**MGA is a local-first game launcher and game collection manager that merges storefronts, ROMs, cloud runtimes, files, metadata, media, and achievements into source-backed canonical game pages that stay local by default.**
+MGA brings together games from stores, subscriptions, ROM collections, installers, shared folders, and cloud services. Open it in a browser, choose a game, and see every available way to play—on this PC, in the browser, or on another device.
 
-Most launchers start from a storefront or a folder. MGA starts from the game identity. Every detected source, provider match, file location, achievement system, and runtime remains visible, so you can understand, launch, fix, and curate the game instead of trusting a hidden match.
+Unlike a launcher that flattens every import into one anonymous row, MGA keeps each copy, edition, platform, and source honest. That means an Xbox copy and a Steam copy can appear together without losing their own install state, achievements, play options, or saves.
 
-[Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest) · [View screenshots](#screenshots) · [GitHub Pages](https://greenfuze.github.io/MyGamesAnywhere/) · [GitHub](https://github.com/GreenFuze/MyGamesAnywhere) · [Roadmap](https://greenfuzer.atlassian.net/jira/software/c/projects/MGA/boards/69/backlog)
+[Download for Windows](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest) · [Install guide](https://greenfuze.github.io/MyGamesAnywhere/install.html) · [Screenshots](https://greenfuze.github.io/MyGamesAnywhere/screenshots.html) · [Project website](https://greenfuze.github.io/MyGamesAnywhere/)
 
-**Current release:** see [`VERSION`](VERSION) and [GitHub Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest)
-**Status:** pre-1.0, actively moving, local-first by design
+> MGA is pre-1.0 software under active development. The latest version is listed in [`VERSION`](VERSION).
 
-![A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation](docs/screenshots/canonical-game-page.png)
+![The current MGA Library showing a privacy-safe demo collection with favorites and several game sources](docs/screenshots/library-current.png)
 
-*A source-backed canonical game page: one page combines metadata, launch availability, media, files, source-backed navigation, and provider evidence around a single canonical game.*
+## Why MGA?
 
-## Why MGA exists
+Your collection is probably bigger than one storefront:
 
-Real game collections are fragmented by default. One library can span:
+- Steam, Xbox, PC Game Pass, Epic, and GOG
+- local games, installers, ROMs, and emulators
+- xCloud and in-browser play
+- NAS, SMB, Google Drive, and removable storage
+- achievements, artwork, and save files from different services
 
-- Steam
-- Xbox / PC Game Pass
-- Epic
-- GOG purchases and installers
-- ROM sets
-- emulator runtimes
-- xCloud and browser-play runtimes
-- source-backed save sync
-- SMB / NAS shares
-- removable drives
-- metadata providers
-- achievement systems
-- local installer files and loose game data
+MGA gives that collection one web interface while preserving the details that matter.
 
-If you are looking for a **local-first game launcher**, **unified game library**, **Steam Xbox Epic ROM launcher**, **emulator and ROM library manager**, **Game Pass and xCloud launcher**, **self-hosted game library**, or a **Playnite alternative** / **LaunchBox alternative** that makes provenance visible, MGA is aimed at that harder problem.
+### One game, every way to play
 
-## What Makes MGA Different
+A game can have several playable copies and routes. MGA can show the installed version as the default action while keeping Steam, Xbox, xCloud, browser emulation, and other configured options in the Play menu.
 
-- **Canonical game merge**: MGA merges many source records, provider matches, media items, files, and runtime facts into one canonical game instead of leaving you with duplicate rows.
-- **Source-backed versions**: A canonical game can keep multiple concrete versions/platforms under one page, with per-version play options and achievement sets.
-- **Source provenance**: Storefront imports, ROM records, network-share records, metadata matches, resolver output, and provider IDs remain inspectable as evidence, not hidden importer magic.
-- **Local-first ownership**: The database, config, plugins, and media cache live on your machine unless you explicitly configure sync integrations.
-- **Manual review and repair**: Detection failures stay visible. MGA exposes unresolved records, lets you search providers again, re-detect, apply a match, or archive a false positive.
+### Copies stay honest
 
-## The Problem
+Regional ROMs, remasters, storefront editions, DLC, and similarly named games are not interchangeable. MGA groups related entries for browsing without erasing the concrete copy and source underneath.
 
-Typical launchers are good at one store, one account, or one folder at a time. Real collections are messier:
+### Your devices work together
 
-- the same game can show up from multiple sources
-- one source may only know the raw filename while another knows the storefront title
-- launch availability can differ from metadata availability
-- achievements may live on a different system than the best metadata match
-- DLC installers, ROM roots, cloud launch flags, and network paths all describe the same game from different angles
+The MGA Server owns the library and web interface. A small per-user MGA Client performs trusted work on each device: installing, launching, stopping, and reporting local state. One client can connect to more than one MGA Server, with ownership boundaries that prevent servers from silently managing each other's files.
 
-MGA is built for that fragmentation instead of pretending it does not exist.
+### Local-first, profile-separated
 
-## The MGA Model
+The server database, media, configuration, client bindings, and managed installs remain under your control. Each MGA profile owns its connections, credentials, library state, favorites, and achievements. Optional sync and cloud connections are explicit.
+
+### Problems come with a next step
+
+When MGA cannot identify a game, refresh a connection, or complete an install, it keeps the problem visible and provides a repair action instead of silently hiding it.
+
+## Available today
+
+- A unified Library and play-first home page
+- Profile-owned Steam, Xbox, Google Drive, SMB, ROM, and local-file connections
+- Multiple copies, versions, platforms, and play options per game
+- Local installs with separate download and installation progress
+- Per-user Windows device clients with normal or elevated launch
+- Browser play with supported runtimes such as EmulatorJS, js-dos, and ScummVM
+- xCloud availability when supplied by an Xbox connection
+- Provider-aware achievements and refresh status
+- Save-sync foundations with explicit compatibility boundaries
+- Manual review, split, merge, re-detect, and duplicate cleanup tools
+- Automatic library rescans and actionable notification history
+- Windows portable and installer packages with verified updates
+- Optional LAN access from phones, TVs, and other computers
+
+See the [feature guide](https://greenfuze.github.io/MyGamesAnywhere/features.html) for the product model and the [connections page](https://greenfuze.github.io/MyGamesAnywhere/integrations.html) for current integration details.
+
+## Quick start on Windows
+
+1. Download the latest MGA Server package from [GitHub Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest).
+2. Run the installer. Choose **For me only** for a personal server or **All users** for an always-on LAN server.
+3. Open MGA in your browser and create the first admin profile.
+4. Add your game connections in **Settings → Connections**.
+5. Download the MGA Client from the device control in MGA and install it for each Windows user who needs local play or installs.
+6. Pair that client with the MGA Server. You can run it normally or explicitly as administrator when a task needs elevation.
+
+Portable builds are also available. Read the [full install guide](https://greenfuze.github.io/MyGamesAnywhere/install.html) before exposing MGA on a LAN.
+
+## How it fits together
 
 ```mermaid
 flowchart LR
-  A["Source records"] --> B["Resolver"]
-  B --> C["Canonical game"]
-  C --> D["Availability and launch facts"]
-  C --> E["Metadata, media, achievements, and files"]
-  C --> F["User review and repair"]
+  UI["Browser<br/>Play · Library · Settings"] --> SERVER["MGA Server<br/>library · profiles · connections"]
+  SERVER --> SOURCES["Stores · cloud · ROMs<br/>installers · shared folders"]
+  SERVER --> CLIENT["MGA Client<br/>device + Windows user"]
+  CLIENT --> ACTIONS["Install · launch · stop<br/>report local state"]
 ```
 
-The pipeline is straightforward:
+- **MGA Server** is the source of truth for profiles, connections, game identity, play options, and device commands.
+- **Web interface** is the primary product UI and works locally or across a trusted LAN.
+- **MGA Client** runs once per device/OS-user pair and performs work a browser cannot safely do.
+- **Plugins** discover games, metadata, achievements, saves, and runtime capabilities.
 
-1. Source integrations discover source records and files.
-2. The resolver tries to identify what game those records represent.
-3. MGA creates or updates a canonical game.
-4. Runtime availability, metadata, media, achievements, and files attach to that canonical game.
-5. If the result is uncertain, MGA exposes the record for manual review instead of silently burying it.
+Technical architecture, protocols, ADRs, and migrations are versioned under [`docs/architecture`](docs/architecture/README.md). Current product and operating guidance lives in the [MGA Confluence space](https://greenfuzer.atlassian.net/wiki/spaces/MG/overview).
 
-## Architecture Direction
+## A game keeps its real copies
 
-MGA is standardizing on the web interface as its product UI. Machine-local work
-that a browser cannot safely perform will be handled by a standalone, per-user
-**MGA Client** device agent under [`client/`](client/README.md). The client will
-connect outbound to the MGA Server; the browser will continue to communicate
-only with the server.
+![The current MGA game page showing Windows, Steam, Xbox, xCloud and Game Pass play facts alongside an explicit saves section](docs/screenshots/game-copies-current.png)
 
-The first development vertical slice is implemented: optional password/PIN
-sessions, endpoint grants, pairing, authenticated outbound presence, a compiled
-per-user Windows client, and typed ping/refresh/client-stop commands are
-available. The top bar uses signed `mga://start` challenges to identify and wake
-the current per-user client while server presence drives its status. Game
-installation, game launch/stop, emulator management, and
-client self-update command families remain later work and are not claimed as
-shipped release capabilities. Current product and architecture guidance lives
-in the
-[MGA Confluence space](https://greenfuzer.atlassian.net/wiki/spaces/MG/overview).
-Code-coupled decisions and the wire contract remain versioned under
-[`docs/architecture`](docs/architecture/README.md).
+MGA can group two copies for browsing while still showing their different stores, play methods, achievements, and save ownership. The screenshots use an isolated fictional library generated by [`server/cmd/publicdemo`](server/cmd/publicdemo/main.go); they never contain a contributor's real profile or collection.
 
-## Source-Backed Canonical Game Pages
+## Development
 
-The game page is the centerpiece of MGA. A good canonical game page should tell you:
+The repository contains the Go server, React web interface, plugins, and Windows MGA Client. Start with [`AGENTS.md`](AGENTS.md) and [`docs/agent-bootstrap.md`](docs/agent-bootstrap.md).
 
-- what the game is
-- where MGA found it
-- where it can run
-- which providers contributed metadata
-- which source records matched
-- what files and media are attached
-- what achievements are known
-- which version/source each achievement set belongs to
-- what can be manually fixed if detection was wrong
-
-That is the core differentiator. MGA is not just a prettier launcher row. It is a source-backed game identity layer over a messy local game library.
-
-## Screenshots
-
-### Canonical game page
-
-![A source-backed canonical game page showing title, metadata providers, launch controls, availability, media, files, and source-backed navigation](docs/screenshots/canonical-game-page.png)
-
-*A source-backed canonical game page: one page combines metadata, launch availability, media, files, source-backed navigation, and provider evidence around a single canonical game.*
-
-### Play-first library
-
-![The Play page showing the poster-first browser-ready library with filters and shelf/grid controls](docs/screenshots/play-v0.0.12.png)
-
-*Play is now the default landing surface, focused on browser-ready and cloud-ready games instead of a duplicate dashboard.*
-
-### Library List bulk workflow
-
-![The Library List view showing sticky bulk controls, eligible/skipped counts, and detailed source/file columns](docs/screenshots/library-list-bulk-v0.0.13.png)
-
-*Library List view is the dense cleanup surface: selected rows expose sticky bulk controls, eligible/skipped counts, and source/file evidence before reclassify or hard-delete actions.*
-
-### Canonical split and merge controls
-
-![A game detail source-record section showing split, merge, clear grouping, and hard delete controls for individual source records](docs/screenshots/canonical-split-merge-v0.0.12.png)
-
-*When automatic canonical grouping is wrong, a single source record can be split into its own game or merged into another known canonical game.*
-
-### Duplicate cleanup
-
-![Settings duplicates page showing duplicate source rows with cover art, canonical links, and hard-delete marking controls](docs/screenshots/duplicates-v0.0.12.png)
-
-*Settings -> Duplicates helps review duplicate-looking source records and batch hard-delete selected file-backed entries through preview and confirmation.*
-
-### Provider-aware achievements
-
-![The Achievements page with provider tabs, stored achievement progress, and refresh status](docs/screenshots/achievements-v0.0.12.png)
-
-*Achievements are shown from server-stored data with provider-aware tabs, provider-specific points, and visible background refresh progress.*
-
-### Library statistics
-
-![The Library Statistics page showing coverage tiles, platform bars, and source integration breakdowns](docs/screenshots/stats-library-v0.0.12.png)
-
-*Stats turns the local database into clickable library-health surfaces: coverage, platforms, sources, metadata, media, and stored achievement readiness.*
-
-### Provenance and source records
-
-![A provenance-focused game section showing source records, integration labels, root paths, file counts, and resolver match counts](docs/screenshots/source-provenance.png)
-
-*Provenance stays visible: MGA shows which source records, integrations, files, and resolver counts contributed to the canonical game.*
-
-### Manual review and repair
-
-![The Undetected Games workflow showing pending review candidates, metadata search, source files, and repair actions](docs/screenshots/manual-review-addon-v0.0.12.png)
-
-*Detection failures stay fixable: unresolved source records remain reviewable, searchable, repairable, and manually archivable as DLC/add-on content when they are not standalone games.*
-
-### Achievements and progress
-
-![An achievement section showing Xbox completion stats, a progress ring, and achievement cards](docs/screenshots/game-detail.png)
-
-*Progress follows the canonical game page, not just one store row: achievement summaries and known unlocks stay attached to the game.*
-
-### Mixed-source library
-
-![A shelf-based library view showing grouped platform rows and poster-first browsing across a mixed collection](docs/screenshots/library-gba.png)
-
-*Storefronts, ROMs, cloud-ready entries, and file-backed records can live in one local game library instead of separate tools.*
-
-### Integrations as control surface
-
-![The integrations settings page showing configured sources, metadata providers, scan status, and control actions](docs/screenshots/settings.png)
-
-*Integrations are explicit and local: sources, metadata providers, achievements, and sync surfaces are visible control surfaces, not hidden importer state.*
-
-Additional screenshot coverage is tracked in the public docs, but the committed screenshots already cover canonical pages, provenance, manual review, achievements, mixed library browsing, and integration control surfaces.
-
-## MGA vs Traditional Launchers
-
-| Capability | MGA | Typical store launcher | Typical ROM frontend |
-|---|---|---|---|
-| Canonical merge across stores, ROMs, cloud, and files | Core model | Usually no | Usually no |
-| Source provenance per game | Visible by design | Rare | Rare |
-| Local-first database, media, and config | Yes | Often no | Usually local, but narrower scope |
-| Manual review when detection fails | Explicit workflow | Rare | Varies |
-| Game page with metadata, media, achievements, files, and source records | Yes | Partial | Partial |
-| SMB / NAS / removable drive awareness | Core scenario | Rare | Sometimes |
-| Browser / cloud / runtime launch flows | Available where configured | Limited | Runtime-specific |
-| REST API over the same local library | Yes | Rare | Rare |
-
-## Available Now
-
-- Unified cross-source library with canonical game merge
-- Play-first app landing experience for browser-ready and cloud-ready games
-- Source-backed game pages with metadata, media, files, external links, provider evidence, favorites, and per-version context
-- Manual review, fuzzy provider search, platform-aware matching, numeral-aware manual provider search, authoritative reclassify, and re-detect for unresolved records
-- Packed Windows installer add-on detection plus manual DLC/Add-on controls keep strong DLC/level-pack/character-pack installer names out of the active game review queue
-- Manual canonical split/merge controls for source records that automatic grouping gets wrong
-- Poster-first library browsing and game pages
-- Profile-owned favorite games persisted by the local server, including automatic Favorites shelves in Library and Play
-- Library Statistics and Gamer Statistics pages for profile-scoped library and achievement overview
-- Source-backed Steam, Xbox, and RetroAchievements progress surfaces, including provider-aware tabs, stored achievement refresh state, and multiple achievement sets when one canonical game has multiple detected versions
-- Background achievement refresh after scans, manual full refresh, provider progress, and conservative RetroAchievements rate-limit backoff
-- Browser-play support for configured runtimes such as EmulatorJS, js-dos, and ScummVM, with source-backed launch options
-- Materialized browser play for Drive and SMB-backed game files so network/cloud sources can be cached locally before launch
-- Game Pass / xCloud availability surfaced through Xbox-backed data where available
-- EmulatorJS-native save-sync hooks backed by a local server cache and optional sync providers
-- Save-sync and settings-sync surfaces
-- Configurable server `LISTEN_IP` for loopback or opt-in LAN binding, while released packages stay local-only by default
-- Plugin-backed dry-delete previews for file-backed source deletes, with checkbox confirmation before the real delete action
-- Settings -> Duplicates review with canonical cover links, duplicate modes, batch hard-delete review, and progress
-- Library List view with sticky bulk controls, partial bulk Reclassify and Hard Delete, and Continue/Cancel skipped-row review when only some selected games support an operation
-- Compact source-file inventory views that show all backing paths in one copyable textbox with total size instead of one card per file
-- First-run profile flow, browser-local profile picker, profile menu, and admin-managed profile settings
-- Profile-owned integrations and library data, so storefront credentials, source scans, favorites, achievements, and settings can be separated per profile
-- Windows installer with clear per-user or all-users modes: per-user runs after sign-in as a local-only process, while all-users installs an admin-approved service with LAN access enabled by default, optional firewall setup, and rotating file logs
-- Auto-update v1: release manifest checks, SHA256-verified downloads, silent installer apply for installed Windows layouts, and Windows portable self-update/restart through an external helper
-- Media cache status in Settings, including queue counts, retry failed downloads, and local media cache clearing without deleting library metadata
-- Media cache error diagnostics with recent failures and failing media URLs
-- REST API and React web client running on the same local server, with optional LAN access in service installs or explicit config
-- Windows portable and installer release packaging
-
-## In Active Development
-
-- MGA Client command-family expansion beyond the implemented authenticated endpoint/presence foundation
-- Packaging hardening beyond the first Windows installer and portable updater release
-- Game page and card UX iteration
-- More metadata and runtime coverage
-- Broader upgrade-safe packaging flow
-- Better screenshot, comparison, and release-note proof for public docs
-
-## Planned Later
-
-- Deeper multi-user account recovery and remote credential-provisioning flows
-- Cross-source user file and profile view
-- Cross-platform installers
-- Mobile client
-
-## Integrations
-
-### Game sources
-
-| Integration | Plugin ID(s) | What MGA uses it for | Config / notes |
-|---|---|---|---|
-| Steam | `game-source-steam` | Game source discovery, Steam-backed achievements | Steam Web API key |
-| Xbox / PC Game Pass | `game-source-xbox` | Xbox library source, Game Pass / xCloud availability, Xbox achievements | OAuth-backed |
-| Epic Games | `game-source-epic` | Epic library source | Source listing |
-| Google Drive | `game-source-google-drive` | Drive-backed game source, file browse/materialize/delete, browser-play materialization | OAuth-backed; include paths with nested recursive excludes; source deletes move explicit files to Drive trash |
-| SMB / network shares | `game-source-smb` | Network-share game source, filesystem operations, browser-play materialization | Host/share credentials and include paths with nested recursive excludes; source deletes remove only explicit files |
-
-### Metadata providers
-
-| Provider | Plugin ID(s) | What MGA uses it for | Config / notes |
-|---|---|---|---|
-| LaunchBox | `metadata-launchbox` | Metadata lookup, platform-aware matching, media enrichment | Bundled metadata provider |
-| IGDB | `metadata-igdb` | Metadata lookup and enrichment | Twitch/IGDB client ID and secret |
-| RAWG | `metadata-rawg` | Metadata lookup and enrichment | RAWG API key |
-| GOG | `metadata-gog` | Metadata lookup | Metadata provider |
-| HowLongToBeat | `metadata-hltb` | Completion-time lookup | Metadata provider |
-| MAME DAT | `metadata-mame-dat` | Arcade / MAME metadata lookup | Metadata provider |
-| Steam metadata | `metadata-steam` | Steam metadata lookup | Works with Steam-backed catalog data |
-
-### Achievement providers
-
-| Provider | Plugin ID(s) | What MGA uses it for | Config / notes |
-|---|---|---|---|
-| Steam | `game-source-steam` | Steam-backed achievement progress | Steam Web API key |
-| Xbox | `game-source-xbox` | Xbox-backed achievement progress | OAuth-backed |
-| RetroAchievements | `retroachievements` | RetroAchievements metadata and source-backed achievement sets | API key and username |
-
-### Runtime / launch providers
-
-- Built-in browser-play surfaces for configured **EmulatorJS**, **js-dos**, and **ScummVM** runtimes
-- Server-provided launch options for concrete source/version selection
-- Local materialization for remote/network-backed browser play where required
-- EmulatorJS-native save-state and save-RAM sync through MGA save-sync integrations
-- Xbox-backed **xCloud** launch availability where the connected source exposes it
-
-### Storage / sync providers
-
-| Provider | Plugin ID(s) | What MGA uses it for | Config / notes |
-|---|---|---|---|
-| Local disk | `save-sync-local-disk` | Local save-sync target | No external service required |
-| Google Drive | `save-sync-google-drive`, `sync-settings-google-drive` | Save sync and settings sync | OAuth-backed; EmulatorJS saves are cached locally before cloud upload |
-
-## Install / Download
-
-MGA ships Windows portable and installer builds. It runs as a local server plus web UI on your machine and binds to `127.0.0.1:8900` by default.
-
-1. Download the portable ZIP or installer EXE from [Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest)
-2. For portable, extract it to a writable folder such as `C:\Games\MGA` and run `Start MGA.cmd`
-3. For the installer, choose **For me only** for a login process under your Windows profile, or **All users** for an administrator-approved Windows service
-4. Open [http://127.0.0.1:8900](http://127.0.0.1:8900)
-5. On first run, create the first administrator profile or use the profile picker if profiles already exist. Profiles without credentials enter immediately; protected profiles request their password or PIN at this point.
-
-If a profile credential is forgotten, choose **Forgot password or PIN?** on the
-sign-in screen. MGA shows a recovery command for portable, per-user, and
-all-users installations. Run the matching command on the MGA Server machine;
-the all-users command requires an elevated terminal. Recovery resets that
-profile to `changeme`, invalidates its sessions, and forces a replacement at the
-next sign-in. This deliberately cannot be triggered by an unauthenticated web
-request because a single server machine may host multiple OS users.
-
-The current portable runtime stores config, database, plugins, media, logs, update cache, and local state beside the runtime folder. Avoid extracting it under `Program Files`. The shipped `config.json` includes `LISTEN_IP: "127.0.0.1"` and `PORT: "8900"`; LAN exposure is opt-in by editing the server config. Installed **For me only** mode stores app files under `%LOCALAPPDATA%\Programs\MyGamesAnywhere` and mutable data/logs under `%LOCALAPPDATA%\MyGamesAnywhere`. Installed **All users** mode stores app files under `%ProgramFiles%\MyGamesAnywhere`, mutable data/logs under `%ProgramData%\MyGamesAnywhere`, runs as a Windows service, and intentionally writes `LISTEN_IP: "0.0.0.0"` because it is the service/LAN mode.
-
-### Local-first ownership
-
-```mermaid
-flowchart TD
-  A["MGA local server"] --> B["Local database"]
-  A --> C["Local media cache"]
-  A --> D["Config"]
-  A --> E["Plugins"]
-  A --> F["Optional sync providers"]
+```powershell
+go test ./...
+cd web
+npm ci
+npm run build
 ```
 
-MGA behaves more like a **self-hosted game library** running on your own machine than a cloud-first launcher account.
-
-## FAQ
-
-### Is MGA a Playnite alternative?
-
-It can be, depending on what you care about. If you mainly want a polished storefront launcher shell, Playnite may still be the closer fit today. If you want a **source-backed game launcher** focused on canonical merge, provenance, manual repair, and a local web/API surface, MGA is aimed at that harder library problem.
-
-### Is MGA a LaunchBox alternative?
-
-Partly. MGA overlaps with LaunchBox-style metadata and mixed-library organization, but its differentiator is not themeing or cabinet presentation. MGA is focused on canonical identity, visible resolver evidence, local ownership, and repairable detection.
-
-### Does MGA replace Steam, Xbox, or Epic?
-
-No. MGA sits above those systems as a local library and launcher layer. It uses connected sources and provider data; it does not replace the services themselves.
-
-### Does MGA store my data locally?
-
-Yes. MGA is local-first. The database, config, plugins, and media cache live on your machine unless you configure sync integrations.
-
-### Can MGA handle ROMs and emulators?
-
-Yes. ROM and emulator-style collections are first-class scenarios, not afterthoughts.
-
-### What happens when detection is wrong?
-
-MGA keeps unresolved or questionable records visible in the manual review flow. You can re-detect, search configured metadata providers with broader fuzzy/platform-aware matching, apply a better match, or mark an item as not a game.
-
-### Can I delete false-positive source files from manual review?
-
-Yes, for file-backed sources. MGA asks the source plugin for a dry-delete preview first, shows the exact plugin-returned items, and requires a checkbox confirmation before the real delete button is enabled. Google Drive files are moved to Drive trash; SMB files are permanently deleted only when they are explicit file targets.
-
-### Can I inspect where a game came from?
-
-Yes. Canonical pages keep source records, files, root paths, resolver matches, provider links, and other provenance visible.
-
-### Does MGA expose an API?
-
-Yes. MGA exposes a local REST API and a React frontend over the same local library.
-
-## Roadmap
-
-The [MGA Jira backlog](https://greenfuzer.atlassian.net/jira/software/c/projects/MGA/boards/69/backlog)
-is the only current roadmap and work-status source. Current product,
-architecture, UX, security, and operating guidance lives in
-[MGA Confluence](https://greenfuzer.atlassian.net/wiki/spaces/MG/overview).
-The repository keeps code-coupled decisions, protocols, migrations, tests, and
-published release evidence alongside the code.
-
-## Release And Upgrade Safety
-
-MGA carries its repository version source at [`VERSION`](VERSION). Published
-versions and release notes are available on
-[GitHub Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases).
-
-Upgrade policy:
-
-- upgrades must not silently discard user data
-- schema changes use explicit versioned SQLite migrations
-- releases that change runtime layout, schema behavior, or sync payload expectations must ship with migration notes
-- file-backed destructive actions should preview source-plugin targets before deletion and require explicit confirmation
-- installed updates download and verify the installer before launching it; Windows portable updates download and verify the ZIP before an external helper restarts MGA and replaces app files while preserving local data
-- packaged updates back up previous app files plus the SQLite DB triplet before running `mga_server --migrate-only`; if migration fails, the updater restores the old binaries and DB before restarting MGA
-
-Windows installer packaging uses Inno Setup, which is distributed under its own license terms. MGA preserves Inno Setup attribution in NOTICE and package documentation.
-
-Detailed notes live in [docs/releases-and-upgrades.md](docs/releases-and-upgrades.md).
-
-## Contributing
-
-MGA is still tightening architecture, packaging, and product shape. If you contribute, prefer work that is:
-
-- conservative with user data
-- explicit about migrations and blast radius
-- aligned with the local-first model
-- honest about current vs planned behavior
+Open work, priorities, and progress are tracked in the [MGA Jira project](https://greenfuzer.atlassian.net/jira/software/c/projects/MGA/boards/69/backlog).
 
 ## License
 
-MGA is licensed under the [Apache License 2.0](LICENSE.md).
+See [`LICENSE`](LICENSE).
