@@ -1,4 +1,5 @@
-import type { GameDetailResponse, SaveDomainCapability } from '@/api/client'
+import type { GameDetailResponse, SaveDomainCapability } from '../api/client.ts'
+import { launchOptionVersionContext, sourceVersionContext } from './sourceCapabilities.ts'
 
 export type SaveDomainView = SaveDomainCapability & {
   context?: string
@@ -7,15 +8,35 @@ export type SaveDomainView = SaveDomainCapability & {
 export function collectSaveDomains(game: Pick<GameDetailResponse, 'source_games' | 'play' | 'devices'>): SaveDomainView[] {
   const items: SaveDomainView[] = []
   for (const source of game.source_games ?? []) {
-    if (source.save) items.push({ ...source.save, context: source.integration_label || source.raw_title })
+    if (source.save) items.push({ ...source.save, context: sourceVersionContext(source) })
   }
   for (const option of game.play?.options ?? []) {
-	if (option.launchable && option.save) items.push({ ...option.save, context: option.integration_label || option.source_title })
+	if (option.launchable && option.save) {
+      items.push({ ...option.save, context: launchOptionVersionContext(option, game.source_games ?? []) })
+    }
   }
   for (const device of game.devices ?? []) {
-    if (device.installed_save) items.push({ ...device.installed_save, context: device.display_name })
+    const installedSource = game.source_games?.find((source) => source.id === device.installed_source_id)
+    if (device.installed_save) {
+      items.push({
+        ...device.installed_save,
+        context: installedSource
+          ? `${device.display_name} · ${sourceVersionContext(installedSource)}`
+          : device.display_name,
+      })
+    }
     for (const route of device.emulator_routes ?? []) {
-      if (route.save) items.push({ ...route.save, context: `${device.display_name} · ${route.emulator_name}` })
+      const routeSource = game.source_games?.find((source) => source.id === route.source_game_id)
+      if (route.save) {
+        items.push({
+          ...route.save,
+          context: [
+            device.display_name,
+            route.emulator_name,
+            routeSource ? sourceVersionContext(routeSource) : route.source_title,
+          ].filter(Boolean).join(' · '),
+        })
+      }
     }
   }
 

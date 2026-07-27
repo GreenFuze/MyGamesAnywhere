@@ -101,6 +101,7 @@ import { buildFeaturedMediaRail, mergeDisplayMedia } from '@/lib/gameMediaDispla
 import { evaluateBackgroundSuitability } from '@/lib/backgroundSuitability'
 import { cn } from '@/lib/utils'
 import { collectSaveDomains, saveDomainStatusLabel } from '@/lib/saveDomains'
+import { sourceVersionContext } from '@/lib/sourceCapabilities'
 
 type MetadataField =
   | 'title'
@@ -2445,6 +2446,8 @@ export function GameDetailPage() {
 				  const cleanupAvailable = Boolean(device.cleanup_marker_id && ['cleanup_required', 'cleanup_failed', 'ignored_failure'].includes(device.install_state ?? ''))
 				  const ignoredFailure = device.install_state === 'ignored_failure'
 				  const retryPackage = gogInnoSources.find(({ source }) => source.id === device.installed_source_id)
+				  const installedSource = data.source_games.find((source) => source.id === device.installed_source_id)
+				  const installedVersion = installedSource ? sourceVersionContext(installedSource) : ''
 				  const existingTargetSource = data.source_games.find((source) => source.kind === 'base_game') ?? data.source_games[0]
 					  return (
 						<div key={device.device_id} className="rounded-[14px] bg-white/[0.04] px-3 py-2.5">
@@ -2452,6 +2455,9 @@ export function GameDetailPage() {
 							<div>
 							  <p className="text-sm font-semibold text-white">{device.display_name}</p>
 							  <p className="text-xs text-white/48">{device.os_user}{device.free_bytes ? ` · ${formatStorageBytes(device.free_bytes)} free` : ''}</p>
+							  {device.installed && installedVersion ? (
+								<p className="mt-1 text-xs text-white/62">Installed copy: {installedVersion}</p>
+							  ) : null}
 							</div>
 							<div className="flex flex-wrap items-center gap-2">
 							  <Badge variant={device.status === 'ready_for_setup' || device.status === 'installed' ? 'playable' : device.status === 'offline' ? 'muted' : 'default'}>
@@ -2474,6 +2480,7 @@ export function GameDetailPage() {
 								  <Button
 									size="sm"
 									disabled={!device.connected || !device.can_play || !device.launch_supported || !device.launch_target || launchGame.isPending || Boolean(activeHere)}
+									title={installedVersion ? `Start ${installedVersion}` : 'Start installed game'}
 									onClick={() => launchGame.mutate({ deviceId: device.device_id, sourceGameId: device.installed_source_id! })}
 								  >
 									<PlayCircle size={14} /> Play

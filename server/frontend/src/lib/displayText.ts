@@ -1,4 +1,4 @@
-import { brandLabel } from '@/lib/brands'
+import { brandLabel } from './brands.ts'
 
 type PlatformMeta = { label: string; emoji: string }
 

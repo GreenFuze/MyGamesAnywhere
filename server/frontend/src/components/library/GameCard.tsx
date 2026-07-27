@@ -1,4 +1,4 @@
-import { launchEmulatorGameOnDevice, type GameDetailResponse } from '@/api/client'
+import { launchEmulatorGameOnDevice, launchGameOnDevice, type GameDetailResponse } from '@/api/client'
 import { ChevronDown, Info, Play, Save, Trophy } from 'lucide-react'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { GameContextMenu } from '@/components/library/GameContextMenu'
@@ -12,7 +12,6 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useGameFavoriteAction } from '@/hooks/useGameFavorite'
 import {
-  isPlayable,
   preferredSecondaryText,
   selectCoverUrl,
   selectPreviewImageUrl,
@@ -27,6 +26,8 @@ import {
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
 import { collectSaveDomains, saveDomainSummary } from '@/lib/saveDomains'
+import { browserPlaySourceOptionLabel, listBrowserPlaySelections } from '@/lib/browserPlay'
+import { launchOptionVersionContext, sourceVersionContext } from '@/lib/sourceCapabilities'
 
 export type { GameCardPlayRoute, GameCardPrimaryAction } from '@/lib/gameCardActions'
 
@@ -254,7 +255,8 @@ export function GameCard({
   const previewUrl = selectPreviewImageUrl(game.media, game.cover_override, game.hover_override)
   const overlayMediaUrl = previewUrl ?? coverUrl
   const previewUsesLandscapeMedia = previewUrl !== null && previewUrl !== coverUrl
-  const playable = isPlayable(game)
+  const browserSelections = listBrowserPlaySelections(game)
+  const playable = browserSelections.length > 0
   const xcloudUrl = typeof game.xcloud_url === 'string' && game.xcloud_url.length > 0 ? game.xcloud_url : null
   const sourceIntegrations = selectSourceIntegrations(game)
   const secondaryText = preferredSecondaryText(game) ?? 'Unknown source'
@@ -442,16 +444,36 @@ export function GameCard({
   }
 
   const builtInActions: GameCardPrimaryAction[] = []
-  if (playable) {
+  for (const selection of browserSelections) {
+    const context = browserPlaySourceOptionLabel(selection, browserSelections)
     builtInActions.push({
-      id: 'browser',
-      label: 'Play in browser',
+      id: `browser:${selection.sourceGame.id}`,
+      label: browserSelections.length > 1 ? `Play in browser · ${context}` : 'Play in browser',
       kind: 'play',
       route: 'browser',
-      onSelect: () => navigate(`/game/${encodeURIComponent(game.id)}/play`, { state: routeState }),
+      title: `Play in browser · ${context}`,
+      onSelect: () => navigate(
+        `/game/${encodeURIComponent(game.id)}/play?source=${encodeURIComponent(selection.sourceGame.id)}`,
+        { state: routeState },
+      ),
     })
   }
-  if (xcloudUrl) {
+
+  const xcloudOptions = (game.play?.options ?? []).filter(
+    (option) => option.kind === 'xcloud' && option.launchable && Boolean(option.url),
+  )
+  for (const option of xcloudOptions) {
+    const context = launchOptionVersionContext(option, game.source_games)
+    builtInActions.push({
+      id: `xcloud:${option.source_game_id}:${option.url}`,
+      label: xcloudOptions.length > 1 ? `Play in xCloud · ${context}` : 'Play in xCloud',
+      kind: 'play',
+      route: 'cloud',
+      title: context ? `Play in xCloud · ${context}` : 'Play in xCloud',
+      onSelect: () => window.open(option.url, '_blank', 'noopener,noreferrer'),
+    })
+  }
+  if (xcloudOptions.length === 0 && xcloudUrl) {
     builtInActions.push({
       id: 'xcloud',
       label: 'Play in xCloud',
@@ -461,13 +483,47 @@ export function GameCard({
     })
   }
 
+  const installedRoutes = (game.devices ?? []).filter(
+    (device) =>
+      device.connected &&
+      device.can_play &&
+      device.installed &&
+      device.launch_supported &&
+      Boolean(device.launch_target) &&
+      Boolean(device.installed_source_id),
+  )
+  for (const device of installedRoutes) {
+    const source = game.source_games.find((candidate) => candidate.id === device.installed_source_id)
+    const context = source ? sourceVersionContext(source) : device.installed_source_id!
+    builtInActions.push({
+      id: `installed:${device.device_id}:${device.installed_source_id}`,
+      label: `Play on ${device.display_name}${installedRoutes.length > 1 ? ` · ${context}` : ''}`,
+      kind: 'play',
+      route: 'local',
+      title: `Start ${context} on ${device.display_name}`,
+      onSelect: () => {
+        void launchGameOnDevice(device.device_id, game.id, device.installed_source_id!)
+          .then(() => notify({
+            title: `Starting ${game.title}`,
+            description: `${context} on ${device.display_name}`,
+            tone: 'success',
+          }))
+          .catch((error: unknown) => notify({
+            title: `Could not start ${game.title}`,
+            description: error instanceof Error ? error.message : 'MGA Client rejected the play request.',
+            tone: 'error',
+          }))
+      },
+    })
+  }
+
   const emulatorRoutes = (game.devices ?? [])
     .flatMap((device) => (device.emulator_routes ?? []).map((route) => ({ device, route })))
     .filter(({ device, route }) => device.connected && device.can_play && route.state === 'ready')
     .sort((left, right) => Number(right.route.default) - Number(left.route.default))
   for (const { device, route } of emulatorRoutes) {
     const source = game.source_games.find((candidate) => candidate.id === route.source_game_id)
-    const sourceLabel = source?.integration_label || source?.integration_id || route.source_title
+    const sourceLabel = source ? sourceVersionContext(source) : route.source_title
     builtInActions.push({
       id: `emulator:${device.device_id}:${route.emulator_id}:${route.source_game_id}`,
       label: `Play on ${device.display_name} · ${route.emulator_name}${emulatorRoutes.length > 1 ? ` · ${sourceLabel}` : ''}`,

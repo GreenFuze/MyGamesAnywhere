@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useSSE } from '@/hooks/useSSE'
 import { useToast, type NotificationDetail } from '@/components/ui/toast'
+import { ScanConnectionFailurePresenter } from '@/lib/scanNotifications'
 
 type EventPayload = Record<string, unknown>
 
@@ -13,7 +14,7 @@ function readNumber(value: unknown): number | undefined {
 }
 
 function connectionPath(integrationId?: string, pluginId?: string): string {
-  const params = new URLSearchParams({ tab: 'integrations' })
+  const params = new URLSearchParams({ tab: 'connections' })
   if (integrationId) params.set('integration', integrationId)
   else if (pluginId) params.set('plugin', pluginId)
   return `/settings?${params.toString()}`
@@ -44,6 +45,7 @@ export function AppNotifications() {
   const { subscribe } = useSSE()
   const { notify } = useToast()
   const previousStatusesRef = useRef(new Map<string, string>())
+  const scanFailurePresenterRef = useRef(new ScanConnectionFailurePresenter())
 
   useEffect(() => {
     const unsubs = [
@@ -78,6 +80,29 @@ export function AppNotifications() {
           title: integrationId ? 'A connection could not update your library' : 'Library update failed',
           description: integrationId ? 'Open the connection to check it and try again.' : (readString(data.error) ?? 'MGA could not update the library.'),
           action: integrationId ? { label: 'Review connection', href: connectionPath(integrationId) } : undefined,
+        })
+      }),
+      subscribe('scan_integration_skipped', (raw) => {
+        const data = (raw ?? {}) as EventPayload
+        const integrationId = readString(data.integration_id)
+        const pluginId = readString(data.plugin_id)
+        const presentation = scanFailurePresenterRef.current.present({
+          integrationId,
+          pluginId,
+          label: readString(data.label) ?? (pluginId ? humanize(pluginId) : 'A connection'),
+          reason: readString(data.reason),
+          error: readString(data.error),
+        })
+        if (!presentation) return
+
+        notify({
+          tone: 'error',
+          title: presentation.title,
+          description: presentation.description,
+          details: presentation.detail
+            ? [{ kind: 'info', title: presentation.detail, context: 'Technical details' }]
+            : undefined,
+          action: presentation.action,
         })
       }),
       subscribe('sync_operation_finished', (raw) => {
