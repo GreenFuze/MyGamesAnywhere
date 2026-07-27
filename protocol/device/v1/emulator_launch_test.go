@@ -19,3 +19,18 @@ func TestEmulatorLaunchRequestRejectsExecutionAndPathEscapes(t *testing.T) {
 		}
 	}
 }
+
+func TestEmulatorLaunchRequestAcceptsTypedDuckStationContent(t *testing.T) {
+	request := EmulatorLaunchRequest{
+		GameID: "game", SourceGameID: "source", Title: "Game", Platform: "ps1",
+		EmulatorID: "duckstation", ContentPath: "disc/game.cue",
+		Artifacts: []EmulatorContentArtifact{{Path: "disc/game.cue", SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DownloadURL: "/api/device-transfers/content", DownloadToken: "token"}},
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	request.CoreID = "not-allowed"
+	if err := request.Validate(); err == nil {
+		t.Fatal("DuckStation core override was accepted")
+	}
+}

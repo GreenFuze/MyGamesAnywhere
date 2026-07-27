@@ -91,13 +91,19 @@ func (c *DeviceController) LaunchEmulatorGame(w http.ResponseWriter, r *http.Req
 }
 
 func selectEmulatorContentPath(emulatorID string, artifacts []devicev1.EmulatorContentArtifact) (string, error) {
-	if emulatorID != "retroarch" {
+	if emulatorID != "retroarch" && emulatorID != "duckstation" {
 		return "", nil
 	}
-	if len(artifacts) == 1 {
+	if emulatorID == "retroarch" && len(artifacts) == 1 {
 		return artifacts[0].Path, nil
 	}
-	for _, extensions := range [][]string{{".m3u"}, {".cue"}, {".ccd"}, {".chd"}, {".pbp"}, {".zip"}, {".7z"}} {
+	extensionGroups := [][]string{{".m3u"}, {".cue"}, {".ccd"}, {".chd"}, {".pbp"}}
+	if emulatorID == "duckstation" {
+		extensionGroups = append(extensionGroups, []string{".iso"}, []string{".bin"})
+	} else {
+		extensionGroups = append(extensionGroups, []string{".zip"}, []string{".7z"})
+	}
+	for _, extensions := range extensionGroups {
 		match := ""
 		for _, artifact := range artifacts {
 			extension := strings.ToLower(path.Ext(artifact.Path))
@@ -115,7 +121,14 @@ func selectEmulatorContentPath(emulatorID string, artifacts []devicev1.EmulatorC
 			return match, nil
 		}
 	}
-	return "", errors.New("MGA could not safely choose which downloaded file RetroArch should open")
+	return "", fmt.Errorf("MGA could not safely choose which downloaded file %s should open", emulatorDisplayName(emulatorID))
+}
+
+func emulatorDisplayName(emulatorID string) string {
+	if emulatorID == "duckstation" {
+		return "DuckStation"
+	}
+	return "RetroArch"
 }
 
 func findEmulatorSourceGame(game *core.CanonicalGame, sourceGameID string) *core.SourceGame {

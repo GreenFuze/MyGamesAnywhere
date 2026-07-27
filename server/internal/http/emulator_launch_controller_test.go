@@ -26,6 +26,13 @@ func TestSelectEmulatorContentPathPrefersCueAndRejectsAmbiguity(t *testing.T) {
 	if err != nil || got != "" {
 		t.Fatalf("ScummVM content path = %q, error = %v", got, err)
 	}
+	got, err = selectEmulatorContentPath("duckstation", artifacts)
+	if err != nil || got != "disc.cue" {
+		t.Fatalf("DuckStation content path = %q, error = %v", got, err)
+	}
+	if _, err := selectEmulatorContentPath("duckstation", []devicev1.EmulatorContentArtifact{{Path: "notes.txt"}}); err == nil {
+		t.Fatal("DuckStation accepted a non-disc entry point")
+	}
 }
 
 func TestCreateEmulatorArtifactsUsesShortLivedVerifiedTransfers(t *testing.T) {

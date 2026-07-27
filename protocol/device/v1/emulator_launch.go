@@ -88,8 +88,15 @@ func (r EmulatorLaunchRequest) Validate() error {
 		if err := validateEmulatorRelativePath("content_path", r.ContentPath); err != nil {
 			return err
 		}
+	} else if r.EmulatorID == "duckstation" {
+		if r.CoreID != "" {
+			return errors.New("duckstation launch does not accept core_id")
+		}
+		if err := validateEmulatorRelativePath("content_path", r.ContentPath); err != nil {
+			return err
+		}
 	} else if r.CoreID != "" || r.ContentPath != "" {
-		return errors.New("core_id and content_path are only supported for typed core adapters")
+		return errors.New("core_id and content_path are only supported for typed emulator adapters")
 	}
 	seen := make(map[string]bool, len(r.Artifacts))
 	for _, artifact := range r.Artifacts {

@@ -201,6 +201,34 @@ func TestManagedEmulatorLauncherUsesDiscoveredRetroArchCoreAndTypedContent(t *te
 	}
 }
 
+func TestManagedEmulatorLauncherUsesTypedDuckStationRoute(t *testing.T) {
+	content := []byte("disc image")
+	digest := sha256.Sum256(content)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(content) }))
+	defer server.Close()
+	executable := filepath.Join(t.TempDir(), "duckstation-qt-x64-ReleaseLTCG.exe")
+	writeTestFile(t, executable, []byte("exe"))
+	inventory := fixedInventory{inventory: devicev1.DeviceInventory{Runtimes: []devicev1.RuntimeInventory{{ID: "duckstation", Name: "DuckStation", Path: executable}}}}
+	launcher, err := NewManagedEmulatorLauncher(server.URL, inventory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	launcher.cacheRoot = t.TempDir()
+	starter := &recordingEmulatorStarter{}
+	launcher.start = starter
+	request := devicev1.EmulatorLaunchRequest{
+		GameID: "game", SourceGameID: "source", Title: "Game", Platform: "ps1", EmulatorID: "duckstation", ContentPath: "game.cue",
+		Artifacts: []devicev1.EmulatorContentArtifact{{Path: "game.cue", SizeBytes: uint64(len(content)), SHA256: hex.EncodeToString(digest[:]), DownloadURL: "/content", DownloadToken: "secret"}},
+	}
+	if _, err := launcher.Launch(context.Background(), "command", request, nil); err != nil {
+		t.Fatal(err)
+	}
+	wantedContent := filepath.Join(starter.workingDir, "game.cue")
+	if !reflect.DeepEqual(starter.arguments, []string{"-batch", "-fullscreen", "--", wantedContent}) {
+		t.Fatalf("arguments=%#v", starter.arguments)
+	}
+}
+
 func writeTestFile(t *testing.T, path string, content []byte) {
 	t.Helper()
 	if err := os.WriteFile(path, content, 0o600); err != nil {

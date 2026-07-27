@@ -99,7 +99,7 @@ func (l *ManagedEmulatorLauncher) Launch(ctx context.Context, commandID string, 
 	if err := request.Validate(); err != nil {
 		return devicev1.EmulatorLaunchResult{}, err
 	}
-	if request.EmulatorID != "scummvm" && request.EmulatorID != "retroarch" {
+	if request.EmulatorID != "scummvm" && request.EmulatorID != "retroarch" && request.EmulatorID != "duckstation" {
 		return devicev1.EmulatorLaunchResult{}, fmt.Errorf("unsupported typed emulator route %s for %s", request.EmulatorID, request.Platform)
 	}
 	_, executable, err := l.resolveRuntime(ctx, request.EmulatorID)
@@ -136,15 +136,19 @@ func (l *ManagedEmulatorLauncher) Launch(ctx context.Context, commandID string, 
 		if err != nil {
 			return devicev1.EmulatorLaunchResult{}, err
 		}
-		contentPath := filepath.Join(contentRoot, filepath.FromSlash(request.ContentPath))
-		inside, err := pathWithinRoot(contentRoot, contentPath)
-		if err != nil || !inside {
-			return devicev1.EmulatorLaunchResult{}, errors.New("RetroArch content path escaped the MGA cache")
-		}
-		if info, err := os.Stat(contentPath); err != nil || !info.Mode().IsRegular() {
-			return devicev1.EmulatorLaunchResult{}, errors.New("RetroArch content entry point is unavailable")
+		contentPath, err := resolveEmulatorContentEntry(contentRoot, request.ContentPath, "RetroArch")
+		if err != nil {
+			return devicev1.EmulatorLaunchResult{}, err
 		}
 		arguments = []string{"-L", corePath, contentPath}
+	}
+	if request.EmulatorID == "duckstation" {
+		launchName = "DuckStation"
+		contentPath, err := resolveEmulatorContentEntry(contentRoot, request.ContentPath, launchName)
+		if err != nil {
+			return devicev1.EmulatorLaunchResult{}, err
+		}
+		arguments = []string{"-batch", "-fullscreen", "--", contentPath}
 	}
 	if err := reportProgress(report, "launching", "Starting "+launchName, 98, "launch", 90); err != nil {
 		return devicev1.EmulatorLaunchResult{}, err
@@ -170,6 +174,18 @@ func (l *ManagedEmulatorLauncher) Launch(ctx context.Context, commandID string, 
 		return devicev1.EmulatorLaunchResult{}, err
 	}
 	return devicev1.EmulatorLaunchResult{GameID: request.GameID, SourceGameID: request.SourceGameID, EmulatorID: request.EmulatorID, CoreID: request.CoreID, ProcessID: process.PID, StartedAt: l.now().UTC()}, nil
+}
+
+func resolveEmulatorContentEntry(contentRoot, relativePath, emulatorName string) (string, error) {
+	contentPath := filepath.Join(contentRoot, filepath.FromSlash(relativePath))
+	inside, err := pathWithinRoot(contentRoot, contentPath)
+	if err != nil || !inside {
+		return "", fmt.Errorf("%s content path escaped the MGA cache", emulatorName)
+	}
+	if info, err := os.Stat(contentPath); err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s content entry point is unavailable", emulatorName)
+	}
+	return contentPath, nil
 }
 
 func (l *ManagedEmulatorLauncher) resolveRuntime(ctx context.Context, emulatorID string) (devicev1.RuntimeInventory, string, error) {

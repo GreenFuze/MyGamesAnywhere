@@ -141,6 +141,53 @@ func TestSelectedUnavailableDefaultFallsBackWithoutRewriting(t *testing.T) {
 	t.Fatal("PS1 platform missing")
 }
 
+func TestDuckStationExposesTypedRouteAndFirmwareRequirement(t *testing.T) {
+	repository := &memoryRepository{}
+	endpoint := &endpointStub{endpoint: devices.Endpoint{
+		ID: "endpoint", Status: devicev1.EndpointReady,
+		Capabilities: []string{devicev1.CapabilityGameLaunchEmulator},
+		Inventory: &devicev1.DeviceInventory{Runtimes: []devicev1.RuntimeInventory{{
+			ID: "duckstation", Name: "DuckStation", Path: `C:\Games\DuckStation\duckstation.exe`,
+		}}},
+	}}
+	service, err := NewService(repository, endpoint, NewDefaultCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration, err := service.Get(context.Background(), "endpoint", "profile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, platform := range configuration.Platforms {
+		if platform.Platform != core.PlatformPS1 {
+			continue
+		}
+		for _, option := range platform.Emulators {
+			if option.ID != "duckstation" {
+				continue
+			}
+			if option.State != "ready" {
+				t.Fatalf("DuckStation state = %q, reason = %q", option.State, option.Reason)
+			}
+			if !hasCapabilityFact(option.Capabilities, "typed_play_route", "ready") ||
+				!hasCapabilityFact(option.Capabilities, "firmware", "user_required") {
+				t.Fatalf("DuckStation capabilities = %#v", option.Capabilities)
+			}
+			return
+		}
+	}
+	t.Fatal("DuckStation PS1 option was not exposed")
+}
+
+func hasCapabilityFact(facts []CapabilityFact, id, state string) bool {
+	for _, fact := range facts {
+		if fact.ID == id && fact.State == state {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRetroArchReadinessUsesDetectedCoreAndPersistsPerPlatformChoice(t *testing.T) {
 	repository := &memoryRepository{defaults: map[core.Platform]string{}, coreDefaults: map[core.Platform]map[string]string{}}
 	endpoint := &endpointStub{endpoint: devices.Endpoint{
