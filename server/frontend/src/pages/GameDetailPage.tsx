@@ -27,6 +27,7 @@ import {
   getGameAchievements,
 	getFrontendConfig,
 	getEndpointInstallPreference,
+  listCacheEntries,
   installArchiveOnDevice,
   installGogInnoOnDevice,
 	preflightInstallationOnDevice,
@@ -65,6 +66,7 @@ import { useRecentPlayed } from '@/hooks/useRecentPlayed'
 import { useProfiles } from '@/hooks/useProfiles'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { SourceGameHardDeleteDialog } from '@/components/library/SourceGameHardDeleteDialog'
+import { GameFileLocations } from '@/components/library/GameFileLocations'
 import { BrowserPlayIssueNotice } from '@/components/play/BrowserPlayIssueNotice'
 import { SaveDomainHistoryPanel } from '@/components/saves/SaveDomainHistoryPanel'
 import { BrandBadge, BrandIcon } from '@/components/ui/brand-icon'
@@ -102,6 +104,7 @@ import { evaluateBackgroundSuitability } from '@/lib/backgroundSuitability'
 import { cn } from '@/lib/utils'
 import { collectSaveDomains, saveDomainStatusLabel } from '@/lib/saveDomains'
 import { sourceVersionContext } from '@/lib/sourceCapabilities'
+import { buildGameFileLocations } from '@/lib/gameFileLocations'
 
 type MetadataField =
   | 'title'
@@ -1498,6 +1501,7 @@ export function GameDetailPage() {
   const location = useLocation()
   const { id = '' } = useParams()
   const queryClient = useQueryClient()
+  const { currentProfile } = useProfiles()
   const { setFavorite, isPendingFor } = useGameFavoriteAction()
   const { recordLaunch } = useRecentPlayed()
   const [selectedMedia, setSelectedMedia] = useState<GameMediaDetailDTO | null>(null)
@@ -1548,6 +1552,12 @@ export function GameDetailPage() {
   const achievements = useQuery({
     queryKey: ['game', id, 'achievements'],
     queryFn: () => getGameAchievements(id),
+    enabled: id.length > 0,
+  })
+
+  const preparedCopies = useQuery({
+    queryKey: ['cache-entries'],
+    queryFn: listCacheEntries,
     enabled: id.length > 0,
   })
 
@@ -1705,6 +1715,16 @@ export function GameDetailPage() {
   const browserPlayRuntime = browserPlayResolution?.runtime ?? null
   const sources = gameData ? selectSourcePlugins(gameData) : []
 	const saveDomains = useMemo(() => gameData ? collectSaveDomains(gameData) : [], [gameData])
+  const fileLocations = useMemo(
+    () => gameData && currentProfile
+      ? buildGameFileLocations(
+          gameData,
+          preparedCopies.data ?? [],
+          { id: currentProfile.id, displayName: currentProfile.display_name },
+        )
+      : [],
+    [currentProfile, gameData, preparedCopies.data],
+  )
   const resolverCount = gameData
     ? gameData.source_games.reduce(
         (total, sourceGame) => total + sourceGame.resolver_matches.length,
@@ -2357,6 +2377,7 @@ export function GameDetailPage() {
             ) : null}
             {achievementSets.length > 0 ? <HeroTabLink href="#achievements" label="Achievements" /> : null}
 			{saveDomains.length > 0 ? <HeroTabLink href="#saves" label="Saves" /> : null}
+            {fileLocations.length > 0 ? <HeroTabLink href="#copies-files" label="Copies & files" /> : null}
             <HeroTabLink href="#source-records" label="Sources" />
             {externalLinks.length > 0 ? <HeroTabLink href="#external-links" label="Links" /> : null}
           </div>
@@ -2730,6 +2751,20 @@ export function GameDetailPage() {
 			{saveDomainAction.isError ? <p className="mt-3 text-sm text-red-300">{saveDomainAction.error instanceof Error ? saveDomainAction.error.message : 'MGA could not start that save action.'}</p> : null}
 		  </SectionCard>
 		) : null}
+
+        <SectionCard
+          id="copies-files"
+          title="Your copies & files"
+          icon={<FolderOpen size={18} className="text-mga-accent" />}
+          description="See where each copy lives, which player and device can use it, and how its saves are handled."
+        >
+          <GameFileLocations locations={fileLocations} />
+          {preparedCopies.isError ? (
+            <p className="mt-3 text-xs text-amber-100/80">
+              Temporary prepared copies could not be checked. Your original and installed copies are still shown.
+            </p>
+          ) : null}
+        </SectionCard>
 
         <SectionCard
           id="achievements"
