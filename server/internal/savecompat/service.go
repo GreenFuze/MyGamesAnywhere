@@ -18,8 +18,9 @@ type AtomicSnapshotWriter interface {
 }
 
 type Service struct {
-	repository Repository
-	converters map[string]Converter
+	repository         Repository
+	overrideRepository OverrideRepository
+	converters         map[string]Converter
 }
 
 func NewService(repository Repository, converters ...Converter) (*Service, error) {
@@ -41,6 +42,18 @@ func NewService(repository Repository, converters ...Converter) (*Service, error
 		}
 		service.converters[key] = converter
 	}
+	return service, nil
+}
+
+func NewServiceWithOverrides(repository Repository, overrideRepository OverrideRepository, converters ...Converter) (*Service, error) {
+	if overrideRepository == nil {
+		return nil, errors.New("save compatibility override repository is required")
+	}
+	service, err := NewService(repository, converters...)
+	if err != nil {
+		return nil, err
+	}
+	service.overrideRepository = overrideRepository
 	return service, nil
 }
 
@@ -70,14 +83,84 @@ func (s *Service) ConvertAndCommit(ctx context.Context, source Snapshot, target 
 	if err := rule.Validate(); err != nil {
 		return fmt.Errorf("validate save compatibility rule: %w", err)
 	}
+	return s.convertAndCommitWithRule(ctx, source, target, writer, *rule)
+}
 
+// ConvertAndCommitOverride applies only an exact, profile-owned, reviewed
+// override. The caller must still enforce provider access and destination
+// writer authority before invoking this method.
+func (s *Service) ConvertAndCommitOverride(
+	ctx context.Context,
+	source Snapshot,
+	target FormatRef,
+	scope OverrideScope,
+	writer AtomicSnapshotWriter,
+) error {
+	if s == nil || s.repository == nil || s.overrideRepository == nil {
+		return errors.New("save compatibility override service is unavailable")
+	}
+	if writer == nil {
+		return errors.New("atomic save snapshot writer is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := source.Validate(); err != nil {
+		return fmt.Errorf("validate source save snapshot: %w", err)
+	}
+	if err := target.Validate(); err != nil {
+		return fmt.Errorf("validate target save format: %w", err)
+	}
+	if err := scope.Validate(); err != nil {
+		return fmt.Errorf("validate save compatibility override scope: %w", err)
+	}
+	if !scope.Source.Equal(source.Format) || !scope.Target.Equal(target) {
+		return errors.New("save compatibility override scope does not match the exact source and target formats")
+	}
+	override, err := s.overrideRepository.FindApprovedOverride(ctx, scope)
+	if err != nil {
+		return fmt.Errorf("find approved save compatibility override: %w", err)
+	}
+	if override == nil || override.State != OverrideStateApproved {
+		return errors.New("no approved save compatibility override exists for these exact Save Domains and formats")
+	}
+	if !override.Scope.Equal(scope) {
+		return errors.New("approved save compatibility override does not match the requested exact scope")
+	}
+	rule := CompatibilityRule{
+		ID:               override.ID,
+		Source:           override.Scope.Source,
+		Target:           override.Scope.Target,
+		Relationship:     override.Relationship,
+		ConverterID:      override.ConverterID,
+		ConverterVersion: override.ConverterVersion,
+		EvidenceSource:   override.EvidenceSource,
+		EvidenceVersion:  override.EvidenceVersion,
+		EvidenceJSON:     override.EvidenceJSON,
+		Reversible:       override.Reversible,
+		Enabled:          true,
+	}
+	if err := rule.Validate(); err != nil {
+		return fmt.Errorf("validate approved save compatibility override: %w", err)
+	}
+	return s.convertAndCommitWithRule(ctx, source, target, writer, rule)
+}
+
+func (s *Service) convertAndCommitWithRule(
+	ctx context.Context,
+	source Snapshot,
+	target FormatRef,
+	writer AtomicSnapshotWriter,
+	rule CompatibilityRule,
+) error {
 	var candidate Snapshot
 	switch rule.Relationship {
 	case RelationshipSameFormat:
 		candidate = source.Clone()
 		candidate.Format = target
 	case RelationshipConverter:
-		candidate, err = s.convert(ctx, *rule, source)
+		var err error
+		candidate, err = s.convert(ctx, rule, source)
 		if err != nil {
 			return err
 		}

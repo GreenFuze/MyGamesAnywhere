@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 31
+const latestMigrationVersion = 32
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -605,6 +605,60 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 					created_at INTEGER NOT NULL
 				);`,
 				`CREATE INDEX idx_save_domain_versions_profile_domain_time ON save_domain_versions(profile_id, domain_id, accepted_at DESC, id DESC);`,
+			},
+		},
+		{
+			Version: 32,
+			Name:    "reviewed_save_compatibility_overrides",
+			SQL: []string{
+				`CREATE TABLE save_compatibility_overrides (
+					id TEXT PRIMARY KEY CHECK(length(trim(id)) BETWEEN 1 AND 128),
+					owner_profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					source_domain_id TEXT NOT NULL CHECK(length(trim(source_domain_id)) BETWEEN 1 AND 128),
+					target_domain_id TEXT NOT NULL CHECK(length(trim(target_domain_id)) BETWEEN 1 AND 128),
+					source_format_id TEXT NOT NULL CHECK(length(trim(source_format_id)) BETWEEN 1 AND 128),
+					source_format_version TEXT NOT NULL CHECK(length(trim(source_format_version)) BETWEEN 1 AND 64),
+					target_format_id TEXT NOT NULL CHECK(length(trim(target_format_id)) BETWEEN 1 AND 128),
+					target_format_version TEXT NOT NULL CHECK(length(trim(target_format_version)) BETWEEN 1 AND 64),
+					relationship TEXT NOT NULL CHECK(relationship IN ('same_format', 'converter')),
+					converter_id TEXT,
+					converter_version TEXT,
+					reversible INTEGER NOT NULL CHECK(reversible IN (0, 1)),
+					origin TEXT NOT NULL CHECK(origin IN ('player', 'community')),
+					attribution TEXT NOT NULL CHECK(length(trim(attribution)) BETWEEN 1 AND 256),
+					evidence_source TEXT NOT NULL CHECK(length(trim(evidence_source)) BETWEEN 1 AND 256),
+					evidence_version TEXT NOT NULL CHECK(length(trim(evidence_version)) BETWEEN 1 AND 64),
+					evidence_json TEXT NOT NULL CHECK(length(evidence_json) <= 8192 AND json_valid(evidence_json)),
+					state TEXT NOT NULL CHECK(state IN ('pending', 'approved', 'conflict', 'revoked')),
+					reviewed_by_profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					reviewed_at INTEGER,
+					revoked_at INTEGER,
+					CHECK(source_domain_id <> target_domain_id),
+					CHECK(
+						(relationship = 'same_format' AND converter_id IS NULL AND converter_version IS NULL)
+						OR
+						(relationship = 'converter' AND length(trim(converter_id)) BETWEEN 1 AND 128 AND length(trim(converter_version)) BETWEEN 1 AND 64)
+					),
+					CHECK(
+						(state = 'pending' AND reviewed_by_profile_id IS NULL AND reviewed_at IS NULL AND revoked_at IS NULL)
+						OR
+						(state IN ('approved', 'conflict') AND reviewed_at IS NOT NULL AND revoked_at IS NULL)
+						OR
+						(state = 'revoked' AND revoked_at IS NOT NULL)
+					),
+					FOREIGN KEY(converter_id, converter_version) REFERENCES save_converter_registry(id, version)
+				);`,
+				`CREATE UNIQUE INDEX idx_save_override_one_approved_scope ON save_compatibility_overrides(
+					owner_profile_id, source_domain_id, target_domain_id,
+					source_format_id, source_format_version, target_format_id, target_format_version
+				) WHERE state='approved';`,
+				`CREATE INDEX idx_save_override_review ON save_compatibility_overrides(state, created_at, id);`,
+				`CREATE INDEX idx_save_override_scope ON save_compatibility_overrides(
+					owner_profile_id, source_domain_id, target_domain_id,
+					source_format_id, source_format_version, target_format_id, target_format_version, state
+				);`,
 			},
 		},
 	}

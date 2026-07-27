@@ -177,6 +177,62 @@ func TestMigration31AddsEmptyProfileScopedSaveHistory(t *testing.T) {
 	}
 }
 
+func TestMigration32AddsEmptyReviewedOverrideStoreWithoutChangingSaveData(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.ensureSchemaMigrationsTable(); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range dbSvc.orderedMigrations() {
+		if migration.Version > 31 {
+			break
+		}
+		if err := dbSvc.runMigration(context.Background(), migration); err != nil {
+			t.Fatalf("run migration %d: %v", migration.Version, err)
+		}
+	}
+	now := time.Now().Unix()
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO profiles(id, display_name, role, created_at, updated_at)
+		VALUES ('profile-32','Player','player',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO save_compatibility_rules
+		(id, source_format_id, source_format_version, target_format_id, target_format_version,
+		relationship, evidence_source, evidence_version, evidence_json, reversible, enabled, created_at, updated_at)
+		VALUES ('rule-32','format:a','1','format:b','1','same_format','fixture','1','{}',0,1,?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO save_domain_versions
+		(id, profile_id, domain_id, canonical_game_id, source_game_id, runtime, slot_id, integration_id,
+		manifest_hash, origin_label, route_label, accepted_at, file_count, total_size, payload_key, created_at)
+		VALUES ('history-32','profile-32','save:32','game','source','runtime','autosave','sync',
+		?,'Device','Route',?,0,0,'payload-32',?)`,
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	assertLatestMigrationVersion(t, dbSvc.GetDB())
+	var overrides, rules, history int
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM save_compatibility_overrides`).Scan(&overrides); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM save_compatibility_rules WHERE id='rule-32'`).Scan(&rules); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM save_domain_versions WHERE id='history-32'`).Scan(&history); err != nil {
+		t.Fatal(err)
+	}
+	if overrides != 0 || rules != 1 || history != 1 {
+		t.Fatalf("migration 32 state: overrides=%d rules=%d history=%d", overrides, rules, history)
+	}
+}
+
 func TestMigration27PreservesExistingInstallationsAsManaged(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
 	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
