@@ -38,7 +38,7 @@ func TestRunCreatesPrivacySafeLibraryAndArtwork(t *testing.T) {
 		t.Fatalf("artwork file count = %d, want %d", got, want)
 	}
 	for _, game := range publicDemoGames() {
-		for _, suffix := range []string{"-cover.webp", "-background.svg"} {
+		for _, suffix := range []string{"-cover.webp", "-background.webp"} {
 			data, err := os.ReadFile(filepath.Join(opts.coversDir, game.slug+suffix))
 			if err != nil {
 				t.Fatalf("read %s%s: %v", game.slug, suffix, err)
@@ -46,7 +46,7 @@ func TestRunCreatesPrivacySafeLibraryAndArtwork(t *testing.T) {
 			if len(data) < 500 {
 				t.Fatalf("%s%s is unexpectedly small", game.slug, suffix)
 			}
-			if suffix == "-cover.webp" && string(data[:4]) != "RIFF" {
+			if string(data[:4]) != "RIFF" {
 				t.Fatalf("%s%s is not WebP artwork", game.slug, suffix)
 			}
 		}
@@ -72,7 +72,7 @@ func TestRunCreatesPrivacySafeLibraryAndArtwork(t *testing.T) {
 	if err := database.GetDB().QueryRow(`SELECT COUNT(*) FROM media_assets WHERE url LIKE '%-cover.webp'`).Scan(&covers); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.GetDB().QueryRow(`SELECT COUNT(*) FROM media_assets WHERE url LIKE '%-background.svg'`).Scan(&backgrounds); err != nil {
+	if err := database.GetDB().QueryRow(`SELECT COUNT(*) FROM media_assets WHERE url LIKE '%-background.webp'`).Scan(&backgrounds); err != nil {
 		t.Fatal(err)
 	}
 	if profiles != 1 || integrations != 3 {

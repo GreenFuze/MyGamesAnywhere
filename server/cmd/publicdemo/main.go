@@ -9,7 +9,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"html"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +23,7 @@ const demoProfileID = "public-demo-player"
 // demoArtwork keeps screenshot fixtures reproducible and independent of
 // commercial artwork or third-party services.
 //
-//go:embed assets/*-cover.webp
+//go:embed assets/*-cover.webp assets/*-background.webp
 var demoArtwork embed.FS
 
 type options struct {
@@ -78,9 +77,6 @@ type demoGame struct {
 	gamePass    bool
 	xcloud      bool
 	favorite    bool
-	coverFrom   string
-	coverTo     string
-	coverAccent string
 }
 
 type seeder struct {
@@ -327,7 +323,7 @@ func (s *seeder) seed(ctx context.Context) error {
 				match.StoreProductID = "DEMO-" + strings.ToUpper(game.slug)
 			}
 			coverURL := s.options.coverBaseURL + "/" + game.slug + "-cover.webp"
-			backgroundURL := s.options.coverBaseURL + "/" + game.slug + "-background.svg"
+			backgroundURL := s.options.coverBaseURL + "/" + game.slug + "-background.webp"
 			batch.SourceGames = append(batch.SourceGames, sourceGame)
 			batch.ResolverMatches[sourceID] = []core.ResolverMatch{match}
 			batch.MediaItems[sourceID] = []core.MediaRef{
@@ -345,7 +341,7 @@ func (s *seeder) seed(ctx context.Context) error {
 					Source:   "metadata-public-demo",
 					Width:    1600,
 					Height:   900,
-					MimeType: "image/svg+xml",
+					MimeType: "image/webp",
 				},
 			}
 		}
@@ -381,33 +377,12 @@ func (s *seeder) writeArtwork(game demoGame) error {
 	if err := os.WriteFile(coverPath, cover, 0o644); err != nil {
 		return fmt.Errorf("write cover %s: %w", game.title, err)
 	}
-
-	title := html.EscapeString(game.title)
-	description := html.EscapeString(game.description)
-	background := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
-  <defs>
-    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1"><stop stop-color="%s"/><stop offset=".65" stop-color="%s"/><stop offset="1" stop-color="#050812"/></linearGradient>
-    <radialGradient id="glow"><stop stop-color="%s" stop-opacity=".65"/><stop offset="1" stop-color="%s" stop-opacity="0"/></radialGradient>
-    <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse"><path d="M80 0H0V80" fill="none" stroke="#fff" stroke-opacity=".045"/></pattern>
-    <filter id="soft"><feGaussianBlur stdDeviation="32"/></filter>
-  </defs>
-  <rect width="1600" height="900" fill="url(#sky)"/>
-  <rect width="1600" height="900" fill="url(#grid)"/>
-  <circle cx="1180" cy="285" r="420" fill="url(#glow)"/>
-  <circle cx="1180" cy="285" r="165" fill="none" stroke="%s" stroke-width="3" opacity=".36"/>
-  <circle cx="1180" cy="285" r="105" fill="%s" opacity=".16" filter="url(#soft)"/>
-  <path d="M0 620 C260 440 430 760 730 575 S1210 420 1600 605 V900 H0Z" fill="#070b14" opacity=".86"/>
-  <path d="M0 688 C330 540 535 820 860 660 S1320 545 1600 690" fill="none" stroke="%s" stroke-width="8" opacity=".34"/>
-  <path d="M0 728 C310 620 580 825 920 710 S1320 640 1600 735" fill="none" stroke="#fff" stroke-width="2" opacity=".13"/>
-  <g transform="translate(120 150)">
-    <rect width="10" height="190" rx="5" fill="%s"/>
-    <text x="48" y="74" fill="#fff" font-family="Segoe UI,Arial,sans-serif" font-size="78" font-weight="850">%s</text>
-    <text x="52" y="122" fill="#fff" opacity=".72" font-family="Segoe UI,Arial,sans-serif" font-size="24">%s</text>
-    <text x="52" y="170" fill="%s" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="700" letter-spacing="5">FICTIONAL · PRIVACY-SAFE · MGA SHOWCASE</text>
-  </g>
-</svg>`, game.coverFrom, game.coverTo, game.coverAccent, game.coverAccent, game.coverAccent, game.coverAccent, game.coverAccent, game.coverAccent, title, description, game.coverAccent)
-	backgroundPath := filepath.Join(s.options.coversDir, game.slug+"-background.svg")
-	if err := os.WriteFile(backgroundPath, []byte(background), 0o644); err != nil {
+	background, err := demoArtwork.ReadFile("assets/" + game.slug + "-background.webp")
+	if err != nil {
+		return fmt.Errorf("read embedded background %s: %w", game.title, err)
+	}
+	backgroundPath := filepath.Join(s.options.coversDir, game.slug+"-background.webp")
+	if err := os.WriteFile(backgroundPath, background, 0o644); err != nil {
 		return fmt.Errorf("write background %s: %w", game.title, err)
 	}
 	return nil
@@ -415,13 +390,13 @@ func (s *seeder) writeArtwork(game demoGame) error {
 
 func publicDemoGames() []demoGame {
 	return []demoGame{
-		{"celestial-drift", "Celestial Drift", core.PlatformWindowsPC, "Race through luminous cities across several connected worlds.", []string{"Racing", "Arcade"}, "Northstar Studio", "2025-03-14", 8.8, true, true, false, true, true, true, "#121b3d", "#28134c", "#55d9ff"},
-		{"moon-harbor", "Moon Harbor", core.PlatformWindowsPC, "Build a quiet settlement on the edge of a silver sea.", []string{"Simulation", "Strategy"}, "Quiet Giant", "2024-10-08", 8.4, true, true, false, true, false, false, "#092f39", "#0d1729", "#72efc5"},
-		{"pixel-quest", "Pixel Quest", core.PlatformGBA, "A compact adventure across forgotten handheld kingdoms.", []string{"Adventure", "RPG"}, "Paper Lantern", "2003-06-21", 8.1, false, false, true, false, false, true, "#49266b", "#16142f", "#ff9bd2"},
-		{"iron-tactics", "Iron Tactics", core.PlatformWindowsPC, "Lead a small squad through short, replayable tactical missions.", []string{"Strategy", "Tactical"}, "Foundry Games", "2023-11-02", 8.6, true, false, false, false, false, false, "#4b1f22", "#17131a", "#ffb15e"},
-		{"deep-signal", "Deep Signal", core.PlatformWindowsPC, "Decode a signal from beneath an endless alien ocean.", []string{"Adventure", "Mystery"}, "Beacon Works", "2025-01-19", 9.0, true, true, false, true, true, false, "#061f35", "#07101d", "#39bfff"},
-		{"arcadia-falls", "Arcadia Falls", core.PlatformSNES, "Restore a floating city in a colorful 16-bit action adventure.", []string{"Action", "Adventure"}, "Mosaic Studio", "1994-09-17", 8.7, false, false, true, false, false, false, "#304d35", "#152025", "#ffe26e"},
-		{"cloudbound", "Cloudbound", core.PlatformWindowsPC, "Explore hand-painted islands alone or with a friend.", []string{"Adventure", "Co-op"}, "Soft Horizon", "2024-05-30", 8.9, true, true, false, true, true, true, "#244d69", "#292759", "#9be9ff"},
-		{"neon-garden", "Neon Garden", core.PlatformGenesis, "Grow impossible plants in a rhythm-powered greenhouse.", []string{"Puzzle", "Music"}, "Afterglow", "1992-04-11", 7.9, false, false, true, false, false, false, "#3e164b", "#102943", "#89ffb0"},
+		{"celestial-drift", "Celestial Drift", core.PlatformWindowsPC, "Race through luminous cities across several connected worlds.", []string{"Racing", "Arcade"}, "Northstar Studio", "2025-03-14", 8.8, true, true, false, true, true, true},
+		{"moon-harbor", "Moon Harbor", core.PlatformWindowsPC, "Build a quiet settlement on the edge of a silver sea.", []string{"Simulation", "Strategy"}, "Quiet Giant", "2024-10-08", 8.4, true, true, false, true, false, false},
+		{"pixel-quest", "Pixel Quest", core.PlatformGBA, "A compact adventure across forgotten handheld kingdoms.", []string{"Adventure", "RPG"}, "Paper Lantern", "2003-06-21", 8.1, false, false, true, false, false, true},
+		{"iron-tactics", "Iron Tactics", core.PlatformWindowsPC, "Lead a small squad through short, replayable tactical missions.", []string{"Strategy", "Tactical"}, "Foundry Games", "2023-11-02", 8.6, true, false, false, false, false, false},
+		{"deep-signal", "Deep Signal", core.PlatformWindowsPC, "Decode a signal from beneath an endless alien ocean.", []string{"Adventure", "Mystery"}, "Beacon Works", "2025-01-19", 9.0, true, true, false, true, true, false},
+		{"arcadia-falls", "Arcadia Falls", core.PlatformSNES, "Restore a floating city in a colorful 16-bit action adventure.", []string{"Action", "Adventure"}, "Mosaic Studio", "1994-09-17", 8.7, false, false, true, false, false, false},
+		{"cloudbound", "Cloudbound", core.PlatformWindowsPC, "Explore hand-painted islands alone or with a friend.", []string{"Adventure", "Co-op"}, "Soft Horizon", "2024-05-30", 8.9, true, true, false, true, true, true},
+		{"neon-garden", "Neon Garden", core.PlatformGenesis, "Grow impossible plants in a rhythm-powered greenhouse.", []string{"Puzzle", "Music"}, "Afterglow", "1992-04-11", 7.9, false, false, true, false, false, false},
 	}
 }

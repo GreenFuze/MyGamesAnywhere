@@ -1,10 +1,9 @@
 # Public screenshot fixture
 
 `publicdemo` creates a privacy-safe MGA database for public screenshots. It uses
-one fictional profile, fictional games, committed original cover artwork,
-locally generated SVG backgrounds, and no external credentials. The fixture is
-self-contained, so the public gallery does not depend on commercial game art or
-an external image host.
+one fictional profile, fictional games, committed original cover and hero
+artwork, and no external credentials. The fixture is self-contained, so the
+public gallery does not depend on commercial game art or an external image host.
 
 The command fails if the database or server config already exists. Always use a
 new temporary directory; never point it at a real MGA data directory.
