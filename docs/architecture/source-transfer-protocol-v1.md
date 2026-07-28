@@ -86,7 +86,7 @@ Removes only an uncommitted stage carrying the matching transfer ownership marke
 
 ## Persisted server recovery
 
-Migration 33 adds `source_move_jobs` and `source_move_job_files`. Jobs are profile-scoped for visibility and reserve a provider-identity/path destination across profiles while unfinished, preventing two profiles connected to the same backing storage from racing the same destination.
+Migration 33 adds `source_move_jobs` and `source_move_job_files`. Migration 34 adds the source reservation constraint. Jobs are profile-scoped for visibility, reserve a provider-identity/path destination across profiles while unfinished, and reserve one active move per profile/source game. This prevents both backing-destination races and two moves from acting on the same original at once.
 
 The server persists the move phase before each provider boundary. Startup converts in-flight phases to `interrupted` and retains the last `recovery_phase`:
 

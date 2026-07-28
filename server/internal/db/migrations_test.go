@@ -296,6 +296,62 @@ func TestMigration33AddsEmptyProfileScopedRecoverableSourceMoves(t *testing.T) {
 	}
 }
 
+func TestMigration34ReservesOneActiveMovePerProfileSource(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.ensureSchemaMigrationsTable(); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range dbSvc.orderedMigrations() {
+		if migration.Version > 33 {
+			break
+		}
+		if err := dbSvc.runMigration(context.Background(), migration); err != nil {
+			t.Fatalf("run migration %d: %v", migration.Version, err)
+		}
+	}
+	now := time.Now().Unix()
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO profiles(id, display_name, role, created_at, updated_at)
+		VALUES ('profile-34','Player','player',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	assertLatestMigrationVersion(t, dbSvc.GetDB())
+	insert := func(id, transferID, destinationPath string, finishedAt any) error {
+		_, err := dbSvc.GetDB().Exec(`INSERT INTO source_move_jobs (
+			id, profile_id, transfer_id, canonical_game_id, canonical_title,
+			source_game_id, source_title, source_integration_id, source_plugin_id, source_root_path,
+			destination_integration_id, destination_plugin_id, destination_authority, destination_label, destination_path,
+			status, progress_total, created_at, updated_at, finished_at
+		) VALUES (
+			?, 'profile-34', ?, 'game-34', 'Game',
+			'source-34', 'Game', 'source-integration', 'game-source-smb', 'Games/Game',
+			'destination-integration', 'game-source-google-drive', 'gdrive:test', 'Drive', ?,
+			'queued', 1, ?, ?, ?
+		)`, id, transferID, destinationPath, now, now, finishedAt)
+		return err
+	}
+	if err := insert("job-34-active", "transfer-34-active", "Library/Game A", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := insert("job-34-collision", "transfer-34-collision", "Library/Game B", nil); err == nil {
+		t.Fatal("second active move for the same profile source unexpectedly succeeded")
+	}
+	if _, err := dbSvc.GetDB().Exec(`UPDATE source_move_jobs
+		SET status='completed', finished_at=? WHERE id='job-34-active'`, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := insert("job-34-later", "transfer-34-later", "Library/Game B", nil); err != nil {
+		t.Fatalf("move after prior job finished: %v", err)
+	}
+}
+
 func TestMigration27PreservesExistingInstallationsAsManaged(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
 	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
