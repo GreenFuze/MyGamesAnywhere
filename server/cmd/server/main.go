@@ -36,6 +36,7 @@ import (
 	saveSync "github.com/GreenFuze/MyGamesAnywhere/server/internal/save_sync"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcecache"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcemove"
 	mgasync "github.com/GreenFuze/MyGamesAnywhere/server/internal/sync"
 	mgaupdate "github.com/GreenFuze/MyGamesAnywhere/server/internal/update"
 )
@@ -229,6 +230,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	integrationRepo := db.NewIntegrationRepository(dbSvc)
 	gameStore := db.NewGameStore(dbSvc, logSvc)
 	cacheStore := db.NewSourceCacheStore(dbSvc)
+	sourceMoveStore := db.NewSourceMoveStore(dbSvc)
 
 	processManager := plugins.NewProcessManager()
 	eventBus := events.New()
@@ -250,11 +252,21 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	integrationRefreshSvc := scan.NewIntegrationRefreshService(integrationRepo, gameStore, pluginHost, mediaSvc, configSvc, logSvc)
 	achievementRefreshSvc := scan.NewAchievementRefreshService(integrationRepo, gameStore, pluginHost, logSvc)
 	deletionSvc := gamesvc.NewDeletionService(gameStore, integrationRepo, pluginHost, logSvc)
+	sourceMoveGameStore, ok := gameStore.(interface {
+		GetCanonicalGameByID(context.Context, string) (*core.CanonicalGame, error)
+		GetSourceGamesForCanonical(context.Context, string) ([]*core.SourceGame, error)
+		IsSourceRootExclusive(context.Context, string, string, string) (bool, error)
+	})
+	if !ok {
+		return fmt.Errorf("configure source moves: game store does not support source-root ownership checks")
+	}
+	sourceMoveSvc := sourcemove.NewService(sourceMoveStore, sourceMoveGameStore, integrationRepo, pluginHost, deletionSvc, orchestrator, configSvc, logSvc)
 	groupingSvc := gamesvc.NewCanonicalGroupingService(gameStore)
 
 	achievementRefreshCtrl := http.NewAchievementRefreshController(achievementRefreshSvc, eventBus, logSvc)
 	gameCtrl := http.NewGameController(gameStore, orchestrator, deletionSvc, integrationRepo, cacheSvc, logSvc)
 	gameCtrl.SetCanonicalGroupingService(groupingSvc)
+	gameCtrl.SetSourceMoveService(sourceMoveSvc)
 	gameCtrl.SetDeviceEndpointLister(deviceSvc)
 	gameCtrl.SetEmulationService(emulationSvc)
 	gameCtrl.SetEmulatorContentRoot(envString("MGA_GOOGLE_DRIVE_DESKTOP_ROOT", ""))
@@ -316,6 +328,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 
 	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, updateSvc, mediaSvc, backgroundScanSvc, installationValidationSvc)
 	a.AddStartupTask(commandRecovery)
+	a.AddStartupTask(sourceMoveSvc)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

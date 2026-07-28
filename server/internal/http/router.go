@@ -112,6 +112,8 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			}
 
 			api.With(ProfileContextMiddleware(b.ProfileRepo), RequireProfileAccess(b.AuthService)).Post("/games/sources/delete-batch", adminOnly(b.GameCtrl.DeleteSourceGames))
+			api.With(ProfileContextMiddleware(b.ProfileRepo), RequireProfileAccess(b.AuthService)).Post("/games/sources/move-preview", b.GameCtrl.PreviewSourceMoves)
+			api.With(ProfileContextMiddleware(b.ProfileRepo), RequireProfileAccess(b.AuthService)).Post("/games/sources/moves", b.GameCtrl.StartSourceMoves)
 
 			api.Group(func(r chi.Router) {
 				r.Use(ProfileContextMiddleware(b.ProfileRepo))
@@ -165,6 +167,12 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Use(ProfileContextMiddleware(b.ProfileRepo))
 				r.Use(RequireProfileAccess(b.AuthService))
 				r.Get("/games", b.GameCtrl.ListGames)
+				r.Get("/games/source-move-destinations", b.GameCtrl.ListSourceMoveDestinations)
+				r.Get("/games/source-moves", b.GameCtrl.ListSourceMoveJobs)
+				r.Get("/games/source-moves/{job_id}", b.GameCtrl.GetSourceMoveJob)
+				r.Post("/games/source-moves/{job_id}/retry", b.GameCtrl.RetrySourceMove)
+				r.Post("/games/source-moves/{job_id}/cleanup", b.GameCtrl.CleanupSourceMove)
+				r.Post("/games/source-moves/{job_id}/keep-both", b.GameCtrl.KeepBothSourceMove)
 				r.Delete("/games", adminOnly(b.GameCtrl.DeleteAll))
 				r.Get("/games/{id}/detail", b.GameCtrl.GetDetail)
 				r.Post("/games/{id}/refresh-metadata", adminOnly(b.GameCtrl.RefreshMetadata))
@@ -374,6 +382,14 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Put("/games/{id}/favorite", noopHandler())
 			api.Delete("/games/{id}/favorite", noopHandler())
 			api.Post("/games/sources/delete-batch", noopHandler())
+			api.Post("/games/sources/move-preview", noopHandler())
+			api.Post("/games/sources/moves", noopHandler())
+			api.Get("/games/source-move-destinations", noopHandler())
+			api.Get("/games/source-moves", noopHandler())
+			api.Get("/games/source-moves/{job_id}", noopHandler())
+			api.Post("/games/source-moves/{job_id}/retry", noopHandler())
+			api.Post("/games/source-moves/{job_id}/cleanup", noopHandler())
+			api.Post("/games/source-moves/{job_id}/keep-both", noopHandler())
 			api.Post("/games/{id}/sources/{source_game_id}/delete-preview", noopHandler())
 			api.Delete("/games/{id}/sources/{source_game_id}", noopHandler())
 			api.Get("/games/{id}/play", noopHandler())

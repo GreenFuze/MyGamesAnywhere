@@ -274,6 +274,36 @@ func TestExecuteSourceDeletePlanTreatsMissingFileAsAlreadyDeleted(t *testing.T) 
 	}
 }
 
+func TestTransferManifestHashIsStableAndBindsContent(t *testing.T) {
+	first := []transferFile{
+		{RelativePath: "disc/game.bin", Size: 7, SHA256: strings.Repeat("a", 64)},
+		{RelativePath: "readme.txt", Size: 3, SHA256: strings.Repeat("b", 64)},
+	}
+	reordered := []transferFile{first[1], first[0]}
+	if transferManifestHash(first) != transferManifestHash(reordered) {
+		t.Fatal("manifest hash changed when file order changed")
+	}
+	changed := append([]transferFile(nil), first...)
+	changed[0].SHA256 = strings.Repeat("c", 64)
+	if transferManifestHash(first) == transferManifestHash(changed) {
+		t.Fatal("manifest hash did not bind the file checksum")
+	}
+}
+
+func TestTransferPathsStayInsideOwnedStage(t *testing.T) {
+	if got := transferStagePath("Games/Game", "transfer-1"); got != "Games/.mga-transfer-transfer-1" {
+		t.Fatalf("stage path = %q", got)
+	}
+	for _, value := range []string{"../outside", ".mga/transfer.json", "", "."} {
+		if _, err := safeTransferRelativePath(value); err == nil {
+			t.Fatalf("safeTransferRelativePath(%q) succeeded", value)
+		}
+	}
+	if got, err := safeTransferRelativePath("disc/game.bin"); err != nil || got != "disc/game.bin" {
+		t.Fatalf("safe relative path = %q, %v", got, err)
+	}
+}
+
 func mustJSON(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	payload, err := json.Marshal(value)

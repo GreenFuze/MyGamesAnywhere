@@ -1,4 +1,4 @@
-import { Database, FolderArchive, Gamepad2, HardDrive, Monitor } from 'lucide-react'
+import { ArrowRightLeft, Database, FolderArchive, Gamepad2, HardDrive, Monitor } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import {
@@ -34,7 +34,13 @@ function locationKindLabel(kind: GameFileLocationKind): string {
   }
 }
 
-function LocationCard({ location }: { location: GameFileLocationView }) {
+function LocationCard({
+  location,
+  onMove,
+}: {
+  location: GameFileLocationView
+  onMove?: (sourceGameId: string) => void
+}) {
   const saveLabel = gameFileLocationSaveLabel(location)
   const knownSave = saveLabel !== 'Save compatibility not known'
   return (
@@ -84,22 +90,40 @@ function LocationCard({ location }: { location: GameFileLocationView }) {
             {location.accessEvidence.map((evidence) => <li key={evidence}>{evidence}</li>)}
           </ul>
         </details>
-        <a href={location.manageHref} className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
-          {location.kind === 'installed' ? <Monitor size={14} /> : null}
-          {location.manageLabel}
-        </a>
+        <div className="flex flex-wrap gap-2">
+          {location.kind === 'source' && onMove ? (
+            <button
+              type="button"
+              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+              onClick={() => onMove(location.sourceGameId)}
+            >
+              <ArrowRightLeft size={14} />
+              Move files
+            </button>
+          ) : null}
+          <a href={location.manageHref} className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
+            {location.kind === 'installed' ? <Monitor size={14} /> : null}
+            {location.manageLabel}
+          </a>
+        </div>
       </div>
     </article>
   )
 }
 
-export function GameFileLocations({ locations }: { locations: GameFileLocationView[] }) {
+export function GameFileLocations({
+  locations,
+  onMove,
+}: {
+  locations: GameFileLocationView[]
+  onMove?: (sourceGameId: string) => void
+}) {
   if (locations.length === 0) {
     return <p className="text-sm text-white/58">No copies or file locations are available for this game.</p>
   }
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {locations.map((location) => <LocationCard key={location.id} location={location} />)}
+      {locations.map((location) => <LocationCard key={location.id} location={location} onMove={onMove} />)}
     </div>
   )
 }

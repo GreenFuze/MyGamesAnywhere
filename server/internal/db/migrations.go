@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 32
+const latestMigrationVersion = 33
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -658,6 +658,64 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 				`CREATE INDEX idx_save_override_scope ON save_compatibility_overrides(
 					owner_profile_id, source_domain_id, target_domain_id,
 					source_format_id, source_format_version, target_format_id, target_format_version, state
+				);`,
+			},
+		},
+		{
+			Version: 33,
+			Name:    "recoverable_source_moves",
+			SQL: []string{
+				`CREATE TABLE source_move_jobs (
+					id TEXT PRIMARY KEY CHECK(length(trim(id)) BETWEEN 1 AND 128),
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					transfer_id TEXT NOT NULL UNIQUE CHECK(length(trim(transfer_id)) BETWEEN 1 AND 128),
+					canonical_game_id TEXT NOT NULL,
+					canonical_title TEXT NOT NULL,
+					source_game_id TEXT NOT NULL,
+					source_title TEXT NOT NULL,
+					source_integration_id TEXT NOT NULL,
+					source_plugin_id TEXT NOT NULL,
+					source_root_path TEXT NOT NULL,
+					destination_integration_id TEXT NOT NULL,
+					destination_plugin_id TEXT NOT NULL,
+					destination_authority TEXT NOT NULL,
+					destination_label TEXT NOT NULL,
+					destination_path TEXT NOT NULL,
+					status TEXT NOT NULL CHECK(status IN (
+						'queued', 'materializing_source', 'staging_destination',
+						'destination_committed', 'deleting_source', 'refreshing_library',
+						'completed', 'failed_before_commit', 'source_cleanup_required',
+						'interrupted'
+					)),
+					message TEXT NOT NULL DEFAULT '',
+					error TEXT NOT NULL DEFAULT '',
+					recovery_phase TEXT NOT NULL DEFAULT '',
+					whole_directory INTEGER NOT NULL DEFAULT 0 CHECK(whole_directory IN (0, 1)),
+					keep_both INTEGER NOT NULL DEFAULT 0 CHECK(keep_both IN (0, 1)),
+					progress_current INTEGER NOT NULL DEFAULT 0 CHECK(progress_current >= 0),
+					progress_total INTEGER NOT NULL DEFAULT 0 CHECK(progress_total >= 0),
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					finished_at INTEGER
+				);`,
+				`CREATE INDEX idx_source_move_jobs_profile_time ON source_move_jobs(profile_id, created_at DESC, id DESC);`,
+				`CREATE INDEX idx_source_move_jobs_profile_status ON source_move_jobs(profile_id, status, updated_at DESC);`,
+				`CREATE UNIQUE INDEX idx_source_move_jobs_active_destination ON source_move_jobs(
+					destination_plugin_id, destination_authority, lower(destination_path)
+				) WHERE finished_at IS NULL;`,
+				`CREATE TABLE source_move_job_files (
+					job_id TEXT NOT NULL REFERENCES source_move_jobs(id) ON DELETE CASCADE,
+					ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+					source_path TEXT NOT NULL,
+					relative_path TEXT NOT NULL,
+					size INTEGER NOT NULL DEFAULT 0 CHECK(size >= 0),
+					object_id TEXT NOT NULL DEFAULT '',
+					revision TEXT NOT NULL DEFAULT '',
+					sha256 TEXT NOT NULL DEFAULT '',
+					status TEXT NOT NULL CHECK(status IN ('pending', 'materialized', 'staged', 'committed')),
+					error TEXT NOT NULL DEFAULT '',
+					PRIMARY KEY(job_id, ordinal),
+					UNIQUE(job_id, relative_path)
 				);`,
 			},
 		},

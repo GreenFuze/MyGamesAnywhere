@@ -1547,6 +1547,107 @@ export async function previewDeleteSourceGame(
   ) as Promise<DeleteSourceGamePreview>;
 }
 
+export type SourceMoveDestination = {
+  integration_id: string;
+  plugin_id: string;
+  label: string;
+  suggested_root?: string;
+};
+
+export type SourceMoveSelection = {
+  canonical_game_id: string;
+  source_game_id: string;
+  destination_integration_id: string;
+  destination_path: string;
+};
+
+export type SourceMovePreviewItem = {
+  canonical_game_id: string;
+  canonical_title: string;
+  source_game_id: string;
+  source_title: string;
+  source_integration_id: string;
+  source_plugin_id: string;
+  source_root_path: string;
+  destination_integration_id: string;
+  destination_plugin_id: string;
+  destination_label: string;
+  destination_path: string;
+  file_count: number;
+  total_size: number;
+  whole_directory: boolean;
+  can_move: boolean;
+  reason?: string;
+  warnings?: string[];
+  source_action?: string;
+  source_summary?: string;
+  files?: SourceMoveFile[];
+};
+
+export type SourceMoveFile = {
+  ordinal: number;
+  source_path: string;
+  relative_path: string;
+  size: number;
+  sha256?: string;
+  status: string;
+  error?: string;
+};
+
+export type SourceMoveJob = {
+  id: string;
+  transfer_id: string;
+  canonical_game_id: string;
+  canonical_title: string;
+  source_game_id: string;
+  source_title: string;
+  source_integration_id: string;
+  source_plugin_id: string;
+  source_root_path: string;
+  destination_integration_id: string;
+  destination_plugin_id: string;
+  destination_label: string;
+  destination_path: string;
+  status: string;
+  message?: string;
+  error?: string;
+  recovery_phase?: string;
+  whole_directory: boolean;
+  keep_both: boolean;
+  progress_current: number;
+  progress_total: number;
+  created_at: string;
+  updated_at: string;
+  finished_at?: string;
+  files?: SourceMoveFile[];
+};
+
+export async function listSourceMoveDestinations(): Promise<SourceMoveDestination[]> {
+  const response = await getJson<{ destinations: SourceMoveDestination[] }>("/api/games/source-move-destinations");
+  return response.destinations ?? [];
+}
+
+export async function previewSourceMoves(items: SourceMoveSelection[]): Promise<{ items: SourceMovePreviewItem[] }> {
+  return postJson<{ items: SourceMovePreviewItem[] }>("/api/games/sources/move-preview", { items }) as Promise<{ items: SourceMovePreviewItem[] }>;
+}
+
+export async function startSourceMoves(items: SourceMoveSelection[]): Promise<{ jobs: SourceMoveJob[] }> {
+  return postJson<{ jobs: SourceMoveJob[] }>("/api/games/sources/moves", { items }) as Promise<{ jobs: SourceMoveJob[] }>;
+}
+
+export async function getSourceMoveJob(jobId: string): Promise<SourceMoveJob> {
+  return getJson<SourceMoveJob>(`/api/games/source-moves/${encodeURIComponent(jobId)}`);
+}
+
+export async function listSourceMoveJobs(limit = 50): Promise<SourceMoveJob[]> {
+  const response = await getJson<{ jobs: SourceMoveJob[] }>(`/api/games/source-moves?limit=${encodeURIComponent(String(limit))}`);
+  return response.jobs ?? [];
+}
+
+export async function runSourceMoveAction(jobId: string, action: "retry" | "cleanup" | "keep-both"): Promise<SourceMoveJob> {
+  return postJson<SourceMoveJob>(`/api/games/source-moves/${encodeURIComponent(jobId)}/${action}`, {}) as Promise<SourceMoveJob>;
+}
+
 export async function getDuplicateGames(mode: DuplicateGameMode): Promise<DuplicateGamesResponse> {
   return getJson<DuplicateGamesResponse>(`/api/duplicates/games?mode=${encodeURIComponent(mode)}`);
 }

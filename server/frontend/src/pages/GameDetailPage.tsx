@@ -66,6 +66,7 @@ import { useRecentPlayed } from '@/hooks/useRecentPlayed'
 import { useProfiles } from '@/hooks/useProfiles'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { SourceGameHardDeleteDialog } from '@/components/library/SourceGameHardDeleteDialog'
+import { SourceGameMoveDialog } from '@/components/library/SourceGameMoveDialog'
 import { GameFileLocations } from '@/components/library/GameFileLocations'
 import { BrowserPlayIssueNotice } from '@/components/play/BrowserPlayIssueNotice'
 import { SaveDomainHistoryPanel } from '@/components/saves/SaveDomainHistoryPanel'
@@ -1510,6 +1511,7 @@ export function GameDetailPage() {
   const [refreshWarnings, setRefreshWarnings] = useState<string[]>([])
   const [refreshError, setRefreshError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<SourceGameDetailDTO | null>(null)
+  const [moveTarget, setMoveTarget] = useState<SourceGameDetailDTO | null>(null)
   const [deleteNotice, setDeleteNotice] = useState('')
   const [mergeTarget, setMergeTarget] = useState<SourceGameDetailDTO | null>(null)
   const [groupingBusy, setGroupingBusy] = useState(false)
@@ -2758,7 +2760,13 @@ export function GameDetailPage() {
           icon={<FolderOpen size={18} className="text-mga-accent" />}
           description="See where each copy lives, which player and device can use it, and how its saves are handled."
         >
-          <GameFileLocations locations={fileLocations} />
+          <GameFileLocations
+            locations={fileLocations}
+            onMove={(sourceGameId) => {
+              const source = data.source_games.find((candidate) => candidate.id === sourceGameId)
+              if (source) setMoveTarget(source)
+            }}
+          />
           {preparedCopies.isError ? (
             <p className="mt-3 text-xs text-amber-100/80">
               Temporary prepared copies could not be checked. Your original and installed copies are still shown.
@@ -3056,6 +3064,12 @@ export function GameDetailPage() {
         sourceLabel={sourceRecordLabel}
         onClose={() => setDeleteTarget(null)}
         onDeleted={handleHardDeleteCompleted}
+      />
+      <SourceGameMoveDialog
+        canonicalGameId={data.id}
+        canonicalTitle={data.title}
+        source={moveTarget}
+        onClose={() => setMoveTarget(null)}
       />
     </div>
   )

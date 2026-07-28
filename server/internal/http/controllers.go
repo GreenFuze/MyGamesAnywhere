@@ -85,6 +85,7 @@ type GameController struct {
 	statsSvc            core.StatsService
 	refreshSvc          core.GameMetadataRefreshService
 	deleteSvc           core.GameDeletionService
+	moveSvc             core.SourceMoveService
 	groupingSvc         core.CanonicalGroupingService
 	integrationRepo     core.IntegrationRepository
 	cacheSvc            core.SourceCacheService
@@ -221,6 +222,10 @@ func NewGameController(gameStore core.GameStore, refreshSvc core.GameMetadataRef
 
 func (c *GameController) SetCanonicalGroupingService(groupingSvc core.CanonicalGroupingService) {
 	c.groupingSvc = groupingSvc
+}
+
+func (c *GameController) SetSourceMoveService(moveSvc core.SourceMoveService) {
+	c.moveSvc = moveSvc
 }
 
 func (c *GameController) SetDeviceEndpointLister(lister DeviceEndpointLister) {
@@ -957,6 +962,142 @@ func (c *GameController) PreviewDeleteSourceGame(w http.ResponseWriter, r *http.
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(DeleteSourceGamePreviewResponse(*preview))
+}
+
+func (c *GameController) PreviewSourceMoves(w http.ResponseWriter, r *http.Request) {
+	if c.moveSvc == nil {
+		writeActionError(w, http.StatusNotImplemented, "moving game files is not available")
+		return
+	}
+	var body core.SourceMovePreviewRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeActionError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	preview, err := c.moveSvc.Preview(r.Context(), body)
+	if err != nil {
+		c.logger.Warn("preview source moves failed", "error", err)
+		writeActionError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(preview)
+}
+
+func (c *GameController) ListSourceMoveDestinations(w http.ResponseWriter, r *http.Request) {
+	if c.moveSvc == nil {
+		writeActionError(w, http.StatusNotImplemented, "moving game files is not available")
+		return
+	}
+	destinations, err := c.moveSvc.ListDestinations(r.Context())
+	if err != nil {
+		c.logger.Error("list source move destinations", err)
+		writeActionError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"destinations": destinations})
+}
+
+func (c *GameController) StartSourceMoves(w http.ResponseWriter, r *http.Request) {
+	if c.moveSvc == nil {
+		writeActionError(w, http.StatusNotImplemented, "moving game files is not available")
+		return
+	}
+	var body core.SourceMoveStartRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeActionError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	jobs, err := c.moveSvc.Start(r.Context(), body)
+	if err != nil {
+		c.logger.Warn("start source moves failed", "error", err)
+		writeActionError(w, http.StatusConflict, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{"jobs": jobs})
+}
+
+func (c *GameController) ListSourceMoveJobs(w http.ResponseWriter, r *http.Request) {
+	if c.moveSvc == nil {
+		writeActionError(w, http.StatusNotImplemented, "moving game files is not available")
+		return
+	}
+	limit := 50
+	if value := strings.TrimSpace(r.URL.Query().Get("limit")); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			writeActionError(w, http.StatusBadRequest, "limit must be a number")
+			return
+		}
+		limit = parsed
+	}
+	jobs, err := c.moveSvc.ListJobs(r.Context(), limit)
+	if err != nil {
+		c.logger.Error("list source move jobs", err)
+		writeActionError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"jobs": jobs})
+}
+
+func (c *GameController) GetSourceMoveJob(w http.ResponseWriter, r *http.Request) {
+	if c.moveSvc == nil {
+		writeActionError(w, http.StatusNotImplemented, "moving game files is not available")
+		return
+	}
+	job, err := c.moveSvc.GetJob(r.Context(), chi.URLParam(r, "job_id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(job)
+}
+
+func (c *GameController) RetrySourceMove(w http.ResponseWriter, r *http.Request) {
+	c.runSourceMoveAction(w, r, "retry")
+}
+
+func (c *GameController) CleanupSourceMove(w http.ResponseWriter, r *http.Request) {
+	c.runSourceMoveAction(w, r, "cleanup")
+}
+
+func (c *GameController) KeepBothSourceMove(w http.ResponseWriter, r *http.Request) {
+	c.runSourceMoveAction(w, r, "keep_both")
+}
+
+func (c *GameController) runSourceMoveAction(w http.ResponseWriter, r *http.Request, action string) {
+	if c.moveSvc == nil {
+		writeActionError(w, http.StatusNotImplemented, "moving game files is not available")
+		return
+	}
+	jobID := chi.URLParam(r, "job_id")
+	var (
+		job *core.SourceMoveJob
+		err error
+	)
+	switch action {
+	case "retry":
+		job, err = c.moveSvc.Retry(r.Context(), jobID)
+	case "cleanup":
+		job, err = c.moveSvc.CleanupStage(r.Context(), jobID)
+	case "keep_both":
+		job, err = c.moveSvc.KeepBoth(r.Context(), jobID)
+	default:
+		err = fmt.Errorf("unknown move action")
+	}
+	if err != nil {
+		c.logger.Warn("source move action failed", "action", action, "job_id", jobID, "error", err)
+		writeActionError(w, http.StatusConflict, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(job)
 }
 
 func (c *GameController) SearchCanonicalGames(w http.ResponseWriter, r *http.Request) {

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -98,10 +100,16 @@ func main() {
 		var resp Response
 		resp.ID = req.ID
 
-		if req.Method == "source.file.materialize" {
+		if req.Method == "source.file.materialize" || req.Method == "source.transfer.put" {
 			go func(req Request) {
 				resp := Response{ID: req.ID}
-				result, errObj := handleFileMaterialize(req.Params)
+				var result any
+				var errObj *Error
+				if req.Method == "source.transfer.put" {
+					result, errObj = handleTransferPut(req.Params)
+				} else {
+					result, errObj = handleFileMaterialize(req.Params)
+				}
 				if errObj != nil {
 					resp.Error = errObj
 				} else {
@@ -122,7 +130,7 @@ func main() {
 				"plugin_id":      "game-source-smb",
 				"plugin_version": "1.0.0",
 				"capabilities":   []string{"source"},
-				"provides":       []string{"source.filesystem.list", "source.filesystem.delete", "source.file.materialize", "plugin.check_config"},
+				"provides":       []string{"source.filesystem.list", "source.filesystem.delete", "source.file.materialize", "source.transfer.begin", "source.transfer.put", "source.transfer.commit", "source.transfer.abort", "plugin.check_config"},
 				"config": map[string]any{
 					"host":     map[string]any{"type": "string", "required": true},
 					"share":    map[string]any{"type": "string", "required": true},
@@ -156,6 +164,27 @@ func main() {
 			}
 		case "source.filesystem.delete":
 			result, errObj := handleSourceDelete(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+		case "source.transfer.begin":
+			result, errObj := handleTransferBegin(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+		case "source.transfer.commit":
+			result, errObj := handleTransferCommit(req.Params)
+			if errObj != nil {
+				resp.Error = errObj
+			} else {
+				resp.Result = result
+			}
+		case "source.transfer.abort":
+			result, errObj := handleTransferAbort(req.Params)
 			if errObj != nil {
 				resp.Error = errObj
 			} else {
@@ -288,6 +317,9 @@ func listFiles(config SMBConfig) ([]map[string]any, error) {
 				if walkPath == "." {
 					return nil
 				}
+				if d.IsDir() && (strings.EqualFold(d.Name(), ".mga") || strings.HasPrefix(strings.ToLower(d.Name()), ".mga-transfer-")) {
+					return fs.SkipDir
+				}
 				logicalPath := joinLogicalPath(include.Path, walkPath)
 				if smbPathExcluded(logicalPath, include.ExcludePaths) {
 					if d.IsDir() {
@@ -305,6 +337,9 @@ func listFiles(config SMBConfig) ([]map[string]any, error) {
 		}
 
 		for _, entry := range entries {
+			if entry.IsDir() && (strings.EqualFold(entry.Name(), ".mga") || strings.HasPrefix(strings.ToLower(entry.Name()), ".mga-transfer-")) {
+				continue
+			}
 			logicalPath := joinLogicalPath(include.Path, entry.Name())
 			if smbPathExcluded(logicalPath, include.ExcludePaths) {
 				continue
@@ -554,6 +589,396 @@ func handleFileMaterialize(params json.RawMessage) (any, *Error) {
 		}
 	}
 	return result, nil
+}
+
+type transferFile struct {
+	RelativePath string `json:"relative_path"`
+	Size         int64  `json:"size"`
+	SHA256       string `json:"sha256"`
+}
+
+type transferRequest struct {
+	Config          SMBConfig      `json:"config"`
+	TransferID      string         `json:"transfer_id"`
+	DestinationPath string         `json:"destination_path"`
+	DryRun          bool           `json:"dry_run"`
+	Files           []transferFile `json:"files"`
+	RelativePath    string         `json:"relative_path"`
+	SourcePath      string         `json:"source_path"`
+	Size            int64          `json:"size"`
+	SHA256          string         `json:"sha256"`
+}
+
+type transferMarker struct {
+	TransferID   string `json:"transfer_id"`
+	ManifestHash string `json:"manifest_hash"`
+}
+
+func handleTransferBegin(params json.RawMessage) (any, *Error) {
+	body, errObj := decodeTransferRequest(params)
+	if errObj != nil {
+		return nil, errObj
+	}
+	if len(body.Files) == 0 {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "files are required"}
+	}
+	if !sourcescope.ScopeContainsRootPath(body.DestinationPath, normalizedIncludePaths(body.Config)) {
+		return nil, &Error{Code: "NOT_ALLOWED", Message: "destination_path is outside the configured include_paths scope"}
+	}
+	for _, file := range body.Files {
+		if _, err := safeTransferRelativePath(file.RelativePath); err != nil {
+			return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+		}
+	}
+	if body.DryRun {
+		conn, session, share, err := mountShare(body.Config)
+		if err != nil {
+			return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+		}
+		defer conn.Close()
+		defer session.Logoff()
+		defer share.Umount()
+		if _, err := share.Stat(body.DestinationPath); err == nil {
+			return nil, &Error{Code: "DESTINATION_EXISTS", Message: fmt.Sprintf("%q already exists", body.DestinationPath)}
+		} else if !os.IsNotExist(err) && !sourceDeleteAlreadyGone(err) {
+			return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+		}
+		return transferResult("ready", body.DestinationPath), nil
+	}
+
+	conn, session, share, err := mountShare(body.Config)
+	if err != nil {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	defer conn.Close()
+	defer session.Logoff()
+	defer share.Umount()
+
+	marker := transferMarker{TransferID: body.TransferID, ManifestHash: transferManifestHash(body.Files)}
+	if existing, ok := readTransferMarker(share, body.DestinationPath); ok {
+		if existing == marker {
+			return transferResult("committed", body.DestinationPath), nil
+		}
+		return nil, &Error{Code: "DESTINATION_EXISTS", Message: fmt.Sprintf("%q belongs to another transfer", body.DestinationPath)}
+	}
+	if _, err := share.Stat(body.DestinationPath); err == nil {
+		return nil, &Error{Code: "DESTINATION_EXISTS", Message: fmt.Sprintf("%q already exists", body.DestinationPath)}
+	} else if !os.IsNotExist(err) && !sourceDeleteAlreadyGone(err) {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+
+	stage := transferStagePath(body.DestinationPath, body.TransferID)
+	if existing, ok := readTransferMarker(share, stage); ok {
+		if existing == marker {
+			return transferResult("staging", body.DestinationPath), nil
+		}
+		return nil, &Error{Code: "TRANSFER_COLLISION", Message: "temporary destination belongs to another transfer"}
+	}
+	if _, err := share.Stat(stage); err == nil {
+		return nil, &Error{Code: "TRANSFER_COLLISION", Message: "temporary destination already exists without an MGA marker"}
+	} else if !os.IsNotExist(err) && !sourceDeleteAlreadyGone(err) {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	if err := share.MkdirAll(joinLogicalPath(stage, ".mga"), 0o700); err != nil {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	if err := writeTransferMarker(share, stage, marker); err != nil {
+		_ = share.RemoveAll(stage)
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	return transferResult("staging", body.DestinationPath), nil
+}
+
+func handleTransferPut(params json.RawMessage) (any, *Error) {
+	body, errObj := decodeTransferRequest(params)
+	if errObj != nil {
+		return nil, errObj
+	}
+	relative, err := safeTransferRelativePath(body.RelativePath)
+	if err != nil {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	if strings.TrimSpace(body.SourcePath) == "" {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "source_path is required"}
+	}
+	localHash, localSize, err := hashLocalFile(body.SourcePath)
+	if err != nil {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	if body.Size >= 0 && localSize != body.Size {
+		return nil, &Error{Code: "SOURCE_CHANGED", Message: "source file size changed"}
+	}
+	if !strings.EqualFold(localHash, strings.TrimSpace(body.SHA256)) {
+		return nil, &Error{Code: "SOURCE_CHANGED", Message: "source file checksum changed"}
+	}
+
+	conn, session, share, err := mountShare(body.Config)
+	if err != nil {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	defer conn.Close()
+	defer session.Logoff()
+	defer share.Umount()
+	stage := transferStagePath(body.DestinationPath, body.TransferID)
+	if marker, ok := readTransferMarker(share, body.DestinationPath); ok && marker.TransferID == body.TransferID {
+		return transferResult("committed", body.DestinationPath), nil
+	}
+	marker, ok := readTransferMarker(share, stage)
+	if !ok || marker.TransferID != body.TransferID {
+		return nil, &Error{Code: "TRANSFER_NOT_STARTED", Message: "temporary destination is missing or does not belong to this transfer"}
+	}
+	target := joinLogicalPath(stage, relative)
+	if hash, size, err := hashSMBFile(share, target); err == nil && size == body.Size && strings.EqualFold(hash, body.SHA256) {
+		return transferResult("staged", body.DestinationPath), nil
+	}
+	if err := share.MkdirAll(filepath.ToSlash(filepath.Dir(filepath.FromSlash(target))), 0o700); err != nil {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	temp := target + ".mga-part"
+	_ = share.Remove(temp)
+	source, err := os.Open(body.SourcePath)
+	if err != nil {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	defer source.Close()
+	dest, err := share.Create(temp)
+	if err != nil {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	_, copyErr := io.Copy(dest, source)
+	closeErr := dest.Close()
+	if copyErr != nil || closeErr != nil {
+		_ = share.Remove(temp)
+		if copyErr != nil {
+			return nil, &Error{Code: "TRANSFER_FAILED", Message: copyErr.Error()}
+		}
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: closeErr.Error()}
+	}
+	hash, size, err := hashSMBFile(share, temp)
+	if err != nil || size != body.Size || !strings.EqualFold(hash, body.SHA256) {
+		_ = share.Remove(temp)
+		if err != nil {
+			return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+		}
+		return nil, &Error{Code: "DESTINATION_VERIFY_FAILED", Message: "copied file checksum does not match"}
+	}
+	_ = share.Remove(target)
+	if err := share.Rename(temp, target); err != nil {
+		_ = share.Remove(temp)
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	return transferResult("staged", body.DestinationPath), nil
+}
+
+func handleTransferCommit(params json.RawMessage) (any, *Error) {
+	body, errObj := decodeTransferRequest(params)
+	if errObj != nil {
+		return nil, errObj
+	}
+	if len(body.Files) == 0 {
+		return nil, &Error{Code: "INVALID_PARAMS", Message: "files are required"}
+	}
+	conn, session, share, err := mountShare(body.Config)
+	if err != nil {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	defer conn.Close()
+	defer session.Logoff()
+	defer share.Umount()
+	expected := transferMarker{TransferID: body.TransferID, ManifestHash: transferManifestHash(body.Files)}
+	if marker, ok := readTransferMarker(share, body.DestinationPath); ok {
+		if marker == expected {
+			return transferResult("committed", body.DestinationPath), nil
+		}
+		return nil, &Error{Code: "DESTINATION_EXISTS", Message: "destination belongs to another transfer"}
+	}
+	if _, err := share.Stat(body.DestinationPath); err == nil {
+		return nil, &Error{Code: "DESTINATION_EXISTS", Message: fmt.Sprintf("%q already exists", body.DestinationPath)}
+	} else if !os.IsNotExist(err) && !sourceDeleteAlreadyGone(err) {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	stage := transferStagePath(body.DestinationPath, body.TransferID)
+	marker, ok := readTransferMarker(share, stage)
+	if !ok || marker != expected {
+		return nil, &Error{Code: "TRANSFER_NOT_STARTED", Message: "temporary destination marker does not match this transfer"}
+	}
+	for _, file := range body.Files {
+		relative, err := safeTransferRelativePath(file.RelativePath)
+		if err != nil {
+			return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+		}
+		hash, size, err := hashSMBFile(share, joinLogicalPath(stage, relative))
+		if err != nil {
+			return nil, &Error{Code: "DESTINATION_VERIFY_FAILED", Message: err.Error()}
+		}
+		if size != file.Size || !strings.EqualFold(hash, file.SHA256) {
+			return nil, &Error{Code: "DESTINATION_VERIFY_FAILED", Message: fmt.Sprintf("%q does not match the expected file", relative)}
+		}
+	}
+	if err := share.Rename(stage, body.DestinationPath); err != nil {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	return transferResult("committed", body.DestinationPath), nil
+}
+
+func handleTransferAbort(params json.RawMessage) (any, *Error) {
+	body, errObj := decodeTransferRequest(params)
+	if errObj != nil {
+		return nil, errObj
+	}
+	conn, session, share, err := mountShare(body.Config)
+	if err != nil {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	defer conn.Close()
+	defer session.Logoff()
+	defer share.Umount()
+	if marker, ok := readTransferMarker(share, body.DestinationPath); ok && marker.TransferID == body.TransferID {
+		return transferResult("committed", body.DestinationPath), nil
+	}
+	stage := transferStagePath(body.DestinationPath, body.TransferID)
+	marker, ok := readTransferMarker(share, stage)
+	if !ok {
+		if _, err := share.Stat(stage); err == nil {
+			return nil, &Error{Code: "NOT_ALLOWED", Message: "temporary destination has no matching MGA ownership marker"}
+		}
+		return transferResult("aborted", body.DestinationPath), nil
+	}
+	if marker.TransferID != body.TransferID {
+		return nil, &Error{Code: "NOT_ALLOWED", Message: "temporary destination belongs to another transfer"}
+	}
+	if err := share.RemoveAll(stage); err != nil && !sourceDeleteAlreadyGone(err) {
+		return nil, &Error{Code: "TRANSFER_FAILED", Message: err.Error()}
+	}
+	return transferResult("aborted", body.DestinationPath), nil
+}
+
+func decodeTransferRequest(params json.RawMessage) (transferRequest, *Error) {
+	var body transferRequest
+	if err := json.Unmarshal(params, &body); err != nil {
+		return body, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	configPayload, err := json.Marshal(body.Config)
+	if err != nil {
+		return body, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	validatedConfig, err := decodeSMBConfig(configPayload)
+	if err != nil {
+		return body, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
+	}
+	body.Config = validatedConfig
+	body.TransferID = strings.TrimSpace(body.TransferID)
+	rawDestinationPath := strings.TrimSpace(body.DestinationPath)
+	if transferPathHasTraversal(rawDestinationPath) || filepath.IsAbs(rawDestinationPath) {
+		return body, &Error{Code: "INVALID_PARAMS", Message: "valid destination_path is required"}
+	}
+	body.DestinationPath = sourcescope.NormalizeLogicalPath(rawDestinationPath)
+	if body.TransferID == "" || len(body.TransferID) > 128 || strings.ContainsAny(body.TransferID, `/\`) {
+		return body, &Error{Code: "INVALID_PARAMS", Message: "valid transfer_id is required"}
+	}
+	if body.DestinationPath == "" || strings.HasPrefix(body.DestinationPath, "../") {
+		return body, &Error{Code: "INVALID_PARAMS", Message: "valid destination_path is required"}
+	}
+	if !sourcescope.ScopeContainsRootPath(body.DestinationPath, normalizedIncludePaths(body.Config)) {
+		return body, &Error{Code: "NOT_ALLOWED", Message: "destination_path is outside the configured include_paths scope"}
+	}
+	return body, nil
+}
+
+func transferStagePath(destinationPath, transferID string) string {
+	parent := sourcescope.NormalizeLogicalPath(filepath.ToSlash(filepath.Dir(filepath.FromSlash(destinationPath))))
+	if parent == "." {
+		parent = ""
+	}
+	return joinLogicalPath(parent, ".mga-transfer-"+transferID)
+}
+
+func safeTransferRelativePath(value string) (string, error) {
+	if transferPathHasTraversal(value) || filepath.IsAbs(value) {
+		return "", fmt.Errorf("unsafe relative_path %q", value)
+	}
+	normalized := sourcescope.NormalizeLogicalPath(value)
+	if normalized == "" || normalized == "." || strings.HasPrefix(normalized, "../") {
+		return "", fmt.Errorf("unsafe relative_path %q", value)
+	}
+	if normalized == ".mga" || strings.HasPrefix(normalized, ".mga/") {
+		return "", fmt.Errorf("relative_path %q uses MGA's reserved control folder", value)
+	}
+	return normalized, nil
+}
+
+func transferPathHasTraversal(value string) bool {
+	for _, component := range strings.Split(strings.ReplaceAll(value, `\`, "/"), "/") {
+		if strings.TrimSpace(component) == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func transferManifestHash(files []transferFile) string {
+	copyFiles := append([]transferFile(nil), files...)
+	sort.SliceStable(copyFiles, func(i, j int) bool { return copyFiles[i].RelativePath < copyFiles[j].RelativePath })
+	hash := sha256.New()
+	for _, file := range copyFiles {
+		fmt.Fprintf(hash, "%s\x00%d\x00%s\n", sourcescope.NormalizeLogicalPath(file.RelativePath), file.Size, strings.ToLower(strings.TrimSpace(file.SHA256)))
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func transferMarkerPath(root string) string {
+	return joinLogicalPath(root, ".mga/transfer.json")
+}
+
+func readTransferMarker(share *smb2.Share, root string) (transferMarker, bool) {
+	data, err := share.ReadFile(transferMarkerPath(root))
+	if err != nil {
+		return transferMarker{}, false
+	}
+	var marker transferMarker
+	if json.Unmarshal(data, &marker) != nil || strings.TrimSpace(marker.TransferID) == "" || strings.TrimSpace(marker.ManifestHash) == "" {
+		return transferMarker{}, false
+	}
+	return marker, true
+}
+
+func writeTransferMarker(share *smb2.Share, root string, marker transferMarker) error {
+	data, err := json.Marshal(marker)
+	if err != nil {
+		return err
+	}
+	return share.WriteFile(transferMarkerPath(root), data, 0o600)
+}
+
+func hashLocalFile(path string) (string, int64, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", 0, err
+	}
+	defer file.Close()
+	return hashReader(file)
+}
+
+func hashSMBFile(share *smb2.Share, path string) (string, int64, error) {
+	file, err := share.Open(path)
+	if err != nil {
+		return "", 0, err
+	}
+	defer file.Close()
+	return hashReader(file)
+}
+
+func hashReader(reader io.Reader) (string, int64, error) {
+	hash := sha256.New()
+	size, err := io.Copy(hash, reader)
+	if err != nil {
+		return "", 0, err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), size, nil
+}
+
+func transferResult(status, destinationPath string) map[string]any {
+	return map[string]any{"status": status, "destination_path": destinationPath}
 }
 
 func normalizedIncludePaths(config SMBConfig) []sourcescope.IncludePath {

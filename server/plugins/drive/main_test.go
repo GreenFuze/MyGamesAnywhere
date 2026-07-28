@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -289,6 +290,50 @@ func TestHandleSourceDeleteDryRunAcceptsDirectoryEntry(t *testing.T) {
 	}
 	if len(resp.Items) != 1 || resp.Items[0].Path != "Games/Platforms/SNES" || !resp.Items[0].IsDir || resp.Items[0].Action != "trash" {
 		t.Fatalf("items = %+v, want directory trash item", resp.Items)
+	}
+}
+
+func TestDriveTransferManifestHashIsStableAndBindsContent(t *testing.T) {
+	first := []transferFile{
+		{RelativePath: "disc/game.bin", Size: 7, SHA256: strings.Repeat("a", 64)},
+		{RelativePath: "readme.txt", Size: 3, SHA256: strings.Repeat("b", 64)},
+	}
+	reordered := []transferFile{first[1], first[0]}
+	if transferManifestHash(first) != transferManifestHash(reordered) {
+		t.Fatal("manifest hash changed when file order changed")
+	}
+	changed := append([]transferFile(nil), first...)
+	changed[0].Size++
+	if transferManifestHash(first) == transferManifestHash(changed) {
+		t.Fatal("manifest hash did not bind the file size")
+	}
+}
+
+func TestDriveTransferPathsAndControlFoldersFailClosed(t *testing.T) {
+	for _, value := range []string{"../outside", ".mga/transfer.json", "", "."} {
+		if _, err := safeTransferRelativePath(value); err == nil {
+			t.Fatalf("safeTransferRelativePath(%q) succeeded", value)
+		}
+	}
+	if !drivePathExcluded("Games/.mga-transfer-123/game.bin", nil) {
+		t.Fatal("temporary transfer folder was visible to library scanning")
+	}
+	if !drivePathExcluded("Games/Game/.mga/control.json", nil) {
+		t.Fatal("MGA control folder was visible to library scanning")
+	}
+}
+
+func TestHashDriveUploadFileProducesSHA256AndMD5(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "game.bin")
+	if err := os.WriteFile(filePath, []byte("1234567"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sha, md5Hash, size, err := hashDriveUploadFile(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size != 7 || sha != "8bb0cf6eb9b17d0f7d22b456f121257dc1254e1f01665370476383ea776df414" || md5Hash != "fcea920f7412b5da7be0cf42b8c93759" {
+		t.Fatalf("hashes = %q %q size=%d", sha, md5Hash, size)
 	}
 }
 

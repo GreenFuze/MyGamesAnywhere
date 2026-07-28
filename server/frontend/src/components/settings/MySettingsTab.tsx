@@ -5,6 +5,7 @@ import { getProfileInstallPreference, setProfileInstallPreference } from '@/api/
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useProfiles } from '@/hooks/useProfiles'
+import { SourceMoveJobsPanel } from '@/components/settings/SourceMoveJobsPanel'
 
 const defaultInstallRoot = '%USERPROFILE%\\Games'
 
@@ -32,6 +33,7 @@ export function MySettingsTab() {
 
   if (!currentProfile) return null
   return (
+    <div className="space-y-6">
     <section className="rounded-mga border border-mga-border bg-mga-surface p-5 shadow-lg">
       <div className="flex items-start gap-3">
         <div className="grid h-10 w-10 shrink-0 place-items-center rounded-mga bg-mga-accent/10 text-mga-accent">
@@ -68,5 +70,7 @@ export function MySettingsTab() {
         ) : null}
       </div>
     </section>
+    <SourceMoveJobsPanel />
+    </div>
   )
 }

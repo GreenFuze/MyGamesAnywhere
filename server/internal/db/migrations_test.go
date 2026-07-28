@@ -233,6 +233,69 @@ func TestMigration32AddsEmptyReviewedOverrideStoreWithoutChangingSaveData(t *tes
 	}
 }
 
+func TestMigration33AddsEmptyProfileScopedRecoverableSourceMoves(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.ensureSchemaMigrationsTable(); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range dbSvc.orderedMigrations() {
+		if migration.Version > 32 {
+			break
+		}
+		if err := dbSvc.runMigration(context.Background(), migration); err != nil {
+			t.Fatalf("run migration %d: %v", migration.Version, err)
+		}
+	}
+	now := time.Now().Unix()
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO profiles(id, display_name, role, created_at, updated_at)
+		VALUES ('profile-33','Player','player',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	assertLatestMigrationVersion(t, dbSvc.GetDB())
+	for _, table := range []string{"source_move_jobs", "source_move_job_files"} {
+		var count int
+		if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("%s count=%d err=%v", table, count, err)
+		}
+	}
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO source_move_jobs (
+		id, profile_id, transfer_id, canonical_game_id, canonical_title,
+		source_game_id, source_title, source_integration_id, source_plugin_id, source_root_path,
+		destination_integration_id, destination_plugin_id, destination_authority, destination_label, destination_path,
+		status, progress_total, created_at, updated_at
+	) VALUES (
+		'job-33', 'profile-33', 'transfer-33', 'game-33', 'Game',
+		'source-33', 'Game', 'source-integration', 'game-source-smb', 'Games/Game',
+		'destination-integration', 'game-source-google-drive', 'gdrive:test', 'Drive', 'Library/Game',
+		'queued', 1, ?, ?
+	)`, now, now); err != nil {
+		t.Fatalf("insert source move job: %v", err)
+	}
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO source_move_job_files (
+		job_id, ordinal, source_path, relative_path, size, status
+	) VALUES ('job-33', 0, 'Games/Game/game.exe', 'game.exe', 42, 'pending')`); err != nil {
+		t.Fatalf("insert source move file: %v", err)
+	}
+	var jobs, files int
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM source_move_jobs WHERE profile_id='profile-33'`).Scan(&jobs); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM source_move_job_files WHERE job_id='job-33'`).Scan(&files); err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 1 || files != 1 {
+		t.Fatalf("migration 33 state: jobs=%d files=%d", jobs, files)
+	}
+}
+
 func TestMigration27PreservesExistingInstallationsAsManaged(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
 	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)

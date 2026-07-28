@@ -23,6 +23,45 @@ type gameStore struct {
 	logger core.Logger
 }
 
+// IsSourceRootExclusive reports whether a source root and all files below it
+// belong only to sourceGameID within the active profile and integration.
+// Source moves use this proof before offering an atomic whole-directory move.
+func (s *gameStore) IsSourceRootExclusive(ctx context.Context, integrationID, sourceGameID, rootPath string) (bool, error) {
+	profileID := strings.TrimSpace(core.ProfileIDFromContext(ctx))
+	rootPath = sourcescope.NormalizeLogicalPath(rootPath)
+	if profileID == "" {
+		return false, core.ErrProfileRequired
+	}
+	if strings.TrimSpace(integrationID) == "" || strings.TrimSpace(sourceGameID) == "" || rootPath == "" {
+		return false, fmt.Errorf("integration, source game, and root path are required")
+	}
+	likeDescendants := rootPath + "/%"
+	var overlaps int
+	err := s.db.GetDB().QueryRowContext(ctx, `SELECT COUNT(*)
+		FROM source_games other
+		WHERE other.profile_id=?
+			AND other.integration_id=?
+			AND other.id<>?
+			AND other.status='found'
+			AND (
+				other.root_path=?
+				OR other.root_path LIKE ?
+				OR ? LIKE other.root_path || '/%'
+				OR EXISTS (
+					SELECT 1 FROM game_files gf
+					WHERE gf.source_game_id=other.id
+						AND (gf.path=? OR gf.path LIKE ?)
+				)
+			)`,
+		profileID, integrationID, sourceGameID,
+		rootPath, likeDescendants, rootPath, rootPath, likeDescendants,
+	).Scan(&overlaps)
+	if err != nil {
+		return false, fmt.Errorf("check source root exclusivity: %w", err)
+	}
+	return overlaps == 0, nil
+}
+
 func NewGameStore(db core.Database, logger core.Logger) core.GameStore {
 	return &gameStore{db: db, logger: logger}
 }
