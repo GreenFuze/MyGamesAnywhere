@@ -435,13 +435,22 @@ func buildSourceDeletePlan(rootPath string, config SMBConfig, files []sourceDele
 			Path:   filePath,
 			IsDir:  file.IsDir,
 			Size:   file.Size,
-			Action: "delete",
+			Action: sourceDeleteAction(file.IsDir),
 		})
 	}
 	return items, nil
 }
 
+func sourceDeleteAction(isDir bool) string {
+	if isDir {
+		return "prune_empty"
+	}
+	return "delete"
+}
+
 type smbDeleteShare interface {
+	Lstat(name string) (os.FileInfo, error)
+	ReadDir(dirname string) ([]os.FileInfo, error)
 	Remove(name string) error
 }
 
@@ -457,38 +466,101 @@ func executeSourceDeletePlan(share smbDeleteShare, items []sourceDeletePlanItem)
 		return false
 	})
 
-	totalFiles := 0
+	alreadyGone := make(map[string]bool)
+	warnings := []string{}
 	for _, item := range sortedItems {
-		if !item.IsDir {
-			totalFiles++
+		info, err := share.Lstat(item.Path)
+		if err != nil {
+			if sourceDeleteAlreadyGone(err) {
+				alreadyGone[item.Path] = true
+				warnings = append(warnings, fmt.Sprintf("%q was already deleted before this operation.", item.Path))
+				continue
+			}
+			return 0, warnings, &Error{Code: "DELETE_FAILED", Message: fmt.Sprintf("inspect %q before deletion: %v", item.Path, err)}
+		}
+		if errObj := validateSourceDeleteFileInfo(item, info); errObj != nil {
+			return 0, warnings, errObj
 		}
 	}
 
 	deletedCount := 0
-	deletedFiles := 0
-	warnings := []string{}
 	for _, item := range sortedItems {
+		if alreadyGone[item.Path] {
+			deletedCount++
+			continue
+		}
+		if item.IsDir {
+			info, err := share.Lstat(item.Path)
+			if err != nil {
+				if sourceDeleteAlreadyGone(err) {
+					warnings = append(warnings, fmt.Sprintf("%q was already deleted before empty-folder cleanup.", item.Path))
+					deletedCount++
+					continue
+				}
+				return deletedCount, warnings, &Error{Code: "DELETE_FAILED", Message: fmt.Sprintf("re-inspect directory %q before cleanup: %v", item.Path, err)}
+			}
+			if errObj := validateSourceDeleteFileInfo(item, info); errObj != nil {
+				return deletedCount, warnings, errObj
+			}
+			entries, err := share.ReadDir(item.Path)
+			if err != nil {
+				if sourceDeleteAlreadyGone(err) {
+					warnings = append(warnings, fmt.Sprintf("%q was already deleted before empty-folder cleanup.", item.Path))
+					deletedCount++
+					continue
+				}
+				return deletedCount, warnings, &Error{Code: "DELETE_FAILED", Message: fmt.Sprintf("check whether directory %q is empty: %v", item.Path, err)}
+			}
+			if len(entries) != 0 {
+				warnings = append(warnings, fmt.Sprintf("Directory %q was kept because it contains files MGA did not authorize for deletion.", item.Path))
+				continue
+			}
+		}
 		if err := share.Remove(item.Path); err != nil {
 			if sourceDeleteAlreadyGone(err) {
 				warnings = append(warnings, fmt.Sprintf("%q was already deleted before this operation.", item.Path))
 				deletedCount++
-				if !item.IsDir {
-					deletedFiles++
-				}
 				continue
 			}
-			if item.IsDir && deletedFiles == totalFiles {
-				warnings = append(warnings, fmt.Sprintf("Directory %q could not be removed after its files were deleted: %v", item.Path, err))
+			if item.IsDir && sourceDeleteDirectoryNotEmpty(err) {
+				warnings = append(warnings, fmt.Sprintf("Directory %q was kept because it became non-empty during cleanup.", item.Path))
 				continue
 			}
-			return deletedCount, warnings, &Error{Code: "DELETE_FAILED", Message: err.Error()}
+			return deletedCount, warnings, &Error{Code: "DELETE_FAILED", Message: fmt.Sprintf("remove %q: %v", item.Path, err)}
 		}
 		deletedCount++
-		if !item.IsDir {
-			deletedFiles++
-		}
 	}
 	return deletedCount, warnings, nil
+}
+
+func validateSourceDeleteFileInfo(item sourceDeletePlanItem, info os.FileInfo) *Error {
+	if info == nil {
+		return &Error{Code: "DELETE_FAILED", Message: fmt.Sprintf("inspect %q before deletion: no file information returned", item.Path)}
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return &Error{Code: "NOT_ALLOWED", Message: fmt.Sprintf("%q is a link or reparse point; MGA will not delete through it", item.Path)}
+	}
+	if item.IsDir != info.IsDir() {
+		expected := "file"
+		if item.IsDir {
+			expected = "directory"
+		}
+		return &Error{Code: "NOT_ALLOWED", Message: fmt.Sprintf("%q is no longer the expected %s", item.Path, expected)}
+	}
+	if !item.IsDir && info.Mode()&os.ModeType != 0 {
+		return &Error{Code: "NOT_ALLOWED", Message: fmt.Sprintf("%q is not an ordinary file", item.Path)}
+	}
+	return nil
+}
+
+func sourceDeleteDirectoryNotEmpty(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "directory not empty") ||
+		strings.Contains(msg, "status_directory_not_empty") ||
+		strings.Contains(msg, "folder is not empty")
 }
 
 func sourceDeleteAlreadyGone(err error) bool {

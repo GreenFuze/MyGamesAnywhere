@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
@@ -303,6 +304,74 @@ func TestDeletionServicePreviewIncludesRootDirectoryForCompleteMultifileSource(t
 	files, ok := caller.calls[0].params["files"].([]any)
 	if !ok || len(files) != 3 {
 		t.Fatalf("plugin files payload = %#v, want two files plus root directory", caller.calls[0].params["files"])
+	}
+}
+
+func TestSourceDeleteDirectoryPlannerAddsEveryParentThroughExactRoot(t *testing.T) {
+	planner := newSourceDeleteDirectoryPlanner("Games/Arcade/Alpha")
+	files := planner.WithEmptyDirectoryCandidates([]sourceDeleteFile{{
+		Path: "Games/Arcade/Alpha/data/content/game.bin",
+		Size: 1024,
+	}})
+
+	got := make([]string, 0, len(files))
+	for _, file := range files {
+		if file.IsDir {
+			got = append(got, file.Path)
+		}
+	}
+	want := []string{
+		"Games/Arcade/Alpha/data/content",
+		"Games/Arcade/Alpha/data",
+		"Games/Arcade/Alpha",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("directory candidates = %#v, want %#v", got, want)
+	}
+}
+
+func TestSourceDeleteDirectoryPlannerPreservesRecordedDirectoryIdentity(t *testing.T) {
+	planner := newSourceDeleteDirectoryPlanner("Shared with me/Games/Alpha")
+	files := planner.WithEmptyDirectoryCandidates([]sourceDeleteFile{
+		{Path: "Shared with me/Games/Alpha/data", IsDir: true, ObjectID: "drive-folder-data"},
+		{Path: "Shared with me/Games/Alpha/data/game.bin", ObjectID: "drive-file"},
+	})
+
+	if len(files) != 3 {
+		t.Fatalf("files = %#v, want recorded entries plus root candidate", files)
+	}
+	if files[0].ObjectID != "drive-folder-data" || !files[0].IsDir {
+		t.Fatalf("recorded directory = %#v, want stable Drive identity preserved", files[0])
+	}
+	if root := files[2]; root.Path != "Shared with me/Games/Alpha" || !root.IsDir {
+		t.Fatalf("root candidate = %#v, want exact source root", root)
+	}
+}
+
+func TestSourceDeleteDirectoryPlannerNeverCrossesRootBoundary(t *testing.T) {
+	planner := newSourceDeleteDirectoryPlanner("Games/Arcade/Alpha")
+	files := planner.WithEmptyDirectoryCandidates([]sourceDeleteFile{
+		{Path: "Games/Arcade/Alpha/game.bin"},
+		{Path: "Games/Arcade/Alpha Extra/other.bin"},
+	})
+
+	if len(files) != 3 {
+		t.Fatalf("files = %#v, want two recorded files plus exact root candidate", files)
+	}
+	if candidate := files[2]; candidate.Path != "Games/Arcade/Alpha" || !candidate.IsDir {
+		t.Fatalf("candidate = %#v, want only exact authorized root", candidate)
+	}
+}
+
+func TestSourceDeleteDirectoryPlannerDoesNotTreatSingleFileRootAsDirectory(t *testing.T) {
+	planner := newSourceDeleteDirectoryPlanner("Games/Arcade/Alpha.zip")
+	files := planner.WithEmptyDirectoryCandidates([]sourceDeleteFile{{
+		Path: "Games/Arcade/Alpha.zip",
+		Size: 1024,
+	}})
+
+	if len(files) != 1 || files[0].IsDir {
+		t.Fatalf("files = %#v, want only the exact root file", files)
 	}
 }
 

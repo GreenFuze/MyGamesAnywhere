@@ -3,16 +3,45 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 )
 
 type fakeSMBDeleteShare struct {
-	failures map[string]error
-	removed  []string
+	failures       map[string]error
+	lstatFailures  map[string]error
+	readFailures   map[string]error
+	directories    map[string][]os.FileInfo
+	symlinks       map[string]bool
+	removed        []string
+	directoryReads []string
+}
+
+func (s *fakeSMBDeleteShare) Lstat(name string) (os.FileInfo, error) {
+	if err := s.lstatFailures[name]; err != nil {
+		return nil, err
+	}
+	if s.symlinks[name] {
+		return fakeSMBFileInfo{name: name, mode: os.ModeSymlink}, nil
+	}
+	if _, isDir := s.directories[name]; isDir {
+		return fakeSMBFileInfo{name: name, mode: os.ModeDir}, nil
+	}
+	return fakeSMBFileInfo{name: name}, nil
+}
+
+func (s *fakeSMBDeleteShare) ReadDir(dirname string) ([]os.FileInfo, error) {
+	s.directoryReads = append(s.directoryReads, dirname)
+	if err := s.readFailures[dirname]; err != nil {
+		return nil, err
+	}
+	return s.directories[dirname], nil
 }
 
 func (s *fakeSMBDeleteShare) Remove(name string) error {
@@ -22,6 +51,18 @@ func (s *fakeSMBDeleteShare) Remove(name string) error {
 	}
 	return nil
 }
+
+type fakeSMBFileInfo struct {
+	name string
+	mode fs.FileMode
+}
+
+func (i fakeSMBFileInfo) Name() string       { return i.name }
+func (i fakeSMBFileInfo) Size() int64        { return 0 }
+func (i fakeSMBFileInfo) Mode() fs.FileMode  { return i.mode }
+func (i fakeSMBFileInfo) ModTime() time.Time { return time.Time{} }
+func (i fakeSMBFileInfo) IsDir() bool        { return i.mode.IsDir() }
+func (i fakeSMBFileInfo) Sys() any           { return nil }
 
 func TestNormalizedIncludePathsFallsBackToLegacyPath(t *testing.T) {
 	includes := normalizedIncludePaths(SMBConfig{Path: `Games\Arcade`})
@@ -200,17 +241,18 @@ func TestHandleSourceDeleteDryRunAcceptsDirectoryEntry(t *testing.T) {
 	if err := json.Unmarshal(encoded, &resp); err != nil {
 		t.Fatal(err)
 	}
-	if len(resp.Items) != 1 || resp.Items[0].Path != "Games/Platforms/SNES" || !resp.Items[0].IsDir || resp.Items[0].Action != "delete" {
-		t.Fatalf("items = %+v, want directory delete item", resp.Items)
+	if len(resp.Items) != 1 || resp.Items[0].Path != "Games/Platforms/SNES" || !resp.Items[0].IsDir || resp.Items[0].Action != "prune_empty" {
+		t.Fatalf("items = %+v, want empty-directory prune item", resp.Items)
 	}
 }
 
-func TestExecuteSourceDeletePlanWarnsWhenRootDirectoryCannotBeRemovedAfterFiles(t *testing.T) {
-	share := &fakeSMBDeleteShare{failures: map[string]error{
-		"Games/ScummVM/Gobliins 2": errors.New("response error: A file cannot be opened because the share access flags are incompatible"),
+func TestExecuteSourceDeletePlanKeepsNonEmptyRootAfterFiles(t *testing.T) {
+	root := "Games/ScummVM/Gobliins 2"
+	share := &fakeSMBDeleteShare{directories: map[string][]os.FileInfo{
+		root: {fakeSMBFileInfo{name: "user-notes.txt"}},
 	}}
 	items := []sourceDeletePlanItem{
-		{Path: "Games/ScummVM/Gobliins 2", IsDir: true, Action: "delete"},
+		{Path: root, IsDir: true, Action: "prune_empty"},
 		{Path: "Games/ScummVM/Gobliins 2/INTRO.STK", Size: 1024, Action: "delete"},
 		{Path: "Games/ScummVM/Gobliins 2/GOB2.EXE", Size: 2048, Action: "delete"},
 	}
@@ -222,13 +264,12 @@ func TestExecuteSourceDeletePlanWarnsWhenRootDirectoryCannotBeRemovedAfterFiles(
 	if deletedCount != 2 {
 		t.Fatalf("deletedCount = %d, want 2 files deleted", deletedCount)
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "could not be removed") {
-		t.Fatalf("warnings = %#v, want directory cleanup warning", warnings)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "contains files MGA did not authorize") {
+		t.Fatalf("warnings = %#v, want non-empty directory warning", warnings)
 	}
 	wantOrder := []string{
 		"Games/ScummVM/Gobliins 2/INTRO.STK",
 		"Games/ScummVM/Gobliins 2/GOB2.EXE",
-		"Games/ScummVM/Gobliins 2",
 	}
 	if !reflect.DeepEqual(share.removed, wantOrder) {
 		t.Fatalf("remove order = %#v, want %#v", share.removed, wantOrder)
@@ -238,7 +279,7 @@ func TestExecuteSourceDeletePlanWarnsWhenRootDirectoryCannotBeRemovedAfterFiles(
 func TestExecuteSourceDeletePlanFailsWhenFileCannotBeRemoved(t *testing.T) {
 	share := &fakeSMBDeleteShare{failures: map[string]error{
 		"Games/ScummVM/Gobliins 2/GOB2.EXE": errors.New("locked"),
-	}}
+	}, directories: map[string][]os.FileInfo{"Games/ScummVM/Gobliins 2": {}}}
 	items := []sourceDeletePlanItem{
 		{Path: "Games/ScummVM/Gobliins 2/GOB2.EXE", Size: 2048, Action: "delete"},
 		{Path: "Games/ScummVM/Gobliins 2", IsDir: true, Action: "delete"},
@@ -254,7 +295,7 @@ func TestExecuteSourceDeletePlanFailsWhenFileCannotBeRemoved(t *testing.T) {
 }
 
 func TestExecuteSourceDeletePlanTreatsMissingFileAsAlreadyDeleted(t *testing.T) {
-	share := &fakeSMBDeleteShare{failures: map[string]error{
+	share := &fakeSMBDeleteShare{lstatFailures: map[string]error{
 		"Games/ScummVM/Gobliins 2/GOBNEW.LIC": errors.New("remove ScummVM\\Gobliins 2\\GOBNEW.LIC: file does not exist"),
 	}}
 	items := []sourceDeletePlanItem{
@@ -271,6 +312,72 @@ func TestExecuteSourceDeletePlanTreatsMissingFileAsAlreadyDeleted(t *testing.T) 
 	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "already deleted") {
 		t.Fatalf("warnings = %#v, want already-deleted warning", warnings)
+	}
+}
+
+func TestExecuteSourceDeletePlanPrunesEmptyDirectoriesLeavesFirst(t *testing.T) {
+	root := "Games/Arcade/Alpha"
+	nested := root + "/data"
+	share := &fakeSMBDeleteShare{directories: map[string][]os.FileInfo{
+		root:   {},
+		nested: {},
+	}}
+	items := []sourceDeletePlanItem{
+		{Path: root, IsDir: true, Action: "prune_empty"},
+		{Path: nested, IsDir: true, Action: "prune_empty"},
+		{Path: nested + "/game.bin", Action: "delete"},
+	}
+
+	deletedCount, warnings, errObj := executeSourceDeletePlan(share, items)
+	if errObj != nil {
+		t.Fatalf("executeSourceDeletePlan error = %s: %s", errObj.Code, errObj.Message)
+	}
+	if deletedCount != 3 || len(warnings) != 0 {
+		t.Fatalf("deletedCount = %d warnings = %#v, want three clean removals", deletedCount, warnings)
+	}
+	wantOrder := []string{nested + "/game.bin", nested, root}
+	if !reflect.DeepEqual(share.removed, wantOrder) {
+		t.Fatalf("remove order = %#v, want %#v", share.removed, wantOrder)
+	}
+}
+
+func TestExecuteSourceDeletePlanRejectsLinkBeforeDeletingAnything(t *testing.T) {
+	root := "Games/Arcade/Alpha"
+	share := &fakeSMBDeleteShare{
+		directories: map[string][]os.FileInfo{root: {}},
+		symlinks:    map[string]bool{root + "/game.bin": true},
+	}
+	items := []sourceDeletePlanItem{
+		{Path: root + "/game.bin", Action: "delete"},
+		{Path: root, IsDir: true, Action: "prune_empty"},
+	}
+
+	_, _, errObj := executeSourceDeletePlan(share, items)
+	if errObj == nil || errObj.Code != "NOT_ALLOWED" {
+		t.Fatalf("error = %+v, want NOT_ALLOWED", errObj)
+	}
+	if len(share.removed) != 0 {
+		t.Fatalf("removed = %#v, want no mutation after unsafe-link preflight", share.removed)
+	}
+}
+
+func TestExecuteSourceDeletePlanFailsClosedWhenDirectoryCannotBeChecked(t *testing.T) {
+	root := "Games/Arcade/Alpha"
+	share := &fakeSMBDeleteShare{
+		directories:  map[string][]os.FileInfo{root: {}},
+		readFailures: map[string]error{root: errors.New("access denied")},
+	}
+	items := []sourceDeletePlanItem{
+		{Path: root + "/game.bin", Action: "delete"},
+		{Path: root, IsDir: true, Action: "prune_empty"},
+	}
+
+	deletedCount, _, errObj := executeSourceDeletePlan(share, items)
+	if errObj == nil || errObj.Code != "DELETE_FAILED" {
+		t.Fatalf("error = %+v, want DELETE_FAILED", errObj)
+	}
+	if deletedCount != 1 || !reflect.DeepEqual(share.removed, []string{root + "/game.bin"}) {
+		t.Fatalf("deletedCount = %d removed = %#v, want only authorized file removed", deletedCount, share.removed)
 	}
 }
 

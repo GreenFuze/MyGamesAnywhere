@@ -27,6 +27,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
@@ -1939,16 +1940,14 @@ func handleSourceDelete(params json.RawMessage) (any, *Error) {
 		return nil, errObj
 	}
 	if body.DryRun {
-		return sourceDeleteResponse(body.SourceGameID, "game-source-google-drive", "trash", items, 0), nil
+		return sourceDeleteResponse(body.SourceGameID, "game-source-google-drive", "trash", items, 0, nil), nil
 	}
 
-	for _, item := range items {
-		objectID := strings.TrimSpace(item.ObjectID)
-		if _, err := srv.Files.Update(objectID, &drive.File{Trashed: true}).SupportsAllDrives(true).Fields("id,trashed").Do(); err != nil {
-			return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
-		}
+	deletedCount, warnings, errObj := executeDriveSourceDeletePlan(&googleDriveDeleteStore{service: srv}, items)
+	if errObj != nil {
+		return nil, errObj
 	}
-	return sourceDeleteResponse(body.SourceGameID, "game-source-google-drive", "trash", items, len(items)), nil
+	return sourceDeleteResponse(body.SourceGameID, "game-source-google-drive", "trash", items, deletedCount, warnings), nil
 }
 
 func buildSourceDeletePlan(srv *drive.Service, rootPath string, config map[string]any, files []sourceDeleteFile) ([]sourceDeletePlanItem, *Error) {
@@ -1971,7 +1970,7 @@ func buildSourceDeletePlan(srv *drive.Service, rootPath string, config map[strin
 				return nil, &Error{Code: "AUTH_FAILED", Message: "drive service is required to resolve file paths"}
 			}
 			var err error
-			objectID, err = resolvePathToObjectID(srv, filePath)
+			objectID, err = resolveConfiguredDriveObjectID(srv, filePath, config)
 			if err != nil {
 				return nil, &Error{Code: "DELETE_FAILED", Message: err.Error()}
 			}
@@ -1981,10 +1980,170 @@ func buildSourceDeletePlan(srv *drive.Service, rootPath string, config map[strin
 			ObjectID: objectID,
 			IsDir:    file.IsDir,
 			Size:     file.Size,
-			Action:   "trash",
+			Action:   driveSourceDeleteAction(file.IsDir),
 		})
 	}
 	return items, nil
+}
+
+func driveSourceDeleteAction(isDir bool) string {
+	if isDir {
+		return "prune_empty"
+	}
+	return "trash"
+}
+
+func resolveConfiguredDriveObjectID(srv *drive.Service, filePath string, config map[string]any) (string, error) {
+	filePath = sourcescope.NormalizeLogicalPath(filePath)
+	includes := filesystemIncludePathsFromConfig(config)
+	var selected *sourcescope.IncludePath
+	for index := range includes {
+		include := &includes[index]
+		includePath := sourcescope.NormalizeLogicalPath(include.Path)
+		if filePath != includePath && !strings.HasPrefix(filePath, includePath+"/") {
+			continue
+		}
+		if selected == nil || len(includePath) > len(sourcescope.NormalizeLogicalPath(selected.Path)) {
+			selected = include
+		}
+	}
+	if selected == nil {
+		return "", fmt.Errorf("path %q is outside the configured include_paths scope", filePath)
+	}
+	rootID, err := resolveIncludeFolderID(srv, *selected)
+	if err != nil {
+		return "", err
+	}
+	includePath := sourcescope.NormalizeLogicalPath(selected.Path)
+	relativePath := strings.TrimPrefix(strings.TrimPrefix(filePath, includePath), "/")
+	if relativePath == "" {
+		return rootID, nil
+	}
+	item, err := resolveDriveChildPath(srv, rootID, relativePath)
+	if err != nil {
+		return "", err
+	}
+	return item.Id, nil
+}
+
+type driveDeleteStore interface {
+	Metadata(objectID string) (*drive.File, error)
+	HasChildren(objectID string) (bool, error)
+	Trash(objectID string) error
+}
+
+type googleDriveDeleteStore struct {
+	service *drive.Service
+}
+
+func (s *googleDriveDeleteStore) Metadata(objectID string) (*drive.File, error) {
+	return s.service.Files.Get(objectID).
+		SupportsAllDrives(true).
+		Fields("id,mimeType,trashed").
+		Do()
+}
+
+func (s *googleDriveDeleteStore) HasChildren(objectID string) (bool, error) {
+	query := fmt.Sprintf("'%s' in parents and trashed = false", driveQueryEscape(objectID))
+	result, err := s.service.Files.List().Q(query).
+		Fields("files(id)").
+		SupportsAllDrives(true).
+		IncludeItemsFromAllDrives(true).
+		PageSize(1).
+		Do()
+	if err != nil {
+		return false, err
+	}
+	return len(result.Files) != 0, nil
+}
+
+func (s *googleDriveDeleteStore) Trash(objectID string) error {
+	_, err := s.service.Files.Update(objectID, &drive.File{Trashed: true}).
+		SupportsAllDrives(true).
+		Fields("id,trashed").
+		Do()
+	return err
+}
+
+func executeDriveSourceDeletePlan(store driveDeleteStore, items []sourceDeletePlanItem) (int, []string, *Error) {
+	sortedItems := append([]sourceDeletePlanItem(nil), items...)
+	sort.SliceStable(sortedItems, func(i, j int) bool {
+		if sortedItems[i].IsDir != sortedItems[j].IsDir {
+			return !sortedItems[i].IsDir
+		}
+		if sortedItems[i].IsDir {
+			return len(sortedItems[i].Path) > len(sortedItems[j].Path)
+		}
+		return false
+	})
+
+	alreadyGone := make(map[string]bool)
+	warnings := []string{}
+	for _, item := range sortedItems {
+		metadata, err := store.Metadata(item.ObjectID)
+		if err != nil {
+			if driveSourceDeleteAlreadyGone(err) {
+				alreadyGone[item.ObjectID] = true
+				warnings = append(warnings, fmt.Sprintf("%q was already in trash or missing before this operation.", item.Path))
+				continue
+			}
+			return 0, warnings, &Error{Code: "DELETE_FAILED", Message: fmt.Sprintf("inspect %q before deletion: %v", item.Path, err)}
+		}
+		if metadata == nil {
+			return 0, warnings, &Error{Code: "DELETE_FAILED", Message: fmt.Sprintf("inspect %q before deletion: no Drive metadata returned", item.Path)}
+		}
+		if metadata.Trashed {
+			alreadyGone[item.ObjectID] = true
+			warnings = append(warnings, fmt.Sprintf("%q was already in trash before this operation.", item.Path))
+			continue
+		}
+		isFolder := metadata.MimeType == driveFolderMimeType
+		if item.IsDir != isFolder {
+			expected := "file"
+			if item.IsDir {
+				expected = "folder"
+			}
+			return 0, warnings, &Error{Code: "NOT_ALLOWED", Message: fmt.Sprintf("%q is no longer the expected %s", item.Path, expected)}
+		}
+	}
+
+	deletedCount := 0
+	for _, item := range sortedItems {
+		if alreadyGone[item.ObjectID] {
+			deletedCount++
+			continue
+		}
+		if item.IsDir {
+			hasChildren, err := store.HasChildren(item.ObjectID)
+			if err != nil {
+				if driveSourceDeleteAlreadyGone(err) {
+					warnings = append(warnings, fmt.Sprintf("%q was already in trash or missing before empty-folder cleanup.", item.Path))
+					deletedCount++
+					continue
+				}
+				return deletedCount, warnings, &Error{Code: "DELETE_FAILED", Message: fmt.Sprintf("check whether Drive folder %q is empty: %v", item.Path, err)}
+			}
+			if hasChildren {
+				warnings = append(warnings, fmt.Sprintf("Folder %q was kept because it contains items MGA did not authorize for deletion.", item.Path))
+				continue
+			}
+		}
+		if err := store.Trash(item.ObjectID); err != nil {
+			if driveSourceDeleteAlreadyGone(err) {
+				warnings = append(warnings, fmt.Sprintf("%q was already in trash or missing before this operation.", item.Path))
+				deletedCount++
+				continue
+			}
+			return deletedCount, warnings, &Error{Code: "DELETE_FAILED", Message: fmt.Sprintf("move %q to Drive trash: %v", item.Path, err)}
+		}
+		deletedCount++
+	}
+	return deletedCount, warnings, nil
+}
+
+func driveSourceDeleteAlreadyGone(err error) bool {
+	var apiError *googleapi.Error
+	return errors.As(err, &apiError) && apiError.Code == 404
 }
 
 func sourceDeletePlanNeedsResolution(files []sourceDeleteFile) bool {
@@ -1996,14 +2155,14 @@ func sourceDeletePlanNeedsResolution(files []sourceDeleteFile) bool {
 	return false
 }
 
-func sourceDeleteResponse(sourceGameID, pluginID, action string, items []sourceDeletePlanItem, deletedCount int) map[string]any {
+func sourceDeleteResponse(sourceGameID, pluginID, action string, items []sourceDeletePlanItem, deletedCount int, warnings []string) map[string]any {
 	return map[string]any{
 		"source_game_id": sourceGameID,
 		"plugin_id":      pluginID,
 		"action":         action,
-		"summary":        fmt.Sprintf("%d item(s) will be moved to Google Drive trash.", len(items)),
+		"summary":        fmt.Sprintf("%d file or empty-folder action(s) are planned for Google Drive.", len(items)),
 		"items":          items,
-		"warnings":       []string{},
+		"warnings":       warnings,
 		"deleted_count":  deletedCount,
 	}
 }

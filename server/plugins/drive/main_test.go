@@ -9,11 +9,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"golang.org/x/oauth2"
+	"google.golang.org/api/drive/v3"
 )
 
 func ipcCall(stdin io.Writer, stdout io.Reader, method string, params any) (*Response, error) {
@@ -288,8 +290,103 @@ func TestHandleSourceDeleteDryRunAcceptsDirectoryEntry(t *testing.T) {
 	if err := json.Unmarshal(encoded, &resp); err != nil {
 		t.Fatal(err)
 	}
-	if len(resp.Items) != 1 || resp.Items[0].Path != "Games/Platforms/SNES" || !resp.Items[0].IsDir || resp.Items[0].Action != "trash" {
-		t.Fatalf("items = %+v, want directory trash item", resp.Items)
+	if len(resp.Items) != 1 || resp.Items[0].Path != "Games/Platforms/SNES" || !resp.Items[0].IsDir || resp.Items[0].Action != "prune_empty" {
+		t.Fatalf("items = %+v, want empty-folder prune item", resp.Items)
+	}
+}
+
+type fakeDriveDeleteStore struct {
+	metadata       map[string]*drive.File
+	metadataErrors map[string]error
+	children       map[string]bool
+	childrenErrors map[string]error
+	trashErrors    map[string]error
+	trashed        []string
+}
+
+func (s *fakeDriveDeleteStore) Metadata(objectID string) (*drive.File, error) {
+	if err := s.metadataErrors[objectID]; err != nil {
+		return nil, err
+	}
+	return s.metadata[objectID], nil
+}
+
+func (s *fakeDriveDeleteStore) HasChildren(objectID string) (bool, error) {
+	if err := s.childrenErrors[objectID]; err != nil {
+		return false, err
+	}
+	return s.children[objectID], nil
+}
+
+func (s *fakeDriveDeleteStore) Trash(objectID string) error {
+	s.trashed = append(s.trashed, objectID)
+	return s.trashErrors[objectID]
+}
+
+func TestExecuteDriveSourceDeletePlanPrunesOnlyEmptyFoldersLeavesFirst(t *testing.T) {
+	store := &fakeDriveDeleteStore{
+		metadata: map[string]*drive.File{
+			"file":   {Id: "file", MimeType: "application/octet-stream"},
+			"nested": {Id: "nested", MimeType: driveFolderMimeType},
+			"root":   {Id: "root", MimeType: driveFolderMimeType},
+		},
+		children: map[string]bool{"nested": false, "root": true},
+	}
+	items := []sourceDeletePlanItem{
+		{Path: "Games/Alpha", ObjectID: "root", IsDir: true, Action: "prune_empty"},
+		{Path: "Games/Alpha/data", ObjectID: "nested", IsDir: true, Action: "prune_empty"},
+		{Path: "Games/Alpha/data/game.bin", ObjectID: "file", Action: "trash"},
+	}
+
+	deletedCount, warnings, errObj := executeDriveSourceDeletePlan(store, items)
+	if errObj != nil {
+		t.Fatalf("executeDriveSourceDeletePlan error = %s: %s", errObj.Code, errObj.Message)
+	}
+	if deletedCount != 2 {
+		t.Fatalf("deletedCount = %d, want file and empty nested folder", deletedCount)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "did not authorize") {
+		t.Fatalf("warnings = %#v, want non-empty root warning", warnings)
+	}
+	if !reflect.DeepEqual(store.trashed, []string{"file", "nested"}) {
+		t.Fatalf("trashed = %#v, want file before deepest empty folder", store.trashed)
+	}
+}
+
+func TestExecuteDriveSourceDeletePlanRejectsFolderTypeMismatchBeforeMutation(t *testing.T) {
+	store := &fakeDriveDeleteStore{metadata: map[string]*drive.File{
+		"file": {Id: "file", MimeType: driveFolderMimeType},
+	}}
+	items := []sourceDeletePlanItem{{Path: "Games/Alpha/game.bin", ObjectID: "file", Action: "trash"}}
+
+	_, _, errObj := executeDriveSourceDeletePlan(store, items)
+	if errObj == nil || errObj.Code != "NOT_ALLOWED" {
+		t.Fatalf("error = %+v, want NOT_ALLOWED", errObj)
+	}
+	if len(store.trashed) != 0 {
+		t.Fatalf("trashed = %#v, want no mutation after preflight mismatch", store.trashed)
+	}
+}
+
+func TestExecuteDriveSourceDeletePlanFailsClosedWhenFolderCannotBeChecked(t *testing.T) {
+	store := &fakeDriveDeleteStore{
+		metadata: map[string]*drive.File{
+			"file": {Id: "file", MimeType: "application/octet-stream"},
+			"root": {Id: "root", MimeType: driveFolderMimeType},
+		},
+		childrenErrors: map[string]error{"root": fmt.Errorf("permission denied")},
+	}
+	items := []sourceDeletePlanItem{
+		{Path: "Games/Alpha/game.bin", ObjectID: "file", Action: "trash"},
+		{Path: "Games/Alpha", ObjectID: "root", IsDir: true, Action: "prune_empty"},
+	}
+
+	deletedCount, _, errObj := executeDriveSourceDeletePlan(store, items)
+	if errObj == nil || errObj.Code != "DELETE_FAILED" {
+		t.Fatalf("error = %+v, want DELETE_FAILED", errObj)
+	}
+	if deletedCount != 1 || !reflect.DeepEqual(store.trashed, []string{"file"}) {
+		t.Fatalf("deletedCount = %d trashed = %#v, want only authorized file moved", deletedCount, store.trashed)
 	}
 }
 

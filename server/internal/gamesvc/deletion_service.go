@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -284,7 +286,7 @@ func (s *DeletionService) buildDeletionPlan(ctx context.Context, canonicalID str
 	files := make([]sourceDeleteFile, 0, len(sourceGame.Files))
 	for _, file := range sourceGame.Files {
 		deletionFile := sourceDeleteFile{
-			Path:     file.Path,
+			Path:     sourcescope.NormalizeLogicalPath(file.Path),
 			IsDir:    file.IsDir,
 			Size:     file.Size,
 			ObjectID: file.ObjectID,
@@ -295,12 +297,7 @@ func (s *DeletionService) buildDeletionPlan(ctx context.Context, canonicalID str
 		}
 		files = append(files, deletionFile)
 	}
-	if sourceDeleteShouldRemoveRootDirectory(sourceGame) {
-		files = append(files, sourceDeleteFile{
-			Path:  sourcescope.NormalizeLogicalPath(sourceGame.RootPath),
-			IsDir: true,
-		})
-	}
+	files = newSourceDeleteDirectoryPlanner(sourceGame.RootPath).WithEmptyDirectoryCandidates(files)
 
 	return &sourceDeletionPlan{
 		CanonicalID:   canonicalID,
@@ -313,27 +310,72 @@ func (s *DeletionService) buildDeletionPlan(ctx context.Context, canonicalID str
 	}, nil
 }
 
-func sourceDeleteShouldRemoveRootDirectory(sourceGame *core.SourceGame) bool {
-	if sourceGame == nil || len(sourceGame.Files) < 2 {
-		return false
+type sourceDeleteDirectoryPlanner struct {
+	rootPath string
+}
+
+func newSourceDeleteDirectoryPlanner(rootPath string) sourceDeleteDirectoryPlanner {
+	return sourceDeleteDirectoryPlanner{rootPath: sourcescope.NormalizeLogicalPath(rootPath)}
+}
+
+func (p sourceDeleteDirectoryPlanner) WithEmptyDirectoryCandidates(files []sourceDeleteFile) []sourceDeleteFile {
+	result := make([]sourceDeleteFile, 0, len(files))
+	knownPaths := make(map[string]struct{}, len(files))
+	directoryCandidates := make(map[string]sourceDeleteFile)
+
+	for _, file := range files {
+		file.Path = sourcescope.NormalizeLogicalPath(file.Path)
+		result = append(result, file)
+		if file.Path != "" {
+			knownPaths[file.Path] = struct{}{}
+		}
+		if file.IsDir && p.contains(file.Path) {
+			directoryCandidates[file.Path] = file
+		}
 	}
-	rootPath := sourcescope.NormalizeLogicalPath(sourceGame.RootPath)
-	if rootPath == "" {
-		return false
+
+	if p.rootPath == "" {
+		return result
 	}
-	for _, file := range sourceGame.Files {
+	for _, file := range files {
 		filePath := sourcescope.NormalizeLogicalPath(file.Path)
-		if filePath == "" {
-			return false
+		if filePath == "" || filePath == p.rootPath || !p.contains(filePath) {
+			continue
 		}
-		if file.IsDir && filePath == rootPath {
-			return false
-		}
-		if filePath != rootPath && !strings.HasPrefix(filePath, rootPath+"/") {
-			return false
+		parentPath := path.Dir(filePath)
+		for p.contains(parentPath) {
+			if _, exists := directoryCandidates[parentPath]; !exists {
+				directoryCandidates[parentPath] = sourceDeleteFile{Path: parentPath, IsDir: true}
+			}
+			if parentPath == p.rootPath {
+				break
+			}
+			parentPath = path.Dir(parentPath)
 		}
 	}
-	return true
+
+	candidates := make([]sourceDeleteFile, 0, len(directoryCandidates))
+	for candidatePath, candidate := range directoryCandidates {
+		if _, exists := knownPaths[candidatePath]; exists {
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if len(candidates[i].Path) != len(candidates[j].Path) {
+			return len(candidates[i].Path) > len(candidates[j].Path)
+		}
+		return candidates[i].Path < candidates[j].Path
+	})
+	return append(result, candidates...)
+}
+
+func (p sourceDeleteDirectoryPlanner) contains(candidatePath string) bool {
+	candidatePath = sourcescope.NormalizeLogicalPath(candidatePath)
+	if p.rootPath == "" || candidatePath == "" {
+		return false
+	}
+	return candidatePath == p.rootPath || strings.HasPrefix(candidatePath, p.rootPath+"/")
 }
 
 func (s *DeletionService) executeDeletionPlan(ctx context.Context, plan *sourceDeletionPlan) ([]string, error) {
