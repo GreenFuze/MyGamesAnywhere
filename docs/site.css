@@ -277,6 +277,15 @@ table {
   padding: 1rem 1rem 1.1rem;
 }
 
+.shot__meta {
+  display: block;
+  margin-top: 0.45rem;
+  color: rgba(236, 242, 255, 0.52);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .section {
   padding-top: clamp(3.5rem, 7vw, 6.5rem);
   padding-bottom: clamp(3.5rem, 7vw, 6.5rem);
