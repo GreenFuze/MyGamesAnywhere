@@ -21,12 +21,21 @@
         <div class="section__inner">
           <p class="eyebrow">Current release</p>
           <h1>Get the latest MGA release for Windows.</h1>
+          <p class="section__intro">GitHub is the release record. A published MGA release is built from its matching tag and includes the Server, the per-user Client, update metadata, release notes, and a checksum file.</p>
           <div class="link-list">
-            <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download the latest release from GitHub</a>
-            <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases">Browse all release notes</a>
-            <a href="https://github.com/GreenFuze/MyGamesAnywhere/blob/main/docs/releases-and-upgrades.md">Read release and upgrade policy</a>
+            <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest">Download the latest tagged release</a>
+            <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases/latest/download/SHA256SUMS.txt">Verify downloads with SHA256SUMS.txt</a>
+            <a href="https://github.com/GreenFuze/MyGamesAnywhere/releases">Browse every release and its notes</a>
+            <a href="https://github.com/GreenFuze/MyGamesAnywhere/actions">See automated build and test runs</a>
+            <a href="https://github.com/GreenFuze/MyGamesAnywhere/blob/main/publish-release.ps1">Inspect the repeatable release process</a>
+            <a href="https://github.com/GreenFuze/MyGamesAnywhere/blob/main/docs/releases-and-upgrades.md">Read the release and upgrade policy</a>
           </div>
-          <p class="note">For a trusted home network, MGA keeps sign-in simple: use a password with four or more characters, or a PIN with four or more digits.</p>
+          <div class="status-grid status-grid--three release-proof">
+            <article><span class="status-badge status-badge--available">Published</span><h3>Tagged packages</h3><p>Use the latest-release page for normal installation. The tag identifies the exact source used to build those files.</p></article>
+            <article><span class="status-badge status-badge--building">Development</span><h3>Main branch</h3><p>Main can be newer than the latest release. New code is not a released feature until the tagged package and its checks pass.</p></article>
+            <article><span class="status-badge status-badge--planned">Backlog</span><h3>Future work</h3><p>Jira records intended and active work. Backlog items are not included in release claims until they ship.</p></article>
+          </div>
+          <p class="note">Windows cannot currently verify MGA as a signed publisher. Compare the downloaded file with <strong>SHA256SUMS.txt</strong>. For a trusted home network, profile sign-in accepts a password with four or more characters or a PIN with four or more digits.</p>
         </div>
       </section>
     </main>

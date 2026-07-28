@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -19,6 +20,12 @@ import (
 )
 
 const demoProfileID = "public-demo-player"
+
+// demoArtwork keeps screenshot fixtures reproducible and independent of
+// commercial artwork or third-party services.
+//
+//go:embed assets/*-cover.webp
+var demoArtwork embed.FS
 
 type options struct {
 	databasePath string
@@ -87,7 +94,7 @@ type seeder struct {
 func main() {
 	var opts options
 	flag.StringVar(&opts.databasePath, "db", "", "Path to the isolated SQLite database.")
-	flag.StringVar(&opts.coversDir, "covers-dir", "", "Directory in which to create fictional SVG covers.")
+	flag.StringVar(&opts.coversDir, "covers-dir", "", "Directory in which to create fictional showcase artwork.")
 	flag.StringVar(&opts.coverBaseURL, "cover-base-url", "http://127.0.0.1:8766", "HTTP root serving covers-dir.")
 	flag.StringVar(&opts.serverConfig, "server-config", "", "Path at which to create an isolated MGA server config.")
 	flag.StringVar(&opts.appDir, "app-dir", "", "Current MGA application directory containing frontend and plugins.")
@@ -260,7 +267,7 @@ func (s *seeder) seed(ctx context.Context) error {
 
 	games := publicDemoGames()
 	for _, game := range games {
-		if err := s.writeCover(game); err != nil {
+		if err := s.writeArtwork(game); err != nil {
 			return err
 		}
 	}
@@ -319,17 +326,28 @@ func (s *seeder) seed(ctx context.Context) error {
 				match.XcloudURL = "https://www.xbox.com/play/games/" + game.slug
 				match.StoreProductID = "DEMO-" + strings.ToUpper(game.slug)
 			}
-			coverURL := s.options.coverBaseURL + "/" + game.slug + ".svg"
+			coverURL := s.options.coverBaseURL + "/" + game.slug + "-cover.webp"
+			backgroundURL := s.options.coverBaseURL + "/" + game.slug + "-background.svg"
 			batch.SourceGames = append(batch.SourceGames, sourceGame)
 			batch.ResolverMatches[sourceID] = []core.ResolverMatch{match}
-			batch.MediaItems[sourceID] = []core.MediaRef{{
-				Type:     core.MediaTypeCover,
-				URL:      coverURL,
-				Source:   "metadata-public-demo",
-				Width:    600,
-				Height:   900,
-				MimeType: "image/svg+xml",
-			}}
+			batch.MediaItems[sourceID] = []core.MediaRef{
+				{
+					Type:     core.MediaTypeCover,
+					URL:      coverURL,
+					Source:   "metadata-public-demo",
+					Width:    600,
+					Height:   900,
+					MimeType: "image/webp",
+				},
+				{
+					Type:     core.MediaTypeBackground,
+					URL:      backgroundURL,
+					Source:   "metadata-public-demo",
+					Width:    1600,
+					Height:   900,
+					MimeType: "image/svg+xml",
+				},
+			}
 		}
 		if err := s.store.PersistScanResults(profileCtx, batch); err != nil {
 			return fmt.Errorf("persist %s demo batch: %w", source.integrationID, err)
@@ -354,23 +372,43 @@ func (s *seeder) seed(ctx context.Context) error {
 	return nil
 }
 
-func (s *seeder) writeCover(game demoGame) error {
-	title := html.EscapeString(game.title)
-	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900" viewBox="0 0 600 900">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient>
-    <radialGradient id="r"><stop stop-color="%s" stop-opacity=".72"/><stop offset="1" stop-color="%s" stop-opacity="0"/></radialGradient>
-  </defs>
-  <rect width="600" height="900" rx="22" fill="url(#g)"/>
-  <circle cx="455" cy="245" r="240" fill="url(#r)"/>
-  <path d="M-40 620 C145 500 265 790 640 520 L640 940 L-40 940Z" fill="#050812" opacity=".72"/>
-  <path d="M70 105 H530" stroke="%s" stroke-width="8" stroke-linecap="round" opacity=".75"/>
-  <text x="70" y="700" fill="#fff" font-family="Segoe UI,Arial,sans-serif" font-size="58" font-weight="800">%s</text>
-  <text x="72" y="760" fill="#fff" opacity=".68" font-family="Segoe UI,Arial,sans-serif" font-size="22" letter-spacing="7">MGA DEMO EDITION</text>
-</svg>`, game.coverFrom, game.coverTo, game.coverAccent, game.coverAccent, game.coverAccent, title)
-	path := filepath.Join(s.options.coversDir, game.slug+".svg")
-	if err := os.WriteFile(path, []byte(svg), 0o644); err != nil {
+func (s *seeder) writeArtwork(game demoGame) error {
+	cover, err := demoArtwork.ReadFile("assets/" + game.slug + "-cover.webp")
+	if err != nil {
+		return fmt.Errorf("read embedded cover %s: %w", game.title, err)
+	}
+	coverPath := filepath.Join(s.options.coversDir, game.slug+"-cover.webp")
+	if err := os.WriteFile(coverPath, cover, 0o644); err != nil {
 		return fmt.Errorf("write cover %s: %w", game.title, err)
+	}
+
+	title := html.EscapeString(game.title)
+	description := html.EscapeString(game.description)
+	background := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1"><stop stop-color="%s"/><stop offset=".65" stop-color="%s"/><stop offset="1" stop-color="#050812"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="%s" stop-opacity=".65"/><stop offset="1" stop-color="%s" stop-opacity="0"/></radialGradient>
+    <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse"><path d="M80 0H0V80" fill="none" stroke="#fff" stroke-opacity=".045"/></pattern>
+    <filter id="soft"><feGaussianBlur stdDeviation="32"/></filter>
+  </defs>
+  <rect width="1600" height="900" fill="url(#sky)"/>
+  <rect width="1600" height="900" fill="url(#grid)"/>
+  <circle cx="1180" cy="285" r="420" fill="url(#glow)"/>
+  <circle cx="1180" cy="285" r="165" fill="none" stroke="%s" stroke-width="3" opacity=".36"/>
+  <circle cx="1180" cy="285" r="105" fill="%s" opacity=".16" filter="url(#soft)"/>
+  <path d="M0 620 C260 440 430 760 730 575 S1210 420 1600 605 V900 H0Z" fill="#070b14" opacity=".86"/>
+  <path d="M0 688 C330 540 535 820 860 660 S1320 545 1600 690" fill="none" stroke="%s" stroke-width="8" opacity=".34"/>
+  <path d="M0 728 C310 620 580 825 920 710 S1320 640 1600 735" fill="none" stroke="#fff" stroke-width="2" opacity=".13"/>
+  <g transform="translate(120 150)">
+    <rect width="10" height="190" rx="5" fill="%s"/>
+    <text x="48" y="74" fill="#fff" font-family="Segoe UI,Arial,sans-serif" font-size="78" font-weight="850">%s</text>
+    <text x="52" y="122" fill="#fff" opacity=".72" font-family="Segoe UI,Arial,sans-serif" font-size="24">%s</text>
+    <text x="52" y="170" fill="%s" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="700" letter-spacing="5">FICTIONAL · PRIVACY-SAFE · MGA SHOWCASE</text>
+  </g>
+</svg>`, game.coverFrom, game.coverTo, game.coverAccent, game.coverAccent, game.coverAccent, game.coverAccent, game.coverAccent, game.coverAccent, title, description, game.coverAccent)
+	backgroundPath := filepath.Join(s.options.coversDir, game.slug+"-background.svg")
+	if err := os.WriteFile(backgroundPath, []byte(background), 0o644); err != nil {
+		return fmt.Errorf("write background %s: %w", game.title, err)
 	}
 	return nil
 }

@@ -35,17 +35,17 @@
 
       <section class="section section--alt">
         <div class="section__inner">
-          <p class="eyebrow">What you can connect today</p>
+          <p class="eyebrow">Available in the latest release</p>
           <h2>Stores, subscriptions, and game folders</h2>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Connection</th><th>Status</th><th>What it brings into MGA</th><th>What you need</th></tr></thead>
               <tbody>
-                <tr><td>Steam</td><td>Supported</td><td>Your owned and Steam Families games, plus achievements</td><td>A Steam Web API key and the Steam account details requested by MGA</td></tr>
-                <tr><td>Xbox / PC Game Pass</td><td>Supported</td><td>Your Xbox library, Game Pass and xCloud availability, and achievements</td><td>Sign in with the Xbox account for this player</td></tr>
-                <tr><td>Epic Games</td><td>Experimental</td><td>Early Epic library discovery; do not expect a complete launch or install workflow yet</td><td>The connection details shown by the experimental setup</td></tr>
-                <tr><td>Google Drive</td><td>Supported</td><td>Games, archives, installers, and browser-play files stored in Drive</td><td>Sign in and choose the folders you want MGA to see</td></tr>
-                <tr><td>NAS / SMB folders</td><td>Supported</td><td>Games, archives, and installers kept on shared storage</td><td>The share address and, if needed, its username and password</td></tr>
+                <tr><td>Steam</td><td><span class="status-badge status-badge--available">Available</span></td><td>Your owned and Steam Families games, plus achievements</td><td>A Steam Web API key and the Steam account details requested by MGA</td></tr>
+                <tr><td>Xbox / PC Game Pass</td><td><span class="status-badge status-badge--available">Available</span></td><td>Your Xbox library, Game Pass and xCloud availability, and achievements</td><td>Sign in with the Xbox account for this player</td></tr>
+                <tr><td>Epic Games</td><td><span class="status-badge status-badge--preview">Preview</span></td><td>Early Epic library discovery; do not expect a complete launch or install workflow yet</td><td>The connection details shown by the experimental setup</td></tr>
+                <tr><td>Google Drive</td><td><span class="status-badge status-badge--available">Available</span></td><td>Games, archives, installers, and browser-play files stored in Drive</td><td>Sign in and choose the folders you want MGA to see</td></tr>
+                <tr><td>NAS / SMB folders</td><td><span class="status-badge status-badge--available">Available</span></td><td>Games, archives, and installers kept on shared storage</td><td>The share address and, if needed, its username and password</td></tr>
               </tbody>
             </table>
           </div>
@@ -82,9 +82,36 @@
             <ul class="check-list">
               <li>Steam and Xbox progress stays with the correct account and game version</li>
               <li>RetroAchievements can add goals to supported classic games</li>
-              <li>EmulatorJS save states and save RAM can sync through MGA</li>
+              <li>Browser and local-emulator save support is shown only where MGA has exact compatibility evidence</li>
               <li>MGA only offers save sharing where the formats are known to be compatible</li>
             </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__inner">
+          <p class="eyebrow">Clear product status</p>
+          <h2>Released, being built, and planned are different things.</h2>
+          <div class="status-grid status-grid--three">
+            <article>
+              <span class="status-badge status-badge--available">Available</span>
+              <h3>Use it in the latest release</h3>
+              <p>The support table above describes the bounded workflows available now. Follow the release link for exact packages, notes, and checksums.</p>
+              <a class="text-link" href="./releases.html">See release proof <span aria-hidden="true">→</span></a>
+            </article>
+            <article>
+              <span class="status-badge status-badge--building">In development</span>
+              <h3>Actively changing</h3>
+              <p>Work in progress may exist on the main branch without being part of the latest release. It is not advertised as ready until it has packaged evidence.</p>
+              <a class="text-link" href="https://github.com/GreenFuze/MyGamesAnywhere/commits/main/">See current development <span aria-hidden="true">→</span></a>
+            </article>
+            <article>
+              <span class="status-badge status-badge--planned">Planned</span>
+              <h3>Tracked, not promised</h3>
+              <p>Ideas and future work live in the public Jira backlog. A backlog item is direction, not a release date or a claim that the feature already works.</p>
+              <a class="text-link" href="https://greenfuzer.atlassian.net/jira/software/c/projects/MGA/boards/69/backlog">Browse the backlog <span aria-hidden="true">→</span></a>
+            </article>
           </div>
         </div>
       </section>
