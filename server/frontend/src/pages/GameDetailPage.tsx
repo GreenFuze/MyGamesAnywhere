@@ -1257,14 +1257,14 @@ function SourceRecordCard({
         {source.url && (
           <a href={source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-mga border border-mga-border bg-mga-surface px-3 py-1.5 text-xs font-medium text-mga-text transition-colors hover:bg-mga-elevated">
             <BrandIcon brand={source.plugin_id} />
-            Open Source
+            View original
             <ExternalLink size={14} />
           </a>
         )}
       </div>
 
       <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
-        <MetaItem label="Integration" value={source.integration_label || source.integration_id} />
+        <MetaItem label="Connection" value={source.integration_label || source.integration_id} />
         <MetaItem label="Content type" value={new GameContentPresentation(source.kind).badgeLabel ?? 'Game'} />
         <MetaItem label="Created" value={formatDateTimeValue(source.created_at)} />
         <MetaItem label="Last Seen" value={formatDateTimeValue(source.last_seen_at)} />
@@ -2534,7 +2534,7 @@ export function GameDetailPage() {
 			{saveDomains.length > 0 ? <HeroTabLink href="#saves" label="Saves" /> : null}
             {fileLocations.length > 0 ? <HeroTabLink href="#copies-files" label="Copies & files" /> : null}
             {relatedAddOns.length > 0 ? <HeroTabLink href="#add-ons" label="Add-ons" /> : null}
-            <HeroTabLink href="#source-records" label="Sources" />
+            <HeroTabLink href="#source-records" label="Advanced" />
             {externalLinks.length > 0 ? <HeroTabLink href="#external-links" label="Links" /> : null}
           </div>
         </nav>
@@ -2544,7 +2544,7 @@ export function GameDetailPage() {
             <SectionCard
               title="About This Game"
               icon={<FolderOpen size={18} className="text-mga-accent" />}
-              description="High-level metadata surfaced for this canonical game."
+              description="The essentials at a glance."
             >
               <div className="grid gap-3 sm:grid-cols-2">
                 <MetaItem
@@ -2561,7 +2561,7 @@ export function GameDetailPage() {
             <SectionCard
               title="Game Info"
               icon={<Database size={18} className="text-mga-accent" />}
-              description="Core fields kept on the canonical game."
+              description="Release, studio, platform, and play details."
             >
               <div className="grid gap-3 sm:grid-cols-2">
                 <MetaItem label="Developer" value={detailValue(data.developer)} />
@@ -3075,13 +3075,13 @@ export function GameDetailPage() {
 
         <SectionCard
           id="source-records"
-          title="Source Records"
+          title="Advanced copy details"
           icon={<Database size={18} className="text-mga-accent" />}
-          description="Provider-specific records, resolver matches, and per-source file details remain available for inspection."
+          description="Connection records, matching evidence, and file inventories for troubleshooting."
         >
           <div className="space-y-4">
             {data.source_games.length === 0 ? (
-              <p className="text-sm text-white/58">No source records are stored for this game.</p>
+              <p className="text-sm text-white/58">No copy details are stored for this game.</p>
             ) : (
               data.source_games.map((source) => (
                 <SourceRecordCard

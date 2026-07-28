@@ -1,7 +1,8 @@
-import { launchEmulatorGameOnDevice, launchGameOnDevice, type GameDetailResponse } from '@/api/client'
-import { ChevronDown, Info, Play, Save, Trophy } from 'lucide-react'
+import type { GameDetailResponse } from '@/api/client'
+import { Info, Save, Trophy } from 'lucide-react'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { GameContextMenu } from '@/components/library/GameContextMenu'
+import { GameSplitActionButton } from '@/components/library/GameSplitActionButton'
 import { BrandIcon } from '@/components/ui/brand-icon'
 import { Badge } from '@/components/ui/badge'
 import { CoverImage } from '@/components/ui/cover-image'
@@ -12,24 +13,23 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode }
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useGameFavoriteAction } from '@/hooks/useGameFavorite'
+import { useGameCardActions } from '@/hooks/useGameCardActions'
 import {
   preferredSecondaryText,
   selectCoverUrl,
   selectPreviewImageUrl,
   selectSourceIntegrations,
 } from '@/lib/gameUtils'
-import { buildGameRouteState } from '@/lib/gameNavigation'
 import {
-  GameCardActionResolver,
   type GameCardPlayRoute,
   type GameCardPrimaryAction,
 } from '@/lib/gameCardActions'
+import { buildGameRouteState } from '@/lib/gameNavigation'
 import { cn } from '@/lib/utils'
-import { useToast } from '@/components/ui/toast'
 import { collectSaveDomains, saveDomainSummary } from '@/lib/saveDomains'
-import { browserPlaySourceOptionLabel, listBrowserPlaySelections } from '@/lib/browserPlay'
-import { launchOptionVersionContext, sourceVersionContext } from '@/lib/sourceCapabilities'
+import { listBrowserPlaySelections } from '@/lib/browserPlay'
 import { GameContentPresentation } from '@/lib/gameContent'
+import { GamePresentation } from '@/lib/gamePresentation'
 
 export type { GameCardPlayRoute, GameCardPrimaryAction } from '@/lib/gameCardActions'
 
@@ -105,102 +105,6 @@ function CardActionButton({ label, onClick, icon, variant = 'secondary', disable
   )
 }
 
-interface CardSplitActionButtonProps {
-  gameTitle: string
-  primaryAction: GameCardPrimaryAction
-  alternateActions: GameCardPrimaryAction[]
-  onSelect: (action: GameCardPrimaryAction, event: MouseEvent<HTMLButtonElement>) => void
-}
-
-function actionIcon(action: GameCardPrimaryAction) {
-  return action.kind === 'play' ? <Play size={16} fill="currentColor" /> : <Info size={16} />
-}
-
-function CardSplitActionButton({ gameTitle, primaryAction, alternateActions, onSelect }: CardSplitActionButtonProps) {
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const closeOnPointer = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', closeOnPointer)
-    document.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.removeEventListener('pointerdown', closeOnPointer)
-      document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [open])
-
-  return (
-    <div ref={rootRef} className="pointer-events-auto relative flex min-w-[9.75rem] flex-1 sm:flex-none">
-      <button
-        type="button"
-        disabled={primaryAction.disabled}
-        onClick={(event) => onSelect(primaryAction, event)}
-        title={primaryAction.title ?? primaryAction.label}
-        aria-label={`${primaryAction.label} ${gameTitle}`}
-        className={cn(
-          'inline-flex h-10 min-w-0 flex-1 items-center justify-center gap-2 bg-white px-4 text-sm font-medium text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-55',
-          alternateActions.length > 0 ? 'rounded-l-full border-r border-black/14 pr-3' : 'rounded-full',
-        )}
-      >
-        {actionIcon(primaryAction)}
-        <span className="truncate">{primaryAction.label}</span>
-      </button>
-      {alternateActions.length > 0 ? (
-        <>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              setOpen((value) => !value)
-            }}
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-r-full bg-white text-black transition-colors hover:bg-white/90"
-            aria-label={`Choose how to play ${gameTitle}`}
-            aria-haspopup="menu"
-            aria-expanded={open}
-            title="Other play options"
-          >
-            <ChevronDown size={17} aria-hidden="true" />
-          </button>
-          {open ? (
-            <div
-              role="menu"
-              aria-label={`Ways to play ${gameTitle}`}
-              className="absolute bottom-full left-0 z-20 mb-2 min-w-full overflow-hidden rounded-[14px] border border-white/12 bg-[#17191f] p-1.5 text-white shadow-2xl"
-            >
-              {alternateActions.map((action, index) => (
-                <button
-                  key={action.id ?? `${action.route ?? action.kind ?? 'action'}-${action.label}-${index}`}
-                  type="button"
-                  role="menuitem"
-                  disabled={action.disabled}
-                  title={action.title ?? action.label}
-                  onClick={(event) => {
-                    if (action.disabled) return
-                    setOpen(false)
-                    onSelect(action, event)
-                  }}
-                  className="flex w-full items-center gap-2 rounded-[10px] px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  {actionIcon(action)}
-                  <span className="whitespace-nowrap">{action.label}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </>
-      ) : null}
-    </div>
-  )
-}
-
 interface FavoriteToggleButtonProps {
   favorite: boolean
   busy: boolean
@@ -237,7 +141,6 @@ export function GameCard({
   preferredPlayRoute,
   variant = 'library',
 }: GameCardProps) {
-	const { notify } = useToast()
   const navigate = useNavigate()
   const location = useLocation()
   const { reducedMotion } = useTheme()
@@ -259,17 +162,16 @@ export function GameCard({
   const previewUsesLandscapeMedia = previewUrl !== null && previewUrl !== coverUrl
   const browserSelections = listBrowserPlaySelections(game)
   const playable = browserSelections.length > 0
-  const xcloudUrl = typeof game.xcloud_url === 'string' && game.xcloud_url.length > 0 ? game.xcloud_url : null
   const sourceIntegrations = selectSourceIntegrations(game)
   const secondaryText = preferredSecondaryText(game) ?? 'Unknown source'
   const contentPresentation = new GameContentPresentation(game.kind)
+  const presentation = new GamePresentation(game)
   const isPlayVariant = variant === 'play'
   const favoriteBusy = isPendingFor(game.id)
   const achievementLabel = game.achievement_summary && game.achievement_summary.total_count > 0
     ? `${game.achievement_summary.unlocked_count} of ${game.achievement_summary.total_count} achievements`
     : null
-	const saveSummary = saveDomainSummary(collectSaveDomains(game))
-
+  const saveSummary = saveDomainSummary(collectSaveDomains(game))
   const routeState = useMemo(
     () => buildGameRouteState(location.pathname, location.search),
     [location.pathname, location.search],
@@ -446,121 +348,14 @@ export function GameCard({
     navigate(`/game/${encodeURIComponent(game.id)}`, { state: routeState })
   }
 
-  const builtInActions: GameCardPrimaryAction[] = []
-  for (const selection of browserSelections) {
-    const context = browserPlaySourceOptionLabel(selection, browserSelections)
-    builtInActions.push({
-      id: `browser:${selection.sourceGame.id}`,
-      label: browserSelections.length > 1 ? `Play in browser · ${context}` : 'Play in browser',
-      kind: 'play',
-      route: 'browser',
-      title: `Play in browser · ${context}`,
-      onSelect: () => navigate(
-        `/game/${encodeURIComponent(game.id)}/play?source=${encodeURIComponent(selection.sourceGame.id)}`,
-        { state: routeState },
-      ),
-    })
-  }
-
-  const xcloudOptions = (game.play?.options ?? []).filter(
-    (option) => option.kind === 'xcloud' && option.launchable && Boolean(option.url),
-  )
-  for (const option of xcloudOptions) {
-    const context = launchOptionVersionContext(option, game.source_games)
-    builtInActions.push({
-      id: `xcloud:${option.source_game_id}:${option.url}`,
-      label: xcloudOptions.length > 1 ? `Play in xCloud · ${context}` : 'Play in xCloud',
-      kind: 'play',
-      route: 'cloud',
-      title: context ? `Play in xCloud · ${context}` : 'Play in xCloud',
-      onSelect: () => window.open(option.url, '_blank', 'noopener,noreferrer'),
-    })
-  }
-  if (xcloudOptions.length === 0 && xcloudUrl) {
-    builtInActions.push({
-      id: 'xcloud',
-      label: 'Play in xCloud',
-      kind: 'play',
-      route: 'cloud',
-      onSelect: () => window.open(xcloudUrl, '_blank', 'noopener,noreferrer'),
-    })
-  }
-
-  const installedRoutes = (game.devices ?? []).filter(
-    (device) =>
-      device.connected &&
-      device.can_play &&
-      device.installed &&
-      device.launch_supported &&
-      Boolean(device.launch_target) &&
-      Boolean(device.installed_source_id),
-  )
-  for (const device of installedRoutes) {
-    const source = game.source_games.find((candidate) => candidate.id === device.installed_source_id)
-    const context = source ? sourceVersionContext(source) : device.installed_source_id!
-    builtInActions.push({
-      id: `installed:${device.device_id}:${device.installed_source_id}`,
-      label: `Play on ${device.display_name}${installedRoutes.length > 1 ? ` · ${context}` : ''}`,
-      kind: 'play',
-      route: 'local',
-      title: `Start ${context} on ${device.display_name}`,
-      onSelect: () => {
-        void launchGameOnDevice(device.device_id, game.id, device.installed_source_id!)
-          .then(() => notify({
-            title: `Starting ${game.title}`,
-            description: `${context} on ${device.display_name}`,
-            tone: 'success',
-          }))
-          .catch((error: unknown) => notify({
-            title: `Could not start ${game.title}`,
-            description: error instanceof Error ? error.message : 'MGA Client rejected the play request.',
-            tone: 'error',
-          }))
-      },
-    })
-  }
-
-  const emulatorRoutes = (game.devices ?? [])
-    .flatMap((device) => (device.emulator_routes ?? []).map((route) => ({ device, route })))
-    .filter(({ device, route }) => device.connected && device.can_play && route.state === 'ready')
-    .sort((left, right) => Number(right.route.default) - Number(left.route.default))
-  for (const { device, route } of emulatorRoutes) {
-    const source = game.source_games.find((candidate) => candidate.id === route.source_game_id)
-    const sourceLabel = source ? sourceVersionContext(source) : route.source_title
-    builtInActions.push({
-      id: `emulator:${device.device_id}:${route.emulator_id}:${route.source_game_id}`,
-      label: `Play on ${device.display_name} · ${route.emulator_name}${emulatorRoutes.length > 1 ? ` · ${sourceLabel}` : ''}`,
-      kind: 'play',
-      route: 'emulator',
-      title: route.reason || `Start this copy with ${route.emulator_name} on ${device.display_name}`,
-      onSelect: () => {
-        void launchEmulatorGameOnDevice(device.device_id, game.id, route.source_game_id, route.emulator_id)
-          .then(() => notify({ title: `Starting ${game.title}`, description: `${route.emulator_name} on ${device.display_name}`, tone: 'success' }))
-          .catch((error: unknown) => notify({
-            title: `Could not start ${game.title}`,
-            description: error instanceof Error ? error.message : 'MGA Client rejected the play request.',
-            tone: 'error',
-          }))
-      },
-    })
-  }
-	const installedOnDevice = game.devices?.some((device) => device.installed) === true
-
   const {
     primaryAction: cardPrimaryAction,
     alternateActions: cardAlternateActions,
-  } = new GameCardActionResolver({
+  } = useGameCardActions(game, {
     primaryAction,
     alternateActions,
-    derivedActions: builtInActions,
     preferredPlayRoute,
-    fallbackAction: {
-      id: 'details',
-      label: 'Details',
-      kind: 'details',
-      onSelect: openGame,
-    },
-  }).resolve()
+  })
 
   const launchCardAction = (action: GameCardPrimaryAction) => {
     if (!action.disabled) action.onSelect()
@@ -596,8 +391,8 @@ export function GameCard({
       {game.is_game_pass && <StatusBadge kind="gamepass" />}
       {game.shared && <StatusBadge kind="shared" />}
       {playable && <StatusBadge kind="playable" />}
-			{emulatorRoutes.length > 0 && <StatusBadge kind="emulator" />}
-			{installedOnDevice && <StatusBadge kind="installed" />}
+      {presentation.availability === 'emulator' && <StatusBadge kind="emulator" />}
+      {presentation.availability === 'installed' && <StatusBadge kind="installed" />}
       <IconBadge label={game.platform}>
         <PlatformIcon platform={game.platform} showLabel={false} className="text-white" />
       </IconBadge>
@@ -606,11 +401,11 @@ export function GameCard({
           <Trophy size={13} />
         </IconBadge>
       ) : null}
-	  {saveSummary ? (
-		<IconBadge label={saveSummary}>
-		  <Save size={13} />
-		</IconBadge>
-	  ) : null}
+      {saveSummary ? (
+        <IconBadge label={saveSummary}>
+          <Save size={13} />
+        </IconBadge>
+      ) : null}
       {sourceIntegrations.slice(0, 2).map((source) => (
         <IconBadge key={source.key} label={source.label}>
           <BrandIcon brand={source.pluginId} className="h-3.5 w-3.5" />
@@ -711,7 +506,7 @@ export function GameCard({
               style={{ minHeight: `${overlayLayout.trayHeight}px` }}
             >
               <div className="flex items-center gap-2">
-                <CardSplitActionButton
+                <GameSplitActionButton
                   gameTitle={game.title}
                   primaryAction={cardPrimaryAction}
                   alternateActions={cardAlternateActions}
@@ -805,24 +600,14 @@ export function GameCard({
             <div className="pointer-events-none absolute inset-x-0 top-0 z-[3] flex items-start justify-between gap-2 p-2.5">
               <div className="flex gap-1.5">
                 {contentPresentation.badgeLabel ? <Badge variant="accent">{contentPresentation.badgeLabel}</Badge> : null}
-                {playable ? <StatusBadge kind="playable" /> : null}
-                {game.xcloud_available ? <StatusBadge kind="xcloud" /> : null}
-                {!playable && !game.xcloud_available && game.is_game_pass ? <StatusBadge kind="gamepass" /> : null}
-                {!playable && !game.xcloud_available && !game.is_game_pass && game.shared ? <StatusBadge kind="shared" /> : null}
+                {presentation.availability ? <StatusBadge kind={presentation.availability} /> : null}
               </div>
               <div className="flex gap-1.5">
-                {achievementLabel ? (
-                  <IconBadge label={achievementLabel}>
-                    <Trophy size={13} />
-                  </IconBadge>
-                ) : null}
-				{saveSummary ? (
-				  <IconBadge label={saveSummary}>
-					<Save size={13} />
-				  </IconBadge>
-				) : null}
-                {sourceIntegrations[0] ? (
-                  <IconBadge label={sourceIntegrations[0].label}>
+                <IconBadge label={presentation.platform}>
+                  <PlatformIcon platform={game.platform} showLabel={false} className="text-white" />
+                </IconBadge>
+                {presentation.compactBadgeCount < 3 && sourceIntegrations[0] ? (
+                  <IconBadge label={`Found in ${sourceIntegrations[0].label}`}>
                     <BrandIcon brand={sourceIntegrations[0].pluginId} className="h-3.5 w-3.5" />
                   </IconBadge>
                 ) : null}
