@@ -77,6 +77,7 @@ type GameFileDTO struct {
 	Role     string `json:"role"`
 	FileKind string `json:"file_kind,omitempty"`
 	Size     int64  `json:"size"`
+	IsDir    bool   `json:"is_dir,omitempty"`
 }
 
 // GameController serves GET /api/games (list) and GET /api/games/{id} (single game).

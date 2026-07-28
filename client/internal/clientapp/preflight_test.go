@@ -59,3 +59,23 @@ func TestPreflightBlocksDefiniteInsufficientStorage(t *testing.T) {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 }
+
+func TestPreflightPreservesServerChecksAndBlocksMissingSource(t *testing.T) {
+	evaluator := NewInstallationPreflightEvaluator(nil)
+	evaluator.diskFree = func(string) (uint64, error) { return 1024, nil }
+	result, err := evaluator.Evaluate(context.Background(), devicev1.InstallationPreflightRequest{
+		SchemaVersion: devicev1.InstallationPreflightSchemaVersion,
+		GameID:        "game", SourceGameID: "source", Category: devicev1.InstallationCategoryFileDownload,
+		DestinationRoot: t.TempDir(), RequiredStorageBytes: 4,
+		ServerChecks: []devicev1.InstallationPreflightCheck{{
+			ID: "source", Name: "Game files", Kind: "source",
+			Status: devicev1.PreflightCheckMissing, Required: true, Message: "Reconnect the source.",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CanInstall || len(result.Checks) != 2 || result.Checks[0].ID != "source" {
+		t.Fatalf("preflight result = %+v", result)
+	}
+}

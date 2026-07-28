@@ -1094,16 +1094,21 @@ func saveDeviceInventory(ctx context.Context, tx *sql.Tx, endpointID string, inv
 	if err != nil {
 		return fmt.Errorf("encode save domain inventory: %w", err)
 	}
+	preparedCopiesJSON, err := json.Marshal(inventory.PreparedCopies)
+	if err != nil {
+		return fmt.Errorf("encode prepared copy inventory: %w", err)
+	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO device_inventories
-		(endpoint_id, schema_version, captured_at, storage_json, runtimes_json, package_managers_json, save_adapters_json, managed_installations_json, save_domains_json, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(endpoint_id, schema_version, captured_at, storage_json, runtimes_json, package_managers_json, save_adapters_json, managed_installations_json, save_domains_json, prepared_copies_json, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(endpoint_id) DO UPDATE SET schema_version=excluded.schema_version,
 			captured_at=excluded.captured_at, storage_json=excluded.storage_json,
 			runtimes_json=excluded.runtimes_json, package_managers_json=excluded.package_managers_json,
 			save_adapters_json=excluded.save_adapters_json, managed_installations_json=excluded.managed_installations_json,
 			save_domains_json=excluded.save_domains_json,
+			prepared_copies_json=excluded.prepared_copies_json,
 			updated_at=excluded.updated_at`,
-		endpointID, inventory.SchemaVersion, inventory.CapturedAt.Unix(), string(storageJSON), string(runtimesJSON), string(packageManagersJSON), string(saveAdaptersJSON), string(managedInstallationsJSON), string(saveDomainsJSON), updatedAt.Unix())
+		endpointID, inventory.SchemaVersion, inventory.CapturedAt.Unix(), string(storageJSON), string(runtimesJSON), string(packageManagersJSON), string(saveAdaptersJSON), string(managedInstallationsJSON), string(saveDomainsJSON), string(preparedCopiesJSON), updatedAt.Unix())
 	if err != nil {
 		return fmt.Errorf("persist device inventory: %w", err)
 	}
@@ -1118,7 +1123,7 @@ func saveDeviceInventory(ctx context.Context, tx *sql.Tx, endpointID string, inv
 			return err
 		}
 	}
-	if inventory.SchemaVersion >= devicev1.InventorySchemaVersion {
+	if inventory.SchemaVersion >= devicev1.InventorySchemaVersionWithSaveDomains {
 		if err := reconcileSaveDomainLinks(ctx, tx, endpointID, inventory.SaveDomains, updatedAt); err != nil {
 			return err
 		}
@@ -1165,9 +1170,9 @@ func reconcileSaveDomainLinks(ctx context.Context, tx *sql.Tx, endpointID string
 func (s *DeviceStore) GetInventory(ctx context.Context, endpointID string) (*devicev1.DeviceInventory, error) {
 	var schemaVersion uint16
 	var capturedAt int64
-	var storageJSON, runtimesJSON, packageManagersJSON, saveAdaptersJSON, managedInstallationsJSON, saveDomainsJSON string
-	err := s.db.GetDB().QueryRowContext(ctx, `SELECT schema_version, captured_at, storage_json, runtimes_json, package_managers_json, save_adapters_json, managed_installations_json, save_domains_json
-		FROM device_inventories WHERE endpoint_id=?`, endpointID).Scan(&schemaVersion, &capturedAt, &storageJSON, &runtimesJSON, &packageManagersJSON, &saveAdaptersJSON, &managedInstallationsJSON, &saveDomainsJSON)
+	var storageJSON, runtimesJSON, packageManagersJSON, saveAdaptersJSON, managedInstallationsJSON, saveDomainsJSON, preparedCopiesJSON string
+	err := s.db.GetDB().QueryRowContext(ctx, `SELECT schema_version, captured_at, storage_json, runtimes_json, package_managers_json, save_adapters_json, managed_installations_json, save_domains_json, prepared_copies_json
+		FROM device_inventories WHERE endpoint_id=?`, endpointID).Scan(&schemaVersion, &capturedAt, &storageJSON, &runtimesJSON, &packageManagersJSON, &saveAdaptersJSON, &managedInstallationsJSON, &saveDomainsJSON, &preparedCopiesJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -1192,6 +1197,9 @@ func (s *DeviceStore) GetInventory(ctx context.Context, endpointID string) (*dev
 	}
 	if err := json.Unmarshal([]byte(saveDomainsJSON), &inventory.SaveDomains); err != nil {
 		return nil, fmt.Errorf("decode save domain inventory: %w", err)
+	}
+	if err := json.Unmarshal([]byte(preparedCopiesJSON), &inventory.PreparedCopies); err != nil {
+		return nil, fmt.Errorf("decode prepared copy inventory: %w", err)
 	}
 	if err := inventory.Validate(); err != nil {
 		return nil, fmt.Errorf("validate persisted device inventory: %w", err)

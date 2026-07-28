@@ -17,6 +17,7 @@ const (
 	CapabilityEndpointStop              = "endpoint.stop"
 	CapabilityInventoryRefresh          = "inventory.refresh"
 	CapabilityInstallationPreflight     = "installation.preflight"
+	CapabilityGameDownloadFiles         = "game.download_files"
 	CapabilityGameInstallArchive        = "game.install_archive"
 	CapabilityGameUninstall             = "game.uninstall"
 	CapabilityGameInstallGogInno        = "game.install_gog_inno"

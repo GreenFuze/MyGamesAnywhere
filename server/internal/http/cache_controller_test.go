@@ -19,11 +19,13 @@ type fakeCacheService struct {
 	prepareImmediate bool
 	prepareErr       error
 	resolvedPath     string
+	canPrepare       bool
 }
 
 func (f *fakeCacheService) DescribeSourceGame(context.Context, core.Platform, *core.SourceGame) []core.SourceDeliveryProfile {
 	return nil
 }
+func (f *fakeCacheService) CanPrepareSourceGame(*core.SourceGame) bool { return f.canPrepare }
 func (f *fakeCacheService) Prepare(context.Context, core.SourceCachePrepareRequest, core.Platform, *core.SourceGame) (*core.SourceCacheJobStatus, bool, error) {
 	return f.job, f.prepareImmediate, f.prepareErr
 }

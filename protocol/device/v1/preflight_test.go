@@ -37,3 +37,22 @@ func TestInstallationPreflightRejectsUnsafeOrInconsistentValues(t *testing.T) {
 		t.Fatal("inconsistent result accepted")
 	}
 }
+
+func TestInstallationPreflightCarriesServerReadinessChecks(t *testing.T) {
+	request := InstallationPreflightRequest{
+		SchemaVersion: InstallationPreflightSchemaVersion,
+		GameID:        "game", SourceGameID: "source", Category: InstallationCategoryFileDownload,
+		DestinationRoot: `%USERPROFILE%\Games`,
+		ServerChecks: []InstallationPreflightCheck{
+			{ID: "source", Name: "Game files", Kind: "source", Status: PreflightCheckReady, Required: true, Message: "Files can be prepared."},
+			{ID: "client", Name: "MGA Client", Kind: "client", Status: PreflightCheckReady, Required: true, Message: "Client can receive files."},
+		},
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("valid readiness checks rejected: %v", err)
+	}
+	request.ServerChecks[1].ID = "source"
+	if err := request.Validate(); err == nil {
+		t.Fatal("duplicate readiness check was accepted")
+	}
+}

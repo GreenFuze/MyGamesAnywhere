@@ -51,6 +51,50 @@ func (c *DeviceController) PreflightInstallation(w http.ResponseWriter, r *http.
 		GameID:        game.ID, SourceGameID: sourceID, DestinationRoot: destinationRoot,
 	}
 	switch strings.TrimSpace(body.InstallKind) {
+	case string(devicev1.InstallationCategoryFileDownload):
+		source := findSourceGame(game, sourceID)
+		if source == nil {
+			http.Error(w, "the selected file-backed source does not belong to this game", http.StatusBadRequest)
+			return
+		}
+		var size uint64
+		fileCount := 0
+		for _, file := range source.Files {
+			if file.IsDir {
+				continue
+			}
+			fileCount++
+			if file.Size > 0 {
+				size += uint64(file.Size)
+			}
+		}
+		if fileCount == 0 {
+			http.Error(w, "the selected source has no downloadable files", http.StatusConflict)
+			return
+		}
+		request.Category = devicev1.InstallationCategoryFileDownload
+		request.RequiredStorageBytes = size
+		sourceStatus := devicev1.PreflightCheckMissing
+		sourceMessage := "This connection cannot currently provide the game files. Reconnect or rescan it, then try again."
+		if c.cacheSvc != nil && c.cacheSvc.CanPrepareSourceGame(source) {
+			sourceStatus = devicev1.PreflightCheckReady
+			sourceMessage = "MGA Server can prepare the game files from this connection."
+		}
+		clientStatus := devicev1.PreflightCheckMissing
+		clientMessage := "This MGA Client cannot receive game files yet. Update it and reconnect this device."
+		if endpoint, endpointErr := c.service.EndpointForConnection(r.Context(), endpointID); endpointErr == nil {
+			for _, capability := range endpoint.Capabilities {
+				if capability == devicev1.CapabilityGameDownloadFiles {
+					clientStatus = devicev1.PreflightCheckReady
+					clientMessage = "MGA Client is connected and can receive game files."
+					break
+				}
+			}
+		}
+		request.ServerChecks = []devicev1.InstallationPreflightCheck{
+			{ID: "source", Name: "Game files", Kind: "source", Status: sourceStatus, Required: true, Message: sourceMessage},
+			{ID: "client", Name: "MGA Client", Kind: "client", Status: clientStatus, Required: true, Message: clientMessage},
+		}
 	case string(devicev1.InstallKindManagedArchive):
 		source, archive := findSupportedArchive(game, sourceID)
 		if source == nil || archive == nil {

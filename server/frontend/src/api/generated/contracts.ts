@@ -78,6 +78,7 @@ export type GameFileDTO = {
   role: string;
   file_kind?: string;
   size: number;
+  is_dir?: boolean;
 };
 
 export type SourceDeliveryProfileDTO = {

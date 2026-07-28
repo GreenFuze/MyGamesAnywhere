@@ -3,13 +3,15 @@ package v1
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 )
 
 const (
-	InventorySchemaVersion                   uint16 = 6
+	InventorySchemaVersion                   uint16 = 7
+	InventorySchemaVersionWithSaveDomains    uint16 = 6
 	InventorySchemaVersionWithNativeProducts uint16 = 5
 	InventorySchemaVersionWithInstallations  uint16 = 4
 	InventorySchemaVersionWithSaveAdapters   uint16 = 3
@@ -20,6 +22,7 @@ const (
 	maxSaveAdapters                                 = 16
 	maxManagedInstallations                         = 256
 	maxSaveDomains                                  = 1024
+	maxPreparedCopies                               = 256
 )
 
 // DeviceInventory is a bounded snapshot of facts needed to evaluate play and
@@ -34,6 +37,7 @@ type DeviceInventory struct {
 	SaveAdapters         []SaveAdapterInventory           `json:"save_adapters,omitempty"`
 	ManagedInstallations []ManagedInstallationObservation `json:"managed_installations,omitempty"`
 	SaveDomains          []SaveDomainObservation          `json:"save_domains,omitempty"`
+	PreparedCopies       []PreparedCopyObservation        `json:"prepared_copies,omitempty"`
 }
 
 type StorageInventory struct {
@@ -108,8 +112,21 @@ type SaveDomainObservation struct {
 	CanClaim          bool   `json:"can_claim,omitempty"`
 }
 
+// PreparedCopyObservation is a bounded, binding-local fact. It deliberately
+// does not imply installation or playability.
+type PreparedCopyObservation struct {
+	LocalPreparedCopyID string    `json:"local_prepared_copy_id"`
+	GameID              string    `json:"game_id"`
+	SourceGameID        string    `json:"source_game_id"`
+	Title               string    `json:"title"`
+	PreparedPath        string    `json:"prepared_path"`
+	FileCount           int       `json:"file_count"`
+	TotalBytes          uint64    `json:"total_bytes"`
+	PreparedAt          time.Time `json:"prepared_at"`
+}
+
 func (i DeviceInventory) Validate() error {
-	if i.SchemaVersion != InventorySchemaVersionLegacy && i.SchemaVersion != InventorySchemaVersionPrevious && i.SchemaVersion != InventorySchemaVersionWithSaveAdapters && i.SchemaVersion != InventorySchemaVersionWithInstallations && i.SchemaVersion != InventorySchemaVersionWithNativeProducts && i.SchemaVersion != InventorySchemaVersion {
+	if i.SchemaVersion != InventorySchemaVersionLegacy && i.SchemaVersion != InventorySchemaVersionPrevious && i.SchemaVersion != InventorySchemaVersionWithSaveAdapters && i.SchemaVersion != InventorySchemaVersionWithInstallations && i.SchemaVersion != InventorySchemaVersionWithNativeProducts && i.SchemaVersion != InventorySchemaVersionWithSaveDomains && i.SchemaVersion != InventorySchemaVersion {
 		return fmt.Errorf("unsupported inventory schema version %d", i.SchemaVersion)
 	}
 	if i.CapturedAt.IsZero() {
@@ -189,7 +206,7 @@ func (i DeviceInventory) Validate() error {
 			return fmt.Errorf("inventory schema %d cannot contain native product observations", i.SchemaVersion)
 		}
 	}
-	if i.SchemaVersion < InventorySchemaVersion && len(i.SaveDomains) != 0 {
+	if i.SchemaVersion < InventorySchemaVersionWithSaveDomains && len(i.SaveDomains) != 0 {
 		return fmt.Errorf("inventory schema %d cannot contain save domain observations", i.SchemaVersion)
 	}
 	if len(i.SaveDomains) > maxSaveDomains {
@@ -204,6 +221,35 @@ func (i DeviceInventory) Validate() error {
 			return fmt.Errorf("duplicate save domain id %q", domain.LocalSaveDomainID)
 		}
 		seenSaveDomains[domain.LocalSaveDomainID] = true
+	}
+	if i.SchemaVersion < InventorySchemaVersion && len(i.PreparedCopies) != 0 {
+		return fmt.Errorf("inventory schema %d cannot contain prepared copies", i.SchemaVersion)
+	}
+	if len(i.PreparedCopies) > maxPreparedCopies {
+		return errors.New("inventory contains too many prepared copies")
+	}
+	seenPrepared := map[string]bool{}
+	for _, prepared := range i.PreparedCopies {
+		if err := prepared.Validate(); err != nil {
+			return err
+		}
+		if seenPrepared[prepared.LocalPreparedCopyID] {
+			return fmt.Errorf("duplicate local prepared copy id %q", prepared.LocalPreparedCopyID)
+		}
+		seenPrepared[prepared.LocalPreparedCopyID] = true
+	}
+	return nil
+}
+
+func (p PreparedCopyObservation) Validate() error {
+	if strings.TrimSpace(p.LocalPreparedCopyID) == "" || strings.TrimSpace(p.GameID) == "" || strings.TrimSpace(p.SourceGameID) == "" || strings.TrimSpace(p.Title) == "" {
+		return errors.New("prepared copy ID, game, source, and title are required")
+	}
+	if !filepath.IsAbs(strings.TrimSpace(p.PreparedPath)) {
+		return errors.New("prepared copy path must be absolute")
+	}
+	if p.FileCount <= 0 || p.PreparedAt.IsZero() {
+		return errors.New("prepared copy file facts and timestamp are required")
 	}
 	return nil
 }
@@ -387,6 +433,7 @@ func (i DeviceInventory) Normalize() DeviceInventory {
 	i.SaveAdapters = append([]SaveAdapterInventory(nil), i.SaveAdapters...)
 	i.ManagedInstallations = append([]ManagedInstallationObservation(nil), i.ManagedInstallations...)
 	i.SaveDomains = append([]SaveDomainObservation(nil), i.SaveDomains...)
+	i.PreparedCopies = append([]PreparedCopyObservation(nil), i.PreparedCopies...)
 	for index := range i.ManagedInstallations {
 		i.ManagedInstallations[index].NativeProducts = append([]NativeProductObservation(nil), i.ManagedInstallations[index].NativeProducts...)
 		sort.Slice(i.ManagedInstallations[index].NativeProducts, func(left, right int) bool {
@@ -414,6 +461,9 @@ func (i DeviceInventory) Normalize() DeviceInventory {
 	})
 	sort.Slice(i.SaveDomains, func(left, right int) bool {
 		return i.SaveDomains[left].LocalSaveDomainID < i.SaveDomains[right].LocalSaveDomainID
+	})
+	sort.Slice(i.PreparedCopies, func(left, right int) bool {
+		return i.PreparedCopies[left].LocalPreparedCopyID < i.PreparedCopies[right].LocalPreparedCopyID
 	})
 	return i
 }

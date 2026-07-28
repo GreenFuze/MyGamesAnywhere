@@ -16,11 +16,12 @@ const (
 	InstallationCategoryNativeInstaller InstallationCategory = "native_installer"
 	InstallationCategoryStorefront      InstallationCategory = "storefront"
 	InstallationCategoryEmulated        InstallationCategory = "emulated"
+	InstallationCategoryFileDownload    InstallationCategory = "file_download"
 )
 
 func (c InstallationCategory) Validate() error {
 	switch c {
-	case InstallationCategoryManagedArchive, InstallationCategoryNativeInstaller, InstallationCategoryStorefront, InstallationCategoryEmulated:
+	case InstallationCategoryManagedArchive, InstallationCategoryNativeInstaller, InstallationCategoryStorefront, InstallationCategoryEmulated, InstallationCategoryFileDownload:
 		return nil
 	default:
 		return fmt.Errorf("unsupported installation category %q", c)
@@ -64,13 +65,14 @@ func (r PrerequisiteRequirement) Validate() error {
 }
 
 type InstallationPreflightRequest struct {
-	SchemaVersion        uint16                    `json:"schema_version"`
-	GameID               string                    `json:"game_id"`
-	SourceGameID         string                    `json:"source_game_id"`
-	Category             InstallationCategory      `json:"category"`
-	DestinationRoot      string                    `json:"destination_root"`
-	RequiredStorageBytes uint64                    `json:"required_storage_bytes,omitempty"`
-	Requirements         []PrerequisiteRequirement `json:"requirements,omitempty"`
+	SchemaVersion        uint16                       `json:"schema_version"`
+	GameID               string                       `json:"game_id"`
+	SourceGameID         string                       `json:"source_game_id"`
+	Category             InstallationCategory         `json:"category"`
+	DestinationRoot      string                       `json:"destination_root"`
+	RequiredStorageBytes uint64                       `json:"required_storage_bytes,omitempty"`
+	Requirements         []PrerequisiteRequirement    `json:"requirements,omitempty"`
+	ServerChecks         []InstallationPreflightCheck `json:"server_checks,omitempty"`
 }
 
 func (r InstallationPreflightRequest) Validate() error {
@@ -88,12 +90,24 @@ func (r InstallationPreflightRequest) Validate() error {
 		return errors.New("destination_root must be between 1 and 1024 characters")
 	}
 	seen := map[string]bool{}
+	if len(r.ServerChecks) > 16 {
+		return errors.New("too many server preflight checks")
+	}
+	for _, check := range r.ServerChecks {
+		if err := check.Validate(); err != nil {
+			return err
+		}
+		if seen[check.ID] {
+			return fmt.Errorf("duplicate preflight check id %q", check.ID)
+		}
+		seen[check.ID] = true
+	}
 	for _, requirement := range r.Requirements {
 		if err := requirement.Validate(); err != nil {
 			return err
 		}
 		if seen[requirement.ID] {
-			return fmt.Errorf("duplicate prerequisite id %q", requirement.ID)
+			return fmt.Errorf("duplicate preflight requirement id %q", requirement.ID)
 		}
 		seen[requirement.ID] = true
 	}

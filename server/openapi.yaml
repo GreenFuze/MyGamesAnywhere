@@ -421,6 +421,20 @@ paths:
         500:
           description: Error response
 
+  /api/device-transfers/file:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    head:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/device-transfers/save-domain:
     get:
       responses:
@@ -607,6 +621,25 @@ paths:
     post:
       parameters:
         - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/devices/{id}/games/{game_id}/download-files:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
           in: path
           required: true
           schema:

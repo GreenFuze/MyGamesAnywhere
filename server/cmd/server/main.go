@@ -319,6 +319,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 		return fmt.Errorf("configure device controller: %w", err)
 	}
 	deviceCtrl.SetArchiveInstallDependencies(gameStore, integrationRepo, envString("MGA_GOOGLE_DRIVE_DESKTOP_ROOT", ""))
+	deviceCtrl.SetSourceCacheService(cacheSvc)
 	deviceCtrl.SetInstallationValidationService(installationValidationSvc)
 	deviceCtrl.SetInstallPreferenceService(installPreferenceSvc)
 	deviceCtrl.SetEmulationService(emulationSvc)

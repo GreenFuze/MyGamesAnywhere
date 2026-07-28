@@ -38,6 +38,7 @@ type DeviceController struct {
 	clientInstallerPath string
 	gameStore           core.GameStore
 	integrationRepo     core.IntegrationRepository
+	cacheSvc            core.SourceCacheService
 	googleDriveRoot     string
 	archiveTransfers    *archiveTransferRegistry
 	saveDomainTransfers *saveDomainTransferRegistry
@@ -70,6 +71,10 @@ func (c *DeviceController) SetArchiveInstallDependencies(gameStore core.GameStor
 	c.gameStore = gameStore
 	c.integrationRepo = integrationRepo
 	c.googleDriveRoot = strings.TrimSpace(googleDriveDesktopRoot)
+}
+
+func (c *DeviceController) SetSourceCacheService(service core.SourceCacheService) {
+	c.cacheSvc = service
 }
 
 func (c *DeviceController) List(w http.ResponseWriter, r *http.Request) {

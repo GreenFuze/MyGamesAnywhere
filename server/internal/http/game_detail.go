@@ -113,6 +113,8 @@ type GameDeviceAvailabilityDTO struct {
 	InstalledSave           *savedomain.Capability                    `json:"installed_save,omitempty"`
 	InstallPath             string                                    `json:"install_path,omitempty"`
 	ArchiveInstallSupported bool                                      `json:"archive_install_supported"`
+	FileDownloadSupported   bool                                      `json:"file_download_supported"`
+	PreparedCopies          []devicev1.PreparedCopyObservation        `json:"prepared_copies,omitempty"`
 	GogInnoInstallSupported bool                                      `json:"gog_inno_install_supported"`
 	FailedCleanupSupported  bool                                      `json:"failed_cleanup_supported"`
 	UninstallSupported      bool                                      `json:"uninstall_supported"`
@@ -185,6 +187,8 @@ func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailR
 		}
 		for _, capability := range endpoint.Capabilities {
 			switch capability {
+			case devicev1.CapabilityGameDownloadFiles:
+				item.FileDownloadSupported = true
 			case devicev1.CapabilityGameInstallArchive:
 				item.ArchiveInstallSupported = true
 			case devicev1.CapabilityGameInstallGogInno:
@@ -222,6 +226,11 @@ func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailR
 			}
 		}
 		if endpoint.Inventory != nil {
+			for _, prepared := range endpoint.Inventory.PreparedCopies {
+				if prepared.GameID == game.ID {
+					item.PreparedCopies = append(item.PreparedCopies, prepared)
+				}
+			}
 			for _, observed := range endpoint.Inventory.ManagedInstallations {
 				if observed.State != "managed_elsewhere" && observed.State != "released" {
 					continue
@@ -526,6 +535,7 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 					Role:     string(f.Role),
 					FileKind: f.FileKind,
 					Size:     f.Size,
+					IsDir:    f.IsDir,
 				})
 			}
 		}
@@ -802,6 +812,7 @@ func (c *GameController) sourceGameToDetailDTO(
 			Role:     string(f.Role),
 			FileKind: f.FileKind,
 			Size:     f.Size,
+			IsDir:    f.IsDir,
 		})
 		if f.Role == core.GameFileRoleRoot && rootFileID == "" {
 			rootFileID = fileID

@@ -84,6 +84,7 @@ type Service struct {
 	logger      *log.Logger
 	logFile     *os.File
 	ownership   *OwnershipCatalog
+	prepared    *PreparedCopyCatalog
 	saveDomains *SaveDomainCatalog
 	operations  *InstallationCoordinator
 }
@@ -114,6 +115,11 @@ func New(dataDir string, info buildinfo.Info, extraLogWriters ...io.Writer) (*Se
 		_ = logFile.Close()
 		return nil, fmt.Errorf("open save domain authority catalog: %w", err)
 	}
+	prepared, err := OpenPreparedCopyCatalog(layout.PreparedCopiesPath)
+	if err != nil {
+		_ = logFile.Close()
+		return nil, fmt.Errorf("open prepared copy catalog: %w", err)
+	}
 	writers := []io.Writer{logFile}
 	for _, writer := range extraLogWriters {
 		if writer != nil && writer != io.Discard {
@@ -128,6 +134,7 @@ func New(dataDir string, info buildinfo.Info, extraLogWriters ...io.Writer) (*Se
 		logger:      log.New(io.MultiWriter(writers...), "", log.Ldate|log.Ltime|log.LUTC),
 		logFile:     logFile,
 		ownership:   ownership,
+		prepared:    prepared,
 		saveDomains: saveDomains,
 		operations:  NewInstallationCoordinator(),
 	}, nil
@@ -406,7 +413,7 @@ func (s *Service) runAgentWithMode(ctx context.Context, executionMode devicev1.C
 		}
 		ownership.saveDomains = s.saveDomains
 		ownership.saveRoot = s.layout.SaveDomainsRoot
-		agent, agentErr := NewOwnedAgentWithExecutionMode(binding, privateKey, s.buildInfo, s.logger, executionMode, ownership)
+		agent, agentErr := NewOwnedAgentWithExecutionMode(binding, privateKey, s.buildInfo, s.logger, executionMode, ownership, s.prepared)
 		if agentErr != nil {
 			return fmt.Errorf("prepare agent for %s: %w", binding.ServerURL, agentErr)
 		}
@@ -821,6 +828,7 @@ func localMetadata(displayName string, executionMode devicev1.ClientExecutionMod
 			devicev1.CapabilityEndpointPing,
 			devicev1.CapabilityEndpointRefresh,
 			devicev1.CapabilityEndpointStop,
+			devicev1.CapabilityGameDownloadFiles,
 			devicev1.CapabilityGameInstallArchive,
 			devicev1.CapabilityGameUninstall,
 			devicev1.CapabilityGameInstallGogInno,

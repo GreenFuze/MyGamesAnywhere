@@ -199,6 +199,7 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 		PackageManagers: []devicev1.PackageManagerInventory{{ID: "winget", Name: "Windows Package Manager"}},
 		SaveAdapters:    []devicev1.SaveAdapterInventory{{ID: "scummvm", Name: "ScummVM", ProbeState: "complete", SaveKinds: []string{"save_file"}}},
 		SaveDomains:     []devicev1.SaveDomainObservation{{LocalSaveDomainID: "local-save-1", AdapterID: "scummvm", State: "owned_here", CanWrite: true}},
+		PreparedCopies:  []devicev1.PreparedCopyObservation{{LocalPreparedCopyID: "copy-1", GameID: "game-1", SourceGameID: "source-1", Title: "Game", PreparedPath: filepath.Join(t.TempDir(), "Game"), FileCount: 1, PreparedAt: now}},
 	}
 	inventoryPayload, err := json.Marshal(inventory)
 	if err != nil {
@@ -218,7 +219,8 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 	if storedInventory == nil || len(storedInventory.Storage) != 1 || storedInventory.Storage[0].FreeBytes != 25 ||
 		len(storedInventory.Runtimes) != 1 || len(storedInventory.PackageManagers) != 1 || storedInventory.PackageManagers[0].ID != "winget" ||
 		len(storedInventory.SaveAdapters) != 1 || storedInventory.SaveAdapters[0].ID != "scummvm" ||
-		len(storedInventory.SaveDomains) != 1 || storedInventory.SaveDomains[0].State != "owned_here" {
+		len(storedInventory.SaveDomains) != 1 || storedInventory.SaveDomains[0].State != "owned_here" ||
+		len(storedInventory.PreparedCopies) != 1 || storedInventory.PreparedCopies[0].GameID != "game-1" {
 		t.Fatalf("stored inventory = %#v", storedInventory)
 	}
 

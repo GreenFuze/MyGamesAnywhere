@@ -141,6 +141,49 @@ func (h *testPluginHost) maxConcurrentCalls() int {
 	return h.maxActiveCalls
 }
 
+func TestServiceCanPrepareSourceGame(t *testing.T) {
+	materializer := &testPluginHost{
+		plugin: &core.Plugin{
+			Manifest: core.PluginManifest{
+				ID:       "game-source-google-drive",
+				Provides: []string{sourceFileMaterializeMethod},
+			},
+		},
+	}
+	service := &Service{pluginHost: materializer}
+
+	tests := []struct {
+		name       string
+		sourceGame *core.SourceGame
+		want       bool
+	}{
+		{name: "nil source", sourceGame: nil, want: false},
+		{
+			name:       "absolute local source",
+			sourceGame: &core.SourceGame{PluginID: "game-source-local", RootPath: filepath.Join(t.TempDir(), "Game")},
+			want:       true,
+		},
+		{
+			name:       "materializable remote source",
+			sourceGame: &core.SourceGame{PluginID: "game-source-google-drive", RootPath: "Shared/Game"},
+			want:       true,
+		},
+		{
+			name:       "unsupported remote source",
+			sourceGame: &core.SourceGame{PluginID: "game-source-unsupported", RootPath: "Remote/Game"},
+			want:       false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := service.CanPrepareSourceGame(test.sourceGame); got != test.want {
+				t.Fatalf("CanPrepareSourceGame() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestServicePrepareMaterializesAndReusesCache(t *testing.T) {
 	ctx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-1", Role: core.ProfileRoleAdminPlayer})
 	dbPath := filepath.Join(t.TempDir(), "cache.db")

@@ -29,7 +29,8 @@ func (e *InstallationPreflightEvaluator) Evaluate(ctx context.Context, request d
 	if err != nil {
 		return devicev1.InstallationPreflightResult{}, fmt.Errorf("resolve destination folder: %w", err)
 	}
-	checks := []devicev1.InstallationPreflightCheck{e.storageCheck(root, request.RequiredStorageBytes)}
+	checks := append([]devicev1.InstallationPreflightCheck(nil), request.ServerChecks...)
+	checks = append(checks, e.storageCheck(root, request.RequiredStorageBytes))
 	switch request.Category {
 	case devicev1.InstallationCategoryNativeInstaller:
 		checks = append(checks, devicev1.InstallationPreflightCheck{
@@ -41,6 +42,8 @@ func (e *InstallationPreflightEvaluator) Evaluate(ctx context.Context, request d
 			ID: "prerequisites", Name: "Game components", Kind: "prerequisites",
 			Status: devicev1.PreflightCheckUnknown, Message: "MGA cannot yet tell whether this archive needs extra components or contains another installer.",
 		})
+	case devicev1.InstallationCategoryFileDownload:
+		// Server-owned source and client readiness checks are already included.
 	default:
 		runtimeChecks, collectErr := e.runtimeChecks(ctx, request.Requirements)
 		if collectErr != nil {

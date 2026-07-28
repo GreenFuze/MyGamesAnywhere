@@ -446,6 +446,18 @@ export type DeviceInventory = {
   runtimes: DeviceRuntimeInventory[];
   save_adapters?: DeviceSaveAdapterInventory[];
   managed_installations?: DeviceManagedInstallationObservation[];
+  prepared_copies?: DevicePreparedCopyObservation[];
+};
+
+export type DevicePreparedCopyObservation = {
+  local_prepared_copy_id: string;
+  game_id: string;
+  source_game_id: string;
+  title: string;
+  prepared_path: string;
+  file_count: number;
+  total_bytes: number;
+  prepared_at: string;
 };
 
 export type DeviceManagedInstallationObservation = {
@@ -821,11 +833,23 @@ export async function installArchiveOnDevice(
   ) as Promise<DeviceCommand>;
 }
 
+export async function downloadFilesOnDevice(
+  endpointId: string,
+  gameId: string,
+  sourceGameId: string,
+  destinationRoot?: string,
+): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(
+    `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/download-files`,
+    { source_game_id: sourceGameId, destination_root: destinationRoot?.trim() || undefined },
+  ) as Promise<DeviceCommand>;
+}
+
 export async function preflightInstallationOnDevice(
   endpointId: string,
   gameId: string,
   sourceGameId: string,
-  installKind: "managed_archive" | "gog_inno",
+  installKind: "managed_archive" | "gog_inno" | "file_download",
   destinationRoot: string,
 ): Promise<DeviceCommand> {
   return postJson<DeviceCommand>(
@@ -1126,6 +1150,8 @@ export type GameDeviceAvailabilityDTO = {
 	installed_save?: SaveDomainCapability;
   install_path?: string;
   archive_install_supported: boolean;
+  file_download_supported: boolean;
+  prepared_copies?: DevicePreparedCopyObservation[];
   gog_inno_install_supported: boolean;
   failed_cleanup_supported: boolean;
   install_kind?: "managed_archive" | "gog_inno" | string;

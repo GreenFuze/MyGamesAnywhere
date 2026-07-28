@@ -29,6 +29,7 @@ type LocalInventoryCollector struct {
 	now         func() time.Time
 	ownership   *OwnershipCatalog
 	saveDomains *SaveDomainCatalog
+	prepared    *PreparedCopyCatalog
 	bindingID   string
 	programs    RegisteredProgramObserver
 }
@@ -41,6 +42,12 @@ func NewOwnedLocalInventoryCollector(ownership *OwnershipCatalog, bindingID stri
 func NewOwnedLocalInventoryCollectorWithSaveDomains(ownership *OwnershipCatalog, saveDomains *SaveDomainCatalog, bindingID string) *LocalInventoryCollector {
 	collector := NewOwnedLocalInventoryCollector(ownership, bindingID)
 	collector.saveDomains = saveDomains
+	return collector
+}
+
+func NewOwnedLocalInventoryCollectorWithLocalState(ownership *OwnershipCatalog, saveDomains *SaveDomainCatalog, prepared *PreparedCopyCatalog, bindingID string) *LocalInventoryCollector {
+	collector := NewOwnedLocalInventoryCollectorWithSaveDomains(ownership, saveDomains, bindingID)
+	collector.prepared = prepared
 	return collector
 }
 
@@ -71,11 +78,31 @@ func (c *LocalInventoryCollector) Collect(ctx context.Context) (devicev1.DeviceI
 	}
 	inventory.ManagedInstallations = managed
 	inventory.SaveDomains = c.saveDomainObservations()
+	inventory.PreparedCopies = c.preparedCopyObservations()
 	inventory = inventory.Normalize()
 	if err := inventory.Validate(); err != nil {
 		return devicev1.DeviceInventory{}, err
 	}
 	return inventory, nil
+}
+
+func (c *LocalInventoryCollector) preparedCopyObservations() []devicev1.PreparedCopyObservation {
+	if c == nil || c.prepared == nil || strings.TrimSpace(c.bindingID) == "" {
+		return nil
+	}
+	records := c.prepared.ListForBinding(c.bindingID)
+	result := make([]devicev1.PreparedCopyObservation, 0, len(records))
+	for _, record := range records {
+		if info, err := os.Stat(record.PreparedPath); err != nil || !info.IsDir() {
+			continue
+		}
+		result = append(result, devicev1.PreparedCopyObservation{
+			LocalPreparedCopyID: record.LocalPreparedCopyID, GameID: record.GameID,
+			SourceGameID: record.SourceGameID, Title: record.Title, PreparedPath: record.PreparedPath,
+			FileCount: record.FileCount, TotalBytes: record.TotalBytes, PreparedAt: record.PreparedAt,
+		})
+	}
+	return result
 }
 
 func (c *LocalInventoryCollector) saveDomainObservations() []devicev1.SaveDomainObservation {

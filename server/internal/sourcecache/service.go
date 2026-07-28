@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
 	"github.com/google/uuid"
@@ -79,6 +80,10 @@ func (s *Service) DescribeSourceGame(ctx context.Context, canonicalPlatform core
 		delivery.RootFilePath = rootFile.Path
 	}
 	return []core.SourceDeliveryProfile{delivery}
+}
+
+func (s *Service) CanPrepareSourceGame(sourceGame *core.SourceGame) bool {
+	return supportsDirectSourceGame(sourceGame) || s.supportsMaterialization(sourceGame)
 }
 
 func (s *Service) Prepare(ctx context.Context, req core.SourceCachePrepareRequest, canonicalPlatform core.Platform, sourceGame *core.SourceGame) (*core.SourceCacheJobStatus, bool, error) {
@@ -606,6 +611,11 @@ func filesForProfile(profile string, sourceGame *core.SourceGame) ([]core.GameFi
 		}
 	}
 	switch profile {
+	case devicev1.DeviceDownloadSourceProfile:
+		if len(nonDirs) == 0 {
+			return nil, "", fmt.Errorf("device download requires source files")
+		}
+		return nonDirs, commonDirectoryPath(nonDirs), nil
 	case core.BrowserProfileEmulatorJS:
 		rootFile := selectRootFile(sourceGame)
 		if rootFile == nil {

@@ -32,6 +32,7 @@ type Agent struct {
 	executionMode devicev1.ClientExecutionMode
 	inventory     InventoryCollector
 	installer     ArchiveInstaller
+	downloader    FileDownloader
 	gogInstaller  GogInnoInstaller
 	launcher      GameLauncher
 	emulator      EmulatorLauncher
@@ -51,14 +52,22 @@ func NewAgentWithExecutionMode(config clientconfig.Binding, privateKey ed25519.P
 	return newAgentWithOwnership(config, privateKey, info, logger, executionMode, nil)
 }
 
-func NewOwnedAgentWithExecutionMode(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode, ownership *InstallationOwnership) (*Agent, error) {
+func NewOwnedAgentWithExecutionMode(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode, ownership *InstallationOwnership, prepared ...*PreparedCopyCatalog) (*Agent, error) {
 	if ownership == nil {
 		return nil, errors.New("installation ownership is required")
 	}
-	return newAgentWithOwnership(config, privateKey, info, logger, executionMode, ownership)
+	var preparedCatalog *PreparedCopyCatalog
+	if len(prepared) > 0 {
+		preparedCatalog = prepared[0]
+	}
+	return newAgentWithLocalState(config, privateKey, info, logger, executionMode, ownership, preparedCatalog)
 }
 
 func newAgentWithOwnership(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode, ownership *InstallationOwnership) (*Agent, error) {
+	return newAgentWithLocalState(config, privateKey, info, logger, executionMode, ownership, nil)
+}
+
+func newAgentWithLocalState(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode, ownership *InstallationOwnership, prepared *PreparedCopyCatalog) (*Agent, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -98,12 +107,19 @@ func newAgentWithOwnership(config clientconfig.Binding, privateKey ed25519.Priva
 		return nil, err
 	}
 	var inventory *LocalInventoryCollector
+	var downloader FileDownloader
 	var existing ExistingInstallationUser
 	var saveDomains SaveDomainManager
 	if ownership == nil {
 		inventory = NewLocalInventoryCollector()
 	} else {
-		inventory = NewOwnedLocalInventoryCollectorWithSaveDomains(ownership.catalog, ownership.saveDomains, config.BindingID)
+		inventory = NewOwnedLocalInventoryCollectorWithLocalState(ownership.catalog, ownership.saveDomains, prepared, config.BindingID)
+		if prepared != nil {
+			downloader, err = NewManagedFileDownloader(config.ServerURL, ownership, prepared)
+			if err != nil {
+				return nil, err
+			}
+		}
 		existing, err = NewLocalExistingInstallationUser(ownership, config.ServerURL)
 		if err != nil {
 			return nil, err
@@ -130,7 +146,7 @@ func newAgentWithOwnership(config clientconfig.Binding, privateKey ed25519.Priva
 	}
 	return &Agent{
 		config: config, privateKey: privateKey, buildInfo: info, logger: logger, executionMode: executionMode,
-		inventory: inventory, installer: installer, gogInstaller: gogInstaller,
+		inventory: inventory, installer: installer, downloader: downloader, gogInstaller: gogInstaller,
 		launcher: NewOwnedWindowsGameLauncher(ownership), emulator: emulator, emulatorSetup: emulatorSetup, validator: validator, existing: existing, saveDomains: saveDomains,
 	}, nil
 }
@@ -400,6 +416,19 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 		result, err := a.installer.Install(ctx, commandID, request, report)
 		if err != nil {
 			return nil, false, "install_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilityGameDownloadFiles:
+		if a.downloader == nil {
+			return nil, false, "downloader_unavailable", errors.New("file downloader is unavailable")
+		}
+		var request devicev1.FileDownloadRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.downloader.Download(ctx, commandID, request, report)
+		if err != nil {
+			return nil, false, "download_failed", err
 		}
 		return result, false, "", nil
 	case devicev1.CapabilityGameUninstall:

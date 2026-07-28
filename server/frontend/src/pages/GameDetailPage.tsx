@@ -5,7 +5,7 @@ import {
   ArrowLeft,
   ArrowRightLeft,
   Database,
-  Download,
+	Download,
   ExternalLink,
   FileText,
   FolderOpen,
@@ -21,17 +21,20 @@ import {
 } from 'lucide-react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
-  ApiError,
+ ApiError,
+	downloadFilesOnDevice,
 	cleanupFailedGameOnDevice,
   clearSourceGameCanonicalPin,
   getGame,
   getGameAchievements,
 	getFrontendConfig,
+	getCacheJob,
 	getEndpointInstallPreference,
   listCacheEntries,
   installArchiveOnDevice,
   installGogInnoOnDevice,
 	preflightInstallationOnDevice,
+	prepareGameCache,
 	ignoreFailedGameOnDevice,
 	launchGameOnDevice,
 	launchEmulatorGameOnDevice,
@@ -198,13 +201,20 @@ type DeviceInstallChoice = {
   sourceGameId: string
   sourceLabel: string
   packageName: string
-  installKind: 'managed_archive' | 'gog_inno'
+  installKind: 'managed_archive' | 'gog_inno' | 'file_download'
+}
+
+type DownloadPreparationProgress = {
+  message: string
+  current: number
+  total: number
 }
 
 function DeviceInstallDialog({
   gameId,
   choice,
   busy,
+  preparation,
   error,
   onClose,
   onInstall,
@@ -212,6 +222,7 @@ function DeviceInstallDialog({
   gameId: string
   choice: DeviceInstallChoice | null
   busy: boolean
+  preparation: DownloadPreparationProgress | null
   error: string
   onClose: () => void
   onInstall: (root: string) => void
@@ -271,7 +282,7 @@ function DeviceInstallDialog({
 	const blocked = preflight.data?.can_install === false
 
   return (
-    <Dialog open={choice !== null} onClose={busy ? () => undefined : onClose} title="Install on device">
+    <Dialog open={choice !== null} onClose={busy ? () => undefined : onClose} title={choice?.installKind === 'file_download' ? 'Download to device' : 'Install on device'}>
       {choice ? (
         <div className="space-y-4">
           <div className="rounded-mga border border-mga-border bg-mga-bg/60 p-3 text-sm">
@@ -279,14 +290,16 @@ function DeviceInstallDialog({
             <p className="mt-1 text-xs text-mga-muted">{choice.sourceLabel} · {choice.packageName}</p>
           </div>
           <Input
-            label="Install folder"
+            label={choice.installKind === 'file_download' ? 'Download folder' : 'Install folder'}
             value={root}
             onChange={(event) => setRoot(event.target.value)}
             disabled={busy || preference.isLoading}
             placeholder="%USERPROFILE%\\Games"
           />
           <p className="text-xs leading-5 text-mga-muted">
-            {choice.installKind === 'gog_inno'
+            {choice.installKind === 'file_download'
+              ? `MGA will copy and verify these files on ${choice.deviceName}. It will not install, extract, or run them.`
+              : choice.installKind === 'gog_inno'
               ? `MGA Client on ${choice.deviceName} will verify the GOG publisher and installer type before it starts. Windows may ask for permission on that device.`
               : 'Environment variables are expanded by MGA Client for the selected Windows user. This installation can override your future profile default.'}
           </p>
@@ -298,7 +311,7 @@ function DeviceInstallDialog({
           {preference.error ? <p className="text-xs text-amber-300">Saved folder could not be loaded. Check the folder before installing.</p> : null}
           <section className="rounded-mga border border-mga-border bg-black/20 p-3">
 			<div className="flex items-center justify-between gap-3">
-			  <p className="text-xs font-bold uppercase tracking-[0.16em] text-mga-muted">Before installing</p>
+			  <p className="text-xs font-bold uppercase tracking-[0.16em] text-mga-muted">{choice.installKind === 'file_download' ? 'Before downloading' : 'Before installing'}</p>
 			  {checking ? <span className="flex items-center gap-1.5 text-xs text-mga-muted"><Loader2 size={13} className="animate-spin" /> Checking device</span> : null}
 			</div>
 			{preflight.data ? (
@@ -311,15 +324,36 @@ function DeviceInstallDialog({
 				))}
 			  </div>
 			) : preflight.error && checkedRoot === root.trim() ? (
-			  <p className="mt-2 text-xs leading-5 text-amber-300">MGA couldn’t check this device. You can still install, but MGA has not verified space or extra components.</p>
+			  <p className="mt-2 text-xs leading-5 text-amber-300">MGA couldn’t check this device. It has not verified the selected folder or free space.</p>
 			) : null}
 		  </section>
+          {choice.installKind === 'file_download' && preparation ? (
+            <section className="rounded-mga border border-sky-300/20 bg-sky-400/5 p-3">
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <span className="font-semibold text-sky-100">Preparing source files</span>
+                <span className="text-sky-200/80">
+                  {preparation.total > 0 ? `${Math.min(100, Math.round((preparation.current / preparation.total) * 100))}%` : 'In progress'}
+                </span>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/30">
+                {preparation.total > 0 ? (
+                  <div
+                    className="h-full rounded-full bg-sky-400 transition-[width]"
+                    style={{ width: `${Math.min(100, Math.round((preparation.current / preparation.total) * 100))}%` }}
+                  />
+                ) : (
+                  <div className="h-full w-full animate-pulse rounded-full bg-sky-400/70" />
+                )}
+              </div>
+              <p className="mt-2 text-xs leading-5 text-mga-muted">{preparation.message}</p>
+            </section>
+          ) : null}
           {error ? <p className="text-sm text-red-400">{error}</p> : null}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
             <Button onClick={() => onInstall(root.trim())} disabled={busy || preference.isLoading || checking || blocked || !root.trim()}>
               {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-              {busy ? 'Starting…' : preflight.error ? 'Install anyway' : blocked ? 'Requirements missing' : 'Install'}
+              {busy ? (preparation ? 'Preparing…' : 'Starting…') : preflight.error ? (choice.installKind === 'file_download' ? 'Download anyway' : 'Install anyway') : blocked ? 'Requirements missing' : choice.installKind === 'file_download' ? 'Download' : 'Install'}
             </Button>
           </div>
         </div>
@@ -1555,6 +1589,7 @@ export function GameDetailPage() {
   const [pendingRetry, setPendingRetry] = useState<DeviceInstallChoice | null>(null)
   const [activeDeviceCommand, setActiveDeviceCommand] = useState<{ deviceId: string; commandId: string } | null>(null)
   const [installError, setInstallError] = useState('')
+  const [downloadPreparation, setDownloadPreparation] = useState<DownloadPreparationProgress | null>(null)
   const hasRetried404Ref = useRef(false)
 
   const routeState = readGameRouteState(location.state)
@@ -1611,21 +1646,63 @@ export function GameDetailPage() {
   })
   const trackedCommand = deviceCommands.data?.find((item) => item.id === activeDeviceCommand?.commandId)
   const installGame = useMutation({
-    mutationFn: ({ choice, root }: { choice: DeviceInstallChoice; root: string }) =>
-      choice.installKind === 'gog_inno'
-        ? installGogInnoOnDevice(choice.deviceId, id, choice.sourceGameId, root)
-        : installArchiveOnDevice(choice.deviceId, id, choice.sourceGameId, root),
+    mutationFn: async ({ choice, root }: { choice: DeviceInstallChoice; root: string }) => {
+      if (choice.installKind === 'gog_inno') {
+        return installGogInnoOnDevice(choice.deviceId, id, choice.sourceGameId, root)
+      }
+      if (choice.installKind === 'managed_archive') {
+        return installArchiveOnDevice(choice.deviceId, id, choice.sourceGameId, root)
+      }
+      setDownloadPreparation({
+        message: 'MGA Server is preparing the game files for this device.',
+        current: 0,
+        total: 0,
+      })
+      const preparation = await prepareGameCache({
+        gameId: id,
+        sourceGameId: choice.sourceGameId,
+        profile: 'device.files.v1',
+      })
+      let job = preparation.job
+      if (job) {
+        setDownloadPreparation({
+          message: job.message || 'MGA Server is preparing the game files for this device.',
+          current: job.progress_current ?? 0,
+          total: job.progress_total ?? 0,
+        })
+      }
+      for (let attempt = 0; job && !['completed', 'failed'].includes(job.status) && attempt < 43_200; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1_000))
+        job = await getCacheJob(job.job_id)
+        setDownloadPreparation({
+          message: job.message || 'MGA Server is preparing the game files for this device.',
+          current: job.progress_current ?? 0,
+          total: job.progress_total ?? 0,
+        })
+      }
+      if (job && job.status !== 'completed') {
+        throw new Error(job.error || 'MGA could not prepare the source files for download.')
+      }
+      setDownloadPreparation({
+        message: 'Source files are ready. Starting the download on the device.',
+        current: job?.progress_total ?? 1,
+        total: job?.progress_total ?? 1,
+      })
+      return downloadFilesOnDevice(choice.deviceId, id, choice.sourceGameId, root)
+    },
     onSuccess: (command, variables) => {
       setInstallChoice(null)
       setInstallError('')
+      setDownloadPreparation(null)
       setActiveDeviceCommand({ deviceId: variables.choice.deviceId, commandId: command.id })
     },
     onError: (error, variables) => {
       const detail = apiErrorDetail(error)
+      setDownloadPreparation(null)
       setInstallError(
         variables.choice.installKind === 'gog_inno'
           ? gogInstallErrorMessage(detail.code, detail.message, variables.choice.deviceName)
-          : (detail.message || 'Could not start installation.'),
+          : (detail.message || (variables.choice.installKind === 'file_download' ? 'Could not start download.' : 'Could not start installation.')),
       )
     },
   })
@@ -1818,6 +1895,10 @@ export function GameDetailPage() {
       const packageInfo = gogInnoPackage(source)
       return packageInfo ? [{ source, packageInfo }] : []
     }),
+    [gameData?.source_games],
+  )
+  const fileBackedSources = useMemo(
+    () => (gameData?.source_games ?? []).filter((source) => source.files.some((file) => !file.is_dir)),
     [gameData?.source_games],
   )
   useEffect(() => {
@@ -2533,6 +2614,12 @@ export function GameDetailPage() {
 					? 100
 					: commandHere?.progress_stage === 'install' ? (commandHere.progress_stage_percent ?? 0) : 0
 				  const isInstallCommand = commandHere?.name === 'game.install_archive' || commandHere?.name === 'game.install_gog_inno'
+				  const isDownloadCommand = commandHere?.name === 'game.download_files'
+				  const verifyPercent = commandHere?.status === 'succeeded'
+					? 100
+					: commandHere?.progress_stage === 'verify' || commandHere?.progress_stage === 'prepare'
+						? (commandHere.progress_stage_percent ?? 0)
+						: 0
 				  const isGogInstallCommand = commandHere?.name === 'game.install_gog_inno'
 				  const isGogCommand = isGogInstallCommand || commandHere?.name === 'game.uninstall_gog_inno' || commandHere?.name === 'game.cleanup_gog_inno_failed'
 				  const progressText = commandHere ? commandProgressMessage(commandHere) : ''
@@ -2559,6 +2646,7 @@ export function GameDetailPage() {
 							  <Badge variant={device.status === 'ready_for_setup' || device.status === 'installed' ? 'playable' : device.status === 'offline' ? 'muted' : 'default'}>
 								{deviceSetupLabel(device.status)}
 							  </Badge>
+							  {device.prepared_copies?.length ? <Badge variant="accent">Prepared</Badge> : null}
 							  {device.emulator_routes?.filter((route) => route.state === 'ready').map((route) => (
 								<Button
 								  key={`emulator-${route.emulator_id}-${route.source_game_id}`}
@@ -2664,8 +2752,43 @@ export function GameDetailPage() {
 								  ))}
 								</>
 							  )}
+							  {fileBackedSources.map((source) => {
+								const downloadableFileCount = source.files.filter((file) => !file.is_dir).length
+								return (
+								<Button
+								  key={`download-files-${source.id}`}
+								  size="sm"
+								  variant="outline"
+								  disabled={!device.connected || !device.can_manage || !device.file_download_supported || device.status === 'update_required' || Boolean(activeHere)}
+								  title={`Copy ${source.raw_title || data.title} to this device without installing it`}
+								  onClick={() => {
+									setInstallError('')
+									setInstallChoice({
+									  deviceId: device.device_id,
+									  deviceName: device.display_name,
+									  sourceGameId: source.id,
+									  sourceLabel: source.integration_label || source.integration_id,
+									  packageName: `${downloadableFileCount} file${downloadableFileCount === 1 ? '' : 's'}`,
+									  installKind: 'file_download',
+									})
+								  }}
+								>
+								  <Download size={14} /> Download{fileBackedSources.length > 1 ? ` · ${source.integration_label || source.raw_title}` : ''}
+								</Button>
+								)
+							  })}
 							</div>
 						  </div>
+						  {device.prepared_copies?.length ? (
+							<details className="mt-2 rounded-lg border border-sky-300/15 bg-sky-300/5 px-3 py-2 text-xs text-white/58">
+							  <summary className="cursor-pointer font-medium text-sky-100">Prepared files ({device.prepared_copies.length})</summary>
+							  <div className="mt-2 space-y-1">
+								{device.prepared_copies.map((copy) => (
+								  <p key={copy.local_prepared_copy_id}>{copy.file_count} files · {formatStorageBytes(copy.total_bytes)} · {copy.prepared_path}</p>
+								))}
+							  </div>
+							</details>
+						  ) : null}
 						  {device.installed && device.installed_source_id && device.launch_candidates && device.launch_candidates.length > 1 ? (
 							<label className="mt-2 flex items-center gap-2 text-xs text-white/58">
 							  <span>Starts with</span>
@@ -2730,6 +2853,11 @@ export function GameDetailPage() {
 								<div className="mt-2 space-y-2">
 								  <div><div className="mb-1 flex justify-between text-[11px] text-sky-200/80"><span>Download</span><span>{downloadPercent}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-sky-400 transition-[width]" style={{ width: `${downloadPercent}%` }} /></div></div>
 								  <div><div className="mb-1 flex justify-between text-[11px] text-purple-200/80"><span>Install</span><span>{installerRunning ? 'In progress' : `${installPercent}%`}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-black/30">{installerRunning ? <div className="h-full w-full animate-pulse rounded-full bg-purple-500/80" /> : <div className="h-full rounded-full bg-purple-500 transition-[width]" style={{ width: `${installPercent}%` }} />}</div></div>
+								</div>
+							  ) : isDownloadCommand ? (
+								<div className="mt-2 space-y-2">
+								  <div><div className="mb-1 flex justify-between text-[11px] text-sky-200/80"><span>Download</span><span>{downloadPercent}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-sky-400 transition-[width]" style={{ width: `${downloadPercent}%` }} /></div></div>
+								  <div><div className="mb-1 flex justify-between text-[11px] text-emerald-200/80"><span>Verify</span><span>{verifyPercent}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-emerald-400 transition-[width]" style={{ width: `${verifyPercent}%` }} /></div></div>
 								</div>
 							  ) : (
 								<div className="mt-1 h-1.5 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-mga-accent transition-[width]" style={{ width: `${commandHere.progress_percent ?? 0}%` }} /></div>
@@ -3055,8 +3183,12 @@ export function GameDetailPage() {
         gameId={id}
         choice={installChoice}
         busy={installGame.isPending}
+        preparation={downloadPreparation}
         error={installError}
-        onClose={() => setInstallChoice(null)}
+        onClose={() => {
+          setInstallChoice(null)
+          setDownloadPreparation(null)
+        }}
         onInstall={(root) => {
           if (installChoice) installGame.mutate({ choice: installChoice, root })
         }}

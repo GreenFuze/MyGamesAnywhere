@@ -86,6 +86,8 @@ func TestEveryNonPublicAPIRouteFailsClosedForInvalidProfileSessions(t *testing.T
 		"HEAD /api/device-transfers/archive":       "opaque transfer capability metadata",
 		"GET /api/device-transfers/content":        "opaque transfer capability",
 		"HEAD /api/device-transfers/content":       "opaque transfer capability metadata",
+		"GET /api/device-transfers/file":           "opaque single-file transfer capability",
+		"HEAD /api/device-transfers/file":          "opaque single-file transfer capability metadata",
 		"GET /api/device-transfers/save-domain":    "opaque transfer capability",
 		"PUT /api/device-transfers/save-domain":    "opaque transfer capability",
 		"GET /api/setup/status":                    "first-run bootstrap",

@@ -367,6 +367,8 @@ func (s *Service) DispatchCommand(ctx context.Context, endpointID, profileID, na
 	now := s.now()
 	lifetime := 2 * time.Minute
 	switch name {
+	case devicev1.CapabilityGameDownloadFiles:
+		lifetime = devicev1.FileDownloadCommandLifetime
 	case devicev1.CapabilityGameInstallGogInno:
 		lifetime = devicev1.GogInnoInstallCommandLifetime
 	case devicev1.CapabilityGameUninstallGogInno:
@@ -476,6 +478,15 @@ func (s *Service) GetCommand(ctx context.Context, endpointID, profileID, command
 
 func commandPayloadForAudit(name string, payload json.RawMessage) (json.RawMessage, error) {
 	switch name {
+	case devicev1.CapabilityGameDownloadFiles:
+		var request devicev1.FileDownloadRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return nil, err
+		}
+		for index := range request.Files {
+			request.Files[index].DownloadToken = "[redacted]"
+		}
+		return json.Marshal(request)
 	case devicev1.CapabilityGameInstallArchive:
 		var request devicev1.ArchiveInstallRequest
 		if err := json.Unmarshal(payload, &request); err != nil {
@@ -727,7 +738,7 @@ func requiredAccessForCommand(name string) (devicev1.AccessLevel, error) {
 		return devicev1.AccessPlay, nil
 	case devicev1.CapabilityEmulatorSetup:
 		return devicev1.AccessOwner, nil
-	case devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameUninstall,
+	case devicev1.CapabilityGameDownloadFiles, devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameUninstall,
 		devicev1.CapabilityGameInstallGogInno, devicev1.CapabilityGameUninstallGogInno,
 		devicev1.CapabilityGameCleanupGogInnoFailed, devicev1.CapabilityGameUseExisting,
 		devicev1.CapabilitySaveDomainClaim, devicev1.CapabilitySaveDomainRelease,
@@ -767,6 +778,13 @@ func validateCommandPayload(name string, payload json.RawMessage) error {
 		var request devicev1.ArchiveInstallRequest
 		if err := json.Unmarshal(payload, &request); err != nil {
 			return fmt.Errorf("decode archive install payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilityGameDownloadFiles {
+		var request devicev1.FileDownloadRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode file download payload: %w", err)
 		}
 		return request.Validate()
 	}
