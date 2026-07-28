@@ -21,7 +21,14 @@ export function ProgressBar({ value, className, label }: ProgressBarProps) {
           )}
         </div>
       )}
-      <div className="h-2 rounded-full bg-mga-elevated overflow-hidden">
+      <div
+        className="h-2 rounded-full bg-mga-elevated overflow-hidden"
+        role="progressbar"
+        aria-label={label ?? 'Progress'}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={indeterminate ? undefined : Math.round(Math.min(100, Math.max(0, value)))}
+      >
         {indeterminate ? (
           <div className="h-full w-1/3 rounded-full bg-mga-accent animate-indeterminate" />
         ) : (

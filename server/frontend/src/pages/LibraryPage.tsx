@@ -8,6 +8,7 @@ import { useLibraryPrefs } from '@/hooks/useLibraryPrefs'
 import { CollectionShelf } from '@/components/library/CollectionShelf'
 import { HorizontalGameShelf } from '@/components/library/HorizontalGameShelf'
 import { LibraryToolbar } from '@/components/library/LibraryToolbar'
+import { LibraryLoadProgress } from '@/components/library/LibraryLoadProgress'
 import { FilterBar } from '@/components/library/FilterBar'
 import { GameGrid } from '@/components/library/GameGrid'
 import { GameListView } from '@/components/library/GameListView'
@@ -39,6 +40,7 @@ import {
   rememberRouteScroll,
   shouldRestoreRouteScroll,
 } from '@/lib/gameNavigation'
+import { LibraryLoadProgressModel, type LibraryLoadMode } from '@/lib/libraryLoadProgress'
 import type { GameDetailResponse, LibraryPrefs } from '@/api/client'
 
 // ---------------------------------------------------------------------------
@@ -208,7 +210,6 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { searchQuery } = useSearch()
-  const loadMoreRef = useRef<HTMLDivElement | null>(null)
   const loadMoreRequestedRef = useRef(false)
   const {
     prefs,
@@ -229,6 +230,7 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     isPending,
     isError,
     error,
+    refetch,
   } = useLibraryData(prefs.sortBy, prefs.sortDir)
   const { recentPlayed, removeRecentPlayed } = useRecentPlayed()
   const effectiveViewMode = scope === 'play' && prefs.viewMode === 'list' ? 'shelf' : prefs.viewMode
@@ -375,11 +377,26 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   // Group headings and counts are misleading when they only describe the
   // current page, so grouped views deliberately finish loading the library.
   const groupRequiresAllPages = effectiveGroupBy !== 'none'
-  const isCompletingSearch = searchRequiresAllPages && hasNextPage
-  const isCompletingFilter = !searchRequiresAllPages && filterRequiresAllPages && hasNextPage
-  const isCompletingGroups = !searchRequiresAllPages && !filterRequiresAllPages && groupRequiresAllPages && hasNextPage
-  const isClosedShelfOverview = scope === 'library' && effectiveViewMode === 'shelf' && effectiveGroupBy === 'none' && !focusedSection
-  const showLoadMoreSentinel = hasNextPage && (!isClosedShelfOverview || searchRequiresAllPages || filterRequiresAllPages || groupRequiresAllPages)
+  const loadMode: LibraryLoadMode = searchRequiresAllPages
+    ? 'search'
+    : filterRequiresAllPages
+    ? 'filter'
+    : groupRequiresAllPages
+    ? 'group'
+    : 'browse'
+  const loadProgress = useMemo(
+    () =>
+      new LibraryLoadProgressModel({
+        target: scope === 'play' ? 'Play' : 'Library',
+        mode: loadMode,
+        loadedCount,
+        totalCount,
+        isInitialLoading: isPending,
+        hasMore: Boolean(hasNextPage),
+        errorMessage: isError ? (error instanceof Error ? error.message : 'Unknown loading error') : undefined,
+      }),
+    [error, hasNextPage, isError, isPending, loadMode, loadedCount, scope, totalCount],
+  )
 
   const recentPlayedGames = useMemo(() => {
     if (scope !== 'play') return []
@@ -541,6 +558,14 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     })
   }, [fetchNextPage, hasNextPage, isFetchingNextPage])
 
+  const retryLibraryLoad = useCallback(() => {
+    if (hasNextPage) {
+      requestNextPage()
+      return
+    }
+    void refetch()
+  }, [hasNextPage, refetch, requestNextPage])
+
   useEffect(() => {
     if (!isFetchingNextPage) {
       loadMoreRequestedRef.current = false
@@ -548,9 +573,9 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   }, [isFetchingNextPage])
 
   useEffect(() => {
-    if ((!searchRequiresAllPages && !filterRequiresAllPages && !groupRequiresAllPages) || !hasNextPage) return
+    if (!hasNextPage || isError) return
     requestNextPage()
-  }, [filterRequiresAllPages, groupRequiresAllPages, hasNextPage, loadedCount, requestNextPage, searchRequiresAllPages])
+  }, [hasNextPage, isError, loadedCount, requestNextPage])
 
   useEffect(() => {
     setSelectedGameIds((prev) => {
@@ -569,28 +594,6 @@ export function CollectionPage({ scope }: CollectionPageProps) {
     setFilterState(filterStateFromSearch(location.search))
     setFilterBarOpen(location.search.length > 1)
   }, [location.search])
-
-  useEffect(() => {
-    if (!showLoadMoreSentinel || isPending) return
-    const sentinel = loadMoreRef.current
-    if (!sentinel) return
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          requestNextPage()
-        }
-      },
-      {
-        root: null,
-        rootMargin: '720px 0px',
-        threshold: 0,
-      },
-    )
-
-    observer.observe(sentinel)
-    return () => observer.disconnect()
-  }, [displayedGames.length, isPending, requestNextPage, showLoadMoreSentinel])
 
   useEffect(() => {
     if (isPending || !shouldRestoreRouteScroll(location.state)) return
@@ -632,7 +635,8 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         }
         totalCount={toolbarTotalCount}
         filteredCount={displayedGames.length}
-        isLoading={isPending || isCompletingSearch || isCompletingGroups}
+        isLoading={loadProgress.isLoading}
+        countLabel={loadProgress.isVisible ? loadProgress.toolbarLabel : undefined}
         viewMode={focusedSection ? 'grid' : effectiveViewMode}
         onViewModeChange={setViewMode}
         groupBy={effectiveGroupBy}
@@ -650,6 +654,8 @@ export function CollectionPage({ scope }: CollectionPageProps) {
         showViewToggle={!focusedSection}
         showGrouping={!focusedSection}
       />
+
+      <LibraryLoadProgress model={loadProgress} onRetry={retryLibraryLoad} />
 
       {/* Filter bar (collapsible) */}
       <FilterBar
@@ -737,10 +743,6 @@ export function CollectionPage({ scope }: CollectionPageProps) {
       ) : null}
 
       {/* Content */}
-      {isError && (
-        <p className="text-sm text-red-400">Error: {(error as Error).message}</p>
-      )}
-
       {scope === 'play' && !focusedSection ? <InstalledGamesShelf /> : null}
 
       {focusedSection ? (
@@ -833,36 +835,15 @@ export function CollectionPage({ scope }: CollectionPageProps) {
       )}
 
       {/* Empty state */}
-      {!isPending && !isError && displayedGames.length === 0 && (
+      {!loadProgress.isLoading && !isError && displayedGames.length === 0 && (
         <div className="py-12 text-center">
           <p className="text-mga-muted">
-            {isCompletingSearch
-              ? 'Searching all loaded and unloaded games...'
-              : isCompletingFilter
-              ? 'Filtering all loaded and unloaded games...'
-              : searchQuery || activeFilterCount > 0
+            {searchQuery || activeFilterCount > 0
               ? 'No games match your filters.'
               : emptyMessage}
           </p>
         </div>
       )}
-
-      {!isPending && !isError && showLoadMoreSentinel ? (
-        <div ref={loadMoreRef} className="flex flex-col items-center gap-2 py-6" aria-live="polite">
-          <div className="h-1 w-1" aria-hidden="true" />
-          <p className="text-xs text-mga-muted">
-            {searchRequiresAllPages
-              ? `Searching all games: ${loadedCount} of ${totalCount} loaded.`
-              : filterRequiresAllPages
-              ? `Filtering all games: ${loadedCount} of ${totalCount} loaded.`
-              : groupRequiresAllPages
-              ? `Building groups: ${loadedCount} of ${totalCount} loaded.`
-              : isFetchingNextPage
-              ? 'Loading more games...'
-              : `Scroll to load more games. ${loadedCount} of ${totalCount} loaded.`}
-          </p>
-        </div>
-      ) : null}
 
       <SectionPickerDialog
         open={sectionPickerOpen}
