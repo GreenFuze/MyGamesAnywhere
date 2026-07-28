@@ -97,7 +97,7 @@ function reviewReasonLabel(reason: string): string {
 }
 
 function isAddOnContentKind(kind: string | undefined): boolean {
-  return kind === 'dlc' || kind === 'addon' || kind === 'expansion'
+  return kind === 'dlc' || kind === 'addon' || kind === 'expansion' || kind === 'patch' || kind === 'extras'
 }
 
 function reviewStateLabel(state: ManualReviewCandidateDetail['review_state'], kind?: string): string {
@@ -105,8 +105,8 @@ function reviewStateLabel(state: ManualReviewCandidateDetail['review_state'], ki
     case 'matched':
       return 'Matched'
     case 'not_a_game':
-      if (isAddOnContentKind(kind)) return 'Archived as Add-on Content'
-      return 'Archived as Not a Game'
+      if (isAddOnContentKind(kind)) return 'Saved as add-on'
+      return 'Not a game'
     default:
       return 'Pending Review'
   }
@@ -851,7 +851,7 @@ export function UndetectedGamesTab() {
                       <Badge variant={reviewStateVariant(candidateQuery.data.review_state)}>
                         {reviewStateLabel(candidateQuery.data.review_state, candidateQuery.data.kind)}
                       </Badge>
-                      {!selectedInScope ? <Badge variant="muted">Direct reclassify target</Badge> : null}
+                      {!selectedInScope ? <Badge variant="muted">Opened from the library</Badge> : null}
                     </div>
                     <p className="text-sm text-mga-muted">
                       {candidateIntegrationLabel}
@@ -928,7 +928,7 @@ export function UndetectedGamesTab() {
                         disabled={restoreBaseGameMutation.isPending}
                       >
                         {restoreBaseGameMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : null}
-                        Restore as Base Game
+                        Restore as game
                       </Button>
                     ) : (
                       <Button
@@ -951,7 +951,7 @@ export function UndetectedGamesTab() {
                           disabled={restoreBaseGameMutation.isPending}
                         >
                           {restoreBaseGameMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : null}
-                          Restore as Base Game
+                          Restore as game
                         </Button>
                       ) : (
                         <Button
@@ -961,7 +961,7 @@ export function UndetectedGamesTab() {
                           disabled={markDLCMutation.isPending}
                         >
                           {markDLCMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : null}
-                          Mark as DLC/Add-on
+                          Mark as add-on
                         </Button>
                       )}
                       <Button
@@ -993,8 +993,8 @@ export function UndetectedGamesTab() {
                 {candidateQuery.data.review_state === 'not_a_game' ? (
                   <div className="rounded-mga border border-dashed border-mga-border p-4 text-sm text-mga-muted">
                     {selectedCandidateIsAddOn
-                      ? 'Add-on content stays out of the active queue and game library. Restore it as a base game if this source record is actually standalone.'
-                      : 'Archived records stay out of the active queue. Unarchive this item to search providers or apply a metadata match again.'}
+                      ? 'This add-on is saved for inspection but is not shown in the library. Restore it as a game if it can be played on its own.'
+                      : 'This item stays out of the library. Restore it to search for a game match again.'}
                   </div>
                 ) : (
                   <>

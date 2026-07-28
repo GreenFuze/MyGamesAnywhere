@@ -428,6 +428,11 @@ func (c *GameController) Get(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	response := c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx))
+	if err := c.attachContentRelationships(ctx, &response, game); err != nil {
+		c.logger.Error("project game content relationships", err, "game_id", id)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	c.attachDeviceAvailability(ctx, &response, game)
 	json.NewEncoder(w).Encode(response)
 }
@@ -456,6 +461,11 @@ func (c *GameController) GetDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	response := c.canonicalToGameDetailWithIntegrationLabels(ctx, game, c.loadIntegrationLabels(ctx))
+	if err := c.attachContentRelationships(ctx, &response, game); err != nil {
+		c.logger.Error("project game content relationships", err, "game_id", id)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	c.attachDeviceAvailability(ctx, &response, game)
 	json.NewEncoder(w).Encode(response)
 }

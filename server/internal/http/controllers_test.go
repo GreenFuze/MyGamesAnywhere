@@ -85,6 +85,66 @@ func TestGameControllerListGamesRejectsUnknownSort(t *testing.T) {
 	}
 }
 
+func TestGameControllerGetProjectsKnownAddOnsUnderParent(t *testing.T) {
+	parent := &core.CanonicalGame{
+		ID:       "parent",
+		Title:    "Doom",
+		Platform: core.PlatformWindowsPC,
+		Kind:     core.GameKindBaseGame,
+		ExternalIDs: []core.ExternalID{{
+			Source:     "metadata-launchbox",
+			ExternalID: "100",
+		}},
+		SourceGames: []*core.SourceGame{{
+			ID:     "source-parent",
+			Status: "found",
+			Kind:   core.GameKindBaseGame,
+			ResolverMatches: []core.ResolverMatch{{
+				PluginID:   "metadata-launchbox",
+				ExternalID: "100",
+			}},
+		}},
+	}
+	child := &core.CanonicalGame{
+		ID:       "child",
+		Title:    "Doom: Episode",
+		Platform: core.PlatformWindowsPC,
+		Kind:     core.GameKindDLC,
+		SourceGames: []*core.SourceGame{{
+			ID:     "source-child",
+			Status: "found",
+			Kind:   core.GameKindDLC,
+			ResolverMatches: []core.ResolverMatch{{
+				PluginID:     "metadata-launchbox",
+				ExternalID:   "101",
+				ParentGameID: "100",
+			}},
+		}},
+	}
+	store := &fakeGameStore{
+		game:  parent,
+		games: []*core.CanonicalGame{parent, child},
+	}
+	controller := NewGameController(store, nil, nil, nil, nil, noopLogger{})
+	router := chi.NewRouter()
+	router.Get("/api/games/{id}", controller.Get)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/games/parent", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var response GameDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Content == nil || len(response.Content.AddOns) != 1 || response.Content.AddOns[0].ID != child.ID {
+		t.Fatalf("content = %+v, want child add-on", response.Content)
+	}
+}
+
 type fakeGameMetadataRefreshService struct {
 	game     *core.CanonicalGame
 	warnings []string

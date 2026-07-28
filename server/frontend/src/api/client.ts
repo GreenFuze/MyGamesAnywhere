@@ -1056,6 +1056,19 @@ export type CompletionTime = {
   source?: string;
 };
 
+export type RelatedContentGameDTO = {
+  id: string;
+  title: string;
+  platform: string;
+  kind: string;
+};
+
+export type GameContentDTO = {
+  parent?: RelatedContentGameDTO;
+  add_ons?: RelatedContentGameDTO[];
+  relationship_state?: "known" | "unlinked" | "ambiguous" | string;
+};
+
 /** Full row (GET /api/games/{id}/detail and each item in GET /api/games). */
 export type GameDetailResponse = {
   id: string;
@@ -1089,6 +1102,7 @@ export type GameDetailResponse = {
   achievement_summary?: AchievementSummaryDTO;
   identity?: GameIdentityDTO;
   devices?: GameDeviceAvailabilityDTO[];
+  content?: GameContentDTO;
   source_games: SourceGameDetailDTO[];
   /** Non-fatal provider warnings from a forced refresh (absent on regular game reads). */
   metadata_warnings?: string[];

@@ -3,6 +3,7 @@ import { ChevronDown, Info, Play, Save, Trophy } from 'lucide-react'
 import { AchievementProgressRing } from '@/components/library/AchievementProgressRing'
 import { GameContextMenu } from '@/components/library/GameContextMenu'
 import { BrandIcon } from '@/components/ui/brand-icon'
+import { Badge } from '@/components/ui/badge'
 import { CoverImage } from '@/components/ui/cover-image'
 import { PlatformIcon } from '@/components/ui/platform-icon'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -28,6 +29,7 @@ import { useToast } from '@/components/ui/toast'
 import { collectSaveDomains, saveDomainSummary } from '@/lib/saveDomains'
 import { browserPlaySourceOptionLabel, listBrowserPlaySelections } from '@/lib/browserPlay'
 import { launchOptionVersionContext, sourceVersionContext } from '@/lib/sourceCapabilities'
+import { GameContentPresentation } from '@/lib/gameContent'
 
 export type { GameCardPlayRoute, GameCardPrimaryAction } from '@/lib/gameCardActions'
 
@@ -260,6 +262,7 @@ export function GameCard({
   const xcloudUrl = typeof game.xcloud_url === 'string' && game.xcloud_url.length > 0 ? game.xcloud_url : null
   const sourceIntegrations = selectSourceIntegrations(game)
   const secondaryText = preferredSecondaryText(game) ?? 'Unknown source'
+  const contentPresentation = new GameContentPresentation(game.kind)
   const isPlayVariant = variant === 'play'
   const favoriteBusy = isPendingFor(game.id)
   const achievementLabel = game.achievement_summary && game.achievement_summary.total_count > 0
@@ -588,6 +591,7 @@ export function GameCard({
 
   const badgeRow = (
     <>
+      {contentPresentation.badgeLabel ? <Badge variant="accent">{contentPresentation.badgeLabel}</Badge> : null}
       {game.xcloud_available && <StatusBadge kind="xcloud" />}
       {game.is_game_pass && <StatusBadge kind="gamepass" />}
       {game.shared && <StatusBadge kind="shared" />}
@@ -800,6 +804,7 @@ export function GameCard({
             <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-t from-black/96 via-black/28 to-black/10" />
             <div className="pointer-events-none absolute inset-x-0 top-0 z-[3] flex items-start justify-between gap-2 p-2.5">
               <div className="flex gap-1.5">
+                {contentPresentation.badgeLabel ? <Badge variant="accent">{contentPresentation.badgeLabel}</Badge> : null}
                 {playable ? <StatusBadge kind="playable" /> : null}
                 {game.xcloud_available ? <StatusBadge kind="xcloud" /> : null}
                 {!playable && !game.xcloud_available && game.is_game_pass ? <StatusBadge kind="gamepass" /> : null}

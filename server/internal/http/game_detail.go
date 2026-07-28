@@ -10,6 +10,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/devices"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/emulation"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/gamesvc"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/savedomain"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcegames"
 )
@@ -47,11 +48,25 @@ type GameDetailResponse struct {
 	AchievementSummary *AchievementSummaryDTO      `json:"achievement_summary,omitempty"`
 	Identity           *core.GameIdentity          `json:"identity,omitempty"`
 	Devices            []GameDeviceAvailabilityDTO `json:"devices,omitempty"`
+	Content            *GameContentDTO             `json:"content,omitempty"`
 	SourceGames        []SourceGameDetailDTO       `json:"source_games"`
 	// MetadataWarnings lists metadata providers that were skipped during a forced refresh
 	// due to non-fatal errors (e.g. timeout). Only present in refresh responses; empty on
 	// regular game-detail reads.
 	MetadataWarnings []string `json:"metadata_warnings,omitempty"`
+}
+
+type GameContentDTO struct {
+	Parent            *RelatedContentGameDTO  `json:"parent,omitempty"`
+	AddOns            []RelatedContentGameDTO `json:"add_ons,omitempty"`
+	RelationshipState string                  `json:"relationship_state,omitempty"`
+}
+
+type RelatedContentGameDTO struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Platform string `json:"platform"`
+	Kind     string `json:"kind"`
 }
 
 type DeviceEndpointLister interface {
@@ -555,6 +570,59 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 		})
 	}
 	return out
+}
+
+// attachContentRelationships projects existing provider metadata into a
+// player-facing relationship view. NO_MIGRATION_NEEDED: this reads the
+// resolver match parent_game_id already stored in metadata_json and adds only
+// response fields; persisted rows and configuration remain unchanged.
+func (c *GameController) attachContentRelationships(ctx context.Context, response *GameDetailResponse, target *core.CanonicalGame) error {
+	if response == nil || target == nil {
+		return nil
+	}
+	games, err := c.gameStore.GetCanonicalGames(ctx)
+	if err != nil {
+		return err
+	}
+	foundTarget := false
+	for _, game := range games {
+		if game != nil && game.ID == target.ID {
+			foundTarget = true
+			break
+		}
+	}
+	if !foundTarget {
+		games = append(games, target)
+	}
+
+	projection := gamesvc.NewContentRelationshipProjector().Project(target.ID, games)
+	if projection.Parent == nil && len(projection.AddOns) == 0 && projection.State == gamesvc.ContentRelationshipStateNone {
+		return nil
+	}
+	content := &GameContentDTO{
+		RelationshipState: string(projection.State),
+		AddOns:            make([]RelatedContentGameDTO, 0, len(projection.AddOns)),
+	}
+	if projection.Parent != nil {
+		parent := relatedContentGameDTO(projection.Parent)
+		content.Parent = &parent
+	}
+	for _, addOn := range projection.AddOns {
+		if addOn != nil {
+			content.AddOns = append(content.AddOns, relatedContentGameDTO(addOn))
+		}
+	}
+	response.Content = content
+	return nil
+}
+
+func relatedContentGameDTO(game *core.CanonicalGame) RelatedContentGameDTO {
+	return RelatedContentGameDTO{
+		ID:       game.ID,
+		Title:    game.Title,
+		Platform: string(game.Platform),
+		Kind:     string(game.Kind),
+	}
 }
 
 func externalIDURL(cg *core.CanonicalGame, eid core.ExternalID) string {

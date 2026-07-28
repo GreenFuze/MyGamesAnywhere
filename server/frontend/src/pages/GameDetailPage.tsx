@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileText,
   FolderOpen,
+  Layers3,
   Loader2,
   Monitor,
   MoreHorizontal,
@@ -59,6 +60,7 @@ import {
 	type InstallationPreflightResult,
   type GameMediaDetailDTO,
   type ResolverMatchDTO,
+  type RelatedContentGameDTO,
   type SourceGameDetailDTO,
 } from '@/api/client'
 import { useGameFavoriteAction } from '@/hooks/useGameFavorite'
@@ -77,6 +79,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { PlatformIcon } from '@/components/ui/platform-icon'
 import { SourceFileInventory } from '@/components/ui/source-file-inventory'
+import { GameContentPresentation } from '@/lib/gameContent'
 import {
   brandLabel,
   resolveBrandDefinition,
@@ -1158,6 +1161,29 @@ function sourceRecordLabel(source: SourceGameDetailDTO): string {
   return `${source.integration_label || source.integration_id} · ${source.raw_title || source.external_id}`
 }
 
+function RelatedContentCard({
+  game,
+  onOpen,
+}: {
+  game: RelatedContentGameDTO
+  onOpen: (game: RelatedContentGameDTO) => void
+}) {
+  const presentation = new GameContentPresentation(game.kind)
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(game)}
+      className="flex w-full items-center justify-between gap-4 rounded-[18px] border border-white/[0.06] bg-black/10 p-4 text-left transition-colors hover:border-white/[0.12] hover:bg-white/[0.05]"
+    >
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-white">{game.title}</p>
+        <p className="mt-1 text-xs text-white/52">{platformLabel(game.platform)}</p>
+      </div>
+      {presentation.badgeLabel ? <Badge variant="accent">{presentation.badgeLabel}</Badge> : null}
+    </button>
+  )
+}
+
 function SourceRecordCard({
   source,
   canonicalGameId,
@@ -1205,7 +1231,7 @@ function SourceRecordCard({
 
       <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
         <MetaItem label="Integration" value={source.integration_label || source.integration_id} />
-        <MetaItem label="Kind" value={source.kind} />
+        <MetaItem label="Content type" value={new GameContentPresentation(source.kind).badgeLabel ?? 'Game'} />
         <MetaItem label="Created" value={formatDateTimeValue(source.created_at)} />
         <MetaItem label="Last Seen" value={formatDateTimeValue(source.last_seen_at)} />
         <MetaItem label="Root Path" value={source.root_path ?? 'Unknown'} />
@@ -1367,7 +1393,12 @@ function MergeCanonicalDialog({
               >
                 <span className="block text-sm font-semibold text-mga-text">{game.title}</span>
                 <span className="mt-1 block text-xs text-mga-muted">
-                  {platformLabel(game.platform)} · {game.kind} · {game.source_count} source record{game.source_count === 1 ? '' : 's'}
+                  {platformLabel(game.platform)}
+                  {new GameContentPresentation(game.kind).badgeLabel
+                    ? ` · ${new GameContentPresentation(game.kind).badgeLabel}`
+                    : ''}
+                  {' · '}
+                  {game.source_count} source record{game.source_count === 1 ? '' : 's'}
                 </span>
               </button>
             ))
@@ -2083,6 +2114,12 @@ export function GameDetailPage() {
 
   const data = game.data
   const favoriteBusy = isPendingFor(data.id)
+  const contentPresentation = new GameContentPresentation(data.kind)
+  const relationshipMessage = contentPresentation.relationshipMessage(data.content?.relationship_state)
+  const relatedAddOns = data.content?.add_ons ?? []
+  const openRelatedContent = (related: RelatedContentGameDTO) => {
+    navigate(`/game/${encodeURIComponent(related.id)}`, { state: location.state })
+  }
   return (
     <div className="w-full space-y-8 pb-32 md:pb-36">
       <section
@@ -2150,6 +2187,9 @@ export function GameDetailPage() {
                   <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-white md:text-5xl xl:text-[4.15rem] xl:leading-[1.02]">
                     {data.title}
                   </h1>
+                  {contentPresentation.badgeLabel ? (
+                    <Badge variant="accent">{contentPresentation.badgeLabel}</Badge>
+                  ) : null}
                   <AttributionNote sources={metadataSources} prefix="Metadata gathered from" />
                 </div>
                 {heroDescription.tagline ? (
@@ -2161,6 +2201,38 @@ export function GameDetailPage() {
                   {heroDescription.body || 'No description is available for this game yet.'}
                 </p>
               </div>
+
+              {data.content?.parent ? (
+                <div className="max-w-2xl rounded-[18px] border border-sky-300/20 bg-sky-300/[0.08] px-4 py-3 text-sm text-sky-50">
+                  <p>
+                    This {contentPresentation.noun} belongs to{' '}
+                    <button
+                      type="button"
+                      className="font-semibold text-white underline decoration-white/30 underline-offset-4 hover:decoration-white"
+                      onClick={() => openRelatedContent(data.content!.parent!)}
+                    >
+                      {data.content.parent.title}
+                    </button>
+                    .
+                  </p>
+                </div>
+              ) : relationshipMessage ? (
+                <div className="max-w-2xl rounded-[18px] border border-amber-300/20 bg-amber-300/[0.08] px-4 py-3 text-sm text-amber-50">
+                  <p>{relationshipMessage}</p>
+                  {currentProfile?.role === 'admin_player' ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-3 border-amber-200/20 bg-black/15 text-amber-50 hover:bg-black/25"
+                      onClick={() => navigate('/settings?tab=undetected')}
+                    >
+                      Review relationship
+                    </Button>
+                  ) : (
+                    <p className="mt-2 text-xs text-amber-50/70">Ask an MGA admin to review this relationship.</p>
+                  )}
+                </div>
+              ) : null}
 
               {limitedManualMetadata ? (
                 <div className="max-w-2xl rounded-[18px] border border-amber-300/20 bg-amber-300/[0.08] px-4 py-3 text-sm text-amber-50">
@@ -2380,6 +2452,7 @@ export function GameDetailPage() {
             {achievementSets.length > 0 ? <HeroTabLink href="#achievements" label="Achievements" /> : null}
 			{saveDomains.length > 0 ? <HeroTabLink href="#saves" label="Saves" /> : null}
             {fileLocations.length > 0 ? <HeroTabLink href="#copies-files" label="Copies & files" /> : null}
+            {relatedAddOns.length > 0 ? <HeroTabLink href="#add-ons" label="Add-ons" /> : null}
             <HeroTabLink href="#source-records" label="Sources" />
             {externalLinks.length > 0 ? <HeroTabLink href="#external-links" label="Links" /> : null}
           </div>
@@ -2682,6 +2755,21 @@ export function GameDetailPage() {
               </div>
             </SectionCard>
           </div>
+
+        {relatedAddOns.length > 0 ? (
+          <SectionCard
+            id="add-ons"
+            title="Add-ons"
+            icon={<Layers3 size={18} className="text-mga-accent" />}
+            description={`Extra content connected to ${data.title}. Each item stays separate so its own files, source, and play options are preserved.`}
+          >
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {relatedAddOns.map((addOn) => (
+                <RelatedContentCard key={addOn.id} game={addOn} onOpen={openRelatedContent} />
+              ))}
+            </div>
+          </SectionCard>
+        ) : null}
 
         {(data.completion_time?.main_story || data.completion_time?.main_extra || data.completion_time?.completionist) ? (
           <SectionCard
