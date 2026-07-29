@@ -12,6 +12,7 @@ import { NotificationCenter } from '@/components/notifications/NotificationCente
 const nav = [
   { to: '/play', label: 'Play' },
   { to: '/library', label: 'Library' },
+  { to: '/library/review', label: 'Review', adminOnly: true },
   { to: '/achievements', label: 'Achievements' },
   { to: '/stats/library', label: 'Stats' },
   { to: '/settings', label: 'Settings' },
@@ -192,14 +193,17 @@ export function AppLayout() {
         </div>
         <nav className="overflow-x-auto border-t border-mga-border/70 px-3 md:px-4">
           <div className="flex min-w-max gap-1 py-2">
-            {nav.map(({ to, label }) => (
+            {nav.filter((item) => !item.adminOnly || currentProfile?.role === 'admin_player').map(({ to, label }) => (
               <NavLink
                 key={to}
                 to={to}
                 end={to === '/'}
                 className={({ isActive }) =>
                   {
-                    const active = isActive || (to.startsWith('/stats') && loc.pathname.startsWith('/stats'))
+                    const active = (
+                      isActive
+                      && !(to === '/library' && loc.pathname.startsWith('/library/review'))
+                    ) || (to.startsWith('/stats') && loc.pathname.startsWith('/stats'))
                     return cn(
                       'rounded-mga px-3 py-2 text-sm font-medium transition-colors',
                       active

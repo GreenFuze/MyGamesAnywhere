@@ -319,7 +319,7 @@ func TestCanonicalSourcePinSplitOverridesSharedExternalID(t *testing.T) {
 		t.Fatalf("expected external id grouping before split, got %q and %q", oldCanonical, got)
 	}
 
-	result, err := store.SplitSourceGameCanonical(ctx, oldCanonical, "scan:source-b")
+	result, err := store.SplitSourceGameCanonical(ctx, oldCanonical, "scan:source-b", core.CanonicalReviewDecisionDifferentEdition)
 	if err != nil {
 		t.Fatalf("SplitSourceGameCanonical: %v", err)
 	}
@@ -328,6 +328,9 @@ func TestCanonicalSourcePinSplitOverridesSharedExternalID(t *testing.T) {
 	}
 	if got := canonicalIDForSource(t, ctx, db, "scan:source-a"); got != oldCanonical {
 		t.Fatalf("unselected source canonical = %q, want %q", got, oldCanonical)
+	}
+	if result.Pin == nil || result.Pin.Note != string(core.CanonicalReviewDecisionDifferentEdition) {
+		t.Fatalf("split decision note = %#v, want %q", result.Pin, core.CanonicalReviewDecisionDifferentEdition)
 	}
 }
 
@@ -343,12 +346,15 @@ func TestCanonicalSourcePinMergeOverridesAutomaticGrouping(t *testing.T) {
 		t.Fatal("expected separate canonical games before merge pin")
 	}
 
-	result, err := store.MergeSourceGameCanonical(ctx, canonicalB, "scan:source-b", canonicalA)
+	result, err := store.MergeSourceGameCanonical(ctx, canonicalB, "scan:source-b", canonicalA, core.CanonicalReviewDecisionSameEdition)
 	if err != nil {
 		t.Fatalf("MergeSourceGameCanonical: %v", err)
 	}
 	if result.CanonicalGameID != canonicalA {
 		t.Fatalf("merge result canonical = %q, want %q", result.CanonicalGameID, canonicalA)
+	}
+	if result.Pin == nil || result.Pin.Note != string(core.CanonicalReviewDecisionSameEdition) {
+		t.Fatalf("merge decision note = %#v, want %q", result.Pin, core.CanonicalReviewDecisionSameEdition)
 	}
 
 	persistBatch(t, ctx, store, makeTestBatch("integration-2", "scan:source-b", "source-b", "Bravo", "bravo"))
@@ -362,6 +368,44 @@ func TestCanonicalSourcePinMergeOverridesAutomaticGrouping(t *testing.T) {
 	}
 	if clearResult.CanonicalGameID == canonicalA {
 		t.Fatalf("clear pin canonical = %q, want automatic split away from %q", clearResult.CanonicalGameID, canonicalA)
+	}
+}
+
+func TestCanonicalSourcePinSameEditionCanConfirmAnExistingGroup(t *testing.T) {
+	ctx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-1"})
+	db, store := newTestGameStore(t)
+
+	persistBatch(t, ctx, store, makeTestBatch("integration-1", "scan:source-a", "source-a", "Killer Instinct", "same-external"))
+	persistBatch(t, ctx, store, makeTestBatch("integration-2", "scan:source-b", "source-b", "Killer Instinct", "same-external"))
+	canonicalID := canonicalIDForSource(t, ctx, db, "scan:source-a")
+
+	result, err := store.MergeSourceGameCanonical(
+		ctx,
+		canonicalID,
+		"scan:source-b",
+		canonicalID,
+		core.CanonicalReviewDecisionSameEdition,
+	)
+	if err != nil {
+		t.Fatalf("MergeSourceGameCanonical existing group: %v", err)
+	}
+	if result.CanonicalGameID != canonicalID {
+		t.Fatalf("confirmed group canonical = %q, want %q", result.CanonicalGameID, canonicalID)
+	}
+	if result.Pin == nil || result.Pin.Note != string(core.CanonicalReviewDecisionSameEdition) {
+		t.Fatalf("confirmed group decision note = %#v, want %q", result.Pin, core.CanonicalReviewDecisionSameEdition)
+	}
+}
+
+func TestCanonicalSourcePinRejectsDecisionThatDoesNotMatchAction(t *testing.T) {
+	ctx := core.WithProfile(context.Background(), &core.Profile{ID: "profile-1"})
+	db, store := newTestGameStore(t)
+
+	persistBatch(t, ctx, store, makeTestBatch("integration-1", "scan:source-a", "source-a", "Alpha", "alpha"))
+	canonicalID := canonicalIDForSource(t, ctx, db, "scan:source-a")
+
+	if _, err := store.SplitSourceGameCanonical(ctx, canonicalID, "scan:source-a", core.CanonicalReviewDecisionSameEdition); err == nil {
+		t.Fatal("SplitSourceGameCanonical accepted a same-edition merge decision")
 	}
 }
 

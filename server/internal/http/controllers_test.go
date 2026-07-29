@@ -1338,10 +1338,10 @@ func (f *fakeGameStore) DeleteSourceGameByID(context.Context, string) error {
 func (f *fakeGameStore) DeleteSourceGamesByID(context.Context, []string) error {
 	panic("unexpected call")
 }
-func (f *fakeGameStore) SplitSourceGameCanonical(context.Context, string, string) (*core.CanonicalGroupingResult, error) {
+func (f *fakeGameStore) SplitSourceGameCanonical(context.Context, string, string, core.CanonicalReviewDecision) (*core.CanonicalGroupingResult, error) {
 	panic("unexpected call")
 }
-func (f *fakeGameStore) MergeSourceGameCanonical(context.Context, string, string, string) (*core.CanonicalGroupingResult, error) {
+func (f *fakeGameStore) MergeSourceGameCanonical(context.Context, string, string, string, core.CanonicalReviewDecision) (*core.CanonicalGroupingResult, error) {
 	panic("unexpected call")
 }
 func (f *fakeGameStore) ClearSourceGameCanonicalPin(context.Context, string, string) (*core.CanonicalGroupingResult, error) {

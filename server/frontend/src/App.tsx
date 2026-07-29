@@ -13,6 +13,7 @@ import { AppLayout } from '@/layouts/AppLayout'
 import { AboutPage } from '@/pages/AboutPage'
 import { AchievementsPage } from '@/pages/AchievementsPage'
 import { LibraryPage } from '@/pages/LibraryPage'
+import { LibraryReviewPage } from '@/pages/LibraryReviewPage'
 import { PlayPage } from '@/pages/PlayPage'
 import { StatsPage } from '@/pages/StatsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -65,6 +66,7 @@ function ProfileAwareRoutes() {
                         <Route path="play/section/:sectionId" element={<PlayPage />} />
                         <Route path="library" element={<LibraryPage />} />
                         <Route path="library/section/:sectionId" element={<LibraryPage />} />
+                        <Route path="library/review" element={<LibraryReviewPage />} />
                         <Route path="achievements" element={<AchievementsPage />} />
                         <Route path="stats" element={<Navigate to="/stats/library" replace />} />
                         <Route path="stats/library" element={<StatsPage />} />

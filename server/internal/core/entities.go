@@ -349,6 +349,25 @@ const (
 	CanonicalSourcePinModeMerge CanonicalSourcePinMode = "merge"
 )
 
+type CanonicalReviewDecision string
+
+const (
+	CanonicalReviewDecisionSameEdition      CanonicalReviewDecision = "same_edition"
+	CanonicalReviewDecisionDifferentEdition CanonicalReviewDecision = "different_edition"
+	CanonicalReviewDecisionUnrelated        CanonicalReviewDecision = "unrelated"
+)
+
+func (decision CanonicalReviewDecision) ValidFor(mode CanonicalSourcePinMode) bool {
+	switch mode {
+	case CanonicalSourcePinModeMerge:
+		return decision == CanonicalReviewDecisionSameEdition
+	case CanonicalSourcePinModeSplit:
+		return decision == CanonicalReviewDecisionDifferentEdition || decision == CanonicalReviewDecisionUnrelated
+	default:
+		return false
+	}
+}
+
 type CanonicalSourcePin struct {
 	ProfileID    string                 `json:"profile_id,omitempty"`
 	SourceGameID string                 `json:"source_game_id"`

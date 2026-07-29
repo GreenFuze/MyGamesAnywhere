@@ -2305,7 +2305,7 @@ export function GameDetailPage() {
                       variant="outline"
                       size="sm"
                       className="mt-3 border-amber-200/20 bg-black/15 text-amber-50 hover:bg-black/25"
-                      onClick={() => navigate('/settings?tab=undetected')}
+                      onClick={() => navigate('/library/review?tab=identify')}
                     >
                       Review relationship
                     </Button>

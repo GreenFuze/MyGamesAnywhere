@@ -132,6 +132,11 @@ type CanonicalSourcePin struct {
 
 type MergeSourceGameRequest struct {
 	TargetCanonicalGameID string `json:"target_canonical_game_id"`
+	Decision              string `json:"decision,omitempty"`
+}
+
+type SplitSourceGameRequest struct {
+	Decision string `json:"decision,omitempty"`
 }
 
 type CanonicalGameSearchResponse struct {
@@ -1175,14 +1180,37 @@ func (c *GameController) applySourceGameCanonicalAction(w http.ResponseWriter, r
 	var result *core.CanonicalGroupingResult
 	switch action {
 	case "split":
-		result, err = c.groupingSvc.SplitSourceGame(r.Context(), canonicalID, sourceGameID)
+		var body SplitSourceGameRequest
+		if r.Body != nil && r.ContentLength != 0 {
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeActionError(w, http.StatusBadRequest, "invalid JSON body")
+				return
+			}
+		}
+		if strings.TrimSpace(body.Decision) == "" {
+			body.Decision = string(core.CanonicalReviewDecisionDifferentEdition)
+		}
+		decision := core.CanonicalReviewDecision(strings.TrimSpace(body.Decision))
+		if !decision.ValidFor(core.CanonicalSourcePinModeSplit) {
+			writeActionError(w, http.StatusBadRequest, "decision must be different_edition or unrelated")
+			return
+		}
+		result, err = c.groupingSvc.SplitSourceGame(r.Context(), canonicalID, sourceGameID, decision)
 	case "merge":
 		var body MergeSourceGameRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeActionError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
-		result, err = c.groupingSvc.MergeSourceGame(r.Context(), canonicalID, sourceGameID, body.TargetCanonicalGameID)
+		if strings.TrimSpace(body.Decision) == "" {
+			body.Decision = string(core.CanonicalReviewDecisionSameEdition)
+		}
+		decision := core.CanonicalReviewDecision(strings.TrimSpace(body.Decision))
+		if !decision.ValidFor(core.CanonicalSourcePinModeMerge) {
+			writeActionError(w, http.StatusBadRequest, "decision must be same_edition")
+			return
+		}
+		result, err = c.groupingSvc.MergeSourceGame(r.Context(), canonicalID, sourceGameID, body.TargetCanonicalGameID, decision)
 	case "clear":
 		result, err = c.groupingSvc.ClearSourceGamePin(r.Context(), canonicalID, sourceGameID)
 	default:

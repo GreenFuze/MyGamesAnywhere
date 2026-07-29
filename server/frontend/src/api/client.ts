@@ -1390,10 +1390,11 @@ export async function searchCanonicalGames(params?: {
 export async function splitSourceGameCanonical(
   canonicalGameId: string,
   sourceGameId: string,
+  decision: "different_edition" | "unrelated" = "different_edition",
 ): Promise<CanonicalGroupingResponse> {
   return (await postJson<CanonicalGroupingResponse>(
     `/api/games/${encodeURIComponent(canonicalGameId)}/sources/${encodeURIComponent(sourceGameId)}/canonical/split`,
-    {},
+    { decision },
   )) as CanonicalGroupingResponse;
 }
 
@@ -1401,10 +1402,11 @@ export async function mergeSourceGameCanonical(
   canonicalGameId: string,
   sourceGameId: string,
   targetCanonicalGameId: string,
+  decision: "same_edition" = "same_edition",
 ): Promise<CanonicalGroupingResponse> {
   return (await postJson<CanonicalGroupingResponse>(
     `/api/games/${encodeURIComponent(canonicalGameId)}/sources/${encodeURIComponent(sourceGameId)}/canonical/merge`,
-    { target_canonical_game_id: targetCanonicalGameId },
+    { target_canonical_game_id: targetCanonicalGameId, decision },
   )) as CanonicalGroupingResponse;
 }
 

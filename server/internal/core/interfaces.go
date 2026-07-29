@@ -238,10 +238,10 @@ type GameStore interface {
 	DeleteSourceGamesByID(ctx context.Context, sourceGameIDs []string) error
 
 	// SplitSourceGameCanonical pins one source row into a standalone canonical game.
-	SplitSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID string) (*CanonicalGroupingResult, error)
+	SplitSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID string, decision CanonicalReviewDecision) (*CanonicalGroupingResult, error)
 
 	// MergeSourceGameCanonical pins one source row into an existing canonical game.
-	MergeSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID, targetCanonicalID string) (*CanonicalGroupingResult, error)
+	MergeSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID, targetCanonicalID string, decision CanonicalReviewDecision) (*CanonicalGroupingResult, error)
 
 	// ClearSourceGameCanonicalPin removes one source-row grouping pin and recomputes automatic grouping.
 	ClearSourceGameCanonicalPin(ctx context.Context, canonicalID, sourceGameID string) (*CanonicalGroupingResult, error)
@@ -447,7 +447,7 @@ type GameDeletionService interface {
 
 // CanonicalGroupingService handles source-row split/merge grouping decisions.
 type CanonicalGroupingService interface {
-	SplitSourceGame(ctx context.Context, canonicalID, sourceGameID string) (*CanonicalGroupingResult, error)
-	MergeSourceGame(ctx context.Context, canonicalID, sourceGameID, targetCanonicalID string) (*CanonicalGroupingResult, error)
+	SplitSourceGame(ctx context.Context, canonicalID, sourceGameID string, decision CanonicalReviewDecision) (*CanonicalGroupingResult, error)
+	MergeSourceGame(ctx context.Context, canonicalID, sourceGameID, targetCanonicalID string, decision CanonicalReviewDecision) (*CanonicalGroupingResult, error)
 	ClearSourceGamePin(ctx context.Context, canonicalID, sourceGameID string) (*CanonicalGroupingResult, error)
 }

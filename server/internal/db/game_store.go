@@ -3030,16 +3030,16 @@ func (s *gameStore) DeleteSourceGamesByID(ctx context.Context, sourceGameIDs []s
 	return tx.Commit()
 }
 
-func (s *gameStore) SplitSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID string) (*core.CanonicalGroupingResult, error) {
-	return s.pinSourceGameCanonical(ctx, canonicalID, sourceGameID, uuid.NewString(), core.CanonicalSourcePinModeSplit)
+func (s *gameStore) SplitSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID string, decision core.CanonicalReviewDecision) (*core.CanonicalGroupingResult, error) {
+	return s.pinSourceGameCanonical(ctx, canonicalID, sourceGameID, uuid.NewString(), core.CanonicalSourcePinModeSplit, decision)
 }
 
-func (s *gameStore) MergeSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID, targetCanonicalID string) (*core.CanonicalGroupingResult, error) {
+func (s *gameStore) MergeSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID, targetCanonicalID string, decision core.CanonicalReviewDecision) (*core.CanonicalGroupingResult, error) {
 	targetCanonicalID = strings.TrimSpace(targetCanonicalID)
 	if targetCanonicalID == "" {
 		return nil, core.ErrCanonicalGameNotFound
 	}
-	return s.pinSourceGameCanonical(ctx, canonicalID, sourceGameID, targetCanonicalID, core.CanonicalSourcePinModeMerge)
+	return s.pinSourceGameCanonical(ctx, canonicalID, sourceGameID, targetCanonicalID, core.CanonicalSourcePinModeMerge, decision)
 }
 
 func (s *gameStore) ClearSourceGameCanonicalPin(ctx context.Context, canonicalID, sourceGameID string) (*core.CanonicalGroupingResult, error) {
@@ -3104,7 +3104,7 @@ func (s *gameStore) ClearSourceGameCanonicalPin(ctx context.Context, canonicalID
 	}, nil
 }
 
-func (s *gameStore) pinSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID, targetCanonicalID string, mode core.CanonicalSourcePinMode) (*core.CanonicalGroupingResult, error) {
+func (s *gameStore) pinSourceGameCanonical(ctx context.Context, canonicalID, sourceGameID, targetCanonicalID string, mode core.CanonicalSourcePinMode, decision core.CanonicalReviewDecision) (*core.CanonicalGroupingResult, error) {
 	profileID := strings.TrimSpace(core.ProfileIDFromContext(ctx))
 	if profileID == "" {
 		return nil, fmt.Errorf("profile id is required")
@@ -3114,6 +3114,9 @@ func (s *gameStore) pinSourceGameCanonical(ctx context.Context, canonicalID, sou
 	targetCanonicalID = strings.TrimSpace(targetCanonicalID)
 	if canonicalID == "" || sourceGameID == "" || targetCanonicalID == "" {
 		return nil, core.ErrCanonicalGameNotFound
+	}
+	if !decision.ValidFor(mode) {
+		return nil, fmt.Errorf("invalid canonical review decision %q for %q", decision, mode)
 	}
 
 	db := s.db.GetDB()
@@ -3147,12 +3150,13 @@ func (s *gameStore) pinSourceGameCanonical(ctx context.Context, canonicalID, sou
 	now := time.Now().Unix()
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO canonical_source_pins (profile_id, source_game_id, canonical_id, mode, note, created_at, updated_at)
-		VALUES (?, ?, ?, ?, '', ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(profile_id, source_game_id) DO UPDATE SET
 			canonical_id=excluded.canonical_id,
 			mode=excluded.mode,
+			note=excluded.note,
 			updated_at=excluded.updated_at`,
-		profileID, sourceGameID, targetCanonicalID, string(mode), now, now); err != nil {
+		profileID, sourceGameID, targetCanonicalID, string(mode), string(decision), now, now); err != nil {
 		return nil, fmt.Errorf("save canonical source pin: %w", err)
 	}
 	if err := s.recomputeCanonicalGroups(ctx, tx); err != nil {
@@ -3179,6 +3183,7 @@ func (s *gameStore) pinSourceGameCanonical(ctx context.Context, canonicalID, sou
 		SourceGameID: sourceGameID,
 		CanonicalID:  targetCanonicalID,
 		Mode:         mode,
+		Note:         string(decision),
 		CreatedAt:    time.Unix(now, 0).UTC(),
 		UpdatedAt:    time.Unix(now, 0).UTC(),
 	}

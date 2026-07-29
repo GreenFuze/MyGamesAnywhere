@@ -1,11 +1,9 @@
-import { useSearchParams } from 'react-router-dom'
+import { Navigate, useSearchParams } from 'react-router-dom'
 import { Tabs, type Tab } from '@/components/ui/tabs'
 import { IntegrationsTab } from '@/components/settings/IntegrationsTab'
 import { PluginsTab } from '@/components/settings/PluginsTab'
 import { AppearanceTab } from '@/components/settings/AppearanceTab'
-import { UndetectedGamesTab } from '@/components/settings/UndetectedGamesTab'
 import { CacheTab } from '@/components/settings/CacheTab'
-import { DuplicatesTab } from '@/components/settings/DuplicatesTab'
 import { ProfilesTab } from '@/components/settings/ProfilesTab'
 import { UpdateTab } from '@/components/settings/SettingsTab'
 import { DevicesTab } from '@/components/settings/DevicesTab'
@@ -22,8 +20,6 @@ const TABS: Tab[] = [
   { id: 'cache', label: 'Storage' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'update', label: 'Updates' },
-  { id: 'duplicates', label: 'Copies' },
-  { id: 'undetected', label: 'Unidentified' },
   { id: 'plugins', label: 'Advanced' },
 ]
 
@@ -35,15 +31,17 @@ const TAB_COMPONENTS: Record<string, React.FC> = {
   emulators: EmulatorsTab,
   plugins: PluginsTab,
   cache: CacheTab,
-  duplicates: DuplicatesTab,
   appearance: AppearanceTab,
-  undetected: UndetectedGamesTab,
 }
 
 export function SettingsPage() {
   const { currentProfile } = useProfiles()
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
+  if (tabParam === 'duplicates' || tabParam === 'undetected') {
+    const reviewTab = tabParam === 'duplicates' ? 'copies' : 'identify'
+    return <Navigate to={`/library/review?tab=${reviewTab}`} replace />
+  }
   const normalizedTabParam = tabParam === 'settings' ? 'update' : tabParam
   const availableTabs = currentProfile?.role === 'admin_player' ? TABS : TABS.filter((tab) => tab.id === 'my-settings' || tab.id === 'profiles' || tab.id === 'devices' || tab.id === 'emulators' || tab.id === 'appearance')
   const fallbackTab = currentProfile?.role === 'admin_player' ? 'integrations' : 'my-settings'
