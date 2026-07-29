@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import { beginQRSignIn, pollQRSignIn, type QRSignInChallenge } from '@/api/client'
 import { Button } from '@/components/ui/button'
 
@@ -116,9 +117,19 @@ export function QRSignIn({ pluginId, integrationId, providerAppName, onSignedIn 
       {phase === 'waiting' && challenge && (
         <div className="space-y-2">
           <p className="text-xs text-mga-muted">
-            Open this link on the phone running {providerAppName}, then approve the sign-in. This page
+            Scan this code with the {providerAppName} mobile app, then approve the sign-in. This page
             updates by itself.
           </p>
+          <div className="flex justify-center rounded-mga bg-white p-3">
+            <QRCodeSVG
+              value={challenge.challenge_url}
+              size={196}
+              level="M"
+              marginSize={4}
+              title={`Scan with the ${providerAppName} mobile app`}
+            />
+          </div>
+          <p className="text-center text-xs text-mga-muted">Can&apos;t scan it? Copy the link instead.</p>
           <div className="flex items-center gap-2">
             <code className="flex-1 truncate rounded bg-mga-elevated px-2 py-1 text-xs text-mga-text">
               {challenge.challenge_url}
