@@ -522,6 +522,41 @@ func TestApplyScanEventNoGamesClearsProgress(t *testing.T) {
 	}
 }
 
+func TestApplyScanEventKeepsPartialSourceWarningActionable(t *testing.T) {
+	record := &scanJobRecord{
+		status: &core.ScanJobStatus{
+			Integrations: []core.ScanJobIntegrationStatus{{
+				IntegrationID: "steam-source",
+				Label:         "Steam Library",
+				Status:        "running",
+			}},
+		},
+		completedIntegrations: map[string]bool{},
+	}
+
+	applyScanEvent(record, "scan_integration_complete", map[string]any{
+		"integration_id": "steam-source",
+		"games_found":    4,
+		"warning":        "steam access token was rejected",
+		"reason":         "auth_required",
+		"needs_reauth":   true,
+	})
+
+	integration := record.status.Integrations[0]
+	if integration.Status != "completed" {
+		t.Fatalf("status = %q, want completed", integration.Status)
+	}
+	if integration.GamesFound != 4 {
+		t.Fatalf("games found = %d, want 4", integration.GamesFound)
+	}
+	if integration.Reason != "auth_required" || integration.Error == "" {
+		t.Fatalf("warning state = %+v, want actionable auth warning", integration)
+	}
+	if record.status.IntegrationsCompleted != 1 {
+		t.Fatalf("integrations completed = %d, want 1", record.status.IntegrationsCompleted)
+	}
+}
+
 func waitForScanJob(t *testing.T, timeout time.Duration, done func(*core.ScanJobStatus) bool, get func() *core.ScanJobStatus) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

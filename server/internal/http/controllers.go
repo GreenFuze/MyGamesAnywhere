@@ -1779,7 +1779,7 @@ func (c *PluginController) pluginOwnsProviderIdentity(pluginID string) bool {
 	return c.pluginUsesOAuth(pluginID) || pluginID == "game-source-epic"
 }
 
-var oauthOwnedConfigKeys = []string{"tokens", "steam_id", "provider_identity"}
+var oauthOwnedConfigKeys = []string{"tokens", "refresh_token", "steam_id", "provider_identity"}
 
 func stripOAuthOwnedConfig(config map[string]any) {
 	for _, key := range oauthOwnedConfigKeys {
@@ -1811,6 +1811,10 @@ func publicIntegration(integration *core.Integration) *core.Integration {
 		return &result
 	}
 	delete(config, "tokens")
+	// QR/OAuth refresh credentials are server-owned secrets. Older Steam
+	// connections store this key at the top level, so redact it explicitly
+	// while retaining the safe provider_identity for account confirmation.
+	delete(config, "refresh_token")
 	encoded, err := json.Marshal(config)
 	if err != nil {
 		result.ConfigJSON = "{}"

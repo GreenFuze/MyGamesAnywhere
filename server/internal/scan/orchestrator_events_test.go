@@ -32,6 +32,17 @@ type blockingEventTestMediaDownloadQueue struct {
 	release chan struct{}
 }
 
+type recordingEventTestIntegrationRepo struct {
+	manualReviewTestIntegrationRepo
+	updated *core.Integration
+}
+
+func (r *recordingEventTestIntegrationRepo) Update(_ context.Context, integration *core.Integration) error {
+	clone := *integration
+	r.updated = &clone
+	return nil
+}
+
 func (q *blockingEventTestMediaDownloadQueue) EnqueuePending(ctx context.Context) error {
 	select {
 	case q.started <- struct{}{}:
@@ -226,6 +237,97 @@ func TestRunScanContinuesAfterStorefrontSourceAuthError(t *testing.T) {
 			}
 		case <-timeout:
 			t.Fatal("timed out waiting for steam skip event")
+		}
+	}
+}
+
+func TestRunScanSurfacesPartialSteamAuthFailureAndKeepsOwnedGames(t *testing.T) {
+	ctx := scanTestContext()
+	store := newManualReviewTestStore(t)
+	bus := events.New()
+	defer bus.Close()
+
+	sub := bus.Subscribe()
+	defer bus.Unsubscribe(sub)
+
+	caller := &mockCaller{
+		callFn: func(_ string, method string, _ any) (any, error) {
+			if method != sourceGamesListMethod {
+				return nil, nil
+			}
+			return map[string]any{
+				"games": []map[string]any{{
+					"external_id": "owned-1",
+					"title":       "Owned Game",
+					"platform":    "windows_pc",
+				}},
+				"shared_library_error":         "steam access token was rejected (expired or invalid)",
+				"shared_library_token_expired": true,
+			}, nil
+		},
+	}
+	discovery := sourceFilterTestDiscovery{
+		plugins: map[string]*core.Plugin{
+			"game-source-steam": {
+				Manifest: core.PluginManifest{
+					ID:       "game-source-steam",
+					Provides: []string{sourceGamesListMethod},
+				},
+			},
+		},
+	}
+	repo := &recordingEventTestIntegrationRepo{
+		manualReviewTestIntegrationRepo: manualReviewTestIntegrationRepo{items: []*core.Integration{{
+			ID:              "steam-1",
+			PluginID:        "game-source-steam",
+			Label:           "Steam",
+			IntegrationType: "source",
+			ConfigJSON:      `{"api_key":"x","steam_id":"1","refresh_token":"secret"}`,
+		}}},
+	}
+
+	orchestrator := NewOrchestrator(caller, discovery, repo, store, &eventTestMediaDownloadQueue{}, eventTestLogger{})
+	orchestrator.SetEventBus(bus)
+
+	games, err := orchestrator.RunScan(ctx, nil)
+	if err != nil {
+		t.Fatalf("RunScan returned error: %v", err)
+	}
+	if len(games) != 1 || games[0].Title != "Owned Game" {
+		t.Fatalf("games = %+v, want owned game to remain available", games)
+	}
+	if repo.updated == nil || !repo.updated.NeedsReauth {
+		t.Fatal("Steam integration was not persisted as needing sign-in")
+	}
+
+	reports, err := store.GetScanReports(ctx, 1)
+	if err != nil {
+		t.Fatalf("GetScanReports: %v", err)
+	}
+	if len(reports) != 1 || len(reports[0].Results) != 1 {
+		t.Fatalf("unexpected scan reports: %+v", reports)
+	}
+	if reports[0].Results[0].Error == "" {
+		t.Fatal("partial Steam failure was not persisted in the scan report")
+	}
+
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-sub:
+			if ev.Type != "scan_integration_complete" {
+				continue
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(ev.Data, &payload); err != nil {
+				t.Fatalf("unmarshal completion payload: %v", err)
+			}
+			if payload["warning"] == "" || payload["reason"] != "auth_required" || payload["needs_reauth"] != true {
+				t.Fatalf("completion payload = %+v, want actionable authentication warning", payload)
+			}
+			return
+		case <-timeout:
+			t.Fatal("timed out waiting for degraded completion event")
 		}
 	}
 }

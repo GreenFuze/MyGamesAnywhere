@@ -43,16 +43,18 @@ type qrPollRequest struct {
 }
 
 type qrPollResponse struct {
-	Status      string `json:"status"`
-	AccountName string `json:"account_name,omitempty"`
+	Status           string         `json:"status"`
+	AccountName      string         `json:"account_name,omitempty"`
+	ProviderIdentity map[string]any `json:"provider_identity,omitempty"`
 }
 
 // pluginQRPollResult is the plugin's reply to auth.qr.poll.
 type pluginQRPollResult struct {
-	Status        string         `json:"status"`
-	AccountName   string         `json:"account_name"`
-	Message       string         `json:"message"`
-	ConfigUpdates map[string]any `json:"config_updates,omitempty"`
+	Status           string         `json:"status"`
+	AccountName      string         `json:"account_name"`
+	Message          string         `json:"message"`
+	ProviderIdentity map[string]any `json:"provider_identity,omitempty"`
+	ConfigUpdates    map[string]any `json:"config_updates,omitempty"`
 }
 
 // QRBegin handles POST /api/auth/qr/{plugin_id}/begin. It asks the plugin to
@@ -133,10 +135,11 @@ func (c *OAuthController) QRPoll(w http.ResponseWriter, r *http.Request) {
 		"client_id":  body.ClientID,
 		"request_id": body.RequestID,
 	}
-	// Pass the already-known provider identity so the plugin can persist a
-	// complete credential set without re-deriving it.
-	if steamID, ok := config["steam_id"].(string); ok && strings.TrimSpace(steamID) != "" {
-		params["steam_id"] = steamID
+	// A plugin may use an existing application credential to resolve safe
+	// player-facing identity metadata after approval. Provider identity itself
+	// must still come from the newly approved token, never from this config.
+	if apiKey, ok := config["api_key"].(string); ok && strings.TrimSpace(apiKey) != "" {
+		params["api_key"] = apiKey
 	}
 
 	var result pluginQRPollResult
@@ -164,7 +167,11 @@ func (c *OAuthController) QRPoll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(qrPollResponse{Status: "ok", AccountName: result.AccountName})
+	_ = json.NewEncoder(w).Encode(qrPollResponse{
+		Status:           "ok",
+		AccountName:      result.AccountName,
+		ProviderIdentity: result.ProviderIdentity,
+	})
 }
 
 // loadOwnedIntegration returns the requested connection only when it belongs to

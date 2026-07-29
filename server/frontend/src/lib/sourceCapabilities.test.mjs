@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { parsePluginConfigSchema } from './pluginConfig.ts'
 import { launchOptionVersionContext, sourceVersionContext } from './sourceCapabilities.ts'
 
 test('source evidence names the concrete connection, platform, and release title', () => {
@@ -25,4 +26,12 @@ test('launch evidence resolves through the exact source record', () => {
     source_game_id: 'source-japan',
     launchable: true,
   }, [source]), 'NAS · NES · Double Dragon (Japan)')
+})
+
+test('provider-managed credentials never become editable config fields', () => {
+  const schema = parsePluginConfigSchema({
+    api_key: { type: 'string', 'x-secret': true },
+    refresh_token: { type: 'string', 'x-secret': true, 'x-auth-method': 'qr' },
+  })
+  assert.deepEqual(schema.map(({ key }) => key), ['api_key'])
 })

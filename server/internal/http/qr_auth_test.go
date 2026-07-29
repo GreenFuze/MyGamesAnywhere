@@ -157,7 +157,18 @@ func TestQRPollApprovedPersistsRefreshToken(t *testing.T) {
 	repo := &qrIntegrationRepo{integration: steamQRIntegration()}
 	host := &fakeQRPluginHost{pollResult: map[string]any{
 		"status": "ok", "account_name": "orr",
-		"config_updates": map[string]any{"refresh_token": "refresh-abc"},
+		"provider_identity": map[string]any{
+			"provider": "steam", "subject": "76561198000000002",
+			"display_name": "Orr", "avatar_url": "https://cdn.example/orr.jpg",
+		},
+		"config_updates": map[string]any{
+			"refresh_token": "refresh-abc",
+			"steam_id":      "76561198000000002",
+			"provider_identity": map[string]any{
+				"provider": "steam", "subject": "76561198000000002",
+				"display_name": "Orr", "avatar_url": "https://cdn.example/orr.jpg",
+			},
+		},
 	}}
 	ctrl := newQRController(host, repo)
 
@@ -178,15 +189,32 @@ func TestQRPollApprovedPersistsRefreshToken(t *testing.T) {
 		t.Fatalf("saved refresh_token = %#v", saved["refresh_token"])
 	}
 	// Existing configuration must survive the merge.
-	if saved["api_key"] != "key" || saved["steam_id"] != "76561198000000001" {
+	if saved["api_key"] != "key" {
 		t.Fatalf("existing config was lost: %#v", saved)
 	}
 	if repo.updated.NeedsReauth {
 		t.Fatal("needs_reauth should be cleared after a successful sign-in")
 	}
-	// The known Steam identity is forwarded so the plugin can complete the set.
-	if host.lastParams["steam_id"] != "76561198000000001" {
-		t.Fatalf("steam_id was not forwarded to the plugin: %#v", host.lastParams)
+	if saved["steam_id"] != "76561198000000002" {
+		t.Fatalf("newly approved Steam identity was not persisted: %#v", saved)
+	}
+	if identity, ok := saved["provider_identity"].(map[string]any); !ok || identity["display_name"] != "Orr" {
+		t.Fatalf("provider identity was not persisted: %#v", saved["provider_identity"])
+	}
+	// The Web API key may resolve public persona/avatar details, but the
+	// previously configured SteamID must not be forwarded as trusted identity.
+	if host.lastParams["api_key"] != "key" {
+		t.Fatalf("api_key was not forwarded to the plugin: %#v", host.lastParams)
+	}
+	if _, ok := host.lastParams["steam_id"]; ok {
+		t.Fatalf("previous SteamID was incorrectly trusted: %#v", host.lastParams)
+	}
+	var response qrPollResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.ProviderIdentity["avatar_url"] != "https://cdn.example/orr.jpg" {
+		t.Fatalf("safe identity response = %#v", response.ProviderIdentity)
 	}
 }
 

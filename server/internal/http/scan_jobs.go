@@ -627,10 +627,18 @@ func applyScanEvent(record *scanJobRecord, eventType string, payload map[string]
 		}
 	case "scan_integration_complete":
 		if integration != nil {
-			integration.Status = "completed"
-			integration.Phase = "completed"
+			if warning := readString(payload["warning"]); warning != "" {
+				integration.Status = "completed"
+				integration.Phase = "completed with warning"
+				integration.Reason = readString(payload["reason"])
+				integration.Error = warning
+			} else {
+				integration.Status = "completed"
+				integration.Phase = "completed"
+				integration.Reason = ""
+				integration.Error = ""
+			}
 			integration.GamesFound = readInt(payload["games_found"])
-			integration.Reason = ""
 			integration.MetadataIntegrationID = ""
 			integration.MetadataLabel = ""
 			integration.MetadataPluginID = ""
@@ -874,6 +882,9 @@ func scanEventMessage(eventType string, payload map[string]any) string {
 	case "scan_persist_started":
 		return "Persisting results."
 	case "scan_integration_complete":
+		if readString(payload["warning"]) != "" {
+			return "Integration complete with a warning: " + readLabelOrID(payload) + " (" + itoa(readInt(payload["games_found"])) + " games)."
+		}
 		return "Integration complete: " + readLabelOrID(payload) + " (" + itoa(readInt(payload["games_found"])) + " games)."
 	case "scan_integration_skipped":
 		reason := readString(payload["reason"])

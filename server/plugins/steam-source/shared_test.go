@@ -76,12 +76,15 @@ func TestFetchSharedGamesMergesFiltersAndDedups(t *testing.T) {
 		familyBody: `{"response":{"family_groupid":"9001"}}`,
 		sharedBody: `{"response":{"apps":[
 			{"appid":10,"name":"Borrowed Game","owner_steamids":["OWNER1"]},
-			{"appid":20,"name":"Self Game","owner_steamids":["SELF"]},
+			{"appid":20,"name":"Self Game","owner_steamids":["76561198000000001"]},
 			{"appid":30,"name":"Already Owned","owner_steamids":["OWNER1"]}
 		]}}`,
 	})
 
-	cfg := steamConfig{APIKey: "k", SteamID: "SELF", RefreshToken: "refresh-tok"}
+	cfg := steamConfig{
+		APIKey: "k", SteamID: "76561198000000001",
+		RefreshToken: testSteamRefreshToken(t, "76561198000000001"),
+	}
 	shared, err := fetchSharedGames(cfg, map[int]bool{30: true})
 	if err != nil {
 		t.Fatalf("fetchSharedGames error: %v", err)
@@ -106,7 +109,10 @@ func TestFetchSharedGamesDropsNonGameTypes(t *testing.T) {
 		appTypes:   map[string]string{"40": "dlc"},
 	})
 
-	cfg := steamConfig{APIKey: "k", SteamID: "SELF", RefreshToken: "refresh-tok"}
+	cfg := steamConfig{
+		APIKey: "k", SteamID: "76561198000000001",
+		RefreshToken: testSteamRefreshToken(t, "76561198000000001"),
+	}
 	shared, err := fetchSharedGames(cfg, map[int]bool{})
 	if err != nil {
 		t.Fatalf("fetchSharedGames error: %v", err)
@@ -119,7 +125,10 @@ func TestFetchSharedGamesDropsNonGameTypes(t *testing.T) {
 func TestFetchSharedGamesTokenExpired(t *testing.T) {
 	startFamilyTestServer(t, familyTestConfig{familyStatus: http.StatusUnauthorized})
 
-	cfg := steamConfig{APIKey: "k", SteamID: "SELF", RefreshToken: "expired-refresh"}
+	cfg := steamConfig{
+		APIKey: "k", SteamID: "76561198000000001",
+		RefreshToken: testSteamRefreshToken(t, "76561198000000001"),
+	}
 	_, err := fetchSharedGames(cfg, map[int]bool{})
 	if !errors.Is(err, errAccessTokenRejected) {
 		t.Fatalf("error = %v, want errAccessTokenRejected", err)
@@ -178,7 +187,10 @@ func TestFetchSharedGamesRejectedRefreshTokenDegrades(t *testing.T) {
 	// Steam returns no access token for a dead refresh token.
 	startFamilyTestServer(t, familyTestConfig{renewBody: `{"response":{}}`})
 
-	cfg := steamConfig{APIKey: "k", SteamID: "SELF", RefreshToken: "dead-refresh"}
+	cfg := steamConfig{
+		APIKey: "k", SteamID: "76561198000000001",
+		RefreshToken: testSteamRefreshToken(t, "76561198000000001"),
+	}
 	_, err := fetchSharedGames(cfg, map[int]bool{})
 	if !errors.Is(err, errAccessTokenRejected) {
 		t.Fatalf("error = %v, want errAccessTokenRejected", err)
@@ -208,7 +220,8 @@ func TestFetchSharedGamesUsesMintedAccessTokenNotRefreshToken(t *testing.T) {
 	steamFamilyAPIBase, steamAuthAPIBase = server.URL, server.URL
 	t.Cleanup(func() { steamFamilyAPIBase, steamAuthAPIBase = originalFamily, originalAuth })
 
-	cfg := steamConfig{APIKey: "k", SteamID: "SELF", RefreshToken: "secret-refresh"}
+	refreshToken := testSteamRefreshToken(t, "76561198000000001")
+	cfg := steamConfig{APIKey: "k", SteamID: "76561198000000001", RefreshToken: refreshToken}
 	if _, err := fetchSharedGames(cfg, map[int]bool{}); err != nil {
 		t.Fatalf("fetchSharedGames error: %v", err)
 	}
@@ -219,7 +232,7 @@ func TestFetchSharedGamesUsesMintedAccessTokenNotRefreshToken(t *testing.T) {
 		if token != "minted-access-token" {
 			t.Fatalf("family call used token %q, want the minted access token", token)
 		}
-		if token == "secret-refresh" {
+		if token == refreshToken {
 			t.Fatal("refresh token leaked to the family API")
 		}
 	}

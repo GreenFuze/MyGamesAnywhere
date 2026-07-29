@@ -65,6 +65,23 @@ export class ScanConnectionFailurePresenter {
     }
   }
 
+  presentPartial(failure: ScanConnectionFailure): ScanConnectionFailureNotification {
+    const authRequired = failure.reason === 'auth_required'
+    return {
+      title: authRequired
+        ? `${failure.label} shared games need you to sign in`
+        : `${failure.label} updated with a problem`,
+      description: authRequired
+        ? `MGA updated your owned games, but could not check family-shared games. Sign in again to complete your library.`
+        : `MGA updated the available games, but part of this connection could not be checked. Review the connection, then rescan.`,
+      action: {
+        label: authRequired ? 'Sign in again' : 'Review connection',
+        href: connectionPath(failure.integrationId, failure.pluginId),
+      },
+      detail: failure.error,
+    }
+  }
+
   private requiresAttention(failure: ScanConnectionFailure): boolean {
     return failure.reason !== 'no_source_capability' && failure.reason !== 'no_games'
   }

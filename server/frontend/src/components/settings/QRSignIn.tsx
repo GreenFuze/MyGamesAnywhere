@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
-import { ApiError, beginQRSignIn, pollQRSignIn, type QRSignInChallenge } from '@/api/client'
+import {
+  ApiError,
+  beginQRSignIn,
+  pollQRSignIn,
+  type ProviderIdentity,
+  type QRSignInChallenge,
+} from '@/api/client'
 import { Button } from '@/components/ui/button'
 
 interface QRSignInProps {
@@ -8,7 +14,8 @@ interface QRSignInProps {
   integrationId: string
   /** Player-facing name of the provider app used to approve the sign-in. */
   providerAppName: string
-  onSignedIn?: (accountName?: string) => void
+  initialIdentity?: ProviderIdentity
+  onSignedIn?: (identity: ProviderIdentity) => void | Promise<void>
 }
 
 type Phase = 'idle' | 'waiting' | 'signed_in' | 'error'
@@ -28,10 +35,17 @@ function signInErrorMessage(error: unknown, fallback: string): string {
  * own mobile app. MGA never sees the password or second factor: it only shows a
  * challenge link and waits for the provider to hand back a stored credential.
  */
-export function QRSignIn({ pluginId, integrationId, providerAppName, onSignedIn }: QRSignInProps) {
-  const [phase, setPhase] = useState<Phase>('idle')
+export function QRSignIn({
+  pluginId,
+  integrationId,
+  providerAppName,
+  initialIdentity,
+  onSignedIn,
+}: QRSignInProps) {
+  const [phase, setPhase] = useState<Phase>(initialIdentity ? 'signed_in' : 'idle')
   const [challenge, setChallenge] = useState<QRSignInChallenge | null>(null)
-  const [accountName, setAccountName] = useState<string>('')
+  const [identity, setIdentity] = useState<ProviderIdentity | null>(initialIdentity ?? null)
+  const [libraryUpdateStarted, setLibraryUpdateStarted] = useState(false)
   const [message, setMessage] = useState('')
   const [copied, setCopied] = useState(false)
   const timerRef = useRef<number | null>(null)
@@ -63,10 +77,16 @@ export function QRSignIn({ pluginId, integrationId, providerAppName, onSignedIn 
           const result = await pollQRSignIn(pluginId, integrationId, session.client_id, session.request_id)
           if (cancelledRef.current) return
           if (result.status === 'ok') {
+            const signedInIdentity = result.provider_identity ?? {
+              provider: pluginId,
+              subject: '',
+              display_name: result.account_name,
+            }
             setPhase('signed_in')
-            setAccountName(result.account_name ?? '')
+            setIdentity(signedInIdentity)
+            setLibraryUpdateStarted(true)
             setChallenge(null)
-            onSignedIn?.(result.account_name)
+            void onSignedIn?.(signedInIdentity)
             return
           }
           poll(session)
@@ -85,6 +105,7 @@ export function QRSignIn({ pluginId, integrationId, providerAppName, onSignedIn 
     setPhase('waiting')
     setMessage('')
     setCopied(false)
+    setLibraryUpdateStarted(false)
     try {
       const session = await beginQRSignIn(pluginId, integrationId)
       if (cancelledRef.current) return
@@ -115,11 +136,9 @@ export function QRSignIn({ pluginId, integrationId, providerAppName, onSignedIn 
             Approve in the {providerAppName} app. Your password and login code never reach MGA.
           </p>
         </div>
-        {phase !== 'signed_in' && (
-          <Button type="button" variant="outline" onClick={start} disabled={phase === 'waiting'}>
-            {phase === 'waiting' ? 'Waiting…' : 'Sign in'}
-          </Button>
-        )}
+        <Button type="button" variant="outline" onClick={start} disabled={phase === 'waiting'}>
+          {phase === 'waiting' ? 'Waiting…' : phase === 'signed_in' ? 'Change account' : 'Sign in'}
+        </Button>
       </div>
 
       {phase === 'waiting' && challenge && (
@@ -149,10 +168,28 @@ export function QRSignIn({ pluginId, integrationId, providerAppName, onSignedIn 
         </div>
       )}
 
-      {phase === 'signed_in' && (
-        <p className="text-sm text-green-400">
-          Signed in{accountName ? ` as ${accountName}` : ''}. Shared games appear after the next scan.
-        </p>
+      {phase === 'signed_in' && identity && (
+        <div className="flex items-center gap-3 rounded-mga border border-green-500/30 bg-green-500/10 p-3">
+          {identity.avatar_url ? (
+            <img
+              src={identity.avatar_url}
+              alt=""
+              className="h-12 w-12 rounded-full border border-green-400/40 object-cover"
+            />
+          ) : (
+            <div className="grid h-12 w-12 place-items-center rounded-full bg-green-500/20 text-lg text-green-300">
+              ✓
+            </div>
+          )}
+          <div>
+            <p className="text-sm font-medium text-green-300">
+              Logged in{identity.display_name ? ` as ${identity.display_name}` : ''}
+            </p>
+            <p className="text-xs text-mga-muted">
+              {libraryUpdateStarted ? 'Updating your Steam library now…' : 'Your Steam account is connected.'}
+            </p>
+          </div>
+        </div>
       )}
 
       {phase === 'error' && <p className="text-sm text-red-300">{message}</p>}

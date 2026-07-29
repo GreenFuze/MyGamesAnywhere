@@ -244,7 +244,7 @@ paths:
   /api/auth/qr/{plugin_id}/poll:
     post:
       summary: Poll an app-approval (QR) sign-in
-      description: Reports whether the player has approved the challenge yet. While pending it returns status "pending"; once approved it stores the returned long-lived credential on the calling profile's own connection and clears any re-authentication flag.
+      description: Reports whether the player has approved the challenge yet. While pending it returns status "pending"; once approved it binds the token-proven provider identity, stores the returned long-lived credential on the calling profile's own connection, and clears any re-authentication flag.
       parameters:
         - name: plugin_id
           in: path
@@ -253,7 +253,7 @@ paths:
             type: string
       responses:
         200:
-          description: Poll JSON with status "pending" or "ok" (plus account_name when known)
+          description: Poll JSON with status "pending" or "ok" (plus safe provider_identity/persona metadata when known)
         400:
           description: Missing session fields, unknown connection, plugin mismatch, another profile's connection, or an expired challenge
         500:

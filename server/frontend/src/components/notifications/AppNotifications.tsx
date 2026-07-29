@@ -82,6 +82,29 @@ export function AppNotifications() {
           action: integrationId ? { label: 'Review connection', href: connectionPath(integrationId) } : undefined,
         })
       }),
+      subscribe('scan_integration_complete', (raw) => {
+        const data = (raw ?? {}) as EventPayload
+        const warning = readString(data.warning)
+        if (!warning) return
+        const integrationId = readString(data.integration_id)
+        const pluginId = readString(data.plugin_id)
+        const presentation = scanFailurePresenterRef.current.presentPartial({
+          integrationId,
+          pluginId,
+          label: readString(data.label) ?? (pluginId ? humanize(pluginId) : 'A connection'),
+          reason: readString(data.reason),
+          error: warning,
+        })
+        notify({
+          tone: 'error',
+          title: presentation.title,
+          description: presentation.description,
+          details: presentation.detail
+            ? [{ kind: 'info', title: presentation.detail, context: 'Technical details' }]
+            : undefined,
+          action: presentation.action,
+        })
+      }),
       subscribe('scan_integration_skipped', (raw) => {
         const data = (raw ?? {}) as EventPayload
         const integrationId = readString(data.integration_id)

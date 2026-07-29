@@ -1,6 +1,6 @@
 {
   "plugin_id": "game-source-steam",
-  "plugin_version": "1.3.0",
+  "plugin_version": "1.3.1",
   "api_major": 1,
   "capabilities": ["source", "achievements"],
   "provides": ["source.games.list", "achievements.game.get", "plugin.check_config", "auth.oauth.callback", "auth.qr.begin", "auth.qr.poll"],

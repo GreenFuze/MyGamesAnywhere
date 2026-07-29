@@ -129,37 +129,14 @@ export const CAPABILITY_ORDER: string[] = ['source', 'metadata', 'achievements',
 // Plugin config schema helpers
 // ---------------------------------------------------------------------------
 
-/** A single field definition from a plugin's flat config schema. */
-export type PluginConfigField = {
-  type?: string
-  required?: boolean
-  default?: unknown
-  description?: string
-  items?: PluginConfigField
-  properties?: Record<string, PluginConfigField>
-  'x-secret'?: boolean
-  'x-help-url'?: string
-}
+export { parsePluginConfigSchema } from './pluginConfig'
+export type { PluginConfigField } from './pluginConfig'
 
 export type FilesystemIncludePath = {
   path: string
   recursive: boolean
   exclude_paths?: string[]
   object_id?: string
-}
-
-/**
- * Parse a plugin's flat config schema map into an iterable array.
- * The plugin schema is NOT JSON Schema — it's a flat map of field_name → field definition.
- */
-export function parsePluginConfigSchema(
-  config: Record<string, unknown> | undefined,
-): Array<{ key: string; field: PluginConfigField }> {
-  if (!config) return []
-  return Object.entries(config).map(([key, def]) => ({
-    key,
-    field: (def ?? {}) as PluginConfigField,
-  }))
 }
 
 export function isFilesystemSourcePlugin(pluginId: string): boolean {
@@ -282,6 +259,13 @@ export class ConfigSummaryBuilder {
       return `\\\\${host}\\${share}${summary}`
     },
     'game-source-steam': (c) => {
+      const identity = c.provider_identity
+      if (identity && typeof identity === 'object') {
+        const account = identity as Record<string, unknown>
+        if (typeof account.display_name === 'string' && account.display_name) {
+          return `Steam account: ${account.display_name}`
+        }
+      }
       if (c.vanity_url) return `Vanity: ${c.vanity_url}`
       if (c.steam_id) return `Steam ID: ${c.steam_id}`
       return ConfigSummaryBuilder.hintSecret(c, 'api_key')

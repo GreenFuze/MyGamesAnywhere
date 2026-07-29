@@ -59,8 +59,18 @@ type preparedScanIntegration struct {
 	config          map[string]any
 	games           []*core.Game
 	result          core.ScanIntegrationResult
+	sourceWarning   string
+	warningReason   string
+	needsReauth     bool
 	skipped         bool
 	filesystemScope *core.FilesystemScanScope
+}
+
+type sourceGamesFetchResult struct {
+	Games         []*core.Game
+	Warning       string
+	WarningReason string
+	NeedsReauth   bool
 }
 
 func NewOrchestrator(
@@ -285,12 +295,18 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 			return nil, fmt.Errorf("persist scan results for integration %q: %w", item.integration.ID, err)
 		}
 		o.logger.Info("orchestrator: persisted", "integration_id", item.integration.ID, "source_games", len(batch.SourceGames))
-		o.publishEventWithContext(ctx, "scan_integration_complete", map[string]any{
+		completionPayload := map[string]any{
 			"integration_id": item.integration.ID,
 			"plugin_id":      item.integration.PluginID,
 			"label":          item.integration.Label,
 			"games_found":    len(batch.SourceGames),
-		})
+		}
+		if item.sourceWarning != "" {
+			completionPayload["warning"] = item.sourceWarning
+			completionPayload["reason"] = item.warningReason
+			completionPayload["needs_reauth"] = item.needsReauth
+		}
+		o.publishEventWithContext(ctx, "scan_integration_complete", completionPayload)
 		o.enqueuePendingMediaAsync(item.integration.ID)
 
 		item.result.GamesFound = len(batch.SourceGames)
@@ -922,7 +938,7 @@ func (o *Orchestrator) prepareScanIntegration(
 			"integration_id": integ.ID,
 			"plugin_id":      integ.PluginID,
 		})
-		games, err := o.fetchGames(ctx, integ.ID, integ.PluginID, item.config)
+		sourceResult, err := o.fetchGames(ctx, integ.ID, integ.PluginID, item.config)
 		if err != nil {
 			o.logger.Warn("orchestrator: storefront source listing failed", "integration_id", integ.ID, "plugin_id", integ.PluginID, "error", err)
 			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
@@ -936,13 +952,31 @@ func (o *Orchestrator) prepareScanIntegration(
 			item.result.Error = err.Error()
 			return item, nil
 		}
-		o.logger.Info("orchestrator: fetched storefront games", "integration_id", integ.ID, "count", len(games))
+		if sourceResult.Warning != "" {
+			item.sourceWarning = sourceResult.Warning
+			item.warningReason = sourceResult.WarningReason
+			item.needsReauth = sourceResult.NeedsReauth
+			item.result.Error = sourceResult.Warning
+			o.logger.Warn(
+				"orchestrator: storefront source listing degraded",
+				"integration_id", integ.ID,
+				"plugin_id", integ.PluginID,
+				"warning", sourceResult.Warning,
+			)
+		}
+		if sourceResult.NeedsReauth && !integ.NeedsReauth {
+			integ.NeedsReauth = true
+			if err := o.integrationRepo.Update(ctx, integ); err != nil {
+				return nil, fmt.Errorf("mark integration %q as needing sign-in: %w", integ.ID, err)
+			}
+		}
+		o.logger.Info("orchestrator: fetched storefront games", "integration_id", integ.ID, "count", len(sourceResult.Games))
 		o.publishEventWithContext(ctx, "scan_source_list_complete", map[string]any{
 			"integration_id": integ.ID,
 			"plugin_id":      integ.PluginID,
-			"game_count":     len(games),
+			"game_count":     len(sourceResult.Games),
 		})
-		item.games = games
+		item.games = sourceResult.Games
 
 	default:
 		o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
@@ -989,7 +1023,7 @@ func scanPreparationConcurrency(total int) int {
 // the result directly into core.Game entities. Storefront games arrive
 // pre-identified with title, platform, and external IDs, so they skip
 // the file scanner entirely.
-func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID string, config map[string]any) ([]*core.Game, error) {
+func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID string, config map[string]any) (*sourceGamesFetchResult, error) {
 	type ipcMedia struct {
 		Type     string `json:"type"`
 		URL      string `json:"url"`
@@ -1017,6 +1051,8 @@ func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID s
 			Shared          bool       `json:"shared,omitempty"`
 			SharedOwner     string     `json:"shared_owner,omitempty"`
 		} `json:"games"`
+		SharedLibraryError        string `json:"shared_library_error,omitempty"`
+		SharedLibraryTokenExpired bool   `json:"shared_library_token_expired,omitempty"`
 	}
 	if err := o.pluginCaller.Call(ctx, pluginID, sourceGamesListMethod, config, &result); err != nil {
 		return nil, err
@@ -1090,7 +1126,17 @@ func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID s
 		}
 		games = append(games, g)
 	}
-	return games, nil
+	fetchResult := &sourceGamesFetchResult{
+		Games:       games,
+		Warning:     strings.TrimSpace(result.SharedLibraryError),
+		NeedsReauth: result.SharedLibraryTokenExpired,
+	}
+	if fetchResult.NeedsReauth {
+		fetchResult.WarningReason = "auth_required"
+	} else if fetchResult.Warning != "" {
+		fetchResult.WarningReason = "partial_source_error"
+	}
+	return fetchResult, nil
 }
 
 // buildGames converts scanner GameGroups into core.Game entities.

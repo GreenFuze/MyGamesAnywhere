@@ -11,6 +11,7 @@ import {
   DuplicateIntegrationError,
   type Integration,
   type OAuthRequiredResponse,
+  type ProviderIdentity,
   type PluginInfo,
 } from '@/api/client'
 import { FolderBrowser } from './FolderBrowser'
@@ -53,6 +54,19 @@ function providerAccountLabel(pluginId: string): string {
       return 'Steam account'
     default:
       return `${pluginLabel(pluginId)} account`
+  }
+}
+
+function providerIdentityFromConfig(config: Record<string, unknown>): ProviderIdentity | undefined {
+  const value = config.provider_identity
+  if (!value || typeof value !== 'object') return undefined
+  const identity = value as Record<string, unknown>
+  if (typeof identity.provider !== 'string' || typeof identity.subject !== 'string') return undefined
+  return {
+    provider: identity.provider,
+    subject: identity.subject,
+    ...(typeof identity.display_name === 'string' ? { display_name: identity.display_name } : {}),
+    ...(typeof identity.avatar_url === 'string' ? { avatar_url: identity.avatar_url } : {}),
   }
 }
 
@@ -643,9 +657,10 @@ interface EditIntegrationDialogProps {
   integration: Integration
   onClose: () => void
   onSaved: () => void
+  onSignedIn?: (integrationId: string, identity: ProviderIdentity) => void | Promise<void>
 }
 
-export function EditIntegrationDialog({ integration, onClose, onSaved }: EditIntegrationDialogProps) {
+export function EditIntegrationDialog({ integration, onClose, onSaved, onSignedIn }: EditIntegrationDialogProps) {
   const { data: plugins = [] } = useQuery({ queryKey: ['plugins'], queryFn: listPlugins })
   const plugin = plugins.find((p) => p.plugin_id === integration.plugin_id)
   const { format: formatDT } = useDateTimeFormat()
@@ -905,7 +920,8 @@ export function EditIntegrationDialog({ integration, onClose, onSaved }: EditInt
             pluginId={integration.plugin_id}
             integrationId={integration.id}
             providerAppName={pluginLabel(integration.plugin_id)}
-            onSignedIn={() => onSaved()}
+            initialIdentity={providerIdentityFromConfig(existingConfig)}
+            onSignedIn={(identity) => onSignedIn?.(integration.id, identity)}
           />
         )}
 

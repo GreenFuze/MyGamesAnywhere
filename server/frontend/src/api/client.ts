@@ -2430,6 +2430,14 @@ export type QRSignInChallenge = {
 export type QRSignInPoll = {
   status: string;
   account_name?: string;
+  provider_identity?: ProviderIdentity;
+};
+
+export type ProviderIdentity = {
+  provider: string;
+  subject: string;
+  display_name?: string;
+  avatar_url?: string;
 };
 
 export async function beginQRSignIn(pluginId: string, integrationId: string): Promise<QRSignInChallenge> {

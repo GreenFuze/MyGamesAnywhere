@@ -570,9 +570,9 @@ func Operations() []OperationDoc {
 			Method:      "POST",
 			Path:        "/api/auth/qr/{plugin_id}/poll",
 			Summary:     "Poll an app-approval (QR) sign-in",
-			Description: "Reports whether the player has approved the challenge yet. While pending it returns status \"pending\"; once approved it stores the returned long-lived credential on the calling profile's own connection and clears any re-authentication flag.",
+			Description: "Reports whether the player has approved the challenge yet. While pending it returns status \"pending\"; once approved it binds the token-proven provider identity, stores the returned long-lived credential on the calling profile's own connection, and clears any re-authentication flag.",
 			ResponseDocs: map[string]string{
-				"200": "Poll JSON with status \"pending\" or \"ok\" (plus account_name when known)",
+				"200": "Poll JSON with status \"pending\" or \"ok\" (plus safe provider_identity/persona metadata when known)",
 				"400": "Missing session fields, unknown connection, plugin mismatch, another profile's connection, or an expired challenge",
 				"500": "Credentials could not be saved",
 			},

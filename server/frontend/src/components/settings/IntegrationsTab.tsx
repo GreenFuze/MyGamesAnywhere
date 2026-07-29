@@ -3286,6 +3286,10 @@ export function IntegrationsTab({ firstRunRestore = false, focusIntegrationId, f
         <EditIntegrationDialog
           integration={editTarget}
           onClose={() => setEditTarget(null)}
+          onSignedIn={async (integrationId) => {
+            await queryClient.invalidateQueries({ queryKey: ["integrations"] });
+            await handleScanOne(integrationId);
+          }}
           onSaved={() => {
             setEditTarget(null);
             queryClient.invalidateQueries({ queryKey: ["integrations"] });

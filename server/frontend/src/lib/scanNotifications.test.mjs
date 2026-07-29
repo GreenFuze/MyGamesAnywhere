@@ -41,3 +41,21 @@ test('does not notify for a non-source connection skipped by discovery', () => {
     reason: 'no_source_capability',
   }), null)
 })
+
+test('turns a rejected Steam shared-library token into an actionable partial-success notification', () => {
+  assert.deepEqual(presenter.presentPartial({
+    integrationId: 'steam-orr',
+    pluginId: 'game-source-steam',
+    label: 'Orr Steam',
+    reason: 'auth_required',
+    error: 'steam access token was rejected (expired or invalid)',
+  }), {
+    title: 'Orr Steam shared games need you to sign in',
+    description: 'MGA updated your owned games, but could not check family-shared games. Sign in again to complete your library.',
+    action: {
+      label: 'Sign in again',
+      href: '/settings?tab=connections&integration=steam-orr',
+    },
+    detail: 'steam access token was rejected (expired or invalid)',
+  })
+})

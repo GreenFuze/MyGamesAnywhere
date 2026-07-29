@@ -1897,7 +1897,7 @@ func TestPluginControllerListKeepsOAuthTokensServerSide(t *testing.T) {
 	repo := &fakeControllerIntegrationRepo{byID: map[string]*core.Integration{
 		"xbox": {
 			ID: "xbox", PluginID: "game-source-xbox", Label: "Orr Xbox",
-			ConfigJSON: `{"tokens":{"ms_refresh_token":"secret","xuid":"123"},"provider_identity":{"provider":"microsoft_xbox","subject":"123","display_name":"Orr"}}`,
+			ConfigJSON: `{"tokens":{"ms_refresh_token":"secret","xuid":"123"},"refresh_token":"qr-secret","provider_identity":{"provider":"microsoft_xbox","subject":"123","display_name":"Orr"}}`,
 		},
 	}}
 	controller := NewPluginController(repo, nil, nil, staticConfig{}, noopLogger{}, nil)
@@ -1906,7 +1906,9 @@ func TestPluginControllerListKeepsOAuthTokensServerSide(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("List() status = %d, body = %q", recorder.Code, recorder.Body.String())
 	}
-	if strings.Contains(recorder.Body.String(), "secret") || strings.Contains(recorder.Body.String(), `"tokens"`) {
+	if strings.Contains(recorder.Body.String(), "secret") ||
+		strings.Contains(recorder.Body.String(), `"tokens"`) ||
+		strings.Contains(recorder.Body.String(), `"refresh_token"`) {
 		t.Fatalf("OAuth tokens reached frontend response: %s", recorder.Body.String())
 	}
 	var integrations []core.Integration

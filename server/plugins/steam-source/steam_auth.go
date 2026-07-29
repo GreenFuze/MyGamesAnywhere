@@ -8,12 +8,14 @@ package main
 // access tokens from it for the Steam Families endpoints.
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -29,9 +31,10 @@ const (
 	// authServiceRenew mints an access token from a refresh token.
 	authServiceRenew = "IAuthenticationService/GenerateAccessTokenForApp/v1"
 
-	// platformTypeSteamClient identifies MGA as a Steam client to the auth
-	// service, which is what the mobile app's QR scanner expects to approve.
-	platformTypeSteamClient = "2"
+	// platformTypeMobileApp requests a refresh token that Steam's public Web
+	// API can exchange for short-lived access tokens. WebBrowser (2) tokens
+	// cannot use GenerateAccessTokenForApp, while MobileApp (3) tokens can.
+	platformTypeMobileApp = "3"
 
 	// deviceFriendlyName is shown to the player in the Steam app's approval
 	// prompt and in their Steam authorized-devices list.
@@ -82,6 +85,54 @@ type renewTokenResponse struct {
 	} `json:"response"`
 }
 
+type steamTokenClaims struct {
+	Subject  string   `json:"sub"`
+	Audience []string `json:"aud"`
+}
+
+func (c steamTokenClaims) steamID() (string, error) {
+	steamID := strings.TrimSpace(c.Subject)
+	if steamID == "" {
+		return "", fmt.Errorf("steam token has no account identity")
+	}
+	if _, err := strconv.ParseUint(steamID, 10, 64); err != nil {
+		return "", fmt.Errorf("steam token account identity is invalid")
+	}
+	if !containsString(c.Audience, "derive") || !containsString(c.Audience, "mobile") {
+		return "", fmt.Errorf("steam did not return a renewable mobile token")
+	}
+	return steamID, nil
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+// steamIDFromRefreshToken extracts the provider-authenticated SteamID from the
+// JWT payload. The token itself is still treated as opaque and is validated by
+// Steam whenever MGA exchanges it; decoding is only used to bind the approved
+// account identity instead of trusting a previously configured SteamID.
+func steamIDFromRefreshToken(token string) (string, error) {
+	parts := strings.Split(strings.TrimSpace(token), ".")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("steam returned an invalid refresh token")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("decode steam token identity: %w", err)
+	}
+	var claims steamTokenClaims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", fmt.Errorf("decode steam token claims: %w", err)
+	}
+	return claims.steamID()
+}
+
 // steamAuthClient talks to Steam's unauthenticated auth service. These calls
 // need no Web API key: the refresh token itself is the credential.
 type steamAuthClient struct {
@@ -115,7 +166,7 @@ func (c *steamAuthClient) post(path string, form url.Values, out any) error {
 func (c *steamAuthClient) BeginQRSession() (*qrSession, error) {
 	form := url.Values{
 		"device_friendly_name": {deviceFriendlyName},
-		"platform_type":        {platformTypeSteamClient},
+		"platform_type":        {platformTypeMobileApp},
 	}
 	var result beginAuthResponse
 	if err := c.post(authServiceBegin, form, &result); err != nil {
@@ -144,29 +195,33 @@ func (c *steamAuthClient) BeginQRSession() (*qrSession, error) {
 // PollQRSession reports the outcome of a QR sign-in attempt. It returns
 // errAuthPending while the player has not approved yet, and
 // errAuthSessionExpired once the challenge is dead.
-func (c *steamAuthClient) PollQRSession(clientID, requestID string) (refreshToken, accountName string, err error) {
+func (c *steamAuthClient) PollQRSession(clientID, requestID string) (refreshToken, accountName, steamID string, err error) {
 	if strings.TrimSpace(clientID) == "" || strings.TrimSpace(requestID) == "" {
-		return "", "", fmt.Errorf("steam sign-in session is incomplete")
+		return "", "", "", fmt.Errorf("steam sign-in session is incomplete")
 	}
 
 	form := url.Values{"client_id": {clientID}, "request_id": {requestID}}
 	var result pollAuthResponse
 	if err := c.post(authServicePoll, form, &result); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	response := result.Response
 	if token := strings.TrimSpace(response.RefreshToken); token != "" {
-		return token, strings.TrimSpace(response.AccountName), nil
+		steamID, err := steamIDFromRefreshToken(token)
+		if err != nil {
+			return "", "", "", err
+		}
+		return token, strings.TrimSpace(response.AccountName), steamID, nil
 	}
 
 	// Steam clears the client ID / issues no new challenge once the attempt is
 	// dead. A live session explicitly returns had_remote_interaction:false,
 	// which must remain distinct from an actually empty response object.
 	if strings.TrimSpace(response.NewChallengeURL) == "" && response.HadRemoteInteraction == nil && response.AccessToken == "" && response.AccountName == "" && clientIDCleared(result) {
-		return "", "", errAuthSessionExpired
+		return "", "", "", errAuthSessionExpired
 	}
-	return "", "", errAuthPending
+	return "", "", "", errAuthPending
 }
 
 // clientIDCleared reports whether Steam signalled a dead session. Steam returns
@@ -182,6 +237,13 @@ func (c *steamAuthClient) AccessTokenFor(refreshToken, steamID string) (string, 
 	}
 	if strings.TrimSpace(steamID) == "" {
 		return "", fmt.Errorf("steam ID is required to renew an access token")
+	}
+	tokenSteamID, err := steamIDFromRefreshToken(refreshToken)
+	if err != nil {
+		return "", errAccessTokenRejected
+	}
+	if tokenSteamID != strings.TrimSpace(steamID) {
+		return "", fmt.Errorf("steam sign-in belongs to a different account")
 	}
 
 	form := url.Values{

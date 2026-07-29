@@ -1,7 +1,7 @@
 # ADR-0033: Steam family-shared library visibility
 
-- **Status:** Accepted (credential model revised 2026-07-25)
-- **Date:** 2026-07-24; revised 2026-07-25
+- **Status:** Accepted (credential and post-sign-in UX revised 2026-07-29)
+- **Date:** 2026-07-24; revised 2026-07-25 and 2026-07-29
 - **Scope:** Steam game-source plugin discovery of Steam Families shared-library
   titles, the credential model required to read them, shared-title labeling and
   semantics, persistence of the shared marker, and scan degradation behavior
@@ -38,6 +38,18 @@ shared library at all.
    short-lived access tokens on demand via `GenerateAccessTokenForApp`. The
    refresh token lasts months and renews without player action.
 
+   The QR session requests Steam's **MobileApp** token audience because Steam's
+   public Web API can renew that audience; a WebBrowser token cannot use
+   `GenerateAccessTokenForApp`. The approved refresh token's authenticated
+   subject is the source of truth for the SteamID. MGA must never pair a newly
+   approved token with a SteamID left over from an earlier OpenID login.
+
+   The refresh token is provider-managed and is never an editable textbox or a
+   browser API field. After approval, MGA stores a safe `provider_identity`
+   (SteamID, public persona name, and public avatar), shows **Logged in as …**,
+   and immediately starts a profile-scoped Steam rescan. Changing accounts uses
+   the same app-approved flow.
+
    *Superseded approach (v0.2.12):* the first implementation used a manually
    pasted `webapi_token` from
    `store.steampowered.com/pointssummary/ajaxgetasyncconfig`. Steam expires that
@@ -71,6 +83,9 @@ shared library at all.
 - The refresh token is a per-profile secret stored like `api_key` (`x-secret`),
   never logged, never returned in API responses. Minted access tokens are held
   only in memory for the duration of a scan.
+- The SteamID bound to a refresh token is decoded from the Steam-issued token
+  subject and checked before renewal. A stale, manually configured SteamID
+  cannot redirect the credential to another account.
 - Only the profile's own Steam credential is used; no cross-profile reuse. The
   sign-in endpoints load the profile's own connection first and reject a
   connection owned by another profile. Shared data is fetched under the profile
@@ -88,6 +103,8 @@ shared library at all.
 
 - After an app-approved sign-in, family-shared titles appear labeled "Shared"
   with an owner attribution, and keep working for months without player action.
+- Approval shows the authenticated Steam persona and avatar, hides the
+  provider-managed refresh token, and starts a Steam rescan automatically.
 - Not signed in, or with a rejected refresh token, owned games still list; the
   shared portion degrades with a clear, non-fatal signal.
 - No Steam password or Steam Guard code is ever entered into or handled by MGA.
@@ -99,8 +116,9 @@ shared library at all.
   not-shared until rescanned.
 - Plugin and server tests cover: owned-only (not signed in), owned+shared merge,
   rejected-refresh-token degradation, QR begin/poll pending/approved/expired
-  states, credential persistence, cross-profile rejection, and shared labeling
-  with owner attribution.
+  states, MobileApp token audience, token-subject identity binding, credential
+  persistence/redaction, cross-profile rejection, and shared labeling with
+  owner attribution.
 
 ## Follow-ups (tracked in Jira, not here)
 

@@ -65,7 +65,7 @@ var fetchAchievementSchemaBaseURL = steamAPIBase
 // so there is no shared library to enumerate. This is a normal, non-error state.
 var errNoFamilyGroup = errors.New("steam account is not in a family group")
 
-// errAccessTokenRejected means the pasted webapi_token is missing/expired.
+// errAccessTokenRejected means Steam rejected the stored app-approved token.
 // Owned games still list; the shared portion degrades and the integration is
 // flagged as needing a refreshed token (ADR-0033).
 var errAccessTokenRejected = errors.New("steam access token was rejected (expired or invalid)")
@@ -73,6 +73,14 @@ var errAccessTokenRejected = errors.New("steam access token was rejected (expire
 // steamFamilyAPIBase is overridable in tests to point IFamilyGroupsService
 // calls at an httptest server.
 var steamFamilyAPIBase = steamAPIBase
+var steamProfileAPIBase = steamAPIBase
+
+type providerIdentity struct {
+	Provider    string `json:"provider"`
+	Subject     string `json:"subject"`
+	DisplayName string `json:"display_name,omitempty"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
+}
 
 // oauthPending tracks OpenID state tokens for CSRF validation.
 var oauthPending = map[string]bool{}
@@ -289,6 +297,58 @@ func fetchOwnedGames(apiKey, steamID string) ([]ownedGame, error) {
 		return nil, fmt.Errorf("decode owned games: %w", err)
 	}
 	return result.Response.Games, nil
+}
+
+func fetchSteamIdentity(apiKey, steamID, fallbackName string) providerIdentity {
+	identity := providerIdentity{
+		Provider:    "steam",
+		Subject:     steamID,
+		DisplayName: strings.TrimSpace(fallbackName),
+	}
+	if strings.TrimSpace(apiKey) == "" || strings.TrimSpace(steamID) == "" {
+		return identity
+	}
+
+	requestURL := fmt.Sprintf(
+		"%s/ISteamUser/GetPlayerSummaries/v2/?key=%s&steamids=%s",
+		steamProfileAPIBase,
+		url.QueryEscape(apiKey),
+		url.QueryEscape(steamID),
+	)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(requestURL)
+	if err != nil {
+		log.Printf("steam profile lookup failed: %v", err)
+		return identity
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("steam profile lookup returned status %d", resp.StatusCode)
+		return identity
+	}
+
+	var result struct {
+		Response struct {
+			Players []struct {
+				SteamID     string `json:"steamid"`
+				PersonaName string `json:"personaname"`
+				AvatarFull  string `json:"avatarfull"`
+			} `json:"players"`
+		} `json:"response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("decode steam profile: %v", err)
+		return identity
+	}
+	if len(result.Response.Players) == 0 || result.Response.Players[0].SteamID != steamID {
+		return identity
+	}
+	player := result.Response.Players[0]
+	if name := strings.TrimSpace(player.PersonaName); name != "" {
+		identity.DisplayName = name
+	}
+	identity.AvatarURL = strings.TrimSpace(player.AvatarFull)
+	return identity
 }
 
 // --- Steam Families (shared library) API ---
@@ -513,7 +573,7 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 	result := map[string]any{}
 
 	// Steam Families shared library (ADR-0033). Only attempted when the player
-	// supplied a webapi_token. Any failure here degrades to owned-games-only and
+	// completed app-approved sign-in. Any failure here degrades to owned-games-only and
 	// never fails the scan; an expired token is reported so the integration can
 	// flag that a refreshed token is needed.
 	if effectiveCfg.RefreshToken != "" {
@@ -900,14 +960,14 @@ func handleQRPoll(params json.RawMessage) (any, *Error) {
 	var p struct {
 		ClientID  string `json:"client_id"`
 		RequestID string `json:"request_id"`
-		SteamID   string `json:"steam_id"`
+		APIKey    string `json:"api_key"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 	}
 
 	client := newSteamAuthClient()
-	refreshToken, accountName, err := client.PollQRSession(p.ClientID, p.RequestID)
+	refreshToken, accountName, steamID, err := client.PollQRSession(p.ClientID, p.RequestID)
 	switch {
 	case errors.Is(err, errAuthPending):
 		return map[string]any{"status": "pending"}, nil
@@ -917,20 +977,22 @@ func handleQRPoll(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "AUTH_ERROR", Message: err.Error()}
 	}
 
-	// The QR sign-in proves the account identity, but the shared-library calls
-	// also need the numeric Steam ID. Reuse the one already configured by the
-	// existing OpenID sign-in when the caller supplied it.
-	updates := map[string]any{"refresh_token": refreshToken}
-	steamID := strings.TrimSpace(p.SteamID)
-	if steamID != "" {
-		updates["steam_id"] = steamID
+	// Bind the connection to the account proven by the approved token. Never
+	// reuse a previously typed SteamID: the player may deliberately approve a
+	// different account while correcting a connection.
+	identity := fetchSteamIdentity(strings.TrimSpace(p.APIKey), steamID, accountName)
+	updates := map[string]any{
+		"refresh_token":     refreshToken,
+		"steam_id":          steamID,
+		"provider_identity": identity,
 	}
 
-	log.Printf("steam QR sign-in completed for account %q", accountName)
+	log.Printf("steam QR sign-in completed for SteamID %s", steamID)
 	return map[string]any{
-		"status":         "ok",
-		"account_name":   accountName,
-		"config_updates": updates,
+		"status":            "ok",
+		"account_name":      identity.DisplayName,
+		"provider_identity": identity,
+		"config_updates":    updates,
 	}, nil
 }
 
@@ -1034,7 +1096,7 @@ func main() {
 		case "plugin.info":
 			resp.Result = map[string]any{
 				"plugin_id":      "game-source-steam",
-				"plugin_version": "1.3.0",
+				"plugin_version": "1.3.1",
 				"capabilities":   []string{"source", "achievements"},
 			}
 
