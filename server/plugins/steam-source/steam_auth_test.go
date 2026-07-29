@@ -67,9 +67,10 @@ func TestBeginQRSessionRejectsIncompleteChallenge(t *testing.T) {
 }
 
 func TestPollQRSessionPendingThenApproved(t *testing.T) {
-	// Still waiting: Steam reports interaction but no refresh token yet.
+	// Still waiting: Steam's real pre-scan response explicitly reports false.
+	// Presence of the field distinguishes it from an expired empty response.
 	startAuthTestServer(t, map[string]string{
-		"PollAuthSessionStatus": `{"response":{"had_remote_interaction":true}}`,
+		"PollAuthSessionStatus": `{"response":{"had_remote_interaction":false}}`,
 	})
 	if _, _, err := newSteamAuthClient().PollQRSession("c1", "r1"); !errors.Is(err, errAuthPending) {
 		t.Fatalf("pending poll error = %v, want errAuthPending", err)

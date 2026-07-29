@@ -65,10 +65,13 @@ type beginAuthResponse struct {
 
 type pollAuthResponse struct {
 	Response struct {
-		RefreshToken         string `json:"refresh_token"`
-		AccessToken          string `json:"access_token"`
-		AccountName          string `json:"account_name"`
-		HadRemoteInteraction bool   `json:"had_remote_interaction"`
+		RefreshToken string `json:"refresh_token"`
+		AccessToken  string `json:"access_token"`
+		AccountName  string `json:"account_name"`
+		// Pointer preserves the difference between Steam explicitly reporting
+		// false while a session is pending and omitting the field for an empty,
+		// expired response object.
+		HadRemoteInteraction *bool  `json:"had_remote_interaction"`
 		NewChallengeURL      string `json:"new_challenge_url"`
 	} `json:"response"`
 }
@@ -158,8 +161,9 @@ func (c *steamAuthClient) PollQRSession(clientID, requestID string) (refreshToke
 	}
 
 	// Steam clears the client ID / issues no new challenge once the attempt is
-	// dead; an empty poll response with no refresh token is still pending.
-	if strings.TrimSpace(response.NewChallengeURL) == "" && !response.HadRemoteInteraction && response.AccessToken == "" && response.AccountName == "" && clientIDCleared(result) {
+	// dead. A live session explicitly returns had_remote_interaction:false,
+	// which must remain distinct from an actually empty response object.
+	if strings.TrimSpace(response.NewChallengeURL) == "" && response.HadRemoteInteraction == nil && response.AccessToken == "" && response.AccountName == "" && clientIDCleared(result) {
 		return "", "", errAuthSessionExpired
 	}
 	return "", "", errAuthPending

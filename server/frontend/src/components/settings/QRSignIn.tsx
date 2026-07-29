@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
-import { beginQRSignIn, pollQRSignIn, type QRSignInChallenge } from '@/api/client'
+import { ApiError, beginQRSignIn, pollQRSignIn, type QRSignInChallenge } from '@/api/client'
 import { Button } from '@/components/ui/button'
 
 interface QRSignInProps {
@@ -14,6 +14,14 @@ interface QRSignInProps {
 type Phase = 'idle' | 'waiting' | 'signed_in' | 'error'
 
 const DEFAULT_POLL_SECONDS = 5
+
+function signInErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    const providerMessage = error.responseText?.trim()
+    if (providerMessage) return providerMessage
+  }
+  return error instanceof Error ? error.message : fallback
+}
 
 /**
  * QRSignIn drives a provider sign-in that the player approves in the provider's
@@ -65,7 +73,7 @@ export function QRSignIn({ pluginId, integrationId, providerAppName, onSignedIn 
         } catch (err) {
           if (cancelledRef.current) return
           setPhase('error')
-          setMessage(err instanceof Error ? err.message : 'Sign-in did not complete.')
+          setMessage(signInErrorMessage(err, 'Sign-in did not complete.'))
         }
       }, intervalMs)
     },
@@ -84,7 +92,7 @@ export function QRSignIn({ pluginId, integrationId, providerAppName, onSignedIn 
       poll(session)
     } catch (err) {
       setPhase('error')
-      setMessage(err instanceof Error ? err.message : 'Could not start sign-in.')
+      setMessage(signInErrorMessage(err, 'Could not start sign-in.'))
     }
   }
 
