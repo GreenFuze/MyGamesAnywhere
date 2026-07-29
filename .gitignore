@@ -44,6 +44,7 @@ server/plugins/*/.secrets.env
 # Temp / generated output
 *.log
 *.tmp
+.tmp-go-cache/
 server/integrations_dump.json
 server/scan_smb_result.json
 
