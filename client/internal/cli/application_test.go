@@ -10,6 +10,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/client/internal/buildinfo"
 	"github.com/GreenFuze/MyGamesAnywhere/client/internal/clientapp"
 	clientconfig "github.com/GreenFuze/MyGamesAnywhere/client/internal/config"
+	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 )
 
 type fakeClientService struct{}
@@ -24,9 +25,12 @@ func (fakeClientService) Pair(context.Context, clientapp.PairOptions) (clientcon
 	return clientconfig.Binding{}, nil
 }
 func (fakeClientService) Start(context.Context, clientapp.StartOptions) error { return nil }
+func (fakeClientService) HandleProtocol(context.Context, string) error        { return nil }
 func (fakeClientService) RunAgent(context.Context) error                      { return nil }
-func (fakeClientService) RunAgentReplacingExisting(context.Context) error     { return nil }
-func (fakeClientService) Status() (clientapp.Status, error)                   { return clientapp.Status{}, nil }
+func (fakeClientService) RunAgentTakeover(context.Context, devicev1.ClientExecutionMode, string) error {
+	return nil
+}
+func (fakeClientService) Status() (clientapp.Status, error) { return clientapp.Status{}, nil }
 func (fakeClientService) Doctor(context.Context) (clientapp.DoctorResult, error) {
 	return clientapp.DoctorResult{}, nil
 }

@@ -602,6 +602,30 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 // fetchSharedGames resolves and enriches the Steam Families shared library for
 // the configured account. Apps already owned are skipped.
 func fetchSharedGames(cfg steamConfig, ownedAppIDs map[int]bool) ([]gameEntry, error) {
+	const maxAuthAttempts = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxAuthAttempts; attempt++ {
+		shared, err := fetchSharedGamesOnce(cfg, ownedAppIDs)
+		if err == nil || !errors.Is(err, errAccessTokenRejected) {
+			return shared, err
+		}
+		lastErr = err
+		if attempt == maxAuthAttempts {
+			break
+		}
+
+		// Steam can briefly reject an access token minted immediately after the
+		// mobile app approves a brand-new refresh credential. Retry only that
+		// exact recoverable condition, with a small bounded backoff; every other
+		// error still fails fast. Each attempt mints a fresh access token.
+		delay := time.Duration(attempt) * time.Second
+		log.Printf("Steam Family credential is not ready yet; retrying in %s", delay)
+		time.Sleep(delay)
+	}
+	return nil, lastErr
+}
+
+func fetchSharedGamesOnce(cfg steamConfig, ownedAppIDs map[int]bool) ([]gameEntry, error) {
 	// Mint a short-lived access token from the stored refresh token. A rejected
 	// refresh token surfaces as errAccessTokenRejected so the caller degrades to
 	// owned-games-only and flags that the player should sign in again.
@@ -967,27 +991,34 @@ func handleQRPoll(params json.RawMessage) (any, *Error) {
 	}
 
 	client := newSteamAuthClient()
-	refreshToken, accountName, steamID, err := client.PollQRSession(p.ClientID, p.RequestID)
+	outcome, err := client.PollQRSession(p.ClientID, p.RequestID)
 	switch {
 	case errors.Is(err, errAuthPending):
-		return map[string]any{"status": "pending"}, nil
+		result := map[string]any{"status": "pending"}
+		if outcome != nil && outcome.ChallengeURL != "" {
+			result["challenge_url"] = outcome.ChallengeURL
+		}
+		return result, nil
 	case errors.Is(err, errAuthSessionExpired):
 		return nil, &Error{Code: "AUTH_EXPIRED", Message: err.Error()}
 	case err != nil:
 		return nil, &Error{Code: "AUTH_ERROR", Message: err.Error()}
 	}
+	if outcome == nil {
+		return nil, &Error{Code: "AUTH_ERROR", Message: "steam sign-in returned no result"}
+	}
 
 	// Bind the connection to the account proven by the approved token. Never
 	// reuse a previously typed SteamID: the player may deliberately approve a
 	// different account while correcting a connection.
-	identity := fetchSteamIdentity(strings.TrimSpace(p.APIKey), steamID, accountName)
+	identity := fetchSteamIdentity(strings.TrimSpace(p.APIKey), outcome.SteamID, outcome.AccountName)
 	updates := map[string]any{
-		"refresh_token":     refreshToken,
-		"steam_id":          steamID,
+		"refresh_token":     outcome.RefreshToken,
+		"steam_id":          outcome.SteamID,
 		"provider_identity": identity,
 	}
 
-	log.Printf("steam QR sign-in completed for SteamID %s", steamID)
+	log.Printf("steam QR sign-in completed for SteamID %s", outcome.SteamID)
 	return map[string]any{
 		"status":            "ok",
 		"account_name":      identity.DisplayName,

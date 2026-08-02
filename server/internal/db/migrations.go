@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 35
+const latestMigrationVersion = 37
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -733,6 +733,54 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 			Name:    "device_inventory_prepared_copies",
 			SQL: []string{
 				`ALTER TABLE device_inventories ADD COLUMN prepared_copies_json TEXT NOT NULL DEFAULT '[]';`,
+			},
+		},
+		{
+			Version: 36,
+			Name:    "managed_installation_recovery_events",
+			SQL: []string{
+				`CREATE TABLE device_installation_events_v36 (
+					id TEXT PRIMARY KEY,
+					endpoint_id TEXT NOT NULL REFERENCES device_endpoints(id) ON DELETE CASCADE,
+					game_id TEXT NOT NULL REFERENCES canonical_games(id) ON DELETE CASCADE,
+					source_game_id TEXT NOT NULL REFERENCES source_games(id) ON DELETE CASCADE,
+					actor_profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+					event_type TEXT NOT NULL CHECK(event_type IN (
+						'failure_detected','post_success_crash_accepted','cleanup_started','cleanup_succeeded','cleanup_failed',
+						'failure_ignored','failure_reopened','installation_missing','installation_needs_repair','installation_restored',
+						'installation_repair_succeeded','installation_cleanup_succeeded','installation_forgotten','installation_reinstall_released'
+					)),
+					reason TEXT,
+					details_json TEXT NOT NULL DEFAULT '{}',
+					created_at INTEGER NOT NULL
+				);`,
+				`INSERT INTO device_installation_events_v36 (id, endpoint_id, game_id, source_game_id, actor_profile_id, event_type, reason, details_json, created_at)
+				 SELECT id, endpoint_id, game_id, source_game_id, actor_profile_id, event_type, reason, details_json, created_at FROM device_installation_events;`,
+				`DROP TABLE device_installation_events;`,
+				`ALTER TABLE device_installation_events_v36 RENAME TO device_installation_events;`,
+				`CREATE INDEX idx_device_installation_events_identity_time ON device_installation_events(endpoint_id, game_id, source_game_id, created_at DESC);`,
+			},
+		},
+		{
+			Version: 37,
+			Name:    "profile_scoped_storefront_products",
+			SQL: []string{
+				`CREATE TABLE device_storefront_products (
+					endpoint_id TEXT NOT NULL REFERENCES device_endpoints(id) ON DELETE CASCADE,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					game_id TEXT NOT NULL REFERENCES canonical_games(id) ON DELETE CASCADE,
+					source_game_id TEXT NOT NULL REFERENCES source_games(id) ON DELETE CASCADE,
+					provider TEXT NOT NULL,
+					product_id TEXT NOT NULL,
+					title TEXT NOT NULL,
+					install_path TEXT NOT NULL,
+					installed INTEGER NOT NULL DEFAULT 1 CHECK(installed IN (0, 1)),
+					observed_at INTEGER NOT NULL,
+					use_granted INTEGER NOT NULL DEFAULT 0 CHECK(use_granted IN (0, 1)),
+					granted_at INTEGER,
+					PRIMARY KEY(endpoint_id, profile_id, game_id, source_game_id)
+				);`,
+				`CREATE INDEX idx_device_storefront_products_profile_game ON device_storefront_products(profile_id, game_id, installed, endpoint_id);`,
 			},
 		},
 	}

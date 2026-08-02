@@ -41,29 +41,29 @@ func NewManualReviewService(
 	}
 }
 
-func (s *manualReviewService) Apply(ctx context.Context, candidateID string, selection core.ManualReviewSelection, options core.ManualReviewApplyOptions) error {
+func (s *manualReviewService) Apply(ctx context.Context, candidateID string, selection core.ManualReviewSelection, options core.ManualReviewApplyOptions) (*core.ManualReviewApplyResult, error) {
 	if strings.TrimSpace(candidateID) == "" {
-		return fmt.Errorf("%w: candidate id is required", core.ErrManualReviewSelectionInvalid)
+		return nil, fmt.Errorf("%w: candidate id is required", core.ErrManualReviewSelectionInvalid)
 	}
 	if strings.TrimSpace(selection.ProviderPluginID) == "" {
-		return fmt.Errorf("%w: provider_plugin_id is required", core.ErrManualReviewSelectionInvalid)
+		return nil, fmt.Errorf("%w: provider_plugin_id is required", core.ErrManualReviewSelectionInvalid)
 	}
 	if strings.TrimSpace(selection.ExternalID) == "" {
-		return fmt.Errorf("%w: external_id is required", core.ErrManualReviewSelectionInvalid)
+		return nil, fmt.Errorf("%w: external_id is required", core.ErrManualReviewSelectionInvalid)
 	}
 
 	candidate, err := s.gameStore.GetManualReviewCandidate(ctx, candidateID)
 	if err != nil {
-		return fmt.Errorf("get manual review candidate: %w", err)
+		return nil, fmt.Errorf("get manual review candidate: %w", err)
 	}
 	if candidate == nil || candidate.Status != "found" {
-		return core.ErrManualReviewCandidateNotFound
+		return nil, core.ErrManualReviewCandidateNotFound
 	}
 	oldCanonicalID := strings.TrimSpace(candidate.CanonicalGameID)
 
 	integrations, err := s.integrationRepo.List(ctx)
 	if err != nil {
-		return fmt.Errorf("list integrations: %w", err)
+		return nil, fmt.Errorf("list integrations: %w", err)
 	}
 	metaSources := buildManualReviewMetadataSources(s.pluginDiscovery, integrations, s.logger)
 
@@ -91,15 +91,34 @@ func (s *manualReviewService) Apply(ctx context.Context, candidateID string, sel
 		Files: append([]core.GameFile(nil), candidate.Files...),
 	}
 
-	if err := s.refreshCoordinator.applyManualReviewSelection(ctx, candidate.IntegrationID, sourceGame, game, metaSources, options); err != nil {
-		return fmt.Errorf("save manual review result: %w", err)
+	summary, err := s.refreshCoordinator.applyManualReviewSelection(ctx, candidate.IntegrationID, sourceGame, game, metaSources, options)
+	if err != nil {
+		return nil, fmt.Errorf("save manual review result: %w", err)
 	}
 	if options.AuthoritativeReclassify {
 		if err := s.clearReclassifiedCanonicalOverrides(ctx, oldCanonicalID, candidate.ID); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return &core.ManualReviewApplyResult{Warnings: manualReviewProviderWarnings(summary)}, nil
+}
+
+func manualReviewProviderWarnings(summary *MetadataExecutionSummary) []string {
+	if summary == nil || len(summary.ProviderFailures) == 0 {
+		return nil
+	}
+	warnings := make([]string, 0, len(summary.ProviderFailures))
+	for _, failure := range summary.ProviderFailures {
+		provider := strings.TrimSpace(failure.Label)
+		if provider == "" {
+			provider = strings.TrimSpace(failure.PluginID)
+		}
+		if provider == "" {
+			provider = "A metadata provider"
+		}
+		warnings = append(warnings, fmt.Sprintf("%s could not add extra game details right now. You can retry game details later.", provider))
+	}
+	return warnings
 }
 
 func (s *manualReviewService) clearReclassifiedCanonicalOverrides(ctx context.Context, oldCanonicalID string, candidateID string) error {
@@ -229,7 +248,7 @@ func (s *manualReviewService) redetectCandidate(
 		candidate.IntegrationID,
 		[]*core.Game{game},
 		metaSources,
-		manualReviewMetadataFailurePolicy,
+		manualReviewRedetectFailurePolicy,
 	)
 	if err != nil {
 		return nil, err

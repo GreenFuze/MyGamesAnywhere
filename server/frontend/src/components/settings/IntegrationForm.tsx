@@ -920,6 +920,7 @@ export function EditIntegrationDialog({ integration, onClose, onSaved, onSignedI
             pluginId={integration.plugin_id}
             integrationId={integration.id}
             providerAppName={pluginLabel(integration.plugin_id)}
+            purposeLabel="Steam Families and shared games"
             initialIdentity={providerIdentityFromConfig(existingConfig)}
             onSignedIn={(identity) => onSignedIn?.(integration.id, identity)}
           />

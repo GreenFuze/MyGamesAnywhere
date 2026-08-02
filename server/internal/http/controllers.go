@@ -1796,6 +1796,26 @@ func preserveOAuthOwnedConfig(config, saved map[string]any) {
 	}
 }
 
+// preserveOmittedSecretConfig keeps existing schema-declared secrets when an
+// edit form deliberately omits their masked values. Presence is significant:
+// an explicitly submitted value (including an empty value) is never replaced,
+// so players can still choose to change a secret and receive normal plugin
+// validation for the replacement.
+func preserveOmittedSecretConfig(config, saved, schema map[string]any) {
+	for key, rawField := range schema {
+		field, ok := rawField.(map[string]any)
+		if !ok || field["x-secret"] != true {
+			continue
+		}
+		if _, submitted := config[key]; submitted {
+			continue
+		}
+		if value, exists := saved[key]; exists {
+			config[key] = value
+		}
+	}
+}
+
 // publicIntegration returns the browser-safe representation of a connection.
 // OAuth tokens stay in the server-owned row and are never serialized to LAN
 // browsers. The safe provider_identity is intentionally retained so the player
@@ -2482,14 +2502,17 @@ func (c *PluginController) UpdateIntegration(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "config must be a JSON object", http.StatusBadRequest)
 			return
 		}
+		existingConfig, decodeErr := decodeIntegrationConfig(existing.ConfigJSON)
+		if decodeErr != nil {
+			http.Error(w, "saved connection configuration is invalid", http.StatusInternalServerError)
+			return
+		}
+		if plugin, ok := c.pluginHost.GetPlugin(existing.PluginID); ok {
+			preserveOmittedSecretConfig(configMap, existingConfig, plugin.Manifest.ConfigSchema)
+		}
 		if c.pluginOwnsProviderIdentity(existing.PluginID) {
 			// OAuth secrets are callback-owned. Preserve the current row's tokens
 			// and ignore stale or copied values submitted by frontend forms.
-			existingConfig, decodeErr := decodeIntegrationConfig(existing.ConfigJSON)
-			if decodeErr != nil {
-				http.Error(w, "saved connection configuration is invalid", http.StatusInternalServerError)
-				return
-			}
 			preserveOAuthOwnedConfig(configMap, existingConfig)
 		}
 

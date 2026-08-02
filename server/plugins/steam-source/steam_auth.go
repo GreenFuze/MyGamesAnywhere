@@ -57,6 +57,16 @@ type qrSession struct {
 	IntervalSecs int    `json:"interval_seconds"`
 }
 
+// qrPollOutcome carries either the approved account credential or Steam's
+// replacement QR challenge. Steam rotates the challenge URL while preserving
+// the same client/request identity, so callers must keep polling that session.
+type qrPollOutcome struct {
+	RefreshToken string
+	AccountName  string
+	SteamID      string
+	ChallengeURL string
+}
+
 type beginAuthResponse struct {
 	Response struct {
 		ClientID     string  `json:"client_id"`
@@ -195,33 +205,37 @@ func (c *steamAuthClient) BeginQRSession() (*qrSession, error) {
 // PollQRSession reports the outcome of a QR sign-in attempt. It returns
 // errAuthPending while the player has not approved yet, and
 // errAuthSessionExpired once the challenge is dead.
-func (c *steamAuthClient) PollQRSession(clientID, requestID string) (refreshToken, accountName, steamID string, err error) {
+func (c *steamAuthClient) PollQRSession(clientID, requestID string) (*qrPollOutcome, error) {
 	if strings.TrimSpace(clientID) == "" || strings.TrimSpace(requestID) == "" {
-		return "", "", "", fmt.Errorf("steam sign-in session is incomplete")
+		return nil, fmt.Errorf("steam sign-in session is incomplete")
 	}
 
 	form := url.Values{"client_id": {clientID}, "request_id": {requestID}}
 	var result pollAuthResponse
 	if err := c.post(authServicePoll, form, &result); err != nil {
-		return "", "", "", err
+		return nil, err
 	}
 
 	response := result.Response
 	if token := strings.TrimSpace(response.RefreshToken); token != "" {
 		steamID, err := steamIDFromRefreshToken(token)
 		if err != nil {
-			return "", "", "", err
+			return nil, err
 		}
-		return token, strings.TrimSpace(response.AccountName), steamID, nil
+		return &qrPollOutcome{
+			RefreshToken: token,
+			AccountName:  strings.TrimSpace(response.AccountName),
+			SteamID:      steamID,
+		}, nil
 	}
 
 	// Steam clears the client ID / issues no new challenge once the attempt is
 	// dead. A live session explicitly returns had_remote_interaction:false,
 	// which must remain distinct from an actually empty response object.
 	if strings.TrimSpace(response.NewChallengeURL) == "" && response.HadRemoteInteraction == nil && response.AccessToken == "" && response.AccountName == "" && clientIDCleared(result) {
-		return "", "", "", errAuthSessionExpired
+		return nil, errAuthSessionExpired
 	}
-	return "", "", "", errAuthPending
+	return &qrPollOutcome{ChallengeURL: strings.TrimSpace(response.NewChallengeURL)}, errAuthPending
 }
 
 // clientIDCleared reports whether Steam signalled a dead session. Steam returns

@@ -169,7 +169,7 @@ func TestManualReviewServiceApplyPersistsSelectedMatchAndFillResult(t *testing.T
 		testLogger{},
 	)
 
-	err := service.Apply(ctx, "scan:manual-review-1", core.ManualReviewSelection{
+	result, err := service.Apply(ctx, "scan:manual-review-1", core.ManualReviewSelection{
 		ProviderIntegrationID: "meta-manual",
 		ProviderPluginID:      "metadata-manual",
 		Title:                 "Chosen Game",
@@ -193,6 +193,9 @@ func TestManualReviewServiceApplyPersistsSelectedMatchAndFillResult(t *testing.T
 	}, core.ManualReviewApplyOptions{})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if result == nil || len(result.Warnings) != 0 {
+		t.Fatalf("apply result = %+v, want no warnings", result)
 	}
 	if queue.calls != 1 {
 		t.Fatalf("enqueue calls = %d, want 1", queue.calls)
@@ -381,7 +384,7 @@ func TestManualReviewServiceAuthoritativeReclassifyReplacesMatchesMovesCanonical
 		testLogger{},
 	)
 
-	if err := service.Apply(ctx, "scan:target", core.ManualReviewSelection{
+	if _, err := service.Apply(ctx, "scan:target", core.ManualReviewSelection{
 		ProviderIntegrationID: "meta-igdb",
 		ProviderPluginID:      "metadata-igdb",
 		Title:                 "Selected Game",
@@ -445,7 +448,7 @@ func TestManualReviewServiceApplyRejectsInvalidSelection(t *testing.T) {
 		testLogger{},
 	)
 
-	err := service.Apply(context.Background(), "scan:any", core.ManualReviewSelection{}, core.ManualReviewApplyOptions{})
+	_, err := service.Apply(context.Background(), "scan:any", core.ManualReviewSelection{}, core.ManualReviewApplyOptions{})
 	if !errors.Is(err, core.ErrManualReviewSelectionInvalid) {
 		t.Fatalf("error = %v, want %v", err, core.ErrManualReviewSelectionInvalid)
 	}

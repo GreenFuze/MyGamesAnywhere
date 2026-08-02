@@ -11,7 +11,7 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { useTheme } from '@/theme/ThemeProvider'
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router'
 import { useGameFavoriteAction } from '@/hooks/useGameFavorite'
 import { useGameCardActions } from '@/hooks/useGameCardActions'
 import {

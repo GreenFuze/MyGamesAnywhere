@@ -10,7 +10,9 @@ import (
 )
 
 const (
-	InventorySchemaVersion                   uint16 = 7
+	InventorySchemaVersion                   uint16 = 8
+	InventorySchemaVersionWithStorefronts    uint16 = 8
+	InventorySchemaVersionWithPreparedCopies uint16 = 7
 	InventorySchemaVersionWithSaveDomains    uint16 = 6
 	InventorySchemaVersionWithNativeProducts uint16 = 5
 	InventorySchemaVersionWithInstallations  uint16 = 4
@@ -23,6 +25,7 @@ const (
 	maxManagedInstallations                         = 256
 	maxSaveDomains                                  = 1024
 	maxPreparedCopies                               = 256
+	maxStorefrontProducts                           = 4096
 )
 
 // DeviceInventory is a bounded snapshot of facts needed to evaluate play and
@@ -38,6 +41,7 @@ type DeviceInventory struct {
 	ManagedInstallations []ManagedInstallationObservation `json:"managed_installations,omitempty"`
 	SaveDomains          []SaveDomainObservation          `json:"save_domains,omitempty"`
 	PreparedCopies       []PreparedCopyObservation        `json:"prepared_copies,omitempty"`
+	StorefrontProducts   []StorefrontProductObservation   `json:"storefront_products,omitempty"`
 }
 
 type StorageInventory struct {
@@ -126,7 +130,7 @@ type PreparedCopyObservation struct {
 }
 
 func (i DeviceInventory) Validate() error {
-	if i.SchemaVersion != InventorySchemaVersionLegacy && i.SchemaVersion != InventorySchemaVersionPrevious && i.SchemaVersion != InventorySchemaVersionWithSaveAdapters && i.SchemaVersion != InventorySchemaVersionWithInstallations && i.SchemaVersion != InventorySchemaVersionWithNativeProducts && i.SchemaVersion != InventorySchemaVersionWithSaveDomains && i.SchemaVersion != InventorySchemaVersion {
+	if i.SchemaVersion != InventorySchemaVersionLegacy && i.SchemaVersion != InventorySchemaVersionPrevious && i.SchemaVersion != InventorySchemaVersionWithSaveAdapters && i.SchemaVersion != InventorySchemaVersionWithInstallations && i.SchemaVersion != InventorySchemaVersionWithNativeProducts && i.SchemaVersion != InventorySchemaVersionWithSaveDomains && i.SchemaVersion != InventorySchemaVersionWithPreparedCopies && i.SchemaVersion != InventorySchemaVersion {
 		return fmt.Errorf("unsupported inventory schema version %d", i.SchemaVersion)
 	}
 	if i.CapturedAt.IsZero() {
@@ -227,6 +231,23 @@ func (i DeviceInventory) Validate() error {
 	}
 	if len(i.PreparedCopies) > maxPreparedCopies {
 		return errors.New("inventory contains too many prepared copies")
+	}
+	if i.SchemaVersion < InventorySchemaVersionWithStorefronts && len(i.StorefrontProducts) != 0 {
+		return fmt.Errorf("inventory schema %d cannot contain storefront products", i.SchemaVersion)
+	}
+	if len(i.StorefrontProducts) > maxStorefrontProducts {
+		return errors.New("inventory contains too many storefront products")
+	}
+	seenStorefrontProducts := map[string]bool{}
+	for index, product := range i.StorefrontProducts {
+		if err := product.Validate(); err != nil {
+			return fmt.Errorf("storefront_products[%d]: %w", index, err)
+		}
+		key := strings.ToLower(product.SourceGameID + ":" + product.Provider + ":" + product.ProductID)
+		if seenStorefrontProducts[key] {
+			return fmt.Errorf("duplicate storefront product %q", product.SourceGameID)
+		}
+		seenStorefrontProducts[key] = true
 	}
 	seenPrepared := map[string]bool{}
 	for _, prepared := range i.PreparedCopies {
@@ -434,6 +455,7 @@ func (i DeviceInventory) Normalize() DeviceInventory {
 	i.ManagedInstallations = append([]ManagedInstallationObservation(nil), i.ManagedInstallations...)
 	i.SaveDomains = append([]SaveDomainObservation(nil), i.SaveDomains...)
 	i.PreparedCopies = append([]PreparedCopyObservation(nil), i.PreparedCopies...)
+	i.StorefrontProducts = append([]StorefrontProductObservation(nil), i.StorefrontProducts...)
 	for index := range i.ManagedInstallations {
 		i.ManagedInstallations[index].NativeProducts = append([]NativeProductObservation(nil), i.ManagedInstallations[index].NativeProducts...)
 		sort.Slice(i.ManagedInstallations[index].NativeProducts, func(left, right int) bool {
@@ -464,6 +486,9 @@ func (i DeviceInventory) Normalize() DeviceInventory {
 	})
 	sort.Slice(i.PreparedCopies, func(left, right int) bool {
 		return i.PreparedCopies[left].LocalPreparedCopyID < i.PreparedCopies[right].LocalPreparedCopyID
+	})
+	sort.Slice(i.StorefrontProducts, func(left, right int) bool {
+		return i.StorefrontProducts[left].SourceGameID < i.StorefrontProducts[right].SourceGameID
 	})
 	return i
 }

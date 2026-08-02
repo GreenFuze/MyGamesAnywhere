@@ -245,6 +245,8 @@ async function prepareLanguage() {
     const handlers = [
         ["ready", window.EJS_ready],
         ["start", window.EJS_onGameStart],
+        ["saveDatabaseLoaded", window.EJS_onSaveDatabaseLoaded],
+        ["saveSaveFiles", window.EJS_onSaveSaveFiles],
         ["loadState", window.EJS_onLoadState],
         ["saveState", window.EJS_onSaveState],
         ["quickLoadState", window.EJS_onQuickLoadState],

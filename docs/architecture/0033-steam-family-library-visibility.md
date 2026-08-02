@@ -1,12 +1,12 @@
 # ADR-0033: Steam family-shared library visibility
 
-- **Status:** Accepted (credential and post-sign-in UX revised 2026-07-29)
-- **Date:** 2026-07-24; revised 2026-07-25 and 2026-07-29
+- **Status:** Accepted (credential and post-sign-in UX revised 2026-08-01)
+- **Date:** 2026-07-24; revised 2026-07-25, 2026-07-29, and 2026-08-01
 - **Scope:** Steam game-source plugin discovery of Steam Families shared-library
   titles, the credential model required to read them, shared-title labeling and
   semantics, persistence of the shared marker, and scan degradation behavior
 - **Jira:** MGA-64
-- **Agent:** Claude Dev 1
+- **Agent:** Codex Dev 1
 - **Canonical record:** [MGA Confluence ADR-0033](https://greenfuzer.atlassian.net/wiki/spaces/MG/pages/4456449/ADR-0033+Steam+Family-Shared+Library+Visibility)
 - **Depends on:** ADR-0001; relates to the Profile Isolation scope ledger
 
@@ -56,21 +56,36 @@ shared library at all.
    token roughly daily, which made re-pasting a recurring chore, so it was
    rejected as the ongoing model and removed. Only the refresh token is honoured
    now; a previously pasted `access_token` value is ignored.
-2. **Discovery.** With a minted access token, the plugin resolves the family group
+2. **The Steam Web API key remains required.** Live protocol verification on
+   2026-08-01 confirmed that the phone-derived access token can read
+   `GetOwnedGames`, but Steam rejects `GetPlayerSummaries`,
+   `GetPlayerAchievements`, and `GetSchemaForGame` without a Web API `key`.
+   Removing the key would therefore break account enrichment and achievements.
+   The key and phone approval serve different provider APIs; the phone flow is
+   still the only account login and MGA still never handles a password.
+3. **QR rotation follows Steam's live session.** MGA does not guess a fixed
+   expiry because `BeginAuthSessionViaQR` returns no expiry timestamp. During
+   polling, Steam can return `new_challenge_url`; MGA replaces the displayed QR
+   immediately while retaining the same client/request session. This refreshes
+   the visible challenge before the previous payload becomes unusable.
+4. **Discovery.** With a minted access token, the plugin resolves the family group
    via `GetFamilyGroupForUser` and enumerates shared apps via
    `GetSharedLibraryApps`. Apps whose `owner_steamids` exclude the account's own
    SteamID are marked **shared** with an owner attribution.
-3. **Labeling and semantics.** Shared titles are shown, labeled **"Shared"**,
+5. **Labeling and semantics.** Shared titles are shown, labeled **"Shared"**,
    and are play-capable in principle, but availability depends on the lender. A
    shared title does **not** grant the borrower install-ownership or Save Domain
    authority; MGA treats shared titles as a visibility-and-play surface only.
-4. **Graceful degradation — fail-fast but non-catastrophic.** Owned-game listing
+6. **Graceful degradation — fail-fast but non-catastrophic.** Owned-game listing
    never depends on the shared-library credential. Not signed in → owned games
    only. Refresh token rejected (revoked or expired) → clear attributable error
    for the shared portion only, **without** failing the owned-games scan; the
    player signs in again to recover. Minting an access token happens per scan,
-   so a rejected credential is detected before any family API call.
-5. **Persistence (`NO_MIGRATION_NEEDED`).** The shared marker and owner
+   so a rejected credential is detected before any family API call. Because
+   Steam may briefly reject a token immediately after mobile approval, MGA
+   retries only that exact condition twice with bounded backoff before marking
+   the connection as needing sign-in; all other failures still fail fast.
+7. **Persistence (`NO_MIGRATION_NEEDED`).** The shared marker and owner
    attribution flow from the plugin through `ResolverMatch`/`core.Game`
    following the `IsGamePass`/`XcloudAvailable` precedent. Like those fields they
    persist inside the existing per-resolver-match `metadata_json` blob, so **no
@@ -105,6 +120,8 @@ shared library at all.
   with an owner attribution, and keep working for months without player action.
 - Approval shows the authenticated Steam persona and avatar, hides the
   provider-managed refresh token, and starts a Steam rescan automatically.
+- A live sign-in replaces the displayed QR whenever Steam rotates its challenge,
+  without asking the player to restart the flow.
 - Not signed in, or with a rejected refresh token, owned games still list; the
   shared portion degrades with a clear, non-fatal signal.
 - No Steam password or Steam Guard code is ever entered into or handled by MGA.

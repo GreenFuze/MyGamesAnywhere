@@ -94,6 +94,58 @@ func ConfirmInstallationAdoption(ctx context.Context, title, path, server string
 	return false, fmt.Errorf("show adoption dialog: %w", err)
 }
 
+func ConfirmInstallationRecoveryRelease(ctx context.Context, title, path, server, action string, pathPresent bool) (bool, error) {
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(path) == "" || strings.TrimSpace(server) == "" {
+		return false, fmt.Errorf("installation title, path, and server are required")
+	}
+	label, explanation := "Forget", "MGA will stop managing this installation. Installed files and saves will not be deleted."
+	if action == "reinstall" {
+		label = "Continue"
+		explanation = "MGA confirmed that the old game folder is missing. It will release the old record, then the website can install a fresh copy."
+	}
+	if !pathPresent {
+		explanation += "\n\nThe recorded game folder is currently missing."
+	}
+	err := zenity.Question(
+		fmt.Sprintf("%s %s on this MGA Server?\n\nServer:\n%s\n\nRecorded location:\n%s\n\n%s", label, title, server, path, explanation),
+		zenity.Title("MGA Client — Confirm installation recovery"),
+		zenity.OKLabel(label),
+		zenity.CancelLabel("Cancel"),
+		zenity.WarningIcon,
+		zenity.DefaultCancel(),
+		zenity.Context(ctx),
+	)
+	if err == nil {
+		return true, nil
+	}
+	if err == zenity.ErrCanceled {
+		return false, nil
+	}
+	return false, fmt.Errorf("show installation recovery dialog: %w", err)
+}
+
+func ConfirmManagedInstallationCleanup(ctx context.Context, title, path, server string) (bool, error) {
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(path) == "" || strings.TrimSpace(server) == "" {
+		return false, fmt.Errorf("installation title, path, and server are required")
+	}
+	err := zenity.Question(
+		fmt.Sprintf("Clean up the broken installation for %s?\n\nServer:\n%s\n\nManaged game folder:\n%s\n\nOnly this verified MGA-managed folder will be removed. Saves, shared prerequisites, and caches outside it will stay.", title, server, path),
+		zenity.Title("MGA Client — Confirm cleanup"),
+		zenity.OKLabel("Clean up"),
+		zenity.CancelLabel("Cancel"),
+		zenity.WarningIcon,
+		zenity.DefaultCancel(),
+		zenity.Context(ctx),
+	)
+	if err == nil {
+		return true, nil
+	}
+	if err == zenity.ErrCanceled {
+		return false, nil
+	}
+	return false, fmt.Errorf("show installation cleanup dialog: %w", err)
+}
+
 func ConfirmUseExistingInstallation(ctx context.Context, title, path, server string) (bool, error) {
 	if strings.TrimSpace(title) == "" || strings.TrimSpace(path) == "" || strings.TrimSpace(server) == "" {
 		return false, fmt.Errorf("installation title, path, and server are required")

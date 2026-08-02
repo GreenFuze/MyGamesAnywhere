@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router'
 import { AlertTriangle, ChevronDown, ChevronRight, Loader2, RefreshCw, Trophy } from 'lucide-react'
 import {
   getAchievementRefreshJob,

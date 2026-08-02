@@ -699,6 +699,7 @@ export type ManualReviewCandidateDetail = ManualReviewCandidateSummary & {
   url?: string;
   files: GameFileDTO[];
   resolver_matches: ResolverMatchDTO[];
+  metadata_warnings?: string[];
 };
 
 export type ManualReviewSearchProviderStatus = {

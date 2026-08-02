@@ -153,6 +153,31 @@ func TestQRPollPendingDoesNotPersist(t *testing.T) {
 	}
 }
 
+func TestQRPollPendingForwardsRotatedChallenge(t *testing.T) {
+	repo := &qrIntegrationRepo{integration: steamQRIntegration()}
+	host := &fakeQRPluginHost{pollResult: map[string]any{
+		"status":        "pending",
+		"challenge_url": "https://s.team/q/fresh",
+	}}
+	ctrl := newQRController(host, repo)
+
+	rec := qrRequest(t, ctrl.QRPoll, "game-source-steam", "profile-1",
+		`{"integration_id":"int-1","client_id":"client-1","request_id":"request-1"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var response qrPollResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Status != "pending" || response.ChallengeURL != "https://s.team/q/fresh" {
+		t.Fatalf("response = %#v", response)
+	}
+	if repo.updated != nil {
+		t.Fatal("pending challenge must not persist credentials")
+	}
+}
+
 func TestQRPollApprovedPersistsRefreshToken(t *testing.T) {
 	repo := &qrIntegrationRepo{integration: steamQRIntegration()}
 	host := &fakeQRPluginHost{pollResult: map[string]any{

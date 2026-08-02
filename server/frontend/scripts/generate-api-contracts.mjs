@@ -21,6 +21,8 @@ for (const requiredPath of [
   "/api/install-preferences/profile",
   "/api/devices/{id}/install-preference",
   "/api/devices/{id}/validate-installations",
+  "/api/devices/{id}/games/{game_id}/sources/{source_game_id}/use-storefront",
+  "/api/devices/{id}/games/{game_id}/sources/{source_game_id}/launch-storefront",
   "/api/save-sync/domains/{domain_id}/history",
   "/api/save-sync/domains/{domain_id}/history-policy",
   "/api/save-sync/history/{version_id}/recover",
@@ -735,6 +737,7 @@ export type ManualReviewCandidateDetail = ManualReviewCandidateSummary & {
   url?: string;
   files: GameFileDTO[];
   resolver_matches: ResolverMatchDTO[];
+  metadata_warnings?: string[];
 };
 
 export type ManualReviewSearchProviderStatus = {

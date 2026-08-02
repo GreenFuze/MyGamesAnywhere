@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -231,12 +232,69 @@ func (c *DeviceController) DispatchCommand(w http.ResponseWriter, r *http.Reques
 	if err := decodeJSONBody(w, r, &body); err != nil {
 		return
 	}
+	if body.Name == devicev1.CapabilityInventoryRefresh {
+		candidates, err := c.storefrontCandidates(r.Context())
+		if err != nil {
+			writeDeviceError(w, err)
+			return
+		}
+		body.Payload, err = json.Marshal(devicev1.InventoryRefreshRequest{StorefrontCandidates: candidates})
+		if err != nil {
+			writeDeviceError(w, err)
+			return
+		}
+	}
 	command, err := c.service.DispatchCommand(r.Context(), chi.URLParam(r, "id"), core.ProfileIDFromContext(r.Context()), body.Name, body.Payload)
 	if err != nil {
 		writeDeviceError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, command)
+}
+
+func (c *DeviceController) storefrontCandidates(ctx context.Context) ([]devicev1.StorefrontProductCandidate, error) {
+	return buildStorefrontCandidates(ctx, c.gameStore)
+}
+
+const steamGameSourcePluginID = "game-source-steam"
+
+func buildStorefrontCandidates(ctx context.Context, gameStore core.GameStore) ([]devicev1.StorefrontProductCandidate, error) {
+	if gameStore == nil {
+		return nil, nil
+	}
+	games, err := gameStore.GetCanonicalGames(ctx)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]devicev1.StorefrontProductCandidate, 0)
+	seen := map[string]bool{}
+	for _, game := range games {
+		if game == nil {
+			continue
+		}
+		for _, source := range game.SourceGames {
+			if source == nil || source.PluginID != steamGameSourcePluginID {
+				continue
+			}
+			candidate := devicev1.StorefrontProductCandidate{
+				GameID: game.ID, SourceGameID: source.ID, Provider: devicev1.StorefrontProviderSteam,
+				ProductID: strings.TrimSpace(source.ExternalID), Title: strings.TrimSpace(source.RawTitle),
+			}
+			if candidate.Title == "" {
+				candidate.Title = game.Title
+			}
+			if err := candidate.Validate(); err != nil {
+				continue
+			}
+			key := strings.ToLower(candidate.SourceGameID + ":" + candidate.Provider + ":" + candidate.ProductID)
+			if !seen[key] {
+				seen[key] = true
+				candidates = append(candidates, candidate)
+			}
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].SourceGameID < candidates[j].SourceGameID })
+	return candidates, (devicev1.InventoryRefreshRequest{StorefrontCandidates: candidates}).Validate()
 }
 
 func (c *DeviceController) ListCommands(w http.ResponseWriter, r *http.Request) {

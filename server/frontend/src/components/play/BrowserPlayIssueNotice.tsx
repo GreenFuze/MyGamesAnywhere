@@ -1,5 +1,5 @@
 import { ExternalLink } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import type { BrowserPlaySelectionIssue } from '@/lib/browserPlayDiagnostics'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { AlertTriangle, ArrowLeft, ArrowRight, CloudDownload, Gamepad2, Gem, Joystick, Rocket, Swords, Trophy, UserPlus } from 'lucide-react'
 import {
   browseRestoreSyncSetup,

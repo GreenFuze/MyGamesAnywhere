@@ -14,6 +14,7 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/client/internal/buildinfo"
 	clientconfig "github.com/GreenFuze/MyGamesAnywhere/client/internal/config"
+	"github.com/GreenFuze/MyGamesAnywhere/client/internal/desktop"
 	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
@@ -38,8 +39,10 @@ type Agent struct {
 	emulator      EmulatorLauncher
 	emulatorSetup EmulatorSetupManager
 	validator     InstallationValidator
+	recovery      *InstallationRecoveryManager
 	existing      ExistingInstallationUser
 	saveDomains   SaveDomainManager
+	storefront    *LocalStorefrontAccess
 }
 
 func NewAgent(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger) (*Agent, error) {
@@ -110,6 +113,8 @@ func newAgentWithLocalState(config clientconfig.Binding, privateKey ed25519.Priv
 	var downloader FileDownloader
 	var existing ExistingInstallationUser
 	var saveDomains SaveDomainManager
+	var recovery *InstallationRecoveryManager
+	var storefront *LocalStorefrontAccess
 	if ownership == nil {
 		inventory = NewLocalInventoryCollector()
 	} else {
@@ -124,8 +129,18 @@ func newAgentWithLocalState(config clientconfig.Binding, privateKey ed25519.Priv
 		if err != nil {
 			return nil, err
 		}
+		recovery, err = NewInstallationRecoveryManager(ownership, config.ServerURL, newRegisteredProgramInspector())
+		if err != nil {
+			return nil, err
+		}
 		if ownership.saveDomains != nil {
 			saveDomains, err = NewLocalSaveDomainManager(ownership, config.ServerURL)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if ownership.storefrontGrants != nil {
+			storefront, err = NewLocalStorefrontAccess(config.BindingID, config.ServerURL, ownership.storefrontGrants)
 			if err != nil {
 				return nil, err
 			}
@@ -147,7 +162,7 @@ func newAgentWithLocalState(config clientconfig.Binding, privateKey ed25519.Priv
 	return &Agent{
 		config: config, privateKey: privateKey, buildInfo: info, logger: logger, executionMode: executionMode,
 		inventory: inventory, installer: installer, downloader: downloader, gogInstaller: gogInstaller,
-		launcher: NewOwnedWindowsGameLauncher(ownership), emulator: emulator, emulatorSetup: emulatorSetup, validator: validator, existing: existing, saveDomains: saveDomains,
+		launcher: NewOwnedWindowsGameLauncher(ownership), emulator: emulator, emulatorSetup: emulatorSetup, validator: validator, recovery: recovery, existing: existing, saveDomains: saveDomains, storefront: storefront,
 	}, nil
 }
 
@@ -385,15 +400,57 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 		if a.inventory == nil {
 			return nil, false, "inventory_unavailable", errors.New("device inventory collector is unavailable")
 		}
-		var requestPayload map[string]json.RawMessage
-		if err := json.Unmarshal(rawPayload, &requestPayload); err != nil || len(requestPayload) != 0 {
-			return nil, false, "invalid_payload", errors.New("inventory.refresh payload must be an empty object")
+		var requestPayload devicev1.InventoryRefreshRequest
+		if err := json.Unmarshal(rawPayload, &requestPayload); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		if err := requestPayload.Validate(); err != nil {
+			return nil, false, "invalid_payload", err
 		}
 		inventory, err := a.inventory.Collect(ctx)
 		if err != nil {
 			return nil, false, "inventory_failed", err
 		}
+		if len(requestPayload.StorefrontCandidates) != 0 {
+			if a.storefront == nil {
+				return nil, false, "storefront_unavailable", errors.New("storefront observation is unavailable")
+			}
+			inventory.StorefrontProducts, err = a.storefront.Observe(ctx, requestPayload.StorefrontCandidates)
+			if err != nil {
+				return nil, false, "storefront_observation_failed", err
+			}
+			inventory = inventory.Normalize()
+			if err := inventory.Validate(); err != nil {
+				return nil, false, "inventory_failed", err
+			}
+		}
 		return inventory, false, "", nil
+	case devicev1.CapabilityGameUseStorefront:
+		if a.storefront == nil {
+			return nil, false, "storefront_unavailable", errors.New("storefront access is unavailable")
+		}
+		var request devicev1.UseStorefrontProductRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.storefront.Use(ctx, request)
+		if err != nil {
+			return nil, false, "storefront_use_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilityGameLaunchStorefront:
+		if a.storefront == nil {
+			return nil, false, "storefront_unavailable", errors.New("storefront launch is unavailable")
+		}
+		var request devicev1.StorefrontLaunchRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.storefront.Launch(ctx, request)
+		if err != nil {
+			return nil, false, "storefront_launch_failed", err
+		}
+		return result, false, "", nil
 	case devicev1.CapabilityInstallationPreflight:
 		var request devicev1.InstallationPreflightRequest
 		if err := json.Unmarshal(rawPayload, &request); err != nil {
@@ -444,6 +501,50 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 			return nil, false, "uninstall_failed", err
 		}
 		return result, false, "", nil
+	case devicev1.CapabilityGameCleanupInstallation:
+		var request devicev1.InstallationCleanupRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		switch request.InstallKind {
+		case devicev1.InstallKindManagedArchive:
+			if a.installer == nil {
+				return nil, false, "installer_unavailable", errors.New("archive installer is unavailable")
+			}
+			approved, err := desktop.ConfirmManagedInstallationCleanup(ctx, request.GameID, request.InstallPath, a.config.ServerURL)
+			if err != nil {
+				return nil, false, "local_confirmation_failed", err
+			}
+			if !approved {
+				return nil, false, "local_confirmation_declined", errors.New("installation cleanup was canceled")
+			}
+			removed, err := a.installer.Uninstall(ctx, devicev1.GameUninstallRequest{
+				GameID: request.GameID, SourceGameID: request.SourceGameID, InstallPath: request.InstallPath,
+			}, report)
+			if err != nil {
+				return nil, false, "cleanup_failed", err
+			}
+			return devicev1.InstallationCleanupResult{
+				GameID: removed.GameID, SourceGameID: removed.SourceGameID, InstallKind: request.InstallKind, Removed: removed.Removed,
+			}, false, "", nil
+		case devicev1.InstallKindGogInno:
+			if a.gogInstaller == nil {
+				return nil, false, "unsupported_installer", errors.New("GOG Inno installer is unavailable")
+			}
+			removed, err := a.gogInstaller.Uninstall(ctx, devicev1.GogInnoUninstallRequest{
+				GameID: request.GameID, SourceGameID: request.SourceGameID, InstallPath: request.InstallPath,
+				InstallerFamily: devicev1.GogInnoInstallerFamily, UninstallTarget: request.UninstallTarget,
+			}, report)
+			if err != nil {
+				code, payload := gogCommandFailure(err, "cleanup_failed")
+				return payload, false, code, err
+			}
+			return devicev1.InstallationCleanupResult{
+				GameID: removed.GameID, SourceGameID: removed.SourceGameID, InstallKind: request.InstallKind, Removed: removed.Removed,
+			}, false, "", nil
+		default:
+			return nil, false, "invalid_payload", fmt.Errorf("unsupported install kind %q", request.InstallKind)
+		}
 	case devicev1.CapabilityGameInstallGogInno:
 		if a.gogInstaller == nil {
 			return nil, false, "unsupported_installer", errors.New("GOG Inno installer is unavailable")
@@ -536,6 +637,22 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 		result, err := a.validator.Validate(ctx, request, report)
 		if err != nil {
 			return nil, false, "validation_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilityGameRecoverInstallation:
+		if a.recovery == nil {
+			return nil, false, "recovery_unavailable", errors.New("installation recovery is unavailable")
+		}
+		var request devicev1.InstallationRecoveryRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.recovery.Recover(ctx, request, report)
+		if errors.Is(err, ErrInstallationRecoveryDeclined) {
+			return nil, false, "local_confirmation_declined", err
+		}
+		if err != nil {
+			return nil, false, "installation_recovery_failed", err
 		}
 		return result, false, "", nil
 	case devicev1.CapabilityGameUseExisting:

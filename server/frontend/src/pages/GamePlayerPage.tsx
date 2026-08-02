@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type LegacyRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ArrowLeft, Download, ExternalLink, Maximize2, Minimize2, PlayCircle, Upload } from 'lucide-react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router'
 import {
   ApiError,
   getCacheJob,
@@ -114,9 +114,9 @@ type PendingBridgeRequest = {
 }
 
 type NativeBridgeReply =
-  | { type: 'native-save-result'; requestId: string; ok: boolean; error?: string }
-  | { type: 'native-load-state-result'; requestId: string; ok: boolean; stateBase64?: string; error?: string }
-  | { type: 'native-load-ram-result'; requestId: string; ok: boolean; files?: RuntimeSaveFile[]; error?: string }
+  | { type: 'native-save-result'; requestId: string; ok: boolean; manifestHash?: string; error?: string }
+  | { type: 'native-load-state-result'; requestId: string; ok: boolean; stateBase64?: string; manifestHash?: string; error?: string }
+  | { type: 'native-load-ram-result'; requestId: string; ok: boolean; files?: RuntimeSaveFile[]; manifestHash?: string; error?: string }
 
 function activeSaveSyncIntegrationId(frontendConfig: FrontendConfig | undefined): string | null {
   const value = frontendConfig?.saveSyncActiveIntegrationId
@@ -135,6 +135,11 @@ export function GamePlayerPage() {
   const [saveSyncBusy, setSaveSyncBusy] = useState(false)
   const [saveSyncMessage, setSaveSyncMessage] = useState('')
   const [saveSyncError, setSaveSyncError] = useState('')
+  const [localSaveStatus, setLocalSaveStatus] = useState<{
+    status: 'ready' | 'saved' | 'backup_error'
+    message: string
+    fileCount?: number
+  } | null>(null)
   const [pendingSaveConflict, setPendingSaveConflict] = useState<{
     conflict: SaveSyncConflict
     snapshot: SaveSyncSnapshot
@@ -544,6 +549,7 @@ export function GamePlayerPage() {
     setRuntimeError('')
     setSaveSyncMessage('')
     setSaveSyncError('')
+    setLocalSaveStatus(null)
 
     return () => {
       clearBrowserPlaySession(nextToken)
@@ -571,7 +577,11 @@ export function GamePlayerPage() {
       iframeRef.current?.contentWindow?.postMessage(reply, window.location.origin)
     }
 
-    const saveNativeFiles = async (slotId: string, files: RuntimeSaveFile[]) => {
+    const saveNativeFiles = async (
+      slotId: string,
+      files: RuntimeSaveFile[],
+      baseManifestHash?: string,
+    ): Promise<string | undefined> => {
       if (!session || !activeIntegrationId) {
         throw new Error('Save sync is not available for this runtime session.')
       }
@@ -588,7 +598,7 @@ export function GamePlayerPage() {
         integrationId: activeIntegrationId,
         sourceGameId: session.sourceGameId,
         runtime: session.runtime,
-        baseManifestHash: nativeSlotManifestRef.current.get(slotId),
+        baseManifestHash,
         snapshot,
       })
       if (result.conflict) {
@@ -600,9 +610,12 @@ export function GamePlayerPage() {
         throw new Error('Save sync failed.')
       }
       if (result.summary.manifest_hash) nativeSlotManifestRef.current.set(slotId, result.summary.manifest_hash)
+      return result.summary.manifest_hash
     }
 
-    const loadNativeFiles = async (slotId: string): Promise<RuntimeSaveFile[] | null> => {
+    const loadNativeFiles = async (
+      slotId: string,
+    ): Promise<{ files: RuntimeSaveFile[]; manifestHash?: string } | null> => {
       if (!session || !activeIntegrationId) {
         throw new Error('Save sync is not available for this runtime session.')
       }
@@ -614,7 +627,10 @@ export function GamePlayerPage() {
           runtime: session.runtime,
           slotId,
         })
-        return extractRuntimeFilesFromSnapshot(remote)
+        return {
+          files: extractRuntimeFilesFromSnapshot(remote),
+          manifestHash: remote.manifest_hash,
+        }
       } catch (error) {
         if (error instanceof ApiError && error.status === 404) {
           return null
@@ -651,18 +667,28 @@ export function GamePlayerPage() {
       try {
         if (message.type === 'native-save-state') {
           const slotId = emulatorJsStateSlotId(message.slot)
-          await saveNativeFiles(slotId, [{ path: 'state.state', base64: message.stateBase64 }])
-          postNativeReply({ type: 'native-save-result', requestId: message.requestId, ok: true })
+          const manifestHash = await saveNativeFiles(
+            slotId,
+            [{ path: 'state.state', base64: message.stateBase64 }],
+            message.baseManifestHash,
+          )
+          postNativeReply({
+            type: 'native-save-result',
+            requestId: message.requestId,
+            ok: true,
+            manifestHash,
+          })
           return
         }
         if (message.type === 'native-load-state') {
           const slotId = emulatorJsStateSlotId(message.slot)
-          const files = await loadNativeFiles(slotId)
+          const loaded = await loadNativeFiles(slotId)
           postNativeReply({
             type: 'native-load-state-result',
             requestId: message.requestId,
             ok: true,
-            stateBase64: files?.[0]?.base64,
+            stateBase64: loaded?.files?.[0]?.base64,
+            manifestHash: loaded?.manifestHash,
           })
           return
         }
@@ -676,17 +702,27 @@ export function GamePlayerPage() {
           if (files.length === 0) {
             throw new Error('No save RAM data to sync.')
           }
-          await saveNativeFiles(EMULATORJS_SAVE_RAM_SLOT_ID, files)
-          postNativeReply({ type: 'native-save-result', requestId: message.requestId, ok: true })
+          const manifestHash = await saveNativeFiles(
+            EMULATORJS_SAVE_RAM_SLOT_ID,
+            files,
+            message.baseManifestHash,
+          )
+          postNativeReply({
+            type: 'native-save-result',
+            requestId: message.requestId,
+            ok: true,
+            manifestHash,
+          })
           return
         }
         if (message.type === 'native-load-ram') {
-          const files = await loadNativeFiles(EMULATORJS_SAVE_RAM_SLOT_ID)
+          const loaded = await loadNativeFiles(EMULATORJS_SAVE_RAM_SLOT_ID)
           postNativeReply({
             type: 'native-load-ram-result',
             requestId: message.requestId,
             ok: true,
-            files: files ?? [],
+            files: loaded?.files ?? [],
+            manifestHash: loaded?.manifestHash,
           })
         }
       } catch (error) {
@@ -717,6 +753,15 @@ export function GamePlayerPage() {
 
       if (message.type === 'runtime-error') {
         setRuntimeError(message.error)
+        return
+      }
+
+      if (message.type === 'local-save-status') {
+        setLocalSaveStatus({
+          status: message.status,
+          message: message.message,
+          fileCount: message.fileCount,
+        })
         return
       }
 
@@ -932,6 +977,13 @@ export function GamePlayerPage() {
       setBaselineRemoteManifestHash(result.summary.manifest_hash ?? null)
       setBaselineLocalHash(await computeLocalSnapshotHash(pending.localFiles))
       if (result.summary.manifest_hash) nativeSlotManifestRef.current.set(pending.slotId, result.summary.manifest_hash)
+      if (session.runtime === 'emulatorjs' && result.summary.manifest_hash) {
+        sendBridgeCommand({
+          type: 'mark-local-save-synced',
+          slotId: pending.slotId,
+          manifestHash: result.summary.manifest_hash,
+        })
+      }
       setPendingSaveConflict(null)
       setSaveSyncMessage(`Saved ${saveSyncSnapshotLabel}. MGA kept the previous backup in Past saves.`)
       await slotsQuery.refetch()
@@ -1225,6 +1277,28 @@ export function GamePlayerPage() {
             {session.runtime === 'emulatorjs' && nativeSaveSyncPrefetchError && (
               <section className="rounded-mga border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">
                 {nativeSaveSyncPrefetchError}
+              </section>
+            )}
+            {session.runtime === 'emulatorjs' && localSaveStatus && (
+              <section
+                className={
+                  localSaveStatus.status === 'backup_error'
+                    ? 'flex flex-wrap items-center justify-between gap-3 rounded-mga border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100'
+                    : 'rounded-mga border border-emerald-400/20 bg-emerald-400/5 p-3 text-sm text-emerald-100'
+                }
+                aria-live="polite"
+              >
+                <span>{localSaveStatus.message}</span>
+                {localSaveStatus.status === 'backup_error' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    type="button"
+                    onClick={() => navigate('/settings?tab=connections')}
+                  >
+                    Check save backup
+                  </Button>
+                )}
               </section>
             )}
             {showExternalSaveSyncBar && (

@@ -9,27 +9,45 @@ import (
 )
 
 type Endpoint struct {
-	ID               string                       `json:"id"`
-	ClientInstanceID string                       `json:"client_instance_id"`
-	PublicKey        string                       `json:"-"`
-	DisplayName      string                       `json:"display_name"`
-	HostName         string                       `json:"host_name"`
-	OSUser           string                       `json:"os_user"`
-	Platform         string                       `json:"platform"`
-	Arch             string                       `json:"arch"`
-	ExecutionMode    devicev1.ClientExecutionMode `json:"execution_mode"`
-	ClientVersion    string                       `json:"client_version"`
-	ProtocolVersion  devicev1.ProtocolVersion     `json:"protocol_version"`
-	Capabilities     []string                     `json:"capabilities"`
-	Status           devicev1.EndpointState       `json:"status"`
-	StatusReason     string                       `json:"status_reason,omitempty"`
-	LastSeenAt       *time.Time                   `json:"last_seen_at,omitempty"`
-	CreatedAt        time.Time                    `json:"created_at"`
-	UpdatedAt        time.Time                    `json:"updated_at"`
-	AccessLevel      devicev1.AccessLevel         `json:"access_level"`
-	Inventory        *devicev1.DeviceInventory    `json:"inventory,omitempty"`
-	Installations    []GameInstallation           `json:"installations,omitempty"`
-	SaveDomains      []SaveDomainLink             `json:"save_domains,omitempty"`
+	ID                 string                       `json:"id"`
+	ClientInstanceID   string                       `json:"client_instance_id"`
+	PublicKey          string                       `json:"-"`
+	DisplayName        string                       `json:"display_name"`
+	HostName           string                       `json:"host_name"`
+	OSUser             string                       `json:"os_user"`
+	Platform           string                       `json:"platform"`
+	Arch               string                       `json:"arch"`
+	ExecutionMode      devicev1.ClientExecutionMode `json:"execution_mode"`
+	ClientVersion      string                       `json:"client_version"`
+	ProtocolVersion    devicev1.ProtocolVersion     `json:"protocol_version"`
+	Capabilities       []string                     `json:"capabilities"`
+	Status             devicev1.EndpointState       `json:"status"`
+	StatusReason       string                       `json:"status_reason,omitempty"`
+	LastSeenAt         *time.Time                   `json:"last_seen_at,omitempty"`
+	CreatedAt          time.Time                    `json:"created_at"`
+	UpdatedAt          time.Time                    `json:"updated_at"`
+	AccessLevel        devicev1.AccessLevel         `json:"access_level"`
+	Inventory          *devicev1.DeviceInventory    `json:"inventory,omitempty"`
+	Installations      []GameInstallation           `json:"installations,omitempty"`
+	SaveDomains        []SaveDomainLink             `json:"save_domains,omitempty"`
+	StorefrontProducts []StorefrontProduct          `json:"storefront_products,omitempty"`
+}
+
+// StorefrontProduct is profile-scoped exact-ID evidence. It grants no
+// storefront lifecycle authority; UseGranted permits only the typed launch.
+type StorefrontProduct struct {
+	EndpointID   string     `json:"endpoint_id"`
+	ProfileID    string     `json:"profile_id"`
+	GameID       string     `json:"game_id"`
+	SourceGameID string     `json:"source_game_id"`
+	Provider     string     `json:"provider"`
+	ProductID    string     `json:"product_id"`
+	Title        string     `json:"title"`
+	InstallPath  string     `json:"install_path"`
+	Installed    bool       `json:"installed"`
+	ObservedAt   time.Time  `json:"observed_at"`
+	UseGranted   bool       `json:"use_granted"`
+	GrantedAt    *time.Time `json:"granted_at,omitempty"`
 }
 
 // SaveDomainLink is the server-side view of one exact client-local save

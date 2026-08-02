@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { Heart, Save, Trophy } from 'lucide-react'
 import type { GameDetailResponse } from '@/api/client'
 import { GameSplitActionButton } from '@/components/library/GameSplitActionButton'

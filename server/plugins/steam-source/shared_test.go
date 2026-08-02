@@ -20,13 +20,22 @@ type familyTestConfig struct {
 	// renewBody overrides the access-token renewal response. Empty means a
 	// valid token is minted from the refresh token.
 	renewBody string
+	// rejectRenewals simulates Steam's brief post-approval propagation window.
+	// After this many empty renewal replies, a normal access token is returned.
+	rejectRenewals int
 }
 
 func startFamilyTestServer(t *testing.T, cfg familyTestConfig) *httptest.Server {
 	t.Helper()
+	renewCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/IAuthenticationService/GenerateAccessTokenForApp/"):
+			renewCalls++
+			if renewCalls <= cfg.rejectRenewals {
+				fmt.Fprint(w, `{"response":{}}`)
+				return
+			}
 			if cfg.renewBody != "" {
 				fmt.Fprint(w, cfg.renewBody)
 				return
@@ -194,6 +203,26 @@ func TestFetchSharedGamesRejectedRefreshTokenDegrades(t *testing.T) {
 	_, err := fetchSharedGames(cfg, map[int]bool{})
 	if !errors.Is(err, errAccessTokenRejected) {
 		t.Fatalf("error = %v, want errAccessTokenRejected", err)
+	}
+}
+
+func TestFetchSharedGamesRetriesFreshCredentialPropagation(t *testing.T) {
+	startFamilyTestServer(t, familyTestConfig{
+		rejectRenewals: 2,
+		familyBody:     `{"response":{"family_groupid":"9001"}}`,
+		sharedBody:     `{"response":{"apps":[]}}`,
+	})
+
+	cfg := steamConfig{
+		APIKey: "k", SteamID: "76561198000000001",
+		RefreshToken: testSteamRefreshToken(t, "76561198000000001"),
+	}
+	shared, err := fetchSharedGames(cfg, map[int]bool{})
+	if err != nil {
+		t.Fatalf("fresh credential did not recover: %v", err)
+	}
+	if len(shared) != 0 {
+		t.Fatalf("shared games = %+v, want empty successful result", shared)
 	}
 }
 

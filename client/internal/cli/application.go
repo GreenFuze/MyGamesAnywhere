@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"strings"
 
 	"github.com/GreenFuze/MyGamesAnywhere/client/internal/buildinfo"
@@ -26,8 +25,9 @@ type Dependencies struct {
 type ClientService interface {
 	Pair(ctx context.Context, options clientapp.PairOptions) (clientconfig.Binding, error)
 	Start(ctx context.Context, options clientapp.StartOptions) error
+	HandleProtocol(ctx context.Context, rawURI string) error
 	RunAgent(ctx context.Context) error
-	RunAgentReplacingExisting(ctx context.Context) error
+	RunAgentTakeover(ctx context.Context, executionMode devicev1.ClientExecutionMode, startURI string) error
 	Status() (clientapp.Status, error)
 	Doctor(ctx context.Context) (clientapp.DoctorResult, error)
 	Unpair(options clientapp.UnpairOptions) error
@@ -164,45 +164,7 @@ func newProtocolCommand(service ClientService) *cobra.Command {
 		Short: "Handle an MGA protocol URI",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			parsed, err := url.Parse(args[0])
-			if err != nil || parsed.Scheme != "mga" {
-				return errors.New("unsupported MGA protocol URI")
-			}
-			if parsed.Host == "release" || parsed.Host == "adopt" {
-				localID, server := parsed.Query().Get("installation_id"), parsed.Query().Get("server")
-				if parsed.Host == "release" {
-					err = service.ConfirmAndReleaseInstallation(command.Context(), clientapp.ReleaseInstallationOptions{LocalInstallationID: localID, ServerURL: server})
-				} else {
-					err = service.ConfirmAndAdoptInstallation(command.Context(), clientapp.AdoptInstallationOptions{LocalInstallationID: localID, ServerURL: server})
-				}
-				if err != nil {
-					return err
-				}
-				return service.RunAgentReplacingExisting(command.Context())
-			}
-			if parsed.Host == "start" {
-				err = service.Start(command.Context(), clientapp.StartOptions{
-					ServerURL:     parsed.Query().Get("server"),
-					LaunchID:      parsed.Query().Get("launch_id"),
-					Token:         parsed.Query().Get("token"),
-					ExecutionMode: devicev1.ClientExecutionMode(parsed.Query().Get("mode")),
-				})
-				if errors.Is(err, clientapp.ErrElevationRelaunched) {
-					return nil
-				}
-				return err
-			}
-			if parsed.Host != "pair" {
-				return errors.New("unsupported MGA protocol URI")
-			}
-			_, err = service.Pair(command.Context(), clientapp.PairOptions{
-				ServerURL: parsed.Query().Get("server"),
-				Code:      parsed.Query().Get("code"),
-			})
-			if err != nil {
-				return err
-			}
-			return service.RunAgentReplacingExisting(command.Context())
+			return service.HandleProtocol(command.Context(), args[0])
 		},
 	}
 }
@@ -231,14 +193,27 @@ func newPairCommand(service ClientService) *cobra.Command {
 }
 
 func newAgentCommand(service ClientService) *cobra.Command {
-	return &cobra.Command{
+	var takeover bool
+	var executionMode string
+	var startURI string
+	command := &cobra.Command{
 		Use:   "agent",
 		Short: "Run the per-user MGA device agent",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			if takeover {
+				return service.RunAgentTakeover(command.Context(), devicev1.ClientExecutionMode(executionMode), startURI)
+			}
 			return service.RunAgent(command.Context())
 		},
 	}
+	command.Flags().BoolVar(&takeover, "takeover", false, "Wait for and replace the current tray owner")
+	command.Flags().StringVar(&executionMode, "mode", "", "Actual client execution mode")
+	command.Flags().StringVar(&startURI, "start-uri", "", "Browser launch URI to redeem after takeover")
+	_ = command.Flags().MarkHidden("takeover")
+	_ = command.Flags().MarkHidden("mode")
+	_ = command.Flags().MarkHidden("start-uri")
+	return command
 }
 
 func newStatusCommand(service ClientService) *cobra.Command {

@@ -110,6 +110,35 @@ func TestInstalledGamesShelfCanPlayRequiresExactEndpointFacts(t *testing.T) {
 	}
 }
 
+func TestInstalledGamesShelfIncludesStorefrontCopyWithoutGrantingManagementAuthority(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Second)
+	controller := &GameController{gameStore: &fakeGameStore{gamesByID: map[string]*core.CanonicalGame{
+		"game-steam": {ID: "game-steam", Title: "Steam Game", Platform: core.PlatformWindowsPC, Kind: core.GameKindBaseGame},
+	}}, logger: noopLogger{}}
+	endpoint := devices.Endpoint{
+		ID: "device-1", DisplayName: "PC", Status: devicev1.EndpointReady, AccessLevel: devicev1.AccessPlay,
+		Capabilities:       []string{devicev1.CapabilityGameLaunchStorefront},
+		StorefrontProducts: []devices.StorefrontProduct{{GameID: "game-steam", SourceGameID: "source-steam", Provider: devicev1.StorefrontProviderSteam, ProductID: "12345", Title: "Steam Game", Installed: true, ObservedAt: now}},
+	}
+	response, err := controller.buildInstalledGamesResponse(context.Background(), endpoint)
+	if err != nil || len(response.Games) != 1 {
+		t.Fatalf("response=%#v error=%v", response, err)
+	}
+	item := response.Games[0]
+	if item.PlayRoute != "storefront" || item.Storefront != devicev1.StorefrontProviderSteam || item.InstallKind != "storefront" || item.UseGranted || item.CanPlay {
+		t.Fatalf("ungranted storefront item = %#v", item)
+	}
+	endpoint.StorefrontProducts[0].UseGranted = true
+	response, err = controller.buildInstalledGamesResponse(context.Background(), endpoint)
+	if err != nil || len(response.Games) != 1 || !response.Games[0].CanPlay {
+		t.Fatalf("granted storefront item = %#v error=%v", response.Games, err)
+	}
+	if len(endpoint.Installations) != 0 {
+		t.Fatal("storefront observation was converted into an MGA-managed installation")
+	}
+}
+
 func TestListInstalledGamesUsesActiveProfileAndHidesUnauthorizedDevice(t *testing.T) {
 	t.Parallel()
 	lister := &installedGamesDeviceLister{endpoints: []devices.Endpoint{{ID: "allowed", DisplayName: "PC", AccessLevel: devicev1.AccessView}}}

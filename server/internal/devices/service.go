@@ -46,6 +46,10 @@ type saveDomainLinkStore interface {
 	ListSaveDomainLinks(context.Context, string, string) ([]SaveDomainLink, error)
 }
 
+type storefrontProductStore interface {
+	ListStorefrontProducts(context.Context, string, string) ([]StorefrontProduct, error)
+}
+
 func (s *Service) SetEventBus(eventBus *events.EventBus) { s.eventBus = eventBus }
 
 func NewService(store Store, hub *Hub) (*Service, error) {
@@ -223,6 +227,13 @@ func (s *Service) ListEndpoints(ctx context.Context, profileID string) ([]Endpoi
 				return nil, err
 			}
 			endpoints[index].SaveDomains = saveDomains
+		}
+		if products, ok := s.store.(storefrontProductStore); ok {
+			items, err := products.ListStorefrontProducts(ctx, endpoints[index].ID, profileID)
+			if err != nil {
+				return nil, err
+			}
+			endpoints[index].StorefrontProducts = items
 		}
 	}
 	return endpoints, nil
@@ -594,6 +605,9 @@ func (s *Service) RecordInventory(ctx context.Context, endpointID string, invent
 	if err := inventory.Validate(); err != nil {
 		return err
 	}
+	if len(inventory.StorefrontProducts) != 0 {
+		return errors.New("unsolicited inventory cannot contain profile-scoped storefront products")
+	}
 	return s.store.SaveInventory(ctx, endpointID, inventory.Normalize(), s.now())
 }
 
@@ -730,6 +744,10 @@ func requiredAccessForCommand(name string) (devicev1.AccessLevel, error) {
 		return devicev1.AccessManage, nil
 	case devicev1.CapabilityInventoryRefresh:
 		return devicev1.AccessManage, nil
+	case devicev1.CapabilityGameUseStorefront:
+		return devicev1.AccessManage, nil
+	case devicev1.CapabilityGameLaunchStorefront:
+		return devicev1.AccessPlay, nil
 	case devicev1.CapabilityInstallationPreflight:
 		return devicev1.AccessManage, nil
 	case devicev1.CapabilityGameValidateInstallations:
@@ -739,6 +757,7 @@ func requiredAccessForCommand(name string) (devicev1.AccessLevel, error) {
 	case devicev1.CapabilityEmulatorSetup:
 		return devicev1.AccessOwner, nil
 	case devicev1.CapabilityGameDownloadFiles, devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameUninstall,
+		devicev1.CapabilityGameCleanupInstallation, devicev1.CapabilityGameRecoverInstallation,
 		devicev1.CapabilityGameInstallGogInno, devicev1.CapabilityGameUninstallGogInno,
 		devicev1.CapabilityGameCleanupGogInnoFailed, devicev1.CapabilityGameUseExisting,
 		devicev1.CapabilitySaveDomainClaim, devicev1.CapabilitySaveDomainRelease,
@@ -755,10 +774,25 @@ func validateCommandPayload(name string, payload json.RawMessage) error {
 		return errors.New("device command payload must be valid JSON")
 	}
 	if name == devicev1.CapabilityInventoryRefresh {
-		var values map[string]json.RawMessage
-		if err := json.Unmarshal(payload, &values); err != nil || len(values) != 0 {
-			return errors.New("inventory.refresh payload must be an empty object")
+		var request devicev1.InventoryRefreshRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode inventory refresh payload: %w", err)
 		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilityGameUseStorefront {
+		var request devicev1.UseStorefrontProductRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode storefront use payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilityGameLaunchStorefront {
+		var request devicev1.StorefrontLaunchRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode storefront launch payload: %w", err)
+		}
+		return request.Validate()
 	}
 	if name == devicev1.CapabilityInstallationPreflight {
 		var request devicev1.InstallationPreflightRequest
@@ -806,6 +840,20 @@ func validateCommandPayload(name string, payload json.RawMessage) error {
 		var request devicev1.GameUninstallRequest
 		if err := json.Unmarshal(payload, &request); err != nil {
 			return fmt.Errorf("decode game uninstall payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilityGameCleanupInstallation {
+		var request devicev1.InstallationCleanupRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode installation cleanup payload: %w", err)
+		}
+		return request.Validate()
+	}
+	if name == devicev1.CapabilityGameRecoverInstallation {
+		var request devicev1.InstallationRecoveryRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return fmt.Errorf("decode installation recovery payload: %w", err)
 		}
 		return request.Validate()
 	}

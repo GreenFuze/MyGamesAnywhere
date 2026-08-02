@@ -89,7 +89,7 @@ func TestPollQRSessionPendingThenApproved(t *testing.T) {
 	startAuthTestServer(t, map[string]string{
 		"PollAuthSessionStatus": `{"response":{"had_remote_interaction":false}}`,
 	})
-	if _, _, _, err := newSteamAuthClient().PollQRSession("c1", "r1"); !errors.Is(err, errAuthPending) {
+	if _, err := newSteamAuthClient().PollQRSession("c1", "r1"); !errors.Is(err, errAuthPending) {
 		t.Fatalf("pending poll error = %v, want errAuthPending", err)
 	}
 
@@ -98,12 +98,26 @@ func TestPollQRSessionPendingThenApproved(t *testing.T) {
 	startAuthTestServer(t, map[string]string{
 		"PollAuthSessionStatus": fmt.Sprintf(`{"response":{"refresh_token":%q,"account_name":"orr"}}`, refreshToken),
 	})
-	token, account, steamID, err := newSteamAuthClient().PollQRSession("c1", "r1")
+	outcome, err := newSteamAuthClient().PollQRSession("c1", "r1")
 	if err != nil {
 		t.Fatalf("approved poll error: %v", err)
 	}
-	if token != refreshToken || account != "orr" || steamID != "76561198000000001" {
-		t.Fatalf("poll result = (%q, %q, %q)", token, account, steamID)
+	if outcome.RefreshToken != refreshToken || outcome.AccountName != "orr" || outcome.SteamID != "76561198000000001" {
+		t.Fatalf("poll result = %#v", outcome)
+	}
+}
+
+func TestPollQRSessionReturnsRotatedChallengeWhilePending(t *testing.T) {
+	startAuthTestServer(t, map[string]string{
+		"PollAuthSessionStatus": `{"response":{"had_remote_interaction":false,"new_challenge_url":"https://s.team/q/fresh"}}`,
+	})
+
+	outcome, err := newSteamAuthClient().PollQRSession("c1", "r1")
+	if !errors.Is(err, errAuthPending) {
+		t.Fatalf("rotated poll error = %v, want errAuthPending", err)
+	}
+	if outcome == nil || outcome.ChallengeURL != "https://s.team/q/fresh" {
+		t.Fatalf("rotated poll result = %#v", outcome)
 	}
 }
 
@@ -112,13 +126,13 @@ func TestPollQRSessionExpiredSession(t *testing.T) {
 	startAuthTestServer(t, map[string]string{
 		"PollAuthSessionStatus": `{"response":{}}`,
 	})
-	if _, _, _, err := newSteamAuthClient().PollQRSession("c1", "r1"); !errors.Is(err, errAuthSessionExpired) {
+	if _, err := newSteamAuthClient().PollQRSession("c1", "r1"); !errors.Is(err, errAuthSessionExpired) {
 		t.Fatalf("expired poll error = %v, want errAuthSessionExpired", err)
 	}
 }
 
 func TestPollQRSessionRequiresSessionIdentity(t *testing.T) {
-	if _, _, _, err := newSteamAuthClient().PollQRSession("", "r1"); err == nil {
+	if _, err := newSteamAuthClient().PollQRSession("", "r1"); err == nil {
 		t.Fatal("expected an error for a missing client ID")
 	}
 }
@@ -240,5 +254,20 @@ func TestHandleQRPollSurfacesPendingAndExpired(t *testing.T) {
 	})
 	if _, errObj := handleQRPoll(json.RawMessage(`{"client_id":"c1","request_id":"r1"}`)); errObj == nil || errObj.Code != "AUTH_EXPIRED" {
 		t.Fatalf("expired poll error = %+v, want AUTH_EXPIRED", errObj)
+	}
+}
+
+func TestHandleQRPollSurfacesRotatedChallenge(t *testing.T) {
+	startAuthTestServer(t, map[string]string{
+		"PollAuthSessionStatus": `{"response":{"had_remote_interaction":false,"new_challenge_url":"https://s.team/q/fresh"}}`,
+	})
+
+	result, errObj := handleQRPoll(json.RawMessage(`{"client_id":"c1","request_id":"r1"}`))
+	if errObj != nil {
+		t.Fatalf("rotated challenge returned an error: %+v", errObj)
+	}
+	pending, _ := result.(map[string]any)
+	if pending["status"] != "pending" || pending["challenge_url"] != "https://s.team/q/fresh" {
+		t.Fatalf("rotated challenge result = %+v", result)
 	}
 }

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { getIntegrationGames, getIntegrationEnrichedGames } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { PlatformIcon } from '@/components/ui/platform-icon'

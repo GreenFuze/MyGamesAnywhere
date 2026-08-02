@@ -404,7 +404,9 @@ func TestReviewControllerApplyCandidateReturnsUpdatedDetail(t *testing.T) {
 			},
 		},
 	}
-	manualReviewSvc := &fakeManualReviewService{}
+	manualReviewSvc := &fakeManualReviewService{applyResult: &core.ManualReviewApplyResult{
+		Warnings: []string{"MAME DAT could not add extra game details. You can retry metadata from the game later."},
+	}}
 	controller := NewReviewController(
 		&fakeIntegrationRepo{items: []*core.Integration{{ID: "source-1", Label: "Steam Library", IntegrationType: "source"}}},
 		&fakePluginHost{},
@@ -446,6 +448,9 @@ func TestReviewControllerApplyCandidateReturnsUpdatedDetail(t *testing.T) {
 	}
 	if item.ReviewState != string(core.ManualReviewStateMatched) {
 		t.Fatalf("review_state = %q, want %q", item.ReviewState, core.ManualReviewStateMatched)
+	}
+	if len(item.MetadataWarnings) != 1 || !strings.Contains(item.MetadataWarnings[0], "MAME DAT") {
+		t.Fatalf("metadata_warnings = %+v, want actionable provider warning", item.MetadataWarnings)
 	}
 }
 
@@ -999,6 +1004,7 @@ type fakeManualReviewService struct {
 	appliedCandidateID    string
 	appliedSelection      core.ManualReviewSelection
 	appliedOptions        core.ManualReviewApplyOptions
+	applyResult           *core.ManualReviewApplyResult
 	applyErr              error
 	redetectedCandidateID string
 	redetectResult        *core.ManualReviewRedetectResult
@@ -1007,11 +1013,11 @@ type fakeManualReviewService struct {
 	redetectBatchErr      error
 }
 
-func (f *fakeManualReviewService) Apply(_ context.Context, candidateID string, selection core.ManualReviewSelection, options core.ManualReviewApplyOptions) error {
+func (f *fakeManualReviewService) Apply(_ context.Context, candidateID string, selection core.ManualReviewSelection, options core.ManualReviewApplyOptions) (*core.ManualReviewApplyResult, error) {
 	f.appliedCandidateID = candidateID
 	f.appliedSelection = selection
 	f.appliedOptions = options
-	return f.applyErr
+	return f.applyResult, f.applyErr
 }
 
 func (f *fakeManualReviewService) Redetect(_ context.Context, candidateID string) (*core.ManualReviewRedetectResult, error) {

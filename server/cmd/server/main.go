@@ -281,6 +281,10 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	if err != nil {
 		return fmt.Errorf("configure installation validation: %w", err)
 	}
+	storefrontReconciliationSvc, err := http.NewStorefrontReconciliationService(deviceSvc, profileRepo, gameStore, logSvc)
+	if err != nil {
+		return fmt.Errorf("configure storefront reconciliation: %w", err)
+	}
 	aboutCtrl := http.NewAboutController(logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, gameStore, configSvc, logSvc, eventBus, syncSvc)
@@ -327,7 +331,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 
 	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
 
-	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, updateSvc, mediaSvc, backgroundScanSvc, installationValidationSvc)
+	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, updateSvc, mediaSvc, backgroundScanSvc, installationValidationSvc, storefrontReconciliationSvc)
 	a.AddStartupTask(commandRecovery)
 	a.AddStartupTask(sourceMoveSvc)
 

@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -101,5 +102,52 @@ func TestAttachDeviceAvailabilityMapsFailedCleanupStateAndCapability(t *testing.
 	}
 	if device.InstalledSave == nil || device.InstalledSave.Access != "provider_opaque" || device.InstalledSave.MGARead || device.InstalledSave.MGAWrite {
 		t.Fatalf("installed Steam save capability = %#v", device.InstalledSave)
+	}
+}
+
+func TestAttachDeviceAvailabilityGatesManagedRecoveryActions(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	installPath := filepath.Join(root, "MGA", "Game")
+	controller := &GameController{
+		logger: noopLogger{},
+		deviceLister: availabilityDeviceLister{endpoints: []devices.Endpoint{{
+			ID: "device-1", DisplayName: "PC", OSUser: "alice", Platform: "windows", Status: devicev1.EndpointReady,
+			AccessLevel: devicev1.AccessManage,
+			Capabilities: []string{devicev1.CapabilityGameRecoverInstallation, devicev1.CapabilityGameCleanupInstallation},
+			Installations: []devices.GameInstallation{{
+				GameID: "game-1", SourceGameID: "source-1", ProfileID: "profile-1",
+				InstallRoot: root, InstallPath: installPath, InstallKind: devicev1.InstallKindManagedArchive,
+				InstallState: devicev1.InstallStateNeedsRepair, VerificationReasonCode: devicev1.ValidationReasonLaunchTargetMissing,
+			}},
+		}}},
+	}
+	response := GameDetailResponse{}
+	controller.attachDeviceAvailability(core.WithProfile(context.Background(), &core.Profile{ID: "profile-1"}), &response,
+		&core.CanonicalGame{ID: "game-1", Platform: core.PlatformWindowsPC, SourceGames: []*core.SourceGame{{ID: "source-1"}}})
+	if len(response.Devices) != 1 {
+		t.Fatalf("devices = %#v", response.Devices)
+	}
+	device := response.Devices[0]
+	if !device.RecoverySupported || !device.RepairAvailable || !device.CleanupAvailable || !device.ForgetAvailable || device.ReinstallAvailable {
+		t.Fatalf("repair recovery policy = %#v", device)
+	}
+
+	controller.deviceLister = availabilityDeviceLister{endpoints: []devices.Endpoint{{
+		ID: "device-1", DisplayName: "PC", OSUser: "alice", Platform: "windows", Status: devicev1.EndpointReady,
+		AccessLevel: devicev1.AccessManage,
+		Capabilities: []string{devicev1.CapabilityGameRecoverInstallation, devicev1.CapabilityGameCleanupInstallation},
+		Installations: []devices.GameInstallation{{
+			GameID: "game-1", SourceGameID: "source-1", ProfileID: "profile-1",
+			InstallRoot: root, InstallPath: installPath, InstallKind: devicev1.InstallKindManagedArchive,
+			InstallState: devicev1.InstallStateMissing, VerificationReasonCode: devicev1.ValidationReasonInstallPathMissing,
+		}},
+	}}}
+	response = GameDetailResponse{}
+	controller.attachDeviceAvailability(core.WithProfile(context.Background(), &core.Profile{ID: "profile-1"}), &response,
+		&core.CanonicalGame{ID: "game-1", Platform: core.PlatformWindowsPC, SourceGames: []*core.SourceGame{{ID: "source-1"}}})
+	device = response.Devices[0]
+	if !device.ReinstallAvailable || !device.ForgetAvailable || device.RepairAvailable || device.CleanupAvailable {
+		t.Fatalf("missing recovery policy = %#v", device)
 	}
 }

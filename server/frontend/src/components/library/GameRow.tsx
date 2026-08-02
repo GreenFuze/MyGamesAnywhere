@@ -8,7 +8,7 @@ import { CoverImage } from '@/components/ui/cover-image'
 import { PlatformIcon } from '@/components/ui/platform-icon'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router'
 import {
   formatHLTB,
   isPlayable,

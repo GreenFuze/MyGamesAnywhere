@@ -1,4 +1,4 @@
-import { Navigate, useSearchParams } from 'react-router-dom'
+import { Navigate, useSearchParams } from 'react-router'
 import { Tabs, type Tab } from '@/components/ui/tabs'
 import { IntegrationsTab } from '@/components/settings/IntegrationsTab'
 import { PluginsTab } from '@/components/settings/PluginsTab'
@@ -10,6 +10,10 @@ import { DevicesTab } from '@/components/settings/DevicesTab'
 import { MySettingsTab } from '@/components/settings/MySettingsTab'
 import { EmulatorsTab } from '@/components/settings/EmulatorsTab'
 import { useProfiles } from '@/hooks/useProfiles'
+import {
+  resolveSettingsRoute,
+  type SettingsTabId,
+} from '@/lib/navigationRoutes'
 
 const TABS: Tab[] = [
   { id: 'my-settings', label: 'My Settings' },
@@ -37,15 +41,13 @@ const TAB_COMPONENTS: Record<string, React.FC> = {
 export function SettingsPage() {
   const { currentProfile } = useProfiles()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabParam = searchParams.get('tab')
-  if (tabParam === 'duplicates' || tabParam === 'undetected') {
-    const reviewTab = tabParam === 'duplicates' ? 'copies' : 'identify'
-    return <Navigate to={`/library/review?tab=${reviewTab}`} replace />
+  const isAdmin = currentProfile?.role === 'admin_player'
+  const routeResolution = resolveSettingsRoute(searchParams, isAdmin)
+  if (routeResolution.redirectTo) {
+    return <Navigate to={routeResolution.redirectTo} replace />
   }
-  const normalizedTabParam = tabParam === 'settings' ? 'update' : tabParam
-  const availableTabs = currentProfile?.role === 'admin_player' ? TABS : TABS.filter((tab) => tab.id === 'my-settings' || tab.id === 'profiles' || tab.id === 'devices' || tab.id === 'emulators' || tab.id === 'appearance')
-  const fallbackTab = currentProfile?.role === 'admin_player' ? 'integrations' : 'my-settings'
-  const activeTab = normalizedTabParam && availableTabs.some((tab) => tab.id === normalizedTabParam) ? normalizedTabParam : fallbackTab
+  const availableTabs = isAdmin ? TABS : TABS.filter((tab) => tab.id === 'my-settings' || tab.id === 'profiles' || tab.id === 'devices' || tab.id === 'emulators' || tab.id === 'appearance')
+  const activeTab: SettingsTabId = routeResolution.activeTab
 
   const handleTabChange = (id: string) => {
     const next = new URLSearchParams(searchParams)

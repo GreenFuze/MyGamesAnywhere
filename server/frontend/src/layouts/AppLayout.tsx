@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Check, LogOut, Users } from 'lucide-react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router'
 import { THEME_IDS, THEME_LABELS, type ThemeId } from '@/theme/presets'
 import { useTheme } from '@/theme/ThemeProvider'
 import { useSearch } from '@/hooks/useSearchContext'

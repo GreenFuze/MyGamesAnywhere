@@ -384,7 +384,7 @@ type Server interface {
 
 // ManualReviewService handles inline manual metadata selection workflows.
 type ManualReviewService interface {
-	Apply(ctx context.Context, candidateID string, selection ManualReviewSelection, options ManualReviewApplyOptions) error
+	Apply(ctx context.Context, candidateID string, selection ManualReviewSelection, options ManualReviewApplyOptions) (*ManualReviewApplyResult, error)
 	Redetect(ctx context.Context, candidateID string) (*ManualReviewRedetectResult, error)
 	RedetectActive(ctx context.Context) (*ManualReviewRedetectBatchResult, error)
 }

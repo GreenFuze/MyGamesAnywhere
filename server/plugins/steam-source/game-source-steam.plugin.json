@@ -13,7 +13,7 @@
       "required": true,
       "x-secret": true,
       "x-help-url": "https://steamcommunity.com/dev/apikey",
-      "description": "Steam Web API Key"
+      "description": "Used for Steam profile details and achievements. Your account sign-in still happens securely in the Steam mobile app."
     },
     "refresh_token": {
       "type": "string",

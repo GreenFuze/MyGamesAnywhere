@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRightLeft, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { listSourceMoveJobs, runSourceMoveAction, type SourceMoveJob } from '@/api/client'

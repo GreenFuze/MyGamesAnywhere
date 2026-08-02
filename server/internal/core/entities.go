@@ -1151,6 +1151,13 @@ type ManualReviewApplyOptions struct {
 	AuthoritativeReclassify bool
 }
 
+// ManualReviewApplyResult reports non-fatal enrichment problems after a
+// validated manual match was saved. Warnings are request-scoped and are not
+// persisted.
+type ManualReviewApplyResult struct {
+	Warnings []string `json:"warnings,omitempty"`
+}
+
 type ManualReviewDecision struct {
 	State    ManualReviewState      `json:"state"`
 	Selected *ManualReviewSelection `json:"selected,omitempty"`

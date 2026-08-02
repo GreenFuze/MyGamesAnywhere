@@ -1,4 +1,4 @@
-import { Navigate, useSearchParams } from 'react-router-dom'
+import { Navigate, useSearchParams } from 'react-router'
 import { LibraryCopiesReview } from '@/components/library/LibraryCopiesReview'
 import { UndetectedGamesTab } from '@/components/settings/UndetectedGamesTab'
 import { Tabs, type Tab } from '@/components/ui/tabs'

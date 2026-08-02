@@ -24,14 +24,25 @@ func Acquire(name string) (*Lock, error) {
 		return nil, err
 	}
 	handle, err := windows.CreateMutex(nil, false, namePointer)
-	if err != nil {
+	if err != nil && !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
 		return nil, fmt.Errorf("create client mutex: %w", err)
 	}
-	if windows.GetLastError() == windows.ERROR_ALREADY_EXISTS {
+	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) || windows.GetLastError() == windows.ERROR_ALREADY_EXISTS {
 		_ = windows.CloseHandle(handle)
 		return nil, ErrAlreadyRunning
 	}
 	return &Lock{handle: handle}, nil
+}
+
+func IsRunning(name string) (bool, error) {
+	lock, err := Acquire(name)
+	if err == nil {
+		return false, lock.Close()
+	}
+	if errors.Is(err, ErrAlreadyRunning) {
+		return true, nil
+	}
+	return false, err
 }
 
 func (l *Lock) Close() error {

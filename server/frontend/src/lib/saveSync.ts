@@ -17,18 +17,20 @@ export type RuntimeSaveSnapshot = {
 export type RuntimeBridgeCommand =
   | { type: 'export-save-snapshot'; requestId: string }
   | { type: 'import-save-snapshot'; requestId: string; files: RuntimeSaveFile[] }
-  | { type: 'native-save-result'; requestId: string; ok: boolean; error?: string }
-  | { type: 'native-load-state-result'; requestId: string; ok: boolean; stateBase64?: string; error?: string }
-  | { type: 'native-load-ram-result'; requestId: string; ok: boolean; files?: RuntimeSaveFile[]; error?: string }
+  | { type: 'mark-local-save-synced'; slotId: string; manifestHash: string }
+  | { type: 'native-save-result'; requestId: string; ok: boolean; manifestHash?: string; error?: string }
+  | { type: 'native-load-state-result'; requestId: string; ok: boolean; stateBase64?: string; manifestHash?: string; error?: string }
+  | { type: 'native-load-ram-result'; requestId: string; ok: boolean; files?: RuntimeSaveFile[]; manifestHash?: string; error?: string }
 
 export type RuntimeBridgeEvent =
   | { type: 'ready'; saveAdapter: boolean; nativeSaveSync?: boolean }
   | { type: 'export-result'; requestId: string; snapshot?: RuntimeSaveSnapshot; error?: string }
   | { type: 'import-result'; requestId: string; ok: boolean; error?: string }
-  | { type: 'native-save-state'; requestId: string; slot: string; stateBase64: string }
+  | { type: 'native-save-state'; requestId: string; slot: string; stateBase64: string; baseManifestHash?: string }
   | { type: 'native-load-state'; requestId: string; slot: string }
-  | { type: 'native-save-ram'; requestId: string; files?: RuntimeSaveFile[]; saveBase64?: string; savePath?: string }
+  | { type: 'native-save-ram'; requestId: string; files?: RuntimeSaveFile[]; saveBase64?: string; savePath?: string; baseManifestHash?: string }
   | { type: 'native-load-ram'; requestId: string }
+  | { type: 'local-save-status'; status: 'ready' | 'saved' | 'backup_error'; message: string; fileCount?: number }
   | { type: 'runtime-error'; error: string }
 
 export function emulatorJsStateSlotId(slot: string | number | null | undefined): string {

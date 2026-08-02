@@ -244,7 +244,7 @@ paths:
   /api/auth/qr/{plugin_id}/poll:
     post:
       summary: Poll an app-approval (QR) sign-in
-      description: Reports whether the player has approved the challenge yet. While pending it returns status "pending"; once approved it binds the token-proven provider identity, stores the returned long-lived credential on the calling profile's own connection, and clears any re-authentication flag.
+      description: Reports whether the player has approved the challenge yet. While pending it returns status "pending" and may include a replacement challenge_url that the UI must display immediately without changing the session identifiers. Once approved it binds the token-proven provider identity, stores the returned long-lived credential on the calling profile's own connection, and clears any re-authentication flag.
       parameters:
         - name: plugin_id
           in: path
@@ -253,7 +253,7 @@ paths:
             type: string
       responses:
         200:
-          description: Poll JSON with status "pending" or "ok" (plus safe provider_identity/persona metadata when known)
+          description: Poll JSON with status "pending" or "ok" (plus a rotated challenge_url while pending or safe provider_identity/persona metadata when approved)
         400:
           description: Missing session fields, unknown connection, plugin mismatch, another profile's connection, or an expired challenge
         500:
@@ -702,6 +702,46 @@ paths:
         500:
           description: Internal server error
 
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/cleanup:
+    post:
+      summary: Clean up a broken managed installation
+      description: After native confirmation on the device, removes only an installation whose exact MGA-managed boundary can be proven. Publisher uninstallers are preferred where applicable; shared prerequisites, saves, and content outside the boundary are preserved.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Empty JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: DeviceCommand JSON
+        400:
+          description: Installation is not eligible for cleanup
+        403:
+          description: Manage access required
+        404:
+          description: Installation not found
+        409:
+          description: Device unavailable, client too old, or a safe managed boundary cannot be proven
+        500:
+          description: Internal server error
+
   /api/devices/{id}/games/{game_id}/sources/{source_game_id}/cleanup-failed:
     post:
       summary: Clean up a marked failed GOG installation
@@ -739,6 +779,46 @@ paths:
           description: Installation not found
         409:
           description: No verified cleanup marker or invalid state
+        500:
+          description: Internal server error
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/forget:
+    post:
+      summary: Forget MGA ownership without deleting game files
+      description: After native confirmation on the device, releases the verified MGA ownership record and retires the server's active installation row. No game files are deleted, so another MGA server can adopt the installation later.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Empty JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: DeviceCommand JSON
+        400:
+          description: Installation is not eligible to be forgotten
+        403:
+          description: Manage access required
+        404:
+          description: Installation not found
+        409:
+          description: Device unavailable, client too old, or local ownership cannot be proven
         500:
           description: Internal server error
 
@@ -806,6 +886,46 @@ paths:
         500:
           description: Error response
 
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/launch-storefront:
+    post:
+      summary: Start a granted storefront copy
+      description: Starts an exactly identified storefront product after MGA Client revalidates both the profile-scoped launch-only grant and current local installation evidence. The client constructs the provider URI; arbitrary launch targets are never accepted from the server.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Empty JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: DeviceCommand JSON
+        400:
+          description: Source is not an observed storefront product
+        403:
+          description: Play access required
+        404:
+          description: Device, game, or source not found
+        409:
+          description: Device unavailable, launch unsupported, or confirmation is missing
+        500:
+          description: Internal server error
+
   /api/devices/{id}/games/{game_id}/sources/{source_game_id}/launch-target:
     put:
       parameters:
@@ -829,6 +949,46 @@ paths:
           description: Error response
         500:
           description: Error response
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/reinstall:
+    post:
+      summary: Prepare a missing managed game for reinstall
+      description: After native confirmation on the device, releases only a verified missing installation record so the normal install flow can start again. It never overwrites an existing installation or deletes remaining files.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Empty JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: DeviceCommand JSON
+        400:
+          description: Installation is not eligible for reinstall
+        403:
+          description: Manage access required
+        404:
+          description: Installation not found
+        409:
+          description: Device unavailable, client too old, or local ownership cannot be proven
+        500:
+          description: Internal server error
 
   /api/devices/{id}/games/{game_id}/sources/{source_game_id}/reopen-failed-cleanup:
     post:
@@ -867,6 +1027,46 @@ paths:
           description: Installation not found
         409:
           description: Invalid installation state
+        500:
+          description: Internal server error
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/repair:
+    post:
+      summary: Repair a managed game's launch details
+      description: Asks the selected MGA Client to rediscover an unambiguous executable inside the exact managed installation boundary. It updates only MGA metadata, never downloads or deletes game files, and fails closed when local evidence is ambiguous.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Empty JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: DeviceCommand JSON
+        400:
+          description: Installation is not eligible for repair
+        403:
+          description: Manage access required
+        404:
+          description: Installation not found
+        409:
+          description: Device unavailable, client too old, or local evidence is ambiguous
         500:
           description: Internal server error
 
@@ -1027,6 +1227,46 @@ paths:
           description: Installation not found
         409:
           description: Device unavailable or uninstall unsupported
+        500:
+          description: Internal server error
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/use-storefront:
+    post:
+      summary: Allow this profile to use an installed storefront copy
+      description: Requests a profile- and binding-scoped launch-only grant for an exactly identified storefront product observed on the selected device. The storefront retains install, update, repair, and uninstall authority, and MGA Client requires native confirmation.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Empty JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: DeviceCommand JSON
+        400:
+          description: Source is not an observed storefront product
+        403:
+          description: Manage access required
+        404:
+          description: Device, game, or source not found
+        409:
+          description: Device unavailable or storefront reuse unsupported
         500:
           description: Internal server error
 
@@ -2316,7 +2556,7 @@ paths:
   /api/review-candidates/{id}/apply:
     post:
       summary: Apply a manual-review search result
-      description: Persists a chosen manual-review metadata match for the candidate, marks review_state as matched, and updates the candidate detail that the UI should continue showing. Direct game reclassify may send authoritative_reclassify=true to replace stale resolver/media state with only the selected result and clear media overrides.
+      description: Persists a chosen manual-review metadata match for the candidate, marks review_state as matched, and updates the candidate detail that the UI should continue showing. Optional metadata enrichment failures do not discard the selected match and are returned as metadata_warnings. Direct game reclassify may send authoritative_reclassify=true to replace stale resolver/media state with only the selected result and clear media overrides.
       parameters:
         - name: id
           in: path

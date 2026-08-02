@@ -675,6 +675,50 @@ func TestMigration20PreservesEventsAndAddsVerificationDefaults(t *testing.T) {
 	}
 }
 
+func TestMigration36PreservesEventsAndAcceptsRecoveryHistory(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
+	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)
+	if err := dbSvc.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer dbSvc.Close()
+	if err := dbSvc.ensureSchemaMigrationsTable(); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range dbSvc.orderedMigrations() {
+		if migration.Version > 35 {
+			break
+		}
+		if err := dbSvc.runMigration(context.Background(), migration); err != nil {
+			t.Fatalf("run migration %d: %v", migration.Version, err)
+		}
+	}
+	now := time.Now().Unix()
+	for _, statement := range []string{
+		`INSERT INTO profiles (id, display_name, role, created_at, updated_at) VALUES ('profile-36','Player','admin_player',` + fmt.Sprint(now) + `,` + fmt.Sprint(now) + `)`,
+		`INSERT INTO canonical_games (id, created_at) VALUES ('game-36',` + fmt.Sprint(now) + `)`,
+		`INSERT INTO source_games (id, profile_id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, status, review_state, created_at) VALUES ('source-36','profile-36','i','p','e','Game','windows_pc','base_game','packed','found','matched',` + fmt.Sprint(now) + `)`,
+		`INSERT INTO device_endpoints (id, client_instance_id, public_key, display_name, host_name, os_user, platform, arch, execution_mode, client_version, protocol_version, capabilities_json, status, created_at, updated_at) VALUES ('endpoint-36','instance-36','key','PC','pc','user','windows','amd64','standard','dev',1,'[]','offline',` + fmt.Sprint(now) + `,` + fmt.Sprint(now) + `)`,
+		`INSERT INTO device_installation_events (id, endpoint_id, game_id, source_game_id, actor_profile_id, event_type, details_json, created_at) VALUES ('event-old-36','endpoint-36','game-36','source-36','profile-36','installation_missing','{}',` + fmt.Sprint(now) + `)`,
+	} {
+		if _, err := dbSvc.GetDB().Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := dbSvc.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbSvc.GetDB().Exec(`INSERT INTO device_installation_events
+		(id, endpoint_id, game_id, source_game_id, actor_profile_id, event_type, details_json, created_at)
+		VALUES ('event-new-36','endpoint-36','game-36','source-36','profile-36','installation_forgotten','{}',?)`, now); err != nil {
+		t.Fatalf("new recovery event rejected: %v", err)
+	}
+	var preserved int
+	if err := dbSvc.GetDB().QueryRow(`SELECT COUNT(*) FROM device_installation_events WHERE id IN ('event-old-36','event-new-36')`).Scan(&preserved); err != nil || preserved != 2 {
+		t.Fatalf("preserved recovery history = %d, error = %v", preserved, err)
+	}
+}
+
 func TestMigration21AddsEmptyCascadingDeviceInstallPreferences(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "mga.sqlite")
 	dbSvc := NewSQLiteDatabaseWithMigrationOptions(testLogger{}, testDBConfig{dbPath: dbPath}, core.MigrationOptions{BackupBeforeMigrate: false}).(*sqliteDatabase)

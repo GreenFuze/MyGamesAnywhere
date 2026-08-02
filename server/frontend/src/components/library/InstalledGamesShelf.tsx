@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, LoaderCircle, Monitor } from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import {
   getInstalledGames,
   launchGameOnDevice,
+	launchStorefrontProductOnDevice,
   listDeviceCommands,
   listDevices,
   type DeviceCommand,
@@ -71,7 +72,9 @@ export function InstalledGamesShelf() {
   const launch = useMutation({
     mutationFn: (item: InstalledGameItem) => {
       if (!associatedID) throw new Error('Choose a device before starting the game.')
-      return launchGameOnDevice(associatedID, item.game.id, item.source_game_id)
+		return item.play_route === 'storefront'
+			? launchStorefrontProductOnDevice(associatedID, item.game.id, item.source_game_id)
+			: launchGameOnDevice(associatedID, item.game.id, item.source_game_id)
     },
     onMutate: () => setNotice(''),
     onSuccess: (command, item) => setActiveLaunch({
@@ -120,7 +123,7 @@ export function InstalledGamesShelf() {
       connected: device.connected,
       accessLevel: device.access_level,
       launchSupported: item.launch_supported,
-      launchTarget: item.launch_target ?? '',
+		launchTarget: item.play_route === 'storefront' && item.use_granted ? item.source_game_id : (item.launch_target ?? ''),
       canPlay: item.can_play,
     })
     const onSelect = action.intent === 'launch'

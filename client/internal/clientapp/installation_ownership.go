@@ -17,13 +17,14 @@ var unsafeRootLabel = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 // InstallationOwnership binds an installer instance to the local identity of
 // the server agent that created it. The server cannot provide this value.
 type InstallationOwnership struct {
-	bindingID    string
-	rootLabel    string
-	bindingCount int
-	catalog      *OwnershipCatalog
-	saveDomains  *SaveDomainCatalog
-	saveRoot     string
-	coordinator  *InstallationCoordinator
+	bindingID        string
+	rootLabel        string
+	bindingCount     int
+	catalog          *OwnershipCatalog
+	saveDomains      *SaveDomainCatalog
+	saveRoot         string
+	coordinator      *InstallationCoordinator
+	storefrontGrants *StorefrontGrantCatalog
 }
 
 func NewInstallationOwnership(bindingID, serverURL string, bindingCount int, catalog *OwnershipCatalog, coordinator *InstallationCoordinator) (*InstallationOwnership, error) {

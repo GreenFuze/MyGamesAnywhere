@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { KeyRound } from 'lucide-react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router'
 import { listProfiles, redeemCredentialTicket, type CredentialKind } from '@/api/client'
 import { credentialPolicy } from '@/components/auth/credentialPolicy'
 import { Button, buttonVariants } from '@/components/ui/button'

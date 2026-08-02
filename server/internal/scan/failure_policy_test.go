@@ -3,8 +3,8 @@ package scan
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -336,7 +336,7 @@ func TestRefreshGameMetadataDoesNotDropUnrelatedDetectedGames(t *testing.T) {
 	}
 }
 
-func TestManualReviewApplyFailsFastWhenFillProviderFails(t *testing.T) {
+func TestManualReviewApplySavesSelectionAndWarnsWhenFillProviderFails(t *testing.T) {
 	ctx := scanTestContext()
 	store := newManualReviewTestStore(t)
 	persistMetadataRefreshTestBatch(t, ctx, store, "source-1", "scan:manual-review-1")
@@ -363,14 +363,27 @@ func TestManualReviewApplyFailsFastWhenFillProviderFails(t *testing.T) {
 	}}
 
 	service := NewManualReviewService(caller, discovery, repo, store, &countingMediaDownloadQueue{}, testLogger{})
-	err := service.Apply(ctx, "scan:manual-review-1", core.ManualReviewSelection{
+	result, err := service.Apply(ctx, "scan:manual-review-1", core.ManualReviewSelection{
 		ProviderPluginID: "metadata-chosen",
 		ExternalID:       "chosen-1",
 		Title:            "Chosen Game",
 		Platform:         string(core.PlatformWindowsPC),
 	}, core.ManualReviewApplyOptions{})
-	if !errors.Is(err, core.ErrMetadataProvidersUnavailable) {
-		t.Fatalf("error = %v, want %v", err, core.ErrMetadataProvidersUnavailable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil || len(result.Warnings) != 1 {
+		t.Fatalf("apply result = %+v, want one provider warning", result)
+	}
+	if !strings.Contains(result.Warnings[0], "Other Metadata") || strings.Contains(result.Warnings[0], "provider unavailable") {
+		t.Fatalf("warning = %q, want provider label without internal error details", result.Warnings[0])
+	}
+	candidate, err := store.GetManualReviewCandidate(ctx, "scan:manual-review-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil || candidate.ReviewState != core.ManualReviewStateMatched {
+		t.Fatalf("candidate = %+v, want persisted matched selection", candidate)
 	}
 }
 

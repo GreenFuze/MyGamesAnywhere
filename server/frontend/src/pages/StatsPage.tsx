@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router'
 import {
   BarChart3,
   Clock3,

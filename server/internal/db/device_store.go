@@ -503,7 +503,14 @@ func (s *DeviceStore) CompleteCommand(ctx context.Context, endpointID string, re
 		return err
 	}
 	if commandName == devicev1.CapabilityInventoryRefresh && result.Status == devicev1.CommandSucceeded {
+		var request devicev1.InventoryRefreshRequest
 		var inventory devicev1.DeviceInventory
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode inventory refresh command: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
 		if err := json.Unmarshal(result.Payload, &inventory); err != nil {
 			return fmt.Errorf("decode device inventory result: %w", err)
 		}
@@ -511,8 +518,41 @@ func (s *DeviceStore) CompleteCommand(ctx context.Context, endpointID string, re
 			return err
 		}
 		inventory = inventory.Normalize()
+		if err := reconcileStorefrontProducts(ctx, tx, endpointID, profileID, request.StorefrontCandidates, inventory.StorefrontProducts, updatedAt); err != nil {
+			return err
+		}
+		inventory.StorefrontProducts = nil
 		if err := saveDeviceInventory(ctx, tx, endpointID, inventory, updatedAt); err != nil {
 			return err
+		}
+	}
+	if commandName == devicev1.CapabilityGameUseStorefront && result.Status == devicev1.CommandSucceeded {
+		var request devicev1.UseStorefrontProductRequest
+		var granted devicev1.UseStorefrontProductResult
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode storefront use command: %w", err)
+		}
+		if err := json.Unmarshal(result.Payload, &granted); err != nil {
+			return fmt.Errorf("decode storefront use result: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
+		if err := granted.Validate(); err != nil {
+			return err
+		}
+		if granted.GameID != request.GameID || granted.SourceGameID != request.SourceGameID || granted.Provider != request.Provider || granted.ProductID != request.ProductID {
+			return errors.New("storefront use result does not match command")
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO device_storefront_products
+			(endpoint_id, profile_id, game_id, source_game_id, provider, product_id, title, install_path, installed, observed_at, use_granted, granted_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1, ?)
+			ON CONFLICT(endpoint_id, profile_id, game_id, source_game_id) DO UPDATE SET
+				provider=excluded.provider, product_id=excluded.product_id, title=excluded.title,
+				install_path=excluded.install_path, installed=1, observed_at=excluded.observed_at,
+				use_granted=1, granted_at=excluded.granted_at`, endpointID, profileID, granted.GameID, granted.SourceGameID,
+			granted.Provider, granted.ProductID, granted.Title, granted.InstallPath, granted.ObservedAt.Unix(), granted.GrantedAt.Unix()); err != nil {
+			return fmt.Errorf("persist storefront launch grant: %w", err)
 		}
 	}
 	if commandName == devicev1.CapabilityGameInstallArchive && result.Status == devicev1.CommandSucceeded {
@@ -929,6 +969,132 @@ func (s *DeviceStore) CompleteCommand(ctx context.Context, endpointID string, re
 			return fmt.Errorf("encode installation validation summary: %w", err)
 		}
 	}
+	if commandName == devicev1.CapabilityGameRecoverInstallation && result.Status == devicev1.CommandSucceeded {
+		var request devicev1.InstallationRecoveryRequest
+		var recovered devicev1.InstallationRecoveryResult
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode installation recovery command: %w", err)
+		}
+		if err := json.Unmarshal(result.Payload, &recovered); err != nil {
+			return fmt.Errorf("decode installation recovery result: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
+		if err := recovered.Validate(); err != nil {
+			return err
+		}
+		if recovered.Action != request.Action || recovered.GameID != request.GameID || recovered.SourceGameID != request.SourceGameID ||
+			(request.LocalInstallationID != "" && !strings.EqualFold(recovered.LocalInstallationID, request.LocalInstallationID)) {
+			return errors.New("installation recovery result does not match command")
+		}
+		details, err := json.Marshal(map[string]any{
+			"action": request.Action, "local_installation_id": recovered.LocalInstallationID,
+			"path_present": recovered.PathPresent, "launch_target": recovered.LaunchTarget,
+			"launch_candidates": recovered.LaunchCandidates,
+		})
+		if err != nil {
+			return err
+		}
+		switch request.Action {
+		case devicev1.InstallationRecoveryRepair:
+			candidatesJSON, err := json.Marshal(recovered.LaunchCandidates)
+			if err != nil {
+				return err
+			}
+			update, err := tx.ExecContext(ctx, `UPDATE device_game_installations SET
+				launch_target=?, launch_candidates_json=?, local_installation_id=?, install_state='installed',
+				state_reason=NULL, verification_reason_code='healthy', verification_details_json='{}',
+				last_verified_at=?, state_changed_at=?, updated_at=?
+				WHERE endpoint_id=? AND profile_id=? AND game_id=? AND source_game_id=?
+				AND install_state=? AND verification_reason_code=?`,
+				recovered.LaunchTarget, string(candidatesJSON), recovered.LocalInstallationID,
+				updatedAt.Unix(), updatedAt.Unix(), updatedAt.Unix(),
+				endpointID, profileID, request.GameID, request.SourceGameID,
+				request.InstallState, request.ReasonCode)
+			if err != nil {
+				return fmt.Errorf("persist repaired installation: %w", err)
+			}
+			if rows, err := update.RowsAffected(); err != nil || rows != 1 {
+				if err != nil {
+					return err
+				}
+				return errors.New("installation changed while repair result was applied")
+			}
+			if err := insertInstallationEventTx(ctx, tx, devices.InstallationEvent{
+				EndpointID: endpointID, GameID: request.GameID, SourceGameID: request.SourceGameID,
+				ActorProfileID: profileID, EventType: "installation_repair_succeeded",
+				Reason: request.ReasonCode, Details: details, CreatedAt: updatedAt,
+			}); err != nil {
+				return err
+			}
+		case devicev1.InstallationRecoveryForget, devicev1.InstallationRecoveryReinstall:
+			eventType := "installation_forgotten"
+			if request.Action == devicev1.InstallationRecoveryReinstall {
+				eventType = "installation_reinstall_released"
+			}
+			if err := insertInstallationEventTx(ctx, tx, devices.InstallationEvent{
+				EndpointID: endpointID, GameID: request.GameID, SourceGameID: request.SourceGameID,
+				ActorProfileID: profileID, EventType: eventType,
+				Reason: request.ReasonCode, Details: details, CreatedAt: updatedAt,
+			}); err != nil {
+				return err
+			}
+			remove, err := tx.ExecContext(ctx, `DELETE FROM device_game_installations
+				WHERE endpoint_id=? AND profile_id=? AND game_id=? AND source_game_id=?
+				AND install_state=? AND verification_reason_code=?`,
+				endpointID, profileID, request.GameID, request.SourceGameID, request.InstallState, request.ReasonCode)
+			if err != nil {
+				return fmt.Errorf("retire released installation: %w", err)
+			}
+			if rows, err := remove.RowsAffected(); err != nil || rows != 1 {
+				if err != nil {
+					return err
+				}
+				return errors.New("installation changed while release result was applied")
+			}
+		}
+	}
+	if commandName == devicev1.CapabilityGameCleanupInstallation && result.Status == devicev1.CommandSucceeded {
+		var request devicev1.InstallationCleanupRequest
+		var cleaned devicev1.InstallationCleanupResult
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode installation cleanup command: %w", err)
+		}
+		if err := json.Unmarshal(result.Payload, &cleaned); err != nil {
+			return fmt.Errorf("decode installation cleanup result: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
+		if err := cleaned.Validate(); err != nil {
+			return err
+		}
+		if cleaned.GameID != request.GameID || cleaned.SourceGameID != request.SourceGameID || cleaned.InstallKind != request.InstallKind {
+			return errors.New("installation cleanup result does not match command")
+		}
+		details, _ := json.Marshal(map[string]any{"install_kind": request.InstallKind, "publisher_uninstaller": request.InstallKind == devicev1.InstallKindGogInno})
+		if err := insertInstallationEventTx(ctx, tx, devices.InstallationEvent{
+			EndpointID: endpointID, GameID: request.GameID, SourceGameID: request.SourceGameID,
+			ActorProfileID: profileID, EventType: "installation_cleanup_succeeded",
+			Details: details, CreatedAt: updatedAt,
+		}); err != nil {
+			return err
+		}
+		remove, err := tx.ExecContext(ctx, `DELETE FROM device_game_installations
+			WHERE endpoint_id=? AND profile_id=? AND game_id=? AND source_game_id=?
+			AND install_state='needs_repair'`,
+			endpointID, profileID, request.GameID, request.SourceGameID)
+		if err != nil {
+			return fmt.Errorf("remove cleaned installation: %w", err)
+		}
+		if rows, err := remove.RowsAffected(); err != nil || rows != 1 {
+			if err != nil {
+				return err
+			}
+			return errors.New("installation changed while cleanup result was applied")
+		}
+	}
 	if commandName == devicev1.CapabilityGameLaunch && result.Status == devicev1.CommandSucceeded {
 		var request devicev1.GameLaunchRequest
 		var launched devicev1.GameLaunchResult
@@ -1316,6 +1482,87 @@ func (s *DeviceStore) GetCommand(ctx context.Context, endpointID, commandID stri
 	command.UpdatedAt = time.Unix(updatedAt, 0).UTC()
 	command.ExpiresAt = time.Unix(expiresAt, 0).UTC()
 	return &command, nil
+}
+
+func (s *DeviceStore) ListStorefrontProducts(ctx context.Context, endpointID, profileID string) ([]devices.StorefrontProduct, error) {
+	rows, err := s.db.GetDB().QueryContext(ctx, `SELECT endpoint_id, profile_id, game_id, source_game_id, provider, product_id,
+		title, install_path, installed, observed_at, use_granted, granted_at
+		FROM device_storefront_products WHERE endpoint_id=? AND profile_id=? ORDER BY lower(title), source_game_id`, endpointID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	products := []devices.StorefrontProduct{}
+	for rows.Next() {
+		var product devices.StorefrontProduct
+		var installed, granted bool
+		var observedAt int64
+		var grantedAt sql.NullInt64
+		if err := rows.Scan(&product.EndpointID, &product.ProfileID, &product.GameID, &product.SourceGameID,
+			&product.Provider, &product.ProductID, &product.Title, &product.InstallPath, &installed, &observedAt, &granted, &grantedAt); err != nil {
+			return nil, err
+		}
+		product.Installed = installed
+		product.UseGranted = granted
+		product.ObservedAt = time.Unix(observedAt, 0).UTC()
+		if grantedAt.Valid {
+			value := time.Unix(grantedAt.Int64, 0).UTC()
+			product.GrantedAt = &value
+		}
+		products = append(products, product)
+	}
+	return products, rows.Err()
+}
+
+func reconcileStorefrontProducts(ctx context.Context, tx *sql.Tx, endpointID, profileID string, candidates []devicev1.StorefrontProductCandidate, observations []devicev1.StorefrontProductObservation, updatedAt time.Time) error {
+	if len(candidates) == 0 {
+		if len(observations) != 0 {
+			return errors.New("storefront observations require request candidates")
+		}
+		return nil
+	}
+	candidateKeys := map[string]devicev1.StorefrontProductCandidate{}
+	providers := map[string]bool{}
+	for _, candidate := range candidates {
+		if err := candidate.Validate(); err != nil {
+			return err
+		}
+		candidateKeys[strings.ToLower(candidate.SourceGameID+":"+candidate.Provider+":"+candidate.ProductID)] = candidate
+		providers[candidate.Provider] = true
+	}
+	for provider := range providers {
+		if _, err := tx.ExecContext(ctx, `UPDATE device_storefront_products SET installed=0, observed_at=?
+			WHERE endpoint_id=? AND profile_id=? AND provider=?`, updatedAt.Unix(), endpointID, profileID, provider); err != nil {
+			return fmt.Errorf("mark storefront products absent: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM device_storefront_products
+			WHERE endpoint_id=? AND profile_id=? AND provider=? AND use_granted=0`, endpointID, profileID, provider); err != nil {
+			return fmt.Errorf("remove absent storefront observations: %w", err)
+		}
+	}
+	seen := map[string]bool{}
+	for _, observation := range observations {
+		if err := observation.Validate(); err != nil {
+			return err
+		}
+		key := strings.ToLower(observation.SourceGameID + ":" + observation.Provider + ":" + observation.ProductID)
+		candidate, ok := candidateKeys[key]
+		if !ok || seen[key] || candidate.GameID != observation.GameID {
+			return errors.New("storefront observation does not match a unique request candidate")
+		}
+		seen[key] = true
+		if _, err := tx.ExecContext(ctx, `INSERT INTO device_storefront_products
+			(endpoint_id, profile_id, game_id, source_game_id, provider, product_id, title, install_path, installed, observed_at, use_granted)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 0)
+			ON CONFLICT(endpoint_id, profile_id, game_id, source_game_id) DO UPDATE SET
+				provider=excluded.provider, product_id=excluded.product_id, title=excluded.title,
+				install_path=excluded.install_path, installed=1, observed_at=excluded.observed_at`,
+			endpointID, profileID, observation.GameID, observation.SourceGameID, observation.Provider, observation.ProductID,
+			observation.Title, observation.InstallPath, observation.ObservedAt.Unix()); err != nil {
+			return fmt.Errorf("persist storefront observation: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *DeviceStore) ListInstallations(ctx context.Context, endpointID, profileID string) ([]devices.GameInstallation, error) {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowRightLeft, ExternalLink, FileSearch, Loader2, RefreshCw, Search, Trash2 } from 'lucide-react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import {
   ApiError,
   applyManualReviewCandidate,
@@ -454,13 +454,18 @@ export function UndetectedGamesTab() {
       applyManualReviewCandidate(candidateId, legacyGameId ? { ...result, authoritative_reclassify: true } : result),
     onMutate: () => setRedetectNotice(null),
     onSuccess: (updated) => {
+      const matchNotice = updated.metadata_warnings?.length
+        ? `Match saved. ${updated.metadata_warnings.join(' ')}`
+        : null
       if (bulkReclassifyActive) {
         queryClient.setQueryData(['manual-review-candidate', updated.id], updated)
         invalidateReviewQueries(updated.id)
         advanceBulkQueue(updated.id, `Applied match for ${updated.current_title || updated.raw_title || updated.id}.`)
+        if (matchNotice) setRedetectNotice(matchNotice)
         return
       }
       handleMutationSuccess(updated)
+      if (matchNotice) setRedetectNotice(matchNotice)
     },
   })
 

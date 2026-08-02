@@ -44,6 +44,7 @@ type qrPollRequest struct {
 
 type qrPollResponse struct {
 	Status           string         `json:"status"`
+	ChallengeURL     string         `json:"challenge_url,omitempty"`
 	AccountName      string         `json:"account_name,omitempty"`
 	ProviderIdentity map[string]any `json:"provider_identity,omitempty"`
 }
@@ -51,6 +52,7 @@ type qrPollResponse struct {
 // pluginQRPollResult is the plugin's reply to auth.qr.poll.
 type pluginQRPollResult struct {
 	Status           string         `json:"status"`
+	ChallengeURL     string         `json:"challenge_url,omitempty"`
 	AccountName      string         `json:"account_name"`
 	Message          string         `json:"message"`
 	ProviderIdentity map[string]any `json:"provider_identity,omitempty"`
@@ -156,7 +158,10 @@ func (c *OAuthController) QRPoll(w http.ResponseWriter, r *http.Request) {
 			status = "pending"
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(qrPollResponse{Status: status})
+		_ = json.NewEncoder(w).Encode(qrPollResponse{
+			Status:       status,
+			ChallengeURL: strings.TrimSpace(result.ChallengeURL),
+		})
 		return
 	}
 

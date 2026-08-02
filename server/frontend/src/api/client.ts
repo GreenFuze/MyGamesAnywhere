@@ -748,6 +748,9 @@ export type InstalledGamesDevice = {
 export type InstalledGameItem = {
   game: GameDetailResponse;
   source_game_id: string;
+	play_route: "managed" | "storefront";
+	storefront?: "steam" | string;
+	use_granted?: boolean;
   install_kind: "managed_archive" | "gog_inno" | string;
   install_state: "installed";
   launch_target?: string;
@@ -882,6 +885,20 @@ export async function useExistingInstallationOnDevice(
   ) as Promise<DeviceCommand>;
 }
 
+export async function useStorefrontProductOnDevice(endpointId: string, gameId: string, sourceGameId: string): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(
+    `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/use-storefront`,
+    {},
+  ) as Promise<DeviceCommand>;
+}
+
+export async function launchStorefrontProductOnDevice(endpointId: string, gameId: string, sourceGameId: string): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(
+    `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/launch-storefront`,
+    {},
+  ) as Promise<DeviceCommand>;
+}
+
 export async function uninstallGameFromDevice(
   endpointId: string,
   gameId: string,
@@ -891,6 +908,26 @@ export async function uninstallGameFromDevice(
     `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/uninstall`,
     {},
   ) as Promise<DeviceCommand>;
+}
+
+function managedInstallationRecoveryPath(endpointId: string, gameId: string, sourceGameId: string, action: "repair" | "reinstall" | "cleanup" | "forget"): string {
+  return `/api/devices/${encodeURIComponent(endpointId)}/games/${encodeURIComponent(gameId)}/sources/${encodeURIComponent(sourceGameId)}/${action}`;
+}
+
+export async function repairManagedInstallation(endpointId: string, gameId: string, sourceGameId: string): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(managedInstallationRecoveryPath(endpointId, gameId, sourceGameId, "repair"), {}) as Promise<DeviceCommand>;
+}
+
+export async function prepareManagedInstallationReinstall(endpointId: string, gameId: string, sourceGameId: string): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(managedInstallationRecoveryPath(endpointId, gameId, sourceGameId, "reinstall"), {}) as Promise<DeviceCommand>;
+}
+
+export async function cleanupManagedInstallation(endpointId: string, gameId: string, sourceGameId: string): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(managedInstallationRecoveryPath(endpointId, gameId, sourceGameId, "cleanup"), {}) as Promise<DeviceCommand>;
+}
+
+export async function forgetManagedInstallation(endpointId: string, gameId: string, sourceGameId: string): Promise<DeviceCommand> {
+  return postJson<DeviceCommand>(managedInstallationRecoveryPath(endpointId, gameId, sourceGameId, "forget"), {}) as Promise<DeviceCommand>;
 }
 
 export async function cleanupFailedGameOnDevice(endpointId: string, gameId: string, sourceGameId: string): Promise<DeviceCommand> {
@@ -1154,6 +1191,11 @@ export type GameDeviceAvailabilityDTO = {
   prepared_copies?: DevicePreparedCopyObservation[];
   gog_inno_install_supported: boolean;
   failed_cleanup_supported: boolean;
+  recovery_supported: boolean;
+  repair_available: boolean;
+  reinstall_available: boolean;
+  cleanup_available: boolean;
+  forget_available: boolean;
   install_kind?: "managed_archive" | "gog_inno" | string;
   install_state?: "installed" | "attention_required" | "cleanup_required" | "cleanup_running" | "cleanup_failed" | "ignored_failure" | string;
   state_reason?: string;
@@ -1166,6 +1208,24 @@ export type GameDeviceAvailabilityDTO = {
 	authority_mode?: "managed" | "shared_launch" | string;
 	use_existing_supported: boolean;
 	existing_installations?: DeviceManagedInstallationObservation[];
+	storefront_product?: DeviceStorefrontProduct;
+	storefront_use_supported: boolean;
+	storefront_launch_supported: boolean;
+};
+
+export type DeviceStorefrontProduct = {
+	endpoint_id: string;
+	profile_id: string;
+	game_id: string;
+	source_game_id: string;
+	provider: "steam" | string;
+	product_id: string;
+	title: string;
+	install_path: string;
+	installed: boolean;
+	observed_at: string;
+	use_granted: boolean;
+	granted_at?: string;
 };
 
 export type GameEmulatorRouteDTO = {
@@ -2429,6 +2489,7 @@ export type QRSignInChallenge = {
 
 export type QRSignInPoll = {
   status: string;
+  challenge_url?: string;
   account_name?: string;
   provider_identity?: ProviderIdentity;
 };

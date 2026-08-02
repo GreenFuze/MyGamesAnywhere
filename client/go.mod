@@ -6,6 +6,7 @@ toolchain go1.26.5
 
 require (
 	github.com/GreenFuze/MyGamesAnywhere/protocol v0.0.0
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/bodgit/sevenzip v1.6.5
 	github.com/coder/websocket v1.8.15
 	github.com/getlantern/systray v1.2.2

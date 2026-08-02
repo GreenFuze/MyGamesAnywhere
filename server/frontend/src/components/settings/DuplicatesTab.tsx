@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import {

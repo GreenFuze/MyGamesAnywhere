@@ -24,6 +24,9 @@ type InstalledGamesDeviceDTO struct {
 type InstalledGameDTO struct {
 	Game            GameDetailResponse `json:"game"`
 	SourceGameID    string             `json:"source_game_id"`
+	PlayRoute       string             `json:"play_route"`
+	Storefront      string             `json:"storefront,omitempty"`
+	UseGranted      bool               `json:"use_granted,omitempty"`
 	InstallKind     string             `json:"install_kind"`
 	InstallState    string             `json:"install_state"`
 	LaunchTarget    string             `json:"launch_target,omitempty"`
@@ -91,6 +94,7 @@ func (c *GameController) ListInstalledGames(w http.ResponseWriter, r *http.Reque
 
 func (c *GameController) buildInstalledGamesResponse(ctx context.Context, endpoint devices.Endpoint) (InstalledGamesResponse, error) {
 	selected := make(map[string]devices.GameInstallation)
+	storefrontSelected := make(map[string]devices.StorefrontProduct)
 	attentionGames := make(map[string]struct{})
 	for _, installation := range endpoint.Installations {
 		if installation.InstallState != devicev1.InstallStateInstalled {
@@ -102,10 +106,24 @@ func (c *GameController) buildInstalledGamesResponse(ctx context.Context, endpoi
 			selected[installation.GameID] = installation
 		}
 	}
+	for _, product := range endpoint.StorefrontProducts {
+		if !product.Installed {
+			continue
+		}
+		current, exists := storefrontSelected[product.GameID]
+		if !exists || (product.UseGranted && !current.UseGranted) || (product.UseGranted == current.UseGranted && product.ObservedAt.After(current.ObservedAt)) {
+			storefrontSelected[product.GameID] = product
+		}
+	}
 
-	canonicalIDs := make([]string, 0, len(selected))
+	canonicalIDs := make([]string, 0, len(selected)+len(storefrontSelected))
 	for gameID := range selected {
 		canonicalIDs = append(canonicalIDs, gameID)
+	}
+	for gameID := range storefrontSelected {
+		if _, managed := selected[gameID]; !managed {
+			canonicalIDs = append(canonicalIDs, gameID)
+		}
 	}
 	sort.Strings(canonicalIDs)
 	games, err := c.gameStore.GetCanonicalGamesByIDs(ctx, canonicalIDs)
@@ -121,6 +139,7 @@ func (c *GameController) buildInstalledGamesResponse(ctx context.Context, endpoi
 
 	connected := endpointIsConnected(endpoint.Status)
 	launchSupported := endpointHasCapability(endpoint, devicev1.CapabilityGameLaunch)
+	storefrontLaunchSupported := endpointHasCapability(endpoint, devicev1.CapabilityGameLaunchStorefront)
 	playAccess, _ := endpoint.AccessLevel.Allows(devicev1.AccessPlay)
 	compatibleConnection := endpoint.Status == devicev1.EndpointReady || endpoint.Status == devicev1.EndpointBusy
 	labels := c.loadIntegrationLabels(ctx)
@@ -133,6 +152,7 @@ func (c *GameController) buildInstalledGamesResponse(ctx context.Context, endpoi
 		items = append(items, InstalledGameDTO{
 			Game:            c.canonicalToGameDetailWithIntegrationLabels(ctx, game, labels),
 			SourceGameID:    installation.SourceGameID,
+			PlayRoute:       "managed",
 			InstallKind:     installation.InstallKind,
 			InstallState:    installation.InstallState,
 			LaunchTarget:    installation.LaunchTarget,
@@ -140,6 +160,28 @@ func (c *GameController) buildInstalledGamesResponse(ctx context.Context, endpoi
 			CanPlay:         playAccess && compatibleConnection && launchSupported && strings.TrimSpace(installation.LaunchTarget) != "",
 			InstalledAt:     installation.InstalledAt.UTC(),
 			UpdatedAt:       installation.UpdatedAt.UTC(),
+		})
+	}
+	for gameID, product := range storefrontSelected {
+		if _, managed := selected[gameID]; managed {
+			continue
+		}
+		game := canonicalByID[gameID]
+		if game == nil {
+			continue
+		}
+		items = append(items, InstalledGameDTO{
+			Game:            c.canonicalToGameDetailWithIntegrationLabels(ctx, game, labels),
+			SourceGameID:    product.SourceGameID,
+			PlayRoute:       "storefront",
+			Storefront:      product.Provider,
+			UseGranted:      product.UseGranted,
+			InstallKind:     "storefront",
+			InstallState:    devicev1.InstallStateInstalled,
+			LaunchSupported: storefrontLaunchSupported,
+			CanPlay:         product.UseGranted && playAccess && compatibleConnection && storefrontLaunchSupported,
+			InstalledAt:     product.ObservedAt.UTC(),
+			UpdatedAt:       product.ObservedAt.UTC(),
 		})
 	}
 	sort.SliceStable(items, func(i, j int) bool {

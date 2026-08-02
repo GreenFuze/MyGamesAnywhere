@@ -8,12 +8,15 @@ import {
   type QRSignInChallenge,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
+import { rotateQRChallenge } from '@/lib/qrSignIn'
 
 interface QRSignInProps {
   pluginId: string
   integrationId: string
   /** Player-facing name of the provider app used to approve the sign-in. */
   providerAppName: string
+  /** Player-facing reason this additional provider approval is needed. */
+  purposeLabel: string
   initialIdentity?: ProviderIdentity
   onSignedIn?: (identity: ProviderIdentity) => void | Promise<void>
 }
@@ -39,6 +42,7 @@ export function QRSignIn({
   pluginId,
   integrationId,
   providerAppName,
+  purposeLabel,
   initialIdentity,
   onSignedIn,
 }: QRSignInProps) {
@@ -89,7 +93,9 @@ export function QRSignIn({
             void onSignedIn?.(signedInIdentity)
             return
           }
-          poll(session)
+          const activeSession = rotateQRChallenge(session, result.challenge_url)
+          if (activeSession !== session) setChallenge(activeSession)
+          poll(activeSession)
         } catch (err) {
           if (cancelledRef.current) return
           setPhase('error')
@@ -131,21 +137,22 @@ export function QRSignIn({
     <div className="rounded-mga border border-mga-border bg-mga-bg/60 p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-medium text-mga-text">Sign in for shared games</p>
+          <p className="text-sm font-medium text-mga-text">Connect {purposeLabel}</p>
           <p className="text-xs text-mga-muted">
-            Approve in the {providerAppName} app. Your password and login code never reach MGA.
+            This sign-in is specifically for {purposeLabel}. Approve it in the {providerAppName} app;
+            your password and login code never reach MGA.
           </p>
         </div>
         <Button type="button" variant="outline" onClick={start} disabled={phase === 'waiting'}>
-          {phase === 'waiting' ? 'Waiting…' : phase === 'signed_in' ? 'Change account' : 'Sign in'}
+          {phase === 'waiting' ? 'Waiting…' : phase === 'signed_in' ? 'Change account' : 'Connect shared games'}
         </Button>
       </div>
 
       {phase === 'waiting' && challenge && (
         <div className="space-y-2">
           <p className="text-xs text-mga-muted">
-            Scan this code with the {providerAppName} mobile app, then approve the sign-in. This page
-            updates by itself.
+            Scan this code with the {providerAppName} mobile app to connect {purposeLabel}, then
+            approve the sign-in. This page updates by itself.
           </p>
           <div className="flex justify-center rounded-mga bg-white p-3">
             <QRCodeSVG

@@ -69,9 +69,10 @@ type ManualReviewCandidateSummaryDTO struct {
 
 type ManualReviewCandidateDetailDTO struct {
 	ManualReviewCandidateSummaryDTO
-	URL             string               `json:"url,omitempty"`
-	Files           []GameFileDTO        `json:"files"`
-	ResolverMatches []core.ResolverMatch `json:"resolver_matches"`
+	URL              string               `json:"url,omitempty"`
+	Files            []GameFileDTO        `json:"files"`
+	ResolverMatches  []core.ResolverMatch `json:"resolver_matches"`
+	MetadataWarnings []string             `json:"metadata_warnings,omitempty"`
 }
 
 type manualReviewSearchRequest struct {
@@ -524,16 +525,21 @@ func (c *ReviewController) ApplyCandidate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := c.manualReviewSvc.Apply(r.Context(), candidateID, body.ManualReviewSelection, core.ManualReviewApplyOptions{
+	result, err := c.manualReviewSvc.Apply(r.Context(), candidateID, body.ManualReviewSelection, core.ManualReviewApplyOptions{
 		AuthoritativeReclassify: body.AuthoritativeReclassify,
-	}); err != nil {
+	})
+	if err != nil {
 		status := manualReviewMutationErrorStatus(err)
 		c.logger.Error("apply manual review candidate", err)
 		http.Error(w, err.Error(), status)
 		return
 	}
 
-	c.respondWithCandidateDetail(w, r, candidateID)
+	var warnings []string
+	if result != nil {
+		warnings = result.Warnings
+	}
+	c.respondWithCandidateDetail(w, r, candidateID, warnings)
 }
 
 func (c *ReviewController) MarkCandidateNotAGame(w http.ResponseWriter, r *http.Request) {
@@ -640,7 +646,7 @@ func (c *ReviewController) updateCandidateReviewState(w http.ResponseWriter, r *
 		http.Error(w, err.Error(), status)
 		return
 	}
-	c.respondWithCandidateDetail(w, r, candidateID)
+	c.respondWithCandidateDetail(w, r, candidateID, nil)
 }
 
 func (c *ReviewController) updateCandidateKindAndReviewState(w http.ResponseWriter, r *http.Request, kind core.GameKind, state core.ManualReviewState) {
@@ -662,10 +668,10 @@ func (c *ReviewController) updateCandidateKindAndReviewState(w http.ResponseWrit
 		http.Error(w, err.Error(), status)
 		return
 	}
-	c.respondWithCandidateDetail(w, r, candidateID)
+	c.respondWithCandidateDetail(w, r, candidateID, nil)
 }
 
-func (c *ReviewController) respondWithCandidateDetail(w http.ResponseWriter, r *http.Request, candidateID string) {
+func (c *ReviewController) respondWithCandidateDetail(w http.ResponseWriter, r *http.Request, candidateID string, metadataWarnings []string) {
 	candidate, err := c.gameStore.GetManualReviewCandidate(r.Context(), candidateID)
 	if err != nil {
 		c.logger.Error("get manual review candidate after mutation", err)
@@ -682,8 +688,10 @@ func (c *ReviewController) respondWithCandidateDetail(w http.ResponseWriter, r *
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	detail := manualReviewCandidateDetailDTO(candidate, labels)
+	detail.MetadataWarnings = append([]string(nil), metadataWarnings...)
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(manualReviewCandidateDetailDTO(candidate, labels))
+	_ = json.NewEncoder(w).Encode(detail)
 }
 
 func manualReviewMutationErrorStatus(err error) int {

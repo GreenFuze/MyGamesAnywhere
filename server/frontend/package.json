@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test:unit": "node --experimental-strip-types --test src/lib/installedGames.test.mjs src/lib/gameCardActions.test.mjs src/lib/gamePresentation.test.mjs src/lib/gameGrouping.test.mjs src/lib/gameFileLocations.test.mjs src/lib/saveDomains.test.mjs src/lib/saveHistory.test.mjs src/lib/profileIsolation.test.mjs src/lib/profileCacheBoundary.test.mjs src/lib/driveFolderBrowse.test.mjs src/lib/updateActions.test.mjs src/lib/browserPlayDiagnostics.test.mjs src/lib/browserClientAssociation.test.mjs src/lib/hardDeleteOperation.test.mjs src/lib/scanNotifications.test.mjs src/lib/sourceCapabilities.test.mjs src/lib/libraryLoadProgress.test.mjs src/lib/gameContent.test.mjs",
+    "test:unit": "node --experimental-strip-types --test src/lib/installedGames.test.mjs src/lib/gameCardActions.test.mjs src/lib/gamePresentation.test.mjs src/lib/gameGrouping.test.mjs src/lib/gameFileLocations.test.mjs src/lib/saveDomains.test.mjs src/lib/saveHistory.test.mjs src/lib/profileIsolation.test.mjs src/lib/profileCacheBoundary.test.mjs src/lib/driveFolderBrowse.test.mjs src/lib/updateActions.test.mjs src/lib/browserPlayDiagnostics.test.mjs src/lib/browserClientAssociation.test.mjs src/lib/emulatorJsSaveStore.test.mjs src/lib/navigationRoutes.test.mjs src/lib/hardDeleteOperation.test.mjs src/lib/scanNotifications.test.mjs src/lib/sourceCapabilities.test.mjs src/lib/libraryLoadProgress.test.mjs src/lib/gameContent.test.mjs src/lib/qrSignIn.test.mjs",
     "generate:api-contracts": "node ./scripts/generate-api-contracts.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
@@ -16,14 +16,14 @@
     "clsx": "^2.1.1",
     "lucide-react": "^1.0.1",
     "qrcode.react": "^4.2.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router": "^8.3.0",
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
-    "@types/react": "^18.3.18",
-    "@types/react-dom": "^18.3.5",
+    "@types/react": "^19.2.9",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",

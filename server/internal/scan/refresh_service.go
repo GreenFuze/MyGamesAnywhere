@@ -12,8 +12,11 @@ var (
 	// refreshMetadataFailurePolicy is intentionally non-strict: if one provider (e.g. RAWG)
 	// times out, the refresh continues with the remaining providers and surfaces the failure
 	// as a warning rather than aborting the whole operation.
-	refreshMetadataFailurePolicy      = MetadataFailurePolicy{Name: "refresh", Strict: false}
-	manualReviewMetadataFailurePolicy = MetadataFailurePolicy{Name: "manual_review", Strict: true}
+	refreshMetadataFailurePolicy = MetadataFailurePolicy{Name: "refresh", Strict: false}
+	// The user-selected match is authoritative. Optional enrichment from other
+	// providers must not prevent that valid selection from being saved.
+	manualReviewApplyMetadataFailurePolicy = MetadataFailurePolicy{Name: "manual_review_apply", Strict: false}
+	manualReviewRedetectFailurePolicy      = MetadataFailurePolicy{Name: "manual_review_redetect", Strict: true}
 )
 
 type metadataRefreshCoordinator struct {
@@ -78,21 +81,27 @@ func (c *metadataRefreshCoordinator) applyManualReviewSelection(
 	game *core.Game,
 	metadataSources []MetadataSource,
 	options core.ManualReviewApplyOptions,
-) error {
+) (*MetadataExecutionSummary, error) {
 	if sourceGame == nil || game == nil {
-		return fmt.Errorf("source game and game are required")
+		return nil, fmt.Errorf("source game and game are required")
 	}
 
 	applyUnifiedFields(game, metadataSources)
 	game.Status = "identified"
+	var summary *MetadataExecutionSummary
 	if !options.AuthoritativeReclassify && len(metadataSources) > 0 {
-		if _, err := c.metadataResolver.FillWithPolicy(ctx, integrationID, []*core.Game{game}, metadataSources, manualReviewMetadataFailurePolicy); err != nil {
-			return err
+		var err error
+		summary, err = c.metadataResolver.FillWithPolicy(ctx, integrationID, []*core.Game{game}, metadataSources, manualReviewApplyMetadataFailurePolicy)
+		if err != nil {
+			return summary, err
 		}
 		runConsensus(game, metadataSources)
 	}
 
-	return c.persistRefreshedSourceGames(ctx, []*core.SourceGame{sourceGame}, []*core.Game{game})
+	if err := c.persistRefreshedSourceGames(ctx, []*core.SourceGame{sourceGame}, []*core.Game{game}); err != nil {
+		return summary, err
+	}
+	return summary, nil
 }
 
 func (c *metadataRefreshCoordinator) persistRefreshedSourceGames(

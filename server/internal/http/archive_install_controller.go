@@ -212,6 +212,72 @@ func (c *DeviceController) UseExistingInstallation(w http.ResponseWriter, r *htt
 	writeJSON(w, http.StatusAccepted, command)
 }
 
+func (c *DeviceController) UseStorefrontProduct(w http.ResponseWriter, r *http.Request) {
+	endpointID := chi.URLParam(r, "id")
+	gameID := chi.URLParam(r, "game_id")
+	sourceGameID, err := decodedPathParam(r, "source_game_id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	profileID := core.ProfileIDFromContext(r.Context())
+	product, err := c.findStorefrontProduct(r.Context(), endpointID, gameID, sourceGameID, profileID)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	if !product.Installed {
+		http.Error(w, "the storefront no longer reports this game as installed", http.StatusConflict)
+		return
+	}
+	request := devicev1.UseStorefrontProductRequest{StorefrontProductCandidate: devicev1.StorefrontProductCandidate{
+		GameID: gameID, SourceGameID: sourceGameID, Provider: product.Provider, ProductID: product.ProductID, Title: product.Title,
+	}}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	command, err := c.service.DispatchCommand(r.Context(), endpointID, profileID, devicev1.CapabilityGameUseStorefront, payload)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, command)
+}
+
+func (c *DeviceController) LaunchStorefrontProduct(w http.ResponseWriter, r *http.Request) {
+	endpointID := chi.URLParam(r, "id")
+	gameID := chi.URLParam(r, "game_id")
+	sourceGameID, err := decodedPathParam(r, "source_game_id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	profileID := core.ProfileIDFromContext(r.Context())
+	product, err := c.findStorefrontProduct(r.Context(), endpointID, gameID, sourceGameID, profileID)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	if !product.Installed || !product.UseGranted {
+		http.Error(w, "confirm Use existing on this device before playing the storefront copy", http.StatusConflict)
+		return
+	}
+	request := devicev1.StorefrontLaunchRequest{GameID: gameID, SourceGameID: sourceGameID, Provider: product.Provider, ProductID: product.ProductID}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	command, err := c.service.DispatchCommand(r.Context(), endpointID, profileID, devicev1.CapabilityGameLaunchStorefront, payload)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, command)
+}
+
 func (c *DeviceController) UninstallGame(w http.ResponseWriter, r *http.Request) {
 	endpointID := chi.URLParam(r, "id")
 	gameID := chi.URLParam(r, "game_id")
@@ -243,6 +309,10 @@ func (c *DeviceController) UninstallGame(w http.ResponseWriter, r *http.Request)
 		http.NotFound(w, r)
 		return
 	}
+	if installation.InstallState != devicev1.InstallStateInstalled {
+		http.Error(w, "use the recovery actions for a missing or broken installation", http.StatusConflict)
+		return
+	}
 	if installation.AuthorityMode == devicev1.InstallationAuthorityShared || installation.InstallKind == devicev1.InstallKindSharedExisting {
 		http.Error(w, "this server has launch-only access and cannot uninstall the existing game", http.StatusConflict)
 		return
@@ -272,6 +342,122 @@ func (c *DeviceController) UninstallGame(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, command)
+}
+
+func (c *DeviceController) RepairInstallation(w http.ResponseWriter, r *http.Request) {
+	c.dispatchInstallationRecovery(w, r, devicev1.InstallationRecoveryRepair)
+}
+
+func (c *DeviceController) PrepareInstallationReinstall(w http.ResponseWriter, r *http.Request) {
+	c.dispatchInstallationRecovery(w, r, devicev1.InstallationRecoveryReinstall)
+}
+
+func (c *DeviceController) ForgetInstallation(w http.ResponseWriter, r *http.Request) {
+	c.dispatchInstallationRecovery(w, r, devicev1.InstallationRecoveryForget)
+}
+
+func (c *DeviceController) dispatchInstallationRecovery(w http.ResponseWriter, r *http.Request, action string) {
+	endpointID := chi.URLParam(r, "id")
+	gameID := chi.URLParam(r, "game_id")
+	sourceGameID, err := decodedPathParam(r, "source_game_id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	profileID := core.ProfileIDFromContext(r.Context())
+	installation, err := c.findInstallation(r.Context(), endpointID, gameID, sourceGameID, profileID)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	if installation.AuthorityMode == devicev1.InstallationAuthorityShared || installation.InstallKind == devicev1.InstallKindSharedExisting {
+		http.Error(w, "this server has launch-only access and cannot recover the existing game", http.StatusConflict)
+		return
+	}
+	reason := installation.VerificationReasonCode
+	if strings.TrimSpace(reason) == "" {
+		reason = strings.TrimSpace(installation.StateReason)
+	}
+	request := devicev1.InstallationRecoveryRequest{
+		Action: action, GameID: gameID, SourceGameID: sourceGameID,
+		LocalInstallationID: installation.LocalInstallationID,
+		InstallKind:         installation.InstallKind, InstallRoot: installation.InstallRoot, InstallPath: installation.InstallPath,
+		InstallState: installation.InstallState, ReasonCode: reason,
+	}
+	if err := request.Validate(); err != nil {
+		http.Error(w, "this recovery action is not safe for the installation's current state", http.StatusConflict)
+		return
+	}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	command, err := c.service.DispatchCommand(r.Context(), endpointID, profileID, devicev1.CapabilityGameRecoverInstallation, payload)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, command)
+}
+
+func (c *DeviceController) CleanupInstallation(w http.ResponseWriter, r *http.Request) {
+	endpointID := chi.URLParam(r, "id")
+	gameID := chi.URLParam(r, "game_id")
+	sourceGameID, err := decodedPathParam(r, "source_game_id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	profileID := core.ProfileIDFromContext(r.Context())
+	installation, err := c.findInstallation(r.Context(), endpointID, gameID, sourceGameID, profileID)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	if installation.AuthorityMode == devicev1.InstallationAuthorityShared || installation.InstallKind == devicev1.InstallKindSharedExisting ||
+		!safeInstallationCleanup(installation) {
+		http.Error(w, "MGA cannot prove a safe cleanup boundary for this installation", http.StatusConflict)
+		return
+	}
+	request := devicev1.InstallationCleanupRequest{
+		GameID: gameID, SourceGameID: sourceGameID, InstallKind: installation.InstallKind,
+		InstallPath: installation.InstallPath, UninstallTarget: installation.UninstallTarget,
+	}
+	if err := request.Validate(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	command, err := c.service.DispatchCommand(r.Context(), endpointID, profileID, devicev1.CapabilityGameCleanupInstallation, payload)
+	if err != nil {
+		writeDeviceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, command)
+}
+
+func safeInstallationCleanup(installation *devices.GameInstallation) bool {
+	if installation == nil || installation.InstallState != devicev1.InstallStateNeedsRepair {
+		return false
+	}
+	reason := strings.TrimSpace(installation.VerificationReasonCode)
+	if reason == "" {
+		reason = strings.TrimSpace(installation.StateReason)
+	}
+	switch installation.InstallKind {
+	case devicev1.InstallKindManagedArchive:
+		return reason == devicev1.ValidationReasonLaunchTargetMissing
+	case devicev1.InstallKindGogInno:
+		return reason == devicev1.ValidationReasonLaunchTargetMissing ||
+			reason == devicev1.ValidationReasonRegisteredProgramMissing
+	default:
+		return false
+	}
 }
 
 func (c *DeviceController) LaunchGame(w http.ResponseWriter, r *http.Request) {
@@ -346,6 +532,25 @@ func (c *DeviceController) findInstallation(ctx context.Context, endpointID, gam
 			installation := &endpoints[endpointIndex].Installations[installationIndex]
 			if installation.GameID == gameID && installation.SourceGameID == sourceGameID {
 				return installation, nil
+			}
+		}
+	}
+	return nil, devices.ErrInstallationNotFound
+}
+
+func (c *DeviceController) findStorefrontProduct(ctx context.Context, endpointID, gameID, sourceGameID, profileID string) (*devices.StorefrontProduct, error) {
+	endpoints, err := c.service.ListEndpoints(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	for endpointIndex := range endpoints {
+		if endpoints[endpointIndex].ID != endpointID {
+			continue
+		}
+		for productIndex := range endpoints[endpointIndex].StorefrontProducts {
+			product := &endpoints[endpointIndex].StorefrontProducts[productIndex]
+			if product.GameID == gameID && product.SourceGameID == sourceGameID {
+				return product, nil
 			}
 		}
 	}

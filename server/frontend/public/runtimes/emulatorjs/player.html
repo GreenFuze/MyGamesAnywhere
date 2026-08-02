@@ -33,6 +33,11 @@
   <body>
     <div id="game"></div>
     <script type="module">
+      import {
+        EmulatorJsBrowserSaveStore,
+        EmulatorJsSaveTree,
+      } from './mga-save-store.js'
+
       const params = new URLSearchParams(window.location.search)
       const sessionId = params.get('session')
       const mount = document.getElementById('game')
@@ -42,9 +47,11 @@
       let nativeRequestCounter = 0
       const pendingNativeRequests = new Map()
       let saveRamSyncTimer = null
-      let saveRamAutoSyncTimer = null
       let saveRamSyncInFlight = false
       let pendingSaveRamPayload = null
+      let browserSaveStore = null
+      let hydratedSaveRamRecord = null
+      let nativeSaveSyncEnabled = false
       function scheduleResizePass() {
         window.dispatchEvent(new Event('resize'))
         window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
@@ -84,8 +91,18 @@
 
       function requestParent(message, responseTypes) {
         const requestId = nextNativeRequestId()
-        return new Promise((resolve) => {
-          pendingNativeRequests.set(requestId, { resolve, responseTypes })
+        return new Promise((resolve, reject) => {
+          const timeoutId = window.setTimeout(() => {
+            pendingNativeRequests.delete(requestId)
+            reject(new Error('The MGA save backup request timed out. Your local browser save is unchanged.'))
+          }, 20000)
+          pendingNativeRequests.set(requestId, {
+            responseTypes,
+            resolve: (reply) => {
+              window.clearTimeout(timeoutId)
+              resolve(reply)
+            },
+          })
           postBridgeMessage({ ...message, requestId })
         })
       }
@@ -100,26 +117,6 @@
 
       function saveFilePath() {
         return window.EJS_emulator?.gameManager?.getSaveFilePath?.()
-      }
-
-      function normalizeEmulatorPath(path, fallback = null) {
-        const candidate = String(path || fallback || '').trim()
-        if (!candidate) return null
-        return candidate.startsWith('/') ? candidate : `/${candidate}`
-      }
-
-      function pathExists(path) {
-        return Boolean(path && window.EJS_emulator?.gameManager?.FS?.analyzePath(path).exists)
-      }
-
-      function isDirectory(path) {
-        const FS = window.EJS_emulator?.gameManager?.FS
-        if (!FS || !pathExists(path)) return false
-        try {
-          return FS.isDir(FS.stat(path).mode)
-        } catch {
-          return false
-        }
       }
 
       function flushCoreSaveFiles() {
@@ -138,84 +135,23 @@
         )
       }
 
-      function ensureEmulatorDirectory(path) {
-        const parts = path.split('/')
-        let current = ''
-        for (let index = 0; index < parts.length - 1; index += 1) {
-          const segment = parts[index]
-          if (!segment) continue
-          current += `/${segment}`
-          if (!window.EJS_emulator.gameManager.FS.analyzePath(current).exists) {
-            window.EJS_emulator.gameManager.FS.mkdir(current)
-          }
-        }
-      }
-
-      function addRuntimeSaveFile(files, seen, path, bytes) {
-        const normalizedPath = normalizeEmulatorPath(path, '/data/saves/save.ram')
-        if (!normalizedPath || !bytes || bytes.length === 0 || seen.has(normalizedPath)) return
-        seen.add(normalizedPath)
-        files.push({ path: normalizedPath, base64: bytesToBase64(bytes) })
-      }
-
-      function collectDirectorySaveFiles(root, files, seen) {
-        const FS = window.EJS_emulator?.gameManager?.FS
-        if (!FS || !pathExists(root) || !isDirectory(root)) return
-        for (const entry of FS.readdir(root)) {
-          if (entry === '.' || entry === '..') continue
-          const childPath = `${root.replace(/\/$/, '')}/${entry}`
-          if (isDirectory(childPath)) {
-            collectDirectorySaveFiles(childPath, files, seen)
-            continue
-          }
-          try {
-            addRuntimeSaveFile(files, seen, childPath, FS.readFile(childPath))
-          } catch {
-            // Ignore transient files that cannot be read while the core is updating saves.
-          }
-        }
-      }
-
       function collectSaveFiles(payloadSave = null) {
         const FS = window.EJS_emulator?.gameManager?.FS
-        const files = []
-        const seen = new Set()
-        if (!FS) return files
-
-        const primaryPath = normalizeEmulatorPath(saveFilePath() || latestSavePath, '/data/saves/save.ram')
-        if (payloadSave) {
-          addRuntimeSaveFile(files, seen, primaryPath, payloadSave)
-        }
-        if (primaryPath && pathExists(primaryPath) && !isDirectory(primaryPath)) {
-          try {
-            addRuntimeSaveFile(files, seen, primaryPath, FS.readFile(primaryPath))
-          } catch {
-            // Fall through to directory collection.
-          }
-        }
-        collectDirectorySaveFiles('/data/saves', files, seen)
-        return files
+        if (!FS) return []
+        return EmulatorJsSaveTree.collect(
+          FS,
+          saveFilePath() || latestSavePath || 'save.ram',
+          payloadSave,
+        )
       }
 
       function writeSaveFiles(files) {
-        const saveFiles = Array.isArray(files) ? files.filter((file) => file?.base64) : []
-        if (saveFiles.length === 0) {
+        if (!Array.isArray(files) || files.length === 0) {
           throw new Error('No EmulatorJS save file was provided.')
         }
-        for (const [index, file] of saveFiles.entries()) {
-          const normalizedPath = normalizeEmulatorPath(file.path, index === 0 ? saveFilePath() : `save-${index}.ram`)
-          if (!normalizedPath) continue
-          const bytes = base64ToBytes(file.base64)
-          ensureEmulatorDirectory(normalizedPath)
-          if (window.EJS_emulator.gameManager.FS.analyzePath(normalizedPath).exists) {
-            window.EJS_emulator.gameManager.FS.unlink(normalizedPath)
-          }
-          window.EJS_emulator.gameManager.FS.writeFile(normalizedPath, bytes)
-          if (index === 0) {
-            latestSavePath = normalizedPath
-            latestSaveBase64 = file.base64
-          }
-        }
+        const saveFiles = EmulatorJsSaveTree.replace(window.EJS_emulator.gameManager.FS, files)
+        latestSavePath = saveFiles[0].path
+        latestSaveBase64 = saveFiles[0].base64
         window.EJS_emulator.gameManager.loadSaveFiles()
       }
 
@@ -255,9 +191,11 @@
         }
       }
 
-      function importSnapshot(requestId, files) {
+      async function importSnapshot(requestId, files) {
         try {
-          writeSaveFiles(files)
+          const record = await browserSaveStore.put('save-ram', files)
+          hydratedSaveRamRecord = record
+          writeSaveFiles(record.files)
           postBridgeMessage({ type: 'import-result', requestId, ok: true })
         } catch (error) {
           postBridgeMessage({
@@ -271,33 +209,82 @@
 
       async function saveNativeState(slot, state, quiet = false) {
         if (!state) {
-          if (!quiet) displayMessage('No state data to sync.')
+          if (!quiet) displayMessage('No save-state data is available yet.')
           return
         }
-        const reply = await requestParent(
-          { type: 'native-save-state', slot: String(slot || '1'), stateBase64: bytesToBase64(state) },
-          ['native-save-result'],
-        )
-        if (!reply.ok) {
-          throw new Error(reply.error || 'Unable to sync save state.')
+        const effectiveSlot = String(slot || '1')
+        const slotId = `state-${effectiveSlot}`
+        const files = [{ path: `${slotId}.state`, base64: bytesToBase64(state) }]
+        const localRecord = await browserSaveStore.put(slotId, files)
+        postBridgeMessage({
+          type: 'local-save-status',
+          status: 'saved',
+          message: `Save state slot ${effectiveSlot} is stored in this browser.`,
+        })
+        if (nativeSaveSyncEnabled) {
+          try {
+            const reply = await requestParent(
+              {
+                type: 'native-save-state',
+                slot: effectiveSlot,
+                stateBase64: files[0].base64,
+                baseManifestHash: localRecord.lastSyncedManifestHash || undefined,
+              },
+              ['native-save-result'],
+            )
+            if (!reply.ok) {
+              throw new Error(reply.error || 'Unable to back up the save state.')
+            }
+            if (reply.manifestHash) {
+              await browserSaveStore.markSynced(slotId, localRecord.revision, reply.manifestHash)
+            }
+          } catch (error) {
+            postBridgeMessage({
+              type: 'local-save-status',
+              status: 'backup_error',
+              message: error instanceof Error
+                ? `Saved in this browser, but backup needs attention: ${error.message}`
+                : 'Saved in this browser, but backup needs attention.',
+            })
+            if (!quiet) displayMessage('Saved in this browser, but the backup needs attention.')
+            return
+          }
         }
-        if (!quiet) displayMessage(`Synced save state slot ${slot || '1'}.`)
+        if (!quiet) {
+          displayMessage(
+            nativeSaveSyncEnabled
+              ? `Saved and backed up state slot ${effectiveSlot}.`
+              : `Saved state slot ${effectiveSlot} in this browser.`,
+          )
+        }
       }
 
       async function loadNativeState(slot) {
         const effectiveSlot = String(slot || '1')
-        const reply = await requestParent(
-          { type: 'native-load-state', slot: effectiveSlot },
-          ['native-load-state-result'],
-        )
-        if (!reply.ok) {
-          throw new Error(reply.error || 'Unable to load synced save state.')
+        const slotId = `state-${effectiveSlot}`
+        let localRecord = await browserSaveStore.get(slotId)
+        if (!localRecord && nativeSaveSyncEnabled) {
+          const reply = await requestParent(
+            { type: 'native-load-state', slot: effectiveSlot },
+            ['native-load-state-result'],
+          )
+          if (!reply.ok) {
+            throw new Error(reply.error || 'Unable to load the backed-up save state.')
+          }
+          if (reply.stateBase64) {
+            localRecord = await browserSaveStore.put(
+              slotId,
+              [{ path: `${slotId}.state`, base64: reply.stateBase64 }],
+              { syncedManifestHash: reply.manifestHash || '' },
+            )
+          }
         }
-        if (!reply.stateBase64) {
-          throw new Error(`No synced save state in slot ${effectiveSlot}.`)
+        const stateBase64 = localRecord?.files?.[0]?.base64
+        if (!stateBase64) {
+          throw new Error(`No save state exists in slot ${effectiveSlot} for this player and game copy.`)
         }
-        window.EJS_emulator.gameManager.loadState(base64ToBytes(reply.stateBase64))
-        displayMessage(`Loaded synced save state slot ${effectiveSlot}.`)
+        window.EJS_emulator.gameManager.loadState(base64ToBytes(stateBase64))
+        displayMessage(`Loaded save state slot ${effectiveSlot}.`)
       }
 
       async function saveNativeRam(save, quiet = false, options = {}) {
@@ -306,32 +293,71 @@
         }
         const files = collectSaveFiles(save)
         if (files.length === 0) {
-          if (!quiet) displayMessage('No save RAM data to sync.')
+          if (!quiet) displayMessage('This game has not created save data yet.')
           return
         }
-        const reply = await requestParent(
-          { type: 'native-save-ram', files },
-          ['native-save-result'],
-        )
-        if (!reply.ok) {
-          throw new Error(reply.error || 'Unable to sync save RAM.')
-        }
+        const localRecord = await browserSaveStore.put('save-ram', files)
         latestSavePath = files[0].path
         latestSaveBase64 = files[0].base64
-        if (!quiet) displayMessage('Synced save RAM.')
+        postBridgeMessage({
+          type: 'local-save-status',
+          status: 'saved',
+          message: `${files.length} save ${files.length === 1 ? 'file is' : 'files are'} stored in this browser.`,
+          fileCount: files.length,
+        })
+        if (nativeSaveSyncEnabled) {
+          try {
+            const reply = await requestParent(
+              {
+                type: 'native-save-ram',
+                files,
+                baseManifestHash: localRecord.lastSyncedManifestHash || undefined,
+              },
+              ['native-save-result'],
+            )
+            if (!reply.ok) {
+              throw new Error(reply.error || 'Unable to back up the browser save.')
+            }
+            if (reply.manifestHash) {
+              await browserSaveStore.markSynced('save-ram', localRecord.revision, reply.manifestHash)
+            }
+          } catch (error) {
+            postBridgeMessage({
+              type: 'local-save-status',
+              status: 'backup_error',
+              message: error instanceof Error
+                ? `Saved in this browser, but backup needs attention: ${error.message}`
+                : 'Saved in this browser, but backup needs attention.',
+              fileCount: files.length,
+            })
+            if (!quiet) displayMessage('Saved in this browser, but the backup needs attention.')
+            return
+          }
+        }
+        if (!quiet) {
+          displayMessage(nativeSaveSyncEnabled ? 'Saved here and backed up.' : 'Saved in this browser.')
+        }
       }
 
       async function loadNativeRam(quiet = false) {
-        const reply = await requestParent({ type: 'native-load-ram' }, ['native-load-ram-result'])
-        if (!reply.ok) {
-          throw new Error(reply.error || 'Unable to load synced save RAM.')
+        let localRecord = await browserSaveStore.get('save-ram')
+        if (!localRecord && nativeSaveSyncEnabled) {
+          const reply = await requestParent({ type: 'native-load-ram' }, ['native-load-ram-result'])
+          if (!reply.ok) {
+            throw new Error(reply.error || 'Unable to load the browser save backup.')
+          }
+          if (Array.isArray(reply.files) && reply.files.length > 0) {
+            localRecord = await browserSaveStore.put('save-ram', reply.files, {
+              syncedManifestHash: reply.manifestHash || '',
+            })
+          }
         }
-        if (!Array.isArray(reply.files) || reply.files.length === 0) {
+        if (!localRecord?.files?.length) {
           if (quiet) return false
-          throw new Error('No synced save RAM found.')
+          throw new Error('No save exists for this player and game copy yet.')
         }
-        writeSaveFiles(reply.files)
-        if (!quiet) displayMessage('Loaded synced save RAM.')
+        writeSaveFiles(localRecord.files)
+        if (!quiet) displayMessage('Loaded the save stored for this player and game copy.')
         return true
       }
 
@@ -342,7 +368,7 @@
         }
         saveRamSyncTimer = window.setTimeout(() => {
           void flushSaveRamSync()
-        }, 1000)
+        }, 500)
       }
 
       async function flushSaveRamSync() {
@@ -362,15 +388,15 @@
         }
       }
 
-      function startSaveRamAutoSync() {
-        if (saveRamAutoSyncTimer) return
-        window.setTimeout(() => queueSaveRamSync({}), 5000)
-        saveRamAutoSyncTimer = window.setInterval(() => queueSaveRamSync({}), 30000)
-      }
-
       window.addEventListener('pagehide', () => {
-        if (!saveRamAutoSyncTimer) return
-        queueSaveRamSync({})
+        if (!window.EJS_emulator?.gameManager) return
+        pendingSaveRamPayload = {}
+        void flushSaveRamSync()
+      })
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'hidden' || !window.EJS_emulator?.gameManager) return
+        pendingSaveRamPayload = {}
         void flushSaveRamSync()
       })
 
@@ -389,7 +415,15 @@
         if (message.type === 'export-save-snapshot') {
           exportSnapshot(message.requestId)
         } else if (message.type === 'import-save-snapshot') {
-          importSnapshot(message.requestId, message.files)
+          void importSnapshot(message.requestId, message.files)
+        } else if (message.type === 'mark-local-save-synced') {
+          void browserSaveStore
+            ?.get(message.slotId)
+            .then((record) =>
+              record
+                ? browserSaveStore.markSynced(message.slotId, record.revision, message.manifestHash)
+                : false,
+            )
         }
       })
 
@@ -407,85 +441,135 @@
           } else if (session.runtime !== 'emulatorjs') {
             renderError('Invalid EmulatorJS session payload.')
           } else {
-            const runtimeVersion = 'mga-20260430-save-ram-sync'
-            const runtimeDataUrl = new URL('./data/', window.location.href)
-            const loaderUrl = new URL('./data/loader.js', window.location.href)
-            const emulatorScriptUrl = new URL('./data/emulator.min.js', window.location.href)
-            const emulatorStyleUrl = new URL('./data/emulator.min.css', window.location.href)
-            loaderUrl.searchParams.set('v', runtimeVersion)
-            emulatorScriptUrl.searchParams.set('v', runtimeVersion)
-            emulatorStyleUrl.searchParams.set('v', runtimeVersion)
-            window.EJS_ready = () => {
-              scheduleResizePass()
-              postBridgeMessage({
-                type: 'ready',
-                saveAdapter: true,
-                nativeSaveSync: session.nativeSaveSync === true,
+            nativeSaveSyncEnabled = session.nativeSaveSync === true
+            try {
+              browserSaveStore = await EmulatorJsBrowserSaveStore.open({
+                ownerProfileId: session.ownerProfileId,
+                sourceGameId: session.sourceGameId,
+                core: session.core,
               })
+              hydratedSaveRamRecord = await browserSaveStore.get('save-ram')
+            } catch (error) {
+              renderError(
+                error instanceof Error
+                  ? `MGA cannot safely store this game's progress: ${error.message}`
+                  : "MGA cannot safely store this game's progress in this browser.",
+              )
             }
-            window.EJS_onGameStart = () => {
-              scheduleResizePass()
-              if (session.nativeSaveSync === true) {
-                void loadNativeRam(true)
-                  .catch((error) => {
-                    displayMessage(error instanceof Error ? error.message : 'Unable to load synced save RAM.')
-                  })
-                  .finally(() => {
-                    startSaveRamAutoSync()
-                  })
+
+            if (browserSaveStore) {
+              const runtimeVersion = 'mga-20260730-profile-save-store'
+              const runtimeDataUrl = new URL('./data/', window.location.href)
+              const loaderUrl = new URL('./data/loader.js', window.location.href)
+              const emulatorScriptUrl = new URL('./data/emulator.min.js', window.location.href)
+              const emulatorStyleUrl = new URL('./data/emulator.min.css', window.location.href)
+              loaderUrl.searchParams.set('v', runtimeVersion)
+              emulatorScriptUrl.searchParams.set('v', runtimeVersion)
+              emulatorStyleUrl.searchParams.set('v', runtimeVersion)
+              window.EJS_ready = () => {
+                scheduleResizePass()
+                postBridgeMessage({
+                  type: 'ready',
+                  saveAdapter: true,
+                  nativeSaveSync: nativeSaveSyncEnabled,
+                })
               }
-            }
-            if (session.nativeSaveSync === true) {
+              window.EJS_onSaveDatabaseLoaded = (fileSystem) => {
+                try {
+                  const files = hydratedSaveRamRecord?.files ?? []
+                  EmulatorJsSaveTree.replace(fileSystem, files)
+                  postBridgeMessage({
+                    type: 'local-save-status',
+                    status: 'ready',
+                    message:
+                      files.length > 0
+                        ? `Loaded ${files.length} save ${files.length === 1 ? 'file' : 'files'} for this player and game copy.`
+                        : 'Save storage is ready for this player and game copy.',
+                    fileCount: files.length,
+                  })
+                } catch (error) {
+                  postBridgeMessage({
+                    type: 'runtime-error',
+                    error:
+                      error instanceof Error
+                        ? `MGA could not prepare this game's local save: ${error.message}`
+                        : "MGA could not prepare this game's local save.",
+                  })
+                  throw error
+                }
+              }
+              window.EJS_onGameStart = () => {
+                scheduleResizePass()
+                if (!hydratedSaveRamRecord && nativeSaveSyncEnabled) {
+                  void loadNativeRam(true)
+                    .catch((error) => {
+                      postBridgeMessage({
+                        type: 'local-save-status',
+                        status: 'backup_error',
+                        message:
+                          error instanceof Error
+                            ? `The game started with an empty local save because the backup could not be loaded: ${error.message}`
+                            : 'The game started with an empty local save because the backup could not be loaded.',
+                      })
+                    })
+                    .finally(() => {
+                      window.setTimeout(() => queueSaveRamSync({}), 5000)
+                    })
+                } else {
+                  window.setTimeout(() => queueSaveRamSync({}), 5000)
+                }
+              }
+              window.EJS_onSaveSaveFiles = () => {
+                queueSaveRamSync({})
+              }
               window.EJS_onSaveState = (payload) => {
                 void saveNativeState(currentStateSlot(), payload?.state).catch((error) => {
-                  displayMessage(error instanceof Error ? error.message : 'Unable to sync save state.')
+                  displayMessage(error instanceof Error ? error.message : 'Unable to store the save state.')
                 })
               }
               window.EJS_onLoadState = () => {
                 void loadNativeState(currentStateSlot()).catch((error) => {
-                  displayMessage(error instanceof Error ? error.message : 'Unable to load synced save state.')
+                  displayMessage(error instanceof Error ? error.message : 'Unable to load the save state.')
                 })
               }
               window.EJS_onQuickSaveState = (payload) => {
                 void saveNativeState(payload?.slot || currentStateSlot(), payload?.state, true).catch((error) => {
-                  displayMessage(error instanceof Error ? error.message : 'Unable to sync quick-save state.')
+                  displayMessage(error instanceof Error ? error.message : 'Unable to store the quick-save state.')
                 })
               }
               window.EJS_onQuickLoadState = (payload) => {
                 void loadNativeState(payload?.slot || currentStateSlot()).catch((error) => {
-                  displayMessage(error instanceof Error ? error.message : 'Unable to load synced quick-save state.')
+                  displayMessage(error instanceof Error ? error.message : 'Unable to load the quick-save state.')
                 })
               }
               window.EJS_onSaveSave = (payload) => {
                 void saveNativeRam(payload?.save, false).catch((error) => {
-                  displayMessage(error instanceof Error ? error.message : 'Unable to sync save RAM.')
+                  displayMessage(error instanceof Error ? error.message : 'Unable to store the game save.')
                 })
               }
               window.EJS_onLoadSave = () => {
                 void loadNativeRam().catch((error) => {
-                  displayMessage(error instanceof Error ? error.message : 'Unable to load synced save RAM.')
+                  displayMessage(error instanceof Error ? error.message : 'Unable to load the game save.')
                 })
               }
-              window.EJS_onSaveUpdate = (payload) => {
-                queueSaveRamSync(payload)
+              window.EJS_player = '#game'
+              window.EJS_core = session.core
+              window.EJS_gameUrl = session.gameUrl
+              window.EJS_gameName = session.gameName
+              window.EJS_pathtodata = runtimeDataUrl.href
+              window.EJS_paths = {
+                'emulator.min.js': emulatorScriptUrl.href,
+                'emulator.min.css': emulatorStyleUrl.href,
               }
+              window.EJS_startOnLoaded = true
+              window.EJS_fixedSaveInterval = 10000
+              // Fullscreen-on-load usually gets blocked by the browser and leaves
+              // the runtime controls in the wrong state. Enter fullscreen manually.
+              window.EJS_fullscreenOnLoaded = false
+              window.EJS_disableAutoLang = false
+              window.EJS_DEBUG_XX = false
+              await import(loaderUrl.href)
             }
-            window.EJS_player = '#game'
-            window.EJS_core = session.core
-            window.EJS_gameUrl = session.gameUrl
-            window.EJS_gameName = session.gameName
-            window.EJS_pathtodata = runtimeDataUrl.href
-            window.EJS_paths = {
-              'emulator.min.js': emulatorScriptUrl.href,
-              'emulator.min.css': emulatorStyleUrl.href,
-            }
-            window.EJS_startOnLoaded = true
-            // Fullscreen-on-load usually gets blocked by the browser and leaves
-            // the runtime controls in the wrong state. Enter fullscreen manually.
-            window.EJS_fullscreenOnLoaded = false
-            window.EJS_disableAutoLang = false
-            window.EJS_DEBUG_XX = false
-            await import(loaderUrl.href)
           }
         }
       }

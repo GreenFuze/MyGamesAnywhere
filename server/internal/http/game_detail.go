@@ -96,39 +96,47 @@ type GameEmulatorRouteDTO struct {
 }
 
 type GameDeviceAvailabilityDTO struct {
-	DeviceID                string                                    `json:"device_id"`
-	DisplayName             string                                    `json:"display_name"`
-	OSUser                  string                                    `json:"os_user"`
-	Status                  string                                    `json:"status"`
-	Connected               bool                                      `json:"connected"`
-	CanManage               bool                                      `json:"can_manage"`
-	CanPlay                 bool                                      `json:"can_play"`
-	PlatformSupported       bool                                      `json:"platform_supported"`
-	EmulatorRoutes          []GameEmulatorRouteDTO                    `json:"emulator_routes,omitempty"`
-	FreeBytes               uint64                                    `json:"free_bytes,omitempty"`
-	TotalBytes              uint64                                    `json:"total_bytes,omitempty"`
-	InventoryCapturedAt     string                                    `json:"inventory_captured_at,omitempty"`
-	Installed               bool                                      `json:"installed"`
-	InstalledSourceID       string                                    `json:"installed_source_id,omitempty"`
-	InstalledSave           *savedomain.Capability                    `json:"installed_save,omitempty"`
-	InstallPath             string                                    `json:"install_path,omitempty"`
-	ArchiveInstallSupported bool                                      `json:"archive_install_supported"`
-	FileDownloadSupported   bool                                      `json:"file_download_supported"`
-	PreparedCopies          []devicev1.PreparedCopyObservation        `json:"prepared_copies,omitempty"`
-	GogInnoInstallSupported bool                                      `json:"gog_inno_install_supported"`
-	FailedCleanupSupported  bool                                      `json:"failed_cleanup_supported"`
-	UninstallSupported      bool                                      `json:"uninstall_supported"`
-	LaunchSupported         bool                                      `json:"launch_supported"`
-	InstallKind             string                                    `json:"install_kind,omitempty"`
-	InstallState            string                                    `json:"install_state,omitempty"`
-	StateReason             string                                    `json:"state_reason,omitempty"`
-	CleanupMarkerID         string                                    `json:"cleanup_marker_id,omitempty"`
-	CleanupIgnoredAt        string                                    `json:"cleanup_ignored_at,omitempty"`
-	LaunchTarget            string                                    `json:"launch_target,omitempty"`
-	LaunchCandidates        []string                                  `json:"launch_candidates,omitempty"`
-	AuthorityMode           string                                    `json:"authority_mode,omitempty"`
-	UseExistingSupported    bool                                      `json:"use_existing_supported"`
-	ExistingInstallations   []devicev1.ManagedInstallationObservation `json:"existing_installations,omitempty"`
+	DeviceID                  string                                    `json:"device_id"`
+	DisplayName               string                                    `json:"display_name"`
+	OSUser                    string                                    `json:"os_user"`
+	Status                    string                                    `json:"status"`
+	Connected                 bool                                      `json:"connected"`
+	CanManage                 bool                                      `json:"can_manage"`
+	CanPlay                   bool                                      `json:"can_play"`
+	PlatformSupported         bool                                      `json:"platform_supported"`
+	EmulatorRoutes            []GameEmulatorRouteDTO                    `json:"emulator_routes,omitempty"`
+	FreeBytes                 uint64                                    `json:"free_bytes,omitempty"`
+	TotalBytes                uint64                                    `json:"total_bytes,omitempty"`
+	InventoryCapturedAt       string                                    `json:"inventory_captured_at,omitempty"`
+	Installed                 bool                                      `json:"installed"`
+	InstalledSourceID         string                                    `json:"installed_source_id,omitempty"`
+	InstalledSave             *savedomain.Capability                    `json:"installed_save,omitempty"`
+	InstallPath               string                                    `json:"install_path,omitempty"`
+	ArchiveInstallSupported   bool                                      `json:"archive_install_supported"`
+	FileDownloadSupported     bool                                      `json:"file_download_supported"`
+	PreparedCopies            []devicev1.PreparedCopyObservation        `json:"prepared_copies,omitempty"`
+	GogInnoInstallSupported   bool                                      `json:"gog_inno_install_supported"`
+	FailedCleanupSupported    bool                                      `json:"failed_cleanup_supported"`
+	RecoverySupported         bool                                      `json:"recovery_supported"`
+	RepairAvailable           bool                                      `json:"repair_available"`
+	ReinstallAvailable        bool                                      `json:"reinstall_available"`
+	CleanupAvailable          bool                                      `json:"cleanup_available"`
+	ForgetAvailable           bool                                      `json:"forget_available"`
+	UninstallSupported        bool                                      `json:"uninstall_supported"`
+	LaunchSupported           bool                                      `json:"launch_supported"`
+	InstallKind               string                                    `json:"install_kind,omitempty"`
+	InstallState              string                                    `json:"install_state,omitempty"`
+	StateReason               string                                    `json:"state_reason,omitempty"`
+	CleanupMarkerID           string                                    `json:"cleanup_marker_id,omitempty"`
+	CleanupIgnoredAt          string                                    `json:"cleanup_ignored_at,omitempty"`
+	LaunchTarget              string                                    `json:"launch_target,omitempty"`
+	LaunchCandidates          []string                                  `json:"launch_candidates,omitempty"`
+	AuthorityMode             string                                    `json:"authority_mode,omitempty"`
+	UseExistingSupported      bool                                      `json:"use_existing_supported"`
+	ExistingInstallations     []devicev1.ManagedInstallationObservation `json:"existing_installations,omitempty"`
+	StorefrontProduct         *devices.StorefrontProduct                `json:"storefront_product,omitempty"`
+	StorefrontUseSupported    bool                                      `json:"storefront_use_supported"`
+	StorefrontLaunchSupported bool                                      `json:"storefront_launch_supported"`
 }
 
 func (c *GameController) attachDeviceAvailability(ctx context.Context, response *GameDetailResponse, game *core.CanonicalGame) {
@@ -173,6 +181,7 @@ func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailR
 		endpoint := fact.Endpoint
 		allowed, _ := endpoint.AccessLevel.Allows(devicev1.AccessManage)
 		canPlay, _ := endpoint.AccessLevel.Allows(devicev1.AccessPlay)
+		cleanupSupported := false
 		item := GameDeviceAvailabilityDTO{
 			DeviceID:          endpoint.ID,
 			DisplayName:       endpoint.DisplayName,
@@ -195,12 +204,28 @@ func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailR
 				item.GogInnoInstallSupported = true
 			case devicev1.CapabilityGameCleanupGogInnoFailed:
 				item.FailedCleanupSupported = true
+			case devicev1.CapabilityGameRecoverInstallation:
+				item.RecoverySupported = true
+			case devicev1.CapabilityGameCleanupInstallation:
+				cleanupSupported = true
 			case devicev1.CapabilityGameUninstall, devicev1.CapabilityGameUninstallGogInno:
 				item.UninstallSupported = true
 			case devicev1.CapabilityGameLaunch:
 				item.LaunchSupported = true
 			case devicev1.CapabilityGameUseExisting:
 				item.UseExistingSupported = true
+			case devicev1.CapabilityGameUseStorefront:
+				item.StorefrontUseSupported = true
+			case devicev1.CapabilityGameLaunchStorefront:
+				item.StorefrontLaunchSupported = true
+			}
+		}
+		for productIndex := range endpoint.StorefrontProducts {
+			product := &endpoint.StorefrontProducts[productIndex]
+			if product.GameID == game.ID {
+				copy := *product
+				item.StorefrontProduct = &copy
+				break
 			}
 		}
 		for _, installation := range endpoint.Installations {
@@ -222,6 +247,32 @@ func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailR
 				item.LaunchTarget = installation.LaunchTarget
 				item.LaunchCandidates = installation.LaunchCandidates
 				item.AuthorityMode = installation.AuthorityMode
+				if installation.AuthorityMode != devicev1.InstallationAuthorityShared && installation.InstallKind != devicev1.InstallKindSharedExisting {
+					reason := strings.TrimSpace(installation.VerificationReasonCode)
+					if reason == "" {
+						reason = strings.TrimSpace(installation.StateReason)
+					}
+					base := devicev1.InstallationRecoveryRequest{
+						GameID: installation.GameID, SourceGameID: installation.SourceGameID,
+						LocalInstallationID: installation.LocalInstallationID,
+						InstallKind:         installation.InstallKind, InstallRoot: installation.InstallRoot, InstallPath: installation.InstallPath,
+						InstallState: installation.InstallState, ReasonCode: reason,
+					}
+					if item.RecoverySupported {
+						repair := base
+						repair.Action = devicev1.InstallationRecoveryRepair
+						item.RepairAvailable = repair.Validate() == nil
+						reinstall := base
+						reinstall.Action = devicev1.InstallationRecoveryReinstall
+						item.ReinstallAvailable = reinstall.Validate() == nil
+						forget := base
+						forget.Action = devicev1.InstallationRecoveryForget
+						item.ForgetAvailable = forget.Validate() == nil
+					}
+					item.CleanupAvailable = cleanupSupported && safeInstallationCleanup(&installation)
+				} else {
+					item.CleanupAvailable = false
+				}
 				break
 			}
 		}
@@ -249,6 +300,8 @@ func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailR
 			item.Status = item.InstallState
 		case item.Installed:
 			item.Status = "installed"
+		case item.StorefrontProduct != nil && item.StorefrontProduct.Installed:
+			item.Status = "storefront_installed"
 		case endpoint.Status == devicev1.EndpointUpdateRequired:
 			item.Status = "update_required"
 		case !item.Connected:

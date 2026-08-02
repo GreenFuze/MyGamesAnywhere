@@ -281,6 +281,43 @@ function createGameFixtures() {
         },
       ],
       [
+        'proof-emulatorjs-copy',
+        {
+          id: 'proof-emulatorjs-copy',
+          title: 'Proof EmulatorJS Copy',
+          platform: 'nes',
+          kind: 'base_game',
+          source_games: [
+            {
+              id: 'source-emu-copy',
+              integration_id: 'proof-source',
+              plugin_id: 'game-source-local',
+              external_id: 'proof-emu-copy',
+              raw_title: 'Proof EmulatorJS Copy',
+              platform: 'nes',
+              kind: 'base_game',
+              group_kind: 'self_contained',
+              root_path: 'C:/Proof/EmulatorJS-Copy',
+              status: 'found',
+              created_at: createdAt,
+              files: [
+                {
+                  id: 'emu-root',
+                  path: 'proof-copy.nes',
+                  file_name: 'proof-copy.nes',
+                  role: 'root',
+                  file_kind: 'rom',
+                  size: emulatorRom.length,
+                },
+              ],
+              delivery: deliveryProfile('browser.emulatorjs', 'emu-root'),
+              play: sourcePlay('emu-root'),
+              resolver_matches: [],
+            },
+          ],
+        },
+      ],
+      [
         'proof-jsdos-bundle',
         {
           id: 'proof-jsdos-bundle',
@@ -543,8 +580,29 @@ function createSlotStore() {
 export async function startProofServer({ workspaceRoot, distDir }) {
   const fixtures = createGameFixtures()
   const slotStore = createSlotStore()
+  let saveSyncActiveIntegrationId = null
+  let failNextSaveSyncWrite = false
   const indexHtmlPath = path.join(distDir, 'index.html')
   const indexHtml = await readFile(indexHtmlPath)
+  const createdAt = toIsoNow()
+  const proofProfiles = [
+    {
+      id: 'proof-profile-a',
+      display_name: 'Proof Player A',
+      avatar_key: 'player-1',
+      role: 'admin_player',
+      created_at: createdAt,
+      updated_at: createdAt,
+    },
+    {
+      id: 'proof-profile-b',
+      display_name: 'Proof Player B',
+      avatar_key: 'player-2',
+      role: 'player',
+      created_at: createdAt,
+      updated_at: createdAt,
+    },
+  ]
 
   const server = http.createServer(async (request, response) => {
     try {
@@ -556,7 +614,62 @@ export async function startProofServer({ workspaceRoot, distDir }) {
       const pathname = url.pathname
 
       if (pathname === '/api/config/frontend') {
-        json(response, 200, { saveSyncActiveIntegrationId: 'proof-save-sync' })
+        json(response, 200, { saveSyncActiveIntegrationId })
+        return
+      }
+
+      if (request.method === 'GET' && pathname === '/api/setup/status') {
+        json(response, 200, { setup_required: false, profiles: proofProfiles })
+        return
+      }
+
+      if (request.method === 'GET' && pathname === '/api/profiles') {
+        json(response, 200, proofProfiles)
+        return
+      }
+
+      if (request.method === 'GET' && pathname === '/api/auth/credential') {
+        json(response, 200, { configured: true, kind: 'password', must_change: false })
+        return
+      }
+
+      if (request.method === 'GET' && pathname === '/api/auth/session') {
+        const requestedProfileId = request.headers['x-mga-profile-id']
+        const profile = proofProfiles.find((candidate) => candidate.id === requestedProfileId) ?? proofProfiles[0]
+        json(response, 200, { authenticated: true, profile, must_change: false })
+        return
+      }
+
+      if (request.method === 'POST' && pathname === '/api/auth/logout') {
+        response.writeHead(204, { 'Cache-Control': 'no-store' })
+        response.end()
+        return
+      }
+
+      const prefetchMatch = pathname.match(/^\/api\/games\/([^/]+)\/save-sync\/prefetch$/)
+      if (request.method === 'POST' && prefetchMatch) {
+        const chunks = []
+        for await (const chunk of request) {
+          chunks.push(chunk)
+        }
+        const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        const finishedAt = toIsoNow()
+        json(response, 200, {
+          job_id: `proof-prefetch-${Date.now()}`,
+          status: 'completed',
+          message: 'Save slots prefetched.',
+          canonical_game_id: decodeURIComponent(prefetchMatch[1]),
+          source_game_id: payload.source_game_id ?? '',
+          runtime: payload.runtime ?? '',
+          integration_id: payload.integration_id ?? '',
+          progress_current: 1,
+          progress_total: 1,
+          slots_cached: 0,
+          slots_missing: 1,
+          slots_failed: 0,
+          started_at: finishedAt,
+          finished_at: finishedAt,
+        })
         return
       }
 
@@ -572,19 +685,7 @@ export async function startProofServer({ workspaceRoot, distDir }) {
         return
       }
 
-      if (request.method === 'GET' && pathname === '/api/games/proof-emulatorjs/achievements') {
-        json(response, 200, { sets: [] })
-        return
-      }
-      if (request.method === 'GET' && pathname === '/api/games/proof-jsdos-bundle/achievements') {
-        json(response, 200, { sets: [] })
-        return
-      }
-      if (request.method === 'GET' && pathname === '/api/games/proof-jsdos-plain/achievements') {
-        json(response, 200, { sets: [] })
-        return
-      }
-      if (request.method === 'GET' && pathname === '/api/games/proof-scummvm/achievements') {
+      if (request.method === 'GET' && /^\/api\/games\/[^/]+\/achievements$/.test(pathname)) {
         json(response, 200, { sets: [] })
         return
       }
@@ -621,6 +722,11 @@ export async function startProofServer({ workspaceRoot, distDir }) {
           chunks.push(chunk)
         }
         const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        if (failNextSaveSyncWrite) {
+          failNextSaveSyncWrite = false
+          text(response, 503, 'Simulated Save Sync outage')
+          return
+        }
         const sourceGameId = payload.source_game_id ?? ''
         const runtime = payload.runtime ?? ''
         const stored = slotStore.put(gameId, sourceGameId, runtime, slotId, payload.snapshot ?? {})
@@ -684,6 +790,12 @@ export async function startProofServer({ workspaceRoot, distDir }) {
   return {
     baseUrl,
     slotStore,
+    setSaveSyncActiveIntegrationId: (integrationId) => {
+      saveSyncActiveIntegrationId = integrationId
+    },
+    failNextSaveSyncWrite: () => {
+      failNextSaveSyncWrite = true
+    },
     close: () =>
       new Promise((resolve, reject) => {
         server.close((error) => {

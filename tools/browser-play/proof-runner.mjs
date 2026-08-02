@@ -53,7 +53,7 @@ async function sendBridgeCommand(page, command) {
 }
 
 async function waitForRuntimeReady(page) {
-  await page.locator('button:has-text("Save")').waitFor({ state: 'visible', timeout: 20000 })
+  await page.getByRole('button', { name: 'Save', exact: true }).waitFor({ state: 'visible', timeout: 20000 })
   await page.waitForFunction(() => {
     const saveButton = Array.from(document.querySelectorAll('button')).find(
       (button) => button.textContent?.trim() === 'Save',
@@ -63,25 +63,41 @@ async function waitForRuntimeReady(page) {
 }
 
 async function waitForIframeCondition(page, predicate) {
-  await page.waitForFunction(
-    (source) => {
-      const iframe = document.querySelector('iframe')
-      const targetWindow = iframe?.contentWindow
-      if (!targetWindow) return false
-      const check = new Function('frameWindow', source)
-      return Boolean(check(targetWindow))
-    },
-    predicate,
-    { timeout: 20000 },
-  )
+  try {
+    await page.waitForFunction(
+      (source) => {
+        const iframe = document.querySelector('iframe')
+        const targetWindow = iframe?.contentWindow
+        if (!targetWindow) return false
+        const check = new Function('frameWindow', source)
+        return Boolean(check(targetWindow))
+      },
+      predicate,
+      { timeout: 20000 },
+    )
+  } catch (error) {
+    const diagnostic = await page.evaluate(() => ({
+      pageText: document.body?.innerText ?? '',
+      iframeText: document.querySelector('iframe')?.contentDocument?.body?.innerText ?? '',
+      iframeLocation: document.querySelector('iframe')?.contentWindow?.location?.href ?? '',
+    }))
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\nBrowser proof diagnostic:\n${JSON.stringify(diagnostic, null, 2)}`,
+    )
+  }
 }
 
 async function waitForUnsupportedMessage(page, expected) {
-  await page.waitForFunction(
-    (message) => document.body.textContent?.includes(message),
-    expected,
-    { timeout: 20000 },
-  )
+  try {
+    await page.waitForFunction(
+      (message) => document.body.textContent?.includes(message),
+      expected,
+      { timeout: 20000 },
+    )
+  } catch (error) {
+    const bodyText = await page.locator('body').innerText()
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\nVisible page text:\n${bodyText}`)
+  }
 }
 
 function makeRequestId(label) {
@@ -117,19 +133,22 @@ function writeMarkdownReport(results) {
   return `${lines.join('\n')}\n`
 }
 
-async function runEmulatorJsProof(page, baseUrl, slotStore) {
+async function runEmulatorJsProof(page, server) {
+  const baseUrl = server.baseUrl
   await page.goto(`${baseUrl}/game/proof-emulatorjs/play`, { waitUntil: 'networkidle' })
-  await waitForRuntimeReady(page)
   await waitForIframeCondition(
     page,
     'return frameWindow.EJS_emulator && frameWindow.EJS_emulator.gameManager && frameWindow.EJS_emulator.gameManager.FS',
   )
 
   const initialSnapshot = {
-    files: [{ path: '/proof-state.sav', base64: 'RU1VTEFUT1JKUy1TVEFURS1B' }],
+    files: [
+      { path: '/data/saves/mame2003-plus/hi/ddragon.hi', base64: 'TU1FLUhJU0NPUkUtQQ==' },
+      { path: '/data/saves/mame2003-plus/nvram/ddragon.nv', base64: 'TU1FLU5WUkFNLUE=' },
+    ],
   }
   const overwriteSnapshot = {
-    files: [{ path: '/proof-state.sav', base64: 'RU1VTEFUT1JKUy1TVEFURS1C' }],
+    files: [{ path: '/data/saves/proof.srm', base64: 'TkVTLVNBVkUtQg==' }],
   }
 
   const importResult = await sendBridgeCommand(page, {
@@ -141,34 +160,152 @@ async function runEmulatorJsProof(page, baseUrl, slotStore) {
     throw new Error(importResult.error || 'Initial EmulatorJS import failed.')
   }
 
-  await clickAndWait(page, 'Save', 'Saved autosave to the active integration.')
-
-  const stored = slotStore.get('proof-emulatorjs', 'source-emu', 'emulatorjs', 'autosave')
-  if (!stored) {
-    throw new Error('EmulatorJS save slot was not stored by the proof server.')
-  }
-
-  const overwriteResult = await sendBridgeCommand(page, {
-    type: 'import-save-snapshot',
-    requestId: makeRequestId('emulatorjs-import-overwrite'),
-    files: overwriteSnapshot.files,
-  })
-  if (!overwriteResult.ok) {
-    throw new Error(overwriteResult.error || 'Overwrite EmulatorJS import failed.')
-  }
-
-  await clickAndWait(page, 'Load', 'Loaded autosave from the active integration.')
+  await page.reload({ waitUntil: 'networkidle' })
+  await waitForIframeCondition(
+    page,
+    'return frameWindow.EJS_emulator && frameWindow.EJS_emulator.gameManager && frameWindow.EJS_emulator.gameManager.FS',
+  )
 
   const exported = await sendBridgeCommand(page, {
     type: 'export-save-snapshot',
     requestId: makeRequestId('emulatorjs-export-verify'),
   })
-  const restored = exported.snapshot?.files?.[0]?.base64 ?? ''
-  if (restored !== initialSnapshot.files[0].base64) {
-    throw new Error(`EmulatorJS restore mismatch: ${restored}`)
+  const restored = exported.snapshot?.files ?? []
+  if (JSON.stringify(restored) !== JSON.stringify(initialSnapshot.files)) {
+    throw new Error(`EmulatorJS reload restore mismatch: ${JSON.stringify(restored)}`)
   }
 
-  return 'Save/Load restored the imported EmulatorJS snapshot.'
+  await page.evaluate(() => localStorage.setItem('mga.selectedProfileId', 'proof-profile-b'))
+  await page.reload({ waitUntil: 'networkidle' })
+  await waitForIframeCondition(
+    page,
+    'return frameWindow.EJS_emulator && frameWindow.EJS_emulator.gameManager && frameWindow.EJS_emulator.gameManager.FS',
+  )
+  const otherProfile = await sendBridgeCommand(page, {
+    type: 'export-save-snapshot',
+    requestId: makeRequestId('emulatorjs-profile-isolation'),
+  })
+  if ((otherProfile.snapshot?.files ?? []).some((file) => initialSnapshot.files.some((saved) => saved.base64 === file.base64))) {
+    throw new Error('EmulatorJS browser save leaked into another MGA profile.')
+  }
+
+  const otherProfileImport = await sendBridgeCommand(page, {
+    type: 'import-save-snapshot',
+    requestId: makeRequestId('emulatorjs-other-profile-import'),
+    files: overwriteSnapshot.files,
+  })
+  if (!otherProfileImport.ok) {
+    throw new Error(otherProfileImport.error || 'Other-profile EmulatorJS import failed.')
+  }
+
+  await page.evaluate(() => localStorage.setItem('mga.selectedProfileId', 'proof-profile-a'))
+  await page.goto(`${baseUrl}/game/proof-emulatorjs-copy/play`, { waitUntil: 'networkidle' })
+  await waitForIframeCondition(
+    page,
+    'return frameWindow.EJS_emulator && frameWindow.EJS_emulator.gameManager && frameWindow.EJS_emulator.gameManager.FS',
+  )
+  const otherSource = await sendBridgeCommand(page, {
+    type: 'export-save-snapshot',
+    requestId: makeRequestId('emulatorjs-source-isolation'),
+  })
+  if ((otherSource.snapshot?.files ?? []).some((file) => initialSnapshot.files.some((saved) => saved.base64 === file.base64))) {
+    throw new Error('EmulatorJS browser save leaked into another source copy.')
+  }
+
+  await page.goto(`${baseUrl}/game/proof-emulatorjs/play`, { waitUntil: 'networkidle' })
+  await waitForIframeCondition(
+    page,
+    'return frameWindow.EJS_emulator && frameWindow.EJS_emulator.gameManager && frameWindow.EJS_emulator.gameManager.FS',
+  )
+  const restoredAgain = await sendBridgeCommand(page, {
+    type: 'export-save-snapshot',
+    requestId: makeRequestId('emulatorjs-return-to-owner'),
+  })
+  if (JSON.stringify(restoredAgain.snapshot?.files ?? []) !== JSON.stringify(initialSnapshot.files)) {
+    throw new Error('Returning to the owning profile/source did not restore its exact save tree.')
+  }
+
+  await page.goto('about:blank')
+  const reopenedPage = await page.context().newPage()
+  try {
+    await reopenedPage.goto(`${baseUrl}/game/proof-emulatorjs/play`, { waitUntil: 'networkidle' })
+    await waitForIframeCondition(
+      reopenedPage,
+      'return frameWindow.EJS_emulator && frameWindow.EJS_emulator.gameManager && frameWindow.EJS_emulator.gameManager.FS',
+    )
+    const reopened = await sendBridgeCommand(reopenedPage, {
+      type: 'export-save-snapshot',
+      requestId: makeRequestId('emulatorjs-reopen-owner'),
+    })
+    if (JSON.stringify(reopened.snapshot?.files ?? []) !== JSON.stringify(initialSnapshot.files)) {
+      throw new Error(
+        `Closing and reopening the player did not restore its exact save tree: ${JSON.stringify(reopened.snapshot?.files ?? [])}`,
+      )
+    }
+  } finally {
+    await reopenedPage.close()
+  }
+
+  server.setSaveSyncActiveIntegrationId('proof-save-sync')
+  await page.goto(`${baseUrl}/game/proof-emulatorjs/play`, { waitUntil: 'networkidle' })
+  await waitForIframeCondition(
+    page,
+    'return frameWindow.EJS_emulator && frameWindow.EJS_emulator.gameManager && frameWindow.EJS_emulator.gameManager.FS',
+  )
+  server.failNextSaveSyncWrite()
+  await page.evaluate(() => {
+    const iframeWindow = document.querySelector('iframe')?.contentWindow
+    iframeWindow?.EJS_onSaveSaveFiles?.()
+  })
+  try {
+    await page.waitForFunction(
+      () => document.body.textContent?.includes('Saved in this browser, but backup needs attention'),
+      null,
+      { timeout: 20000 },
+    )
+  } catch (error) {
+    const diagnostic = await page.evaluate(() => {
+      const iframeWindow = document.querySelector('iframe')?.contentWindow
+      const sessions = Object.keys(sessionStorage)
+        .filter((key) => key.startsWith('mga.browserPlaySession.'))
+        .map((key) => sessionStorage.getItem(key))
+      return {
+        pageText: document.body?.innerText ?? '',
+        nativeSaveSync: sessions,
+        frameHasSaveCallback: typeof iframeWindow?.EJS_onSaveSave,
+        frameHasSaveFilesCallback: typeof iframeWindow?.EJS_onSaveSaveFiles,
+        saveFilePath: iframeWindow?.EJS_emulator?.gameManager?.getSaveFilePath?.(),
+        frameMessage: iframeWindow?.EJS_emulator?.elements?.message?.innerText ?? '',
+      }
+    })
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\nBackup-failure diagnostic:\n${JSON.stringify(diagnostic, null, 2)}`,
+    )
+  }
+  const afterBackupFailure = await sendBridgeCommand(page, {
+    type: 'export-save-snapshot',
+    requestId: makeRequestId('emulatorjs-backup-failure-local'),
+  })
+  if (JSON.stringify(afterBackupFailure.snapshot?.files ?? []) !== JSON.stringify(initialSnapshot.files)) {
+    throw new Error(
+      `A simulated Save Sync outage changed the successfully written local browser save: ${JSON.stringify(afterBackupFailure.snapshot?.files ?? [])}`,
+    )
+  }
+
+  await page.reload({ waitUntil: 'networkidle' })
+  await waitForIframeCondition(
+    page,
+    'return frameWindow.EJS_emulator && frameWindow.EJS_emulator.gameManager && frameWindow.EJS_emulator.gameManager.FS',
+  )
+  const afterFailureReload = await sendBridgeCommand(page, {
+    type: 'export-save-snapshot',
+    requestId: makeRequestId('emulatorjs-backup-failure-reload'),
+  })
+  if (JSON.stringify(afterFailureReload.snapshot?.files ?? []) !== JSON.stringify(initialSnapshot.files)) {
+    throw new Error('The local browser save did not survive reload after a Save Sync outage.')
+  }
+
+  return 'Without Save Sync, nested MAME-style files survived reload and player reopen with profile/source isolation; a simulated backup outage preserved the local save.'
 }
 
 async function runJsdosBundleProof(page, baseUrl, slotStore) {
@@ -193,14 +330,14 @@ async function runJsdosBundleProof(page, baseUrl, slotStore) {
     throw new Error('js-dos bundle export never produced a snapshot file.')
   }
 
-  await clickAndWait(page, 'Save', 'Saved autosave to the active integration.')
+  await clickAndWait(page, 'Save', 'Saved DOS save snapshot to the active integration.')
 
   const stored = slotStore.get('proof-jsdos-bundle', 'source-dos-bundle', 'jsdos', 'autosave')
   if (!stored) {
     throw new Error('js-dos bundle save slot was not stored by the proof server.')
   }
 
-  await clickAndWait(page, 'Load', 'Loaded autosave from the active integration.')
+  await clickAndWait(page, 'Load', 'Loaded DOS save snapshot from the active integration.')
 
   const exportedAfterLoad = await sendBridgeCommand(page, {
     type: 'export-save-snapshot',
@@ -216,18 +353,14 @@ async function runJsdosBundleProof(page, baseUrl, slotStore) {
 
 async function runJsdosPlainProof(page, baseUrl) {
   await page.goto(`${baseUrl}/game/proof-jsdos-plain/play`, { waitUntil: 'networkidle' })
-  await waitForUnsupportedMessage(
-    page,
-    'This launch does not support save import/export. js-dos save sync requires a bundle-backed session.',
-  )
-
-  const saveDisabled = await page.getByRole('button', { name: 'Save' }).isDisabled()
-  const loadDisabled = await page.getByRole('button', { name: 'Load' }).isDisabled()
-  if (!saveDisabled || !loadDisabled) {
-    throw new Error('Plain-file js-dos launch left Save/Load enabled.')
+  await page.getByText('Proof js-dos Plain File', { exact: true }).first().waitFor({ state: 'visible' })
+  const saveButtons = await page.getByRole('button', { name: 'Save', exact: true }).count()
+  const loadButtons = await page.getByRole('button', { name: 'Load', exact: true }).count()
+  if (saveButtons !== 0 || loadButtons !== 0) {
+    throw new Error('Plain-file js-dos launch exposed unsupported Save/Load actions.')
   }
 
-  return 'Plain-file js-dos launch failed early with the explicit unsupported-state message.'
+  return 'Plain-file js-dos launch did not expose unsupported Save/Load actions.'
 }
 
 async function runScummvmProof(page, baseUrl, slotStore) {
@@ -316,7 +449,7 @@ async function runInvalidRememberedSourceProof(page, baseUrl) {
   await page.goto(baseUrl, { waitUntil: 'networkidle' })
   await page.evaluate(() => {
     window.localStorage.setItem(
-      'mga.browserPlaySource.proof-invalid-remembered.jsdos',
+      'mga.profile.v2.proof-profile-a.mga.browserPlaySource.proof-invalid-remembered.jsdos',
       'missing-source-record',
     )
   })
@@ -348,14 +481,22 @@ async function main() {
   const server = await startProofServer({ workspaceRoot, distDir })
   const browser = await chromium.launch({ headless: true })
   const context = await browser.newContext()
+  await context.addInitScript(() => {
+    if (!localStorage.getItem('mga.selectedProfileId')) {
+      localStorage.setItem('mga.selectedProfileId', 'proof-profile-a')
+    }
+  })
   const page = await context.newPage()
   page.on('dialog', (dialog) => dialog.accept())
   const results = []
 
   try {
     for (const [name, runner] of [
-      ['EmulatorJS', () => runEmulatorJsProof(page, server.baseUrl, server.slotStore)],
-      ['js-dos bundle-backed', () => runJsdosBundleProof(page, server.baseUrl, server.slotStore)],
+      ['EmulatorJS', () => runEmulatorJsProof(page, server)],
+      ['js-dos bundle-backed', () => {
+        server.setSaveSyncActiveIntegrationId('proof-save-sync')
+        return runJsdosBundleProof(page, server.baseUrl, server.slotStore)
+      }],
       ['js-dos plain-file unsupported', () => runJsdosPlainProof(page, server.baseUrl)],
       ['Browser source ambiguity', () => runAmbiguousSelectionProof(page, server.baseUrl)],
       ['Invalid remembered source', () => runInvalidRememberedSourceProof(page, server.baseUrl)],

@@ -2010,6 +2010,71 @@ func TestPluginControllerUpdatePreservesServerOwnedOAuthTokens(t *testing.T) {
 	}
 }
 
+func TestPluginControllerUpdatePreservesOmittedMaskedSecret(t *testing.T) {
+	repo := &fakeControllerIntegrationRepo{byID: map[string]*core.Integration{
+		"steam": {
+			ID:         "steam",
+			PluginID:   "game-source-steam",
+			Label:      "Steam",
+			ConfigJSON: `{"api_key":"saved-api-key","steam_id":"76561198000000001","refresh_token":"saved-refresh-token"}`,
+		},
+	}}
+	host := &fakeControllerIntegrationPluginHost{
+		plugins: map[string]*core.Plugin{
+			"game-source-steam": {
+				Manifest: core.PluginManifest{
+					ID:       "game-source-steam",
+					Provides: []string{"plugin.check_config", "auth.oauth.callback", "auth.qr.begin"},
+					ConfigSchema: map[string]any{
+						"api_key":       map[string]any{"type": "string", "required": true, "x-secret": true},
+						"refresh_token": map[string]any{"type": "string", "x-secret": true, "x-auth-method": "qr"},
+					},
+				},
+			},
+		},
+		checkResults: map[string]integrationCheckResult{"game-source-steam": {Status: "ok"}},
+	}
+	controller := NewPluginController(repo, host, &fakeGameStore{}, staticConfig{}, noopLogger{}, nil)
+	request := httptest.NewRequest(http.MethodPut, "/api/integrations/steam", strings.NewReader(`{"config":{}}`))
+	recorder := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Put("/api/integrations/{id}", controller.UpdateIntegration)
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("UpdateIntegration() status = %d, body = %q", recorder.Code, recorder.Body.String())
+	}
+	var saved map[string]any
+	if err := json.Unmarshal([]byte(repo.updated.ConfigJSON), &saved); err != nil {
+		t.Fatalf("decode updated config: %v", err)
+	}
+	if saved["api_key"] != "saved-api-key" {
+		t.Fatalf("api_key = %v, want preserved masked value", saved["api_key"])
+	}
+	if saved["refresh_token"] != "saved-refresh-token" {
+		t.Fatalf("refresh_token = %v, want preserved provider credential", saved["refresh_token"])
+	}
+}
+
+func TestPreserveOmittedSecretConfigKeepsExplicitReplacement(t *testing.T) {
+	config := map[string]any{"api_key": "replacement-key"}
+	preserveOmittedSecretConfig(
+		config,
+		map[string]any{"api_key": "saved-key", "label": "saved-label"},
+		map[string]any{
+			"api_key": map[string]any{"type": "string", "x-secret": true},
+			"label":   map[string]any{"type": "string"},
+		},
+	)
+
+	if config["api_key"] != "replacement-key" {
+		t.Fatalf("api_key = %v, want explicit replacement", config["api_key"])
+	}
+	if _, copied := config["label"]; copied {
+		t.Fatal("non-secret omitted field must not be copied from saved config")
+	}
+}
+
 func TestPluginControllerCreateRejectsDuplicateFilesystemSourceIdentity(t *testing.T) {
 	repo := &fakeControllerIntegrationRepo{
 		byID: map[string]*core.Integration{

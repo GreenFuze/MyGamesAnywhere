@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router'
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { SearchProvider } from '@/hooks/useSearchContext'
 import { ProfileProvider, useProfiles } from '@/hooks/useProfiles'
@@ -21,6 +21,11 @@ import { GameDetailPage } from '@/pages/GameDetailPage'
 import { GameMediaPage } from '@/pages/GameMediaPage'
 import { GamePlayerPage } from '@/pages/GamePlayerPage'
 import { CredentialSetupPage } from '@/pages/CredentialSetupPage'
+import {
+  APP_DESTINATIONS,
+  APP_ROUTES,
+  isCredentialSetupPath,
+} from '@/lib/navigationRoutes'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,8 +56,8 @@ export function App() {
 
 function ProfileAwareRoutes() {
   const location = useLocation()
-  if (location.pathname === '/credential-setup') {
-    return <Routes><Route path="/credential-setup" element={<CredentialSetupPage />} /></Routes>
+  if (isCredentialSetupPath(location.pathname)) {
+    return <Routes><Route path={APP_ROUTES.credentialSetup} element={<CredentialSetupPage />} /></Routes>
   }
   return (
     <ProfileProvider>
@@ -60,26 +65,26 @@ function ProfileAwareRoutes() {
         <AppNotifications />
         <AppQueryInvalidation />
         <Routes>
-                      <Route path="/" element={<AppLayout />}>
-                        <Route index element={<Navigate to="/play" replace />} />
-                        <Route path="play" element={<PlayPage />} />
-                        <Route path="play/section/:sectionId" element={<PlayPage />} />
-                        <Route path="library" element={<LibraryPage />} />
-                        <Route path="library/section/:sectionId" element={<LibraryPage />} />
-                        <Route path="library/review" element={<LibraryReviewPage />} />
-                        <Route path="achievements" element={<AchievementsPage />} />
-                        <Route path="stats" element={<Navigate to="/stats/library" replace />} />
-                        <Route path="stats/library" element={<StatsPage />} />
-                        <Route path="stats/gamer" element={<StatsPage />} />
-                        <Route path="playable" element={<Navigate to="/play" replace />} />
-                        <Route path="xcloud" element={<Navigate to="/play" replace />} />
-                        <Route path="settings" element={<SettingsPage />} />
-                        <Route path="about" element={<AboutPage />} />
-                      </Route>
-                      <Route path="/game/:id/play" element={<GamePlayerPage />} />
-                      <Route path="/game/:id/media" element={<GameMediaPage />} />
-                      <Route path="/game/:id" element={<GameDetailPage />} />
-                      <Route path="*" element={<Navigate to="/play" replace />} />
+          <Route path={APP_ROUTES.root} element={<AppLayout />}>
+            <Route index element={<Navigate to={APP_DESTINATIONS.play} replace />} />
+            <Route path={APP_ROUTES.play} element={<PlayPage />} />
+            <Route path={APP_ROUTES.playSection} element={<PlayPage />} />
+            <Route path={APP_ROUTES.library} element={<LibraryPage />} />
+            <Route path={APP_ROUTES.librarySection} element={<LibraryPage />} />
+            <Route path={APP_ROUTES.libraryReview} element={<LibraryReviewPage />} />
+            <Route path={APP_ROUTES.achievements} element={<AchievementsPage />} />
+            <Route path={APP_ROUTES.stats} element={<Navigate to={APP_DESTINATIONS.statsLibrary} replace />} />
+            <Route path={APP_ROUTES.statsLibrary} element={<StatsPage />} />
+            <Route path={APP_ROUTES.statsGamer} element={<StatsPage />} />
+            <Route path={APP_ROUTES.playableLegacy} element={<Navigate to={APP_DESTINATIONS.play} replace />} />
+            <Route path={APP_ROUTES.xcloudLegacy} element={<Navigate to={APP_DESTINATIONS.play} replace />} />
+            <Route path={APP_ROUTES.settings} element={<SettingsPage />} />
+            <Route path={APP_ROUTES.about} element={<AboutPage />} />
+          </Route>
+          <Route path={APP_ROUTES.gamePlay} element={<GamePlayerPage />} />
+          <Route path={APP_ROUTES.gameMedia} element={<GameMediaPage />} />
+          <Route path={APP_ROUTES.gameDetail} element={<GameDetailPage />} />
+          <Route path={APP_ROUTES.fallback} element={<Navigate to={APP_DESTINATIONS.play} replace />} />
         </Routes>
       </ProfileScopedToastProvider>
     </ProfileProvider>

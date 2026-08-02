@@ -14,16 +14,19 @@ import {
   Monitor,
   MoreHorizontal,
   PlayCircle,
+  RotateCcw,
 	Save,
   Trophy,
   Trash2,
   Video,
+  Wrench,
 } from 'lucide-react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router'
 import {
  ApiError,
 	downloadFilesOnDevice,
 	cleanupFailedGameOnDevice,
+	cleanupManagedInstallation,
   clearSourceGameCanonicalPin,
   getGame,
   getGameAchievements,
@@ -35,8 +38,12 @@ import {
   installGogInnoOnDevice,
 	preflightInstallationOnDevice,
 	prepareGameCache,
+	prepareManagedInstallationReinstall,
+	repairManagedInstallation,
+	forgetManagedInstallation,
 	ignoreFailedGameOnDevice,
 	launchGameOnDevice,
+	launchStorefrontProductOnDevice,
 	launchEmulatorGameOnDevice,
 	claimScummVMSaveDomain,
 	releaseSaveDomain,
@@ -52,6 +59,7 @@ import {
 	setDeviceGameLaunchTarget,
   uninstallGameFromDevice,
 	useExistingInstallationOnDevice,
+	useStorefrontProductOnDevice,
   type AchievementDTO,
   type AchievementSetDTO,
   type CanonicalGameSearchResult,
@@ -172,6 +180,8 @@ function deviceSetupLabel(status: string): string {
   switch (status) {
     case 'installed':
       return 'Installed'
+		case 'storefront_installed':
+			return 'Installed with Steam'
     case 'missing':
       return 'Missing'
     case 'needs_repair':
@@ -1587,6 +1597,7 @@ export function GameDetailPage() {
   const [uninstallChoice, setUninstallChoice] = useState<{ deviceId: string; deviceName: string; sourceGameId: string; installKind?: string } | null>(null)
   const [cleanupChoice, setCleanupChoice] = useState<{ deviceId: string; deviceName: string; sourceGameId: string; installPath: string; retryChoice?: DeviceInstallChoice } | null>(null)
   const [pendingRetry, setPendingRetry] = useState<DeviceInstallChoice | null>(null)
+  const [pendingReinstall, setPendingReinstall] = useState<DeviceInstallChoice | null>(null)
   const [activeDeviceCommand, setActiveDeviceCommand] = useState<{ deviceId: string; commandId: string } | null>(null)
   const [installError, setInstallError] = useState('')
   const [downloadPreparation, setDownloadPreparation] = useState<DownloadPreparationProgress | null>(null)
@@ -1724,6 +1735,16 @@ export function GameDetailPage() {
 			launchGameOnDevice(deviceId, id, sourceGameId),
 		onSuccess: (command, variables) => setActiveDeviceCommand({ deviceId: variables.deviceId, commandId: command.id }),
 	})
+	const useStorefrontProduct = useMutation({
+		mutationFn: ({ deviceId, sourceGameId }: { deviceId: string; sourceGameId: string }) =>
+			useStorefrontProductOnDevice(deviceId, id, sourceGameId),
+		onSuccess: (command, variables) => setActiveDeviceCommand({ deviceId: variables.deviceId, commandId: command.id }),
+	})
+	const launchStorefrontProduct = useMutation({
+		mutationFn: ({ deviceId, sourceGameId }: { deviceId: string; sourceGameId: string }) =>
+			launchStorefrontProductOnDevice(deviceId, id, sourceGameId),
+		onSuccess: (command, variables) => setActiveDeviceCommand({ deviceId: variables.deviceId, commandId: command.id }),
+	})
 	const launchEmulator = useMutation({
 		mutationFn: ({ deviceId, sourceGameId, emulatorId }: { deviceId: string; sourceGameId: string; emulatorId: string }) =>
 			launchEmulatorGameOnDevice(deviceId, id, sourceGameId, emulatorId),
@@ -1765,6 +1786,20 @@ export function GameDetailPage() {
 		mutationFn: ({ deviceId, sourceGameId }: { deviceId: string; sourceGameId: string }) => reopenFailedGameCleanup(deviceId, id, sourceGameId),
 		onSuccess: () => queryClient.invalidateQueries({ queryKey: ['game', id] }),
 	})
+	const recoverInstallation = useMutation({
+		mutationFn: async ({ action, deviceId, sourceGameId }: { action: 'repair' | 'reinstall' | 'cleanup' | 'forget'; deviceId: string; sourceGameId: string; reinstallChoice?: DeviceInstallChoice }) => {
+			switch (action) {
+				case 'repair': return repairManagedInstallation(deviceId, id, sourceGameId)
+				case 'reinstall': return prepareManagedInstallationReinstall(deviceId, id, sourceGameId)
+				case 'cleanup': return cleanupManagedInstallation(deviceId, id, sourceGameId)
+				case 'forget': return forgetManagedInstallation(deviceId, id, sourceGameId)
+			}
+		},
+		onSuccess: (command, variables) => {
+			if (variables.action === 'reinstall' && variables.reinstallChoice) setPendingReinstall(variables.reinstallChoice)
+			setActiveDeviceCommand({ deviceId: variables.deviceId, commandId: command.id })
+		},
+	})
 
 	useEffect(() => {
 		if (trackedCommand?.name !== 'game.cleanup_gog_inno_failed' || !['succeeded', 'failed', 'rejected', 'canceled', 'expired'].includes(trackedCommand.status)) return
@@ -1776,6 +1811,18 @@ export function GameDetailPage() {
 			setPendingRetry(null)
 		}
 	}, [id, pendingRetry, queryClient, trackedCommand])
+
+	useEffect(() => {
+		if (!trackedCommand || !['game.recover_installation', 'game.cleanup_installation'].includes(trackedCommand.name) ||
+			!['succeeded', 'failed', 'rejected', 'canceled', 'expired'].includes(trackedCommand.status)) return
+		void queryClient.invalidateQueries({ queryKey: ['game', id] })
+		if (trackedCommand.name === 'game.recover_installation' && trackedCommand.status === 'succeeded' && pendingReinstall) {
+			setInstallChoice(pendingReinstall)
+			setPendingReinstall(null)
+		} else if (trackedCommand.status !== 'succeeded' && pendingReinstall) {
+			setPendingReinstall(null)
+		}
+	}, [id, pendingReinstall, queryClient, trackedCommand])
 
 	useEffect(() => {
 		if (!trackedCommand?.name.startsWith('save.') || !['succeeded', 'failed', 'rejected', 'canceled', 'expired'].includes(trackedCommand.status)) return
@@ -2631,6 +2678,29 @@ export function GameDetailPage() {
 				  const retryPackage = gogInnoSources.find(({ source }) => source.id === device.installed_source_id)
 				  const installedSource = data.source_games.find((source) => source.id === device.installed_source_id)
 				  const installedVersion = installedSource ? sourceVersionContext(installedSource) : ''
+				  const storefrontProduct = device.storefront_product
+				  const storefrontSource = storefrontProduct
+					? data.source_games.find((source) => source.id === storefrontProduct.source_game_id)
+					: undefined
+				  const reinstallChoice: DeviceInstallChoice | null = device.installed_source_id && device.install_kind === 'gog_inno'
+					? (() => {
+						const entry = gogInnoSources.find(({ source }) => source.id === device.installed_source_id)
+						return entry ? {
+							deviceId: device.device_id, deviceName: device.display_name, sourceGameId: entry.source.id,
+							sourceLabel: entry.source.integration_label || entry.source.integration_id,
+							packageName: entry.packageInfo.installerName, installKind: 'gog_inno' as const,
+						} : null
+					})()
+					: device.installed_source_id && device.install_kind === 'managed_archive'
+						? (() => {
+							const entry = archiveSources.find(({ source }) => source.id === device.installed_source_id)
+							return entry ? {
+								deviceId: device.device_id, deviceName: device.display_name, sourceGameId: entry.source.id,
+								sourceLabel: entry.source.integration_label || entry.source.integration_id,
+								packageName: fileBasename(entry.archive.path), installKind: 'managed_archive' as const,
+							} : null
+						})()
+						: null
 				  const existingTargetSource = data.source_games.find((source) => source.kind === 'base_game') ?? data.source_games[0]
 					  return (
 						<div key={device.device_id} className="rounded-[14px] bg-white/[0.04] px-3 py-2.5">
@@ -2647,6 +2717,28 @@ export function GameDetailPage() {
 								{deviceSetupLabel(device.status)}
 							  </Badge>
 							  {device.prepared_copies?.length ? <Badge variant="accent">Prepared</Badge> : null}
+							  {storefrontProduct ? (
+								storefrontProduct.use_granted ? (
+								  <Button
+									size="sm"
+									disabled={!device.connected || !device.can_play || !device.storefront_launch_supported || launchStorefrontProduct.isPending || Boolean(activeHere)}
+									title={`Start ${storefrontProduct.title} with Steam`}
+									onClick={() => launchStorefrontProduct.mutate({ deviceId: device.device_id, sourceGameId: storefrontProduct.source_game_id })}
+								  >
+									<PlayCircle size={14} /> Play with Steam
+								  </Button>
+								) : (
+								  <Button
+									size="sm"
+									variant="outline"
+									disabled={!device.connected || !device.can_manage || !device.storefront_use_supported || useStorefrontProduct.isPending || Boolean(activeHere)}
+									title="Confirm that this MGA profile may start the Steam copy on this device"
+									onClick={() => useStorefrontProduct.mutate({ deviceId: device.device_id, sourceGameId: storefrontProduct.source_game_id })}
+								  >
+									<FolderOpen size={14} /> Use Steam copy
+								  </Button>
+								)
+							  ) : null}
 							  {device.emulator_routes?.filter((route) => route.state === 'ready').map((route) => (
 								<Button
 								  key={`emulator-${route.emulator_id}-${route.source_game_id}`}
@@ -2683,7 +2775,61 @@ export function GameDetailPage() {
 									<Trash2 size={14} /> Uninstall
 								  </Button> : null}
 								</>
-							  ) : reconciliationState && device.installed_source_id && device.authority_mode !== 'shared_launch' ? null : failureState && device.installed_source_id ? (
+							  ) : reconciliationState && device.installed_source_id && device.authority_mode !== 'shared_launch' ? (
+								<>
+								  {device.repair_available ? (
+									<Button
+									  size="sm"
+									  disabled={!device.connected || !device.can_manage || recoverInstallation.isPending || Boolean(activeHere)}
+									  title="Safely find one unambiguous game executable and update MGA's launch information"
+									  onClick={() => recoverInstallation.mutate({ action: 'repair', deviceId: device.device_id, sourceGameId: device.installed_source_id! })}
+									>
+									  <Wrench size={14} /> Repair
+									</Button>
+								  ) : null}
+								  {device.reinstall_available && reinstallChoice ? (
+									<Button
+									  size="sm"
+									  disabled={!device.connected || !device.can_manage || recoverInstallation.isPending || Boolean(activeHere)}
+									  onClick={() => {
+										if (window.confirm(`Reinstall on ${device.display_name}? MGA Client will first confirm that the old game folder is still missing, release its old record, and then start a fresh install. No saves will be deleted.`)) {
+										  recoverInstallation.mutate({ action: 'reinstall', deviceId: device.device_id, sourceGameId: device.installed_source_id!, reinstallChoice })
+										}
+									  }}
+									>
+									  <RotateCcw size={14} /> Reinstall
+									</Button>
+								  ) : null}
+								  {device.cleanup_available ? (
+									<Button
+									  size="sm"
+									  variant="outline"
+									  disabled={!device.connected || !device.can_manage || recoverInstallation.isPending || Boolean(activeHere)}
+									  onClick={() => {
+										if (window.confirm(`Clean up the broken game on ${device.display_name}? MGA Client will ask locally before removing only the verified managed game folder. Saves and shared prerequisites outside it will stay.`)) {
+										  recoverInstallation.mutate({ action: 'cleanup', deviceId: device.device_id, sourceGameId: device.installed_source_id! })
+										}
+									  }}
+									>
+									  <Trash2 size={14} /> Clean up
+									</Button>
+								  ) : null}
+								  {device.forget_available ? (
+									<Button
+									  size="sm"
+									  variant="outline"
+									  disabled={!device.connected || !device.can_manage || recoverInstallation.isPending || Boolean(activeHere)}
+									  onClick={() => {
+										if (window.confirm(`Forget this installation on ${device.display_name}? MGA will stop managing it, but it will not delete game files, saves, prerequisites, or caches. MGA Client will ask you to confirm locally.`)) {
+										  recoverInstallation.mutate({ action: 'forget', deviceId: device.device_id, sourceGameId: device.installed_source_id! })
+										}
+									  }}
+									>
+									  Forget
+									</Button>
+								  ) : null}
+								</>
+							  ) : failureState && device.installed_source_id ? (
 								<>
 								  {cleanupAvailable ? (
 									<>
@@ -2778,6 +2924,11 @@ export function GameDetailPage() {
 								)
 							  })}
 							</div>
+							{storefrontProduct ? (
+							  <p className="mt-2 text-xs text-white/48">
+								{storefrontSource?.raw_title || storefrontProduct.title} is installed by Steam. Steam keeps control of installation and updates; MGA only starts it after your confirmation.
+							  </p>
+							) : null}
 						  </div>
 						  {device.prepared_copies?.length ? (
 							<details className="mt-2 rounded-lg border border-sky-300/15 bg-sky-300/5 px-3 py-2 text-xs text-white/58">
@@ -2823,13 +2974,21 @@ export function GameDetailPage() {
 							</details>
 						  ) : null}
 						  {reconciliationState ? (
-							<p className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
-							  {device.install_state === 'missing'
-								? device.authority_mode === 'shared_launch'
-								  ? `MGA Client no longer sees launch permission for this existing installation on ${device.display_name}. Choose the existing copy again below, or use Install above for a separate MGA-managed copy.`
-								  : `The installed game folder is no longer on ${device.display_name}. MGA did not remove it.`
-								: `This installation is incomplete on ${device.display_name}: ${installationVerificationMessage(device.state_reason)}`}
-							</p>
+							<div className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
+							  <p>
+								{device.install_state === 'missing'
+								  ? device.authority_mode === 'shared_launch'
+									? `MGA Client no longer sees launch permission for this existing installation on ${device.display_name}. Choose the existing copy again below, or use Install above for a separate MGA-managed copy.`
+									: `The installed game folder is no longer on ${device.display_name}. MGA did not remove it.`
+								  : `This installation is incomplete on ${device.display_name}: ${installationVerificationMessage(device.state_reason)}`}
+							  </p>
+							  {device.authority_mode !== 'shared_launch' && !device.recovery_supported ? (
+								<p className="mt-1 text-amber-100/75">Update MGA Client on this device to get safe Repair, Reinstall, and Forget actions.</p>
+							  ) : null}
+							  {device.recovery_supported && !device.repair_available && !device.reinstall_available && !device.cleanup_available && !device.forget_available ? (
+								<p className="mt-1 text-amber-100/75">MGA cannot prove a safe change for this folder. Restore the missing MGA manifest or move the original folder back, then rescan. You can also inspect the recorded location from the MGA Client tray.</p>
+							  ) : null}
+							</div>
 						  ) : failureState && !ignoredFailure ? (
 							<div className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
 							  <p>
@@ -2863,6 +3022,7 @@ export function GameDetailPage() {
 								<div className="mt-1 h-1.5 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-mga-accent transition-[width]" style={{ width: `${commandHere.progress_percent ?? 0}%` }} /></div>
 							  )}
 							  {commandHere.error_code || commandHere.error_message ? <p className="mt-1 text-xs text-red-300">{isGogCommand ? gogInstallErrorMessage(commandHere.error_code, commandHere.error_message, device.display_name) : (commandHere.error_message || humanizeValue(commandHere.error_code!))}</p> : null}
+							  {recoverInstallation.isError ? <p className="mt-1 text-xs text-red-300">{recoverInstallation.error instanceof Error ? recoverInstallation.error.message : 'Could not complete the recovery action.'}</p> : null}
 							  {launchGame.isError ? <p className="mt-1 text-xs text-red-300">{launchGame.error instanceof Error ? launchGame.error.message : 'Could not start the game.'}</p> : null}
 							</div>
 						  ) : null}

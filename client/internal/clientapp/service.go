@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/GreenFuze/MyGamesAnywhere/client/internal/buildinfo"
+	"github.com/GreenFuze/MyGamesAnywhere/client/internal/commandipc"
 	clientconfig "github.com/GreenFuze/MyGamesAnywhere/client/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/client/internal/desktop"
 	"github.com/GreenFuze/MyGamesAnywhere/client/internal/identity"
@@ -86,6 +87,7 @@ type Service struct {
 	ownership   *OwnershipCatalog
 	prepared    *PreparedCopyCatalog
 	saveDomains *SaveDomainCatalog
+	storefront  *StorefrontGrantCatalog
 	operations  *InstallationCoordinator
 }
 
@@ -120,6 +122,11 @@ func New(dataDir string, info buildinfo.Info, extraLogWriters ...io.Writer) (*Se
 		_ = logFile.Close()
 		return nil, fmt.Errorf("open prepared copy catalog: %w", err)
 	}
+	storefront, err := OpenStorefrontGrantCatalog(layout.StorefrontGrantsPath)
+	if err != nil {
+		_ = logFile.Close()
+		return nil, fmt.Errorf("open storefront grant catalog: %w", err)
+	}
 	writers := []io.Writer{logFile}
 	for _, writer := range extraLogWriters {
 		if writer != nil && writer != io.Discard {
@@ -136,6 +143,7 @@ func New(dataDir string, info buildinfo.Info, extraLogWriters ...io.Writer) (*Se
 		ownership:   ownership,
 		prepared:    prepared,
 		saveDomains: saveDomains,
+		storefront:  storefront,
 		operations:  NewInstallationCoordinator(),
 	}, nil
 }
@@ -353,50 +361,62 @@ func (s *Service) Doctor(ctx context.Context) (DoctorResult, error) {
 }
 
 func (s *Service) RunAgent(ctx context.Context) error {
-	return s.runAgentWithMode(ctx, currentExecutionMode(), false)
-}
-
-// RunAgentReplacingExisting restarts an existing tray process so a newly
-// paired server binding becomes active immediately.
-func (s *Service) RunAgentReplacingExisting(ctx context.Context) error {
-	return s.runAgentWithMode(ctx, currentExecutionMode(), true)
+	return s.runAgentWithMode(ctx, currentExecutionMode())
 }
 
 // RunAgentWithMode runs the per-user agent and reports the supplied actual
 // runtime mode. Start uses it after it has verified elevation when requested.
 func (s *Service) RunAgentWithMode(ctx context.Context, executionMode devicev1.ClientExecutionMode) error {
-	return s.runAgentWithMode(ctx, executionMode, false)
+	return s.runAgentWithMode(ctx, executionMode)
 }
 
-func (s *Service) runAgentWithMode(ctx context.Context, executionMode devicev1.ClientExecutionMode, replaceExisting bool) error {
+func (s *Service) runAgentWithMode(ctx context.Context, executionMode devicev1.ClientExecutionMode) error {
 	if executionMode == "" {
 		executionMode = devicev1.ClientExecutionModeStandard
 	}
 	if err := executionMode.Validate(); err != nil {
 		return err
 	}
+	lock, err := singleinstance.Acquire(s.instanceLockName())
+	if err != nil {
+		return err
+	}
+	return s.runAgentWithLock(ctx, executionMode, lock)
+}
+
+func (s *Service) runAgentWithLock(ctx context.Context, executionMode devicev1.ClientExecutionMode, lock *singleinstance.Lock) error {
+	if lock == nil {
+		return errors.New("agent instance lock is required")
+	}
+	defer lock.Close()
 	document, err := s.loadBindings()
 	if err != nil {
 		return err
 	}
-	lock, err := s.acquireAgentLock(ctx, replaceExisting)
-	if err != nil {
-		return err
-	}
-	defer lock.Close()
 	if err := s.ownership.RecoverInterrupted(); err != nil {
 		return fmt.Errorf("recover interrupted installation ownership: %w", err)
 	}
-	control, err := singleinstance.OpenSignal(s.instanceLockName() + "-Restart")
-	if err != nil {
-		return fmt.Errorf("open agent restart signal: %w", err)
-	}
-	defer control.Close()
 	hostContext, stopHost := context.WithCancel(ctx)
 	defer stopHost()
+	commandServer, err := commandipc.NewServer(
+		s.commandEndpoint(),
+		func(commandContext context.Context, rawURI string) (commandipc.Outcome, error) {
+			return s.executeForwardedProtocol(commandContext, rawURI, executionMode)
+		},
+		func() {
+			s.Logf("agent takeover acknowledged; stopping current tray owner")
+			stopHost()
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("prepare agent command channel: %w", err)
+	}
+	commandServerErrors := make(chan error, 1)
 	go func() {
-		if waitErr := control.Wait(hostContext); waitErr == nil {
-			s.Logf("agent restart requested after server binding change")
+		serverErr := commandServer.Serve(hostContext)
+		commandServerErrors <- serverErr
+		if serverErr != nil {
+			s.Logf("agent command channel stopped with error: %v", serverErr)
 			stopHost()
 		}
 	}()
@@ -413,6 +433,7 @@ func (s *Service) runAgentWithMode(ctx context.Context, executionMode devicev1.C
 		}
 		ownership.saveDomains = s.saveDomains
 		ownership.saveRoot = s.layout.SaveDomainsRoot
+		ownership.storefrontGrants = s.storefront
 		agent, agentErr := NewOwnedAgentWithExecutionMode(binding, privateKey, s.buildInfo, s.logger, executionMode, ownership, s.prepared)
 		if agentErr != nil {
 			return fmt.Errorf("prepare agent for %s: %w", binding.ServerURL, agentErr)
@@ -458,50 +479,23 @@ func (s *Service) runAgentWithMode(ctx context.Context, executionMode devicev1.C
 	if err != nil {
 		return err
 	}
-	s.Logf("agent host starting with %d server binding(s)", len(agents))
+	s.Logf("agent host starting in %s mode with %d server binding(s)", executionMode, len(agents))
 	err = host.Run(hostContext, func(runContext context.Context) error { return runAgents(runContext, agents) })
+	stopHost()
+	select {
+	case serverErr := <-commandServerErrors:
+		if serverErr != nil && (err == nil || errors.Is(err, context.Canceled)) {
+			return serverErr
+		}
+	case <-time.After(5 * time.Second):
+		return errors.New("MGA Client command channel did not stop")
+	}
 	if err != nil && !errors.Is(err, context.Canceled) {
 		s.Logf("agent stopped with error: %v", err)
 		return err
 	}
 	s.Logf("agent stopped")
 	return nil
-}
-
-func (s *Service) acquireAgentLock(ctx context.Context, replaceExisting bool) (*singleinstance.Lock, error) {
-	lock, err := singleinstance.Acquire(s.instanceLockName())
-	if err == nil || !replaceExisting || !errors.Is(err, singleinstance.ErrAlreadyRunning) {
-		return lock, err
-	}
-	control, controlErr := singleinstance.OpenSignal(s.instanceLockName() + "-Restart")
-	if controlErr != nil {
-		return nil, fmt.Errorf("open existing agent restart signal: %w", controlErr)
-	}
-	if controlErr = control.Notify(); controlErr != nil {
-		_ = control.Close()
-		return nil, fmt.Errorf("request existing agent restart: %w", controlErr)
-	}
-	defer control.Close()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	timeout := time.NewTimer(10 * time.Second)
-	defer timeout.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-timeout.C:
-			return nil, errors.New("existing MGA Client did not stop after restart request")
-		case <-ticker.C:
-			lock, err = singleinstance.Acquire(s.instanceLockName())
-			if err == nil {
-				return lock, nil
-			}
-			if !errors.Is(err, singleinstance.ErrAlreadyRunning) {
-				return nil, err
-			}
-		}
-	}
 }
 
 // Start acknowledges a browser launch challenge before ensuring the per-user
@@ -730,6 +724,10 @@ func (s *Service) instanceLockName() string {
 	return "MGAClient-" + hex.EncodeToString(digest[:16])
 }
 
+func (s *Service) commandEndpoint() commandipc.Endpoint {
+	return commandipc.Endpoint{Name: s.instanceLockName(), DataDir: s.layout.DataDir}
+}
+
 func findBinding(bindings []clientconfig.Binding, serverURL string) (clientconfig.Binding, bool) {
 	for _, binding := range bindings {
 		if samePairedServerURL(serverURL, binding.ServerURL) {
@@ -831,10 +829,12 @@ func localMetadata(displayName string, executionMode devicev1.ClientExecutionMod
 			devicev1.CapabilityGameDownloadFiles,
 			devicev1.CapabilityGameInstallArchive,
 			devicev1.CapabilityGameUninstall,
+			devicev1.CapabilityGameCleanupInstallation,
 			devicev1.CapabilityGameInstallGogInno,
 			devicev1.CapabilityGameUninstallGogInno,
 			devicev1.CapabilityGameCleanupGogInnoFailed,
 			devicev1.CapabilityGameValidateInstallations,
+			devicev1.CapabilityGameRecoverInstallation,
 			devicev1.CapabilityGameUseExisting,
 			devicev1.CapabilityGameLaunch,
 			devicev1.CapabilityGameLaunchEmulator,
@@ -847,6 +847,12 @@ func localMetadata(displayName string, executionMode devicev1.ClientExecutionMod
 			devicev1.CapabilityInventoryRefresh,
 			devicev1.CapabilityInstallationPreflight,
 		},
+	}
+	if runtime.GOOS == "windows" {
+		metadata.Capabilities = append(metadata.Capabilities,
+			devicev1.CapabilityGameUseStorefront,
+			devicev1.CapabilityGameLaunchStorefront,
+		)
 	}
 	if err := metadata.Validate(); err != nil {
 		return devicev1.EndpointMetadata{}, err
