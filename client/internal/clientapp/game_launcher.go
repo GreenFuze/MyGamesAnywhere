@@ -137,5 +137,5 @@ func (l *WindowsGameLauncher) Launch(ctx context.Context, request devicev1.GameL
 }
 
 func isSupportedLaunchManifestVersion(version int) bool {
-	return version == devicev1.LegacyInstallManifestSchemaVersion || version == devicev1.InstallManifestSchemaVersion || version == devicev1.LegacyExecutableInstallManifestSchemaVersion || version == devicev1.ExecutableInstallManifestSchemaVersion
+	return version == devicev1.LegacyInstallManifestSchemaVersion || version == devicev1.InstallManifestSchemaVersion || version == devicev1.LegacyExecutableInstallManifestSchemaVersion || version == devicev1.PreviousExecutableInstallManifestSchemaVersion || version == devicev1.ExecutableInstallManifestSchemaVersion
 }

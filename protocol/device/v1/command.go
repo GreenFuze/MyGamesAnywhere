@@ -217,10 +217,12 @@ type ProtocolError struct {
 
 // CommandResult is the typed payload of command.result.
 type CommandResult struct {
-	CommandID string          `json:"command_id"`
-	Status    CommandStatus   `json:"status"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
-	Error     *ProtocolError  `json:"error,omitempty"`
+	CommandID          string          `json:"command_id"`
+	IdempotencyKey     string          `json:"idempotency_key,omitempty"`
+	RequestFingerprint string          `json:"request_fingerprint,omitempty"`
+	Status             CommandStatus   `json:"status"`
+	Payload            json.RawMessage `json:"payload,omitempty"`
+	Error              *ProtocolError  `json:"error,omitempty"`
 }
 
 // Validate rejects non-terminal or internally inconsistent results.
@@ -244,6 +246,14 @@ func (r CommandResult) Validate() error {
 	}
 	if len(bytes.TrimSpace(r.Payload)) > 0 && !json.Valid(r.Payload) {
 		return errors.New("result payload must contain valid JSON")
+	}
+	hasKey := strings.TrimSpace(r.IdempotencyKey) != ""
+	hasFingerprint := strings.TrimSpace(r.RequestFingerprint) != ""
+	if hasKey != hasFingerprint {
+		return errors.New("idempotency_key and request_fingerprint must be supplied together")
+	}
+	if hasFingerprint && !sha256FingerprintPattern.MatchString(r.RequestFingerprint) {
+		return errors.New("request_fingerprint must be a lowercase SHA-256 hex digest")
 	}
 	return nil
 }

@@ -25,6 +25,8 @@ const (
 	MessageCommandRejected    MessageType = "command.rejected"
 	MessageCommandProgress    MessageType = "command.progress"
 	MessageCommandResult      MessageType = "command.result"
+	MessageCommandReplayAck   MessageType = "command.replay_ack"
+	MessageCommandReplayDone  MessageType = "command.replay_complete"
 	MessageCommandCancel      MessageType = "command.cancel"
 	MessageProtocolError      MessageType = "protocol.error"
 )
@@ -41,6 +43,8 @@ var knownMessageTypes = map[MessageType]struct{}{
 	MessageCommandRejected:    {},
 	MessageCommandProgress:    {},
 	MessageCommandResult:      {},
+	MessageCommandReplayAck:   {},
+	MessageCommandReplayDone:  {},
 	MessageCommandCancel:      {},
 	MessageProtocolError:      {},
 }

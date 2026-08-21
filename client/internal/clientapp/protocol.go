@@ -18,6 +18,7 @@ const (
 	commandAcknowledgementTimeout = 2 * time.Minute
 	commandEndpointReadyTimeout   = 10 * time.Second
 	commandDialAttemptTimeout     = 500 * time.Millisecond
+	upgradeShutdownTimeout        = 15 * time.Second
 )
 
 type protocolAction struct {
@@ -127,7 +128,7 @@ func (s *Service) executeForwardedProtocol(ctx context.Context, rawURI string, e
 				return commandipc.Outcome{}, err
 			}
 			s.Logf("elevated agent takeover launched for forwarded browser request")
-			return commandipc.Outcome{RestartPrimary: true}, nil
+			return commandipc.Outcome{StopPrimary: true}, nil
 		}
 		if requestedMode == devicev1.ClientExecutionModeStandard && executionMode == devicev1.ClientExecutionModeElevated {
 			return commandipc.Outcome{}, errors.New("MGA Client is already running as administrator; exit it from the tray before starting it in standard mode")
@@ -153,7 +154,75 @@ func (s *Service) executeForwardedProtocol(ctx context.Context, rawURI string, e
 		return commandipc.Outcome{}, err
 	}
 	s.Logf("same-mode agent takeover launched after forwarded %s request", action.host)
-	return commandipc.Outcome{RestartPrimary: true}, nil
+	return commandipc.Outcome{StopPrimary: true}, nil
+}
+
+// StopForUpgrade asks the same OS user's running tray owner to shut down and
+// waits until its mutex is released. The installer calls this before replacing
+// files. No running agent is already a successful, idempotent result.
+func (s *Service) StopForUpgrade(ctx context.Context) error {
+	if s == nil {
+		return errors.New("client service is required")
+	}
+	running, err := singleinstance.IsRunning(s.instanceLockName())
+	if err != nil {
+		return fmt.Errorf("check running MGA Client before upgrade: %w", err)
+	}
+	if !running {
+		return nil
+	}
+
+	commandContext, cancel := context.WithTimeout(ctx, upgradeShutdownTimeout)
+	defer cancel()
+	request := commandipc.Request{
+		Version:   commandipc.Version,
+		RequestID: uuid.NewString(),
+		Action:    commandipc.ActionStopForUpgrade,
+	}
+	readyDeadline := time.Now().Add(commandEndpointReadyTimeout)
+	endpoint := s.commandEndpoint()
+	for {
+		attemptContext, attemptCancel := context.WithTimeout(commandContext, commandDialAttemptTimeout)
+		err = commandipc.ForwardWithDialTimeout(commandContext, attemptContext, endpoint, request)
+		attemptCancel()
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, commandipc.ErrUnavailable) {
+			return fmt.Errorf("request MGA Client shutdown for upgrade: %w", err)
+		}
+		running, err = singleinstance.IsRunning(s.instanceLockName())
+		if err != nil {
+			return fmt.Errorf("check MGA Client shutdown for upgrade: %w", err)
+		}
+		if !running {
+			return nil
+		}
+		if time.Now().After(readyDeadline) {
+			return errors.New("the running MGA Client did not open its upgrade command channel")
+		}
+		select {
+		case <-commandContext.Done():
+			return errors.New("timed out requesting MGA Client shutdown for upgrade")
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+
+	for {
+		running, err = singleinstance.IsRunning(s.instanceLockName())
+		if err != nil {
+			return fmt.Errorf("verify MGA Client shutdown for upgrade: %w", err)
+		}
+		if !running {
+			s.Logf("MGA Client stopped for installer upgrade")
+			return nil
+		}
+		select {
+		case <-commandContext.Done():
+			return errors.New("running MGA Client acknowledged the upgrade but did not stop")
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 func parseProtocolAction(rawURI string) (protocolAction, error) {

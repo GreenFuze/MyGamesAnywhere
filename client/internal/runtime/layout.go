@@ -18,6 +18,7 @@ type Layout struct {
 	SaveAuthorityPath    string
 	SaveDomainsRoot      string
 	StorefrontGrantsPath string
+	CommandLedgerPath    string
 }
 
 func Resolve(dataDir string) (Layout, error) {
@@ -49,6 +50,7 @@ func Resolve(dataDir string) (Layout, error) {
 		SaveAuthorityPath:    filepath.Join(absolute, "save-domain-authority.json"),
 		SaveDomainsRoot:      filepath.Join(absolute, "save-domains"),
 		StorefrontGrantsPath: filepath.Join(absolute, "storefront-grants.json"),
+		CommandLedgerPath:    filepath.Join(absolute, "command-ledger.json"),
 	}, nil
 }
 

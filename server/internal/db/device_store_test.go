@@ -176,6 +176,55 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 		recoveredCommand.ErrorCode != "command_interrupted" || !recoveredCommand.UpdatedAt.Equal(recoveredAt) {
 		t.Fatalf("recovered command = %+v", recoveredCommand)
 	}
+	replayedResult := devicev1.CommandResult{
+		CommandID: interrupted.ID, IdempotencyKey: interrupted.IdempotencyKey,
+		RequestFingerprint: strings.Repeat("a", 64), Status: devicev1.CommandSucceeded,
+		Payload: json.RawMessage(`{"pong":true}`),
+	}
+	disposition, err := store.CompleteCommandWithDisposition(context.Background(), endpoint.ID, replayedResult, recoveredAt.Add(time.Second))
+	if err != nil || disposition != devicev1.CommandReplayRecorded {
+		t.Fatalf("reconcile interrupted result = %q, %v", disposition, err)
+	}
+	disposition, err = store.CompleteCommandWithDisposition(context.Background(), endpoint.ID, replayedResult, recoveredAt.Add(2*time.Second))
+	if err != nil || disposition != devicev1.CommandReplayAlreadyRecorded {
+		t.Fatalf("exact terminal replay = %q, %v", disposition, err)
+	}
+	conflict := replayedResult
+	conflict.Payload = json.RawMessage(`{"pong":false}`)
+	disposition, err = store.CompleteCommandWithDisposition(context.Background(), endpoint.ID, conflict, recoveredAt.Add(3*time.Second))
+	if err != nil || disposition != devicev1.CommandReplayConflict {
+		t.Fatalf("conflicting terminal replay = %q, %v", disposition, err)
+	}
+	replayCommand := devices.Command{
+		ID: "command-direct-replay", EndpointID: endpoint.ID, ProfileID: profile.ID, Name: devicev1.CapabilityEndpointPing,
+		SchemaVersion: 1, IdempotencyKey: "idem-direct-replay", RequestFingerprint: strings.Repeat("b", 64),
+		Status: devicev1.CommandDispatched, Payload: json.RawMessage(`{}`), CreatedAt: now, UpdatedAt: now, ExpiresAt: now.Add(time.Minute),
+	}
+	if err := store.CreateCommand(context.Background(), replayCommand); err != nil {
+		t.Fatal(err)
+	}
+	disposition, err = store.CompleteCommandWithDisposition(context.Background(), endpoint.ID, devicev1.CommandResult{
+		CommandID: replayCommand.ID, IdempotencyKey: replayCommand.IdempotencyKey,
+		RequestFingerprint: replayCommand.RequestFingerprint, Status: devicev1.CommandSucceeded,
+		Payload: json.RawMessage(`{"pong":true}`),
+	}, recoveredAt.Add(4*time.Second))
+	if err != nil || disposition != devicev1.CommandReplayRecorded {
+		t.Fatalf("direct dispatched replay = %q, %v", disposition, err)
+	}
+	unconfirmed := replayCommand
+	unconfirmed.ID, unconfirmed.IdempotencyKey = "command-unconfirmed", "idem-unconfirmed"
+	unconfirmed.CreatedAt, unconfirmed.UpdatedAt = now.Add(-time.Minute), now.Add(-time.Minute)
+	if err := store.CreateCommand(context.Background(), unconfirmed); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := store.FailUnconfirmedCommands(context.Background(), endpoint.ID, now, recoveredAt.Add(5*time.Second))
+	if err != nil || failed != 1 {
+		t.Fatalf("FailUnconfirmedCommands() = %d, %v", failed, err)
+	}
+	unconfirmedStored, err := store.GetCommand(context.Background(), endpoint.ID, unconfirmed.ID)
+	if err != nil || unconfirmedStored.Status != devicev1.CommandFailed || unconfirmedStored.ErrorCode != "client_command_unknown" {
+		t.Fatalf("unconfirmed command = %+v, %v", unconfirmedStored, err)
+	}
 
 	inventoryCommand := devices.Command{
 		ID: "command-inventory", EndpointID: endpoint.ID, ProfileID: profile.ID, Name: devicev1.CapabilityInventoryRefresh,
@@ -297,7 +346,7 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 	}
 	installPayload, _ := json.Marshal(installRequest)
 	installCommand := devices.Command{
-		ID: "command-install", EndpointID: endpoint.ID, ProfileID: profile.ID, Name: devicev1.CapabilityGameInstallArchive,
+		ID: "command-install", EndpointID: endpoint.ID, ProfileID: profile.ID, Name: devicev1.CapabilityGameInstallArchivePackage,
 		SchemaVersion: 1, IdempotencyKey: "idem-install", Status: devicev1.CommandDispatched, Payload: installPayload,
 		CreatedAt: now, UpdatedAt: now, ExpiresAt: now.Add(time.Minute),
 	}
@@ -320,7 +369,10 @@ func TestDeviceStorePairsListsAndTracksCommands(t *testing.T) {
 		ArchiveSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ArchiveBytes: 42, InstalledAt: now.Add(3 * time.Second),
 		LaunchTarget: "Game/game.exe", LaunchCandidates: []string{"Game/game.exe", "Game/alternate.exe"},
 	}
-	installResultPayload, _ := json.Marshal(installResult)
+	installResultPayload, _ := json.Marshal(devicev1.ArchivePackageInstallResult{
+		ResolvedKind: devicev1.ArchivePackageKindManagedArchive,
+		Archive:      &installResult,
+	})
 	if err := store.CompleteCommand(context.Background(), endpoint.ID, devicev1.CommandResult{
 		CommandID: installCommand.ID, Status: devicev1.CommandSucceeded, Payload: installResultPayload,
 	}, now.Add(3*time.Second)); err != nil {

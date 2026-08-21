@@ -25,24 +25,27 @@ var errStopRequested = errors.New("MGA Client stop requested")
 const inventoryRefreshInterval = 15 * time.Minute
 
 type Agent struct {
-	config        clientconfig.Binding
-	privateKey    ed25519.PrivateKey
-	buildInfo     buildinfo.Info
-	active        atomic.Int32
-	logger        *log.Logger
-	executionMode devicev1.ClientExecutionMode
-	inventory     InventoryCollector
-	installer     ArchiveInstaller
-	downloader    FileDownloader
-	gogInstaller  GogInnoInstaller
-	launcher      GameLauncher
-	emulator      EmulatorLauncher
-	emulatorSetup EmulatorSetupManager
-	validator     InstallationValidator
-	recovery      *InstallationRecoveryManager
-	existing      ExistingInstallationUser
-	saveDomains   SaveDomainManager
-	storefront    *LocalStorefrontAccess
+	config         clientconfig.Binding
+	privateKey     ed25519.PrivateKey
+	buildInfo      buildinfo.Info
+	active         atomic.Int32
+	replayEnabled  atomic.Bool
+	logger         *log.Logger
+	executionMode  devicev1.ClientExecutionMode
+	inventory      InventoryCollector
+	installer      ArchiveInstaller
+	archivePackage ArchivePackageInstaller
+	downloader     FileDownloader
+	gogInstaller   GogInnoInstaller
+	launcher       GameLauncher
+	emulator       EmulatorLauncher
+	emulatorSetup  EmulatorSetupManager
+	validator      InstallationValidator
+	recovery       *InstallationRecoveryManager
+	existing       ExistingInstallationUser
+	saveDomains    SaveDomainManager
+	storefront     *LocalStorefrontAccess
+	commands       *CommandLedger
 }
 
 func NewAgent(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger) (*Agent, error) {
@@ -63,14 +66,24 @@ func NewOwnedAgentWithExecutionMode(config clientconfig.Binding, privateKey ed25
 	if len(prepared) > 0 {
 		preparedCatalog = prepared[0]
 	}
-	return newAgentWithLocalState(config, privateKey, info, logger, executionMode, ownership, preparedCatalog)
+	return newAgentWithLocalState(config, privateKey, info, logger, executionMode, ownership, preparedCatalog, nil)
+}
+
+func NewDurableOwnedAgentWithExecutionMode(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode, ownership *InstallationOwnership, prepared *PreparedCopyCatalog, commands *CommandLedger) (*Agent, error) {
+	if ownership == nil {
+		return nil, errors.New("installation ownership is required")
+	}
+	if commands == nil {
+		return nil, errors.New("durable command ledger is required")
+	}
+	return newAgentWithLocalState(config, privateKey, info, logger, executionMode, ownership, prepared, commands)
 }
 
 func newAgentWithOwnership(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode, ownership *InstallationOwnership) (*Agent, error) {
-	return newAgentWithLocalState(config, privateKey, info, logger, executionMode, ownership, nil)
+	return newAgentWithLocalState(config, privateKey, info, logger, executionMode, ownership, nil, nil)
 }
 
-func newAgentWithLocalState(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode, ownership *InstallationOwnership, prepared *PreparedCopyCatalog) (*Agent, error) {
+func newAgentWithLocalState(config clientconfig.Binding, privateKey ed25519.PrivateKey, info buildinfo.Info, logger *log.Logger, executionMode devicev1.ClientExecutionMode, ownership *InstallationOwnership, prepared *PreparedCopyCatalog, commands *CommandLedger) (*Agent, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -102,6 +115,10 @@ func newAgentWithLocalState(config clientconfig.Binding, privateKey ed25519.Priv
 	} else {
 		gogInstaller, err = newPlatformOwnedGogInnoInstaller(config.ServerURL, ownership)
 	}
+	if err != nil {
+		return nil, err
+	}
+	archivePackage, err := NewManagedArchivePackageInstaller(installer, gogInstaller)
 	if err != nil {
 		return nil, err
 	}
@@ -161,8 +178,8 @@ func newAgentWithLocalState(config clientconfig.Binding, privateKey ed25519.Priv
 	}
 	return &Agent{
 		config: config, privateKey: privateKey, buildInfo: info, logger: logger, executionMode: executionMode,
-		inventory: inventory, installer: installer, downloader: downloader, gogInstaller: gogInstaller,
-		launcher: NewOwnedWindowsGameLauncher(ownership), emulator: emulator, emulatorSetup: emulatorSetup, validator: validator, recovery: recovery, existing: existing, saveDomains: saveDomains, storefront: storefront,
+		inventory: inventory, installer: installer, archivePackage: archivePackage, downloader: downloader, gogInstaller: gogInstaller,
+		launcher: NewOwnedWindowsGameLauncher(ownership), emulator: emulator, emulatorSetup: emulatorSetup, validator: validator, recovery: recovery, existing: existing, saveDomains: saveDomains, storefront: storefront, commands: commands,
 	}, nil
 }
 
@@ -243,7 +260,27 @@ func (a *Agent) runConnection(ctx context.Context) error {
 	if err != nil || accepted.Validate() != nil {
 		return errors.New("server returned invalid connection policy")
 	}
+	a.replayEnabled.Store(accepted.CommandReplay)
+	defer a.replayEnabled.Store(false)
 	a.logger.Printf("connected to MGA Server as endpoint %s", a.config.EndpointID)
+	if accepted.CommandReplay {
+		if a.commands == nil {
+			return errors.New("server negotiated command replay but durable command ledger is unavailable")
+		}
+		replayed := a.commands.ReplayCandidates(a.config.BindingID, time.Now().UTC())
+		if len(replayed) > int(^uint16(0)) {
+			return errors.New("command replay candidate count exceeds protocol limit")
+		}
+		for _, result := range replayed {
+			if err := writer.WriteMessage(ctx, devicev1.MessageCommandResult, uuid.NewString(), result.CommandID, result); err != nil {
+				return fmt.Errorf("replay command result %s: %w", result.CommandID, err)
+			}
+		}
+		complete := devicev1.CommandReplayComplete{LedgerSchemaVersion: devicev1.CommandLedgerSchemaVersion, Replayed: uint16(len(replayed)), CompletedAt: time.Now().UTC()}
+		if err := writer.WriteMessage(ctx, devicev1.MessageCommandReplayDone, uuid.NewString(), "", complete); err != nil {
+			return fmt.Errorf("complete command replay: %w", err)
+		}
+	}
 	connectedContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 	errorsChannel := make(chan error, 3)
@@ -323,30 +360,79 @@ func (a *Agent) readLoop(ctx context.Context, connection *websocket.Conn, writer
 		if err != nil {
 			return err
 		}
-		if envelope.Type != devicev1.MessageCommandRequest {
+		switch envelope.Type {
+		case devicev1.MessageCommandReplayAck:
+			ack, err := devicev1.DecodePayload[devicev1.CommandReplayAck](envelope)
+			if err != nil || ack.Validate() != nil {
+				return errors.New("server returned invalid command replay acknowledgement")
+			}
+			if a.commands != nil {
+				if err := a.commands.Acknowledge(a.config.BindingID, ack, time.Now().UTC()); err != nil {
+					return fmt.Errorf("persist command replay acknowledgement: %w", err)
+				}
+			}
+			if ack.Disposition == devicev1.CommandReplayConflict || ack.Disposition == devicev1.CommandReplayUnknown {
+				a.logger.Printf("command replay %s for %s: %s", ack.Disposition, ack.CommandID, ack.Message)
+			}
+		case devicev1.MessageCommandRequest:
+			request, err := devicev1.DecodePayload[devicev1.CommandRequest](envelope)
+			if err != nil {
+				return err
+			}
+			a.active.Add(1)
+			if err := a.handleCommand(ctx, writer, request, envelope.MessageID); err != nil {
+				a.active.Add(-1)
+				return err
+			}
+			a.active.Add(-1)
+		default:
 			return fmt.Errorf("unexpected server message %s", envelope.Type)
 		}
-		request, err := devicev1.DecodePayload[devicev1.CommandRequest](envelope)
-		if err != nil {
-			return err
-		}
-		a.active.Add(1)
-		if err := a.handleCommand(ctx, writer, request, envelope.MessageID); err != nil {
-			a.active.Add(-1)
-			return err
-		}
-		a.active.Add(-1)
 	}
 }
 
 func (a *Agent) handleCommand(ctx context.Context, writer *deviceWriter, request devicev1.CommandRequest, correlationID string) error {
-	if err := request.ValidateAt(time.Now()); err != nil {
+	now := time.Now().UTC()
+	if err := request.ValidateAt(now); err != nil {
 		result := devicev1.CommandResult{
 			CommandID: request.CommandID,
 			Status:    devicev1.CommandRejected,
 			Error:     &devicev1.ProtocolError{Code: "invalid_command", Message: err.Error()},
 		}
 		return writer.WriteMessage(ctx, devicev1.MessageCommandRejected, uuid.NewString(), correlationID, result)
+	}
+	durable := devicev1.CommandRequiresDurableReplay(request.Name)
+	completed := !durable
+	if durable {
+		if a.commands == nil {
+			result := devicev1.CommandResult{CommandID: request.CommandID, Status: devicev1.CommandRejected, Error: &devicev1.ProtocolError{Code: "command_durability_unavailable", Message: "MGA Client cannot safely persist this action"}}
+			return writer.WriteMessage(ctx, devicev1.MessageCommandRejected, uuid.NewString(), correlationID, result)
+		}
+		decision, err := a.commands.Begin(a.config.BindingID, request, now)
+		if err != nil {
+			code := "command_durability_unavailable"
+			if errors.Is(err, ErrCommandIdempotencyConflict) {
+				code = "command_idempotency_conflict"
+			} else if errors.Is(err, ErrCommandAlreadyRunning) {
+				code = "command_already_running"
+			}
+			result := devicev1.CommandResult{CommandID: request.CommandID, Status: devicev1.CommandRejected, Error: &devicev1.ProtocolError{Code: code, Message: err.Error()}}
+			return writer.WriteMessage(ctx, devicev1.MessageCommandRejected, uuid.NewString(), correlationID, result)
+		}
+		if decision.Result != nil {
+			if !a.replayEnabled.Load() {
+				decision.Result.IdempotencyKey = ""
+				decision.Result.RequestFingerprint = ""
+			}
+			return writer.WriteMessage(ctx, devicev1.MessageCommandResult, uuid.NewString(), correlationID, *decision.Result)
+		}
+		defer func() {
+			if !completed {
+				if err := a.commands.MarkInterrupted(a.config.BindingID, request.CommandID, time.Now().UTC()); err != nil {
+					a.logger.Printf("persist interrupted command %s: %v", request.CommandID, err)
+				}
+			}
+		}()
 	}
 	accepted := devicev1.CommandStatusUpdate{CommandID: request.CommandID}
 	if err := writer.WriteMessage(ctx, devicev1.MessageCommandAccepted, uuid.NewString(), correlationID, accepted); err != nil {
@@ -367,14 +453,31 @@ func (a *Agent) handleCommand(ctx context.Context, writer *deviceWriter, request
 		return err
 	}
 	payload, stopAgent, errorCode, commandErr := a.executeEndpointCommand(ctx, request.CommandID, request.Name, request.Payload, report)
+	var result devicev1.CommandResult
+	var resultErr error
 	if commandErr != nil {
-		return a.writeFailedResult(ctx, writer, request.CommandID, correlationID, errorCode, commandErr, payload)
+		result, resultErr = buildFailedResult(request.CommandID, errorCode, commandErr, payload)
+	} else {
+		rawPayload, err := json.Marshal(payload)
+		resultErr = err
+		result = devicev1.CommandResult{CommandID: request.CommandID, Status: devicev1.CommandSucceeded, Payload: rawPayload}
 	}
-	rawPayload, err := json.Marshal(payload)
-	if err != nil {
-		return err
+	if resultErr != nil {
+		return resultErr
 	}
-	result := devicev1.CommandResult{CommandID: request.CommandID, Status: devicev1.CommandSucceeded, Payload: rawPayload}
+	if durable {
+		if err := a.commands.Complete(a.config.BindingID, request.CommandID, result, time.Now().UTC()); err != nil {
+			return fmt.Errorf("persist terminal command result: %w", err)
+		}
+		fingerprint, err := devicev1.CommandRequestFingerprint(request)
+		if err != nil {
+			return err
+		}
+		if a.replayEnabled.Load() {
+			result.IdempotencyKey, result.RequestFingerprint = request.IdempotencyKey, fingerprint
+		}
+		completed = true
+	}
 	if err := writer.WriteMessage(ctx, devicev1.MessageCommandResult, uuid.NewString(), correlationID, result); err != nil {
 		return err
 	}
@@ -473,6 +576,20 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 		result, err := a.installer.Install(ctx, commandID, request, report)
 		if err != nil {
 			return nil, false, "install_failed", err
+		}
+		return result, false, "", nil
+	case devicev1.CapabilityGameInstallArchivePackage:
+		if a.archivePackage == nil {
+			return nil, false, "installer_unavailable", errors.New("archive package installer is unavailable")
+		}
+		var request devicev1.ArchivePackageInstallRequest
+		if err := json.Unmarshal(rawPayload, &request); err != nil {
+			return nil, false, "invalid_payload", err
+		}
+		result, err := a.archivePackage.Install(ctx, commandID, request, report)
+		if err != nil {
+			code, payload := archivePackageCommandFailure(err, "install_failed")
+			return payload, false, code, err
 		}
 		return result, false, "", nil
 	case devicev1.CapabilityGameDownloadFiles:
@@ -756,7 +873,7 @@ func (a *Agent) executeEndpointCommand(ctx context.Context, commandID, name stri
 	}
 }
 
-func (a *Agent) writeFailedResult(ctx context.Context, writer *deviceWriter, commandID, correlationID, code string, commandErr error, payload any) error {
+func buildFailedResult(commandID, code string, commandErr error, payload any) (devicev1.CommandResult, error) {
 	result := devicev1.CommandResult{
 		CommandID: commandID,
 		Status:    devicev1.CommandFailed,
@@ -765,11 +882,11 @@ func (a *Agent) writeFailedResult(ctx context.Context, writer *deviceWriter, com
 	if payload != nil {
 		rawPayload, err := json.Marshal(payload)
 		if err != nil {
-			return err
+			return devicev1.CommandResult{}, err
 		}
 		result.Payload = rawPayload
 	}
-	return writer.WriteMessage(ctx, devicev1.MessageCommandResult, uuid.NewString(), correlationID, result)
+	return result, nil
 }
 
 func gogCommandFailure(err error, fallbackCode string) (string, any) {
@@ -779,6 +896,14 @@ func gogCommandFailure(err error, fallbackCode string) (string, any) {
 			return commandError.Code, commandError.Payload
 		}
 		return commandError.Code, nil
+	}
+	return fallbackCode, nil
+}
+
+func archivePackageCommandFailure(err error, fallbackCode string) (string, any) {
+	var commandError *ArchivePackageCommandError
+	if errors.As(err, &commandError) {
+		return commandError.Code, commandError.Payload
 	}
 	return fallbackCode, nil
 }

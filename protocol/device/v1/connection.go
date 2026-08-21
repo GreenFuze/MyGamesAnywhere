@@ -19,6 +19,7 @@ const (
 	CapabilityInstallationPreflight     = "installation.preflight"
 	CapabilityGameDownloadFiles         = "game.download_files"
 	CapabilityGameInstallArchive        = "game.install_archive"
+	CapabilityGameInstallArchivePackage = "game.install_archive_package"
 	CapabilityGameUninstall             = "game.uninstall"
 	CapabilityGameCleanupInstallation   = "game.cleanup_installation"
 	CapabilityGameInstallGogInno        = "game.install_gog_inno"
@@ -37,6 +38,7 @@ const (
 	CapabilitySaveDomainSnapshot        = "save.domain_snapshot"
 	CapabilitySaveDomainRestore         = "save.domain_restore"
 	CapabilitySaveDomainReconcile       = "save.domain_reconcile"
+	CapabilityProtocolCommandReplay     = "protocol.command_replay"
 )
 
 type ClientExecutionMode string
@@ -294,6 +296,8 @@ type ConnectionAccepted struct {
 	ServerTime       time.Time       `json:"server_time"`
 	UpdateRequired   bool            `json:"update_required"`
 	RequiredVersion  string          `json:"required_version,omitempty"`
+	CommandReplay    bool            `json:"command_replay,omitempty"`
+	ReplayCutoff     time.Time       `json:"replay_cutoff,omitempty"`
 }
 
 func (a ConnectionAccepted) Validate() error {
@@ -311,6 +315,12 @@ func (a ConnectionAccepted) Validate() error {
 	}
 	if a.UpdateRequired && strings.TrimSpace(a.RequiredVersion) == "" {
 		return errors.New("required_version is required in update-required mode")
+	}
+	if a.CommandReplay && a.ReplayCutoff.IsZero() {
+		return errors.New("replay_cutoff is required when command replay is enabled")
+	}
+	if !a.CommandReplay && !a.ReplayCutoff.IsZero() {
+		return errors.New("replay_cutoff requires command replay support")
 	}
 	return nil
 }

@@ -141,6 +141,18 @@ func TestConnectionPayloadValidation(t *testing.T) {
 	if err := accepted.Validate(); err != nil {
 		t.Fatalf("ConnectionAccepted.Validate() error = %v", err)
 	}
+	accepted.CommandReplay = true
+	if err := accepted.Validate(); err == nil || !strings.Contains(err.Error(), "replay_cutoff") {
+		t.Fatalf("replay without cutoff error = %v", err)
+	}
+	accepted.ReplayCutoff = now
+	if err := accepted.Validate(); err != nil {
+		t.Fatalf("replay-enabled ConnectionAccepted.Validate() error = %v", err)
+	}
+	accepted.CommandReplay = false
+	if err := accepted.Validate(); err == nil || !strings.Contains(err.Error(), "requires command replay") {
+		t.Fatalf("cutoff without replay error = %v", err)
+	}
 	heartbeat := Heartbeat{Sequence: 1, State: EndpointReady, ClientVersion: "dev"}
 	if err := heartbeat.Validate(); err != nil {
 		t.Fatalf("Heartbeat.Validate() error = %v", err)

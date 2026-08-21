@@ -14,10 +14,12 @@ import (
 )
 
 const (
-	SchemaVersion         = 3
-	BindingsSchemaVersion = 2
-	LegacySchemaVersion   = 1
-	MaxBindings           = 16
+	SchemaVersion               = 4
+	StableBindingsSchemaVersion = 3
+	BindingsSchemaVersion       = 2
+	LegacySchemaVersion         = 1
+	CommandLedgerSchemaVersion  = 1
+	MaxBindings                 = 16
 )
 
 var ErrNotPaired = errors.New("MGA Client is not paired")
@@ -54,13 +56,21 @@ func (b Binding) Validate() error {
 
 // Document is the complete, versioned per-user client configuration.
 type Document struct {
-	SchemaVersion int       `json:"schema_version"`
-	Bindings      []Binding `json:"bindings"`
+	SchemaVersion              int       `json:"schema_version"`
+	CommandLedgerSchemaVersion int       `json:"command_ledger_schema_version"`
+	Bindings                   []Binding `json:"bindings"`
+}
+
+func NewDocument() Document {
+	return Document{SchemaVersion: SchemaVersion, CommandLedgerSchemaVersion: CommandLedgerSchemaVersion}
 }
 
 func (d Document) Validate() error {
 	if d.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("unsupported client config schema %d; expected %d", d.SchemaVersion, SchemaVersion)
+	}
+	if d.CommandLedgerSchemaVersion != CommandLedgerSchemaVersion {
+		return fmt.Errorf("unsupported command ledger schema %d; expected %d", d.CommandLedgerSchemaVersion, CommandLedgerSchemaVersion)
 	}
 	if len(d.Bindings) == 0 {
 		return errors.New("at least one server binding is required")
@@ -104,6 +114,11 @@ type LoadResult struct {
 type bindingsConfig struct {
 	SchemaVersion int             `json:"schema_version"`
 	Bindings      []legacyBinding `json:"bindings"`
+}
+
+type stableBindingsConfig struct {
+	SchemaVersion int       `json:"schema_version"`
+	Bindings      []Binding `json:"bindings"`
 }
 
 type legacyBinding struct {
@@ -162,12 +177,24 @@ func (s *Store) Load() (LoadResult, error) {
 			return LoadResult{}, err
 		}
 		return LoadResult{Document: document}, nil
+	case StableBindingsSchemaVersion:
+		var previous stableBindingsConfig
+		if err := decodeStrict(data, &previous); err != nil {
+			return LoadResult{}, fmt.Errorf("decode schema-%d client config: %w", StableBindingsSchemaVersion, err)
+		}
+		document := NewDocument()
+		document.Bindings = append(document.Bindings, previous.Bindings...)
+		if err := document.Validate(); err != nil {
+			return LoadResult{}, fmt.Errorf("schema-%d client config: %w", StableBindingsSchemaVersion, err)
+		}
+		return LoadResult{Document: document, MigrationFrom: StableBindingsSchemaVersion}, nil
 	case BindingsSchemaVersion:
 		var previous bindingsConfig
 		if err := decodeStrict(data, &previous); err != nil {
 			return LoadResult{}, fmt.Errorf("decode schema-%d client config: %w", BindingsSchemaVersion, err)
 		}
-		document := Document{SchemaVersion: SchemaVersion, Bindings: make([]Binding, 0, len(previous.Bindings))}
+		document := NewDocument()
+		document.Bindings = make([]Binding, 0, len(previous.Bindings))
 		for _, old := range previous.Bindings {
 			document.Bindings = append(document.Bindings, Binding{
 				BindingID: uuid.NewString(), ServerURL: old.ServerURL, WebSocketURL: old.WebSocketURL,
@@ -190,7 +217,8 @@ func (s *Store) Load() (LoadResult, error) {
 			EndpointID: legacy.EndpointID, ClientInstanceID: legacy.ClientInstanceID,
 			DisplayName: legacy.DisplayName, LegacyIdentity: true,
 		}
-		document := Document{SchemaVersion: SchemaVersion, Bindings: []Binding{binding}}
+		document := NewDocument()
+		document.Bindings = []Binding{binding}
 		if err := document.Validate(); err != nil {
 			return LoadResult{}, fmt.Errorf("legacy client config: %w", err)
 		}

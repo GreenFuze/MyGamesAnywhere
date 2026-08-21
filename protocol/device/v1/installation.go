@@ -12,12 +12,15 @@ import (
 
 const (
 	ArchiveInstallSchemaVersion        uint16 = 1
+	ArchivePackageInstallSchemaVersion uint16 = 1
 	LegacyInstallManifestSchemaVersion        = 2
 	InstallManifestSchemaVersion              = 3
 	DefaultInstallRootTemplate                = `%USERPROFILE%\Games`
 	ArchiveFormatZIP                          = "zip"
 	ArchiveFormat7Z                           = "7z"
 	ArchiveFormatRAR                          = "rar"
+	ArchivePackageKindManagedArchive          = InstallKindManagedArchive
+	ArchivePackageKindGogInno                 = InstallKindGogInno
 )
 
 // ArchiveInstallRequest is a bounded request to download and install one
@@ -35,6 +38,11 @@ type ArchiveInstallRequest struct {
 	DestinationRoot string `json:"destination_root,omitempty"`
 	DestinationName string `json:"destination_name"`
 }
+
+// ArchivePackageInstallRequest asks a capable client to classify a guarded
+// archive after extraction. It deliberately has the same bounded transfer
+// shape as the legacy archive request and carries no inner executable path.
+type ArchivePackageInstallRequest = ArchiveInstallRequest
 
 func (r ArchiveInstallRequest) Validate() error {
 	for name, value := range map[string]string{
@@ -126,6 +134,69 @@ func (r ArchiveInstallResult) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ArchiveContainerEvidence identifies the exact outer archive that produced a
+// verified native installer package. It is audit evidence, never execution
+// authority.
+type ArchiveContainerEvidence struct {
+	FileName  string `json:"file_name"`
+	Format    string `json:"format"`
+	SizeBytes uint64 `json:"size_bytes"`
+	SHA256    string `json:"sha256"`
+}
+
+func (e ArchiveContainerEvidence) Validate() error {
+	name := strings.TrimSpace(e.FileName)
+	if name == "" || filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
+		return errors.New("container file_name must be one path segment")
+	}
+	if err := ValidateArchiveFormat(e.Format); err != nil {
+		return err
+	}
+	if e.SizeBytes == 0 || len(strings.TrimSpace(e.SHA256)) != 64 || !isHexSHA256(e.SHA256) {
+		return errors.New("container size_bytes and sha256 are required")
+	}
+	return nil
+}
+
+// GogInnoArchiveInstallResult retains the normal verified GOG/Inno result and
+// adds the outer archive evidence used to obtain the package files.
+type GogInnoArchiveInstallResult struct {
+	GogInnoInstallResult
+	Container ArchiveContainerEvidence `json:"container"`
+}
+
+func (r GogInnoArchiveInstallResult) Validate() error {
+	if err := r.GogInnoInstallResult.Validate(); err != nil {
+		return err
+	}
+	return r.Container.Validate()
+}
+
+// ArchivePackageInstallResult is a fail-closed discriminated union. Exactly
+// one branch must match ResolvedKind.
+type ArchivePackageInstallResult struct {
+	ResolvedKind string                       `json:"resolved_kind"`
+	Archive      *ArchiveInstallResult        `json:"archive,omitempty"`
+	GogInno      *GogInnoArchiveInstallResult `json:"gog_inno,omitempty"`
+}
+
+func (r ArchivePackageInstallResult) Validate() error {
+	switch strings.TrimSpace(r.ResolvedKind) {
+	case ArchivePackageKindManagedArchive:
+		if r.Archive == nil || r.GogInno != nil {
+			return errors.New("managed archive result requires only the archive branch")
+		}
+		return r.Archive.Validate()
+	case ArchivePackageKindGogInno:
+		if r.GogInno == nil || r.Archive != nil {
+			return errors.New("GOG Inno result requires only the gog_inno branch")
+		}
+		return r.GogInno.Validate()
+	default:
+		return fmt.Errorf("unsupported resolved_kind %q", r.ResolvedKind)
+	}
 }
 
 type GameLaunchRequest struct {

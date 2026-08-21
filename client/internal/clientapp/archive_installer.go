@@ -45,6 +45,23 @@ type ManagedArchiveInstaller struct {
 	ownership *InstallationOwnership
 }
 
+type preparedArchivePackage struct {
+	request     devicev1.ArchiveInstallRequest
+	installRoot string
+	target      string
+	stage       string
+	contentDir  string
+	archivePath string
+	sha256      string
+	bytes       uint64
+}
+
+func (p *preparedArchivePackage) Cleanup() {
+	if p != nil && strings.TrimSpace(p.stage) != "" {
+		_ = os.RemoveAll(p.stage)
+	}
+}
+
 type installManifest struct {
 	SchemaVersion       int       `json:"schema_version"`
 	GameID              string    `json:"game_id"`
@@ -88,22 +105,41 @@ func NewManagedArchiveInstaller(serverURL string) (*ManagedArchiveInstaller, err
 }
 
 func (i *ManagedArchiveInstaller) Install(ctx context.Context, commandID string, request devicev1.ArchiveInstallRequest, report CommandProgressReporter) (devicev1.ArchiveInstallResult, error) {
+	prepared, err := i.prepare(ctx, commandID, request, report)
+	if err != nil {
+		return devicev1.ArchiveInstallResult{}, err
+	}
+	defer prepared.Cleanup()
+	classification, err := classifyExtractedArchive(prepared.contentDir)
+	if err != nil {
+		return devicev1.ArchiveInstallResult{}, err
+	}
+	if classification.Kind != archivePackageReadyToRun {
+		return devicev1.ArchiveInstallResult{}, errors.New("this archive contains a supported installer package; update MGA Server to install it safely")
+	}
+	return i.commitPrepared(prepared, report)
+}
+
+func (i *ManagedArchiveInstaller) prepare(ctx context.Context, commandID string, request devicev1.ArchiveInstallRequest, report CommandProgressReporter) (*preparedArchivePackage, error) {
 	if i == nil || i.client == nil || i.now == nil {
-		return devicev1.ArchiveInstallResult{}, errors.New("archive installer is unavailable")
+		return nil, errors.New("archive installer is unavailable")
 	}
 	if strings.TrimSpace(commandID) == "" {
-		return devicev1.ArchiveInstallResult{}, errors.New("command_id is required")
+		return nil, errors.New("command_id is required")
+	}
+	if filepath.Base(commandID) != commandID || strings.ContainsAny(commandID, `/\:`) {
+		return nil, errors.New("command_id is not safe for staging")
 	}
 	if err := request.Validate(); err != nil {
-		return devicev1.ArchiveInstallResult{}, err
+		return nil, err
 	}
 	extractor, err := archiveExtractorForFormat(request.ArchiveFormat)
 	if err != nil {
-		return devicev1.ArchiveInstallResult{}, err
+		return nil, err
 	}
 	downloadURL, err := i.resolveDownloadURL(request.DownloadURL)
 	if err != nil {
-		return devicev1.ArchiveInstallResult{}, err
+		return nil, err
 	}
 	rootTemplate := strings.TrimSpace(request.DestinationRoot)
 	if rootTemplate == "" {
@@ -111,25 +147,85 @@ func (i *ManagedArchiveInstaller) Install(ctx context.Context, commandID string,
 	}
 	installRoot, err := expandInstallRoot(rootTemplate)
 	if err != nil {
-		return devicev1.ArchiveInstallResult{}, err
+		return nil, err
 	}
 	if err := validateDestinationName(request.DestinationName); err != nil {
-		return devicev1.ArchiveInstallResult{}, err
+		return nil, err
 	}
 	installRoot = i.ownership.NamespacedRoot(installRoot)
 	if err := os.MkdirAll(installRoot, 0o755); err != nil {
-		return devicev1.ArchiveInstallResult{}, fmt.Errorf("create install root: %w", err)
+		return nil, fmt.Errorf("create install root: %w", err)
 	}
 	if free, err := availableDiskBytes(installRoot); err != nil {
-		return devicev1.ArchiveInstallResult{}, fmt.Errorf("check free disk space: %w", err)
+		return nil, fmt.Errorf("check free disk space: %w", err)
 	} else if free < request.ArchiveSize+64*1024*1024 {
-		return devicev1.ArchiveInstallResult{}, fmt.Errorf("not enough free space to download %s", request.ArchiveName)
+		return nil, fmt.Errorf("not enough free space to download %s", request.ArchiveName)
 	}
 
 	target := filepath.Join(installRoot, request.DestinationName)
+	if _, err := os.Stat(target); err == nil {
+		return nil, fmt.Errorf("destination already exists: %s", target)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect destination: %w", err)
+	}
+
+	stage := filepath.Join(installRoot, ".mga", "staging", commandID)
+	if err := os.RemoveAll(stage); err != nil {
+		return nil, fmt.Errorf("clear stale staging directory: %w", err)
+	}
+	contentDir := filepath.Join(stage, "content")
+	if err := os.MkdirAll(contentDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create staging directory: %w", err)
+	}
+	prepared := &preparedArchivePackage{request: request, installRoot: installRoot, target: target, stage: stage, contentDir: contentDir}
+	failed := true
+	defer func() {
+		if failed {
+			prepared.Cleanup()
+		}
+	}()
+	archivePath := filepath.Join(stage, "source."+devicev1.NormalizeArchiveFormat(request.ArchiveFormat))
+	prepared.archivePath = archivePath
+	if err := reportProgress(report, "downloading", "Downloading archive", 0, "download", 0); err != nil {
+		return nil, err
+	}
+	hash, downloaded, err := i.download(ctx, downloadURL, request.DownloadToken, archivePath, request.ArchiveSize, report)
+	if err != nil {
+		return nil, err
+	}
+	if request.ArchiveSize != downloaded {
+		return nil, fmt.Errorf("archive size mismatch: received %d bytes, expected %d", downloaded, request.ArchiveSize)
+	}
+	prepared.sha256, prepared.bytes = hash, downloaded
+
+	if err := reportProgress(report, "checking", "Checking archive", 43, "install", 5); err != nil {
+		return nil, err
+	}
+	uncompressed, err := extractor.Validate(archivePath)
+	if err != nil {
+		return nil, err
+	}
+	if free, err := availableDiskBytes(installRoot); err != nil {
+		return nil, fmt.Errorf("check extraction space: %w", err)
+	} else if free < uncompressed+64*1024*1024 {
+		return nil, fmt.Errorf("not enough free space to extract %s", request.ArchiveName)
+	}
+	if err := extractor.Extract(ctx, archivePath, contentDir, uncompressed, report); err != nil {
+		return nil, err
+	}
+	failed = false
+	return prepared, nil
+}
+
+func (i *ManagedArchiveInstaller) commitPrepared(prepared *preparedArchivePackage, report CommandProgressReporter) (devicev1.ArchiveInstallResult, error) {
+	if prepared == nil {
+		return devicev1.ArchiveInstallResult{}, errors.New("prepared archive package is required")
+	}
+	request := prepared.request
 	var ownershipOperation *OwnedInstallOperation
+	var err error
 	if i.ownership != nil {
-		ownershipOperation, err = i.ownership.BeginInstall(devicev1.InstallKindManagedArchive, request.GameID, request.SourceGameID, request.Title, installRoot, target, "")
+		ownershipOperation, err = i.ownership.BeginInstall(devicev1.InstallKindManagedArchive, request.GameID, request.SourceGameID, request.Title, prepared.installRoot, prepared.target, "")
 		if err != nil {
 			return devicev1.ArchiveInstallResult{}, err
 		}
@@ -139,49 +235,7 @@ func (i *ManagedArchiveInstaller) Install(ctx context.Context, commandID string,
 			}
 		}()
 	}
-	if _, err := os.Stat(target); err == nil {
-		return devicev1.ArchiveInstallResult{}, fmt.Errorf("destination already exists: %s", target)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return devicev1.ArchiveInstallResult{}, fmt.Errorf("inspect destination: %w", err)
-	}
-
-	stage := filepath.Join(installRoot, ".mga", "staging", commandID)
-	if err := os.RemoveAll(stage); err != nil {
-		return devicev1.ArchiveInstallResult{}, fmt.Errorf("clear stale staging directory: %w", err)
-	}
-	defer os.RemoveAll(stage)
-	contentDir := filepath.Join(stage, "content")
-	if err := os.MkdirAll(contentDir, 0o755); err != nil {
-		return devicev1.ArchiveInstallResult{}, fmt.Errorf("create staging directory: %w", err)
-	}
-	archivePath := filepath.Join(stage, "source."+devicev1.NormalizeArchiveFormat(request.ArchiveFormat))
-	if err := reportProgress(report, "downloading", "Downloading archive", 0, "download", 0); err != nil {
-		return devicev1.ArchiveInstallResult{}, err
-	}
-	hash, downloaded, err := i.download(ctx, downloadURL, request.DownloadToken, archivePath, request.ArchiveSize, report)
-	if err != nil {
-		return devicev1.ArchiveInstallResult{}, err
-	}
-	if request.ArchiveSize != downloaded {
-		return devicev1.ArchiveInstallResult{}, fmt.Errorf("archive size mismatch: received %d bytes, expected %d", downloaded, request.ArchiveSize)
-	}
-
-	if err := reportProgress(report, "checking", "Checking archive", 43, "install", 5); err != nil {
-		return devicev1.ArchiveInstallResult{}, err
-	}
-	uncompressed, err := extractor.Validate(archivePath)
-	if err != nil {
-		return devicev1.ArchiveInstallResult{}, err
-	}
-	if free, err := availableDiskBytes(installRoot); err != nil {
-		return devicev1.ArchiveInstallResult{}, fmt.Errorf("check extraction space: %w", err)
-	} else if free < uncompressed+64*1024*1024 {
-		return devicev1.ArchiveInstallResult{}, fmt.Errorf("not enough free space to extract %s", request.ArchiveName)
-	}
-	if err := extractor.Extract(ctx, archivePath, contentDir, uncompressed, report); err != nil {
-		return devicev1.ArchiveInstallResult{}, err
-	}
-	launchCandidates, launchTarget, err := discoverLaunchTargets(contentDir, request.Title)
+	launchCandidates, launchTarget, err := discoverLaunchTargets(prepared.contentDir, request.Title)
 	if err != nil {
 		return devicev1.ArchiveInstallResult{}, err
 	}
@@ -196,8 +250,8 @@ func (i *ManagedArchiveInstaller) Install(ctx context.Context, commandID string,
 	}
 	manifest := installManifest{
 		SchemaVersion: manifestSchema,
-		GameID:        request.GameID, SourceGameID: request.SourceGameID, InstallRoot: installRoot,
-		ArchiveName: request.ArchiveName, ArchiveSHA256: hash, ArchiveBytes: downloaded, InstalledAt: installedAt,
+		GameID:        request.GameID, SourceGameID: request.SourceGameID, InstallRoot: prepared.installRoot,
+		ArchiveName: request.ArchiveName, ArchiveSHA256: prepared.sha256, ArchiveBytes: prepared.bytes, InstalledAt: installedAt,
 		LaunchTarget: launchTarget, LaunchCandidates: launchCandidates,
 		LocalInstallationID: localInstallationID, OwnerBindingID: ownerBindingID,
 		OwnershipState: func() string {
@@ -207,13 +261,13 @@ func (i *ManagedArchiveInstaller) Install(ctx context.Context, commandID string,
 			return ""
 		}(),
 	}
-	if err := writeInstallManifest(contentDir, manifest); err != nil {
+	if err := writeInstallManifest(prepared.contentDir, manifest); err != nil {
 		return devicev1.ArchiveInstallResult{}, err
 	}
 	if err := reportProgress(report, "finishing", "Finishing installation", 97, "install", 95); err != nil {
 		return devicev1.ArchiveInstallResult{}, err
 	}
-	if err := os.Rename(contentDir, target); err != nil {
+	if err := os.Rename(prepared.contentDir, prepared.target); err != nil {
 		return devicev1.ArchiveInstallResult{}, fmt.Errorf("commit installation: %w", err)
 	}
 	if ownershipOperation != nil {
@@ -228,8 +282,8 @@ func (i *ManagedArchiveInstaller) Install(ctx context.Context, commandID string,
 		return devicev1.ArchiveInstallResult{}, err
 	}
 	return devicev1.ArchiveInstallResult{
-		GameID: request.GameID, SourceGameID: request.SourceGameID, InstallRoot: installRoot,
-		InstallPath: target, ArchiveSHA256: hash, ArchiveBytes: downloaded, InstalledAt: installedAt,
+		GameID: request.GameID, SourceGameID: request.SourceGameID, InstallRoot: prepared.installRoot,
+		InstallPath: prepared.target, ArchiveSHA256: prepared.sha256, ArchiveBytes: prepared.bytes, InstalledAt: installedAt,
 		LaunchTarget: launchTarget, LaunchCandidates: launchCandidates,
 	}, nil
 }

@@ -114,6 +114,10 @@ type Command struct {
 	Name                 string                 `json:"name"`
 	SchemaVersion        uint16                 `json:"schema_version"`
 	IdempotencyKey       string                 `json:"idempotency_key"`
+	RequestFingerprint   string                 `json:"request_fingerprint,omitempty"`
+	ResultFingerprint    string                 `json:"result_fingerprint,omitempty"`
+	ReplayCount          uint64                 `json:"replay_count,omitempty"`
+	LastReplayedAt       *time.Time             `json:"last_replayed_at,omitempty"`
 	Status               devicev1.CommandStatus `json:"status"`
 	Payload              json.RawMessage        `json:"payload"`
 	Result               json.RawMessage        `json:"result,omitempty"`
@@ -189,6 +193,8 @@ type Store interface {
 	UpdateCommandStatus(ctx context.Context, endpointID, commandID string, status devicev1.CommandStatus, result json.RawMessage, protocolError *devicev1.ProtocolError, updatedAt time.Time) error
 	RecordCommandProgress(ctx context.Context, endpointID string, progress devicev1.CommandProgress, updatedAt time.Time) error
 	CompleteCommand(ctx context.Context, endpointID string, result devicev1.CommandResult, updatedAt time.Time) error
+	CompleteCommandWithDisposition(ctx context.Context, endpointID string, result devicev1.CommandResult, updatedAt time.Time) (string, error)
+	FailUnconfirmedCommands(ctx context.Context, endpointID string, replayCutoff, updatedAt time.Time) (int64, error)
 	ListCommands(ctx context.Context, endpointID, profileID string, limit int) ([]Command, error)
 	GetInventory(ctx context.Context, endpointID string) (*devicev1.DeviceInventory, error)
 	SaveInventory(ctx context.Context, endpointID string, inventory devicev1.DeviceInventory, updatedAt time.Time) error

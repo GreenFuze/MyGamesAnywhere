@@ -26,6 +26,7 @@ func (fakeClientService) Pair(context.Context, clientapp.PairOptions) (clientcon
 }
 func (fakeClientService) Start(context.Context, clientapp.StartOptions) error { return nil }
 func (fakeClientService) HandleProtocol(context.Context, string) error        { return nil }
+func (fakeClientService) StopForUpgrade(context.Context) error                { return nil }
 func (fakeClientService) RunAgent(context.Context) error                      { return nil }
 func (fakeClientService) RunAgentTakeover(context.Context, devicev1.ClientExecutionMode, string) error {
 	return nil
@@ -121,5 +122,22 @@ func TestProtocolPairDoesNotRequireConsoleOutput(t *testing.T) {
 		"mga://pair?server=http%3A%2F%2Ftv2%3A8900&code=one-time",
 	}); err != nil {
 		t.Fatalf("Execute(protocol pair) error = %v", err)
+	}
+}
+
+func TestStopForUpgradeCommandDoesNotRequireConsoleOutput(t *testing.T) {
+	t.Parallel()
+
+	application, err := NewApplication(Dependencies{
+		Out:       failingWriter{},
+		Err:       &bytes.Buffer{},
+		BuildInfo: buildinfo.Info{Version: "test"},
+		Client:    fakeClientService{},
+	})
+	if err != nil {
+		t.Fatalf("NewApplication() error = %v", err)
+	}
+	if err := application.Execute(context.Background(), []string{"stop-for-upgrade"}); err != nil {
+		t.Fatalf("Execute(stop-for-upgrade) error = %v", err)
 	}
 }

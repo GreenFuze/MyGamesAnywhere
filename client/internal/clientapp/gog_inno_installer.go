@@ -31,9 +31,10 @@ const (
 	maxGogInnoLogTailBytes        int64 = 1024 * 1024
 )
 
-// ADR-0023 raises successful owned manifests to schema 4 and owned failed-install
-// markers to schema 3. Legacy schema-3 manifests and schema-1/2 markers remain
-// readable under the fail-closed single-binding ownership migration.
+// ADR-0044 raises successful owned manifests to schema 5 so compressed
+// installer packages can retain their outer archive evidence. ADR-0023 schema
+// 4 and legacy schema-3 manifests remain readable; failed-install markers stay
+// on their independently versioned schema.
 
 type AuthenticodeVerifier interface {
 	VerifyGOG(path string) (subject string, thumbprint string, err error)
@@ -104,15 +105,16 @@ type GogInnoInstaller interface {
 }
 
 type ManagedGogInnoInstaller struct {
-	serverURL string
-	client    *http.Client
-	now       func() time.Time
-	verifier  AuthenticodeVerifier
-	detector  InnoFamilyDetector
-	confirmer LocalConfirmer
-	runner    InstallerProcessRunner
-	programs  RegisteredProgramInspector
-	ownership *InstallationOwnership
+	serverURL        string
+	client           *http.Client
+	now              func() time.Time
+	verifier         AuthenticodeVerifier
+	detector         InnoFamilyDetector
+	confirmer        LocalConfirmer
+	runner           InstallerProcessRunner
+	programs         RegisteredProgramInspector
+	ownership        *InstallationOwnership
+	packageContainer *devicev1.ArchiveContainerEvidence
 }
 
 type GogInnoCommandError struct {
@@ -133,29 +135,30 @@ func gogError(code string, payload any, format string, values ...any) error {
 }
 
 type gogInnoManifest struct {
-	SchemaVersion       int                           `json:"schema_version"`
-	GameID              string                        `json:"game_id"`
-	SourceGameID        string                        `json:"source_game_id"`
-	InstallRoot         string                        `json:"install_root"`
-	InstallPath         string                        `json:"install_path"`
-	InstallerFamily     string                        `json:"installer_family"`
-	PrimarySHA256       string                        `json:"primary_sha256"`
-	TotalBytes          uint64                        `json:"total_package_bytes"`
-	PackageFiles        []devicev1.GogInnoPackageFile `json:"package_files"`
-	SignerSubject       string                        `json:"signer_subject"`
-	SignerThumbprint    string                        `json:"signer_thumbprint"`
-	InvocationMode      string                        `json:"invocation_mode"`
-	UninstallTarget     string                        `json:"uninstall_target"`
-	LaunchTarget        string                        `json:"launch_target,omitempty"`
-	LaunchCandidates    []string                      `json:"launch_candidates,omitempty"`
-	ProcessID           int                           `json:"process_id,omitempty"`
-	ExitCode            *int                          `json:"exit_code,omitempty"`
-	DiagnosticRef       string                        `json:"diagnostic_ref,omitempty"`
-	InstalledAt         time.Time                     `json:"installed_at"`
-	CompletionBasis     string                        `json:"completion_basis"`
-	LocalInstallationID string                        `json:"local_installation_id,omitempty"`
-	OwnerBindingID      string                        `json:"owner_binding_id,omitempty"`
-	OwnershipState      string                        `json:"ownership_state,omitempty"`
+	SchemaVersion       int                                `json:"schema_version"`
+	GameID              string                             `json:"game_id"`
+	SourceGameID        string                             `json:"source_game_id"`
+	InstallRoot         string                             `json:"install_root"`
+	InstallPath         string                             `json:"install_path"`
+	InstallerFamily     string                             `json:"installer_family"`
+	PrimarySHA256       string                             `json:"primary_sha256"`
+	TotalBytes          uint64                             `json:"total_package_bytes"`
+	PackageFiles        []devicev1.GogInnoPackageFile      `json:"package_files"`
+	SignerSubject       string                             `json:"signer_subject"`
+	SignerThumbprint    string                             `json:"signer_thumbprint"`
+	InvocationMode      string                             `json:"invocation_mode"`
+	UninstallTarget     string                             `json:"uninstall_target"`
+	LaunchTarget        string                             `json:"launch_target,omitempty"`
+	LaunchCandidates    []string                           `json:"launch_candidates,omitempty"`
+	ProcessID           int                                `json:"process_id,omitempty"`
+	ExitCode            *int                               `json:"exit_code,omitempty"`
+	DiagnosticRef       string                             `json:"diagnostic_ref,omitempty"`
+	InstalledAt         time.Time                          `json:"installed_at"`
+	CompletionBasis     string                             `json:"completion_basis"`
+	LocalInstallationID string                             `json:"local_installation_id,omitempty"`
+	OwnerBindingID      string                             `json:"owner_binding_id,omitempty"`
+	OwnershipState      string                             `json:"ownership_state,omitempty"`
+	PackageContainer    *devicev1.ArchiveContainerEvidence `json:"package_container,omitempty"`
 }
 
 func NewOwnedManagedGogInnoInstaller(serverURL string, verifier AuthenticodeVerifier, detector InnoFamilyDetector, confirmer LocalConfirmer, runner InstallerProcessRunner, ownership *InstallationOwnership) (*ManagedGogInnoInstaller, error) {
@@ -458,6 +461,7 @@ func (i *ManagedGogInnoInstaller) Install(ctx context.Context, commandID string,
 			}
 			return ""
 		}(),
+		PackageContainer: i.packageContainer,
 	}
 	if err := writeGogInnoManifest(installPath, manifest); err != nil {
 		result = i.inventoryFailedInstall(result, marker)
@@ -503,7 +507,7 @@ func (i *ManagedGogInnoInstaller) Uninstall(ctx context.Context, request devicev
 	if err != nil {
 		return result, gogError("uninstaller_mismatch", nil, "%v", err)
 	}
-	if (manifest.SchemaVersion != devicev1.LegacyExecutableInstallManifestSchemaVersion && manifest.SchemaVersion != devicev1.ExecutableInstallManifestSchemaVersion) ||
+	if (manifest.SchemaVersion != devicev1.LegacyExecutableInstallManifestSchemaVersion && manifest.SchemaVersion != devicev1.PreviousExecutableInstallManifestSchemaVersion && manifest.SchemaVersion != devicev1.ExecutableInstallManifestSchemaVersion) ||
 		manifest.GameID != request.GameID || manifest.SourceGameID != request.SourceGameID ||
 		manifest.InstallerFamily != devicev1.GogInnoInstallerFamily ||
 		!sameRelativePath(manifest.UninstallTarget, request.UninstallTarget) {
@@ -1066,6 +1070,11 @@ func readGogInnoManifest(directory string) (gogInnoManifest, error) {
 	var manifest gogInnoManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return gogInnoManifest{}, fmt.Errorf("decode MGA executable installation manifest: %w", err)
+	}
+	if manifest.PackageContainer != nil {
+		if err := manifest.PackageContainer.Validate(); err != nil {
+			return gogInnoManifest{}, fmt.Errorf("validate MGA package container evidence: %w", err)
+		}
 	}
 	return manifest, nil
 }

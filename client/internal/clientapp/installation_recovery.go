@@ -266,7 +266,7 @@ func validOwnedArchiveManifest(manifest installManifest, record InstallationOwne
 }
 
 func validOwnedGogManifest(manifest gogInnoManifest, record InstallationOwnershipRecord, request devicev1.InstallationRecoveryRequest) bool {
-	return (manifest.SchemaVersion == devicev1.ExecutableInstallManifestSchemaVersion || manifest.SchemaVersion == devicev1.LegacyExecutableInstallManifestSchemaVersion) &&
+	return (manifest.SchemaVersion == devicev1.ExecutableInstallManifestSchemaVersion || manifest.SchemaVersion == devicev1.PreviousExecutableInstallManifestSchemaVersion || manifest.SchemaVersion == devicev1.LegacyExecutableInstallManifestSchemaVersion) &&
 		manifest.GameID == request.GameID && manifest.SourceGameID == request.SourceGameID &&
 		manifest.InstallerFamily == devicev1.GogInnoInstallerFamily &&
 		sameLocalPath(manifest.InstallRoot, request.InstallRoot) && sameLocalPath(manifest.InstallPath, request.InstallPath) &&

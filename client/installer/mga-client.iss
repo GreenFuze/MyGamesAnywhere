@@ -20,6 +20,9 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#AppExeName}
 WizardStyle=modern
+CloseApplications=force
+CloseApplicationsFilter=mga-client.exe,mga-client-agent.exe
+RestartApplications=no
 
 [Files]
 Source: "{#ClientExe}"; DestDir: "{app}"; DestName: "{#AppExeName}"; Flags: ignoreversion
@@ -38,3 +41,26 @@ Root: HKCU; Subkey: "Software\Classes\mga\shell\open\command"; ValueType: string
 ; Remove the old per-user auto-start value on upgrade. MGA Client is launched
 ; explicitly from MGA so the player chooses standard or elevated mode.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "MGA Client"; Flags: deletevalue
+
+[Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ClientPath: String;
+  ResultCode: Integer;
+begin
+  Result := '';
+  ClientPath := ExpandConstant('{app}\{#AppExeName}');
+  if not FileExists(ClientPath) then
+    exit;
+
+  Log('Requesting graceful shutdown from the installed MGA Client');
+  if Exec(ClientPath, 'stop-for-upgrade', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    if ResultCode = 0 then
+      Log('Installed MGA Client stopped for upgrade')
+    else
+      Log(Format('Installed MGA Client could not stop itself (exit code %d); Restart Manager will handle compatibility fallback', [ResultCode]));
+  end
+  else
+    Log('Could not start the installed MGA Client shutdown command; Restart Manager will handle compatibility fallback');
+end;

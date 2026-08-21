@@ -198,7 +198,7 @@ func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailR
 			switch capability {
 			case devicev1.CapabilityGameDownloadFiles:
 				item.FileDownloadSupported = true
-			case devicev1.CapabilityGameInstallArchive:
+			case devicev1.CapabilityGameInstallArchivePackage:
 				item.ArchiveInstallSupported = true
 			case devicev1.CapabilityGameInstallGogInno:
 				item.GogInnoInstallSupported = true

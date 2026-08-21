@@ -46,19 +46,21 @@ func TestCommandPayloadForAuditRedactsArchiveDownloadToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	redacted, err := commandPayloadForAudit(devicev1.CapabilityGameInstallArchive, payload)
-	if err != nil {
-		t.Fatalf("commandPayloadForAudit() error = %v", err)
-	}
-	if string(redacted) == string(payload) || string(redacted) == "" {
-		t.Fatalf("redacted payload = %s", redacted)
-	}
-	var request devicev1.ArchiveInstallRequest
-	if err := json.Unmarshal(redacted, &request); err != nil {
-		t.Fatal(err)
-	}
-	if request.DownloadToken != "[redacted]" || bytes.Contains(redacted, []byte("secret-grant")) {
-		t.Fatalf("download token was not redacted: %s", redacted)
+	for _, capability := range []string{devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameInstallArchivePackage} {
+		redacted, err := commandPayloadForAudit(capability, payload)
+		if err != nil {
+			t.Fatalf("commandPayloadForAudit(%s) error = %v", capability, err)
+		}
+		if string(redacted) == string(payload) || string(redacted) == "" {
+			t.Fatalf("redacted payload for %s = %s", capability, redacted)
+		}
+		var request devicev1.ArchiveInstallRequest
+		if err := json.Unmarshal(redacted, &request); err != nil {
+			t.Fatal(err)
+		}
+		if request.DownloadToken != "[redacted]" || bytes.Contains(redacted, []byte("secret-grant")) {
+			t.Fatalf("download token was not redacted for %s: %s", capability, redacted)
+		}
 	}
 }
 
@@ -168,6 +170,12 @@ func (*launchTestStore) RecordCommandProgress(context.Context, string, devicev1.
 }
 func (*launchTestStore) CompleteCommand(context.Context, string, devicev1.CommandResult, time.Time) error {
 	return errors.New("unexpected call")
+}
+func (*launchTestStore) CompleteCommandWithDisposition(context.Context, string, devicev1.CommandResult, time.Time) (string, error) {
+	return "", errors.New("unexpected call")
+}
+func (*launchTestStore) FailUnconfirmedCommands(context.Context, string, time.Time, time.Time) (int64, error) {
+	return 0, errors.New("unexpected call")
 }
 func (*launchTestStore) ListCommands(context.Context, string, string, int) ([]Command, error) {
 	return nil, errors.New("unexpected call")

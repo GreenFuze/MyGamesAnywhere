@@ -26,6 +26,7 @@ type ClientService interface {
 	Pair(ctx context.Context, options clientapp.PairOptions) (clientconfig.Binding, error)
 	Start(ctx context.Context, options clientapp.StartOptions) error
 	HandleProtocol(ctx context.Context, rawURI string) error
+	StopForUpgrade(ctx context.Context) error
 	RunAgent(ctx context.Context) error
 	RunAgentTakeover(ctx context.Context, executionMode devicev1.ClientExecutionMode, startURI string) error
 	Status() (clientapp.Status, error)
@@ -75,8 +76,21 @@ func NewApplication(deps Dependencies) (*Application, error) {
 	root.AddCommand(newUnpairCommand(deps.Client))
 	root.AddCommand(newInstallationsCommand(deps.Client))
 	root.AddCommand(newProtocolCommand(deps.Client))
+	root.AddCommand(newStopForUpgradeCommand(deps.Client))
 
 	return &Application{root: root}, nil
+}
+
+func newStopForUpgradeCommand(service ClientService) *cobra.Command {
+	return &cobra.Command{
+		Use:    "stop-for-upgrade",
+		Short:  "Gracefully stop the running tray client before installer file replacement",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return service.StopForUpgrade(command.Context())
+		},
+	}
 }
 
 func newInstallationsCommand(service ClientService) *cobra.Command {

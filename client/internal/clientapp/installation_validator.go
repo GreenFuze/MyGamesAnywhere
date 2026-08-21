@@ -127,7 +127,7 @@ func (v *LocalInstallationValidator) validateOne(item devicev1.InstallationValid
 			return manifestReadFailure(checked, readErr), nil
 		}
 		checked.ManifestSchema = manifest.SchemaVersion
-		if manifest.SchemaVersion != devicev1.LegacyExecutableInstallManifestSchemaVersion && manifest.SchemaVersion != devicev1.ExecutableInstallManifestSchemaVersion {
+		if manifest.SchemaVersion != devicev1.LegacyExecutableInstallManifestSchemaVersion && manifest.SchemaVersion != devicev1.PreviousExecutableInstallManifestSchemaVersion && manifest.SchemaVersion != devicev1.ExecutableInstallManifestSchemaVersion {
 			return validationRepair(checked, devicev1.ValidationReasonManifestSchemaUnsupported, manifest.SchemaVersion), nil
 		}
 		if manifest.GameID != item.GameID || manifest.SourceGameID != item.SourceGameID || manifest.InstallerFamily != devicev1.GogInnoInstallerFamily ||

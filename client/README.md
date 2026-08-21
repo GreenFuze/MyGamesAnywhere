@@ -11,9 +11,18 @@ presence, typed endpoint commands, diagnostics, single-instance enforcement,
 bounded device inventory reporting, and transactional ZIP/7z/RAR installation.
 Stopping the client, refreshing inventory, installing archive-backed portable
 games, safe launch-target discovery, native game launch, and manifest-guarded
-uninstall are implemented. Game stop, EXE/BIN and storefront installation,
-emulator management, and client self-update remain later command families. No
-unrestricted shell command will be added.
+uninstall, bounded GOG Inno installation, prepared copies, storefront use,
+emulator launch/setup, and save-domain commands are implemented. Game stop,
+additional installer families, and client self-update remain later command
+families. No unrestricted shell command will be added.
+
+Client config schema 4 enables the schema-1 durable command ledger. Mutating
+commands are recorded before acknowledgement and their terminal outcomes are
+recorded before transmission, so reconnects replay results instead of
+repeating installs, removals, launches, or save actions. Policy 1 retains
+terminal history for 30 days and targets 2,048 records per server binding while
+preserving the seven-day post-expiry replay window. The ledger stores no
+command request payloads or bearer tokens.
 
 On Windows the installed background process is the windowless
 `mga-client-agent.exe` notification-area application. Its tray menu provides
@@ -76,6 +85,14 @@ Build the per-user Inno Setup installer with:
 ```
 
 The installer registers `mga://` and removes the obsolete HKCU startup entry.
+During an upgrade it asks the running same-user tray client to stop through the
+protected local command channel before replacing files. Older clients fall back
+to Inno Setup Restart Manager. Setup never restarts the client automatically,
+so the player still chooses standard or elevated mode explicitly.
+
+`NO_MIGRATION_NEEDED`: this installer lifecycle uses ephemeral local IPC and
+does not change client configuration, identities, bindings, or installation
+ownership data.
 It requests no elevation itself; an elevated run is requested only after an
 explicit MGA web action and Windows UAC consent. Packaging fails fast when
 `ISCC.exe` is unavailable.

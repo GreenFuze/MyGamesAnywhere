@@ -380,7 +380,7 @@ func (s *Service) DispatchCommand(ctx context.Context, endpointID, profileID, na
 	switch name {
 	case devicev1.CapabilityGameDownloadFiles:
 		lifetime = devicev1.FileDownloadCommandLifetime
-	case devicev1.CapabilityGameInstallGogInno:
+	case devicev1.CapabilityGameInstallArchivePackage, devicev1.CapabilityGameInstallGogInno:
 		lifetime = devicev1.GogInnoInstallCommandLifetime
 	case devicev1.CapabilityGameUninstallGogInno:
 		lifetime = devicev1.GogInnoUninstallCommandLifetime
@@ -417,6 +417,10 @@ func (s *Service) DispatchCommand(ctx context.Context, endpointID, profileID, na
 		Payload:   payload,
 	}
 	if err := request.ValidateAt(now); err != nil {
+		return nil, err
+	}
+	command.RequestFingerprint, err = devicev1.CommandRequestFingerprint(request)
+	if err != nil {
 		return nil, err
 	}
 	if err := s.store.CreateCommand(ctx, *command); err != nil {
@@ -498,7 +502,7 @@ func commandPayloadForAudit(name string, payload json.RawMessage) (json.RawMessa
 			request.Files[index].DownloadToken = "[redacted]"
 		}
 		return json.Marshal(request)
-	case devicev1.CapabilityGameInstallArchive:
+	case devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameInstallArchivePackage:
 		var request devicev1.ArchiveInstallRequest
 		if err := json.Unmarshal(payload, &request); err != nil {
 			return nil, err
@@ -550,16 +554,20 @@ func commandPayloadForAudit(name string, payload json.RawMessage) (json.RawMessa
 	}
 }
 
-func (s *Service) RecordCommandResult(ctx context.Context, endpointID string, result devicev1.CommandResult) error {
+func (s *Service) RecordCommandResult(ctx context.Context, endpointID string, result devicev1.CommandResult) (string, error) {
 	if err := result.Validate(); err != nil {
-		return err
+		return "", err
 	}
-	if err := s.store.CompleteCommand(ctx, endpointID, result, s.now()); err != nil {
-		return err
+	disposition, err := s.store.CompleteCommandWithDisposition(ctx, endpointID, result, s.now())
+	if err != nil || disposition == devicev1.CommandReplayUnknown || disposition == devicev1.CommandReplayConflict {
+		return disposition, err
+	}
+	if disposition == devicev1.CommandReplayAlreadyRecorded {
+		return disposition, nil
 	}
 	command, err := s.store.GetCommand(ctx, endpointID, result.CommandID)
 	if err != nil || command.Name != devicev1.CapabilityGameValidateInstallations {
-		return err
+		return disposition, err
 	}
 	payload := map[string]any{
 		"profile_id": command.ProfileID, "endpoint_id": endpointID, "command_id": command.ID,
@@ -567,14 +575,14 @@ func (s *Service) RecordCommandResult(ctx context.Context, endpointID string, re
 	}
 	var request devicev1.InstallationValidationRequest
 	if err := json.Unmarshal(command.Payload, &request); err != nil {
-		return fmt.Errorf("decode stored installation validation command: %w", err)
+		return "", fmt.Errorf("decode stored installation validation command: %w", err)
 	}
 	payload["trigger"] = request.Trigger
 	payload["total"] = len(request.Items)
 	if command.Status == devicev1.CommandSucceeded {
 		var validation devicev1.InstallationValidationResult
 		if err := json.Unmarshal(command.Result, &validation); err != nil {
-			return fmt.Errorf("decode stored installation validation result: %w", err)
+			return "", fmt.Errorf("decode stored installation validation result: %w", err)
 		}
 		payload["installed"] = validation.Installed
 		payload["missing"] = validation.Missing
@@ -584,7 +592,7 @@ func (s *Service) RecordCommandResult(ctx context.Context, endpointID string, re
 		payload["restored"] = validation.Restored
 	}
 	events.PublishJSON(s.eventBus, "installation_validation_finished", payload)
-	return nil
+	return disposition, nil
 }
 
 func (s *Service) RecordCommandStatus(ctx context.Context, endpointID, commandID string, status devicev1.CommandStatus) error {
@@ -596,6 +604,13 @@ func (s *Service) RecordCommandProgress(ctx context.Context, endpointID string, 
 		return err
 	}
 	return s.store.RecordCommandProgress(ctx, endpointID, progress, s.now())
+}
+
+func (s *Service) ReconcileUnconfirmedCommands(ctx context.Context, endpointID string, replayCutoff time.Time) (int64, error) {
+	if strings.TrimSpace(endpointID) == "" || replayCutoff.IsZero() {
+		return 0, errors.New("endpoint_id and replay cutoff are required")
+	}
+	return s.store.FailUnconfirmedCommands(ctx, endpointID, replayCutoff, s.now())
 }
 
 func (s *Service) RecordInventory(ctx context.Context, endpointID string, inventory devicev1.DeviceInventory) error {
@@ -756,7 +771,7 @@ func requiredAccessForCommand(name string) (devicev1.AccessLevel, error) {
 		return devicev1.AccessPlay, nil
 	case devicev1.CapabilityEmulatorSetup:
 		return devicev1.AccessOwner, nil
-	case devicev1.CapabilityGameDownloadFiles, devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameUninstall,
+	case devicev1.CapabilityGameDownloadFiles, devicev1.CapabilityGameInstallArchive, devicev1.CapabilityGameInstallArchivePackage, devicev1.CapabilityGameUninstall,
 		devicev1.CapabilityGameCleanupInstallation, devicev1.CapabilityGameRecoverInstallation,
 		devicev1.CapabilityGameInstallGogInno, devicev1.CapabilityGameUninstallGogInno,
 		devicev1.CapabilityGameCleanupGogInnoFailed, devicev1.CapabilityGameUseExisting,
@@ -808,7 +823,7 @@ func validateCommandPayload(name string, payload json.RawMessage) error {
 		}
 		return request.Validate()
 	}
-	if name == devicev1.CapabilityGameInstallArchive {
+	if name == devicev1.CapabilityGameInstallArchive || name == devicev1.CapabilityGameInstallArchivePackage {
 		var request devicev1.ArchiveInstallRequest
 		if err := json.Unmarshal(payload, &request); err != nil {
 			return fmt.Errorf("decode archive install payload: %w", err)

@@ -16,7 +16,7 @@ func TestServerForwardsAndCachesDuplicateRequest(t *testing.T) {
 
 	endpoint := testEndpoint(t)
 	var calls atomic.Int32
-	server, err := NewServer(endpoint, func(context.Context, string) (Outcome, error) {
+	server, err := NewServer(endpoint, func(context.Context, Request) (Outcome, error) {
 		calls.Add(1)
 		return Outcome{}, nil
 	}, nil)
@@ -49,7 +49,7 @@ func TestServerSerializesConcurrentRequests(t *testing.T) {
 	endpoint := testEndpoint(t)
 	var active atomic.Int32
 	var maximum atomic.Int32
-	server, err := NewServer(endpoint, func(context.Context, string) (Outcome, error) {
+	server, err := NewServer(endpoint, func(context.Context, Request) (Outcome, error) {
 		now := active.Add(1)
 		for {
 			previous := maximum.Load()
@@ -97,7 +97,7 @@ func TestServerRejectsUnsupportedAndOversizedFrames(t *testing.T) {
 	t.Parallel()
 
 	endpoint := testEndpoint(t)
-	server, err := NewServer(endpoint, func(context.Context, string) (Outcome, error) {
+	server, err := NewServer(endpoint, func(context.Context, Request) (Outcome, error) {
 		t.Fatal("handler called for invalid request")
 		return Outcome{}, nil
 	}, nil)
@@ -164,7 +164,7 @@ func TestForwardReportsUnavailableAndAcknowledgementTimeout(t *testing.T) {
 	}
 
 	endpoint := testEndpoint(t)
-	server, serverErr := NewServer(endpoint, func(context.Context, string) (Outcome, error) {
+	server, serverErr := NewServer(endpoint, func(context.Context, Request) (Outcome, error) {
 		time.Sleep(300 * time.Millisecond)
 		return Outcome{}, nil
 	}, nil)
@@ -184,14 +184,14 @@ func TestForwardReportsUnavailableAndAcknowledgementTimeout(t *testing.T) {
 	}
 }
 
-func TestRestartCallbackRunsOnceAfterAcknowledgementAttempt(t *testing.T) {
+func TestStopCallbackRunsOnceAfterAcknowledgementAttempt(t *testing.T) {
 	t.Parallel()
 
 	endpoint := testEndpoint(t)
-	restarted := make(chan struct{}, 2)
-	server, err := NewServer(endpoint, func(context.Context, string) (Outcome, error) {
-		return Outcome{RestartPrimary: true}, nil
-	}, func() { restarted <- struct{}{} })
+	stopped := make(chan struct{}, 2)
+	server, err := NewServer(endpoint, func(context.Context, Request) (Outcome, error) {
+		return Outcome{StopPrimary: true}, nil
+	}, func() { stopped <- struct{}{} })
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}
@@ -204,7 +204,7 @@ func TestRestartCallbackRunsOnceAfterAcknowledgementAttempt(t *testing.T) {
 		t.Fatalf("Forward() error = %v", err)
 	}
 	select {
-	case <-restarted:
+	case <-stopped:
 	case <-time.After(time.Second):
 		t.Fatal("restart callback was not called")
 	}
@@ -212,9 +212,26 @@ func TestRestartCallbackRunsOnceAfterAcknowledgementAttempt(t *testing.T) {
 		t.Fatalf("duplicate Forward() error = %v", err)
 	}
 	select {
-	case <-restarted:
+	case <-stopped:
 		t.Fatal("restart callback called more than once")
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestStopForUpgradeActionIsTypedAndRejectsURI(t *testing.T) {
+	t.Parallel()
+
+	valid := Request{Version: Version, RequestID: "upgrade", Action: ActionStopForUpgrade}
+	if err := validateRequest(valid); err != nil {
+		t.Fatalf("validateRequest() error = %v", err)
+	}
+	for _, invalid := range []Request{
+		{Version: Version, RequestID: "unknown", Action: "unknown"},
+		{Version: Version, RequestID: "upgrade-uri", Action: ActionStopForUpgrade, URI: "mga://start"},
+	} {
+		if err := validateRequest(invalid); err == nil {
+			t.Fatalf("validateRequest(%+v) error = nil", invalid)
+		}
 	}
 }
 

@@ -113,7 +113,7 @@ func TestAttachDeviceAvailabilityGatesManagedRecoveryActions(t *testing.T) {
 		logger: noopLogger{},
 		deviceLister: availabilityDeviceLister{endpoints: []devices.Endpoint{{
 			ID: "device-1", DisplayName: "PC", OSUser: "alice", Platform: "windows", Status: devicev1.EndpointReady,
-			AccessLevel: devicev1.AccessManage,
+			AccessLevel:  devicev1.AccessManage,
 			Capabilities: []string{devicev1.CapabilityGameRecoverInstallation, devicev1.CapabilityGameCleanupInstallation},
 			Installations: []devices.GameInstallation{{
 				GameID: "game-1", SourceGameID: "source-1", ProfileID: "profile-1",
@@ -135,7 +135,7 @@ func TestAttachDeviceAvailabilityGatesManagedRecoveryActions(t *testing.T) {
 
 	controller.deviceLister = availabilityDeviceLister{endpoints: []devices.Endpoint{{
 		ID: "device-1", DisplayName: "PC", OSUser: "alice", Platform: "windows", Status: devicev1.EndpointReady,
-		AccessLevel: devicev1.AccessManage,
+		AccessLevel:  devicev1.AccessManage,
 		Capabilities: []string{devicev1.CapabilityGameRecoverInstallation, devicev1.CapabilityGameCleanupInstallation},
 		Installations: []devices.GameInstallation{{
 			GameID: "game-1", SourceGameID: "source-1", ProfileID: "profile-1",
@@ -149,5 +149,22 @@ func TestAttachDeviceAvailabilityGatesManagedRecoveryActions(t *testing.T) {
 	device = response.Devices[0]
 	if !device.ReinstallAvailable || !device.ForgetAvailable || device.RepairAvailable || device.CleanupAvailable {
 		t.Fatalf("missing recovery policy = %#v", device)
+	}
+}
+
+func TestAttachDeviceAvailabilityRequiresArchivePackageCapability(t *testing.T) {
+	t.Parallel()
+	controller := &GameController{
+		logger: noopLogger{},
+		deviceLister: availabilityDeviceLister{endpoints: []devices.Endpoint{
+			{ID: "legacy", DisplayName: "Old client", Platform: "windows", Status: devicev1.EndpointReady, AccessLevel: devicev1.AccessManage, Capabilities: []string{devicev1.CapabilityGameInstallArchive}},
+			{ID: "package", DisplayName: "Current client", Platform: "windows", Status: devicev1.EndpointReady, AccessLevel: devicev1.AccessManage, Capabilities: []string{devicev1.CapabilityGameInstallArchivePackage}},
+		}},
+	}
+	response := GameDetailResponse{}
+	controller.attachDeviceAvailability(core.WithProfile(context.Background(), &core.Profile{ID: "profile-1"}), &response,
+		&core.CanonicalGame{ID: "game-1", Platform: core.PlatformWindowsPC})
+	if len(response.Devices) != 2 || response.Devices[0].ArchiveInstallSupported || !response.Devices[1].ArchiveInstallSupported {
+		t.Fatalf("archive package capability gates = %#v", response.Devices)
 	}
 }

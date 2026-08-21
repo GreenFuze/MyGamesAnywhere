@@ -19,6 +19,8 @@ type DeviceStore struct {
 	db core.Database
 }
 
+var errCommandReplayConflict = errors.New("device command replay conflicts with current server state")
+
 func NewDeviceStore(database core.Database) *DeviceStore {
 	return &DeviceStore{db: database}
 }
@@ -318,9 +320,9 @@ func (s *DeviceStore) DeleteEndpoint(ctx context.Context, endpointID string) err
 
 func (s *DeviceStore) CreateCommand(ctx context.Context, command devices.Command) error {
 	_, err := s.db.GetDB().ExecContext(ctx, `INSERT INTO device_commands
-		(id, endpoint_id, profile_id, name, schema_version, idempotency_key, status, payload_json, created_at, updated_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, command.ID, command.EndpointID, command.ProfileID, command.Name,
-		command.SchemaVersion, command.IdempotencyKey, string(command.Status), string(command.Payload), command.CreatedAt.Unix(), command.UpdatedAt.Unix(), command.ExpiresAt.Unix())
+		(id, endpoint_id, profile_id, name, schema_version, idempotency_key, request_fingerprint, status, payload_json, created_at, updated_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, command.ID, command.EndpointID, command.ProfileID, command.Name,
+		command.SchemaVersion, command.IdempotencyKey, command.RequestFingerprint, string(command.Status), string(command.Payload), command.CreatedAt.Unix(), command.UpdatedAt.Unix(), command.ExpiresAt.Unix())
 	return err
 }
 
@@ -413,6 +415,66 @@ func (s *DeviceStore) FailInterruptedCommands(ctx context.Context, recoveredAt t
 	return count, nil
 }
 
+// FailUnconfirmedCommands conservatively closes pre-connection commands that
+// a replay-capable client did not prove before its replay-complete marker.
+func (s *DeviceStore) FailUnconfirmedCommands(ctx context.Context, endpointID string, replayCutoff, updatedAt time.Time) (int64, error) {
+	tx, err := s.db.GetDB().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id, profile_id, payload_json FROM device_commands
+		WHERE endpoint_id=? AND created_at<? AND name=? AND status IN (?, ?, ?)`, endpointID, replayCutoff.Unix(),
+		devicev1.CapabilityGameCleanupGogInnoFailed, string(devicev1.CommandDispatched), string(devicev1.CommandAccepted), string(devicev1.CommandRunning))
+	if err != nil {
+		return 0, err
+	}
+	type cleanupCommand struct{ id, profileID, payload string }
+	var cleanupCommands []cleanupCommand
+	for rows.Next() {
+		var command cleanupCommand
+		if err := rows.Scan(&command.id, &command.profileID, &command.payload); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		cleanupCommands = append(cleanupCommands, command)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	for _, command := range cleanupCommands {
+		var request devicev1.GogInnoFailedCleanupRequest
+		if err := json.Unmarshal([]byte(command.payload), &request); err != nil {
+			return 0, fmt.Errorf("decode unconfirmed cleanup command %s: %w", command.id, err)
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE device_game_installations SET install_state=?, state_reason=?, state_changed_at=?, updated_at=?
+			WHERE endpoint_id=? AND profile_id=? AND game_id=? AND source_game_id=? AND cleanup_marker_id=? AND install_state=?`,
+			devicev1.InstallStateCleanupFailed, "client_command_unknown: cleanup outcome is unknown", updatedAt.Unix(), updatedAt.Unix(),
+			endpointID, command.profileID, request.GameID, request.SourceGameID, request.CleanupMarkerID, devicev1.InstallStateCleanupRunning)
+		if err != nil {
+			return 0, err
+		}
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE device_commands SET status=?, result_json=NULL,
+		error_code=?, error_message=?, updated_at=?
+		WHERE endpoint_id=? AND created_at<? AND status IN (?, ?, ?)`,
+		string(devicev1.CommandFailed), "client_command_unknown",
+		"MGA Client did not retain proof that this command completed. MGA will not repeat the action automatically.",
+		updatedAt.Unix(), endpointID, replayCutoff.Unix(), string(devicev1.CommandDispatched),
+		string(devicev1.CommandAccepted), string(devicev1.CommandRunning))
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (s *DeviceStore) UpdateCommandStatus(ctx context.Context, endpointID, commandID string, status devicev1.CommandStatus, result json.RawMessage, protocolError *devicev1.ProtocolError, updatedAt time.Time) error {
 	tx, err := s.db.GetDB().BeginTx(ctx, nil)
 	if err != nil {
@@ -486,6 +548,74 @@ func (s *DeviceStore) RecordCommandProgress(ctx context.Context, endpointID stri
 }
 
 func (s *DeviceStore) CompleteCommand(ctx context.Context, endpointID string, result devicev1.CommandResult, updatedAt time.Time) error {
+	_, err := s.CompleteCommandWithDisposition(ctx, endpointID, result, updatedAt)
+	return err
+}
+
+func (s *DeviceStore) CompleteCommandWithDisposition(ctx context.Context, endpointID string, result devicev1.CommandResult, updatedAt time.Time) (string, error) {
+	var currentStatus devicev1.CommandStatus
+	var idempotencyKey, requestFingerprint, storedResultFingerprint, currentErrorCode string
+	if err := s.db.GetDB().QueryRowContext(ctx, `SELECT status, idempotency_key,
+		COALESCE(request_fingerprint,''), COALESCE(result_fingerprint,''), COALESCE(error_code,'')
+		FROM device_commands WHERE id=? AND endpoint_id=?`, result.CommandID, endpointID).Scan(
+		&currentStatus, &idempotencyKey,
+		&requestFingerprint, &storedResultFingerprint, &currentErrorCode); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			if result.IdempotencyKey != "" {
+				return devicev1.CommandReplayUnknown, nil
+			}
+			return "", devices.ErrCommandNotFound
+		}
+		return "", err
+	}
+	resultFingerprint, err := devicev1.CommandResultFingerprint(result)
+	if err != nil {
+		return "", err
+	}
+	hasReplayIdentity := result.IdempotencyKey != ""
+	if hasReplayIdentity && (result.IdempotencyKey != idempotencyKey || (requestFingerprint != "" && result.RequestFingerprint != requestFingerprint)) {
+		return devicev1.CommandReplayConflict, nil
+	}
+	terminal, err := currentStatus.IsTerminal()
+	if err != nil {
+		return "", err
+	}
+	syntheticRecovery := currentStatus == devicev1.CommandFailed && (currentErrorCode == "command_interrupted" || currentErrorCode == "client_command_unknown")
+	if terminal && !syntheticRecovery {
+		if hasReplayIdentity && storedResultFingerprint != "" && storedResultFingerprint == resultFingerprint {
+			if _, err := s.db.GetDB().ExecContext(ctx, `UPDATE device_commands SET replay_count=replay_count+1, last_replayed_at=? WHERE id=? AND endpoint_id=?`, updatedAt.Unix(), result.CommandID, endpointID); err != nil {
+				return "", err
+			}
+			return devicev1.CommandReplayAlreadyRecorded, nil
+		}
+		if hasReplayIdentity {
+			return devicev1.CommandReplayConflict, nil
+		}
+		return "", devicev1.ValidateTransition(currentStatus, result.Status)
+	}
+	if !syntheticRecovery && currentStatus != devicev1.CommandRunning {
+		if err := devicev1.ValidateTransition(currentStatus, result.Status); err != nil && !hasReplayIdentity {
+			return "", err
+		}
+	} else if !hasReplayIdentity {
+		if syntheticRecovery {
+			return "", errors.New("synthetic command recovery may only be reconciled by an identified client result")
+		}
+	}
+	var replayFrom *devicev1.CommandStatus
+	if hasReplayIdentity && currentStatus != devicev1.CommandRunning {
+		replayFrom = &currentStatus
+	}
+	if err := s.completeCommandOnce(ctx, endpointID, result, updatedAt, replayFrom); err != nil {
+		if errors.Is(err, errCommandReplayConflict) {
+			return devicev1.CommandReplayConflict, nil
+		}
+		return "", err
+	}
+	return devicev1.CommandReplayRecorded, nil
+}
+
+func (s *DeviceStore) completeCommandOnce(ctx context.Context, endpointID string, result devicev1.CommandResult, updatedAt time.Time, replayFrom *devicev1.CommandStatus) error {
 	tx, err := s.db.GetDB().BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -499,7 +629,24 @@ func (s *DeviceStore) CompleteCommand(ctx context.Context, endpointID string, re
 		}
 		return err
 	}
-	if err := devicev1.ValidateTransition(currentStatus, result.Status); err != nil {
+	if replayFrom == nil {
+		if err := devicev1.ValidateTransition(currentStatus, result.Status); err != nil {
+			return err
+		}
+	} else {
+		if currentStatus != *replayFrom {
+			return errCommandReplayConflict
+		}
+		terminal, err := result.Status.IsTerminal()
+		if err != nil {
+			return err
+		}
+		if !terminal {
+			return errors.New("replayed command result must be terminal")
+		}
+	}
+	resultFingerprint, err := devicev1.CommandResultFingerprint(result)
+	if err != nil {
 		return err
 	}
 	if commandName == devicev1.CapabilityInventoryRefresh && result.Status == devicev1.CommandSucceeded {
@@ -580,6 +727,100 @@ func (s *DeviceStore) CompleteCommand(ctx context.Context, endpointID string, re
 			InstallKind: devicev1.InstallKindManagedArchive, InstallState: devicev1.InstallStateInstalled,
 		}, updatedAt); err != nil {
 			return err
+		}
+	}
+	if commandName == devicev1.CapabilityGameInstallArchivePackage && (result.Status == devicev1.CommandSucceeded || result.Status == devicev1.CommandFailed) {
+		var request devicev1.ArchivePackageInstallRequest
+		if err := json.Unmarshal([]byte(commandPayload), &request); err != nil {
+			return fmt.Errorf("decode archive package install command: %w", err)
+		}
+		if err := request.Validate(); err != nil {
+			return err
+		}
+		if len(result.Payload) == 0 {
+			if result.Status == devicev1.CommandSucceeded {
+				return errors.New("archive package install result payload is required")
+			}
+		} else {
+			var installed devicev1.ArchivePackageInstallResult
+			if err := json.Unmarshal(result.Payload, &installed); err != nil {
+				return fmt.Errorf("decode archive package install result: %w", err)
+			}
+			if result.Status == devicev1.CommandSucceeded {
+				if err := installed.Validate(); err != nil {
+					return err
+				}
+			} else if installed.ResolvedKind != devicev1.ArchivePackageKindGogInno || installed.GogInno == nil || installed.Archive != nil {
+				return errors.New("failed archive package result must contain only GOG Inno failure evidence")
+			} else if err := installed.GogInno.Container.Validate(); err != nil {
+				return err
+			} else if err := installed.GogInno.GogInnoInstallResult.ValidateFailureEvidence(); err != nil {
+				return fmt.Errorf("validate failed compressed GOG Inno evidence: %w", err)
+			}
+
+			switch installed.ResolvedKind {
+			case devicev1.ArchivePackageKindManagedArchive:
+				archive := installed.Archive
+				if archive.GameID != request.GameID || archive.SourceGameID != request.SourceGameID {
+					return errors.New("archive package result does not match command")
+				}
+				if err := upsertGameInstallation(ctx, tx, endpointID, profileID, devices.GameInstallation{
+					GameID: archive.GameID, SourceGameID: archive.SourceGameID, InstallRoot: archive.InstallRoot,
+					InstallPath: archive.InstallPath, ArchiveSHA256: archive.ArchiveSHA256, ArchiveBytes: archive.ArchiveBytes,
+					InstalledAt: archive.InstalledAt, LaunchTarget: archive.LaunchTarget, LaunchCandidates: archive.LaunchCandidates,
+					InstallKind: devicev1.InstallKindManagedArchive, InstallState: devicev1.InstallStateInstalled,
+				}, updatedAt); err != nil {
+					return err
+				}
+			case devicev1.ArchivePackageKindGogInno:
+				native := installed.GogInno.GogInnoInstallResult
+				if native.GameID != request.GameID || native.SourceGameID != request.SourceGameID {
+					return errors.New("compressed GOG Inno result does not match command")
+				}
+				state, reason := devicev1.InstallStateInstalled, ""
+				if result.Status == devicev1.CommandFailed {
+					state = devicev1.InstallStateAttentionRequired
+					if strings.TrimSpace(native.CleanupMarkerID) != "" {
+						state = devicev1.InstallStateCleanupRequired
+					}
+					if result.Error != nil {
+						reason = strings.TrimSpace(result.Error.Code)
+						if message := strings.TrimSpace(result.Error.Message); message != "" {
+							if reason == "" {
+								reason = message
+							} else {
+								reason += ": " + message
+							}
+						}
+					}
+				}
+				if strings.TrimSpace(native.InstallPath) != "" {
+					if err := upsertGameInstallation(ctx, tx, endpointID, profileID, devices.GameInstallation{
+						GameID: native.GameID, SourceGameID: native.SourceGameID, InstallRoot: native.InstallRoot,
+						InstallPath: native.InstallPath, ArchiveSHA256: installed.GogInno.Container.SHA256, ArchiveBytes: installed.GogInno.Container.SizeBytes,
+						InstalledAt: native.InstalledAt, LaunchTarget: native.LaunchTarget, LaunchCandidates: native.LaunchCandidates,
+						InstallKind: devicev1.InstallKindGogInno, InstallerFamily: devicev1.GogInnoInstallerFamily,
+						InstallerFiles: native.PackageFiles, UninstallTarget: native.UninstallTarget,
+						InstallState: state, StateReason: reason, CleanupMarkerID: native.CleanupMarkerID,
+					}, updatedAt); err != nil {
+						return err
+					}
+					eventType := ""
+					if result.Status == devicev1.CommandFailed {
+						eventType = "failure_detected"
+					} else if native.CompletionBasis == devicev1.GogInnoCompletionValidatedPostSuccessCrash {
+						eventType = "post_success_crash_accepted"
+					}
+					if eventType != "" {
+						details, _ := json.Marshal(map[string]any{"family": native.InstallerFamily, "container": installed.GogInno.Container.FileName, "completion_basis": native.CompletionBasis, "exit_code": native.ExitCode})
+						if err := insertInstallationEventTx(ctx, tx, devices.InstallationEvent{EndpointID: endpointID, GameID: native.GameID, SourceGameID: native.SourceGameID, ActorProfileID: profileID, EventType: eventType, Reason: reason, Details: details, CreatedAt: updatedAt}); err != nil {
+							return err
+						}
+					}
+				}
+			default:
+				return fmt.Errorf("unsupported archive package result kind %q", installed.ResolvedKind)
+			}
 		}
 	}
 	if commandName == devicev1.CapabilityGameUseExisting && result.Status == devicev1.CommandSucceeded {
@@ -1119,9 +1360,9 @@ func (s *DeviceStore) CompleteCommand(ctx context.Context, endpointID string, re
 	if len(result.Payload) > 0 {
 		resultJSON = string(result.Payload)
 	}
-	update, err := tx.ExecContext(ctx, `UPDATE device_commands SET status=?, result_json=?, error_code=?, error_message=?, updated_at=?
+	update, err := tx.ExecContext(ctx, `UPDATE device_commands SET status=?, result_json=?, error_code=?, error_message=?, result_fingerprint=?, updated_at=?
 		WHERE id=? AND endpoint_id=? AND status=?`, string(result.Status), resultJSON, errorCode, errorMessage,
-		updatedAt.Unix(), result.CommandID, endpointID, string(currentStatus))
+		resultFingerprint, updatedAt.Unix(), result.CommandID, endpointID, string(currentStatus))
 	if err != nil {
 		return err
 	}
@@ -1408,7 +1649,8 @@ func (s *DeviceStore) ListCommands(ctx context.Context, endpointID, profileID st
 	}
 	rows, err := s.db.GetDB().QueryContext(ctx, `SELECT id, endpoint_id, profile_id, name, schema_version, idempotency_key,
 		status, payload_json, COALESCE(result_json,''), COALESCE(error_code,''), COALESCE(error_message,''),
-		progress_sequence, COALESCE(progress_phase,''), progress_percent, COALESCE(progress_stage,''), progress_stage_percent, COALESCE(progress_message,''), created_at, updated_at, expires_at
+		progress_sequence, COALESCE(progress_phase,''), progress_percent, COALESCE(progress_stage,''), progress_stage_percent, COALESCE(progress_message,''), created_at, updated_at, expires_at,
+		COALESCE(request_fingerprint,''), COALESCE(result_fingerprint,''), replay_count, last_replayed_at
 		FROM device_commands WHERE endpoint_id=? AND profile_id=? ORDER BY created_at DESC LIMIT ?`, endpointID, profileID, limit)
 	if err != nil {
 		return nil, err
@@ -1419,11 +1661,11 @@ func (s *DeviceStore) ListCommands(ctx context.Context, endpointID, profileID st
 		var command devices.Command
 		var status, payload, result string
 		var createdAt, updatedAt, expiresAt int64
-		var progressPercent, progressStagePercent sql.NullInt64
+		var progressPercent, progressStagePercent, lastReplayedAt sql.NullInt64
 		if err := rows.Scan(&command.ID, &command.EndpointID, &command.ProfileID, &command.Name, &command.SchemaVersion,
 			&command.IdempotencyKey, &status, &payload, &result, &command.ErrorCode, &command.ErrorMessage,
 			&command.ProgressSequence, &command.ProgressPhase, &progressPercent, &command.ProgressStage, &progressStagePercent, &command.ProgressMessage,
-			&createdAt, &updatedAt, &expiresAt); err != nil {
+			&createdAt, &updatedAt, &expiresAt, &command.RequestFingerprint, &command.ResultFingerprint, &command.ReplayCount, &lastReplayedAt); err != nil {
 			return nil, err
 		}
 		command.Status = devicev1.CommandStatus(status)
@@ -1442,6 +1684,10 @@ func (s *DeviceStore) ListCommands(ctx context.Context, endpointID, profileID st
 		command.CreatedAt = time.Unix(createdAt, 0)
 		command.UpdatedAt = time.Unix(updatedAt, 0)
 		command.ExpiresAt = time.Unix(expiresAt, 0)
+		if lastReplayedAt.Valid {
+			value := time.Unix(lastReplayedAt.Int64, 0).UTC()
+			command.LastReplayedAt = &value
+		}
 		commands = append(commands, command)
 	}
 	return commands, rows.Err()
@@ -1450,16 +1696,17 @@ func (s *DeviceStore) ListCommands(ctx context.Context, endpointID, profileID st
 func (s *DeviceStore) GetCommand(ctx context.Context, endpointID, commandID string) (*devices.Command, error) {
 	row := s.db.GetDB().QueryRowContext(ctx, `SELECT id, endpoint_id, profile_id, name, schema_version, idempotency_key,
 		status, payload_json, COALESCE(result_json,''), COALESCE(error_code,''), COALESCE(error_message,''),
-		progress_sequence, COALESCE(progress_phase,''), progress_percent, COALESCE(progress_stage,''), progress_stage_percent, COALESCE(progress_message,''), created_at, updated_at, expires_at
+		progress_sequence, COALESCE(progress_phase,''), progress_percent, COALESCE(progress_stage,''), progress_stage_percent, COALESCE(progress_message,''), created_at, updated_at, expires_at,
+		COALESCE(request_fingerprint,''), COALESCE(result_fingerprint,''), replay_count, last_replayed_at
 		FROM device_commands WHERE endpoint_id=? AND id=?`, endpointID, commandID)
 	var command devices.Command
 	var status, payload, result string
 	var createdAt, updatedAt, expiresAt int64
-	var progressPercent, progressStagePercent sql.NullInt64
+	var progressPercent, progressStagePercent, lastReplayedAt sql.NullInt64
 	if err := row.Scan(&command.ID, &command.EndpointID, &command.ProfileID, &command.Name, &command.SchemaVersion,
 		&command.IdempotencyKey, &status, &payload, &result, &command.ErrorCode, &command.ErrorMessage,
 		&command.ProgressSequence, &command.ProgressPhase, &progressPercent, &command.ProgressStage, &progressStagePercent,
-		&command.ProgressMessage, &createdAt, &updatedAt, &expiresAt); err != nil {
+		&command.ProgressMessage, &createdAt, &updatedAt, &expiresAt, &command.RequestFingerprint, &command.ResultFingerprint, &command.ReplayCount, &lastReplayedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, devices.ErrCommandNotFound
 		}
@@ -1481,6 +1728,10 @@ func (s *DeviceStore) GetCommand(ctx context.Context, endpointID, commandID stri
 	command.CreatedAt = time.Unix(createdAt, 0).UTC()
 	command.UpdatedAt = time.Unix(updatedAt, 0).UTC()
 	command.ExpiresAt = time.Unix(expiresAt, 0).UTC()
+	if lastReplayedAt.Valid {
+		value := time.Unix(lastReplayedAt.Int64, 0).UTC()
+		command.LastReplayedAt = &value
+	}
 	return &command, nil
 }
 

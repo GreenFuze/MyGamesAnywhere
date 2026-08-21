@@ -54,6 +54,22 @@ func TestArchiveInstallResultValidate(t *testing.T) {
 	}
 }
 
+func TestArchivePackageInstallResultRequiresMatchingBranch(t *testing.T) {
+	archive := ArchiveInstallResult{
+		GameID: "game-1", SourceGameID: "source-1", InstallRoot: `C:\Games`, InstallPath: `C:\Games\Game`,
+		ArchiveSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		ArchiveBytes:  42, InstalledAt: time.Now(),
+	}
+	result := ArchivePackageInstallResult{ResolvedKind: ArchivePackageKindManagedArchive, Archive: &archive}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	result.ResolvedKind = ArchivePackageKindGogInno
+	if err := result.Validate(); err == nil {
+		t.Fatal("Validate() accepted a mismatched result branch")
+	}
+}
+
 func TestGameLaunchRequestRejectsUnsafeExecutablePaths(t *testing.T) {
 	t.Parallel()
 	request := GameLaunchRequest{

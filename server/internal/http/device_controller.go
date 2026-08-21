@@ -399,8 +399,24 @@ func (c *DeviceController) Connect(w http.ResponseWriter, r *http.Request) {
 		_ = connection.Close(websocket.StatusPolicyViolation, "endpoint authentication failed")
 		return
 	}
+	c.hub.Disconnect(endpoint.ID)
 	if err := c.service.MarkConnected(r.Context(), endpoint, hello, selectedVersion); err != nil {
 		_ = connection.Close(websocket.StatusInternalError, "presence update failed")
+		return
+	}
+	replayCutoff := time.Now().UTC()
+	accepted := devicev1.ConnectionAccepted{
+		ConnectionID:     challenge.ConnectionID,
+		ProtocolVersion:  selectedVersion,
+		HeartbeatSeconds: deviceHeartbeatSeconds,
+		ServerTime:       time.Now().UTC(),
+	}
+	replaySupported := capabilityListed(hello.Metadata.Capabilities, devicev1.CapabilityProtocolCommandReplay)
+	if replaySupported {
+		accepted.CommandReplay = true
+		accepted.ReplayCutoff = replayCutoff
+	}
+	if err := transport.WriteMessage(r.Context(), devicev1.MessageConnectionAccepted, uuid.NewString(), responseEnvelope.MessageID, accepted); err != nil {
 		return
 	}
 	if err := c.hub.Register(endpoint.ID, transport); err != nil {
@@ -414,19 +430,12 @@ func (c *DeviceController) Connect(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
-	accepted := devicev1.ConnectionAccepted{
-		ConnectionID:     challenge.ConnectionID,
-		ProtocolVersion:  selectedVersion,
-		HeartbeatSeconds: deviceHeartbeatSeconds,
-		ServerTime:       time.Now().UTC(),
-	}
-	if err := writeDeviceMessage(r.Context(), connection, devicev1.MessageConnectionAccepted, uuid.NewString(), responseEnvelope.MessageID, accepted); err != nil {
-		return
-	}
-	c.readConnectedMessages(r.Context(), endpoint.ID, connection)
+	c.readConnectedMessages(r.Context(), endpoint.ID, connection, transport, replaySupported, replayCutoff)
 }
 
-func (c *DeviceController) readConnectedMessages(ctx context.Context, endpointID string, connection *websocket.Conn) {
+func (c *DeviceController) readConnectedMessages(ctx context.Context, endpointID string, connection *websocket.Conn, transport *websocketTransport, replaySupported bool, replayCutoff time.Time) {
+	replayCompleted := false
+	var replayResults uint16
 	for {
 		readContext, cancel := context.WithTimeout(ctx, deviceReadTimeout)
 		envelope, err := readDeviceEnvelope(readContext, connection)
@@ -457,9 +466,48 @@ func (c *DeviceController) readConnectedMessages(ctx context.Context, endpointID
 			}
 		case devicev1.MessageCommandResult, devicev1.MessageCommandRejected:
 			result, err := devicev1.DecodePayload[devicev1.CommandResult](envelope)
-			if err != nil || c.service.RecordCommandResult(ctx, endpointID, result) != nil {
+			if err != nil {
 				return
 			}
+			if replaySupported && !replayCompleted && result.IdempotencyKey == "" {
+				return
+			}
+			disposition, recordErr := c.service.RecordCommandResult(ctx, endpointID, result)
+			if recordErr != nil {
+				return
+			}
+			if replaySupported && result.IdempotencyKey != "" {
+				if !replayCompleted {
+					if replayResults == ^uint16(0) {
+						return
+					}
+					replayResults++
+				}
+				if disposition == "" {
+					disposition = devicev1.CommandReplayRecorded
+				}
+				ack := devicev1.CommandReplayAck{CommandID: result.CommandID, Disposition: disposition}
+				if disposition == devicev1.CommandReplayConflict {
+					ack.Message = "MGA Server retained a different terminal outcome; neither outcome was overwritten"
+				} else if disposition == devicev1.CommandReplayUnknown {
+					ack.Message = "MGA Server no longer has this command record"
+				}
+				if err := transport.WriteMessage(ctx, devicev1.MessageCommandReplayAck, uuid.NewString(), envelope.MessageID, ack); err != nil {
+					return
+				}
+			}
+		case devicev1.MessageCommandReplayDone:
+			if !replaySupported || replayCompleted {
+				return
+			}
+			complete, err := devicev1.DecodePayload[devicev1.CommandReplayComplete](envelope)
+			if err != nil || complete.Validate() != nil || complete.Replayed != replayResults {
+				return
+			}
+			if _, err := c.service.ReconcileUnconfirmedCommands(ctx, endpointID, replayCutoff); err != nil {
+				return
+			}
+			replayCompleted = true
 		default:
 			return
 		}
@@ -471,6 +519,18 @@ type websocketTransport struct {
 	mu         sync.Mutex
 }
 
+func (t *websocketTransport) WriteMessage(ctx context.Context, messageType devicev1.MessageType, messageID, correlationID string, payload any) error {
+	envelope, err := devicev1.NewEnvelope(messageType, messageID, correlationID, time.Now().UTC(), payload)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return err
+	}
+	return t.Write(ctx, data)
+}
+
 func (t *websocketTransport) Write(ctx context.Context, data []byte) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -479,6 +539,15 @@ func (t *websocketTransport) Write(ctx context.Context, data []byte) error {
 
 func (t *websocketTransport) Close() error {
 	return t.connection.Close(websocket.StatusNormalClosure, "connection closed")
+}
+
+func capabilityListed(capabilities []string, wanted string) bool {
+	for _, capability := range capabilities {
+		if capability == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func readDeviceEnvelope(ctx context.Context, connection *websocket.Conn) (devicev1.Envelope, error) {

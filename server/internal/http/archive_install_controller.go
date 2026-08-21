@@ -149,7 +149,7 @@ func (c *DeviceController) InstallArchive(w http.ResponseWriter, r *http.Request
 		writeDeviceError(w, err)
 		return
 	}
-	command, err := c.service.DispatchCommand(r.Context(), endpointID, core.ProfileIDFromContext(r.Context()), devicev1.CapabilityGameInstallArchive, payload)
+	command, err := c.service.DispatchCommand(r.Context(), endpointID, core.ProfileIDFromContext(r.Context()), devicev1.CapabilityGameInstallArchivePackage, payload)
 	if err != nil {
 		writeDeviceError(w, err)
 		return

@@ -21,7 +21,8 @@ The current development implementation includes:
   DPAPI key storage
 - heartbeat presence, endpoint/user metadata, explicit profile grants, and the
   ready/busy/offline/update-required/error UI mapping
-- allow-listed endpoint, `inventory.refresh`, `installation.preflight`, `game.install_archive`,
+- allow-listed endpoint, `inventory.refresh`, `installation.preflight`, legacy `game.install_archive`,
+  client-classified `game.install_archive_package`,
   `game.uninstall`, `game.launch`, and read-only
   `game.validate_installations` commands with persisted
   lifecycle/results, endpoint-bound result validation, and capability checks
@@ -40,9 +41,8 @@ The current development implementation includes:
   `mga://release` and `mga://adopt` ownership recovery
 
 This is the secure control-plane plus first mutating-game vertical slice.
-Game stop, non-ZIP installers, emulator management, elevation helpers,
-durable reconnect idempotency, explicit cancellation messages, and client
-self-update remain intentionally deferred.
+Game stop, additional installer families, elevation helpers, explicit
+cancellation messages, and client self-update remain intentionally deferred.
 
 ## Goals
 
@@ -248,7 +248,7 @@ reserves these typed families:
 | Inventory | `inventory.refresh`; bounded storage/runtime report | `Manage` |
 | Installation preflight | `installation.preflight`; read-only destination storage and typed prerequisite checks | `Manage` |
 | Game | `game.launch` implemented; stop reserved | `Play` |
-| Game management | ZIP/7z/RAR archive install/uninstall implemented; repair and executable installers reserved | `Manage` |
+| Game management | ZIP/7z/RAR package classification and archive install/uninstall implemented; exact signed GOG Inno packages may be installed from inside an archive | `Manage` |
 | Installation health | `game.validate_installations`; bounded exact-path verification with no mutation | `View` |
 | Emulator | install, uninstall, configure, validate | `Manage` |
 | Client | check update, apply update, restart | `Owner` |
@@ -317,6 +317,26 @@ Uninstaller failure preserves files. Server-side **Ignore** records
 prerequisites remain out of scope. Native destructive confirmation remains for
 uninstall/cleanup; removing it is a separate decision.
 
+### Implemented command family: classified archive package
+
+ADR-0044 defines `game.install_archive_package`, schema 1, requiring `Manage`.
+The request retains the bounded ZIP/7z/RAR transfer shape of the legacy archive
+command and cannot select an inner executable or provide arguments. After the
+existing guarded extraction, MGA Client—not MGA Server—classifies the contents:
+
+- a ready-to-run archive commits through the managed-archive path;
+- exactly one `setup_*.exe` with only matching same-directory
+  `setup_*-N.bin` companions reuses the signed GOG/Inno verification and fixed
+  invocation path;
+- mixed executable content, scripts, MSI, generic installers, multiple setup
+  candidates, and mismatched companions fail closed with an actionable error.
+
+The result is a discriminated union and records the exact outer archive hash,
+size, name, and format for compressed GOG packages. New servers require the
+new capability and never silently fall back to `game.install_archive`. New
+clients retain the legacy handler for older servers, but reject a compressed
+installer there and ask the user to update the server.
+
 ## Local interaction and elevation
 
 A command may return `user_action_required` with a safe, typed reason such as
@@ -340,10 +360,23 @@ remains deferred.
 - Cancellation is best effort and produces a terminal result describing what
   was or was not rolled back.
 - Reconnection never makes an unknown command safe to repeat automatically.
-- The client stores idempotency outcomes for mutating commands for a bounded,
-  protocol-defined period.
-- The server can request the terminal result for a known command after
-  reconnect.
+- A replay-capable client advertises `protocol.command_replay`. The server
+  enables the optional replay fields/messages only for that capability.
+- Client config schema 4 selects command-ledger schema/policy 1. The client
+  atomically records `running` before `command.accepted` and its terminal
+  outcome before `command.result`.
+- A process/connection interruption converts an unfinished record to
+  `command_outcome_unknown`; MGA never automatically repeats that action.
+- On reconnect the client replays retained terminal outcomes, receives
+  `command.replay_ack`, and ends the handshake with
+  `command.replay_complete`. The server applies exact results once, treats an
+  exact terminal replay as a no-op, and refuses a real terminal conflict.
+- After replay completes, only older nonterminal server commands inside the
+  authenticated replay cutoff may become `client_command_unknown`; commands
+  created on the new connection are excluded.
+- Policy 1 retains terminal records for 30 days, replays acknowledged records
+  until seven days after command expiry, and targets 2,048 terminal records per
+  binding without pruning inside the safety window.
 - A duplicate idempotency key with different command content is a hard protocol
   error.
 - Commands stop or fail explicitly when their expiry or local safety boundary
@@ -375,14 +408,12 @@ sensitive.
 
 1. Exact schemas and local safety rules for repair, game stop, launch
    arguments/working-directory overrides, installer families beyond the
-   ADR-0007 GOG Inno slice, storefront delegation, and emulator commands.
-2. Durable client idempotency retention and reconnect replay for mutating
-   commands.
-3. Cancellation and rollback semantics for each mutating command.
-4. The narrowly scoped elevation-helper design and signing policy.
-5. Signed client update manifests, minimum-client-version policy, Authenticode,
+   ADR-0007/ADR-0044 exact GOG Inno slice, storefront delegation, and emulator commands.
+2. Cancellation and rollback semantics for each mutating command.
+3. The narrowly scoped elevation-helper design and signing policy.
+4. Signed client update manifests, minimum-client-version policy, Authenticode,
    and restricted update/recovery mode.
-6. Whether non-authoritative physical-host display grouping is useful.
+5. Whether non-authoritative physical-host display grouping is useful.
 7. Storefront-owned installation reconciliation for games not installed by MGA.
 
 ## Migration impact
@@ -427,5 +458,8 @@ no cleanup marker. See [ADR-0011](0011-device-installation-reconciliation.md).
 Migration 26 additively stores bounded, sanitized managed-install observations
 with device inventory. Client config schema 3 adds stable binding IDs;
 ownership-catalog schema 1, archive manifest schema 3, and executable manifest
-schema 4 add client-local ownership. Older config and manifests follow the
+schema 4 add client-local ownership. ADR-0044 raises new executable manifests
+to schema 5 only to add optional outer archive evidence; schemas 3 and 4 remain
+readable. `NO_SQLITE_MIGRATION_NEEDED`: existing command payload/result JSON and
+installation columns already persist the required evidence. Older config and manifests follow the
 fail-closed migration policy in [ADR-0023](0023-cross-server-installation-ownership.md).

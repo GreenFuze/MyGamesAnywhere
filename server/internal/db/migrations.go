@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 37
+const latestMigrationVersion = 38
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -781,6 +781,16 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 					PRIMARY KEY(endpoint_id, profile_id, game_id, source_game_id)
 				);`,
 				`CREATE INDEX idx_device_storefront_products_profile_game ON device_storefront_products(profile_id, game_id, installed, endpoint_id);`,
+			},
+		},
+		{
+			Version: 38,
+			Name:    "durable_device_command_replay",
+			SQL: []string{
+				`ALTER TABLE device_commands ADD COLUMN request_fingerprint TEXT NOT NULL DEFAULT '';`,
+				`ALTER TABLE device_commands ADD COLUMN result_fingerprint TEXT NOT NULL DEFAULT '';`,
+				`ALTER TABLE device_commands ADD COLUMN replay_count INTEGER NOT NULL DEFAULT 0 CHECK(replay_count >= 0);`,
+				`ALTER TABLE device_commands ADD COLUMN last_replayed_at INTEGER;`,
 			},
 		},
 	}

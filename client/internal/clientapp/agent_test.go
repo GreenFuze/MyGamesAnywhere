@@ -107,7 +107,7 @@ func TestLocalMetadataAdvertisesGogInnoCommands(t *testing.T) {
 	for _, capability := range metadata.Capabilities {
 		capabilities[capability] = true
 	}
-	if !capabilities[devicev1.CapabilityGameInstallGogInno] || !capabilities[devicev1.CapabilityGameUninstallGogInno] || !capabilities[devicev1.CapabilityGameCleanupGogInnoFailed] {
+	if !capabilities[devicev1.CapabilityGameInstallArchivePackage] || !capabilities[devicev1.CapabilityGameInstallGogInno] || !capabilities[devicev1.CapabilityGameUninstallGogInno] || !capabilities[devicev1.CapabilityGameCleanupGogInnoFailed] {
 		t.Fatalf("capabilities = %v", metadata.Capabilities)
 	}
 }

@@ -86,7 +86,9 @@ func TestServiceReleaseAndAdoptPreservesFilesAndRewritesManifest(t *testing.T) {
 	t.Cleanup(func() { _ = service.Close() })
 	one := serviceTestBinding("one", "http://localhost:8900")
 	two := serviceTestBinding("two", "http://tv2:8900")
-	if err := service.configs.Save(clientconfig.Document{SchemaVersion: clientconfig.SchemaVersion, Bindings: []clientconfig.Binding{one, two}}); err != nil {
+	document := clientconfig.NewDocument()
+	document.Bindings = []clientconfig.Binding{one, two}
+	if err := service.configs.Save(document); err != nil {
 		t.Fatal(err)
 	}
 	root := filepath.Join(t.TempDir(), "Games", "MGA", "one")

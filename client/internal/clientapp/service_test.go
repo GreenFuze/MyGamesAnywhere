@@ -96,7 +96,9 @@ func TestAcknowledgeLaunchReportsUnknownServerWithoutRemovingBindings(t *testing
 	}
 	t.Cleanup(func() { _ = service.Close() })
 	binding := serviceTestBinding("one", "http://127.0.0.1:8900")
-	if err := service.configs.Save(clientconfig.Document{SchemaVersion: clientconfig.SchemaVersion, Bindings: []clientconfig.Binding{binding}}); err != nil {
+	document := clientconfig.NewDocument()
+	document.Bindings = []clientconfig.Binding{binding}
+	if err := service.configs.Save(document); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
 
@@ -183,7 +185,9 @@ func TestClearBindingRemovesOnlyRequestedServerAndKey(t *testing.T) {
 			t.Fatal(keyErr)
 		}
 	}
-	if err := service.configs.Save(clientconfig.Document{SchemaVersion: clientconfig.SchemaVersion, Bindings: []clientconfig.Binding{one, two}}); err != nil {
+	document := clientconfig.NewDocument()
+	document.Bindings = []clientconfig.Binding{one, two}
+	if err := service.configs.Save(document); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.clearBinding("http://127.0.0.1:8900", false); err != nil {
@@ -237,7 +241,9 @@ func TestPairUsesExistingIdentityToAddProfileGrant(t *testing.T) {
 	}))
 	defer server.Close()
 	binding := serviceTestBinding("one", server.URL)
-	if err := service.configs.Save(clientconfig.Document{SchemaVersion: clientconfig.SchemaVersion, Bindings: []clientconfig.Binding{binding}}); err != nil {
+	document := clientconfig.NewDocument()
+	document.Bindings = []clientconfig.Binding{binding}
+	if err := service.configs.Save(document); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.identityStore(binding).Save(privateKey); err != nil {
@@ -270,7 +276,9 @@ func TestLoadBindingsRejectsEquivalentLoopbackOrigins(t *testing.T) {
 	t.Cleanup(func() { _ = service.Close() })
 	one := serviceTestBinding("one", "http://localhost:8900")
 	two := serviceTestBinding("two", "http://127.0.0.1:8900")
-	if err := service.configs.Save(clientconfig.Document{SchemaVersion: clientconfig.SchemaVersion, Bindings: []clientconfig.Binding{one, two}}); err != nil {
+	document := clientconfig.NewDocument()
+	document.Bindings = []clientconfig.Binding{one, two}
+	if err := service.configs.Save(document); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.loadBindings(); err == nil || !strings.Contains(err.Error(), "duplicate equivalent") {

@@ -88,6 +88,7 @@ type Service struct {
 	prepared    *PreparedCopyCatalog
 	saveDomains *SaveDomainCatalog
 	storefront  *StorefrontGrantCatalog
+	commands    *CommandLedger
 	operations  *InstallationCoordinator
 }
 
@@ -127,6 +128,11 @@ func New(dataDir string, info buildinfo.Info, extraLogWriters ...io.Writer) (*Se
 		_ = logFile.Close()
 		return nil, fmt.Errorf("open storefront grant catalog: %w", err)
 	}
+	commands, err := OpenCommandLedger(layout.CommandLedgerPath)
+	if err != nil {
+		_ = logFile.Close()
+		return nil, fmt.Errorf("open durable command ledger: %w", err)
+	}
 	writers := []io.Writer{logFile}
 	for _, writer := range extraLogWriters {
 		if writer != nil && writer != io.Discard {
@@ -144,6 +150,7 @@ func New(dataDir string, info buildinfo.Info, extraLogWriters ...io.Writer) (*Se
 		prepared:    prepared,
 		saveDomains: saveDomains,
 		storefront:  storefront,
+		commands:    commands,
 		operations:  NewInstallationCoordinator(),
 	}, nil
 }
@@ -171,7 +178,7 @@ func (s *Service) Pair(ctx context.Context, options PairOptions) (clientconfig.B
 	}
 	document, err := s.loadBindings()
 	if errors.Is(err, clientconfig.ErrNotPaired) {
-		document = clientconfig.Document{SchemaVersion: clientconfig.SchemaVersion}
+		document = clientconfig.NewDocument()
 	} else if err != nil {
 		return clientconfig.Binding{}, err
 	}
@@ -400,11 +407,15 @@ func (s *Service) runAgentWithLock(ctx context.Context, executionMode devicev1.C
 	defer stopHost()
 	commandServer, err := commandipc.NewServer(
 		s.commandEndpoint(),
-		func(commandContext context.Context, rawURI string) (commandipc.Outcome, error) {
-			return s.executeForwardedProtocol(commandContext, rawURI, executionMode)
+		func(commandContext context.Context, request commandipc.Request) (commandipc.Outcome, error) {
+			if request.Action == commandipc.ActionStopForUpgrade {
+				s.Logf("installer requested graceful client shutdown")
+				return commandipc.Outcome{StopPrimary: true}, nil
+			}
+			return s.executeForwardedProtocol(commandContext, request.URI, executionMode)
 		},
 		func() {
-			s.Logf("agent takeover acknowledged; stopping current tray owner")
+			s.Logf("agent shutdown acknowledged; stopping current tray owner")
 			stopHost()
 		},
 	)
@@ -434,7 +445,7 @@ func (s *Service) runAgentWithLock(ctx context.Context, executionMode devicev1.C
 		ownership.saveDomains = s.saveDomains
 		ownership.saveRoot = s.layout.SaveDomainsRoot
 		ownership.storefrontGrants = s.storefront
-		agent, agentErr := NewOwnedAgentWithExecutionMode(binding, privateKey, s.buildInfo, s.logger, executionMode, ownership, s.prepared)
+		agent, agentErr := NewDurableOwnedAgentWithExecutionMode(binding, privateKey, s.buildInfo, s.logger, executionMode, ownership, s.prepared, s.commands)
 		if agentErr != nil {
 			return fmt.Errorf("prepare agent for %s: %w", binding.ServerURL, agentErr)
 		}
@@ -823,11 +834,13 @@ func localMetadata(displayName string, executionMode devicev1.ClientExecutionMod
 		Arch:          runtime.GOARCH,
 		ExecutionMode: normalizedExecutionMode(executionMode),
 		Capabilities: []string{
+			devicev1.CapabilityProtocolCommandReplay,
 			devicev1.CapabilityEndpointPing,
 			devicev1.CapabilityEndpointRefresh,
 			devicev1.CapabilityEndpointStop,
 			devicev1.CapabilityGameDownloadFiles,
 			devicev1.CapabilityGameInstallArchive,
+			devicev1.CapabilityGameInstallArchivePackage,
 			devicev1.CapabilityGameUninstall,
 			devicev1.CapabilityGameCleanupInstallation,
 			devicev1.CapabilityGameInstallGogInno,

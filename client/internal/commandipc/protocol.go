@@ -18,11 +18,19 @@ const (
 	MaxFrameBytes = 16 * 1024
 )
 
+type Action string
+
+const (
+	ActionProtocolURI    Action = "protocol_uri"
+	ActionStopForUpgrade Action = "stop_for_upgrade"
+)
+
 var ErrUnavailable = errors.New("MGA Client command channel is unavailable")
 
 type Request struct {
 	Version   int    `json:"version"`
 	RequestID string `json:"request_id"`
+	Action    Action `json:"action,omitempty"`
 	URI       string `json:"uri"`
 }
 
@@ -35,10 +43,10 @@ type Response struct {
 }
 
 type Outcome struct {
-	RestartPrimary bool
+	StopPrimary bool
 }
 
-type Handler func(context.Context, string) (Outcome, error)
+type Handler func(context.Context, Request) (Outcome, error)
 
 type Server struct {
 	endpoint Endpoint
@@ -145,7 +153,7 @@ func (s *Server) execute(ctx context.Context, request Request) (Response, bool) 
 		return response, false
 	}
 
-	outcome, err := s.handler(ctx, request.URI)
+	outcome, err := s.handler(ctx, request)
 	if err != nil {
 		response.ErrorCode = "command_failed"
 		response.Error = err.Error()
@@ -154,7 +162,7 @@ func (s *Server) execute(ctx context.Context, request Request) (Response, bool) 
 	}
 	response.OK = true
 	s.remember(request.RequestID, response)
-	if outcome.RestartPrimary {
+	if outcome.StopPrimary {
 		s.restarting = true
 		return response, true
 	}
@@ -218,12 +226,25 @@ func validateRequest(request Request) error {
 	if request.RequestID == "" || len(request.RequestID) > 128 {
 		return errors.New("command request ID is required and must be at most 128 characters")
 	}
-	request.URI = strings.TrimSpace(request.URI)
-	if request.URI == "" {
-		return errors.New("MGA protocol URI is required")
+	action := request.Action
+	if action == "" {
+		action = ActionProtocolURI
 	}
-	if len(request.URI) > MaxFrameBytes-512 {
-		return errors.New("MGA protocol URI is too large")
+	switch action {
+	case ActionProtocolURI:
+		request.URI = strings.TrimSpace(request.URI)
+		if request.URI == "" {
+			return errors.New("MGA protocol URI is required")
+		}
+		if len(request.URI) > MaxFrameBytes-512 {
+			return errors.New("MGA protocol URI is too large")
+		}
+	case ActionStopForUpgrade:
+		if strings.TrimSpace(request.URI) != "" {
+			return errors.New("stop-for-upgrade request must not contain an MGA protocol URI")
+		}
+	default:
+		return fmt.Errorf("unsupported MGA Client command action %q", action)
 	}
 	return nil
 }
