@@ -11,14 +11,12 @@ interface DialogProps {
 
 /** Modal dialog with backdrop. Uses native <dialog> for accessibility. */
 export function Dialog({ open, onClose, title, children, className }: DialogProps) {
-  const ref = useRef<HTMLDialogElement>(null!)
+  const ref = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
     const el = ref.current
-    if (open && !el.open) {
+    if (open && el && !el.open) {
       el.showModal()
-    } else if (!open && el.open) {
-      el.close()
     }
   }, [open])
 
@@ -26,6 +24,12 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
   const handleClick = (e: React.MouseEvent<HTMLDialogElement>) => {
     if (e.target === ref.current) onClose()
   }
+
+  // Closed dialogs must not retain their content in the document. Library
+  // cards can expose media pickers containing many images; keeping one hidden
+  // picker per card previously mounted thousands of off-screen images and DOM
+  // nodes. Unmounting is also the native dialog equivalent of closing it.
+  if (!open) return null
 
   return (
     <dialog

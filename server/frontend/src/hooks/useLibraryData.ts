@@ -3,7 +3,9 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { listGames } from '@/api/client'
 import type { LibraryPrefs } from '@/api/client'
 
-export const LIBRARY_PAGE_SIZE = 100
+// Four full rows even on a 4K display, without making first paint wait for a
+// hundred games' source/media/play projections.
+export const LIBRARY_PAGE_SIZE = 48
 
 /**
  * Fetches library games in bounded pages. Fetch-all is too expensive for

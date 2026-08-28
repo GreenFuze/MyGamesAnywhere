@@ -377,6 +377,11 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   // Group headings and counts are misleading when they only describe the
   // current page, so grouped views deliberately finish loading the library.
   const groupRequiresAllPages = effectiveGroupBy !== 'none'
+  const viewRequiresAllPages = scope === 'library' && (effectiveViewMode !== 'grid' || Boolean(focusedSection))
+  const shouldFinishLoadingLibrary = searchRequiresAllPages
+    || filterRequiresAllPages
+    || groupRequiresAllPages
+    || viewRequiresAllPages
   const loadMode: LibraryLoadMode = searchRequiresAllPages
     ? 'search'
     : filterRequiresAllPages
@@ -573,9 +578,9 @@ export function CollectionPage({ scope }: CollectionPageProps) {
   }, [isFetchingNextPage])
 
   useEffect(() => {
-    if (!hasNextPage || isError) return
+    if (!shouldFinishLoadingLibrary || !hasNextPage || isError) return
     requestNextPage()
-  }, [hasNextPage, isError, loadedCount, requestNextPage])
+  }, [hasNextPage, isError, loadedCount, requestNextPage, shouldFinishLoadingLibrary])
 
   useEffect(() => {
     setSelectedGameIds((prev) => {
@@ -751,6 +756,9 @@ export function CollectionPage({ scope }: CollectionPageProps) {
             games={displayedGames}
             isLoading={isPending}
             progressive
+            hasMoreGames={Boolean(hasNextPage)}
+            isLoadingMore={isFetchingNextPage}
+            onLoadMore={requestNextPage}
             cardVariant={scope === 'play' ? 'play' : 'library'}
           />
         </div>
@@ -772,6 +780,10 @@ export function CollectionPage({ scope }: CollectionPageProps) {
           <GameGrid
             games={displayedGames}
             isLoading={isPending}
+            progressive
+            hasMoreGames={Boolean(hasNextPage)}
+            isLoadingMore={isFetchingNextPage}
+            onLoadMore={requestNextPage}
             cardVariant={scope === 'play' ? 'play' : 'library'}
           />
         </div>
@@ -791,7 +803,12 @@ export function CollectionPage({ scope }: CollectionPageProps) {
           {scope === 'play' ? (
             <>
               <RecentPlayedShelf games={recentPlayedGames} onRemove={removeRecentPlayed} />
-              <PlayRouteShelves games={displayedGames} />
+              <PlayRouteShelves
+                games={displayedGames}
+                hasMoreGames={Boolean(hasNextPage)}
+                isLoadingMore={isFetchingNextPage}
+                onLoadMore={requestNextPage}
+              />
               {playCustomSections.length > 0 ? (
                 <CollectionShelf
                   sections={playCustomSections}

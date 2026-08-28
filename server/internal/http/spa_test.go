@@ -35,6 +35,12 @@ func TestMountSPAPrefersFilesystemOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "app.js"), []byte("console.log('override asset')"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(root, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "assets", "app-abc123.js"), []byte("console.log('hashed asset')"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	router := chi.NewRouter()
 	MountSPA(router, root)
@@ -48,6 +54,16 @@ func TestMountSPAPrefersFilesystemOverride(t *testing.T) {
 	if body := strings.TrimSpace(assetRec.Body.String()); body != "console.log('override asset')" {
 		t.Fatalf("asset body = %q, want filesystem override asset", body)
 	}
+	if cacheControl := assetRec.Header().Get("Cache-Control"); cacheControl != "no-cache" {
+		t.Fatalf("stable asset cache-control = %q, want no-cache", cacheControl)
+	}
+
+	hashedReq := httptest.NewRequest(http.MethodGet, "/assets/app-abc123.js", nil)
+	hashedRec := httptest.NewRecorder()
+	router.ServeHTTP(hashedRec, hashedReq)
+	if cacheControl := hashedRec.Header().Get("Cache-Control"); cacheControl != "public, max-age=31536000, immutable" {
+		t.Fatalf("hashed asset cache-control = %q", cacheControl)
+	}
 
 	indexReq := httptest.NewRequest(http.MethodGet, "/non-existent", nil)
 	indexRec := httptest.NewRecorder()
@@ -57,5 +73,8 @@ func TestMountSPAPrefersFilesystemOverride(t *testing.T) {
 	}
 	if body := strings.TrimSpace(indexRec.Body.String()); body != "<html><body>override index</body></html>" {
 		t.Fatalf("index body = %q, want filesystem override index", body)
+	}
+	if cacheControl := indexRec.Header().Get("Cache-Control"); cacheControl != "no-cache" {
+		t.Fatalf("SPA fallback cache-control = %q, want no-cache", cacheControl)
 	}
 }

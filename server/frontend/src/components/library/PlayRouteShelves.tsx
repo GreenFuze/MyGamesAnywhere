@@ -6,10 +6,13 @@ import { isPlayable } from '@/lib/gameUtils'
 
 interface PlayRouteShelvesProps {
   games: GameDetailResponse[]
+  hasMoreGames?: boolean
+  isLoadingMore?: boolean
+  onLoadMore?: () => void
 }
 
 /** Action-oriented, intentionally overlapping shelves for current play routes. */
-export function PlayRouteShelves({ games }: PlayRouteShelvesProps) {
+export function PlayRouteShelves({ games, hasMoreGames, isLoadingMore, onLoadMore }: PlayRouteShelvesProps) {
   const shelves = useMemo(() => {
     const favorites = games.filter((game) => game.favorite)
     const browser = games.filter((game) => isPlayable(game))
@@ -49,6 +52,9 @@ export function PlayRouteShelves({ games }: PlayRouteShelvesProps) {
             label={shelf.label}
             cardVariant="play"
             preferredPlayRoute={shelf.preferredPlayRoute}
+            hasMoreGames={hasMoreGames}
+            isLoadingMore={isLoadingMore}
+            onLoadMore={onLoadMore}
           />
         </section>
       ))}

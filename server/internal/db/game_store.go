@@ -837,7 +837,7 @@ func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, li
 	if offset < 0 {
 		offset = 0
 	}
-	sortExpression, err := canonicalGameSortExpression(ctx, order.Field)
+	sortPlan, err := newCanonicalGameSortPlan(order.Field)
 	if err != nil {
 		return nil, err
 	}
@@ -848,23 +848,45 @@ func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, li
 		return nil, fmt.Errorf("unsupported canonical game sort direction %q", order.Direction)
 	}
 	db := s.db.GetDB()
-	q := `
-		SELECT canonical_id FROM canonical_source_games_link l
-		WHERE EXISTS (
-			SELECT 1 FROM source_games sg
-			WHERE sg.id = l.source_game_id AND ` + visibleSourceGameWhere(ctx, "sg") + `
-		)
-		GROUP BY canonical_id
-		ORDER BY ` + sortExpression + ` ` + direction + `, canonical_id ` + direction
+	profilePredicate := ""
 	var args []any
-	switch {
-	case limit > 0:
-		q += " LIMIT ? OFFSET ?"
-		args = append(args, limit, offset)
-	case offset > 0:
-		q += " LIMIT -1 OFFSET ?"
-		args = append(args, offset)
+	if profileID := strings.TrimSpace(core.ProfileIDFromContext(ctx)); profileID != "" {
+		profilePredicate = " AND sg.profile_id = ?"
+		args = append(args, profileID)
 	}
+	q := `
+		WITH resolver_stats AS (
+			SELECT source_game_id,
+				COUNT(*) AS match_count,
+				SUM(CASE WHEN outvoted = 0 AND IFNULL(title, '') != '' THEN 1 ELSE 0 END) AS title_count
+			FROM metadata_resolver_matches
+			GROUP BY source_game_id
+		),
+		visible_sources AS (
+			SELECT l.canonical_id, sg.id AS source_game_id, sg.raw_title, sg.platform
+			FROM canonical_source_games_link l
+			JOIN source_games sg ON sg.id = l.source_game_id
+			LEFT JOIN resolver_stats stats ON stats.source_game_id = sg.id
+			WHERE sg.status = 'found'
+			  AND IFNULL(sg.review_state, 'pending') != 'not_a_game'
+			  AND NOT (
+				IFNULL(sg.review_state, 'pending') = 'pending'
+				AND (
+					IFNULL(stats.match_count, 0) = 0
+					OR IFNULL(stats.title_count, 0) = 0
+					OR sg.platform = '` + string(core.PlatformUnknown) + `'
+					OR sg.group_kind = '` + string(core.GroupKindUnknown) + `'
+				)
+			  )` + profilePredicate + `
+		)
+		SELECT vs.canonical_id, vs.source_game_id, CAST(` + sortPlan.sourceValueSQL("vs") + ` AS TEXT),
+			m.id, IFNULL(m.manual_selection, 0), CAST(m.` + sortPlan.resolverColumn + ` AS TEXT),
+			CAST(m.` + sortPlan.resolverColumn + ` AS REAL)
+		FROM visible_sources vs
+		LEFT JOIN metadata_resolver_matches m
+			ON m.source_game_id = vs.source_game_id
+			AND m.outvoted = 0
+			AND ` + sortPlan.resolverPredicate
 
 	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -872,84 +894,201 @@ func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, li
 	}
 	defer rows.Close()
 
-	var ids []string
+	candidates := make(map[string]*canonicalGameSortCandidate)
 	for rows.Next() {
-		var cid string
-		if err := rows.Scan(&cid); err != nil {
+		var canonicalID, sourceGameID string
+		var sourceValue, resolverText sql.NullString
+		var resolverID sql.NullInt64
+		var resolverManual int
+		var resolverNumber sql.NullFloat64
+		if err := rows.Scan(&canonicalID, &sourceGameID, &sourceValue, &resolverID, &resolverManual, &resolverText, &resolverNumber); err != nil {
 			return nil, err
 		}
-		ids = append(ids, cid)
+		candidate := candidates[canonicalID]
+		if candidate == nil {
+			candidate = &canonicalGameSortCandidate{canonicalID: canonicalID}
+			candidates[canonicalID] = candidate
+		}
+		if candidate.sourceGameID == "" || sourceGameID < candidate.sourceGameID {
+			candidate.sourceGameID = sourceGameID
+			candidate.sourceValue = sourceValue.String
+		}
+		if resolverID.Valid && candidate.resolverRankedAfter(resolverManual != 0, sourceGameID, resolverID.Int64) {
+			candidate.hasResolver = true
+			candidate.resolverManual = resolverManual != 0
+			candidate.resolverSourceGameID = sourceGameID
+			candidate.resolverID = resolverID.Int64
+			candidate.resolverText = resolverText.String
+			candidate.resolverNumber = resolverNumber.Float64
+		}
 	}
-	return ids, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	sorted := make([]*canonicalGameSortCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		sorted = append(sorted, candidate)
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		comparison := sortPlan.compare(sorted[i], sorted[j])
+		if comparison == 0 {
+			comparison = strings.Compare(sorted[i].canonicalID, sorted[j].canonicalID)
+		}
+		if direction == "DESC" {
+			return comparison > 0
+		}
+		return comparison < 0
+	})
+	if offset >= len(sorted) {
+		return []string{}, nil
+	}
+	end := len(sorted)
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	ids := make([]string, 0, end-offset)
+	for _, candidate := range sorted[offset:end] {
+		ids = append(ids, candidate.canonicalID)
+	}
+	return ids, nil
 }
 
-func canonicalGameSortExpression(ctx context.Context, field core.CanonicalGameSort) (string, error) {
-	resolverValue := func(column, predicate string) string {
-		return `(SELECT m.` + column + `
-			FROM canonical_source_games_link sort_link
-			JOIN source_games sort_sg ON sort_sg.id = sort_link.source_game_id
-			JOIN metadata_resolver_matches m ON m.source_game_id = sort_sg.id
-			WHERE sort_link.canonical_id = l.canonical_id
-			  AND ` + visibleSourceGameWhere(ctx, "sort_sg") + `
-			  AND m.outvoted = 0 AND ` + predicate + `
-			ORDER BY m.manual_selection DESC, sort_sg.id, m.id
-			LIMIT 1)`
-	}
-	sourceValue := func(column string) string {
-		return `(SELECT sort_sg.` + column + `
-			FROM canonical_source_games_link sort_link
-			JOIN source_games sort_sg ON sort_sg.id = sort_link.source_game_id
-			WHERE sort_link.canonical_id = l.canonical_id
-			  AND ` + visibleSourceGameWhere(ctx, "sort_sg") + `
-			ORDER BY sort_sg.id
-			LIMIT 1)`
-	}
+type canonicalGameSortPlan struct {
+	resolverColumn    string
+	resolverPredicate string
+	sourceColumn      string
+	lowercase         bool
+	numeric           bool
+}
 
+func newCanonicalGameSortPlan(field core.CanonicalGameSort) (canonicalGameSortPlan, error) {
 	switch field {
 	case "", core.CanonicalGameSortTitle:
-		return `LOWER(COALESCE(NULLIF(` + resolverValue("title", "TRIM(m.title) != ''") + `, ''), ` + sourceValue("raw_title") + `, ''))`, nil
+		return canonicalGameSortPlan{resolverColumn: "title", resolverPredicate: "TRIM(m.title) != ''", sourceColumn: "raw_title", lowercase: true}, nil
 	case core.CanonicalGameSortReleaseDate:
-		return `COALESCE(NULLIF(` + resolverValue("release_date", "TRIM(m.release_date) != ''") + `, ''), '')`, nil
+		return canonicalGameSortPlan{resolverColumn: "release_date", resolverPredicate: "TRIM(m.release_date) != ''"}, nil
 	case core.CanonicalGameSortPlatform:
-		return `LOWER(COALESCE(NULLIF(` + resolverValue("platform", "TRIM(m.platform) != ''") + `, ''), ` + sourceValue("platform") + `, ''))`, nil
+		return canonicalGameSortPlan{resolverColumn: "platform", resolverPredicate: "TRIM(m.platform) != ''", sourceColumn: "platform", lowercase: true}, nil
 	case core.CanonicalGameSortRating:
-		return `COALESCE(` + resolverValue("rating", "m.rating > 0") + `, 0)`, nil
+		return canonicalGameSortPlan{resolverColumn: "rating", resolverPredicate: "m.rating > 0", numeric: true}, nil
 	default:
-		return "", fmt.Errorf("unsupported canonical game sort field %q", field)
+		return canonicalGameSortPlan{}, fmt.Errorf("unsupported canonical game sort field %q", field)
 	}
+}
+
+func (p canonicalGameSortPlan) sourceValueSQL(alias string) string {
+	if p.sourceColumn == "" {
+		return "NULL"
+	}
+	return alias + "." + p.sourceColumn
+}
+
+type canonicalGameSortCandidate struct {
+	canonicalID          string
+	sourceGameID         string
+	sourceValue          string
+	hasResolver          bool
+	resolverManual       bool
+	resolverSourceGameID string
+	resolverID           int64
+	resolverText         string
+	resolverNumber       float64
+}
+
+func (c *canonicalGameSortCandidate) resolverRankedAfter(manual bool, sourceGameID string, resolverID int64) bool {
+	if !c.hasResolver {
+		return true
+	}
+	if manual != c.resolverManual {
+		return manual
+	}
+	if sourceGameID != c.resolverSourceGameID {
+		return sourceGameID < c.resolverSourceGameID
+	}
+	return resolverID < c.resolverID
+}
+
+func (p canonicalGameSortPlan) compare(left, right *canonicalGameSortCandidate) int {
+	if p.numeric {
+		leftValue, rightValue := 0.0, 0.0
+		if left.hasResolver {
+			leftValue = left.resolverNumber
+		}
+		if right.hasResolver {
+			rightValue = right.resolverNumber
+		}
+		switch {
+		case leftValue < rightValue:
+			return -1
+		case leftValue > rightValue:
+			return 1
+		default:
+			return 0
+		}
+	}
+	leftValue, rightValue := left.resolverText, right.resolverText
+	if !left.hasResolver || leftValue == "" {
+		leftValue = left.sourceValue
+	}
+	if !right.hasResolver || rightValue == "" {
+		rightValue = right.sourceValue
+	}
+	if p.lowercase {
+		leftValue = strings.ToLower(leftValue)
+		rightValue = strings.ToLower(rightValue)
+	}
+	return strings.Compare(leftValue, rightValue)
 }
 
 func (s *gameStore) canonicalGamesForIDs(ctx context.Context, ids []string) ([]*core.CanonicalGame, error) {
 	db := s.db.GetDB()
-	var result []*core.CanonicalGame
-	for _, cid := range ids {
-		rows, err := db.QueryContext(ctx, `SELECT l.source_game_id FROM canonical_source_games_link l
+	if len(ids) == 0 {
+		return []*core.CanonicalGame{}, nil
+	}
+
+	sourceIDsByCanonical := make(map[string][]string, len(ids))
+	var allSourceIDs []string
+	for _, chunk := range stringChunks(ids, 400) {
+		args := stringsToAny(chunk)
+		rows, err := db.QueryContext(ctx, `SELECT l.canonical_id, l.source_game_id
+			FROM canonical_source_games_link l
 			JOIN source_games sg ON sg.id = l.source_game_id
-			WHERE l.canonical_id=?`+profileFilterSQL(ctx, "sg"), cid)
+			WHERE l.canonical_id IN (`+buildPlaceholderList(len(chunk))+`)`+profileFilterSQL(ctx, "sg")+`
+			ORDER BY l.canonical_id, l.source_game_id`, args...)
 		if err != nil {
 			return nil, err
 		}
-		var sgIDs []string
 		for rows.Next() {
-			var sgid string
-			if err := rows.Scan(&sgid); err != nil {
+			var canonicalID, sourceGameID string
+			if err := rows.Scan(&canonicalID, &sourceGameID); err != nil {
 				rows.Close()
 				return nil, err
 			}
-			sgIDs = append(sgIDs, sgid)
+			sourceIDsByCanonical[canonicalID] = append(sourceIDsByCanonical[canonicalID], sourceGameID)
+			allSourceIDs = append(allSourceIDs, sourceGameID)
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		rows.Close()
+	}
+
+	sourceGames, err := s.loadSourceGames(ctx, db, allSourceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*core.CanonicalGame, 0, len(ids))
+	for _, cid := range ids {
+		sgIDs := sourceIDsByCanonical[cid]
 		if len(sgIDs) == 0 {
 			continue
 		}
-		cg, err := s.buildCanonicalGame(ctx, db, cid, sgIDs)
+		cg, err := s.buildCanonicalGameFromSources(ctx, db, cid, sgIDs, sourceGames)
 		if err != nil {
-			s.logger.Error("build canonical game", err, "canonical_id", cid)
-			continue
+			return nil, fmt.Errorf("build canonical game %s: %w", cid, err)
 		}
 		if cg != nil {
 			result = append(result, cg)
@@ -4326,6 +4465,207 @@ func (s *gameStore) loadSourceGame(ctx context.Context, db *sql.DB, sgID string)
 	return &sg, nil
 }
 
+// loadSourceGames loads the complete source records for a library page with a
+// bounded number of set-based queries. The previous list path called
+// loadSourceGame for every source row, multiplying five queries by every copy
+// of every game on the page.
+func (s *gameStore) loadSourceGames(ctx context.Context, db *sql.DB, sourceGameIDs []string) (map[string]*core.SourceGame, error) {
+	games := make(map[string]*core.SourceGame, len(sourceGameIDs))
+	if len(sourceGameIDs) == 0 {
+		return games, nil
+	}
+
+	for _, chunk := range stringChunks(sourceGameIDs, 400) {
+		rows, err := db.QueryContext(ctx, `SELECT id, integration_id, plugin_id, external_id, raw_title,
+			platform, kind, group_kind, root_path, url, status, COALESCE(review_state, 'pending'),
+			COALESCE(manual_review_json, ''), last_seen_at, created_at
+			FROM source_games WHERE id IN (`+buildPlaceholderList(len(chunk))+`)`+profileFilterSQL(ctx, "source_games"), stringsToAny(chunk)...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var sg core.SourceGame
+			var lastSeen sql.NullInt64
+			var createdAt int64
+			var rootPath, url, manualReviewJSON sql.NullString
+			if err := rows.Scan(
+				&sg.ID, &sg.IntegrationID, &sg.PluginID, &sg.ExternalID, &sg.RawTitle,
+				(*string)(&sg.Platform), (*string)(&sg.Kind), (*string)(&sg.GroupKind),
+				&rootPath, &url, &sg.Status, (*string)(&sg.ReviewState), &manualReviewJSON,
+				&lastSeen, &createdAt,
+			); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			sg.RootPath = rootPath.String
+			sg.URL = url.String
+			sg.CreatedAt = time.Unix(createdAt, 0)
+			if lastSeen.Valid {
+				t := time.Unix(lastSeen.Int64, 0)
+				sg.LastSeenAt = &t
+			}
+			if manualReviewJSON.String != "" {
+				decision, err := parseManualReviewDecisionJSON(manualReviewJSON.String)
+				if err != nil {
+					rows.Close()
+					return nil, err
+				}
+				sg.ManualReview = decision
+			}
+			games[sg.ID] = &sg
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	for _, chunk := range stringChunks(sourceGameIDs, 400) {
+		rows, err := db.QueryContext(ctx, `SELECT p.profile_id, p.source_game_id, p.canonical_id,
+			p.mode, COALESCE(p.note, ''), p.created_at, p.updated_at
+			FROM canonical_source_pins p
+			WHERE p.source_game_id IN (`+buildPlaceholderList(len(chunk))+`)`+profileFilterSQL(ctx, "p")+`
+			ORDER BY p.source_game_id, p.updated_at DESC`, stringsToAny(chunk)...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var pin core.CanonicalSourcePin
+			var createdAt, updatedAt int64
+			if err := rows.Scan(&pin.ProfileID, &pin.SourceGameID, &pin.CanonicalID, (*string)(&pin.Mode), &pin.Note, &createdAt, &updatedAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if sg := games[pin.SourceGameID]; sg != nil && sg.CanonicalPin == nil {
+				pin.CreatedAt = time.Unix(createdAt, 0).UTC()
+				pin.UpdatedAt = time.Unix(updatedAt, 0).UTC()
+				sg.CanonicalPin = &pin
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	for _, chunk := range stringChunks(sourceGameIDs, 400) {
+		rows, err := db.QueryContext(ctx, `SELECT source_game_id, path, file_name, role, file_kind, size,
+			is_dir, object_id, revision, modified_at
+			FROM game_files WHERE source_game_id IN (`+buildPlaceholderList(len(chunk))+`)
+			ORDER BY source_game_id, path, file_name`, stringsToAny(chunk)...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var sourceGameID string
+			var file core.GameFile
+			var isDir int
+			var objectID, revision sql.NullString
+			var modifiedAt sql.NullInt64
+			if err := rows.Scan(&sourceGameID, &file.Path, &file.FileName, &file.Role, &file.FileKind, &file.Size, &isDir, &objectID, &revision, &modifiedAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			file.GameID = sourceGameID
+			file.IsDir = isDir != 0
+			file.ObjectID = objectID.String
+			file.Revision = revision.String
+			if modifiedAt.Valid {
+				t := time.Unix(modifiedAt.Int64, 0).UTC()
+				file.ModifiedAt = &t
+			}
+			if sg := games[sourceGameID]; sg != nil {
+				sg.Files = append(sg.Files, file)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	for _, chunk := range stringChunks(sourceGameIDs, 400) {
+		rows, err := db.QueryContext(ctx, `SELECT source_game_id, plugin_id, external_id, title, platform, url,
+			outvoted, manual_selection, developer, publisher, release_date, rating, metadata_json
+			FROM metadata_resolver_matches WHERE source_game_id IN (`+buildPlaceholderList(len(chunk))+`)
+			ORDER BY source_game_id, id`, stringsToAny(chunk)...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var sourceGameID string
+			var match core.ResolverMatch
+			var title, platform, matchURL, developer, publisher, releaseDate, metadataJSON sql.NullString
+			var outvoted, manualSelection int
+			if err := rows.Scan(&sourceGameID, &match.PluginID, &match.ExternalID, &title, &platform, &matchURL,
+				&outvoted, &manualSelection, &developer, &publisher, &releaseDate, &match.Rating, &metadataJSON); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			match.Title = title.String
+			match.Platform = platform.String
+			match.URL = matchURL.String
+			match.Outvoted = outvoted != 0
+			match.ManualSelection = manualSelection != 0
+			match.Developer = developer.String
+			match.Publisher = publisher.String
+			match.ReleaseDate = releaseDate.String
+			if metadataJSON.String != "" {
+				parseMetadataJSON(metadataJSON.String, &match)
+				match.MetadataJSON = metadataJSON.String
+			}
+			if sg := games[sourceGameID]; sg != nil {
+				sg.ResolverMatches = append(sg.ResolverMatches, match)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	for _, chunk := range stringChunks(sourceGameIDs, 400) {
+		rows, err := db.QueryContext(ctx, `SELECT sgm.source_game_id, ma.id, ma.url, ma.local_path, ma.hash,
+			ma.mime_type, sgm.type, sgm.source, ma.width, ma.height
+			FROM source_game_media sgm
+			JOIN media_assets ma ON ma.id = sgm.media_asset_id
+			WHERE sgm.source_game_id IN (`+buildPlaceholderList(len(chunk))+`)
+			  AND COALESCE(ma.download_permanent_failure, 0) = 0
+			ORDER BY sgm.source_game_id, ma.id`, stringsToAny(chunk)...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var sourceGameID string
+			var ref core.MediaRef
+			var source, localPath, hash, mimeType sql.NullString
+			if err := rows.Scan(&sourceGameID, &ref.AssetID, &ref.URL, &localPath, &hash, &mimeType,
+				(*string)(&ref.Type), &source, &ref.Width, &ref.Height); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			ref.Source = source.String
+			ref.LocalPath = localPath.String
+			ref.Hash = hash.String
+			ref.MimeType = mimeType.String
+			if sg := games[sourceGameID]; sg != nil {
+				sg.Media = append(sg.Media, ref)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	return games, nil
+}
+
 func (s *gameStore) loadCanonicalSourcePin(ctx context.Context, db *sql.DB, sourceGameID string) (*core.CanonicalSourcePin, error) {
 	profileID := strings.TrimSpace(core.ProfileIDFromContext(ctx))
 	query := `SELECT profile_id, source_game_id, canonical_id, mode, COALESCE(note, ''), created_at, updated_at
@@ -4381,13 +4721,21 @@ func (s *gameStore) loadSourceGameMedia(ctx context.Context, db *sql.DB, sgID st
 }
 
 func (s *gameStore) buildCanonicalGame(ctx context.Context, db *sql.DB, canonicalID string, sgIDs []string) (*core.CanonicalGame, error) {
+	sourceGames, err := s.loadSourceGames(ctx, db, sgIDs)
+	if err != nil {
+		return nil, err
+	}
+	return s.buildCanonicalGameFromSources(ctx, db, canonicalID, sgIDs, sourceGames)
+}
+
+func (s *gameStore) buildCanonicalGameFromSources(ctx context.Context, db *sql.DB, canonicalID string, sgIDs []string, sourceGames map[string]*core.SourceGame) (*core.CanonicalGame, error) {
 	cg := &core.CanonicalGame{ID: canonicalID}
 	hasVisible := false
 
 	for _, sgID := range sgIDs {
-		sg, err := s.loadSourceGame(ctx, db, sgID)
-		if err != nil {
-			return nil, err
+		sg := sourceGames[sgID]
+		if sg == nil {
+			continue
 		}
 		if !isVisibleSourceGame(sg) {
 			continue
@@ -4978,4 +5326,30 @@ func buildPlaceholderList(n int) string {
 		return ""
 	}
 	return strings.Repeat("?,", n-1) + "?"
+}
+
+func stringsToAny(values []string) []any {
+	args := make([]any, len(values))
+	for i := range values {
+		args[i] = values[i]
+	}
+	return args
+}
+
+func stringChunks(values []string, size int) [][]string {
+	if len(values) == 0 {
+		return nil
+	}
+	if size <= 0 {
+		size = len(values)
+	}
+	chunks := make([][]string, 0, (len(values)+size-1)/size)
+	for start := 0; start < len(values); start += size {
+		end := start + size
+		if end > len(values) {
+			end = len(values)
+		}
+		chunks = append(chunks, values[start:end])
+	}
+	return chunks
 }

@@ -32,15 +32,11 @@ func spaFallbackHandler(rootDir string) http.Handler {
 		full := filepath.Join(rootDir, strings.TrimPrefix(p, "/"))
 		fi, err := os.Stat(full)
 		if err == nil && !fi.IsDir() {
-			// Avoid long-lived stale branding assets when developers swap public/* (browser cache).
-			if strings.HasSuffix(strings.ToLower(p), ".png") ||
-				strings.HasSuffix(strings.ToLower(p), ".ico") ||
-				strings.HasSuffix(strings.ToLower(p), ".svg") {
-				w.Header().Set("Cache-Control", "no-cache")
-			}
+			setSPAAssetCacheHeader(w, p)
 			fs.ServeHTTP(w, r)
 			return
 		}
+		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFile(w, r, index)
 	})
 }
@@ -62,10 +58,7 @@ func spaFallbackFSHandler(root fs.FS) http.Handler {
 		if requestPath != "" && requestPath != "." {
 			fi, err := fs.Stat(root, requestPath)
 			if err == nil && !fi.IsDir() {
-				lower := strings.ToLower(requestPath)
-				if strings.HasSuffix(lower, ".png") || strings.HasSuffix(lower, ".ico") || strings.HasSuffix(lower, ".svg") {
-					w.Header().Set("Cache-Control", "no-cache")
-				}
+				setSPAAssetCacheHeader(w, requestPath)
 				fsrv.ServeHTTP(w, r)
 				return
 			}
@@ -83,8 +76,20 @@ func spaFallbackFSHandler(root fs.FS) http.Handler {
 			http.Error(w, "embedded spa asset is not seekable", http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeContent(w, r, "index.html", time.Time{}, readSeeker)
 	})
+}
+
+func setSPAAssetCacheHeader(w http.ResponseWriter, requestPath string) {
+	lower := strings.ReplaceAll(strings.ToLower(strings.TrimLeft(requestPath, "/\\")), "\\", "/")
+	if strings.HasPrefix(lower, "assets/") {
+		// Vite assets contain a content hash, so they are safe to retain forever.
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+	// Public branding and runtime configuration keep stable names.
+	w.Header().Set("Cache-Control", "no-cache")
 }
 
 // MountSPA registers a catch-all route for the built Vite app (after /api and /health).

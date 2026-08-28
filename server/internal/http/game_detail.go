@@ -635,6 +635,88 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 	return out
 }
 
+// canonicalToLibraryGameWithIntegrationLabels deliberately excludes
+// detail-only collections (all files, resolver matches, external IDs,
+// identity evidence, descriptions, and the complete media gallery). It keeps
+// only the fields needed to paint a card, group/filter it, and expose accurate
+// play routes. Context-menu operations fetch GET /api/games/{id} on demand.
+func (c *GameController) canonicalToLibraryGameWithIntegrationLabels(ctx context.Context, cg *core.CanonicalGame, integrationLabels map[string]string, deliveryProfiles map[string][]core.SourceDeliveryProfile) GameDetailResponse {
+	if cg == nil {
+		return GameDetailResponse{SourceGames: []SourceGameDetailDTO{}}
+	}
+	out := GameDetailResponse{
+		ID:              cg.ID,
+		Title:           cg.Title,
+		Favorite:        cg.Favorite,
+		Platform:        string(cg.Platform),
+		Kind:            string(cg.Kind),
+		ReleaseDate:     cg.ReleaseDate,
+		Developer:       cg.Developer,
+		Publisher:       cg.Publisher,
+		Rating:          cg.Rating,
+		IsGamePass:      cg.IsGamePass,
+		XcloudAvailable: cg.XcloudAvailable,
+		StoreProductID:  cg.StoreProductID,
+		XcloudURL:       cg.XcloudURL,
+		Shared:          cg.Shared,
+		SharedOwner:     cg.SharedOwner,
+		Play: &GamePlayDTO{
+			PlatformSupported: supportsBrowserPlayPlatform(cg.Platform),
+		},
+		SourceGames: make([]SourceGameDetailDTO, 0, len(cg.SourceGames)),
+	}
+	if cg.AchievementSummary != nil {
+		out.AchievementSummary = &AchievementSummaryDTO{
+			SourceCount:   cg.AchievementSummary.SourceCount,
+			TotalCount:    cg.AchievementSummary.TotalCount,
+			UnlockedCount: cg.AchievementSummary.UnlockedCount,
+			TotalPoints:   cg.AchievementSummary.TotalPoints,
+			EarnedPoints:  cg.AchievementSummary.EarnedPoints,
+		}
+	}
+	selectedMedia := make(map[int]bool)
+	appendSelectedMedia := func(ref *core.MediaRef) *GameMediaDetailDTO {
+		if ref == nil {
+			return nil
+		}
+		dto := mediaRefToDTO(*ref)
+		if ref.AssetID > 0 && !selectedMedia[ref.AssetID] {
+			selectedMedia[ref.AssetID] = true
+			out.Media = append(out.Media, dto)
+		}
+		return &dto
+	}
+	out.CoverOverride = appendSelectedMedia(cg.CoverOverride)
+	out.HoverOverride = appendSelectedMedia(cg.HoverOverride)
+	out.BackgroundOverride = appendSelectedMedia(cg.BackgroundOverride)
+
+	for _, sg := range cg.SourceGames {
+		if sg == nil {
+			continue
+		}
+		if out.GroupKind == "" && sg.Status == "found" {
+			out.GroupKind = string(sg.GroupKind)
+		}
+		sourceDTO, launchSource, launchCandidate := c.sourceGameToDetailDTOWithDelivery(ctx, sg, cg.Platform, out.Play.PlatformSupported, integrationLabels, deliveryProfiles[sg.ID])
+		for _, option := range launchOptionsForSource(sourceDTO, launchSource, launchCandidate) {
+			if option.Launchable {
+				out.Play.Available = true
+			}
+			out.Play.Options = append(out.Play.Options, option)
+		}
+		// Retain card identity and lightweight play capability, but omit the
+		// potentially large detail collections from every library row.
+		sourceDTO.Files = []GameFileDTO{}
+		sourceDTO.ResolverMatches = []core.ResolverMatch{}
+		sourceDTO.Delivery = nil
+		sourceDTO.Save = nil
+		sourceDTO.HardDelete = nil
+		sourceDTO.CanonicalPin = nil
+		out.SourceGames = append(out.SourceGames, sourceDTO)
+	}
+	return out
+}
+
 // attachContentRelationships projects existing provider metadata into a
 // player-facing relationship view. NO_MIGRATION_NEEDED: this reads the
 // resolver match parent_game_id already stored in metadata_json and adds only
@@ -643,7 +725,16 @@ func (c *GameController) attachContentRelationships(ctx context.Context, respons
 	if response == nil || target == nil {
 		return nil
 	}
-	games, err := c.gameStore.GetCanonicalGames(ctx)
+	type relationshipProjectionStore interface {
+		GetCanonicalContentRelationshipProjectionGames(context.Context) ([]*core.CanonicalGame, error)
+	}
+	var games []*core.CanonicalGame
+	var err error
+	if projectionStore, ok := c.gameStore.(relationshipProjectionStore); ok {
+		games, err = projectionStore.GetCanonicalContentRelationshipProjectionGames(ctx)
+	} else {
+		games, err = c.gameStore.GetCanonicalGames(ctx)
+	}
 	if err != nil {
 		return err
 	}
@@ -822,6 +913,17 @@ func (c *GameController) sourceGameToDetailDTO(
 	platformSupported bool,
 	integrationLabels map[string]string,
 ) (SourceGameDetailDTO, *GameLaunchSourceDTO, *GameLaunchCandidateDTO) {
+	return c.sourceGameToDetailDTOWithDelivery(ctx, sg, canonicalPlatform, platformSupported, integrationLabels, nil)
+}
+
+func (c *GameController) sourceGameToDetailDTOWithDelivery(
+	ctx context.Context,
+	sg *core.SourceGame,
+	canonicalPlatform core.Platform,
+	platformSupported bool,
+	integrationLabels map[string]string,
+	preloadedDelivery []core.SourceDeliveryProfile,
+) (SourceGameDetailDTO, *GameLaunchSourceDTO, *GameLaunchCandidateDTO) {
 	dto := SourceGameDetailDTO{
 		ID:               sg.ID,
 		IntegrationID:    sg.IntegrationID,
@@ -879,7 +981,10 @@ func (c *GameController) sourceGameToDetailDTO(
 		}
 	}
 
-	deliveryProfiles := c.describeSourceGameDelivery(ctx, canonicalPlatform, sg)
+	deliveryProfiles := preloadedDelivery
+	if deliveryProfiles == nil {
+		deliveryProfiles = c.describeSourceGameDelivery(ctx, canonicalPlatform, sg)
+	}
 	for _, profile := range deliveryProfiles {
 		profileDTO := SourceDeliveryProfileDTO{
 			Profile:         profile.Profile,

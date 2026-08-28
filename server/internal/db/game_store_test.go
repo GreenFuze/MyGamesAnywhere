@@ -2102,6 +2102,28 @@ func TestVisibleCanonicalIDsSortedBeforePagination(t *testing.T) {
 	}
 }
 
+func TestVisibleCanonicalIDsSortedKeepsProfilesIsolated(t *testing.T) {
+	db, store := newTestGameStore(t)
+	insertTestProfile(t, db, "profile-one", core.ProfileRoleAdminPlayer)
+	insertTestProfile(t, db, "profile-two", core.ProfileRolePlayer)
+	profileOne := core.WithProfile(context.Background(), &core.Profile{ID: "profile-one", Role: core.ProfileRoleAdminPlayer})
+	profileTwo := core.WithProfile(context.Background(), &core.Profile{ID: "profile-two", Role: core.ProfileRolePlayer})
+
+	persistBatch(t, profileOne, store, makeTestBatch("integration-one", "scan:profile-one", "one", "Zulu One", "match-one"))
+	persistBatch(t, profileTwo, store, makeTestBatch("integration-two", "scan:profile-two", "two", "Alpha Two", "match-two"))
+	profileOneCanonicalID := canonicalIDForSource(t, profileOne, db, "scan:profile-one")
+
+	ids, err := store.GetVisibleCanonicalIDsSorted(profileOne, 0, 10, core.CanonicalGameListOrder{
+		Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != profileOneCanonicalID {
+		t.Fatalf("profile-one sorted ids = %v, want [%s]", ids, profileOneCanonicalID)
+	}
+}
+
 func TestGetManualReviewCandidateReturnsDirectSourceDetailEvenWhenNotQueued(t *testing.T) {
 	ctx := context.Background()
 	_, store := newTestGameStore(t)
@@ -3503,6 +3525,82 @@ func TestCanonicalFavoritesPersistAndCascade(t *testing.T) {
 	}
 	if favoriteCount != 0 {
 		t.Fatalf("favorite row count after canonical delete = %d, want 0", favoriteCount)
+	}
+}
+
+func TestCanonicalGameCardsBatchProfileStateAndDoesNotPersistDerivedCover(t *testing.T) {
+	baseCtx := context.Background()
+	profileOneCtx := core.WithProfile(baseCtx, &core.Profile{ID: "profile-1", Role: core.ProfileRoleAdminPlayer})
+	db, store := newTestGameStore(t)
+	insertTestProfile(t, db, "profile-1", core.ProfileRoleAdminPlayer)
+	insertTestProfile(t, db, "profile-2", core.ProfileRolePlayer)
+
+	batch := makeTestBatch("integration-1", "scan:card", "card", "Card Game", "match-card")
+	batch.MediaItems["scan:card"] = []core.MediaRef{{
+		Type: core.MediaTypeCover, URL: "https://example.test/card-cover.jpg", Source: "metadata-steam",
+	}}
+	persistBatch(t, profileOneCtx, store, batch)
+	canonicalID := canonicalIDForSource(t, profileOneCtx, db, "scan:card")
+
+	// A row owned by another profile must never make this profile's card a favorite.
+	if _, err := db.GetDB().ExecContext(baseCtx, `INSERT INTO canonical_game_favorites (profile_id, canonical_id, updated_at) VALUES (?, ?, ?)`, "profile-2", canonicalID, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	cards, err := store.GetCanonicalGameCardsByIDs(profileOneCtx, []string{canonicalID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 1 || cards[0] == nil {
+		t.Fatalf("cards = %+v, want one card", cards)
+	}
+	if cards[0].Favorite {
+		t.Fatal("favorite leaked from another profile")
+	}
+	if cards[0].CoverOverride == nil || cards[0].CoverOverride.URL != "https://example.test/card-cover.jpg" {
+		t.Fatalf("derived cover = %+v", cards[0].CoverOverride)
+	}
+	var overrideCount int
+	if err := db.GetDB().QueryRowContext(baseCtx, `SELECT COUNT(*) FROM canonical_game_cover_overrides WHERE canonical_id = ?`, canonicalID).Scan(&overrideCount); err != nil {
+		t.Fatal(err)
+	}
+	if overrideCount != 0 {
+		t.Fatalf("card read persisted %d derived cover overrides, want 0", overrideCount)
+	}
+	if _, err := db.GetDB().ExecContext(baseCtx, `INSERT INTO media_assets (url) VALUES (?)`, "https://example.test/stale-cover.jpg"); err != nil {
+		t.Fatal(err)
+	}
+	var staleAssetID int
+	if err := db.GetDB().QueryRowContext(baseCtx, `SELECT id FROM media_assets WHERE url = ?`, "https://example.test/stale-cover.jpg").Scan(&staleAssetID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetDB().ExecContext(baseCtx, `INSERT INTO canonical_game_cover_overrides (canonical_id, media_asset_id, updated_at) VALUES (?, ?, ?)`, canonicalID, staleAssetID, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	cards, err = store.GetCanonicalGameCardsByIDs(profileOneCtx, []string{canonicalID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cards[0].CoverOverride == nil || cards[0].CoverOverride.URL != "https://example.test/card-cover.jpg" {
+		t.Fatalf("stale unlinked override won over current linked cover: %+v", cards[0].CoverOverride)
+	}
+
+	if err := store.SetCanonicalFavorite(profileOneCtx, canonicalID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetDB().ExecContext(baseCtx, `INSERT INTO achievement_sets
+		(source_game_id, source, external_game_id, total_count, unlocked_count, total_points, earned_points, fetched_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, "scan:card", "steam", "card", 10, 4, 100, 40, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	cards, err = store.GetCanonicalGameCardsByIDs(profileOneCtx, []string{canonicalID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 1 || !cards[0].Favorite {
+		t.Fatalf("profile favorite was not returned: %+v", cards)
+	}
+	if summary := cards[0].AchievementSummary; summary == nil || summary.TotalCount != 10 || summary.UnlockedCount != 4 || summary.TotalPoints != 100 || summary.EarnedPoints != 40 {
+		t.Fatalf("achievement summary = %+v", summary)
 	}
 }
 

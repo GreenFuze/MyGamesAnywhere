@@ -6,6 +6,7 @@ import {
   ApiError,
   clearGameCoverOverride,
   deleteSourceGame,
+  getGame,
   refreshGameMetadata,
   setGameCoverOverride,
   type GameDetailResponse,
@@ -45,16 +46,41 @@ export function GameContextMenu({ game, point, onClose }: GameContextMenuProps) 
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<SourceGameDetailDTO | null>(null)
   const [menuPosition, setMenuPosition] = useState<MenuPoint | null>(null)
+  const [loadedDetail, setLoadedDetail] = useState<GameDetailResponse | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailLoadError, setDetailLoadError] = useState(false)
+  const detailGame = loadedDetail ?? game
 
   const imageMedia = useMemo(
-    () => new GameMediaCollection(game.media).imageMedia(),
-    [game.media],
+    () => new GameMediaCollection(detailGame.media).imageMedia(),
+    [detailGame.media],
   )
   const playable = isPlayable(game)
   const deletableSources = useMemo(
-    () => game.source_games.filter((source) => source.hard_delete?.eligible),
-    [game.source_games],
+    () => detailGame.source_games.filter((source) => source.hard_delete?.eligible),
+    [detailGame.source_games],
   )
+
+  useEffect(() => {
+    if (!point || loadedDetail) return
+    let cancelled = false
+    setDetailLoading(true)
+    setDetailLoadError(false)
+    void queryClient.fetchQuery({
+      queryKey: ['game', game.id],
+      queryFn: () => getGame(game.id),
+      staleTime: 30_000,
+    }).then((detail) => {
+      if (!cancelled) setLoadedDetail(detail)
+    }).catch(() => {
+      if (!cancelled) setDetailLoadError(true)
+    }).finally(() => {
+      if (!cancelled) setDetailLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [game.id, loadedDetail, point, queryClient])
 
   useEffect(() => {
     if (!point) return
@@ -271,11 +297,12 @@ export function GameContextMenu({ game, point, onClose }: GameContextMenuProps) 
                 setCoverDialogOpen(true)
                 onClose()
               }}
+              disabled={detailLoading}
               className="block w-full rounded-mga px-3 py-2 text-left text-sm hover:bg-mga-elevated"
             >
-              Change cover photo
+              {detailLoading ? 'Loading game actions...' : 'Change cover photo'}
             </button>
-            {game.cover_override && (
+            {detailGame.cover_override && (
               <button type="button" role="menuitem" onClick={clearCover} disabled={busy} className="block w-full rounded-mga px-3 py-2 text-left text-sm text-mga-muted hover:bg-mga-elevated hover:text-mga-text disabled:opacity-60">
                 Clear cover override
               </button>
@@ -290,11 +317,12 @@ export function GameContextMenu({ game, point, onClose }: GameContextMenuProps) 
               type="button"
               role="menuitem"
               onClick={openDeleteDialog}
-              disabled={deletableSources.length === 0}
+              disabled={detailLoading || deletableSources.length === 0}
               className="block w-full rounded-mga px-3 py-2 text-left text-sm text-red-200 hover:bg-red-500/10 disabled:text-mga-muted disabled:hover:bg-transparent"
             >
               Delete Source Record...
             </button>
+            {detailLoadError && <p className="px-3 py-2 text-xs text-red-400">Game actions could not be loaded.</p>}
             {error && <p className="px-3 py-2 text-xs text-red-400">{error}</p>}
           </div>,
           document.body,

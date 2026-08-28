@@ -13,6 +13,8 @@ import { useTheme } from '@/theme/ThemeProvider'
 const GAP_PX = 16
 const MIN_CARD_WIDTH = 190
 const MAX_CARD_WIDTH = 268
+const INITIAL_VISIBLE_GAMES = 16
+const VISIBLE_GAME_STEP = 12
 
 interface HorizontalGameShelfProps {
   games: GameDetailResponse[]
@@ -21,6 +23,9 @@ interface HorizontalGameShelfProps {
   renderPrimaryAction?: (game: GameDetailResponse) => GameCardPrimaryAction | undefined
   preferredPlayRoute?: GameCardPlayRoute
   cardVariant?: 'library' | 'play'
+  hasMoreGames?: boolean
+  isLoadingMore?: boolean
+  onLoadMore?: () => void
 }
 
 function computeCardWidth(width: number): number {
@@ -41,12 +46,25 @@ export function HorizontalGameShelf({
   renderPrimaryAction,
   preferredPlayRoute,
   cardVariant = 'library',
+  hasMoreGames = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: HorizontalGameShelfProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const { reducedMotion } = useTheme()
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
   const [cardWidth, setCardWidth] = useState(MIN_CARD_WIDTH)
+  const [visibleGameCount, setVisibleGameCount] = useState(() => Math.min(games.length, INITIAL_VISIBLE_GAMES))
+
+  const firstGameID = games[0]?.id
+  useEffect(() => {
+    setVisibleGameCount(Math.min(games.length, INITIAL_VISIBLE_GAMES))
+  }, [firstGameID])
+
+  useEffect(() => {
+    setVisibleGameCount((current) => Math.min(games.length, Math.max(current, INITIAL_VISIBLE_GAMES)))
+  }, [games.length])
 
   const updateScrollState = () => {
     const el = viewportRef.current
@@ -54,6 +72,9 @@ export function HorizontalGameShelf({
     setCanScrollLeft(el.scrollLeft > 4)
     setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4)
     setCardWidth(computeCardWidth(el.clientWidth))
+    if (el.scrollWidth - el.scrollLeft - el.clientWidth < 800 && visibleGameCount < games.length) {
+      setVisibleGameCount((current) => Math.min(games.length, current + VISIBLE_GAME_STEP))
+    }
   }
 
   useEffect(() => {
@@ -70,7 +91,7 @@ export function HorizontalGameShelf({
       el.removeEventListener('scroll', updateScrollState)
       window.removeEventListener('resize', updateScrollState)
     }
-  }, [games.length])
+  }, [games.length, visibleGameCount])
 
   const pageStep = useMemo(() => {
     const el = viewportRef.current
@@ -99,7 +120,7 @@ export function HorizontalGameShelf({
           cardVariant === 'play' && 'pr-16',
         )}
       >
-        {games.map((game) => {
+        {games.slice(0, visibleGameCount).map((game) => {
           const primaryAction = renderPrimaryAction?.(game)
           return (
             <div key={game.id} className="shrink-0 snap-start" style={{ width: `${cardWidth}px` }}>
@@ -126,6 +147,26 @@ export function HorizontalGameShelf({
             </div>
           )
         })}
+        {visibleGameCount < games.length ? (
+          <button
+            type="button"
+            onClick={() => setVisibleGameCount((current) => Math.min(games.length, current + VISIBLE_GAME_STEP))}
+            className="min-h-40 w-24 shrink-0 snap-start rounded-mga border border-mga-border bg-mga-surface/70 px-3 text-sm font-medium text-mga-muted transition-colors hover:border-mga-accent hover:text-mga-text"
+            aria-label={`Show more games in ${label}`}
+          >
+            Show more
+          </button>
+        ) : hasMoreGames ? (
+          <button
+            type="button"
+            disabled={isLoadingMore}
+            onClick={onLoadMore}
+            className="min-h-40 w-24 shrink-0 snap-start rounded-mga border border-mga-border bg-mga-surface/70 px-3 text-sm font-medium text-mga-muted transition-colors hover:border-mga-accent hover:text-mga-text disabled:cursor-wait disabled:opacity-60"
+            aria-label={`Load more games for ${label}`}
+          >
+            {isLoadingMore ? 'Loading…' : 'Load more'}
+          </button>
+        ) : null}
       </div>
       {canScrollLeft && (
         <button

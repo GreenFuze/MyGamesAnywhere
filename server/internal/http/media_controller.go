@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -56,7 +57,14 @@ func (c *MediaController) ServeMedia(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if asset == nil || asset.LocalPath == "" {
+	if asset == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if asset.LocalPath == "" {
+		if redirectToOriginalMedia(w, r, asset.URL) {
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -78,6 +86,9 @@ func (c *MediaController) ServeMedia(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			c.handleMissingLocalFile(r, id, fullAbs)
+			if redirectToOriginalMedia(w, r, asset.URL) {
+				return
+			}
 			http.NotFound(w, r)
 			return
 		}
@@ -97,6 +108,20 @@ func (c *MediaController) ServeMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	http.ServeContent(w, r, st.Name(), st.ModTime(), f)
+}
+
+// redirectToOriginalMedia keeps artwork usable while MGA repairs a missing
+// local cache entry. Restricting the target to absolute HTTP(S) URLs prevents
+// the media endpoint from becoming an open redirect for arbitrary schemes.
+func redirectToOriginalMedia(w http.ResponseWriter, r *http.Request, rawURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return false
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, parsed.String(), http.StatusTemporaryRedirect)
+	return true
 }
 
 func (c *MediaController) QueueStatus(w http.ResponseWriter, r *http.Request) {

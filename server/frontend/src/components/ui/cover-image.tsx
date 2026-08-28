@@ -88,15 +88,17 @@ export function CoverImage({
   if (fit === 'contain') {
     return (
       <div className={cn('relative aspect-[2/3] w-full overflow-hidden', containShellClass, className)}>
-        <img
-          src={src}
-          alt=""
-          aria-hidden="true"
-          loading="lazy"
-          decoding="async"
-          onError={() => setErrored(true)}
-          className={cn('absolute inset-0 h-full w-full object-cover', containBackdropClass)}
-        />
+        {variant === 'hero' ? (
+          <img
+            src={src}
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            decoding="async"
+            onError={() => setErrored(true)}
+            className={cn('absolute inset-0 h-full w-full object-cover', containBackdropClass)}
+          />
+        ) : null}
         <div className={cn('absolute inset-0 bg-gradient-to-br', containOverlayClass)} />
         {(variant === 'card' || variant === 'hero') && (
           <>

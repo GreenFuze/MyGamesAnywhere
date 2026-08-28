@@ -48,6 +48,10 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	// Library responses and the SPA bundle are highly compressible. LAN use is
+	// common, but avoiding megabytes of repeated JSON/JavaScript still improves
+	// first paint substantially on TVs and Wi-Fi clients.
+	r.Use(middleware.Compress(5))
 
 	if b != nil {
 		r.Get("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) })

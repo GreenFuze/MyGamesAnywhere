@@ -34,12 +34,55 @@ const (
 
 var integrationStatusTimeout = time.Minute
 
-// ListGamesResponse is the response for GET /api/games (paginated, full detail rows for library UI).
+type requestTiming struct {
+	start time.Time
+	last  time.Time
+	parts []string
+}
+
+func newRequestTiming() *requestTiming {
+	now := time.Now()
+	return &requestTiming{start: now, last: now}
+}
+
+func (t *requestTiming) lap(name string) {
+	now := time.Now()
+	t.parts = append(t.parts, fmt.Sprintf("%s;dur=%.2f", name, float64(now.Sub(t.last).Microseconds())/1000))
+	t.last = now
+}
+
+func (t *requestTiming) writeHeader(w http.ResponseWriter) {
+	if t == nil || len(t.parts) == 0 {
+		return
+	}
+	w.Header().Set("Server-Timing", strings.Join(t.parts, ", "))
+}
+
+func (t *requestTiming) duration() time.Duration {
+	if t == nil {
+		return 0
+	}
+	return time.Since(t.start)
+}
+
+func (t *requestTiming) String() string {
+	if t == nil {
+		return ""
+	}
+	return strings.Join(t.parts, ", ")
+}
+
+// ListGamesResponse is the lightweight, paginated card projection used by
+// Library and Play. Full detail remains available from GET /api/games/{id}.
 type ListGamesResponse struct {
 	Total    int                  `json:"total"`
 	Page     int                  `json:"page"`
 	PageSize int                  `json:"page_size"`
 	Games    []GameDetailResponse `json:"games"`
+}
+
+type libraryCardStore interface {
+	GetCanonicalGameCardsByIDs(context.Context, []string) ([]*core.CanonicalGame, error)
 }
 
 // GameSummary is a lightweight row (e.g. POST /api/scan results). List uses GameDetailResponse per item.
@@ -281,17 +324,19 @@ func writeActionError(w http.ResponseWriter, status int, message string) {
 	http.Error(w, strings.TrimSpace(message), status)
 }
 
-// ListGames returns a page of canonical games as full detail rows (GET /api/games).
+// ListGames returns a page of lightweight canonical game cards (GET /api/games).
 // Query: page (0-based), page_size, sort_by, and sort_dir. Sorting is applied
 // before pagination so later pages never reorder an already-rendered library.
 func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	timing := newRequestTiming()
 	total, err := c.gameStore.CountVisibleCanonicalGames(ctx)
 	if err != nil {
 		c.logger.Error("count games", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	timing.lap("count")
 
 	page := 0
 	if s := r.URL.Query().Get("page"); s != "" {
@@ -371,13 +416,22 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	games, err := c.gameStore.GetCanonicalGamesByIDs(ctx, ids)
+	timing.lap("ids")
+	var games []*core.CanonicalGame
+	if cardStore, ok := c.gameStore.(libraryCardStore); ok {
+		games, err = cardStore.GetCanonicalGameCardsByIDs(ctx, ids)
+	} else {
+		games, err = c.gameStore.GetCanonicalGamesByIDs(ctx, ids)
+	}
 	if err != nil {
 		c.logger.Error("get games page", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	timing.lap("cards")
 	integrationLabels := c.loadIntegrationLabels(ctx)
+	deliveryProfiles := c.loadLibraryDeliveryProfiles(ctx, games)
+	timing.lap("labels_delivery")
 
 	out := make([]GameDetailResponse, 0, len(games))
 	listedGames := make([]*core.CanonicalGame, 0, len(games))
@@ -385,9 +439,10 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 		if cg == nil {
 			continue
 		}
-		out = append(out, c.canonicalToGameDetailWithIntegrationLabels(ctx, cg, integrationLabels))
+		out = append(out, c.canonicalToLibraryGameWithIntegrationLabels(ctx, cg, integrationLabels, deliveryProfiles))
 		listedGames = append(listedGames, cg)
 	}
+	timing.lap("dto")
 	if c.deviceLister != nil {
 		profileID := core.ProfileIDFromContext(ctx)
 		if profileID != "" {
@@ -401,13 +456,69 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	timing.lap("devices")
+	if elapsed := timing.duration(); elapsed >= 100*time.Millisecond {
+		c.logger.Info("library page performance", "duration_ms", elapsed.Milliseconds(), "stages", timing.String(), "page", page, "page_size", respPageSize)
+	}
 	w.Header().Set("Content-Type", "application/json")
+	timing.writeHeader(w)
 	json.NewEncoder(w).Encode(ListGamesResponse{
 		Total:    total,
 		Page:     page,
 		PageSize: respPageSize,
 		Games:    out,
 	})
+}
+
+// loadLibraryDeliveryProfiles resolves materialized-source readiness once for
+// the page. The detail path may inspect one cache row at a time, but doing so
+// for every card turns a library read into another N+1 query sequence.
+func (c *GameController) loadLibraryDeliveryProfiles(ctx context.Context, games []*core.CanonicalGame) map[string][]core.SourceDeliveryProfile {
+	ready := make(map[string]bool)
+	if c != nil && c.cacheSvc != nil {
+		entries, err := c.cacheSvc.ListEntries(ctx)
+		if err != nil {
+			c.logger.Warn("list source cache entries for library failed", "error", err)
+		} else {
+			for _, entry := range entries {
+				if entry != nil && entry.Status == "ready" {
+					ready[entry.SourceGameID+"\x00"+entry.Profile] = true
+				}
+			}
+		}
+	}
+
+	result := make(map[string][]core.SourceDeliveryProfile)
+	for _, game := range games {
+		if game == nil {
+			continue
+		}
+		for _, sourceGame := range game.SourceGames {
+			if sourceGame == nil {
+				continue
+			}
+			profile, ok := core.BrowserPlayProfileForSourceGame(sourceGame.Platform, game.Platform)
+			if !ok {
+				result[sourceGame.ID] = []core.SourceDeliveryProfile{}
+				continue
+			}
+			delivery := core.SourceDeliveryProfile{Profile: profile, Mode: core.SourceDeliveryModeUnavailable}
+			switch {
+			case supportsDirectSourceGame(sourceGame):
+				delivery.Mode = core.SourceDeliveryModeDirect
+				delivery.Ready = true
+			case c != nil && c.cacheSvc != nil && c.cacheSvc.CanPrepareSourceGame(sourceGame):
+				delivery.Mode = core.SourceDeliveryModeMaterialized
+				delivery.PrepareRequired = true
+				delivery.Ready = ready[sourceGame.ID+"\x00"+profile]
+			}
+			if rootFile := selectRootGameFile(sourceGame.Files); rootFile != nil {
+				delivery.RootFilePath = rootFile.Path
+			}
+			result[sourceGame.ID] = []core.SourceDeliveryProfile{delivery}
+		}
+	}
+	return result
 }
 
 // Get returns one canonical game by ID (GET /api/games/{id}) as full detail — same JSON as GET /api/games/{id}/detail and each list item.

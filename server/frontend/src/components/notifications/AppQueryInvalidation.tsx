@@ -1,14 +1,27 @@
 import { useEffect } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { useSSE } from '@/hooks/useSSE'
+import type { ListGamesResponse } from '@/api/client'
 
 export function AppQueryInvalidation() {
   const queryClient = useQueryClient()
   const { subscribe } = useSSE()
 
   useEffect(() => {
+    const refreshFirstLibraryPage = () => {
+      // TanStack otherwise refetches every page that the player has ever
+      // scrolled through. Keep one page and let normal proximity loading bring
+      // later pages back only when they are needed.
+      queryClient.setQueriesData<InfiniteData<ListGamesResponse>>(
+        { queryKey: ['games', 'paged'] },
+        (current) => current
+          ? { ...current, pages: current.pages.slice(0, 1), pageParams: current.pageParams.slice(0, 1) }
+          : current,
+      )
+      void queryClient.invalidateQueries({ queryKey: ['games', 'paged'] })
+    }
     const refreshLibrarySlices = () => {
-      queryClient.invalidateQueries({ queryKey: ['games'] })
+      refreshFirstLibraryPage()
       queryClient.invalidateQueries({ queryKey: ['stats'] })
       queryClient.invalidateQueries({ queryKey: ['integration-games'] })
     }
@@ -16,7 +29,7 @@ export function AppQueryInvalidation() {
       queryClient.invalidateQueries({ queryKey: ['achievements-dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['achievements-explorer'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })
-      queryClient.invalidateQueries({ queryKey: ['games'] })
+      refreshFirstLibraryPage()
     }
 
     const unsubs = [

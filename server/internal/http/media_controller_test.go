@@ -92,10 +92,43 @@ func TestMediaControllerMissingLocalFileClearsStateAndQueuesRetry(t *testing.T) 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	if rec.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTemporaryRedirect)
+	}
+	if location := rec.Header().Get("Location"); location != "https://example.test/missing.png" {
+		t.Fatalf("Location = %q", location)
+	}
+	if policy := rec.Header().Get("Referrer-Policy"); policy != "no-referrer" {
+		t.Fatalf("Referrer-Policy = %q", policy)
 	}
 	if svc.missingAssetID != 42 {
 		t.Fatalf("missingAssetID = %d, want 42", svc.missingAssetID)
+	}
+}
+
+func TestMediaControllerDoesNotRedirectMissingFileToUnsafeURL(t *testing.T) {
+	mediaRoot := t.TempDir()
+	svc := &fakeMediaDownloadService{}
+	store := &fakeGameStore{mediaAsset: &core.MediaAsset{
+		ID:        43,
+		URL:       "file:///private/art.png",
+		LocalPath: filepath.ToSlash(filepath.Join("assets", "missing.png")),
+	}}
+	ctrl := NewMediaController(store, staticConfig{values: map[string]string{"MEDIA_ROOT": mediaRoot}}, noopLogger{}, svc)
+	router := chi.NewRouter()
+	router.Get("/api/media/{assetID}", ctrl.ServeMedia)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/media/43", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+	if location := rec.Header().Get("Location"); location != "" {
+		t.Fatalf("unsafe redirect Location = %q", location)
+	}
+	if svc.missingAssetID != 43 {
+		t.Fatalf("missingAssetID = %d, want 43", svc.missingAssetID)
 	}
 }

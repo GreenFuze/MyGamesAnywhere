@@ -6,6 +6,9 @@ import { GameCard } from '@/components/library/GameCard'
 interface GameGridProps {
   games: GameDetailResponse[]
   isLoading: boolean
+  hasMoreGames?: boolean
+  isLoadingMore?: boolean
+  onLoadMore?: () => void
   progressive?: boolean
   initialRows?: number
   loadMoreRows?: number
@@ -23,6 +26,9 @@ function computeColumns(width: number): number {
 export function GameGrid({
   games,
   isLoading,
+  hasMoreGames = false,
+  isLoadingMore = false,
+  onLoadMore,
   progressive = false,
   initialRows = 4,
   loadMoreRows = 3,
@@ -49,9 +55,10 @@ export function GameGrid({
     return () => observer.disconnect()
   }, [progressive])
 
+  const firstGameID = games[0]?.id
   useEffect(() => {
     setLoadedRows(initialRows)
-  }, [games, initialRows, progressive])
+  }, [firstGameID, initialRows, progressive])
 
   const visibleInitialCount = Math.max(1, columns) * initialRows
   const progressiveEnabled = progressive && games.length > visibleInitialCount
@@ -59,7 +66,8 @@ export function GameGrid({
     ? Math.min(games.length, loadedRows * Math.max(1, columns))
     : games.length
   const visibleGames = useMemo(() => games.slice(0, visibleCount), [games, visibleCount])
-  const hasMore = progressiveEnabled && visibleCount < games.length
+  const hasMoreMountedGames = progressiveEnabled && visibleCount < games.length
+  const hasMore = hasMoreMountedGames || hasMoreGames
 
   useEffect(() => {
     if (!hasMore) return
@@ -70,7 +78,11 @@ export function GameGrid({
       (entries) => {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue
-          setLoadedRows((current) => current + loadMoreRows)
+          if (hasMoreMountedGames) {
+            setLoadedRows((current) => current + loadMoreRows)
+          } else if (!isLoadingMore && window.scrollY > 0) {
+            onLoadMore?.()
+          }
         }
       },
       {
@@ -82,7 +94,7 @@ export function GameGrid({
 
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [hasMore, loadMoreRows, visibleCount])
+  }, [hasMore, hasMoreMountedGames, isLoadingMore, loadMoreRows, onLoadMore, visibleCount])
 
   if (isLoading) {
     return (

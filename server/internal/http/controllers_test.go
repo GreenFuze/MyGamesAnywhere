@@ -72,6 +72,57 @@ func TestGameControllerListGamesSortsBeforePagination(t *testing.T) {
 	}
 }
 
+func TestGameControllerListGamesReturnsLightweightCardsWithBatchedCacheReadiness(t *testing.T) {
+	cover := core.MediaRef{AssetID: 11, Type: core.MediaTypeCover, URL: "https://example.test/cover.jpg"}
+	game := &core.CanonicalGame{
+		ID: "game-1", Title: "Fast Card", Platform: core.PlatformGBA,
+		Description: "detail-only description",
+		ExternalIDs: []core.ExternalID{{Source: "metadata", ExternalID: "external"}},
+		Media: []core.MediaRef{
+			cover,
+			{AssetID: 12, Type: core.MediaTypeScreenshot, URL: "https://example.test/screenshot.jpg"},
+		},
+		CoverOverride: &cover,
+		SourceGames: []*core.SourceGame{{
+			ID: "source-1", IntegrationID: "integration-1", PluginID: "cloud-source", ExternalID: "source-external",
+			RawTitle: "Fast Card", Platform: core.PlatformGBA, GroupKind: core.GroupKindSelfContained, Status: "found",
+			Files:           []core.GameFile{{Path: "Fast Card.gba", Role: core.GameFileRoleRoot}},
+			ResolverMatches: []core.ResolverMatch{{PluginID: "metadata", ExternalID: "match"}},
+		}},
+	}
+	store := &fakeGameStore{
+		visibleCanonicalIDs: []string{game.ID},
+		gamesByID:           map[string]*core.CanonicalGame{game.ID: game},
+	}
+	cache := &fakeCacheService{
+		canPrepare: true,
+		entries:    []*core.SourceCacheEntry{{SourceGameID: "source-1", Profile: core.BrowserProfileEmulatorJS, Status: "ready"}},
+	}
+	controller := NewGameController(store, nil, nil, nil, cache, noopLogger{})
+	rec := httptest.NewRecorder()
+	controller.ListGames(rec, httptest.NewRequest(http.MethodGet, "/api/games", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var response ListGamesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Games) != 1 {
+		t.Fatalf("games = %+v", response.Games)
+	}
+	card := response.Games[0]
+	if card.Description != "" || len(card.ExternalIDs) != 0 || len(card.Media) != 1 {
+		t.Fatalf("card retained detail-only data: %+v", card)
+	}
+	if len(card.SourceGames) != 1 || len(card.SourceGames[0].Files) != 0 || len(card.SourceGames[0].ResolverMatches) != 0 {
+		t.Fatalf("source card retained detail-only data: %+v", card.SourceGames)
+	}
+	if card.Play == nil || !card.Play.Available {
+		t.Fatalf("ready materialized play route missing: %+v", card.Play)
+	}
+}
+
 func TestGameControllerListGamesRejectsUnknownSort(t *testing.T) {
 	store := &fakeGameStore{}
 	controller := NewGameController(store, nil, nil, nil, nil, noopLogger{})

@@ -1,4 +1,4 @@
-import { QueryClient, useMutation, useQueryClient } from '@tanstack/react-query'
+import { QueryClient, useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import {
   clearGameFavorite,
   setGameFavorite,
@@ -12,7 +12,7 @@ function updateGameListEntry(list: ListGamesResponse | undefined, updated: GameD
   const games = list.games.map((game) => {
     if (game.id !== updated.id) return game
     changed = true
-    return updated
+    return { ...game, favorite: updated.favorite }
   })
   return changed ? { ...list, games } : list
 }
@@ -22,10 +22,12 @@ export function applyUpdatedGameToCaches(
   updated: GameDetailResponse,
 ) {
   queryClient.setQueryData(['game', updated.id], updated)
-  queryClient.setQueryData<ListGamesResponse | undefined>(['games', 'all'], (current) =>
-    updateGameListEntry(current, updated),
+  queryClient.setQueriesData<InfiniteData<ListGamesResponse>>(
+    { queryKey: ['games', 'paged'] },
+    (current) => current
+      ? { ...current, pages: current.pages.map((page) => updateGameListEntry(page, updated) ?? page) }
+      : current,
   )
-  void queryClient.invalidateQueries({ queryKey: ['games'] })
 }
 
 export function useGameFavoriteAction() {

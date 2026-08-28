@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
+import { lazy, Suspense, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router'
 import { ThemeProvider } from '@/theme/ThemeProvider'
 import { SearchProvider } from '@/hooks/useSearchContext'
@@ -10,22 +10,23 @@ import { AppNotifications } from '@/components/notifications/AppNotifications'
 import { AppQueryInvalidation } from '@/components/notifications/AppQueryInvalidation'
 import { ToastProvider } from '@/components/ui/toast'
 import { AppLayout } from '@/layouts/AppLayout'
-import { AboutPage } from '@/pages/AboutPage'
-import { AchievementsPage } from '@/pages/AchievementsPage'
-import { LibraryPage } from '@/pages/LibraryPage'
-import { LibraryReviewPage } from '@/pages/LibraryReviewPage'
-import { PlayPage } from '@/pages/PlayPage'
-import { StatsPage } from '@/pages/StatsPage'
-import { SettingsPage } from '@/pages/SettingsPage'
-import { GameDetailPage } from '@/pages/GameDetailPage'
-import { GameMediaPage } from '@/pages/GameMediaPage'
-import { GamePlayerPage } from '@/pages/GamePlayerPage'
-import { CredentialSetupPage } from '@/pages/CredentialSetupPage'
 import {
   APP_DESTINATIONS,
   APP_ROUTES,
   isCredentialSetupPath,
 } from '@/lib/navigationRoutes'
+
+const AboutPage = lazy(() => import('@/pages/AboutPage').then((module) => ({ default: module.AboutPage })))
+const AchievementsPage = lazy(() => import('@/pages/AchievementsPage').then((module) => ({ default: module.AchievementsPage })))
+const LibraryPage = lazy(() => import('@/pages/LibraryPage').then((module) => ({ default: module.LibraryPage })))
+const LibraryReviewPage = lazy(() => import('@/pages/LibraryReviewPage').then((module) => ({ default: module.LibraryReviewPage })))
+const PlayPage = lazy(() => import('@/pages/PlayPage').then((module) => ({ default: module.PlayPage })))
+const StatsPage = lazy(() => import('@/pages/StatsPage').then((module) => ({ default: module.StatsPage })))
+const SettingsPage = lazy(() => import('@/pages/SettingsPage').then((module) => ({ default: module.SettingsPage })))
+const GameDetailPage = lazy(() => import('@/pages/GameDetailPage').then((module) => ({ default: module.GameDetailPage })))
+const GameMediaPage = lazy(() => import('@/pages/GameMediaPage').then((module) => ({ default: module.GameMediaPage })))
+const GamePlayerPage = lazy(() => import('@/pages/GamePlayerPage').then((module) => ({ default: module.GamePlayerPage })))
+const CredentialSetupPage = lazy(() => import('@/pages/CredentialSetupPage').then((module) => ({ default: module.CredentialSetupPage })))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,13 +58,14 @@ export function App() {
 function ProfileAwareRoutes() {
   const location = useLocation()
   if (isCredentialSetupPath(location.pathname)) {
-    return <Routes><Route path={APP_ROUTES.credentialSetup} element={<CredentialSetupPage />} /></Routes>
+    return <Suspense fallback={<RouteLoading />}><Routes><Route path={APP_ROUTES.credentialSetup} element={<CredentialSetupPage />} /></Routes></Suspense>
   }
   return (
     <ProfileProvider>
       <ProfileScopedToastProvider>
         <AppNotifications />
         <AppQueryInvalidation />
+        <Suspense fallback={<RouteLoading />}>
         <Routes>
           <Route path={APP_ROUTES.root} element={<AppLayout />}>
             <Route index element={<Navigate to={APP_DESTINATIONS.play} replace />} />
@@ -86,8 +88,17 @@ function ProfileAwareRoutes() {
           <Route path={APP_ROUTES.gameDetail} element={<GameDetailPage />} />
           <Route path={APP_ROUTES.fallback} element={<Navigate to={APP_DESTINATIONS.play} replace />} />
         </Routes>
+        </Suspense>
       </ProfileScopedToastProvider>
     </ProfileProvider>
+  )
+}
+
+function RouteLoading() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center text-sm text-mga-muted" role="status">
+      Loading…
+    </div>
   )
 }
 
