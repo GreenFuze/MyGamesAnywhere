@@ -36,6 +36,43 @@ func Operations() []OperationDoc {
 			},
 		},
 		{
+			Method:      "GET",
+			Path:        "/api/catalog/offers",
+			Summary:     "List catalog offers",
+			Description: "Returns this profile's provider offers with the latest append-only availability observation, current/latest package versions, evidence timestamps, entitlement, delivery mode, and staleness. Optional query parameters: canonical_game_id, provider, availability, stale.",
+			ResponseDocs: map[string]string{
+				"200": "JSON object with profile-scoped offers[]",
+				"400": "Invalid availability or stale filter",
+				"403": "Profile context is missing or forbidden",
+				"500": "Internal server error",
+			},
+		},
+		{
+			Method:      "GET",
+			Path:        "/api/catalog/offers/{offer_id}",
+			Summary:     "Get a catalog offer",
+			Description: "Returns one offer only when it belongs to the active profile. Foreign-profile and unknown identifiers both fail closed as not found.",
+			ResponseDocs: map[string]string{
+				"200": "Catalog Offer JSON",
+				"403": "Profile context is missing or forbidden",
+				"404": "Offer not found in the active profile",
+				"500": "Internal server error",
+			},
+		},
+		{
+			Method:      "GET",
+			Path:        "/api/catalog/offers/{offer_id}/history",
+			Summary:     "List catalog offer history",
+			Description: "Returns append-only added, removed, returned, leaving-soon, and version-change events for one active-profile offer, newest first. Optional limit is 1 through 1000 and defaults to 100.",
+			ResponseDocs: map[string]string{
+				"200": "JSON object with newest-first events[]",
+				"400": "Invalid limit",
+				"403": "Profile context is missing or forbidden",
+				"404": "Offer not found in the active profile",
+				"500": "Internal server error",
+			},
+		},
+		{
 			Method:       "DELETE",
 			Path:         "/api/games",
 			Summary:      "Delete all games",

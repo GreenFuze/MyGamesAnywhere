@@ -18,6 +18,7 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/app"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/auth"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/catalog"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
@@ -229,6 +230,10 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	}
 	integrationRepo := db.NewIntegrationRepository(dbSvc)
 	gameStore := db.NewGameStore(dbSvc, logSvc)
+	catalogSvc, err := catalog.NewService(db.NewCatalogRepository(dbSvc))
+	if err != nil {
+		return fmt.Errorf("configure catalog service: %w", err)
+	}
 	cacheStore := db.NewSourceCacheStore(dbSvc)
 	sourceMoveStore := db.NewSourceMoveStore(dbSvc)
 
@@ -271,6 +276,10 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	gameCtrl.SetEmulationService(emulationSvc)
 	gameCtrl.SetEmulatorContentRoot(envString("MGA_GOOGLE_DRIVE_DESKTOP_ROOT", ""))
 	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc, mediaSvc)
+	catalogCtrl, err := http.NewCatalogController(catalogSvc, logSvc)
+	if err != nil {
+		return fmt.Errorf("configure catalog controller: %w", err)
+	}
 	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc, eventBus, achievementRefreshCtrl)
 	backgroundScanSvc, err := http.NewBackgroundScanService(discoCtrl, profileRepo, settingRepo, logSvc, eventBus)
 	if err != nil {
@@ -329,7 +338,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	deviceCtrl.SetEmulationService(emulationSvc)
 	deviceCtrl.SetSaveDomainDependencies(saveSyncSvc)
 
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, catalogCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
 
 	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, updateSvc, mediaSvc, backgroundScanSvc, installationValidationSvc, storefrontReconciliationSvc)
 	a.AddStartupTask(commandRecovery)

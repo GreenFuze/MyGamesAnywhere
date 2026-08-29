@@ -14,6 +14,7 @@ import (
 // If nil is passed to BuildRouter, routes are registered with no-op handlers for OpenAPI discovery.
 type RouteBuilder struct {
 	GameCtrl               *GameController
+	CatalogCtrl            *CatalogController
 	MediaCtrl              *MediaController
 	DiscoCtrl              *DiscoveryController
 	AboutCtrl              *AboutController
@@ -180,6 +181,9 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Use(ProfileContextMiddleware(b.ProfileRepo))
 				r.Use(RequireProfileAccess(b.AuthService))
 				r.Get("/games", b.GameCtrl.ListGames)
+				r.Get("/catalog/offers", b.CatalogCtrl.ListOffers)
+				r.Get("/catalog/offers/{offer_id}", b.CatalogCtrl.GetOffer)
+				r.Get("/catalog/offers/{offer_id}/history", b.CatalogCtrl.ListHistory)
 				r.Get("/games/source-move-destinations", b.GameCtrl.ListSourceMoveDestinations)
 				r.Get("/games/source-moves", b.GameCtrl.ListSourceMoveJobs)
 				r.Get("/games/source-moves/{job_id}", b.GameCtrl.GetSourceMoveJob)
@@ -394,6 +398,9 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/auth/callback/{plugin_id}", noopHandler())
 			api.Post("/auth/callback/import", noopHandler())
 			api.Get("/games", noopHandler())
+			api.Get("/catalog/offers", noopHandler())
+			api.Get("/catalog/offers/{offer_id}", noopHandler())
+			api.Get("/catalog/offers/{offer_id}/history", noopHandler())
 			api.Delete("/games", noopHandler())
 			api.Get("/games/{id}/detail", noopHandler())
 			api.Post("/games/{id}/refresh-metadata", noopHandler())

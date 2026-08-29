@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 38
+const latestMigrationVersion = 39
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -791,6 +791,104 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 				`ALTER TABLE device_commands ADD COLUMN result_fingerprint TEXT NOT NULL DEFAULT '';`,
 				`ALTER TABLE device_commands ADD COLUMN replay_count INTEGER NOT NULL DEFAULT 0 CHECK(replay_count >= 0);`,
 				`ALTER TABLE device_commands ADD COLUMN last_replayed_at INTEGER;`,
+			},
+		},
+		{
+			Version: 39,
+			Name:    "catalog_offers_versions_and_availability_history",
+			SQL: []string{
+				`CREATE TABLE catalog_offers (
+					id TEXT PRIMARY KEY,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					offer_key TEXT NOT NULL,
+					canonical_game_id TEXT NOT NULL REFERENCES canonical_games(id) ON DELETE CASCADE,
+					source_game_id TEXT REFERENCES source_games(id) ON DELETE SET NULL,
+					integration_id TEXT REFERENCES integrations(id) ON DELETE SET NULL,
+					provider TEXT NOT NULL,
+					sku TEXT NOT NULL,
+					platform TEXT NOT NULL,
+					region TEXT NOT NULL,
+					entitlement TEXT NOT NULL CHECK(entitlement IN ('owned','subscription','shared','trial','none','unknown')),
+					delivery TEXT NOT NULL CHECK(delivery IN ('mga_content','storefront','cloud','metadata_only')),
+					evidence_source TEXT NOT NULL,
+					evidence_json TEXT NOT NULL DEFAULT '{}',
+					first_observed_at INTEGER NOT NULL,
+					last_observed_at INTEGER NOT NULL,
+					last_success_at INTEGER NOT NULL,
+					stale_at INTEGER,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					UNIQUE(profile_id, offer_key)
+				);`,
+				`CREATE INDEX idx_catalog_offers_profile_game ON catalog_offers(profile_id, canonical_game_id, provider);`,
+				`CREATE INDEX idx_catalog_offers_profile_provider ON catalog_offers(profile_id, provider, integration_id, stale_at);`,
+				`CREATE TABLE catalog_package_versions (
+					id TEXT PRIMARY KEY,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					offer_id TEXT NOT NULL REFERENCES catalog_offers(id) ON DELETE CASCADE,
+					version_key TEXT NOT NULL,
+					version TEXT,
+					build_id TEXT,
+					channel TEXT,
+					source_revision TEXT,
+					sha256 TEXT,
+					size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes >= 0),
+					released_at INTEGER,
+					first_observed_at INTEGER NOT NULL,
+					last_observed_at INTEGER NOT NULL,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					UNIQUE(profile_id, offer_id, version_key)
+				);`,
+				`CREATE INDEX idx_catalog_package_versions_offer ON catalog_package_versions(profile_id, offer_id, last_observed_at DESC);`,
+				`CREATE TABLE catalog_offer_observations (
+					id TEXT PRIMARY KEY,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					offer_id TEXT NOT NULL REFERENCES catalog_offers(id) ON DELETE CASCADE,
+					observation_key TEXT NOT NULL,
+					entitlement TEXT NOT NULL CHECK(entitlement IN ('owned','subscription','shared','trial','none','unknown')),
+					delivery TEXT NOT NULL CHECK(delivery IN ('mga_content','storefront','cloud','metadata_only')),
+					availability TEXT NOT NULL CHECK(availability IN ('available','leaving_soon','unavailable','unknown')),
+					current_package_version_id TEXT REFERENCES catalog_package_versions(id) ON DELETE SET NULL,
+					latest_package_version_id TEXT REFERENCES catalog_package_versions(id) ON DELETE SET NULL,
+					evidence_source TEXT NOT NULL,
+					evidence_json TEXT NOT NULL DEFAULT '{}',
+					observed_at INTEGER NOT NULL,
+					created_at INTEGER NOT NULL,
+					UNIQUE(profile_id, offer_id, observation_key)
+				);`,
+				`CREATE INDEX idx_catalog_offer_observations_history ON catalog_offer_observations(profile_id, offer_id, observed_at DESC, created_at DESC);`,
+				`CREATE TABLE catalog_offer_events (
+					id TEXT PRIMARY KEY,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					offer_id TEXT NOT NULL REFERENCES catalog_offers(id) ON DELETE CASCADE,
+					observation_id TEXT NOT NULL REFERENCES catalog_offer_observations(id) ON DELETE CASCADE,
+					event_type TEXT NOT NULL CHECK(event_type IN ('added','removed','returned','leaving_soon','version_changed')),
+					previous_availability TEXT CHECK(previous_availability IS NULL OR previous_availability IN ('available','leaving_soon','unavailable','unknown')),
+					availability TEXT NOT NULL CHECK(availability IN ('available','leaving_soon','unavailable','unknown')),
+					previous_current_package_version_id TEXT REFERENCES catalog_package_versions(id) ON DELETE SET NULL,
+					current_package_version_id TEXT REFERENCES catalog_package_versions(id) ON DELETE SET NULL,
+					previous_latest_package_version_id TEXT REFERENCES catalog_package_versions(id) ON DELETE SET NULL,
+					latest_package_version_id TEXT REFERENCES catalog_package_versions(id) ON DELETE SET NULL,
+					occurred_at INTEGER NOT NULL,
+					created_at INTEGER NOT NULL,
+					UNIQUE(observation_id, event_type)
+				);`,
+				`CREATE INDEX idx_catalog_offer_events_history ON catalog_offer_events(profile_id, offer_id, occurred_at DESC, created_at DESC);`,
+				`CREATE INDEX idx_catalog_offer_events_type ON catalog_offer_events(profile_id, event_type, occurred_at DESC);`,
+				`CREATE TABLE catalog_refresh_states (
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					scope_key TEXT NOT NULL,
+					provider TEXT NOT NULL,
+					integration_id TEXT REFERENCES integrations(id) ON DELETE SET NULL,
+					last_attempted_at INTEGER NOT NULL,
+					last_success_at INTEGER,
+					last_error TEXT,
+					stale_at INTEGER,
+					updated_at INTEGER NOT NULL,
+					PRIMARY KEY(profile_id, scope_key)
+				);`,
+				`CREATE INDEX idx_catalog_refresh_states_stale ON catalog_refresh_states(profile_id, stale_at, provider);`,
 			},
 		},
 	}
