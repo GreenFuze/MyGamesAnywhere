@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -33,7 +34,9 @@ type Service struct {
 	initOnce sync.Once
 	initErr  error
 
-	startMu sync.Mutex
+	startMu  sync.Mutex
+	activeMu sync.Mutex
+	active   map[string]context.CancelFunc
 }
 
 func NewService(
@@ -49,6 +52,7 @@ func NewService(
 		pluginHost:      pluginHost,
 		config:          config,
 		logger:          logger,
+		active:          make(map[string]context.CancelFunc),
 	}
 }
 
@@ -84,6 +88,27 @@ func (s *Service) DescribeSourceGame(ctx context.Context, canonicalPlatform core
 
 func (s *Service) CanPrepareSourceGame(sourceGame *core.SourceGame) bool {
 	return supportsDirectSourceGame(sourceGame) || s.supportsMaterialization(sourceGame)
+}
+
+func (s *Service) IsReady(ctx context.Context, sourceGame *core.SourceGame, profile string) (bool, error) {
+	if err := s.ensureInitialized(ctx); err != nil {
+		return false, err
+	}
+	if sourceGame == nil || strings.TrimSpace(sourceGame.ID) == "" || strings.TrimSpace(profile) == "" {
+		return false, fmt.Errorf("source game and profile are required")
+	}
+	if supportsDirectSourceGame(sourceGame) {
+		return true, nil
+	}
+	files, _, err := filesForProfile(profile, sourceGame)
+	if err != nil {
+		return false, err
+	}
+	entry, err := s.store.GetEntryBySourceProfile(ctx, sourceGame.ID, profile)
+	if err != nil || entry == nil {
+		return false, err
+	}
+	return entry.Status == "ready" && entry.CacheKey == buildCacheKey(sourceGame, profile, files) && entry.FileCount == len(files), nil
 }
 
 func (s *Service) Prepare(ctx context.Context, req core.SourceCachePrepareRequest, canonicalPlatform core.Platform, sourceGame *core.SourceGame) (*core.SourceCacheJobStatus, bool, error) {
@@ -214,8 +239,14 @@ func (s *Service) Prepare(ctx context.Context, req core.SourceCachePrepareReques
 		return nil, false, err
 	}
 
-	owner, _ := core.ProfileFromContext(ctx)
-	go s.runPrepare(owner, job, entry, req.Profile, sourceGame, files)
+	background := context.Background()
+	if owner, ok := core.ProfileFromContext(ctx); ok && strings.TrimSpace(owner.ID) != "" {
+		ownerCopy := *owner
+		background = core.WithProfile(background, &ownerCopy)
+	}
+	runCtx, cancel := context.WithCancel(background)
+	s.registerActiveJob(job.JobID, cancel)
+	go s.runPrepare(runCtx, job, entry, req.Profile, sourceGame, files)
 	return job, false, nil
 }
 
@@ -224,6 +255,41 @@ func (s *Service) GetJob(ctx context.Context, jobID string) (*core.SourceCacheJo
 		return nil, err
 	}
 	return s.store.GetJob(ctx, jobID)
+}
+
+func (s *Service) CancelJob(ctx context.Context, jobID string) (*core.SourceCacheJobStatus, bool, error) {
+	if err := s.ensureInitialized(ctx); err != nil {
+		return nil, false, err
+	}
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		return nil, false, fmt.Errorf("job_id is required")
+	}
+	job, err := s.store.GetJob(ctx, jobID)
+	if err != nil || job == nil {
+		return job, false, err
+	}
+	if job.Status != "queued" && job.Status != "running" && job.Status != "cancelling" {
+		return job, false, nil
+	}
+
+	s.activeMu.Lock()
+	cancel := s.active[jobID]
+	s.activeMu.Unlock()
+	if cancel == nil {
+		current, currentErr := s.store.GetJob(ctx, jobID)
+		return current, false, currentErr
+	}
+	if job.Status != "cancelling" {
+		job.Status = "cancelling"
+		job.Message = "cancellation requested"
+		job.Error = ""
+		if err := s.store.UpdateJob(ctx, job); err != nil {
+			return nil, false, err
+		}
+	}
+	cancel()
+	return job, true, nil
 }
 
 func (s *Service) ListJobs(ctx context.Context, limit int) ([]*core.SourceCacheJobStatus, error) {
@@ -291,17 +357,20 @@ func (s *Service) ResolveCachedFile(ctx context.Context, sourceGameID, profile, 
 	if err != nil || entry == nil || file == nil {
 		return entry, file, "", err
 	}
+	if entry.Status != "ready" {
+		return entry, nil, "", nil
+	}
 	now := time.Now().UTC()
 	_ = s.store.TouchEntry(ctx, entry.ID, now)
 	entry.LastAccessedAt = &now
 	return entry, file, filepath.Join(s.cacheRoot(), filepath.FromSlash(file.LocalPath)), nil
 }
 
-func (s *Service) runPrepare(owner *core.Profile, job *core.SourceCacheJobStatus, entry *core.SourceCacheEntry, profile string, sourceGame *core.SourceGame, files []core.GameFile) {
-	ctx := context.Background()
-	if owner != nil && strings.TrimSpace(owner.ID) != "" {
-		profileCopy := *owner
-		ctx = core.WithProfile(ctx, &profileCopy)
+func (s *Service) runPrepare(ctx context.Context, job *core.SourceCacheJobStatus, entry *core.SourceCacheEntry, profile string, sourceGame *core.SourceGame, files []core.GameFile) {
+	defer s.unregisterActiveJob(job.JobID)
+	if ctx.Err() != nil {
+		s.cancelledJob(ctx, job, entry)
+		return
 	}
 	job.Status = "running"
 	job.Message = "materializing source files"
@@ -322,6 +391,10 @@ func (s *Service) runPrepare(owner *core.Profile, job *core.SourceCacheJobStatus
 
 	integration, err := s.integrationRepo.GetByID(ctx, sourceGame.IntegrationID)
 	if err != nil || integration == nil {
+		if ctx.Err() != nil {
+			s.cancelledJob(ctx, job, entry)
+			return
+		}
 		if err == nil {
 			err = fmt.Errorf("integration not found")
 		}
@@ -331,13 +404,25 @@ func (s *Service) runPrepare(owner *core.Profile, job *core.SourceCacheJobStatus
 
 	var config map[string]any
 	if err := json.Unmarshal([]byte(integration.ConfigJSON), &config); err != nil {
+		if ctx.Err() != nil {
+			s.cancelledJob(ctx, job, entry)
+			return
+		}
 		s.failJob(ctx, job, entry, fmt.Errorf("invalid integration config: %w", err))
 		return
 	}
 
 	entryFiles, totalSize, err := s.materializeFiles(ctx, job, entry, profile, sourceGame, files, config)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			s.cancelledJob(ctx, job, entry)
+			return
+		}
 		s.failJob(ctx, job, entry, err)
+		return
+	}
+	if ctx.Err() != nil {
+		s.cancelledJob(ctx, job, entry)
 		return
 	}
 
@@ -522,6 +607,34 @@ func (s *Service) failJob(ctx context.Context, job *core.SourceCacheJobStatus, e
 	job.Message = err.Error()
 	job.FinishedAt = &now
 	_ = s.store.UpdateJob(ctx, job)
+}
+
+func (s *Service) cancelledJob(ctx context.Context, job *core.SourceCacheJobStatus, entry *core.SourceCacheEntry) {
+	writeCtx := context.WithoutCancel(ctx)
+	if entry != nil {
+		entry.Status = "failed"
+		_ = s.store.UpsertEntry(writeCtx, entry)
+		_ = s.store.ReplaceEntryFiles(writeCtx, entry.ID, nil)
+		_ = os.RemoveAll(filepath.Join(s.cacheRoot(), filepath.FromSlash(entry.ID)))
+	}
+	now := time.Now().UTC()
+	job.Status = "cancelled"
+	job.Message = "materialization cancelled"
+	job.Error = ""
+	job.FinishedAt = &now
+	_ = s.store.UpdateJob(writeCtx, job)
+}
+
+func (s *Service) registerActiveJob(jobID string, cancel context.CancelFunc) {
+	s.activeMu.Lock()
+	defer s.activeMu.Unlock()
+	s.active[jobID] = cancel
+}
+
+func (s *Service) unregisterActiveJob(jobID string) {
+	s.activeMu.Lock()
+	defer s.activeMu.Unlock()
+	delete(s.active, jobID)
 }
 
 func (s *Service) ensureInitialized(ctx context.Context) error {

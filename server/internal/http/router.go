@@ -15,6 +15,7 @@ import (
 type RouteBuilder struct {
 	GameCtrl               *GameController
 	CatalogCtrl            *CatalogController
+	ContentCtrl            *ContentController
 	MediaCtrl              *MediaController
 	DiscoCtrl              *DiscoveryController
 	AboutCtrl              *AboutController
@@ -296,10 +297,18 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 
 			})
 
-			// Browser play streams can be large; enforce profile context without request timeout.
+			// Content streams can be large; enforce profile context without request timeout.
 			api.Group(func(r chi.Router) {
 				r.Use(ProfileContextMiddleware(b.ProfileRepo))
 				r.Use(RequireProfileAccess(b.AuthService))
+				if b.ContentCtrl != nil {
+					r.Get("/content/v1/copies/{copy_id}/manifest", b.ContentCtrl.Manifest)
+					r.Get("/content/v1/copies/{copy_id}/files/{file_id}", b.ContentCtrl.File)
+					r.Head("/content/v1/copies/{copy_id}/files/{file_id}", b.ContentCtrl.File)
+					r.Post("/content/v1/copies/{copy_id}/materializations", b.ContentCtrl.Prepare)
+					r.Get("/content/v1/materializations/{job_id}", b.ContentCtrl.GetMaterialization)
+					r.Post("/content/v1/materializations/{job_id}/cancel", b.ContentCtrl.CancelMaterialization)
+				}
 				r.Get("/games/{id}/play", b.GameCtrl.ServePlayFile)
 				r.Head("/games/{id}/play", b.GameCtrl.ServePlayFile)
 			})
@@ -421,6 +430,12 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Post("/games/source-moves/{job_id}/keep-both", noopHandler())
 			api.Post("/games/{id}/sources/{source_game_id}/delete-preview", noopHandler())
 			api.Delete("/games/{id}/sources/{source_game_id}", noopHandler())
+			api.Get("/content/v1/copies/{copy_id}/manifest", noopHandler())
+			api.Get("/content/v1/copies/{copy_id}/files/{file_id}", noopHandler())
+			api.Head("/content/v1/copies/{copy_id}/files/{file_id}", noopHandler())
+			api.Post("/content/v1/copies/{copy_id}/materializations", noopHandler())
+			api.Get("/content/v1/materializations/{job_id}", noopHandler())
+			api.Post("/content/v1/materializations/{job_id}/cancel", noopHandler())
 			api.Get("/games/{id}/play", noopHandler())
 			api.Head("/games/{id}/play", noopHandler())
 			api.Post("/games/{id}/cache/prepare", noopHandler())

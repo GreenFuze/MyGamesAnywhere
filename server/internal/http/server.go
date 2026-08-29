@@ -20,6 +20,7 @@ type httpServer struct {
 	config                 core.Configuration
 	gameCtrl               *GameController
 	catalogCtrl            *CatalogController
+	contentCtrl            *ContentController
 	mediaCtrl              *MediaController
 	discoCtrl              *DiscoveryController
 	aboutCtrl              *AboutController
@@ -47,6 +48,7 @@ func NewHttpServer(
 	config core.Configuration,
 	gameCtrl *GameController,
 	catalogCtrl *CatalogController,
+	contentCtrl *ContentController,
 	mediaCtrl *MediaController,
 	discoCtrl *DiscoveryController,
 	aboutCtrl *AboutController,
@@ -73,6 +75,7 @@ func NewHttpServer(
 		config:                 config,
 		gameCtrl:               gameCtrl,
 		catalogCtrl:            catalogCtrl,
+		contentCtrl:            contentCtrl,
 		mediaCtrl:              mediaCtrl,
 		discoCtrl:              discoCtrl,
 		aboutCtrl:              aboutCtrl,
@@ -115,6 +118,7 @@ func (h *httpServer) Start(ctx context.Context) error {
 	r := BuildRouter(&RouteBuilder{
 		GameCtrl:               h.gameCtrl,
 		CatalogCtrl:            h.catalogCtrl,
+		ContentCtrl:            h.contentCtrl,
 		MediaCtrl:              h.mediaCtrl,
 		DiscoCtrl:              h.discoCtrl,
 		AboutCtrl:              h.aboutCtrl,

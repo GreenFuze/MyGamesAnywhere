@@ -451,6 +451,158 @@ paths:
         500:
           description: Internal server error
 
+  /api/content/v1/copies/{copy_id}/files/{file_id}:
+    get:
+      summary: Download one content-copy file
+      description: Streams one manifest-listed file after revalidating profile, copy, integration, and opaque file ownership. Supports one HTTP byte range, ETag conditional requests, safe attachment naming, explicit MIME, and resumable delivery.
+      parameters:
+        - name: copy_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Complete file bytes
+        400:
+          description: Invalid copy or file identifier
+        404:
+          description: Copy/file missing or owned by another profile
+        409:
+          description: Materialization required, delivery unavailable, or source changed
+        500:
+          description: Internal server error
+    head:
+      summary: Inspect one content-copy file
+      description: Returns the same authorization, ETag, MIME, length, range, and content-disposition headers as GET without a response body.
+      parameters:
+        - name: copy_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: File headers
+        400:
+          description: Error response
+        404:
+          description: Copy/file missing or owned by another profile
+        409:
+          description: Materialization required, delivery unavailable, or source changed
+        500:
+          description: Error response
+
+  /api/content/v1/copies/{copy_id}/manifest:
+    get:
+      summary: Get a content-copy manifest
+      description: Returns Content Delivery API v1 metadata for one concrete copy owned by the authenticated profile. File IDs are stable opaque hashes; relative paths are validated and no server/source/cache path or credential is exposed.
+      parameters:
+        - name: copy_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Content manifest schema v1
+        400:
+          description: Invalid copy identifier
+        404:
+          description: Copy missing or owned by another profile
+        409:
+          description: Source file evidence is invalid
+        500:
+          description: Internal server error
+
+  /api/content/v1/copies/{copy_id}/materializations:
+    post:
+      summary: Prepare remote content for delivery
+      description: Starts or reuses a bounded, profile-authorized source-cache job for the current copy evidence. Direct sources complete immediately; remote sources return a durable job that can be polled or cancelled.
+      parameters:
+        - name: copy_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: No request body
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Direct source or matching cache is already ready
+        202:
+          description: Materialization job accepted
+        400:
+          description: Error response
+        404:
+          description: Copy missing or owned by another profile
+        409:
+          description: Source is not materializable or its manifest is invalid
+        500:
+          description: Internal server error
+
+  /api/content/v1/materializations/{job_id}:
+    get:
+      summary: Get a content materialization job
+      description: Returns sanitized progress for one durable materialization job visible to the authenticated profile. Provider errors, paths, credentials, and foreign-profile facts are never returned.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Sanitized materialization job
+        400:
+          description: Error response
+        404:
+          description: Job missing or owned by another profile
+        500:
+          description: Internal server error
+
+  /api/content/v1/materializations/{job_id}/cancel:
+    post:
+      summary: Cancel a content materialization job
+      description: Requests cancellation of an active profile-owned materialization. Plugin work receives context cancellation, partial files are removed, and the durable job becomes cancelled.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: No request body
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: Cancellation requested
+        400:
+          description: Error response
+        404:
+          description: Job missing or owned by another profile
+        409:
+          description: Job is already terminal
+        500:
+          description: Internal server error
+
   /api/device-transfers/archive:
     get:
       responses:

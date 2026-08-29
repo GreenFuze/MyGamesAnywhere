@@ -19,6 +19,8 @@ import (
 // ServePlayFile streams one launchable/source-owned file for a canonical game
 // (GET /api/games/{id}/play?file_id=...).
 func (c *GameController) ServePlayFile(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Deprecation", "true")
+	w.Header().Set("Link", `</api/content/v1/copies/{copy_id}/manifest>; rel="successor-version"`)
 	id, err := decodedPathParam(r, "id")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	dbpkg "github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
@@ -68,12 +69,21 @@ type testPluginHost struct {
 }
 
 func (h *testPluginHost) Discover(context.Context) error { return nil }
-func (h *testPluginHost) Call(_ context.Context, pluginID, method string, params any, result any) error {
+func (h *testPluginHost) Call(ctx context.Context, pluginID, method string, params any, result any) error {
 	if h.plugin == nil || pluginID != h.plugin.Manifest.ID || method != sourceFileMaterializeMethod {
 		return nil
 	}
-	h.beginCall()
+	delay := h.beginCall()
 	defer h.endCall()
+	if delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 	req, ok := params.(core.SourceMaterializeRequest)
 	if !ok {
 		return nil
@@ -109,18 +119,16 @@ func (h *testPluginHost) GetPluginIDsProviding(string) []string {
 	return nil
 }
 
-func (h *testPluginHost) beginCall() {
+func (h *testPluginHost) beginCall() time.Duration {
 	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.calls++
 	h.activeCalls++
 	if h.activeCalls > h.maxActiveCalls {
 		h.maxActiveCalls = h.activeCalls
 	}
 	delay := h.delay
-	h.mu.Unlock()
-	if delay > 0 {
-		time.Sleep(delay)
-	}
+	return delay
 }
 
 func (h *testPluginHost) endCall() {
@@ -327,6 +335,97 @@ func TestServicePrepareMaterializesAndReusesCache(t *testing.T) {
 	}
 	if calls := host.callCount(); calls != 1 {
 		t.Fatalf("materialize calls after cache hit = %d, want 1", calls)
+	}
+}
+
+func TestServiceCancelJobStopsMaterializationAndRemovesPartialState(t *testing.T) {
+	profile := &core.Profile{ID: "profile-cancel", Role: core.ProfileRolePlayer}
+	otherProfile := &core.Profile{ID: "profile-other", Role: core.ProfileRolePlayer}
+	ctx := core.WithProfile(context.Background(), profile)
+	dbPath := filepath.Join(t.TempDir(), "cancel.db")
+	cacheRoot := filepath.Join(t.TempDir(), "source-cache")
+	database := dbpkg.NewSQLiteDatabase(testLogger{}, testConfig{values: map[string]string{"DB_PATH": dbPath}})
+	if err := database.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []*core.Profile{profile, otherProfile} {
+		if _, err := database.GetDB().Exec(`INSERT INTO profiles (id, display_name, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+			item.ID, item.ID, string(item.Role), time.Now().Unix(), time.Now().Unix()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := database.GetDB().Exec(`INSERT INTO source_games
+		(id, profile_id, integration_id, plugin_id, external_id, raw_title, platform, kind, group_kind, root_path, status, created_at)
+		VALUES ('source-cancel', 'profile-cancel', 'integration-cancel', 'game-source-google-drive', 'object', 'Game', 'gba', 'base_game', 'self_contained', 'Drive/Game', 'found', ?)`, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+
+	store := dbpkg.NewSourceCacheStore(database)
+	host := &testPluginHost{
+		plugin: &core.Plugin{Manifest: core.PluginManifest{ID: "game-source-google-drive", Provides: []string{sourceFileMaterializeMethod}}},
+		delay:  3 * time.Second,
+		body:   []byte("cancelled-content"),
+	}
+	service := NewService(
+		store,
+		&testIntegrationRepo{integration: &core.Integration{ID: "integration-cancel", ProfileID: profile.ID, PluginID: "game-source-google-drive", ConfigJSON: `{}`}},
+		host,
+		testConfig{values: map[string]string{"SOURCE_CACHE_ROOT": cacheRoot}},
+		testLogger{},
+	)
+	sourceGame := &core.SourceGame{
+		ID: "source-cancel", IntegrationID: "integration-cancel", PluginID: "game-source-google-drive", RawTitle: "Game", Platform: core.PlatformGBA,
+		Files: []core.GameFile{{GameID: "source-cancel", Path: "game.gba", Role: core.GameFileRoleRoot, Size: 17, ObjectID: "object", Revision: "rev"}},
+	}
+	job, immediate, err := service.Prepare(ctx, core.SourceCachePrepareRequest{
+		CanonicalGameID: "canonical-cancel", CanonicalTitle: "Game", SourceGameID: sourceGame.ID, Profile: devicev1.DeviceDownloadSourceProfile,
+	}, core.PlatformGBA, sourceGame)
+	if err != nil || immediate || job == nil {
+		t.Fatalf("prepare = job %+v immediate %v err %v", job, immediate, err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for host.callCount() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if host.callCount() == 0 {
+		t.Fatal("materialization did not start")
+	}
+	if foreign, cancelled, err := service.CancelJob(core.WithProfile(context.Background(), otherProfile), job.JobID); err != nil || cancelled || foreign != nil {
+		t.Fatalf("foreign cancel = job %+v cancelled %v err %v", foreign, cancelled, err)
+	}
+	cancelling, cancelled, err := service.CancelJob(ctx, job.JobID)
+	if err != nil || !cancelled || cancelling == nil || cancelling.Status != "cancelling" {
+		t.Fatalf("cancel = job %+v cancelled %v err %v", cancelling, cancelled, err)
+	}
+
+	var terminal *core.SourceCacheJobStatus
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		terminal, err = service.GetJob(ctx, job.JobID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if terminal != nil && terminal.Status == "cancelled" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if terminal == nil || terminal.Status != "cancelled" || terminal.Error != "" {
+		t.Fatalf("terminal job = %+v", terminal)
+	}
+	entry, err := store.GetEntryBySourceProfile(ctx, sourceGame.ID, devicev1.DeviceDownloadSourceProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry == nil || entry.Status == "ready" || len(entry.Files) != 0 {
+		t.Fatalf("partial cache became visible: %+v", entry)
+	}
+	if _, cancelled, err := service.CancelJob(ctx, job.JobID); err != nil || cancelled {
+		t.Fatalf("terminal cancellation = %v, %v", cancelled, err)
 	}
 }
 

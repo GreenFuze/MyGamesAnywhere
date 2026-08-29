@@ -359,8 +359,10 @@ type SourceCacheStore interface {
 type SourceCacheService interface {
 	DescribeSourceGame(ctx context.Context, canonicalPlatform Platform, sourceGame *SourceGame) []SourceDeliveryProfile
 	CanPrepareSourceGame(sourceGame *SourceGame) bool
+	IsReady(ctx context.Context, sourceGame *SourceGame, profile string) (bool, error)
 	Prepare(ctx context.Context, req SourceCachePrepareRequest, canonicalPlatform Platform, sourceGame *SourceGame) (*SourceCacheJobStatus, bool, error)
 	GetJob(ctx context.Context, jobID string) (*SourceCacheJobStatus, error)
+	CancelJob(ctx context.Context, jobID string) (*SourceCacheJobStatus, bool, error)
 	ListJobs(ctx context.Context, limit int) ([]*SourceCacheJobStatus, error)
 	ListEntries(ctx context.Context) ([]*SourceCacheEntry, error)
 	DeleteEntry(ctx context.Context, entryID string) error

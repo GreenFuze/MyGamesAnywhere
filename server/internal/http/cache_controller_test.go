@@ -26,11 +26,17 @@ func (f *fakeCacheService) DescribeSourceGame(context.Context, core.Platform, *c
 	return nil
 }
 func (f *fakeCacheService) CanPrepareSourceGame(*core.SourceGame) bool { return f.canPrepare }
+func (f *fakeCacheService) IsReady(context.Context, *core.SourceGame, string) (bool, error) {
+	return f.resolvedPath != "", nil
+}
 func (f *fakeCacheService) Prepare(context.Context, core.SourceCachePrepareRequest, core.Platform, *core.SourceGame) (*core.SourceCacheJobStatus, bool, error) {
 	return f.job, f.prepareImmediate, f.prepareErr
 }
 func (f *fakeCacheService) GetJob(context.Context, string) (*core.SourceCacheJobStatus, error) {
 	return f.job, nil
+}
+func (f *fakeCacheService) CancelJob(context.Context, string) (*core.SourceCacheJobStatus, bool, error) {
+	return f.job, f.job != nil, nil
 }
 func (f *fakeCacheService) ListJobs(context.Context, int) ([]*core.SourceCacheJobStatus, error) {
 	if f.job == nil {
