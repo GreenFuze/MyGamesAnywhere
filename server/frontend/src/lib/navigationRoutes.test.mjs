@@ -3,6 +3,7 @@ import test from 'node:test'
 import { matchRoutes } from 'react-router'
 import {
   APP_ROUTE_MATCHERS,
+  MANAGEMENT_DESTINATIONS,
   isCredentialSetupPath,
   resolveSettingsRoute,
 } from './navigationRoutes.ts'
@@ -16,26 +17,38 @@ test('credential setup remains outside the profile-scoped application', () => {
   assert.equal(matches?.at(-1)?.route.path, '/credential-setup')
 })
 
-test('all gamer deep links match the intended route', () => {
+test('all management-console deep links match the intended route', () => {
   const cases = [
-    ['/play', 'play'],
-    ['/play/section/recent', 'play/section/:sectionId'],
+    ['/overview', 'overview'],
+    ['/profiles', 'profiles'],
     ['/library', 'library'],
-    ['/library/section/xbox', 'library/section/:sectionId'],
-    ['/library/review?tab=copies', 'library/review'],
+    ['/catalog', 'catalog'],
+    ['/sources', 'sources'],
+    ['/artifacts', 'artifacts'],
     ['/achievements', 'achievements'],
-    ['/stats/library', 'stats/library'],
-    ['/stats/gamer', 'stats/gamer'],
-    ['/settings?tab=devices', 'settings'],
-    ['/about', 'about'],
-    ['/game/game-123', '/game/:id'],
-    ['/game/game-123/media', '/game/:id/media'],
-    ['/game/game-123/play', '/game/:id/play'],
+    ['/system', 'system'],
   ]
 
   for (const [url, expectedPath] of cases) {
     const matches = matchRoutes(APP_ROUTE_MATCHERS, url)
     assert.equal(matches?.at(-1)?.route.path, expectedPath, url)
+  }
+})
+
+test('management navigation contains the authoritative IA and no execution workflow', () => {
+  assert.deepEqual(MANAGEMENT_DESTINATIONS.map((item) => item.id), [
+    'overview',
+    'profiles',
+    'library',
+    'catalog',
+    'sources',
+    'artifacts',
+    'achievements',
+    'system',
+  ])
+  const labels = MANAGEMENT_DESTINATIONS.map((item) => item.label.toLowerCase()).join(' ')
+  for (const retired of ['play', 'install', 'launch', 'repair', 'uninstall']) {
+    assert.equal(labels.includes(retired), false, retired)
   }
 })
 

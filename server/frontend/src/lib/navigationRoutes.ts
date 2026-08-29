@@ -3,12 +3,20 @@ import type { RouteObject } from 'react-router'
 export const APP_ROUTES = {
   root: '/',
   credentialSetup: '/credential-setup',
+  overview: 'overview',
+  profiles: 'profiles',
+  catalog: 'catalog',
+  sources: 'sources',
+  artifacts: 'artifacts',
+  system: 'system',
+  achievements: 'achievements',
+  library: 'library',
+  // Compatibility paths remain matchable only so the shell can redirect them
+  // to management surfaces. They are not active product destinations.
   play: 'play',
   playSection: 'play/section/:sectionId',
-  library: 'library',
   librarySection: 'library/section/:sectionId',
   libraryReview: 'library/review',
-  achievements: 'achievements',
   stats: 'stats',
   statsLibrary: 'stats/library',
   statsGamer: 'stats/gamer',
@@ -23,7 +31,10 @@ export const APP_ROUTES = {
 } as const
 
 export const APP_DESTINATIONS = {
-  play: '/play',
+  overview: '/overview',
+  library: '/library',
+  system: '/system',
+  play: '/library',
   statsLibrary: '/stats/library',
 } as const
 
@@ -33,6 +44,12 @@ export const APP_ROUTE_MATCHERS: RouteObject[] = [
     path: APP_ROUTES.root,
     children: [
       { index: true },
+      { path: APP_ROUTES.overview },
+      { path: APP_ROUTES.profiles },
+      { path: APP_ROUTES.catalog },
+      { path: APP_ROUTES.sources },
+      { path: APP_ROUTES.artifacts },
+      { path: APP_ROUTES.system },
       { path: APP_ROUTES.play },
       { path: APP_ROUTES.playSection },
       { path: APP_ROUTES.library },
@@ -53,6 +70,17 @@ export const APP_ROUTE_MATCHERS: RouteObject[] = [
   { path: APP_ROUTES.gameDetail },
   { path: APP_ROUTES.fallback },
 ]
+
+export const MANAGEMENT_DESTINATIONS = [
+  { id: 'overview', label: 'Overview', path: APP_DESTINATIONS.overview, description: 'Operational health and attention' },
+  { id: 'profiles', label: 'Profiles', path: '/profiles', description: 'Identity, roles, and policy' },
+  { id: 'library', label: 'Library', path: APP_DESTINATIONS.library, description: 'Managed games and metadata' },
+  { id: 'catalog', label: 'Catalog', path: '/catalog', description: 'Offers, versions, and availability' },
+  { id: 'sources', label: 'Sources', path: '/sources', description: 'Storefront and provider sync' },
+  { id: 'artifacts', label: 'Artifacts', path: '/artifacts', description: 'Emulators and runtime compliance' },
+  { id: 'achievements', label: 'Achievements', path: '/achievements', description: 'Normalized progress and sync' },
+  { id: 'system', label: 'System', path: APP_DESTINATIONS.system, description: 'Server, API clients, and recovery' },
+] as const
 
 export function isCredentialSetupPath(pathname: string): boolean {
   return pathname === APP_ROUTES.credentialSetup

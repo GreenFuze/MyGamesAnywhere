@@ -2477,6 +2477,102 @@ export async function getAboutInfo(): Promise<AboutInfo> {
   return getJson<AboutInfo>("/api/about");
 }
 
+// ─── Headless management console summaries ────────────────────────
+
+export type CatalogPackageVersion = {
+  id: string;
+  offer_id: string;
+  version?: string;
+  build_id?: string;
+  channel?: string;
+  size_bytes?: number;
+  released_at?: string;
+  last_observed_at: string;
+};
+
+export type CatalogOffer = {
+  id: string;
+  canonical_game_id: string;
+  source_game_id?: string;
+  integration_id?: string;
+  provider: string;
+  sku: string;
+  platform: string;
+  region: string;
+  entitlement: "owned" | "subscription" | "shared" | "trial" | "none" | "unknown";
+  delivery: "mga_content" | "storefront" | "cloud" | "metadata_only";
+  availability: "available" | "leaving_soon" | "unavailable" | "unknown";
+  observed_at: string;
+  last_success_at: string;
+  stale_at?: string;
+  current_version?: CatalogPackageVersion;
+  latest_version?: CatalogPackageVersion;
+  updated_at: string;
+};
+
+export type RuntimeArtifact = {
+  id: string;
+  package_id: string;
+  display_name: string;
+  category: "runtime" | "emulator";
+  version: string;
+  channel: string;
+  os: string;
+  architecture: string;
+  license_spdx: string;
+  license_url?: string;
+  acquisition_mode: "bundled" | "cached" | "proxy" | "upstream_link";
+  redistributable: boolean;
+  compliance_state: "unknown" | "approved" | "blocked";
+  sha256?: string;
+  size_bytes: number;
+  updated_at: string;
+};
+
+export type FrontendAPIClient = {
+  id: string;
+  profile_id: string;
+  name: string;
+  scopes: string[];
+  created_at: string;
+  last_used_at?: string;
+  expires_at?: string;
+  revoked_at?: string;
+  updated_at: string;
+};
+
+export type FrontendAPIClientList = {
+  clients: FrontendAPIClient[];
+  supported_scopes: string[];
+  transport_warning: string;
+};
+
+export type LegacyClientDataReport = {
+  generated_at: string;
+  profile_id: string;
+  schema_version: number;
+  summary: Record<string, number>;
+  [key: string]: unknown;
+};
+
+export async function listCatalogOffers(): Promise<CatalogOffer[]> {
+  const response = await getJson<{ offers: CatalogOffer[] }>("/api/catalog/offers");
+  return response.offers ?? [];
+}
+
+export async function listRuntimeArtifacts(): Promise<RuntimeArtifact[]> {
+  const response = await getJson<{ artifacts: RuntimeArtifact[] }>("/api/runtime-artifacts");
+  return response.artifacts ?? [];
+}
+
+export async function listFrontendAPIClients(): Promise<FrontendAPIClientList> {
+  return getJson<FrontendAPIClientList>("/api/frontend-clients");
+}
+
+export async function getLegacyClientDataReport(): Promise<LegacyClientDataReport> {
+  return getJson<LegacyClientDataReport>("/api/legacy-client-data/report");
+}
+
 // QR sign-in: the player approves in the provider's own mobile app, so no
 // password or second factor is ever entered into MGA.
 export type QRSignInChallenge = {

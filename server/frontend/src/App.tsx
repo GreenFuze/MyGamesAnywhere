@@ -2,31 +2,28 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { lazy, Suspense, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router'
 import { ThemeProvider } from '@/theme/ThemeProvider'
-import { SearchProvider } from '@/hooks/useSearchContext'
 import { ProfileProvider, useProfiles } from '@/hooks/useProfiles'
 import { SSEProvider } from '@/hooks/useSSE'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AppNotifications } from '@/components/notifications/AppNotifications'
 import { AppQueryInvalidation } from '@/components/notifications/AppQueryInvalidation'
 import { ToastProvider } from '@/components/ui/toast'
-import { AppLayout } from '@/layouts/AppLayout'
+import { ManagementShell } from '@/layouts/ManagementShell'
 import {
   APP_DESTINATIONS,
   APP_ROUTES,
   isCredentialSetupPath,
 } from '@/lib/navigationRoutes'
 
-const AboutPage = lazy(() => import('@/pages/AboutPage').then((module) => ({ default: module.AboutPage })))
-const AchievementsPage = lazy(() => import('@/pages/AchievementsPage').then((module) => ({ default: module.AchievementsPage })))
-const LibraryPage = lazy(() => import('@/pages/LibraryPage').then((module) => ({ default: module.LibraryPage })))
-const LibraryReviewPage = lazy(() => import('@/pages/LibraryReviewPage').then((module) => ({ default: module.LibraryReviewPage })))
-const PlayPage = lazy(() => import('@/pages/PlayPage').then((module) => ({ default: module.PlayPage })))
-const StatsPage = lazy(() => import('@/pages/StatsPage').then((module) => ({ default: module.StatsPage })))
-const SettingsPage = lazy(() => import('@/pages/SettingsPage').then((module) => ({ default: module.SettingsPage })))
-const GameDetailPage = lazy(() => import('@/pages/GameDetailPage').then((module) => ({ default: module.GameDetailPage })))
-const GameMediaPage = lazy(() => import('@/pages/GameMediaPage').then((module) => ({ default: module.GameMediaPage })))
-const GamePlayerPage = lazy(() => import('@/pages/GamePlayerPage').then((module) => ({ default: module.GamePlayerPage })))
 const CredentialSetupPage = lazy(() => import('@/pages/CredentialSetupPage').then((module) => ({ default: module.CredentialSetupPage })))
+const OverviewPage = lazy(() => import('@/pages/management/OverviewPage').then((module) => ({ default: module.OverviewPage })))
+const ProfilesPage = lazy(() => import('@/pages/management/ProfilesPage').then((module) => ({ default: module.ProfilesPage })))
+const LibraryManagementPage = lazy(() => import('@/pages/management/LibraryManagementPage').then((module) => ({ default: module.LibraryManagementPage })))
+const CatalogPage = lazy(() => import('@/pages/management/CatalogPage').then((module) => ({ default: module.CatalogPage })))
+const SourcesPage = lazy(() => import('@/pages/management/SourcesPage').then((module) => ({ default: module.SourcesPage })))
+const ArtifactsPage = lazy(() => import('@/pages/management/ArtifactsPage').then((module) => ({ default: module.ArtifactsPage })))
+const AchievementsManagementPage = lazy(() => import('@/pages/management/AchievementsManagementPage').then((module) => ({ default: module.AchievementsManagementPage })))
+const SystemPage = lazy(() => import('@/pages/management/SystemPage').then((module) => ({ default: module.SystemPage })))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,13 +39,11 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <SSEProvider>
         <ThemeProvider>
-          <SearchProvider>
-            <BrowserRouter>
-              <ErrorBoundary>
-                <ProfileAwareRoutes />
-              </ErrorBoundary>
-            </BrowserRouter>
-          </SearchProvider>
+          <BrowserRouter>
+            <ErrorBoundary>
+              <ProfileAwareRoutes />
+            </ErrorBoundary>
+          </BrowserRouter>
         </ThemeProvider>
       </SSEProvider>
     </QueryClientProvider>
@@ -67,26 +62,32 @@ function ProfileAwareRoutes() {
         <AppQueryInvalidation />
         <Suspense fallback={<RouteLoading />}>
         <Routes>
-          <Route path={APP_ROUTES.root} element={<AppLayout />}>
-            <Route index element={<Navigate to={APP_DESTINATIONS.play} replace />} />
-            <Route path={APP_ROUTES.play} element={<PlayPage />} />
-            <Route path={APP_ROUTES.playSection} element={<PlayPage />} />
-            <Route path={APP_ROUTES.library} element={<LibraryPage />} />
-            <Route path={APP_ROUTES.librarySection} element={<LibraryPage />} />
-            <Route path={APP_ROUTES.libraryReview} element={<LibraryReviewPage />} />
-            <Route path={APP_ROUTES.achievements} element={<AchievementsPage />} />
-            <Route path={APP_ROUTES.stats} element={<Navigate to={APP_DESTINATIONS.statsLibrary} replace />} />
-            <Route path={APP_ROUTES.statsLibrary} element={<StatsPage />} />
-            <Route path={APP_ROUTES.statsGamer} element={<StatsPage />} />
-            <Route path={APP_ROUTES.playableLegacy} element={<Navigate to={APP_DESTINATIONS.play} replace />} />
-            <Route path={APP_ROUTES.xcloudLegacy} element={<Navigate to={APP_DESTINATIONS.play} replace />} />
-            <Route path={APP_ROUTES.settings} element={<SettingsPage />} />
-            <Route path={APP_ROUTES.about} element={<AboutPage />} />
+          <Route path={APP_ROUTES.root} element={<ManagementShell />}>
+            <Route index element={<Navigate to={APP_DESTINATIONS.overview} replace />} />
+            <Route path={APP_ROUTES.overview} element={<OverviewPage />} />
+            <Route path={APP_ROUTES.profiles} element={<ProfilesPage />} />
+            <Route path={APP_ROUTES.library} element={<LibraryManagementPage />} />
+            <Route path={APP_ROUTES.catalog} element={<CatalogPage />} />
+            <Route path={APP_ROUTES.sources} element={<SourcesPage />} />
+            <Route path={APP_ROUTES.artifacts} element={<ArtifactsPage />} />
+            <Route path={APP_ROUTES.achievements} element={<AchievementsManagementPage />} />
+            <Route path={APP_ROUTES.system} element={<SystemPage />} />
+            <Route path={APP_ROUTES.play} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
+            <Route path={APP_ROUTES.playSection} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
+            <Route path={APP_ROUTES.librarySection} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
+            <Route path={APP_ROUTES.libraryReview} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
+            <Route path={APP_ROUTES.playableLegacy} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
+            <Route path={APP_ROUTES.xcloudLegacy} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
+            <Route path={APP_ROUTES.settings} element={<Navigate to={APP_DESTINATIONS.system} replace />} />
+            <Route path={APP_ROUTES.about} element={<Navigate to={APP_DESTINATIONS.system} replace />} />
+            <Route path={APP_ROUTES.stats} element={<Navigate to={APP_DESTINATIONS.overview} replace />} />
+            <Route path={APP_ROUTES.statsLibrary} element={<Navigate to={APP_DESTINATIONS.overview} replace />} />
+            <Route path={APP_ROUTES.statsGamer} element={<Navigate to={APP_DESTINATIONS.overview} replace />} />
           </Route>
-          <Route path={APP_ROUTES.gamePlay} element={<GamePlayerPage />} />
-          <Route path={APP_ROUTES.gameMedia} element={<GameMediaPage />} />
-          <Route path={APP_ROUTES.gameDetail} element={<GameDetailPage />} />
-          <Route path={APP_ROUTES.fallback} element={<Navigate to={APP_DESTINATIONS.play} replace />} />
+          <Route path={APP_ROUTES.gamePlay} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
+          <Route path={APP_ROUTES.gameMedia} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
+          <Route path={APP_ROUTES.gameDetail} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
+          <Route path={APP_ROUTES.fallback} element={<Navigate to={APP_DESTINATIONS.overview} replace />} />
         </Routes>
         </Suspense>
       </ProfileScopedToastProvider>
