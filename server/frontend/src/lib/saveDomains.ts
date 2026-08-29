@@ -5,7 +5,7 @@ export type SaveDomainView = SaveDomainCapability & {
   context?: string
 }
 
-export function collectSaveDomains(game: Pick<GameDetailResponse, 'source_games' | 'play' | 'devices'>): SaveDomainView[] {
+export function collectSaveDomains(game: Pick<GameDetailResponse, 'source_games' | 'play'>): SaveDomainView[] {
   const items: SaveDomainView[] = []
   for (const source of game.source_games ?? []) {
     if (source.save) items.push({ ...source.save, context: sourceVersionContext(source) })
@@ -15,31 +15,6 @@ export function collectSaveDomains(game: Pick<GameDetailResponse, 'source_games'
       items.push({ ...option.save, context: launchOptionVersionContext(option, game.source_games ?? []) })
     }
   }
-  for (const device of game.devices ?? []) {
-    const installedSource = game.source_games?.find((source) => source.id === device.installed_source_id)
-    if (device.installed_save) {
-      items.push({
-        ...device.installed_save,
-        context: installedSource
-          ? `${device.display_name} · ${sourceVersionContext(installedSource)}`
-          : device.display_name,
-      })
-    }
-    for (const route of device.emulator_routes ?? []) {
-      const routeSource = game.source_games?.find((source) => source.id === route.source_game_id)
-      if (route.save) {
-        items.push({
-          ...route.save,
-          context: [
-            device.display_name,
-            route.emulator_name,
-            routeSource ? sourceVersionContext(routeSource) : route.source_title,
-          ].filter(Boolean).join(' · '),
-        })
-      }
-    }
-  }
-
   const seen = new Set<string>()
   return items.filter((item) => {
     const key = item.domain_id

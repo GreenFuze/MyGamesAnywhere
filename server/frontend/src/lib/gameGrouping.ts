@@ -56,12 +56,6 @@ export class GameGroupingResolver {
         if (game.xcloud_available || game.play?.options?.some((option) => option.kind === 'xcloud' && option.launchable)) {
           memberships.push({ key: 'play:cloud', label: 'Cloud play' })
         }
-        if (game.devices?.some((device) => device.installed)) {
-          memberships.push({ key: 'play:installed', label: 'Installed' })
-        }
-        if (game.devices?.some((device) => device.emulator_routes?.some((route) => route.state === 'ready'))) {
-          memberships.push({ key: 'play:emulator', label: 'Play with an emulator' })
-        }
         return memberships.length > 0
           ? memberships
           : [{ key: 'play:unavailable', label: 'Not ready to play' }]

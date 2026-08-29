@@ -6,9 +6,7 @@ import { AppearanceTab } from '@/components/settings/AppearanceTab'
 import { CacheTab } from '@/components/settings/CacheTab'
 import { ProfilesTab } from '@/components/settings/ProfilesTab'
 import { UpdateTab } from '@/components/settings/SettingsTab'
-import { DevicesTab } from '@/components/settings/DevicesTab'
 import { MySettingsTab } from '@/components/settings/MySettingsTab'
-import { EmulatorsTab } from '@/components/settings/EmulatorsTab'
 import { useProfiles } from '@/hooks/useProfiles'
 import {
   resolveSettingsRoute,
@@ -31,8 +29,6 @@ const TAB_COMPONENTS: Record<string, React.FC> = {
   'my-settings': MySettingsTab,
   update: UpdateTab,
   profiles: ProfilesTab,
-  devices: DevicesTab,
-  emulators: EmulatorsTab,
   plugins: PluginsTab,
   cache: CacheTab,
   appearance: AppearanceTab,

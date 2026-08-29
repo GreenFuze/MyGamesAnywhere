@@ -10,7 +10,6 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/auth"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
-	"github.com/coder/websocket"
 )
 
 type lanAuthStore struct {
@@ -294,37 +293,4 @@ func TestProfileAccessPolicyRejectsMustChangeSession(t *testing.T) {
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d, body = %q", recorder.Code, http.StatusForbidden, recorder.Body.String())
 	}
-}
-
-func TestDeviceClientTransportsAllowHTTPFromLAN(t *testing.T) {
-	tests := []struct {
-		name    string
-		handler func(http.ResponseWriter, *http.Request)
-		method  string
-		path    string
-	}{
-		{name: "launch acknowledgement", handler: (&DeviceController{}).RedeemClientLaunch, method: http.MethodPost, path: "/api/devices/client-launch/redeem"},
-		{name: "pairing", handler: (&DeviceController{}).Pair, method: http.MethodPost, path: "/api/devices/pair"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequest(test.method, test.path, strings.NewReader("{"))
-			request.RemoteAddr = "192.168.68.21:54000"
-			recorder := httptest.NewRecorder()
-			test.handler(recorder, request)
-			if recorder.Code == http.StatusUpgradeRequired {
-				t.Fatalf("status = %d, trusted-LAN HTTP must not require TLS", recorder.Code)
-			}
-		})
-	}
-
-	server := httptest.NewServer(http.HandlerFunc((&DeviceController{}).Connect))
-	defer server.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	connection, _, err := websocket.Dial(ctx, strings.Replace(server.URL, "http://", "ws://", 1), nil)
-	if err != nil {
-		t.Fatalf("trusted-LAN WS connection error = %v", err)
-	}
-	_ = connection.Close(websocket.StatusNormalClosure, "test complete")
 }

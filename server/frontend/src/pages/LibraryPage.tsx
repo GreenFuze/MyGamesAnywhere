@@ -14,7 +14,6 @@ import { GameGrid } from '@/components/library/GameGrid'
 import { GameListView } from '@/components/library/GameListView'
 import { GroupedGameView } from '@/components/library/GroupedGameView'
 import { PlayRouteShelves } from '@/components/library/PlayRouteShelves'
-import { InstalledGamesShelf } from '@/components/library/InstalledGamesShelf'
 import { SectionPickerDialog } from '@/components/library/SectionPickerDialog'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
@@ -748,7 +747,6 @@ export function CollectionPage({ scope }: CollectionPageProps) {
       ) : null}
 
       {/* Content */}
-      {scope === 'play' && !focusedSection ? <InstalledGamesShelf /> : null}
 
       {focusedSection ? (
         <div className="space-y-6">

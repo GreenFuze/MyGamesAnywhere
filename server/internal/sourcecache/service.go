@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
 	"github.com/google/uuid"
@@ -724,7 +723,7 @@ func filesForProfile(profile string, sourceGame *core.SourceGame) ([]core.GameFi
 		}
 	}
 	switch profile {
-	case devicev1.DeviceDownloadSourceProfile:
+	case core.FileDeliverySourceProfile:
 		if len(nonDirs) == 0 {
 			return nil, "", fmt.Errorf("device download requires source files")
 		}

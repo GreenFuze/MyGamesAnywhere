@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 )
@@ -153,7 +152,7 @@ func TestServiceMaterializationUsesCompatibilityProfile(t *testing.T) {
 	if _, _, err := service.Prepare(ctx, copy.SourceGame.ID); err != nil {
 		t.Fatal(err)
 	}
-	if cache.prepared.Profile != devicev1.DeviceDownloadSourceProfile || cache.prepared.SourceGameID != copy.SourceGame.ID {
+	if cache.prepared.Profile != core.FileDeliverySourceProfile || cache.prepared.SourceGameID != copy.SourceGame.ID {
 		t.Fatalf("prepare request = %+v", cache.prepared)
 	}
 	cache.ready = true

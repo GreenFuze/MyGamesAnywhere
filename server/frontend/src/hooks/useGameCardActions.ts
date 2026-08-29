@@ -1,10 +1,5 @@
 import { useLocation, useNavigate } from 'react-router'
-import {
-  launchEmulatorGameOnDevice,
-  launchGameOnDevice,
-  type GameDetailResponse,
-} from '@/api/client'
-import { useToast } from '@/components/ui/toast'
+import { type GameDetailResponse } from '@/api/client'
 import { browserPlaySourceOptionLabel, listBrowserPlaySelections } from '@/lib/browserPlay'
 import {
   GameCardActionResolver,
@@ -13,7 +8,7 @@ import {
   type GameCardPrimaryAction,
 } from '@/lib/gameCardActions'
 import { buildGameRouteState } from '@/lib/gameNavigation'
-import { launchOptionVersionContext, sourceVersionContext } from '@/lib/sourceCapabilities'
+import { launchOptionVersionContext } from '@/lib/sourceCapabilities'
 
 interface UseGameCardActionsOptions {
   primaryAction?: GameCardPrimaryAction
@@ -28,7 +23,6 @@ export function useGameCardActions(
   game: GameDetailResponse,
   options: UseGameCardActionsOptions = {},
 ): GameCardActionResolution {
-  const { notify } = useToast()
   const navigate = useNavigate()
   const location = useLocation()
   const routeState = buildGameRouteState(location.pathname, location.search)
@@ -74,75 +68,6 @@ export function useGameCardActions(
       kind: 'play',
       route: 'cloud',
       onSelect: () => window.open(game.xcloud_url, '_blank', 'noopener,noreferrer'),
-    })
-  }
-
-  const installedRoutes = (game.devices ?? []).filter(
-    (device) =>
-      device.connected
-      && device.can_play
-      && device.installed
-      && device.launch_supported
-      && Boolean(device.launch_target)
-      && Boolean(device.installed_source_id),
-  )
-  for (const device of installedRoutes) {
-    const source = game.source_games.find((candidate) => candidate.id === device.installed_source_id)
-    const context = source ? sourceVersionContext(source) : device.installed_source_id!
-    derivedActions.push({
-      id: `installed:${device.device_id}:${device.installed_source_id}`,
-      label: `Play on ${device.display_name}${installedRoutes.length > 1 ? ` · ${context}` : ''}`,
-      kind: 'play',
-      route: 'local',
-      title: `Start ${context} on ${device.display_name}`,
-      onSelect: () => {
-        void launchGameOnDevice(device.device_id, game.id, device.installed_source_id!)
-          .then(() => notify({
-            title: `Starting ${game.title}`,
-            description: `${context} on ${device.display_name}`,
-            tone: 'success',
-          }))
-          .catch((error: unknown) => notify({
-            title: `Could not start ${game.title}`,
-            description: error instanceof Error ? error.message : 'MGA Client rejected the play request.',
-            tone: 'error',
-          }))
-      },
-    })
-  }
-
-  const emulatorRoutes = (game.devices ?? [])
-    .flatMap((device) => (device.emulator_routes ?? []).map((route) => ({ device, route })))
-    .filter(({ device, route }) => device.connected && device.can_play && route.state === 'ready')
-    .sort((left, right) => {
-      const defaultOrder = Number(right.route.default) - Number(left.route.default)
-      if (defaultOrder !== 0) return defaultOrder
-      const deviceOrder = left.device.display_name.localeCompare(right.device.display_name)
-      if (deviceOrder !== 0) return deviceOrder
-      return left.route.emulator_name.localeCompare(right.route.emulator_name)
-    })
-  for (const { device, route } of emulatorRoutes) {
-    const source = game.source_games.find((candidate) => candidate.id === route.source_game_id)
-    const versionLabel = source ? sourceVersionContext(source) : route.source_title
-    derivedActions.push({
-      id: `emulator:${device.device_id}:${route.emulator_id}:${route.source_game_id}`,
-      label: `Play on ${device.display_name} · ${route.emulator_name}${emulatorRoutes.length > 1 ? ` · ${versionLabel}` : ''}`,
-      kind: 'play',
-      route: 'emulator',
-      title: route.reason || `Start this copy with ${route.emulator_name} on ${device.display_name}`,
-      onSelect: () => {
-        void launchEmulatorGameOnDevice(device.device_id, game.id, route.source_game_id, route.emulator_id)
-          .then(() => notify({
-            title: `Starting ${game.title}`,
-            description: `${route.emulator_name} on ${device.display_name}`,
-            tone: 'success',
-          }))
-          .catch((error: unknown) => notify({
-            title: `Could not start ${game.title}`,
-            description: error instanceof Error ? error.message : 'MGA Client rejected the play request.',
-            tone: 'error',
-          }))
-      },
     })
   }
 

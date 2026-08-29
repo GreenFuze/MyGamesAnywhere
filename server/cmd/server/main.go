@@ -23,7 +23,6 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/contentdelivery"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
-	"github.com/GreenFuze/MyGamesAnywhere/server/internal/devices"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/frontendauth"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/gamesvc"
@@ -210,12 +209,6 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	if err != nil {
 		return fmt.Errorf("configure profile authentication: %w", err)
 	}
-	deviceStore := db.NewDeviceStore(dbSvc)
-	deviceHub := devices.NewHub()
-	deviceSvc, err := devices.NewService(deviceStore, deviceHub)
-	if err != nil {
-		return fmt.Errorf("configure device service: %w", err)
-	}
 	integrationRepo := db.NewIntegrationRepository(dbSvc)
 	gameStore := db.NewGameStore(dbSvc, logSvc)
 	catalogSvc, err := catalog.NewService(db.NewCatalogRepository(dbSvc))
@@ -247,7 +240,6 @@ func runServer(ctx context.Context, opts serverOptions) error {
 
 	processManager := plugins.NewProcessManager()
 	eventBus := events.New()
-	deviceSvc.SetEventBus(eventBus)
 	pluginHost := plugins.NewPluginHost(logSvc, configSvc, processManager, eventBus)
 
 	ks := keystore.New()
@@ -331,12 +323,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	if err != nil {
 		return fmt.Errorf("configure auth controller: %w", err)
 	}
-	deviceCtrl, err := http.NewDeviceController(deviceSvc, deviceHub, logSvc, "")
-	if err != nil {
-		return fmt.Errorf("configure device controller: %w", err)
-	}
-
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, catalogCtrl, contentCtrl, runtimeArtifactCtrl, frontendAPIClientCtrl, frontendAPIClientSvc, legacyRetirementCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, catalogCtrl, contentCtrl, runtimeArtifactCtrl, frontendAPIClientCtrl, frontendAPIClientSvc, legacyRetirementCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc)
 
 	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, updateSvc, mediaSvc, backgroundScanSvc)
 	a.AddStartupTask(sourceMoveSvc)

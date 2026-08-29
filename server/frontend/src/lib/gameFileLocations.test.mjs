@@ -18,7 +18,9 @@ const source = {
   resolver_matches: [],
 }
 
-test('keeps selected profile, source, prepared, device user, and route evidence separate', () => {
+// Installed and emulator rows were retired device-agent evidence. Retired
+// device rows must never reappear as file locations MGA can act on.
+test('keeps profile-owned source and prepared evidence and ignores retired device rows', () => {
   const rows = buildGameFileLocations({
     id: 'game',
     source_games: [source],
@@ -66,10 +68,9 @@ test('keeps selected profile, source, prepared, device user, and route evidence 
     updated_at: '2026-07-27T00:00:00Z',
   }], { id: 'profile-orr', displayName: 'Orr' })
 
-  assert.deepEqual(rows.map((row) => row.kind), ['source', 'prepared', 'installed', 'emulator'])
+  assert.deepEqual(rows.map((row) => row.kind), ['source', 'prepared'])
   assert.ok(rows.every((row) => row.ownerProfileId === 'profile-orr'))
-  assert.equal(rows[2].osUser, 'orr')
-  assert.equal(rows[3].routeId, 'retroarch')
+  assert.ok(rows.every((row) => row.deviceId === undefined))
 })
 
 test('rejects prepared entries whose source or owning connection does not match this game', () => {

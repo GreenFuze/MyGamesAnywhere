@@ -84,7 +84,6 @@ export class GamePresentation {
   }
 
   #primaryAvailability(): GameAvailabilityKind | null {
-    if (this.game.devices?.some((device) => device.installed)) return 'installed'
     if (this.game.play?.available) return 'playable'
     if (
       this.game.xcloud_available
@@ -92,13 +91,6 @@ export class GamePresentation {
         (option) => option.kind === 'xcloud' && option.launchable,
       )
     ) return 'xcloud'
-    if (
-      this.game.devices?.some((device) =>
-        device.connected
-        && device.can_play
-        && device.emulator_routes?.some((route) => route.state === 'ready'),
-      )
-    ) return 'emulator'
     if (this.game.is_game_pass) return 'gamepass'
     if (this.game.shared) return 'shared'
     return null

@@ -69,26 +69,6 @@ function preparedStatus(entry: SourceCacheEntry): string {
   }
 }
 
-function installationStatus(status?: string): string {
-  switch (status) {
-    case '':
-    case undefined:
-    case 'installed': return 'Installed'
-    case 'missing': return 'Installed files not found'
-    case 'needs_repair': return 'Installation needs attention'
-    default: return status
-  }
-}
-
-function emulatorStatus(state: string): string {
-  switch (state) {
-    case 'ready': return 'Ready to play'
-    case 'needs_setup': return 'Setup needed'
-    case 'unavailable': return 'Unavailable'
-    default: return 'Not checked'
-  }
-}
-
 function sourceLocation(
   source: SourceGameDetailDTO,
   profile: ProfileIdentity,
@@ -152,7 +132,7 @@ function preparedLocation(
 }
 
 export function buildGameFileLocations(
-  game: Pick<GameDetailResponse, 'id' | 'source_games' | 'devices'>,
+  game: Pick<GameDetailResponse, 'id' | 'source_games'>,
   preparedEntries: SourceCacheEntry[],
   selectedProfile: ProfileIdentity,
 ): GameFileLocationView[] {
@@ -165,76 +145,6 @@ export function buildGameFileLocations(
     const source = sources.get(entry.source_game_id)
     if (!source || entry.integration_id !== source.integration_id) continue
     locations.push(preparedLocation(entry, source, profile))
-  }
-
-  for (const device of game.devices ?? []) {
-    if (device.installed) {
-      const source = device.installed_source_id ? sources.get(device.installed_source_id) : undefined
-      const sourceContext = source ? sourceVersionContext(source) : 'Source copy no longer available'
-      locations.push({
-        id: `installed:${device.device_id}:${device.installed_source_id ?? 'unknown'}`,
-        kind: 'installed',
-        title: `Installed on ${device.display_name}`,
-        context: sourceContext,
-        status: installationStatus(device.install_state),
-        ownerProfileId: profile.id,
-        ownerProfileName: profile.displayName,
-        sourceGameId: device.installed_source_id ?? '',
-        integrationId: source?.integration_id,
-        integrationLabel: source?.integration_label || source?.integration_id,
-        deviceId: device.device_id,
-        deviceName: device.display_name,
-        osUser: device.os_user,
-        path: device.install_path,
-        fileCount: 0,
-        size: 0,
-        save: device.installed_save,
-        manageHref: '/settings?tab=devices',
-        manageLabel: 'Manage device',
-        accessEvidence: [
-          `Profile: ${profile.displayName}`,
-          `Device: ${device.display_name}`,
-          `OS user: ${device.os_user}`,
-          device.can_manage ? 'Access: manage' : device.can_play ? 'Access: play only' : 'Access: view only',
-        ],
-      })
-    }
-
-    for (const route of device.emulator_routes ?? []) {
-      const source = sources.get(route.source_game_id)
-      if (!source) continue
-      const routeId = [route.emulator_id, route.core_id].filter(Boolean).join(':')
-      locations.push({
-        id: `emulator:${device.device_id}:${routeId}:${route.source_game_id}`,
-        kind: 'emulator',
-        title: `${route.emulator_name} on ${device.display_name}`,
-        context: sourceVersionContext(source),
-        status: emulatorStatus(route.state),
-        ownerProfileId: profile.id,
-        ownerProfileName: profile.displayName,
-        sourceGameId: source.id,
-        integrationId: source.integration_id,
-        integrationLabel: source.integration_label || source.integration_id,
-        deviceId: device.device_id,
-        deviceName: device.display_name,
-        osUser: device.os_user,
-        routeId,
-        routeLabel: [route.emulator_name, route.core_id].filter(Boolean).join(' · '),
-        path: source.root_path,
-        fileCount: source.files.length,
-        size: sumSourceSize(source),
-        save: route.save,
-        manageHref: '/settings?tab=emulators',
-        manageLabel: 'Manage emulators',
-        accessEvidence: [
-          `Profile: ${profile.displayName}`,
-          `Device: ${device.display_name}`,
-          `OS user: ${device.os_user}`,
-          `Emulator: ${[route.emulator_name, route.core_id].filter(Boolean).join(' · ')}`,
-          `Copy: ${source.id}`,
-        ],
-      })
-    }
   }
 
   return locations

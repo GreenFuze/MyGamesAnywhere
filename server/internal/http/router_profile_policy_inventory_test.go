@@ -62,7 +62,7 @@ func TestEveryNonPublicAPIRouteFailsClosedForInvalidProfileSessions(t *testing.T
 		ReviewCtrl: &ReviewController{}, AchievementCtrl: &AchievementController{}, AchievementRefreshCtrl: &AchievementRefreshController{},
 		SyncCtrl: &SyncController{}, UpdateCtrl: &UpdateController{}, SaveSyncCtrl: &SaveSyncController{}, CacheCtrl: &CacheController{},
 		SSECtrl: &SSEController{}, OAuthCtrl: &OAuthController{}, ProfileCtrl: &ProfileController{}, AuthCtrl: &AuthController{},
-		ProfileRepo: profiles, AuthService: authService, DeviceCtrl: &DeviceController{},
+		ProfileRepo: profiles, AuthService: authService,
 	}, 0, "")
 
 	public := map[string]string{

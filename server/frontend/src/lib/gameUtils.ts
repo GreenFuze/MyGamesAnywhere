@@ -72,14 +72,9 @@ export function isPlayable(game: Pick<GameDetailResponse, 'play' | 'platform' | 
 }
 
 export function isActionable(
-  game: Pick<GameDetailResponse, 'play' | 'platform' | 'source_games' | 'xcloud_available' | 'devices'>,
+  game: Pick<GameDetailResponse, 'play' | 'platform' | 'source_games' | 'xcloud_available'>,
 ): boolean {
-  return isPlayable(game) || game.xcloud_available === true || game.devices?.some((device) =>
-    device.connected && device.can_play && (
-      (device.installed && device.launch_supported && Boolean(device.launch_target))
-      || device.emulator_routes?.some((route) => route.state === 'ready')
-    ),
-  ) === true
+  return isPlayable(game) || game.xcloud_available === true
 }
 
 export { PLATFORM_META, platformEmoji, platformLabel, pluginLabel, sourceLabel }

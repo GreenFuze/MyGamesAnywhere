@@ -39,7 +39,6 @@ type RouteBuilder struct {
 	ProfileRepo            core.ProfileRepository
 	AuthCtrl               *AuthController
 	AuthService            *auth.Service
-	DeviceCtrl             *DeviceController
 }
 
 func noopHandler() http.HandlerFunc {

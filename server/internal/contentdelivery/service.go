@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 	"github.com/hirochachacha/go-smb2"
@@ -136,7 +135,7 @@ func (s *Service) Prepare(ctx context.Context, copyID string) (*core.SourceCache
 		CanonicalGameID: copy.CanonicalGameID,
 		CanonicalTitle:  copy.SourceGame.RawTitle,
 		SourceGameID:    copy.SourceGame.ID,
-		Profile:         devicev1.DeviceDownloadSourceProfile,
+		Profile:         core.FileDeliverySourceProfile,
 	}, copy.SourceGame.Platform, copy.SourceGame)
 	if err != nil {
 		return nil, false, fmt.Errorf("prepare content: %w", err)
@@ -192,7 +191,7 @@ func (s *Service) delivery(ctx context.Context, sourceGame *core.SourceGame) (De
 	if s.cache == nil || !s.cache.CanPrepareSourceGame(sourceGame) {
 		return Delivery{Mode: core.SourceDeliveryModeUnavailable}, nil
 	}
-	ready, err := s.cache.IsReady(ctx, sourceGame, devicev1.DeviceDownloadSourceProfile)
+	ready, err := s.cache.IsReady(ctx, sourceGame, core.FileDeliverySourceProfile)
 	if err != nil {
 		return Delivery{}, fmt.Errorf("inspect materialized content: %w", err)
 	}
@@ -222,7 +221,7 @@ func (s *Service) openSourceFile(ctx context.Context, sourceGame *core.SourceGam
 		if !delivery.Ready {
 			return nil, ErrMaterializationRequired
 		}
-		_, cachedFile, fullPath, err := s.cache.ResolveCachedFile(ctx, sourceGame.ID, devicev1.DeviceDownloadSourceProfile, file.Path)
+		_, cachedFile, fullPath, err := s.cache.ResolveCachedFile(ctx, sourceGame.ID, core.FileDeliverySourceProfile, file.Path)
 		if err != nil || cachedFile == nil || strings.TrimSpace(fullPath) == "" {
 			return nil, ErrMaterializationRequired
 		}

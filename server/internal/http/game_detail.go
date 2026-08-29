@@ -6,10 +6,7 @@ import (
 	"strings"
 	"time"
 
-	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
-	"github.com/GreenFuze/MyGamesAnywhere/server/internal/devices"
-	"github.com/GreenFuze/MyGamesAnywhere/server/internal/emulation"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/gamesvc"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/savedomain"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcegames"
@@ -17,39 +14,38 @@ import (
 
 // GameDetailResponse is the body for GET /api/games/{id}/detail.
 type GameDetailResponse struct {
-	ID                 string                      `json:"id"`
-	Title              string                      `json:"title"`
-	Favorite           bool                        `json:"favorite"`
-	Platform           string                      `json:"platform"`
-	Kind               string                      `json:"kind"`
-	GroupKind          string                      `json:"group_kind,omitempty"`
-	RootPath           string                      `json:"root_path,omitempty"`
-	Files              []GameFileDTO               `json:"files,omitempty"`
-	ExternalIDs        []ExternalIDDTO             `json:"external_ids,omitempty"`
-	Description        string                      `json:"description,omitempty"`
-	ReleaseDate        string                      `json:"release_date,omitempty"`
-	Genres             []string                    `json:"genres,omitempty"`
-	Developer          string                      `json:"developer,omitempty"`
-	Publisher          string                      `json:"publisher,omitempty"`
-	Rating             float64                     `json:"rating,omitempty"`
-	MaxPlayers         int                         `json:"max_players,omitempty"`
-	CompletionTime     *core.CompletionTime        `json:"completion_time,omitempty"`
-	Media              []GameMediaDetailDTO        `json:"media,omitempty"`
-	CoverOverride      *GameMediaDetailDTO         `json:"cover_override,omitempty"`
-	HoverOverride      *GameMediaDetailDTO         `json:"hover_override,omitempty"`
-	BackgroundOverride *GameMediaDetailDTO         `json:"background_override,omitempty"`
-	IsGamePass         bool                        `json:"is_game_pass,omitempty"`
-	XcloudAvailable    bool                        `json:"xcloud_available,omitempty"`
-	StoreProductID     string                      `json:"store_product_id,omitempty"`
-	XcloudURL          string                      `json:"xcloud_url,omitempty"`
-	Shared             bool                        `json:"shared,omitempty"`
-	SharedOwner        string                      `json:"shared_owner,omitempty"`
-	Play               *GamePlayDTO                `json:"play,omitempty"`
-	AchievementSummary *AchievementSummaryDTO      `json:"achievement_summary,omitempty"`
-	Identity           *core.GameIdentity          `json:"identity,omitempty"`
-	Devices            []GameDeviceAvailabilityDTO `json:"devices,omitempty"`
-	Content            *GameContentDTO             `json:"content,omitempty"`
-	SourceGames        []SourceGameDetailDTO       `json:"source_games"`
+	ID                 string                 `json:"id"`
+	Title              string                 `json:"title"`
+	Favorite           bool                   `json:"favorite"`
+	Platform           string                 `json:"platform"`
+	Kind               string                 `json:"kind"`
+	GroupKind          string                 `json:"group_kind,omitempty"`
+	RootPath           string                 `json:"root_path,omitempty"`
+	Files              []GameFileDTO          `json:"files,omitempty"`
+	ExternalIDs        []ExternalIDDTO        `json:"external_ids,omitempty"`
+	Description        string                 `json:"description,omitempty"`
+	ReleaseDate        string                 `json:"release_date,omitempty"`
+	Genres             []string               `json:"genres,omitempty"`
+	Developer          string                 `json:"developer,omitempty"`
+	Publisher          string                 `json:"publisher,omitempty"`
+	Rating             float64                `json:"rating,omitempty"`
+	MaxPlayers         int                    `json:"max_players,omitempty"`
+	CompletionTime     *core.CompletionTime   `json:"completion_time,omitempty"`
+	Media              []GameMediaDetailDTO   `json:"media,omitempty"`
+	CoverOverride      *GameMediaDetailDTO    `json:"cover_override,omitempty"`
+	HoverOverride      *GameMediaDetailDTO    `json:"hover_override,omitempty"`
+	BackgroundOverride *GameMediaDetailDTO    `json:"background_override,omitempty"`
+	IsGamePass         bool                   `json:"is_game_pass,omitempty"`
+	XcloudAvailable    bool                   `json:"xcloud_available,omitempty"`
+	StoreProductID     string                 `json:"store_product_id,omitempty"`
+	XcloudURL          string                 `json:"xcloud_url,omitempty"`
+	Shared             bool                   `json:"shared,omitempty"`
+	SharedOwner        string                 `json:"shared_owner,omitempty"`
+	Play               *GamePlayDTO           `json:"play,omitempty"`
+	AchievementSummary *AchievementSummaryDTO `json:"achievement_summary,omitempty"`
+	Identity           *core.GameIdentity     `json:"identity,omitempty"`
+	Content            *GameContentDTO        `json:"content,omitempty"`
+	SourceGames        []SourceGameDetailDTO  `json:"source_games"`
 	// MetadataWarnings lists metadata providers that were skipped during a forced refresh
 	// due to non-fatal errors (e.g. timeout). Only present in refresh responses; empty on
 	// regular game-detail reads.
@@ -67,365 +63,6 @@ type RelatedContentGameDTO struct {
 	Title    string `json:"title"`
 	Platform string `json:"platform"`
 	Kind     string `json:"kind"`
-}
-
-type DeviceEndpointLister interface {
-	ListEndpoints(context.Context, string) ([]devices.Endpoint, error)
-}
-
-type EmulatorConfigurationProvider interface {
-	Get(context.Context, string, string) (emulation.DeviceConfiguration, error)
-	GetForEndpoint(context.Context, devices.Endpoint, string) (emulation.DeviceConfiguration, error)
-}
-
-type deviceAvailabilityFacts struct {
-	Endpoint  devices.Endpoint
-	Emulators *emulation.DeviceConfiguration
-}
-
-type GameEmulatorRouteDTO struct {
-	EmulatorID   string                 `json:"emulator_id"`
-	EmulatorName string                 `json:"emulator_name"`
-	CoreID       string                 `json:"core_id,omitempty"`
-	SourceGameID string                 `json:"source_game_id"`
-	SourceTitle  string                 `json:"source_title"`
-	State        string                 `json:"state"`
-	Reason       string                 `json:"reason,omitempty"`
-	Default      bool                   `json:"default"`
-	Save         *savedomain.Capability `json:"save,omitempty"`
-}
-
-type GameDeviceAvailabilityDTO struct {
-	DeviceID                  string                                    `json:"device_id"`
-	DisplayName               string                                    `json:"display_name"`
-	OSUser                    string                                    `json:"os_user"`
-	Status                    string                                    `json:"status"`
-	Connected                 bool                                      `json:"connected"`
-	CanManage                 bool                                      `json:"can_manage"`
-	CanPlay                   bool                                      `json:"can_play"`
-	PlatformSupported         bool                                      `json:"platform_supported"`
-	EmulatorRoutes            []GameEmulatorRouteDTO                    `json:"emulator_routes,omitempty"`
-	FreeBytes                 uint64                                    `json:"free_bytes,omitempty"`
-	TotalBytes                uint64                                    `json:"total_bytes,omitempty"`
-	InventoryCapturedAt       string                                    `json:"inventory_captured_at,omitempty"`
-	Installed                 bool                                      `json:"installed"`
-	InstalledSourceID         string                                    `json:"installed_source_id,omitempty"`
-	InstalledSave             *savedomain.Capability                    `json:"installed_save,omitempty"`
-	InstallPath               string                                    `json:"install_path,omitempty"`
-	ArchiveInstallSupported   bool                                      `json:"archive_install_supported"`
-	FileDownloadSupported     bool                                      `json:"file_download_supported"`
-	PreparedCopies            []devicev1.PreparedCopyObservation        `json:"prepared_copies,omitempty"`
-	GogInnoInstallSupported   bool                                      `json:"gog_inno_install_supported"`
-	FailedCleanupSupported    bool                                      `json:"failed_cleanup_supported"`
-	RecoverySupported         bool                                      `json:"recovery_supported"`
-	RepairAvailable           bool                                      `json:"repair_available"`
-	ReinstallAvailable        bool                                      `json:"reinstall_available"`
-	CleanupAvailable          bool                                      `json:"cleanup_available"`
-	ForgetAvailable           bool                                      `json:"forget_available"`
-	UninstallSupported        bool                                      `json:"uninstall_supported"`
-	LaunchSupported           bool                                      `json:"launch_supported"`
-	InstallKind               string                                    `json:"install_kind,omitempty"`
-	InstallState              string                                    `json:"install_state,omitempty"`
-	StateReason               string                                    `json:"state_reason,omitempty"`
-	CleanupMarkerID           string                                    `json:"cleanup_marker_id,omitempty"`
-	CleanupIgnoredAt          string                                    `json:"cleanup_ignored_at,omitempty"`
-	LaunchTarget              string                                    `json:"launch_target,omitempty"`
-	LaunchCandidates          []string                                  `json:"launch_candidates,omitempty"`
-	AuthorityMode             string                                    `json:"authority_mode,omitempty"`
-	UseExistingSupported      bool                                      `json:"use_existing_supported"`
-	ExistingInstallations     []devicev1.ManagedInstallationObservation `json:"existing_installations,omitempty"`
-	StorefrontProduct         *devices.StorefrontProduct                `json:"storefront_product,omitempty"`
-	StorefrontUseSupported    bool                                      `json:"storefront_use_supported"`
-	StorefrontLaunchSupported bool                                      `json:"storefront_launch_supported"`
-}
-
-func (c *GameController) attachDeviceAvailability(ctx context.Context, response *GameDetailResponse, game *core.CanonicalGame) {
-	if c == nil || c.deviceLister == nil || response == nil || game == nil {
-		return
-	}
-	profileID := core.ProfileIDFromContext(ctx)
-	if profileID == "" {
-		return
-	}
-	facts, err := c.loadDeviceAvailabilityFacts(ctx, profileID)
-	if err != nil {
-		c.logger.Warn("list devices for game availability failed", "error", err, "game_id", game.ID)
-		return
-	}
-	c.attachDeviceAvailabilityWithFacts(response, game, facts)
-}
-
-func (c *GameController) loadDeviceAvailabilityFacts(ctx context.Context, profileID string) ([]deviceAvailabilityFacts, error) {
-	endpoints, err := c.deviceLister.ListEndpoints(ctx, profileID)
-	if err != nil {
-		return nil, err
-	}
-	facts := make([]deviceAvailabilityFacts, 0, len(endpoints))
-	for _, endpoint := range endpoints {
-		fact := deviceAvailabilityFacts{Endpoint: endpoint}
-		if c.emulation != nil && endpoint.Platform == "windows" {
-			configuration, configurationErr := c.emulation.GetForEndpoint(ctx, endpoint, profileID)
-			if configurationErr != nil {
-				c.logger.Warn("resolve emulator routes failed", "device_id", endpoint.ID, "error", configurationErr)
-			} else {
-				fact.Emulators = &configuration
-			}
-		}
-		facts = append(facts, fact)
-	}
-	return facts, nil
-}
-
-func (c *GameController) attachDeviceAvailabilityWithFacts(response *GameDetailResponse, game *core.CanonicalGame, facts []deviceAvailabilityFacts) {
-	for _, fact := range facts {
-		endpoint := fact.Endpoint
-		allowed, _ := endpoint.AccessLevel.Allows(devicev1.AccessManage)
-		canPlay, _ := endpoint.AccessLevel.Allows(devicev1.AccessPlay)
-		cleanupSupported := false
-		item := GameDeviceAvailabilityDTO{
-			DeviceID:          endpoint.ID,
-			DisplayName:       endpoint.DisplayName,
-			OSUser:            endpoint.OSUser,
-			Connected:         endpoint.Status == devicev1.EndpointReady || endpoint.Status == devicev1.EndpointBusy,
-			CanManage:         allowed,
-			CanPlay:           canPlay,
-			PlatformSupported: game.Platform == core.PlatformWindowsPC && endpoint.Platform == "windows",
-		}
-		if fact.Emulators != nil {
-			c.attachEmulatorRoutes(&item, *fact.Emulators, game, endpoint)
-		}
-		for _, capability := range endpoint.Capabilities {
-			switch capability {
-			case devicev1.CapabilityGameDownloadFiles:
-				item.FileDownloadSupported = true
-			case devicev1.CapabilityGameInstallArchivePackage:
-				item.ArchiveInstallSupported = true
-			case devicev1.CapabilityGameInstallGogInno:
-				item.GogInnoInstallSupported = true
-			case devicev1.CapabilityGameCleanupGogInnoFailed:
-				item.FailedCleanupSupported = true
-			case devicev1.CapabilityGameRecoverInstallation:
-				item.RecoverySupported = true
-			case devicev1.CapabilityGameCleanupInstallation:
-				cleanupSupported = true
-			case devicev1.CapabilityGameUninstall, devicev1.CapabilityGameUninstallGogInno:
-				item.UninstallSupported = true
-			case devicev1.CapabilityGameLaunch:
-				item.LaunchSupported = true
-			case devicev1.CapabilityGameUseExisting:
-				item.UseExistingSupported = true
-			case devicev1.CapabilityGameUseStorefront:
-				item.StorefrontUseSupported = true
-			case devicev1.CapabilityGameLaunchStorefront:
-				item.StorefrontLaunchSupported = true
-			}
-		}
-		for productIndex := range endpoint.StorefrontProducts {
-			product := &endpoint.StorefrontProducts[productIndex]
-			if product.GameID == game.ID {
-				copy := *product
-				item.StorefrontProduct = &copy
-				break
-			}
-		}
-		for _, installation := range endpoint.Installations {
-			if installation.GameID == game.ID {
-				item.Installed = true
-				item.InstalledSourceID = installation.SourceGameID
-				if source := saveDomainSource(game, installation.SourceGameID); source.SourceGameID != "" {
-					save := c.saveDomainResolver().Installed(source, endpoint.ID)
-					item.InstalledSave = &save
-				}
-				item.InstallPath = installation.InstallPath
-				item.InstallKind = installation.InstallKind
-				item.InstallState = installation.InstallState
-				item.StateReason = installation.StateReason
-				item.CleanupMarkerID = installation.CleanupMarkerID
-				if installation.CleanupIgnoredAt != nil {
-					item.CleanupIgnoredAt = installation.CleanupIgnoredAt.UTC().Format(time.RFC3339Nano)
-				}
-				item.LaunchTarget = installation.LaunchTarget
-				item.LaunchCandidates = installation.LaunchCandidates
-				item.AuthorityMode = installation.AuthorityMode
-				if installation.AuthorityMode != devicev1.InstallationAuthorityShared && installation.InstallKind != devicev1.InstallKindSharedExisting {
-					reason := strings.TrimSpace(installation.VerificationReasonCode)
-					if reason == "" {
-						reason = strings.TrimSpace(installation.StateReason)
-					}
-					base := devicev1.InstallationRecoveryRequest{
-						GameID: installation.GameID, SourceGameID: installation.SourceGameID,
-						LocalInstallationID: installation.LocalInstallationID,
-						InstallKind:         installation.InstallKind, InstallRoot: installation.InstallRoot, InstallPath: installation.InstallPath,
-						InstallState: installation.InstallState, ReasonCode: reason,
-					}
-					if item.RecoverySupported {
-						repair := base
-						repair.Action = devicev1.InstallationRecoveryRepair
-						item.RepairAvailable = repair.Validate() == nil
-						reinstall := base
-						reinstall.Action = devicev1.InstallationRecoveryReinstall
-						item.ReinstallAvailable = reinstall.Validate() == nil
-						forget := base
-						forget.Action = devicev1.InstallationRecoveryForget
-						item.ForgetAvailable = forget.Validate() == nil
-					}
-					item.CleanupAvailable = cleanupSupported && safeInstallationCleanup(&installation)
-				} else {
-					item.CleanupAvailable = false
-				}
-				break
-			}
-		}
-		if endpoint.Inventory != nil {
-			for _, prepared := range endpoint.Inventory.PreparedCopies {
-				if prepared.GameID == game.ID {
-					item.PreparedCopies = append(item.PreparedCopies, prepared)
-				}
-			}
-			for _, observed := range endpoint.Inventory.ManagedInstallations {
-				if observed.State != "managed_elsewhere" && observed.State != "released" {
-					continue
-				}
-				if item.Installed && strings.EqualFold(item.InstallPath, observed.InstallPath) {
-					continue
-				}
-				item.ExistingInstallations = append(item.ExistingInstallations, observed)
-			}
-		}
-		if item.InstallKind == devicev1.InstallKindSharedExisting {
-			item.UninstallSupported = false
-		}
-		switch {
-		case item.Installed && item.InstallState != devicev1.InstallStateInstalled:
-			item.Status = item.InstallState
-		case item.Installed:
-			item.Status = "installed"
-		case item.StorefrontProduct != nil && item.StorefrontProduct.Installed:
-			item.Status = "storefront_installed"
-		case endpoint.Status == devicev1.EndpointUpdateRequired:
-			item.Status = "update_required"
-		case !item.Connected:
-			item.Status = "offline"
-		case !item.PlatformSupported:
-			item.Status = "unsupported"
-		case endpoint.Inventory == nil:
-			item.Status = "not_scanned"
-		default:
-			item.InventoryCapturedAt = endpoint.Inventory.CapturedAt.UTC().Format(time.RFC3339Nano)
-			for _, storage := range endpoint.Inventory.Storage {
-				item.FreeBytes += storage.FreeBytes
-				item.TotalBytes += storage.TotalBytes
-			}
-			if game.Platform == core.PlatformWindowsPC {
-				item.Status = "ready_for_setup"
-			} else if hasReadyEmulatorRoute(item.EmulatorRoutes) {
-				item.Status = "ready_to_play"
-			} else {
-				item.Status = "needs_setup"
-			}
-		}
-		response.Devices = append(response.Devices, item)
-	}
-}
-
-func (c *GameController) attachEmulatorRoutes(item *GameDeviceAvailabilityDTO, configuration emulation.DeviceConfiguration, game *core.CanonicalGame, endpoint devices.Endpoint) {
-	if item == nil || game == nil {
-		return
-	}
-	for _, platform := range configuration.Platforms {
-		if platform.Platform != game.Platform {
-			continue
-		}
-		item.PlatformSupported = true
-		defaultAssigned := false
-		for _, option := range platform.Emulators {
-			for _, source := range game.SourceGames {
-				if source == nil || source.Status != "found" || source.GroupKind != core.GroupKindSelfContained || len(source.Files) == 0 {
-					continue
-				}
-				route := GameEmulatorRouteDTO{
-					EmulatorID: option.ID, EmulatorName: option.Name, SourceGameID: source.ID, SourceTitle: source.RawTitle,
-					CoreID: option.ResolvedCore, State: option.State, Reason: option.Reason,
-				}
-				save := c.saveDomainResolver().Emulator(savedomain.Source{
-					SourceGameID: source.ID, PluginID: source.PluginID,
-				}, item.DeviceID, option.ID, option.ResolvedCore)
-				if option.ID == "scummvm" {
-					attachScummVMSaveAuthority(&save, endpoint, game.ID, source.ID, item.CanManage, item.Connected)
-				}
-				route.Save = &save
-				if route.State == "ready" && !supportsEmulatorContentSource(source, c.emulatorContentRoot) {
-					route.State = "needs_setup"
-					route.Reason = "Download this copy to the MGA Server before playing on a device"
-				}
-				if !defaultAssigned && option.ID == platform.ResolvedDefault && route.State == "ready" {
-					route.Default = true
-					defaultAssigned = true
-				}
-				item.EmulatorRoutes = append(item.EmulatorRoutes, route)
-			}
-		}
-		return
-	}
-}
-
-func hasReadyEmulatorRoute(routes []GameEmulatorRouteDTO) bool {
-	for _, route := range routes {
-		if route.State == "ready" {
-			return true
-		}
-	}
-	return false
-}
-
-func attachScummVMSaveAuthority(save *savedomain.Capability, endpoint devices.Endpoint, gameID, sourceGameID string, canManage, connected bool) {
-	if save == nil {
-		return
-	}
-	save.DeviceID = endpoint.ID
-	save.SourceGameID = sourceGameID
-	save.EmulatorID = "scummvm"
-	claimReady := canManage && connected && endpointHasCapability(endpoint, devicev1.CapabilitySaveDomainClaim)
-	for _, link := range endpoint.SaveDomains {
-		if link.GameID != gameID || link.SourceGameID != sourceGameID || link.RouteKind != "emulator" || link.EmulatorID != "scummvm" {
-			continue
-		}
-		save.LocalSaveDomainID = link.LocalSaveDomainID
-		save.AuthorityState = link.AuthorityState
-		save.SyncState = link.SyncState
-		save.HasBackup = link.LastSnapshotManifestHash != ""
-		switch link.AuthorityState {
-		case "owned_here":
-			save.Access, save.Status, save.Manager = savedomain.AccessMGAManaged, savedomain.StatusAvailable, "mga"
-			save.MGARead, save.MGAWrite = true, true
-			save.CanRelease = canManage && connected && endpointHasCapability(endpoint, devicev1.CapabilitySaveDomainRelease)
-			save.CanSnapshot = canManage && connected && endpointHasCapability(endpoint, devicev1.CapabilitySaveDomainSnapshot)
-			save.CanRestore = canManage && connected && endpointHasCapability(endpoint, devicev1.CapabilitySaveDomainRestore) && link.LastSnapshotManifestHash != ""
-			switch link.SyncState {
-			case "clean":
-				save.Detail = "MGA can back up and restore this ScummVM save folder."
-			case "conflict":
-				save.Detail = "The device and saved backup both changed. Choose which copy to keep; MGA will preserve the other copy."
-			case "error":
-				save.Detail = "The last save operation did not finish. Try the backup again or restore the last good copy."
-			default:
-				save.Detail = "Save backup is connected. Create the first backup when you are ready."
-			}
-		case "released":
-			save.CanClaim = claimReady
-			save.Detail = "Save access was released. Connect it again to reconcile these local saves with this server's backup."
-		case "owned_elsewhere":
-			save.Detail = "Another MGA Server manages this exact local save folder. Release it there before connecting this server."
-		case "reconciliation_required":
-			save.Detail = "These saves need a safe choice before MGA can restore either copy."
-			save.CanReconcile = canManage && connected && endpointHasCapability(endpoint, devicev1.CapabilitySaveDomainReconcile)
-		}
-		return
-	}
-	save.CanClaim = claimReady
-	if claimReady {
-		save.Detail = "Save backup is not connected yet. Set it up to back up this exact ScummVM copy."
-	}
 }
 
 func (c *GameController) saveDomainResolver() *savedomain.Resolver {

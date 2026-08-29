@@ -147,11 +147,7 @@ if (-not $Inc -and -not $Version) {
 $repoRoot = $PSScriptRoot
 $versionFile = Join-Path $repoRoot "VERSION"
 $serverDir = Join-Path $repoRoot "server"
-$clientDir = Join-Path $repoRoot "client"
-$clientVersionFile = Join-Path $clientDir "VERSION"
-$protocolDir = Join-Path $repoRoot "protocol"
 $serverReleaseDir = Join-Path $serverDir "release"
-$clientReleaseDir = Join-Path $clientDir "release"
 
 foreach ($tool in @('git', 'gh', 'go', 'npm')) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
@@ -163,9 +159,6 @@ if ($env:OS -ne 'Windows_NT') {
 }
 if (-not (Test-Path -LiteralPath $versionFile)) {
     throw "Missing repository VERSION file: $versionFile"
-}
-if (-not (Test-Path -LiteralPath $clientVersionFile)) {
-    throw "Missing client VERSION file: $clientVersionFile"
 }
 
 $runningBuildProcesses = @(
@@ -233,15 +226,13 @@ Invoke-InDirectory $repoRoot {
     }
 
     $currentVersion = (Get-Content -LiteralPath $versionFile -Raw).Trim().TrimStart('v')
-    $currentClientVersion = (Get-Content -LiteralPath $clientVersionFile -Raw).Trim().TrimStart('v')
-    if ($currentVersion -ne $resolvedVersion -or $currentClientVersion -ne $resolvedVersion) {
+    if ($currentVersion -ne $resolvedVersion) {
         $encoding = New-Object System.Text.UTF8Encoding($false)
         [System.IO.File]::WriteAllText($versionFile, "$resolvedVersion$([Environment]::NewLine)", $encoding)
-        [System.IO.File]::WriteAllText($clientVersionFile, "$resolvedVersion$([Environment]::NewLine)", $encoding)
-        Invoke-Native git add -- VERSION client/VERSION
+        Invoke-Native git add -- VERSION
         Invoke-Native git commit -m "chore: prepare $tag release"
     } else {
-        Write-Host "VERSION and client/VERSION already contain $resolvedVersion; no version commit is needed." -ForegroundColor DarkGray
+        Write-Host "VERSION already contains $resolvedVersion; no version commit is needed." -ForegroundColor DarkGray
     }
 
     Write-Host "Running release verification for $tag..." -ForegroundColor Cyan
@@ -250,8 +241,6 @@ Invoke-InDirectory $repoRoot {
         throw "Migration guard failed with exit code $LASTEXITCODE."
     }
 
-    Invoke-InDirectory $protocolDir { Invoke-Native go test ./... }
-    Invoke-InDirectory $clientDir { Invoke-Native go test ./... }
     Invoke-InDirectory $serverDir { Invoke-Native go test ./... }
 
     $standaloneModules = Get-ChildItem -Path (Join-Path $serverDir 'plugins') -Filter go.mod -Recurse -File
@@ -266,9 +255,6 @@ Invoke-InDirectory $repoRoot {
     Assert-CleanWorktree "Verification changed tracked files. Review and commit the generated changes before releasing."
 
     Write-Host "Building release artifacts for $tag..." -ForegroundColor Cyan
-    & (Join-Path $clientDir 'package-installer.ps1') -Version $resolvedVersion
-    if ($LASTEXITCODE -ne 0) { throw "MGA Client packaging failed with exit code $LASTEXITCODE." }
-
     & (Join-Path $serverDir 'package-portable.ps1') -Version $resolvedVersion
     if ($LASTEXITCODE -ne 0) { throw "Portable server packaging failed with exit code $LASTEXITCODE." }
 
@@ -279,7 +265,6 @@ Invoke-InDirectory $repoRoot {
     $assets = @(
         (Join-Path $serverReleaseDir "mga-v$resolvedVersion-windows-amd64-installer.exe"),
         (Join-Path $serverReleaseDir "mga-v$resolvedVersion-windows-amd64-portable.zip"),
-        (Join-Path $clientReleaseDir 'mga-client-windows-amd64-installer.exe'),
         (Join-Path $serverReleaseDir 'mga-update.json')
     )
     foreach ($asset in $assets) {

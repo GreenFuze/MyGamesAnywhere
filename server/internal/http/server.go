@@ -44,7 +44,6 @@ type httpServer struct {
 	profileRepo            core.ProfileRepository
 	authCtrl               *AuthController
 	authService            *auth.Service
-	deviceCtrl             *DeviceController
 }
 
 func NewHttpServer(
@@ -76,7 +75,6 @@ func NewHttpServer(
 	profileRepo core.ProfileRepository,
 	authCtrl *AuthController,
 	authService *auth.Service,
-	deviceCtrl *DeviceController,
 ) core.Server {
 	return &httpServer{
 		logger:                 logger,
@@ -107,7 +105,6 @@ func NewHttpServer(
 		profileRepo:            profileRepo,
 		authCtrl:               authCtrl,
 		authService:            authService,
-		deviceCtrl:             deviceCtrl,
 	}
 }
 
@@ -154,7 +151,6 @@ func (h *httpServer) Start(ctx context.Context) error {
 		ProfileRepo:            h.profileRepo,
 		AuthCtrl:               h.authCtrl,
 		AuthService:            h.authService,
-		DeviceCtrl:             h.deviceCtrl,
 	}, 60*time.Second, spaDir)
 
 	h.server = &http.Server{

@@ -18,16 +18,18 @@ function game(overrides = {}) {
 test('compact presentation exposes at most three deterministic facts', () => {
   const presentation = new GamePresentation(game({
     kind: 'dlc',
-    devices: [{ installed: true }],
+    play: { available: true },
   }))
 
   assert.equal(presentation.content.badgeLabel, 'DLC')
-  assert.equal(presentation.availability, 'installed')
+  assert.equal(presentation.availability, 'playable')
   assert.equal(presentation.platform, 'NES')
   assert.equal(presentation.compactBadgeCount, 3)
 })
 
-test('installed copy wins the compact state without hiding other underlying facts', () => {
+// A retired device agent can no longer contribute an installed or emulator
+// availability state; MGA never reports device-local placement again.
+test('retired device evidence never produces an installed or emulator state', () => {
   const presentation = new GamePresentation(game({
     play: { available: true, options: [{ kind: 'xcloud', launchable: true }] },
     xcloud_available: true,
@@ -39,10 +41,10 @@ test('installed copy wins the compact state without hiding other underlying fact
     }],
   }))
 
-  assert.equal(presentation.availability, 'installed')
-  assert.equal(presentation.game.play.available, true)
+  assert.notEqual(presentation.availability, 'installed')
+  assert.notEqual(presentation.availability, 'emulator')
+  assert.equal(presentation.availability, 'playable')
   assert.equal(presentation.game.xcloud_available, true)
-  assert.equal(presentation.game.devices[0].emulator_routes[0].state, 'ready')
 })
 
 test('connections are deduplicated and sorted for stable display', () => {

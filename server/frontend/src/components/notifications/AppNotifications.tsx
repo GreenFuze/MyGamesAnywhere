@@ -190,34 +190,6 @@ export function AppNotifications() {
           action: scope === 'sync_key' ? { label: 'Review connection', href: connectionPath() } : undefined,
         })
       }),
-      subscribe('installation_validation_finished', (raw) => {
-        const data = (raw ?? {}) as EventPayload
-        const status = readString(data.status)
-        if (status && status !== 'succeeded') {
-          const endpointId = readString(data.endpoint_id)
-          notify({
-            tone: 'error',
-            title: 'Installed game check failed',
-            description: readString(data.error) ?? 'MGA could not check the installed games on this device.',
-            action: endpointId ? { label: 'Review device', href: `/settings?tab=devices&device=${encodeURIComponent(endpointId)}` } : undefined,
-          })
-          return
-        }
-        const missing = readNumber(data.changed_missing) ?? 0
-        const repair = readNumber(data.changed_needs_repair) ?? 0
-        const restored = readNumber(data.restored) ?? 0
-        if (missing === 0 && repair === 0 && restored === 0) return
-        notify({
-          tone: missing > 0 || repair > 0 ? 'error' : 'success',
-          title: missing > 0 || repair > 0 ? 'Installed games need attention' : 'Installed games are available again',
-          description: [
-            missing > 0 ? `${missing} missing` : '',
-            repair > 0 ? `${repair} need repair` : '',
-            restored > 0 ? `${restored} restored` : '',
-          ].filter(Boolean).join(', '),
-          action: readString(data.endpoint_id) ? { label: 'Review installed games', href: `/settings?tab=devices&device=${encodeURIComponent(readString(data.endpoint_id)!)}` } : undefined,
-        })
-      }),
       subscribe('update_available', (raw) => {
         const data = (raw ?? {}) as EventPayload
         const version = readString(data.latest_version)

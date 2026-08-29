@@ -7,7 +7,9 @@ const capability = (domain_id, access, status, extra = {}) => ({
   mga_read: false, mga_write: false, transfer: 'unknown', ...extra,
 })
 
-test('collectSaveDomains keeps distinct route domains and removes duplicate projections', () => {
+// Device-local emulator save domains were retired with the MGA Client. Server
+// source and browser-route save evidence is unchanged.
+test('collectSaveDomains keeps server-side domains and drops retired device routes', () => {
   const browser = capability('browser', 'mga_managed', 'available', { manager: 'mga', mga_read: true, mga_write: true })
   const provider = capability('steam', 'provider_opaque', 'provider_managed', { manager: 'provider' })
   const emulator = capability('emulator', 'local_files', 'needs_adapter', { manager: 'device' })
@@ -23,10 +25,9 @@ test('collectSaveDomains keeps distinct route domains and removes duplicate proj
     play: { available: true, platform_supported: true, options: [{ kind: 'browser', source_game_id: 'source', launchable: true, save: browser }, { kind: 'duplicate', source_game_id: 'source', launchable: true, save: browser }] },
     devices: [{ device_id: 'pc', display_name: 'PC', emulator_routes: [{ emulator_id: 'retroarch', emulator_name: 'RetroArch', source_game_id: 'source', source_title: 'Game', state: 'ready', default: true, save: emulator }] }],
   })
-  assert.deepEqual(domains.map((domain) => domain.domain_id), ['steam', 'browser', 'emulator'])
+  assert.deepEqual(domains.map((domain) => domain.domain_id), ['steam', 'browser'])
   assert.equal(domains[0].context, 'TC Steam · Windows PC · Game for Windows')
   assert.equal(domains[1].context, 'TC Steam · Windows PC · Game for Windows')
-  assert.equal(domains[2].context, 'PC · RetroArch · TC Steam · Windows PC · Game for Windows')
   assert.equal(saveDomainSummary(domains), 'MGA save backup available')
 })
 

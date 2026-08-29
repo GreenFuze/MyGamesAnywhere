@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	devicev1 "github.com/GreenFuze/MyGamesAnywhere/protocol/device/v1"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	dbpkg "github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
@@ -382,7 +381,7 @@ func TestServiceCancelJobStopsMaterializationAndRemovesPartialState(t *testing.T
 		Files: []core.GameFile{{GameID: "source-cancel", Path: "game.gba", Role: core.GameFileRoleRoot, Size: 17, ObjectID: "object", Revision: "rev"}},
 	}
 	job, immediate, err := service.Prepare(ctx, core.SourceCachePrepareRequest{
-		CanonicalGameID: "canonical-cancel", CanonicalTitle: "Game", SourceGameID: sourceGame.ID, Profile: devicev1.DeviceDownloadSourceProfile,
+		CanonicalGameID: "canonical-cancel", CanonicalTitle: "Game", SourceGameID: sourceGame.ID, Profile: core.FileDeliverySourceProfile,
 	}, core.PlatformGBA, sourceGame)
 	if err != nil || immediate || job == nil {
 		t.Fatalf("prepare = job %+v immediate %v err %v", job, immediate, err)
@@ -417,7 +416,7 @@ func TestServiceCancelJobStopsMaterializationAndRemovesPartialState(t *testing.T
 	if terminal == nil || terminal.Status != "cancelled" || terminal.Error != "" {
 		t.Fatalf("terminal job = %+v", terminal)
 	}
-	entry, err := store.GetEntryBySourceProfile(ctx, sourceGame.ID, devicev1.DeviceDownloadSourceProfile)
+	entry, err := store.GetEntryBySourceProfile(ctx, sourceGame.ID, core.FileDeliverySourceProfile)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -30,7 +30,9 @@ test('one canonical title remains in every concrete integration group even when 
   assert.ok(groups.every((group) => group.games[0] === item))
 })
 
-test('play-method grouping overlaps installed, emulator, cloud, and browser capabilities', () => {
+// Installed and emulator groups came from the retired device agent. Retired
+// device rows must not resurrect them.
+test('play-method grouping ignores retired device evidence', () => {
   const item = game({
     xcloud_available: true,
     play: { available: true, platform_supported: true },
@@ -51,5 +53,5 @@ test('play-method grouping overlaps installed, emulator, cloud, and browser capa
   })
 
   const labels = new GameGroupingResolver('play_method').build([item]).map((group) => group.label)
-  assert.deepEqual(labels, ['Cloud play', 'Installed', 'Play in browser', 'Play with an emulator'])
+  assert.deepEqual(labels, ['Cloud play', 'Play in browser'])
 })
