@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo } from 'react'
+import { useIsFetching, useQueryClient } from '@tanstack/react-query'
 import { NavLink, Outlet, useLocation } from 'react-router'
 import {
   Boxes,
@@ -11,13 +11,9 @@ import {
   PlugZap,
   RefreshCw,
   ServerCog,
-  ShieldCheck,
   Trophy,
   UsersRound,
-  Wifi,
-  WifiOff,
 } from 'lucide-react'
-import { getHealth } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { profileAvatarFor, useProfiles } from '@/hooks/useProfiles'
 import { MANAGEMENT_DESTINATIONS } from '@/lib/navigationRoutes'
@@ -37,23 +33,10 @@ const icons = {
 export function ManagementShell() {
   const { currentProfile, clearProfile } = useProfiles()
   const queryClient = useQueryClient()
+  const managementQueriesFetching = useIsFetching({ queryKey: ['management'] }) > 0
   const location = useLocation()
-  const [browserOnline, setBrowserOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine)
-  const health = useQuery({ queryKey: ['management', 'health'], queryFn: getHealth, refetchInterval: 15_000, retry: 1 })
-
-  useEffect(() => {
-    const online = () => setBrowserOnline(true)
-    const offline = () => setBrowserOnline(false)
-    window.addEventListener('online', online)
-    window.addEventListener('offline', offline)
-    return () => {
-      window.removeEventListener('online', online)
-      window.removeEventListener('offline', offline)
-    }
-  }, [])
 
   const active = useMemo(() => MANAGEMENT_DESTINATIONS.find((item) => location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)) ?? MANAGEMENT_DESTINATIONS[0], [location.pathname])
-  const connected = browserOnline && health.isSuccess
   const AvatarIcon = profileAvatarFor(currentProfile?.avatar_key).Icon
 
   return (
@@ -62,10 +45,6 @@ export function ManagementShell() {
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-mga-border/80 bg-mga-surface/90 backdrop-blur-xl lg:flex lg:flex-col">
         <Brand />
         <Navigation className="flex-1 px-3 py-5" />
-        <div className="border-t border-mga-border/70 p-4">
-          <div className="flex items-center gap-2 text-xs text-mga-muted"><ShieldCheck className="h-4 w-4 text-emerald-300" /> Server-owned execution boundary</div>
-          <p className="mt-2 text-[0.68rem] leading-4 text-mga-muted">Management only. Games and artifacts are served to authorized frontend integrations.</p>
-        </div>
       </aside>
 
       <div className="lg:pl-64">
@@ -79,12 +58,8 @@ export function ManagementShell() {
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
-              <div className={cn('hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs sm:flex', connected ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-300' : 'border-rose-400/25 bg-rose-400/10 text-rose-200')} title={health.error instanceof Error ? health.error.message : 'Go server health'}>
-                {connected ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
-                {connected ? 'Server online' : 'Offline'}
-              </div>
-              <Button variant="ghost" size="icon" aria-label="Refresh management data" onClick={() => void queryClient.invalidateQueries()} disabled={health.isFetching}>
-                <RefreshCw className={cn('h-4 w-4', health.isFetching && 'animate-spin')} />
+              <Button variant="ghost" size="icon" aria-label="Refresh management data" onClick={() => void queryClient.invalidateQueries()} disabled={managementQueriesFetching}>
+                <RefreshCw className={cn('h-4 w-4', managementQueriesFetching && 'animate-spin')} />
               </Button>
               <button type="button" onClick={() => void clearProfile()} className="group flex min-h-11 items-center gap-2 rounded-lg border border-mga-border bg-mga-surface px-2.5 py-1.5 text-left transition hover:border-mga-accent/45 focus:outline-none focus:ring-2 focus:ring-mga-accent/50" aria-label={`Switch profile. Current profile ${currentProfile?.display_name}`}>
                 <span className="grid h-8 w-8 place-items-center rounded-md bg-gradient-to-br from-mga-accent/25 to-violet-400/15 text-mga-accent"><AvatarIcon className="h-4 w-4" /></span>

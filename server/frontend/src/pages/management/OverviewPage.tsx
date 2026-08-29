@@ -48,12 +48,8 @@ export function OverviewPage() {
               </div>
             </SectionCard>
 
-            <SectionCard title="Control-plane boundary" description="What this browser manages—and what it deliberately does not.">
-              <div className="rounded-lg border border-mga-accent/20 bg-mga-accent/5 p-4">
-                <p className="text-sm font-semibold text-mga-text">MGA serves. Frontends present.</p>
-                <p className="mt-2 text-xs leading-5 text-mga-muted">Authorized integrations discover games, metadata, media, content, and runtime artifacts through scoped APIs. This console has no local install, elevation, or launch authority.</p>
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+            <SectionCard title="Management shortcuts" description="Open the areas most often used to review library and provider state.">
+              <div className="grid grid-cols-2 gap-2 text-xs">
                 <QuickLink to="/library" label="Review library" />
                 <QuickLink to="/system" label="Manage API clients" />
                 <QuickLink to="/catalog" label="Inspect availability" />
