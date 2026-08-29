@@ -605,87 +605,147 @@ paths:
 
   /api/device-transfers/archive:
     get:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
     head:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/device-transfers/content:
     get:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
     head:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/device-transfers/file:
     get:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
     head:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/device-transfers/save-domain:
     get:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
     put:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices:
     get:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/client-download:
     get:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/client-installer:
     get:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
     head:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
@@ -693,6 +753,7 @@ paths:
     post:
       summary: Start the selected MGA Client mode
       description: Creates a short-lived signed browser-to-client launch challenge. Standard is the default; elevated requests require the local Windows user to approve UAC before the client redeems the challenge.
+      deprecated: true
       requestBody:
         description: 'JSON: { execution_mode?: ''standard'' | ''elevated'' }'
         content:
@@ -708,19 +769,29 @@ paths:
           description: Profile sign-in required
         403:
           description: Manage access required
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
   /api/devices/client-launches/redeem:
     post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/client-launches/{id}:
     get:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -730,30 +801,47 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/connect:
     get:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/pair:
     post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/pairing-challenges:
     post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
@@ -761,6 +849,7 @@ paths:
     get:
       summary: Get automatic installed-game check status
       description: Returns the active profile's schedule and per-device visibility for the shared manual/background MGA installation validator.
+      deprecated: true
       responses:
         200:
           description: InstallationValidationScheduleStatus JSON
@@ -768,11 +857,14 @@ paths:
           description: Error response
         401:
           description: Profile sign-in required
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
     put:
       summary: Configure automatic installed-game checks
       description: Enables or pauses profile-scoped automatic validation and selects an interval from 5 minutes through 24 hours.
+      deprecated: true
       requestBody:
         description: 'JSON: { enabled: boolean, interval_minutes: number }'
         content:
@@ -786,11 +878,16 @@ paths:
           description: Invalid interval
         401:
           description: Profile sign-in required
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
   /api/devices/{id}:
     delete:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -800,9 +897,14 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
     put:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -812,11 +914,16 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/{id}/commands:
     get:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -826,9 +933,14 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
     post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -838,11 +950,112 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
+        500:
+          description: Error response
+
+  /api/devices/{id}/emulators:
+    get:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
+        500:
+          description: Error response
+
+  /api/devices/{id}/emulators/{emulator_id}/setup:
+    post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: emulator_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
+        500:
+          description: Error response
+
+  /api/devices/{id}/emulators/{platform}/default:
+    put:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: platform
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
+        500:
+          description: Error response
+
+  /api/devices/{id}/emulators/{platform}/{emulator_id}/core:
+    put:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: platform
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: emulator_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/{id}/games/{game_id}/download-files:
     post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -857,11 +1070,16 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/{id}/games/{game_id}/install-archive:
     post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -876,6 +1094,8 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
@@ -883,6 +1103,7 @@ paths:
     post:
       summary: Install a verified GOG game on a device
       description: Creates a typed GOG Inno install command from the selected server-owned source package. The authenticated Manage action is installation consent; MGA Client verifies the publisher and package family and may still trigger Windows UAC, but does not show a separate install-confirmation popup.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -909,6 +1130,44 @@ paths:
           description: Device, game, or source not found
         409:
           description: Device unavailable or installation state conflicts
+        410:
+          description: Feature retired; no mutation or local client operation was performed
+        500:
+          description: Internal server error
+
+  /api/devices/{id}/games/{game_id}/installation-preflight:
+    post:
+      summary: Check a device before installing
+      description: Dispatches a typed read-only MGA Client check for the exact game source, destination template, package size, and prerequisite policy. The endpoint may be any paired LAN device/OS user and plain trusted-LAN HTTP remains supported.
+      deprecated: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: 'JSON: { source_game_id: string, install_kind: managed_archive | gog_inno, destination_root?: string }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: DeviceCommand JSON; terminal result is InstallationPreflightResult
+        400:
+          description: Invalid request or unsupported package
+        404:
+          description: Device, game, or source not found
+        409:
+          description: Device unavailable or preflight unsupported
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
@@ -916,6 +1175,7 @@ paths:
     post:
       summary: Clean up a broken managed installation
       description: After native confirmation on the device, removes only an installation whose exact MGA-managed boundary can be proven. Publisher uninstallers are preferred where applicable; shared prerequisites, saves, and content outside the boundary are preserved.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -949,6 +1209,8 @@ paths:
           description: Installation not found
         409:
           description: Device unavailable, client too old, or a safe managed boundary cannot be proven
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
@@ -956,6 +1218,7 @@ paths:
     post:
       summary: Clean up a marked failed GOG installation
       description: Dispatches a typed cleanup command built only from persisted failed-install identity, boundary, hash, marker, and optional publisher-uninstaller evidence. Cleanup is unavailable for legacy attention rows without a marker.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -989,6 +1252,8 @@ paths:
           description: Installation not found
         409:
           description: No verified cleanup marker or invalid state
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
@@ -996,6 +1261,7 @@ paths:
     post:
       summary: Forget MGA ownership without deleting game files
       description: After native confirmation on the device, releases the verified MGA ownership record and retires the server's active installation row. No game files are deleted, so another MGA server can adopt the installation later.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1029,6 +1295,8 @@ paths:
           description: Installation not found
         409:
           description: Device unavailable, client too old, or local ownership cannot be proven
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
@@ -1036,6 +1304,7 @@ paths:
     post:
       summary: Ignore a failed installation
       description: Records the authenticated profile and time, leaves files untouched, keeps Play blocked, and suppresses the active cleanup warning. This server-only state change never dispatches a device command.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1069,11 +1338,16 @@ paths:
           description: Installation not found
         409:
           description: Invalid installation state
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
   /api/devices/{id}/games/{game_id}/sources/{source_game_id}/launch:
     post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1093,6 +1367,37 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
+        500:
+          description: Error response
+
+  /api/devices/{id}/games/{game_id}/sources/{source_game_id}/launch-emulator:
+    post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
@@ -1100,6 +1405,7 @@ paths:
     post:
       summary: Start a granted storefront copy
       description: Starts an exactly identified storefront product after MGA Client revalidates both the profile-scoped launch-only grant and current local installation evidence. The client constructs the provider URI; arbitrary launch targets are never accepted from the server.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1133,11 +1439,16 @@ paths:
           description: Device, game, or source not found
         409:
           description: Device unavailable, launch unsupported, or confirmation is missing
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
   /api/devices/{id}/games/{game_id}/sources/{source_game_id}/launch-target:
     put:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1157,6 +1468,8 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
@@ -1164,6 +1477,7 @@ paths:
     post:
       summary: Prepare a missing managed game for reinstall
       description: After native confirmation on the device, releases only a verified missing installation record so the normal install flow can start again. It never overwrites an existing installation or deletes remaining files.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1197,6 +1511,8 @@ paths:
           description: Installation not found
         409:
           description: Device unavailable, client too old, or local ownership cannot be proven
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
@@ -1204,6 +1520,7 @@ paths:
     post:
       summary: Reopen an ignored failed installation
       description: Reverses Ignore and restores cleanup-required when a valid marker exists or attention-required for a legacy no-marker row. This server-only state change never dispatches a device command.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1237,6 +1554,8 @@ paths:
           description: Installation not found
         409:
           description: Invalid installation state
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
@@ -1244,6 +1563,7 @@ paths:
     post:
       summary: Repair a managed game's launch details
       description: Asks the selected MGA Client to rediscover an unambiguous executable inside the exact managed installation boundary. It updates only MGA metadata, never downloads or deletes game files, and fails closed when local evidence is ambiguous.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1277,11 +1597,16 @@ paths:
           description: Installation not found
         409:
           description: Device unavailable, client too old, or local evidence is ambiguous
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
   /api/devices/{id}/games/{game_id}/sources/{source_game_id}/save-domain/claim:
     post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1301,11 +1626,16 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/{id}/games/{game_id}/sources/{source_game_id}/save-domain/reconcile:
     post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1325,11 +1655,16 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/{id}/games/{game_id}/sources/{source_game_id}/save-domain/release:
     post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1349,11 +1684,16 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/{id}/games/{game_id}/sources/{source_game_id}/save-domain/restore:
     post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1373,11 +1713,16 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/{id}/games/{game_id}/sources/{source_game_id}/save-domain/snapshot:
     post:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1397,6 +1742,8 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
@@ -1404,6 +1751,7 @@ paths:
     post:
       summary: Uninstall a managed game from a device
       description: Dispatches the installation-family-specific typed uninstall command using only persisted installation evidence. GOG Inno uninstall uses the recorded publisher uninstaller and retains native destructive confirmation.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1437,6 +1785,8 @@ paths:
           description: Installation not found
         409:
           description: Device unavailable or uninstall unsupported
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
@@ -1444,6 +1794,7 @@ paths:
     post:
       summary: Allow this profile to use an installed storefront copy
       description: Requests a profile- and binding-scoped launch-only grant for an exactly identified storefront product observed on the selected device. The storefront retains install, update, repair, and uninstall authority, and MGA Client requires native confirmation.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1477,11 +1828,54 @@ paths:
           description: Device, game, or source not found
         409:
           description: Device unavailable or storefront reuse unsupported
+        410:
+          description: Feature retired; no mutation or local client operation was performed
+        500:
+          description: Internal server error
+
+  /api/devices/{id}/games/{game_id}/use-existing:
+    post:
+      summary: Use an existing installation for this game
+      description: Requests a launch-only grant for one client-local installation. MGA Client verifies local evidence and requires confirmation on the device; the server receives no update, repair, cleanup, or uninstall authority.
+      deprecated: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: 'JSON: { source_game_id: string, local_installation_id: string }'
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        202:
+          description: DeviceCommand JSON
+        400:
+          description: Invalid game/source selection
+        403:
+          description: Manage access required
+        404:
+          description: Device or game not found
+        409:
+          description: Device unavailable or client does not support local reuse
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
   /api/devices/{id}/grants:
     get:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1491,11 +1885,16 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
   /api/devices/{id}/grants/{profile_id}:
     delete:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1510,9 +1909,14 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
     put:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1527,6 +1931,8 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
@@ -1534,6 +1940,7 @@ paths:
     get:
       summary: Get a device/user install folder
       description: Returns the endpoint override, active profile default, effective template, and provenance for an authorized endpoint.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1551,11 +1958,14 @@ paths:
           description: View access required
         404:
           description: Device not found
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
     put:
       summary: Set a device/user install folder
       description: Sets an Owner-authorized endpoint override. An empty template restores inheritance from the active profile.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1579,6 +1989,8 @@ paths:
           description: Owner access required
         404:
           description: Device not found
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
@@ -1586,6 +1998,7 @@ paths:
     post:
       summary: Check MGA-installed games on a device
       description: Dispatches the same bounded, read-only typed installation validator used by automatic checks. It never deletes or repairs files or registry entries.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -1609,6 +2022,8 @@ paths:
           description: Device not found
         409:
           description: Device unavailable or incompatible
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
@@ -2064,6 +2479,7 @@ paths:
     get:
       summary: Stream one game file by file_id
       description: Streams a single file that belongs to the requested canonical game. Requires query param file_id (stable id from game detail/list file metadata). Direct local sources stream immediately; materialized sources such as SMB/Drive require `profile` so the server can open the prepared cached file. Supports GET, HEAD, and Range requests via http.ServeContent.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -2077,9 +2493,14 @@ paths:
           description: Missing or invalid file_id
         404:
           description: Game, file, source path, or prepared cache file not found
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
     head:
+      summary: Retired MGA local client operation
+      description: Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -2089,6 +2510,8 @@ paths:
       responses:
         400:
           description: Error response
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Error response
 
@@ -2274,6 +2697,7 @@ paths:
     get:
       summary: Get the active player's install folder
       description: Returns the active profile default and effective destination-root template. Environment variables are expanded only by MGA Client on the selected device/user endpoint.
+      deprecated: true
       responses:
         200:
           description: InstallPreference JSON
@@ -2281,11 +2705,14 @@ paths:
           description: Error response
         401:
           description: Profile sign-in required
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
     put:
       summary: Set the active player's install folder
       description: Stores the profile-scoped destination-root template. An empty template restores the standard %USERPROFILE%\Games fallback.
+      deprecated: true
       requestBody:
         description: 'JSON: { root_template: string }'
         content:
@@ -2299,6 +2726,8 @@ paths:
           description: Invalid template
         401:
           description: Profile sign-in required
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 
@@ -2524,6 +2953,14 @@ paths:
         500:
           description: Error response
 
+  /api/legacy-client-data/report:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/media/cache/clear:
     post:
       summary: Clear downloaded media cache
@@ -2614,6 +3051,7 @@ paths:
     get:
       summary: List installed games for the selected device
       description: Returns the active profile's installed-only, canonically deduplicated shelf for one explicitly selected authorized device. Failed or attention states are excluded and counted; can_play reflects access, live compatibility, launch capability, and recorded target.
+      deprecated: true
       parameters:
         - name: id
           in: path
@@ -2629,6 +3067,8 @@ paths:
           description: Profile sign-in required
         404:
           description: Device not found or not authorized for the active profile
+        410:
+          description: Feature retired; no mutation or local client operation was performed
         500:
           description: Internal server error
 

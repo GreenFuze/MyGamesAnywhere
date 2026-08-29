@@ -74,6 +74,11 @@ func BuildOpenAPI(routes []RouteEntry, docs []OperationDoc) ([]byte, error) {
 		for _, re := range pathRoutes {
 			key := re.Method + " " + re.Path
 			op := docByKey[key]
+			retired := isRetiredOperation(re)
+			if retired && op.Summary == "" {
+				op.Summary = "Retired MGA local client operation"
+				op.Description = "Compatibility route retained temporarily. It always returns HTTP 410 and performs no device, installation, elevation, launch, transfer, or filesystem work. Use a supported frontend integration and the catalog/content APIs."
+			}
 			b.WriteString("    ")
 			b.WriteString(strings.ToLower(re.Method))
 			b.WriteString(":\n")
@@ -86,6 +91,9 @@ func BuildOpenAPI(routes []RouteEntry, docs []OperationDoc) ([]byte, error) {
 				b.WriteString("      description: ")
 				b.WriteString(escapeYAMLString(op.Description))
 				b.WriteString("\n")
+			}
+			if retired {
+				b.WriteString("      deprecated: true\n")
 			}
 			// Path parameters (before requestBody per OpenAPI order)
 			if strings.Contains(re.Path, "{") {
@@ -105,9 +113,12 @@ func BuildOpenAPI(routes []RouteEntry, docs []OperationDoc) ([]byte, error) {
 				b.WriteString("\n        content:\n          application/json:\n            schema:\n              type: object\n")
 			}
 			b.WriteString("      responses:\n")
-			codes := []string{"200", "201", "202", "204", "400", "401", "403", "404", "409", "422", "500", "501"}
+			codes := []string{"200", "201", "202", "204", "400", "401", "403", "404", "409", "410", "422", "500", "501"}
 			for _, code := range codes {
 				desc := op.ResponseDocs[code]
+				if retired && code == "410" {
+					desc = "Feature retired; no mutation or local client operation was performed"
+				}
 				if desc == "" && (code == "500" || code == "400") {
 					desc = "Error response"
 				}
@@ -122,6 +133,15 @@ func BuildOpenAPI(routes []RouteEntry, docs []OperationDoc) ([]byte, error) {
 		}
 	}
 	return b.Bytes(), nil
+}
+
+func isRetiredOperation(route RouteEntry) bool {
+	path := route.Path
+	return strings.HasPrefix(path, "/api/devices") ||
+		strings.HasPrefix(path, "/api/device-transfers") ||
+		strings.HasPrefix(path, "/api/install-preferences") ||
+		strings.HasPrefix(path, "/api/play/devices") ||
+		path == "/api/games/{id}/play"
 }
 
 func escapeYAMLString(s string) string {

@@ -286,7 +286,7 @@ func TestGameControllerServePlayFileSupportsRange(t *testing.T) {
 	}
 }
 
-func TestGameControllerServePlayFileSupportsHead(t *testing.T) {
+func TestRetiredBrowserPlayRouteReturnsGoneWithoutServingFile(t *testing.T) {
 	root := t.TempDir()
 	fullPath := filepath.Join(root, "roms", "game.bin")
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
@@ -348,11 +348,11 @@ func TestGameControllerServePlayFileSupportsHead(t *testing.T) {
 
 	router.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d (%s)", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusGone {
+		t.Fatalf("expected 410, got %d (%s)", rr.Code, rr.Body.String())
 	}
-	if got := rr.Header().Get("Content-Length"); got != "6" {
-		t.Fatalf("expected content-length 6, got %q", got)
+	if got := rr.Header().Get("Content-Length"); got != "" {
+		t.Fatalf("retired route exposed file content-length %q", got)
 	}
 	if rr.Body.Len() != 0 {
 		t.Fatalf("expected empty head response body, got %q", rr.Body.String())

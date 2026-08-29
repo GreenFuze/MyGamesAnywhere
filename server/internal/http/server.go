@@ -24,6 +24,7 @@ type httpServer struct {
 	runtimeArtifactCtrl    *RuntimeArtifactController
 	frontendAPIClientCtrl  *FrontendAPIClientController
 	frontendAPIClientSvc   FrontendAPIClientService
+	legacyRetirementCtrl   *LegacyRetirementController
 	mediaCtrl              *MediaController
 	discoCtrl              *DiscoveryController
 	aboutCtrl              *AboutController
@@ -55,6 +56,7 @@ func NewHttpServer(
 	runtimeArtifactCtrl *RuntimeArtifactController,
 	frontendAPIClientCtrl *FrontendAPIClientController,
 	frontendAPIClientSvc FrontendAPIClientService,
+	legacyRetirementCtrl *LegacyRetirementController,
 	mediaCtrl *MediaController,
 	discoCtrl *DiscoveryController,
 	aboutCtrl *AboutController,
@@ -85,6 +87,7 @@ func NewHttpServer(
 		runtimeArtifactCtrl:    runtimeArtifactCtrl,
 		frontendAPIClientCtrl:  frontendAPIClientCtrl,
 		frontendAPIClientSvc:   frontendAPIClientSvc,
+		legacyRetirementCtrl:   legacyRetirementCtrl,
 		mediaCtrl:              mediaCtrl,
 		discoCtrl:              discoCtrl,
 		aboutCtrl:              aboutCtrl,
@@ -131,6 +134,7 @@ func (h *httpServer) Start(ctx context.Context) error {
 		RuntimeArtifactCtrl:    h.runtimeArtifactCtrl,
 		FrontendAPIClientCtrl:  h.frontendAPIClientCtrl,
 		FrontendAPIClientSvc:   h.frontendAPIClientSvc,
+		LegacyRetirementCtrl:   h.legacyRetirementCtrl,
 		MediaCtrl:              h.mediaCtrl,
 		DiscoCtrl:              h.discoCtrl,
 		AboutCtrl:              h.aboutCtrl,

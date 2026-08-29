@@ -24,13 +24,12 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/db"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/devices"
-	"github.com/GreenFuze/MyGamesAnywhere/server/internal/emulation"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/frontendauth"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/gamesvc"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/http"
-	"github.com/GreenFuze/MyGamesAnywhere/server/internal/installprefs"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/keystore"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/legacyretirement"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/logger"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/media"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
@@ -212,24 +211,10 @@ func runServer(ctx context.Context, opts serverOptions) error {
 		return fmt.Errorf("configure profile authentication: %w", err)
 	}
 	deviceStore := db.NewDeviceStore(dbSvc)
-	commandRecovery, err := devices.NewCommandRecovery(deviceStore, logSvc)
-	if err != nil {
-		return fmt.Errorf("configure device command recovery: %w", err)
-	}
 	deviceHub := devices.NewHub()
 	deviceSvc, err := devices.NewService(deviceStore, deviceHub)
 	if err != nil {
 		return fmt.Errorf("configure device service: %w", err)
-	}
-	installPreferenceRepo := db.NewInstallPreferenceRepository(dbSvc)
-	installPreferenceSvc, err := installprefs.NewService(installPreferenceRepo, deviceSvc)
-	if err != nil {
-		return fmt.Errorf("configure install preferences: %w", err)
-	}
-	emulatorPreferenceRepo := db.NewEmulatorPreferenceRepository(dbSvc)
-	emulationSvc, err := emulation.NewService(emulatorPreferenceRepo, deviceSvc, emulation.NewDefaultCatalog())
-	if err != nil {
-		return fmt.Errorf("configure emulator settings: %w", err)
 	}
 	integrationRepo := db.NewIntegrationRepository(dbSvc)
 	gameStore := db.NewGameStore(dbSvc, logSvc)
@@ -248,6 +233,14 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	frontendAPIClientSvc, err := frontendauth.NewService(frontendAPIClientRepo)
 	if err != nil {
 		return fmt.Errorf("configure frontend API client service: %w", err)
+	}
+	legacyRetirementRepo, err := db.NewLegacyRetirementRepository(dbSvc)
+	if err != nil {
+		return fmt.Errorf("configure legacy retirement repository: %w", err)
+	}
+	legacyRetirementSvc, err := legacyretirement.NewService(legacyRetirementRepo)
+	if err != nil {
+		return fmt.Errorf("configure legacy retirement service: %w", err)
 	}
 	cacheStore := db.NewSourceCacheStore(dbSvc)
 	sourceMoveStore := db.NewSourceMoveStore(dbSvc)
@@ -291,9 +284,6 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	gameCtrl := http.NewGameController(gameStore, orchestrator, deletionSvc, integrationRepo, cacheSvc, logSvc)
 	gameCtrl.SetCanonicalGroupingService(groupingSvc)
 	gameCtrl.SetSourceMoveService(sourceMoveSvc)
-	gameCtrl.SetDeviceEndpointLister(deviceSvc)
-	gameCtrl.SetEmulationService(emulationSvc)
-	gameCtrl.SetEmulatorContentRoot(envString("MGA_GOOGLE_DRIVE_DESKTOP_ROOT", ""))
 	mediaCtrl := http.NewMediaController(gameStore, configSvc, logSvc, mediaSvc)
 	catalogCtrl, err := http.NewCatalogController(catalogSvc, logSvc)
 	if err != nil {
@@ -311,20 +301,16 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	if err != nil {
 		return fmt.Errorf("configure frontend API client controller: %w", err)
 	}
+	legacyRetirementCtrl, err := http.NewLegacyRetirementController(legacyRetirementSvc, logSvc)
+	if err != nil {
+		return fmt.Errorf("configure legacy retirement controller: %w", err)
+	}
 	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc, eventBus, achievementRefreshCtrl)
 	backgroundScanSvc, err := http.NewBackgroundScanService(discoCtrl, profileRepo, settingRepo, logSvc, eventBus)
 	if err != nil {
 		return fmt.Errorf("configure background library scans: %w", err)
 	}
 	discoCtrl.SetBackgroundScanService(backgroundScanSvc)
-	installationValidationSvc, err := http.NewInstallationValidationService(deviceSvc, profileRepo, settingRepo, logSvc, eventBus)
-	if err != nil {
-		return fmt.Errorf("configure installation validation: %w", err)
-	}
-	storefrontReconciliationSvc, err := http.NewStorefrontReconciliationService(deviceSvc, profileRepo, gameStore, logSvc)
-	if err != nil {
-		return fmt.Errorf("configure storefront reconciliation: %w", err)
-	}
 	aboutCtrl := http.NewAboutController(logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, gameStore, configSvc, logSvc, eventBus, syncSvc)
@@ -345,34 +331,14 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	if err != nil {
 		return fmt.Errorf("configure auth controller: %w", err)
 	}
-	clientInstallerPath := envString("MGA_CLIENT_INSTALLER_PATH", "")
-	if clientInstallerPath == "" {
-		candidate := filepath.Join(layout.AppDir, "downloads", "mga-client-windows-amd64-installer.exe")
-		if info, statErr := os.Stat(candidate); statErr == nil && info.Mode().IsRegular() {
-			clientInstallerPath = candidate
-		}
-	}
-	if clientInstallerPath != "" {
-		clientInstallerPath, err = filepath.Abs(clientInstallerPath)
-		if err != nil {
-			return fmt.Errorf("resolve MGA Client installer path: %w", err)
-		}
-	}
-	deviceCtrl, err := http.NewDeviceController(deviceSvc, deviceHub, logSvc, clientInstallerPath)
+	deviceCtrl, err := http.NewDeviceController(deviceSvc, deviceHub, logSvc, "")
 	if err != nil {
 		return fmt.Errorf("configure device controller: %w", err)
 	}
-	deviceCtrl.SetArchiveInstallDependencies(gameStore, integrationRepo, envString("MGA_GOOGLE_DRIVE_DESKTOP_ROOT", ""))
-	deviceCtrl.SetSourceCacheService(cacheSvc)
-	deviceCtrl.SetInstallationValidationService(installationValidationSvc)
-	deviceCtrl.SetInstallPreferenceService(installPreferenceSvc)
-	deviceCtrl.SetEmulationService(emulationSvc)
-	deviceCtrl.SetSaveDomainDependencies(saveSyncSvc)
 
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, catalogCtrl, contentCtrl, runtimeArtifactCtrl, frontendAPIClientCtrl, frontendAPIClientSvc, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, catalogCtrl, contentCtrl, runtimeArtifactCtrl, frontendAPIClientCtrl, frontendAPIClientSvc, legacyRetirementCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
 
-	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, updateSvc, mediaSvc, backgroundScanSvc, installationValidationSvc, storefrontReconciliationSvc)
-	a.AddStartupTask(commandRecovery)
+	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, updateSvc, mediaSvc, backgroundScanSvc)
 	a.AddStartupTask(sourceMoveSvc)
 
 	ctx, cancel := context.WithCancel(ctx)
