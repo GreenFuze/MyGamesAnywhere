@@ -22,6 +22,8 @@ type httpServer struct {
 	catalogCtrl            *CatalogController
 	contentCtrl            *ContentController
 	runtimeArtifactCtrl    *RuntimeArtifactController
+	frontendAPIClientCtrl  *FrontendAPIClientController
+	frontendAPIClientSvc   FrontendAPIClientService
 	mediaCtrl              *MediaController
 	discoCtrl              *DiscoveryController
 	aboutCtrl              *AboutController
@@ -51,6 +53,8 @@ func NewHttpServer(
 	catalogCtrl *CatalogController,
 	contentCtrl *ContentController,
 	runtimeArtifactCtrl *RuntimeArtifactController,
+	frontendAPIClientCtrl *FrontendAPIClientController,
+	frontendAPIClientSvc FrontendAPIClientService,
 	mediaCtrl *MediaController,
 	discoCtrl *DiscoveryController,
 	aboutCtrl *AboutController,
@@ -79,6 +83,8 @@ func NewHttpServer(
 		catalogCtrl:            catalogCtrl,
 		contentCtrl:            contentCtrl,
 		runtimeArtifactCtrl:    runtimeArtifactCtrl,
+		frontendAPIClientCtrl:  frontendAPIClientCtrl,
+		frontendAPIClientSvc:   frontendAPIClientSvc,
 		mediaCtrl:              mediaCtrl,
 		discoCtrl:              discoCtrl,
 		aboutCtrl:              aboutCtrl,
@@ -123,6 +129,8 @@ func (h *httpServer) Start(ctx context.Context) error {
 		CatalogCtrl:            h.catalogCtrl,
 		ContentCtrl:            h.contentCtrl,
 		RuntimeArtifactCtrl:    h.runtimeArtifactCtrl,
+		FrontendAPIClientCtrl:  h.frontendAPIClientCtrl,
+		FrontendAPIClientSvc:   h.frontendAPIClientSvc,
 		MediaCtrl:              h.mediaCtrl,
 		DiscoCtrl:              h.discoCtrl,
 		AboutCtrl:              h.aboutCtrl,

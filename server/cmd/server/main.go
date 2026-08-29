@@ -26,6 +26,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/devices"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/emulation"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/frontendauth"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/gamesvc"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/http"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/installprefs"
@@ -240,6 +241,14 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	if err != nil {
 		return fmt.Errorf("configure runtime artifact service: %w", err)
 	}
+	frontendAPIClientRepo, err := db.NewFrontendAPIClientRepository(dbSvc)
+	if err != nil {
+		return fmt.Errorf("configure frontend API client repository: %w", err)
+	}
+	frontendAPIClientSvc, err := frontendauth.NewService(frontendAPIClientRepo)
+	if err != nil {
+		return fmt.Errorf("configure frontend API client service: %w", err)
+	}
 	cacheStore := db.NewSourceCacheStore(dbSvc)
 	sourceMoveStore := db.NewSourceMoveStore(dbSvc)
 
@@ -297,6 +306,10 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	runtimeArtifactCtrl, err := http.NewRuntimeArtifactController(runtimeArtifactSvc, logSvc)
 	if err != nil {
 		return fmt.Errorf("configure runtime artifact controller: %w", err)
+	}
+	frontendAPIClientCtrl, err := http.NewFrontendAPIClientController(frontendAPIClientSvc, logSvc)
+	if err != nil {
+		return fmt.Errorf("configure frontend API client controller: %w", err)
 	}
 	discoCtrl := http.NewDiscoveryController(orchestrator, gameStore, logSvc, eventBus, achievementRefreshCtrl)
 	backgroundScanSvc, err := http.NewBackgroundScanService(discoCtrl, profileRepo, settingRepo, logSvc, eventBus)
@@ -356,7 +369,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	deviceCtrl.SetEmulationService(emulationSvc)
 	deviceCtrl.SetSaveDomainDependencies(saveSyncSvc)
 
-	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, catalogCtrl, contentCtrl, runtimeArtifactCtrl, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
+	httpSvc := http.NewHttpServer(logSvc, configSvc, gameCtrl, catalogCtrl, contentCtrl, runtimeArtifactCtrl, frontendAPIClientCtrl, frontendAPIClientSvc, mediaCtrl, discoCtrl, aboutCtrl, configCtrl, pluginCtrl, integrationRefreshCtrl, reviewCtrl, achievementCtrl, achievementRefreshCtrl, syncCtrl, updateCtrl, saveSyncCtrl, cacheCtrl, sseCtrl, oauthCtrl, profileCtrl, profileRepo, authCtrl, authSvc, deviceCtrl)
 
 	a := app.NewApp(logSvc, configSvc, dbSvc, httpSvc, authSvc, pluginHost, eventBus, updateSvc, mediaSvc, backgroundScanSvc, installationValidationSvc, storefrontReconciliationSvc)
 	a.AddStartupTask(commandRecovery)

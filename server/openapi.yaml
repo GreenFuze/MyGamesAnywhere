@@ -1636,6 +1636,56 @@ paths:
         500:
           description: Streaming not supported
 
+  /api/frontend-clients:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/frontend-clients/{client_id}/revoke:
+    post:
+      parameters:
+        - name: client_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/frontend-clients/{client_id}/rotate:
+    post:
+      parameters:
+        - name: client_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/frontend/v1/capabilities:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/games:
     delete:
       summary: Delete all games

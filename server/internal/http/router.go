@@ -17,6 +17,8 @@ type RouteBuilder struct {
 	CatalogCtrl            *CatalogController
 	ContentCtrl            *ContentController
 	RuntimeArtifactCtrl    *RuntimeArtifactController
+	FrontendAPIClientCtrl  *FrontendAPIClientController
+	FrontendAPIClientSvc   FrontendAPIClientService
 	MediaCtrl              *MediaController
 	DiscoCtrl              *DiscoveryController
 	AboutCtrl              *AboutController
@@ -115,6 +117,9 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			// Product/version and license text are deliberately server-global.
 			api.Get("/about", b.AboutCtrl.GetAbout)
 			api.Get("/about/license", b.AboutCtrl.GetLicense)
+			if b.FrontendAPIClientCtrl != nil && b.FrontendAPIClientSvc != nil {
+				api.With(RequireFrontendAPIClient(b.FrontendAPIClientSvc, b.ProfileRepo)).Get("/frontend/v1/capabilities", b.FrontendAPIClientCtrl.Capabilities)
+			}
 
 			adminOnly := func(h http.HandlerFunc) http.HandlerFunc {
 				return RequireAdminProfile(http.HandlerFunc(h)).ServeHTTP
@@ -238,6 +243,12 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Post("/profiles", b.ProfileCtrl.CreateProfile)
 				r.Put("/profiles/{id}", b.ProfileCtrl.UpdateProfile)
 				r.Delete("/profiles/{id}", b.ProfileCtrl.DeleteProfile)
+				if b.FrontendAPIClientCtrl != nil {
+					r.Get("/frontend-clients", adminOnly(b.FrontendAPIClientCtrl.List))
+					r.Post("/frontend-clients", adminOnly(b.FrontendAPIClientCtrl.Create))
+					r.Post("/frontend-clients/{client_id}/rotate", adminOnly(b.FrontendAPIClientCtrl.Rotate))
+					r.Post("/frontend-clients/{client_id}/revoke", adminOnly(b.FrontendAPIClientCtrl.Revoke))
+				}
 				r.Post("/profiles/{id}/credential-tickets", adminOnly(b.AuthCtrl.CreateCredentialTicket))
 				r.Get("/profiles/{id}/credential-tickets/active", adminOnly(b.AuthCtrl.CredentialTicketStatus))
 				r.Delete("/profiles/{id}/credential-tickets/{ticket_id}", adminOnly(b.AuthCtrl.RevokeCredentialTicket))
@@ -345,6 +356,11 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Get("/scan/reports/{id}", b.DiscoCtrl.GetScanReport)
 			})
 		} else {
+			api.Get("/frontend/v1/capabilities", noopHandler())
+			api.Get("/frontend-clients", noopHandler())
+			api.Post("/frontend-clients", noopHandler())
+			api.Post("/frontend-clients/{client_id}/rotate", noopHandler())
+			api.Post("/frontend-clients/{client_id}/revoke", noopHandler())
 			api.Get("/auth/session", noopHandler())
 			api.Post("/auth/login", noopHandler())
 			api.Post("/auth/logout", noopHandler())

@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 40
+const latestMigrationVersion = 41
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -922,6 +922,38 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 				);`,
 				`CREATE INDEX idx_runtime_artifacts_package ON runtime_artifacts(package_id, channel, os, architecture, updated_at DESC);`,
 				`CREATE INDEX idx_runtime_artifacts_compliance ON runtime_artifacts(compliance_state, redistributable, acquisition_mode);`,
+			},
+		},
+		{
+			Version: 41,
+			Name:    "frontend_api_clients",
+			SQL: []string{
+				`CREATE TABLE frontend_api_clients (
+					id TEXT PRIMARY KEY,
+					profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+					name TEXT NOT NULL,
+					secret_hash TEXT NOT NULL,
+					scopes_json TEXT NOT NULL,
+					created_at INTEGER NOT NULL,
+					last_used_at INTEGER,
+					expires_at INTEGER,
+					revoked_at INTEGER,
+					updated_at INTEGER NOT NULL
+				);`,
+				`CREATE INDEX idx_frontend_api_clients_profile ON frontend_api_clients(profile_id, revoked_at, created_at DESC);`,
+				`CREATE TABLE frontend_api_client_audit (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+					client_id TEXT,
+					action TEXT NOT NULL,
+					outcome TEXT NOT NULL,
+					reason TEXT,
+					request_id TEXT,
+					remote_ip TEXT,
+					created_at INTEGER NOT NULL
+				);`,
+				`CREATE INDEX idx_frontend_api_client_audit_client ON frontend_api_client_audit(client_id, created_at DESC);`,
+				`CREATE INDEX idx_frontend_api_client_audit_profile ON frontend_api_client_audit(profile_id, created_at DESC);`,
 			},
 		},
 	}
