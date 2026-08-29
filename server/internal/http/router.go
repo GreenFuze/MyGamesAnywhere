@@ -16,6 +16,7 @@ type RouteBuilder struct {
 	GameCtrl               *GameController
 	CatalogCtrl            *CatalogController
 	ContentCtrl            *ContentController
+	RuntimeArtifactCtrl    *RuntimeArtifactController
 	MediaCtrl              *MediaController
 	DiscoCtrl              *DiscoveryController
 	AboutCtrl              *AboutController
@@ -185,6 +186,12 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Get("/catalog/offers", b.CatalogCtrl.ListOffers)
 				r.Get("/catalog/offers/{offer_id}", b.CatalogCtrl.GetOffer)
 				r.Get("/catalog/offers/{offer_id}/history", b.CatalogCtrl.ListHistory)
+				if b.RuntimeArtifactCtrl != nil {
+					r.Get("/runtime-artifacts", b.RuntimeArtifactCtrl.List)
+					r.Get("/runtime-artifacts/{artifact_id}", b.RuntimeArtifactCtrl.Get)
+					r.Post("/runtime-artifacts", adminOnly(b.RuntimeArtifactCtrl.Create))
+					r.Put("/runtime-artifacts/{artifact_id}", adminOnly(b.RuntimeArtifactCtrl.Update))
+				}
 				r.Get("/games/source-move-destinations", b.GameCtrl.ListSourceMoveDestinations)
 				r.Get("/games/source-moves", b.GameCtrl.ListSourceMoveJobs)
 				r.Get("/games/source-moves/{job_id}", b.GameCtrl.GetSourceMoveJob)
@@ -309,6 +316,10 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 					r.Get("/content/v1/materializations/{job_id}", b.ContentCtrl.GetMaterialization)
 					r.Post("/content/v1/materializations/{job_id}/cancel", b.ContentCtrl.CancelMaterialization)
 				}
+				if b.RuntimeArtifactCtrl != nil {
+					r.Get("/runtime-artifacts/{artifact_id}/content", b.RuntimeArtifactCtrl.Content)
+					r.Head("/runtime-artifacts/{artifact_id}/content", b.RuntimeArtifactCtrl.Content)
+				}
 				r.Get("/games/{id}/play", b.GameCtrl.ServePlayFile)
 				r.Head("/games/{id}/play", b.GameCtrl.ServePlayFile)
 			})
@@ -410,6 +421,10 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/catalog/offers", noopHandler())
 			api.Get("/catalog/offers/{offer_id}", noopHandler())
 			api.Get("/catalog/offers/{offer_id}/history", noopHandler())
+			api.Get("/runtime-artifacts", noopHandler())
+			api.Get("/runtime-artifacts/{artifact_id}", noopHandler())
+			api.Post("/runtime-artifacts", noopHandler())
+			api.Put("/runtime-artifacts/{artifact_id}", noopHandler())
 			api.Delete("/games", noopHandler())
 			api.Get("/games/{id}/detail", noopHandler())
 			api.Post("/games/{id}/refresh-metadata", noopHandler())
@@ -436,6 +451,8 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Post("/content/v1/copies/{copy_id}/materializations", noopHandler())
 			api.Get("/content/v1/materializations/{job_id}", noopHandler())
 			api.Post("/content/v1/materializations/{job_id}/cancel", noopHandler())
+			api.Get("/runtime-artifacts/{artifact_id}/content", noopHandler())
+			api.Head("/runtime-artifacts/{artifact_id}/content", noopHandler())
 			api.Get("/games/{id}/play", noopHandler())
 			api.Head("/games/{id}/play", noopHandler())
 			api.Post("/games/{id}/cache/prepare", noopHandler())

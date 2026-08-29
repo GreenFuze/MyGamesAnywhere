@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 39
+const latestMigrationVersion = 40
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -889,6 +889,39 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 					PRIMARY KEY(profile_id, scope_key)
 				);`,
 				`CREATE INDEX idx_catalog_refresh_states_stale ON catalog_refresh_states(profile_id, stale_at, provider);`,
+			},
+		},
+		{
+			Version: 40,
+			Name:    "runtime_emulator_artifact_registry",
+			SQL: []string{
+				`CREATE TABLE runtime_artifacts (
+					id TEXT PRIMARY KEY,
+					package_id TEXT NOT NULL,
+					display_name TEXT NOT NULL,
+					category TEXT NOT NULL CHECK(category IN ('runtime','emulator')),
+					version TEXT NOT NULL,
+					channel TEXT NOT NULL,
+					os TEXT NOT NULL,
+					architecture TEXT NOT NULL,
+					compatibility_json TEXT NOT NULL DEFAULT '{}',
+					license_spdx TEXT NOT NULL,
+					license_url TEXT,
+					notices TEXT,
+					upstream_url TEXT NOT NULL,
+					acquisition_mode TEXT NOT NULL CHECK(acquisition_mode IN ('bundled','cached','proxy','upstream_link')),
+					redistributable INTEGER NOT NULL DEFAULT 0 CHECK(redistributable IN (0,1)),
+					compliance_state TEXT NOT NULL DEFAULT 'unknown' CHECK(compliance_state IN ('unknown','approved','blocked')),
+					sha256 TEXT,
+					signature TEXT,
+					release_observed_at INTEGER,
+					size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes >= 0),
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					UNIQUE(package_id, version, channel, os, architecture)
+				);`,
+				`CREATE INDEX idx_runtime_artifacts_package ON runtime_artifacts(package_id, channel, os, architecture, updated_at DESC);`,
+				`CREATE INDEX idx_runtime_artifacts_compliance ON runtime_artifacts(compliance_state, redistributable, acquisition_mode);`,
 			},
 		},
 	}

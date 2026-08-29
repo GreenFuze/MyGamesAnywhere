@@ -21,6 +21,7 @@ type httpServer struct {
 	gameCtrl               *GameController
 	catalogCtrl            *CatalogController
 	contentCtrl            *ContentController
+	runtimeArtifactCtrl    *RuntimeArtifactController
 	mediaCtrl              *MediaController
 	discoCtrl              *DiscoveryController
 	aboutCtrl              *AboutController
@@ -49,6 +50,7 @@ func NewHttpServer(
 	gameCtrl *GameController,
 	catalogCtrl *CatalogController,
 	contentCtrl *ContentController,
+	runtimeArtifactCtrl *RuntimeArtifactController,
 	mediaCtrl *MediaController,
 	discoCtrl *DiscoveryController,
 	aboutCtrl *AboutController,
@@ -76,6 +78,7 @@ func NewHttpServer(
 		gameCtrl:               gameCtrl,
 		catalogCtrl:            catalogCtrl,
 		contentCtrl:            contentCtrl,
+		runtimeArtifactCtrl:    runtimeArtifactCtrl,
 		mediaCtrl:              mediaCtrl,
 		discoCtrl:              discoCtrl,
 		aboutCtrl:              aboutCtrl,
@@ -119,6 +122,7 @@ func (h *httpServer) Start(ctx context.Context) error {
 		GameCtrl:               h.gameCtrl,
 		CatalogCtrl:            h.catalogCtrl,
 		ContentCtrl:            h.contentCtrl,
+		RuntimeArtifactCtrl:    h.runtimeArtifactCtrl,
 		MediaCtrl:              h.mediaCtrl,
 		DiscoCtrl:              h.discoCtrl,
 		AboutCtrl:              h.aboutCtrl,

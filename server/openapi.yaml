@@ -2959,6 +2959,126 @@ paths:
         500:
           description: Internal server error
 
+  /api/runtime-artifacts:
+    get:
+      summary: List runtime and emulator artifacts
+      description: Returns the authenticated profile a server-global registry of runtime/emulator package metadata, license, acquisition, compliance, integrity, compatibility and storage evidence. Server filesystem paths are never returned.
+      responses:
+        200:
+          description: JSON object with artifacts[]
+        400:
+          description: Error response
+        401:
+          description: Authentication required
+        403:
+          description: Profile access forbidden
+        500:
+          description: Internal server error
+    post:
+      summary: Create a runtime or emulator artifact
+      description: Administrator-only complete artifact registration. Unknown license, prohibited category, non-HTTPS source, invalid integrity evidence or inconsistent delivery policy fails closed.
+      requestBody:
+        description: Complete runtime artifact JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: Created artifact
+        400:
+          description: Invalid artifact policy or evidence
+        403:
+          description: Administrator required
+        500:
+          description: Internal server error
+
+  /api/runtime-artifacts/{artifact_id}:
+    get:
+      summary: Get a runtime or emulator artifact
+      description: Returns one artifact's compliance and provenance metadata under authenticated selected-profile context.
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Runtime artifact metadata
+        400:
+          description: Error response
+        404:
+          description: Artifact not found
+        500:
+          description: Internal server error
+    put:
+      summary: Update a runtime or emulator artifact
+      description: Administrator-only full replacement. Artifact identity must match the path; blocking compliance preserves the row and prevents bytes.
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Complete runtime artifact JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Updated artifact
+        400:
+          description: Invalid artifact policy, evidence or identity
+        403:
+          description: Administrator required
+        500:
+          description: Internal server error
+
+  /api/runtime-artifacts/{artifact_id}/content:
+    get:
+      summary: Download an approved runtime artifact
+      description: Authenticates the selected profile, revalidates compliance and redistributability, derives a content-addressed path, verifies length and SHA-256, then serves one optional byte range with safe headers.
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Complete verified artifact bytes
+        400:
+          description: Error response
+        404:
+          description: Artifact not found
+        409:
+          description: Delivery blocked or integrity failed
+        500:
+          description: Internal server error
+    head:
+      summary: Inspect an approved runtime artifact
+      description: Performs the same authorization, compliance and integrity checks as GET and returns delivery headers without bytes.
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Verified artifact headers
+        400:
+          description: Error response
+        404:
+          description: Artifact not found
+        409:
+          description: Delivery blocked or integrity failed
+        500:
+          description: Error response
+
   /api/save-sync/domains/{domain_id}/history:
     get:
       summary: List retained saves for one Save Domain
