@@ -2,66 +2,72 @@
 
 ![MyGamesAnywhere](docs/branding/title-text.png)
 
-## Every game you have. Every way you can play it.
+## Your game library, served anywhere
 
-**MyGamesAnywhere is a self-hosted home game library for Windows households.** Browse Steam, Xbox and Game Pass, ROMs, installers, and NAS games from any browser at home; keep every version clear; and send supported installs or launches to the Windows user and PC you choose.
+MyGamesAnywhere is a self-hosted, headless-first game-library control plane. The Go server connects to game and storage sources, reconciles titles and copies into a canonical library, tracks provider availability and versions, and serves authorized game content, metadata, media, and compliant runtime artifacts to established frontend applications.
 
-`Windows` · `Pre-1.0` · `Trusted home network`
+MGA's WebUI is an administration console. It manages profiles, sources, the library, catalog offers, artifacts, achievements, API clients, storage, and server operations. It is not a first-party game player, installer, or launcher.
 
-## 🎮 [Visit the MGA website →](https://greenfuze.github.io/MyGamesAnywhere/)
+## Product boundary
 
-See the real interface, check what works today, and find the setup that fits your home.
+MGA owns:
 
-**[See MGA in action](https://greenfuze.github.io/MyGamesAnywhere/screenshots.html)** · [Install MGA Server](https://greenfuze.github.io/MyGamesAnywhere/install.html) · [Check compatibility](https://greenfuze.github.io/MyGamesAnywhere/integrations.html)
+- profiles, permissions, source connections, and integration credentials;
+- canonical game identity, copies, versions, metadata, and media;
+- current and historical provider offers, including subscription availability;
+- authorized content delivery and materialization APIs;
+- emulator and runtime artifact metadata and delivery when licensing, provenance, and integrity requirements are satisfied;
+- achievements, jobs, storage, audit/recovery data, and the management WebUI;
+- scoped APIs used by frontend integrations.
 
-[![MGA showing a privacy-safe home game library](docs/screenshots/library-current.png)](https://greenfuze.github.io/MyGamesAnywhere/screenshots.html)
+Frontend applications such as Playnite, LaunchBox, Pegasus, and future mobile integrations own device-local placement, installation or extraction, emulator configuration, storefront authentication, and execution. MGA appears to them as a library/store source.
 
-## Why MGA?
+MGA never supplies protected storefront packages, ROMs, firmware, licenses, or DRM bypasses. A source or runtime that cannot be delivered with adequate authorization and compliance evidence fails closed.
 
-- **Browse from any screen at home.** The library lives on your MGA Server and opens in a browser on a PC, TV, phone, or tablet.
-- **Know what you have and where it can play.** Steam, Xbox, regional ROMs, remasters, and other editions can appear together without becoming indistinguishable.
-- **Choose the right gaming PC.** The MGA Client can install or launch supported games for a specific Windows user and device.
+## Current pivot status
 
-## What works today
+The headless-first product shift is under active development on `codex/mga-87-headless-first`. The branch currently contains:
 
-- Library discovery from Steam, Xbox/PC Game Pass, Google Drive, and SMB/NAS folders; Epic support is experimental.
-- Xbox-backed Game Pass and xCloud availability, plus Steam, Xbox, and RetroAchievements progress.
-- Installed, storefront, configured browser-emulator, and xCloud play choices where the connection supports them.
-- Separate MGA profiles, store accounts, favorites, achievements, and library state.
-- Device-aware launching, stopping, storage checks, and install progress through the per-user Windows Client.
-- Managed installation from ZIP, 7z, and RAR archives, plus a bounded signed-GOG installer flow.
-- Browser play through configured EmulatorJS, js-dos, and ScummVM runtimes.
+- normalized catalog offers with version and availability history;
+- versioned content-delivery and materialization APIs;
+- a compliance-gated runtime artifact registry;
+- scoped frontend API clients and capability discovery;
+- explicit retirement responses for MGA-owned local install and launch workflows;
+- the new profile-aware management console shell.
 
-MGA does not replace Steam, Xbox, or other stores, and it is not a general PC game-streaming service. Storefronts still own purchases, DRM, many installs, and updates.
+Deeper management workflows, old client/player code removal, packaging simplification, frontend SDKs, and frontend adapters are tracked in Jira. The latest public release and website may still describe the pre-pivot product.
 
-## Quick start
+## Run the development server
 
-**Install the Server once. Install the Client only on Windows accounts that will install or launch games.**
+Requirements: Go, Node.js, and npm.
 
-1. Open the [latest release](https://github.com/GreenFuze/MyGamesAnywhere/releases/latest) and download **MGA Server Setup** (`mga-v…-windows-amd64-installer.exe`).
-2. Run it and choose **For me only** for the simplest setup, or **All users** for an always-on household server.
-3. Open MGA, create the first player, add one connection, and scan.
-4. When a Windows account needs local installs or launches, use the Client control in MGA to download and pair **MGA Client Setup**.
+```powershell
+cd server/frontend
+npm ci
+npm run build
 
-Phones, tablets, and TVs only need a browser to browse MGA. Read the [Windows installation guide](https://greenfuze.github.io/MyGamesAnywhere/install.html) for LAN, portable, and Client setup.
+cd ..
+go run ./cmd/server --runtime-mode user --app-dir "$PWD" --data-dir "$PWD/.dev-data" --no-tray
+```
 
-## Before you try it
+Open `http://127.0.0.1:8900`. On a fresh data directory, complete the first-profile setup shown by the server. Keep development data separate from an existing MGA installation.
 
-- MGA is Windows-first, pre-1.0 software intended for one PC or a trusted home LAN.
-- Do not expose the current server directly to the public internet.
-- MGA provides no games, ROMs, firmware, store entitlements, or DRM bypasses.
-- Some connections need provider credentials, and some browser or emulator routes need setup.
-- Keep a backup of the MGA data directory while the project is pre-1.0.
+Useful verification commands:
 
-[MGA website](https://greenfuze.github.io/MyGamesAnywhere/) · [Screenshots](https://greenfuze.github.io/MyGamesAnywhere/screenshots.html) · [Compatibility](https://greenfuze.github.io/MyGamesAnywhere/integrations.html) · [Compare](https://greenfuze.github.io/MyGamesAnywhere/comparison.html) · [FAQ](https://greenfuze.github.io/MyGamesAnywhere/faq.html) · [Releases](https://github.com/GreenFuze/MyGamesAnywhere/releases)
+```powershell
+cd server/frontend
+npm run test:unit
+npm run build
 
-<details>
-<summary><strong>Building or contributing</strong></summary>
+cd ..
+go test ./...
+go vet ./...
+```
 
-MGA contains a Go server, React web interface, plugin integrations, and the per-user Windows MGA Client. Start with [`AGENTS.md`](AGENTS.md) and [`docs/agent-bootstrap.md`](docs/agent-bootstrap.md).
+## Contributing or continuing an agent session
 
-Current product and architecture guidance lives in the [MGA Confluence space](https://greenfuzer.atlassian.net/wiki/spaces/MG/overview). Open work is tracked in [MGA Jira](https://greenfuzer.atlassian.net/jira/software/c/projects/MGA/boards/69/backlog).
+Start with [AGENTS.md](AGENTS.md), [CLAUDE.md](CLAUDE.md), and [docs/agent-bootstrap.md](docs/agent-bootstrap.md). Current product, UX, architecture, security, and operating guidance lives in the [MGA Confluence space](https://greenfuzer.atlassian.net/wiki/spaces/MG/overview). Jira MGA is the only source of truth for open work, priority, assignment, acceptance criteria, and progress.
 
-</details>
+The repository contains historical client/player code during the staged retirement. Its presence is not evidence that those workflows remain part of the product.
 
-MGA is pre-1.0 software under active development. See [`VERSION`](VERSION) and [`LICENSE.md`](LICENSE.md).
+MGA is pre-1.0 software under active development. See [VERSION](VERSION) and [LICENSE.md](LICENSE.md).

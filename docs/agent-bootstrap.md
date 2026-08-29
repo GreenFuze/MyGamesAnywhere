@@ -18,5 +18,18 @@ Before acting:
 4. Treat dated handoffs, local task lists, roadmap files, and deferred-work
    prose as history, not current work status.
 
+For the current headless-first branch, read these canonical Confluence pages:
+
+- [Server-First Product Charter](https://greenfuzer.atlassian.net/wiki/spaces/MG/pages/20086785)
+- [ADR-0047](https://greenfuzer.atlassian.net/wiki/spaces/MG/pages/20119553)
+- [Architecture Overview](https://greenfuzer.atlassian.net/wiki/spaces/MG/pages/2425048)
+- [Management Console UX and Information Architecture](https://greenfuzer.atlassian.net/wiki/spaces/MG/pages/21200897)
+- [Frontend API Clients and Capability Model](https://greenfuzer.atlassian.net/wiki/spaces/MG/pages/20905993)
+
+The dated
+[`2026-08-29 headless-first pivot handoff`](handoffs/2026-08-29-headless-first-pivot-handoff.md)
+is a code-state and verification snapshot for the current branch. It is not a
+backlog: query Jira again before selecting or claiming work.
+
 Do not commit, push, release, deploy, or make destructive external changes
 unless the user explicitly authorizes them.
