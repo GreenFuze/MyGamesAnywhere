@@ -17,7 +17,7 @@ export function OverviewPage() {
 
   return (
     <div className="mga-page-enter space-y-7">
-      <PageIntro eyebrow="Operations" title="Your game services, at a glance" description="MGA is the source of truth behind your frontend apps: catalog state, content readiness, metadata, media, profiles, and compliant runtime artifacts." />
+      <PageIntro eyebrow="Operations" title="Your game services, at a glance" />
       <QueryFeedback pending={pending} error={firstError} empty={false} emptyTitle="" emptyDescription="" />
       {!pending && !firstError && (
         <>

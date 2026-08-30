@@ -3,10 +3,12 @@ import { AlertTriangle, Inbox, LoaderCircle, WifiOff } from 'lucide-react'
 import { ApiError } from '@/api/client'
 import { cn } from '@/lib/utils'
 
+// description is optional: a page whose title and content already explain
+// themselves should not carry restated product positioning.
 export function PageIntro({ eyebrow, title, description, actions }: {
   eyebrow: string
   title: string
-  description: string
+  description?: string
   actions?: ReactNode
 }) {
   return (
@@ -14,7 +16,7 @@ export function PageIntro({ eyebrow, title, description, actions }: {
       <div className="max-w-3xl">
         <p className="mb-2 text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-mga-accent">{eyebrow}</p>
         <h1 className="text-2xl font-semibold tracking-tight text-mga-text sm:text-3xl">{title}</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-mga-muted">{description}</p>
+        {description && <p className="mt-2 max-w-2xl text-sm leading-6 text-mga-muted">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
