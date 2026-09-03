@@ -16,9 +16,10 @@ const EXPLANATIONS: Array<{ match: RegExp; explain: (providerName: string) => Co
       title: `${providerName} did not ask you to sign in`,
       detail:
         `MGA requires a fresh sign-in for each new ${providerName} connection and will not reuse a session `
-        + `left over from earlier. The provider plugin answered without starting one, so nothing was created `
-        + `and no credentials were stored. This needs a fix in the ${providerName} plugin; retrying will fail `
-        + `the same way.`,
+        + `left over from earlier, because a reused session can belong to a different profile's account. `
+        + `The provider answered without starting one, so nothing was created and no credentials were stored. `
+        + `This is what an out-of-date provider plugin looks like: rebuild or reinstall the ${providerName} `
+        + `plugin so the server is running the current build, then add the connection again.`,
       terminal: true,
     }),
   },

@@ -13,6 +13,10 @@ test('a provider that skipped interactive sign-in is explained and not retryable
   // The operator must learn that nothing was created and nothing was stored.
   assert.match(failure.detail, /nothing was created/i)
   assert.match(failure.detail, /no credentials were stored/i)
+  // A refusal with no remedy is a dead end: name the action that clears it.
+  assert.match(failure.detail, /rebuild or reinstall/i)
+  // And say why the refusal exists, not just that it happened.
+  assert.match(failure.detail, /different profile/i)
 })
 
 test('recoverable sign-in problems are not marked terminal', () => {
