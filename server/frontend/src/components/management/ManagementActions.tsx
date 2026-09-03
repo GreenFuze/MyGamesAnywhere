@@ -32,6 +32,8 @@ export function FormDialog({
   onSubmit,
   disabled,
   destructive,
+  hideSubmit,
+  leading,
   children,
 }: {
   open: boolean
@@ -44,6 +46,10 @@ export function FormDialog({
   onSubmit: () => void
   disabled?: boolean
   destructive?: boolean
+  /** Multi-step forms hide the submit until the final step. */
+  hideSubmit?: boolean
+  /** Left-aligned footer control, such as a Back button. */
+  leading?: ReactNode
   children: ReactNode
 }) {
   const handleSubmit = (event: FormEvent) => {
@@ -57,16 +63,21 @@ export function FormDialog({
         {description && <p className="text-xs leading-5 text-mga-muted">{description}</p>}
         {children}
         <ActionError error={error} />
-        <div className="flex justify-end gap-2 border-t border-mga-border/70 pt-4">
-          <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
-          <Button
-            type="submit"
-            disabled={submitting || disabled}
-            className={destructive ? 'bg-rose-500 text-white hover:opacity-90' : undefined}
-          >
-            {submitting && <LoaderCircle className="h-4 w-4 animate-spin" />}
-            {submitLabel}
-          </Button>
+        <div className="flex items-center gap-2 border-t border-mga-border/70 pt-4">
+          {leading}
+          <div className="ml-auto flex gap-2">
+            <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
+            {!hideSubmit && (
+              <Button
+                type="submit"
+                disabled={submitting || disabled}
+                className={destructive ? 'bg-rose-500 text-white hover:opacity-90' : undefined}
+              >
+                {submitting && <LoaderCircle className="h-4 w-4 animate-spin" />}
+                {submitLabel}
+              </Button>
+            )}
+          </div>
         </div>
       </form>
     </Dialog>

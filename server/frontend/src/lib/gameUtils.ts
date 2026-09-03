@@ -108,17 +108,8 @@ export const PLUGIN_LUCIDE_ICONS: Record<string, string> = {
 // Capability metadata (for grouping integrations)
 // ---------------------------------------------------------------------------
 
-type CapabilityMeta = { label: string; icon: string; order: number }
-
-export const CAPABILITY_META: Record<string, CapabilityMeta> = {
-  source:       { label: 'Game Connections',    icon: 'Gamepad2',  order: 0 },
-  metadata:     { label: 'Game Info',            icon: 'BookOpen',  order: 1 },
-  achievements: { label: 'Achievements',        icon: 'Trophy',    order: 2 },
-  sync:         { label: 'Settings Backup',     icon: 'RefreshCw', order: 3 },
-  save_sync:    { label: 'Save Sync',           icon: 'HardDrive', order: 4 },
-}
-
-export const CAPABILITY_ORDER: string[] = ['source', 'metadata', 'achievements', 'sync', 'save_sync']
+export { CAPABILITY_META, CAPABILITY_ORDER } from './displayText'
+export type { CapabilityMeta } from './displayText'
 
 // ---------------------------------------------------------------------------
 // Plugin config schema helpers

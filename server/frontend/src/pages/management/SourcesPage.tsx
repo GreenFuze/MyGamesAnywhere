@@ -4,9 +4,7 @@ import {
   CircleCheck, CircleX, ExternalLink, Pencil, PlugZap, Plus, RefreshCw, Trash2,
 } from 'lucide-react'
 import {
-  browsePlugin,
   cancelScanJob,
-  createIntegration,
   deleteIntegration,
   getBackgroundScanStatus,
   getIntegrationStatus,
@@ -18,19 +16,15 @@ import {
   startIntegrationAuth,
   startIntegrationRefresh,
   triggerScan,
-  updateIntegration,
   validateIntegrationFiles,
   type Integration,
-  type PluginInfo,
 } from '@/api/client'
-import { parsePluginConfigSchema, type PluginConfigField } from '@/lib/gameUtils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
-import { ConfigFieldsRenderer } from '@/components/settings/ConfigFieldsRenderer'
 import {
-  ActionError, ConfirmDialog, FormDialog, RestrictedNotice,
+  ActionError, ConfirmDialog, RestrictedNotice,
 } from '@/components/management/ManagementActions'
+import { ConnectionFormDialog } from '@/components/management/ConnectionFormDialog'
 import {
   MetricCard, PageIntro, QueryFeedback, SectionCard, StatusPill, formatCount, formatDate,
 } from '@/components/management/ManagementPrimitives'
@@ -122,10 +116,7 @@ export function SourcesPage() {
       </SectionCard>
 
       {creating && (
-        <IntegrationFormDialog
-          open
-          title="Add source connection"
-          submitLabel="Create connection"
+        <ConnectionFormDialog
           plugins={plugins.data ?? []}
           onClose={() => setCreating(false)}
           onSaved={async () => { setCreating(false); await invalidateSources() }}
@@ -133,10 +124,7 @@ export function SourcesPage() {
       )}
 
       {editing && (
-        <IntegrationFormDialog
-          open
-          title={`Edit ${editing.label}`}
-          submitLabel="Save changes"
+        <ConnectionFormDialog
           plugins={plugins.data ?? []}
           existing={editing}
           onClose={() => setEditing(null)}
@@ -268,115 +256,6 @@ function SourceCard({
       {notice && <p className="mt-3 text-xs leading-5 text-emerald-300">{notice}</p>}
       <ActionError error={authorize.error ?? refresh.error ?? validate.error ?? removeMissing.error} className="mt-3" />
     </article>
-  )
-}
-
-/** Create or edit one connection, including its plugin configuration fields. */
-function IntegrationFormDialog({
-  open, title, submitLabel, plugins, existing, onClose, onSaved,
-}: {
-  open: boolean
-  title: string
-  submitLabel: string
-  plugins: PluginInfo[]
-  existing?: Integration
-  onClose: () => void
-  onSaved: () => Promise<void>
-}) {
-  const [pluginId, setPluginId] = useState(existing?.plugin_id ?? plugins[0]?.plugin_id ?? '')
-  const [label, setLabel] = useState(existing?.label ?? '')
-  const [values, setValues] = useState<Record<string, unknown>>(() => {
-    if (!existing?.config_json) return {}
-    try {
-      return JSON.parse(existing.config_json) as Record<string, unknown>
-    } catch {
-      // A connection whose stored configuration cannot be parsed is shown as
-      // empty rather than silently discarding the operator's next edit.
-      return {}
-    }
-  })
-  const [consentURL, setConsentURL] = useState<string | null>(null)
-
-  const plugin = plugins.find((item) => item.plugin_id === pluginId)
-  const schema: Array<{ key: string; field: PluginConfigField }> = plugin?.config
-    ? parsePluginConfigSchema(plugin.config)
-    : []
-
-  const save = useMutation({
-    mutationFn: async () => {
-      if (existing) {
-        return updateIntegration(existing.id, { label: label.trim(), config: values })
-      }
-      return createIntegration({
-        plugin_id: pluginId,
-        label: label.trim(),
-        integration_type: 'source',
-        config: values,
-      })
-    },
-    onSuccess: async (result) => {
-      // Providers that require consent return 202 with a URL instead of a
-      // saved connection; the operator must finish sign-in before it exists.
-      if (isOAuthRequired(result) && result.authorize_url) {
-        setConsentURL(result.authorize_url)
-        return
-      }
-      await onSaved()
-    },
-  })
-
-  return (
-    <FormDialog
-      open={open}
-      onClose={onClose}
-      title={title}
-      submitLabel={submitLabel}
-      submitting={save.isPending}
-      error={save.error}
-      disabled={label.trim() === '' || pluginId === ''}
-      onSubmit={() => save.mutate()}
-    >
-      {!existing && (
-        <Select
-          label="Provider"
-          value={pluginId}
-          placeholder={plugins.length === 0 ? 'No plugins available' : undefined}
-          options={plugins.map((item) => ({ value: item.plugin_id, label: item.plugin_id }))}
-          onChange={(event) => { setPluginId(event.target.value); setValues({}) }}
-        />
-      )}
-      <Input label="Label" value={label} onChange={(event) => setLabel(event.target.value)} autoFocus />
-
-      <div className="max-h-[45vh] overflow-y-auto pr-1">
-        <ConfigFieldsRenderer
-          schema={schema}
-          values={values}
-          onChange={(key, value) => setValues((current) => ({ ...current, [key]: value }))}
-          browsePluginId={pluginId || null}
-          browse={(path) => browsePlugin(pluginId, path, {
-            integrationId: existing?.id,
-            config: values,
-          })}
-        />
-      </div>
-
-      {consentURL && (
-        <div className="rounded-lg border border-amber-400/25 bg-amber-400/5 p-4">
-          <p className="text-xs leading-5 text-mga-text">
-            This provider needs your consent before the connection can be saved.
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="mt-2"
-            onClick={() => window.open(consentURL, '_blank', 'noopener,noreferrer')}
-          >
-            <ExternalLink className="h-3.5 w-3.5" /> Open provider sign-in
-          </Button>
-        </div>
-      )}
-    </FormDialog>
   )
 }
 
