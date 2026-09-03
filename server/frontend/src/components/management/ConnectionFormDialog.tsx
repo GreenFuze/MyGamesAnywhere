@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ExternalLink, LoaderCircle } from 'lucide-react'
 import {
   browsePlugin,
   createIntegration,
@@ -14,8 +14,10 @@ import { Input } from '@/components/ui/input'
 import { ConfigFieldsRenderer } from '@/components/settings/ConfigFieldsRenderer'
 import { PluginIcon } from '@/components/settings/PluginIcon'
 import { FormDialog } from '@/components/management/ManagementActions'
+import { useSSE } from '@/hooks/useSSE'
 import { parsePluginConfigSchema, type PluginConfigField } from '@/lib/gameUtils'
 import { ProviderCatalog, type ProviderDescriptor } from '@/lib/providerCatalog'
+import { explainConnectionFailure } from '@/lib/connectionErrors'
 import { cn } from '@/lib/utils'
 
 type Step = 'category' | 'provider' | 'configure'
@@ -54,14 +56,20 @@ export function ConnectionFormDialog({
       return {}
     }
   })
-  const [consentURL, setConsentURL] = useState<string | null>(null)
+  // A provider needing consent answers the first request with an authorize URL
+  // and a state token. The connection is only created when that same state is
+  // sent back, so both halves are kept until the handshake finishes.
+  const [consent, setConsent] = useState<{ url: string; state: string } | null>(null)
+  const [consentError, setConsentError] = useState<string | null>(null)
+  const [awaitingConsent, setAwaitingConsent] = useState(false)
+  const { subscribe } = useSSE()
 
   const schema: Array<{ key: string; field: PluginConfigField }> = provider
     ? parsePluginConfigSchema(provider.plugin.config as Record<string, unknown> | undefined)
     : []
 
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (oauthState?: string) => {
       if (!provider) throw new Error('Choose a provider first.')
       if (existing) {
         return updateIntegration(existing.id, { label: label.trim(), config: values })
@@ -71,18 +79,44 @@ export function ConnectionFormDialog({
         label: label.trim(),
         integration_type: provider.integrationType,
         config: values,
+        oauth_state: oauthState,
       })
     },
     onSuccess: async (result) => {
-      // A provider needing consent returns 202 with a URL instead of a saved
-      // connection; it does not exist until the operator finishes sign-in.
       if (isOAuthRequired(result) && result.authorize_url) {
-        setConsentURL(result.authorize_url)
+        setConsent({ url: result.authorize_url, state: result.state })
+        setConsentError(null)
+        setAwaitingConsent(false)
         return
       }
       await onSaved()
     },
   })
+
+  // Retrying must use the latest values, so read them through a ref rather
+  // than capturing them in the subscription closure.
+  const retry = useRef<(state: string) => void>(() => {})
+  retry.current = (state: string) => {
+    setAwaitingConsent(false)
+    save.mutate(state)
+  }
+
+  // The provider redirects back to the server, not to this page, so the server
+  // reports the outcome over SSE. Without this the operator finishes sign-in
+  // and nothing happens.
+  useEffect(() => {
+    if (!consent) return
+    const done = subscribe('oauth_complete', (data: unknown) => {
+      if ((data as { state?: string }).state === consent.state) retry.current(consent.state)
+    })
+    const failed = subscribe('oauth_error', (data: unknown) => {
+      const payload = data as { state?: string; error?: string }
+      if (payload.state !== consent.state) return
+      setAwaitingConsent(false)
+      setConsentError(payload.error ?? 'The provider rejected the sign-in.')
+    })
+    return () => { done(); failed() }
+  }, [consent, subscribe])
 
   const chooseProvider = (descriptor: ProviderDescriptor) => {
     setProvider(descriptor)
@@ -90,6 +124,9 @@ export function ConnectionFormDialog({
     // from nothing, and start from a clean configuration for that provider.
     setLabel((current) => current.trim() === '' ? descriptor.name : current)
     setValues({})
+    setConsent(null)
+    setConsentError(null)
+    setAwaitingConsent(false)
     setStep('configure')
   }
 
@@ -107,6 +144,10 @@ export function ConnectionFormDialog({
   // Only the final step submits; earlier steps navigate.
   const isFinalStep = step === 'configure'
 
+  // Some server rejections are protective and cannot be retried; explain those
+  // rather than showing the raw sentence next to a button that will fail again.
+  const failure = explainConnectionFailure(save.error, provider?.name ?? 'This provider')
+
   return (
     <FormDialog
       open
@@ -114,9 +155,9 @@ export function ConnectionFormDialog({
       title={title}
       submitLabel={existing ? 'Save changes' : 'Create connection'}
       submitting={save.isPending}
-      error={save.error}
-      disabled={!isFinalStep || !provider || label.trim() === ''}
-      onSubmit={() => save.mutate()}
+      error={failure ? undefined : save.error}
+      disabled={!isFinalStep || !provider || label.trim() === '' || failure?.terminal === true}
+      onSubmit={() => save.mutate(consent?.state)}
       hideSubmit={!isFinalStep}
       leading={step !== 'category' && !existing ? (
         <Button type="button" variant="ghost" onClick={goBack}>
@@ -183,6 +224,13 @@ export function ConnectionFormDialog({
 
           <Input label="Label" value={label} onChange={(event) => setLabel(event.target.value)} autoFocus />
 
+          {failure && (
+            <div className="rounded-lg border border-rose-400/25 bg-rose-500/5 p-4" role="alert">
+              <p className="text-sm font-semibold text-rose-200">{failure.title}</p>
+              <p className="mt-1 text-xs leading-5 text-mga-muted">{failure.detail}</p>
+            </div>
+          )}
+
           {schema.length > 0 && (
             <div className="max-h-[40vh] overflow-y-auto pr-1">
               <ConfigFieldsRenderer
@@ -198,20 +246,46 @@ export function ConnectionFormDialog({
             </div>
           )}
 
-          {consentURL && (
+          {consent && (
             <div className="rounded-lg border border-amber-400/25 bg-amber-400/5 p-4">
               <p className="text-xs leading-5 text-mga-text">
-                {provider.name} needs your approval before this connection can be saved.
+                {provider.name} needs your approval before this connection can be saved. Approve it in
+                the provider tab; this dialog finishes on its own once the provider confirms.
               </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-2"
-                onClick={() => window.open(consentURL, '_blank', 'noopener,noreferrer')}
-              >
-                <ExternalLink className="h-3.5 w-3.5" /> Open {provider.name} sign-in
-              </Button>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setConsentError(null)
+                    setAwaitingConsent(true)
+                    window.open(consent.url, '_blank', 'noopener,noreferrer')
+                  }}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  {awaitingConsent ? `Reopen ${provider.name} sign-in` : `Open ${provider.name} sign-in`}
+                </Button>
+                {awaitingConsent && !save.isPending && (
+                  <span className="flex items-center gap-2 text-xs text-mga-muted">
+                    <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Waiting for {provider.name}…
+                  </span>
+                )}
+                {/* The confirmation travels over SSE. If that connection is
+                    down, the operator can still finish the handshake. */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={save.isPending}
+                  onClick={() => retry.current(consent.state)}
+                >
+                  I have approved it
+                </Button>
+              </div>
+              {consentError && (
+                <p className="mt-3 text-xs leading-5 text-rose-300" role="alert">{consentError}</p>
+              )}
             </div>
           )}
         </div>
