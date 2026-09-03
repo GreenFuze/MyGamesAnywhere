@@ -1903,8 +1903,37 @@ export async function listRuntimeArtifacts(): Promise<RuntimeArtifact[]> {
   return response.artifacts ?? [];
 }
 
+/** A newly issued or rotated client. `token` is returned exactly once and is
+ * never retrievable again, so the caller must surface it immediately. */
+export type IssuedFrontendAPIClient = FrontendAPIClient & {
+  token: string;
+  transport_warning: string;
+};
+
 export async function listFrontendAPIClients(): Promise<FrontendAPIClientList> {
   return getJson<FrontendAPIClientList>("/api/frontend-clients");
+}
+
+export async function createFrontendAPIClient(body: {
+  name: string;
+  scopes: string[];
+  expires_at?: string;
+}): Promise<IssuedFrontendAPIClient> {
+  return postJson<IssuedFrontendAPIClient>("/api/frontend-clients", body) as Promise<IssuedFrontendAPIClient>;
+}
+
+export async function rotateFrontendAPIClient(clientId: string): Promise<IssuedFrontendAPIClient> {
+  return postJson<IssuedFrontendAPIClient>(
+    `/api/frontend-clients/${encodeURIComponent(clientId)}/rotate`,
+    {},
+  ) as Promise<IssuedFrontendAPIClient>;
+}
+
+export async function revokeFrontendAPIClient(clientId: string): Promise<FrontendAPIClient> {
+  return postJson<FrontendAPIClient>(
+    `/api/frontend-clients/${encodeURIComponent(clientId)}/revoke`,
+    {},
+  ) as Promise<FrontendAPIClient>;
 }
 
 export async function getLegacyClientDataReport(): Promise<LegacyClientDataReport> {

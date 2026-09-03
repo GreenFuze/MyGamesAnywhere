@@ -39,7 +39,10 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
       className={cn(
         'backdrop:bg-black/50 bg-mga-surface text-mga-text',
         'rounded-mga border border-mga-border shadow-xl',
-        'p-0 max-w-lg w-full',
+        // Tailwind's preflight clears the user-agent `margin: auto` that
+        // centres a modal <dialog>, so restore it explicitly and keep tall
+        // forms scrollable inside the viewport instead of overflowing it.
+        'p-0 m-auto w-[calc(100%-2rem)] max-w-lg max-h-[calc(100vh-4rem)] overflow-y-auto',
         className,
       )}
     >
