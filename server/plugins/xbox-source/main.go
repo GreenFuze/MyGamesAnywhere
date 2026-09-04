@@ -930,7 +930,46 @@ func handleInit() (any, *Error) {
 	}, nil
 }
 
-func handleGamesList(params json.RawMessage) (any, *Error) {
+// progressReporter names the step this call is on.
+//
+// Xbox answers the whole library in one request, so there are no pages to
+// count. Naming the step is still the difference between a dead bar and an
+// operator knowing whether it is signing in, waiting on the provider, or
+// nearly done.
+// writeMu guards stdout. The read loop is single-threaded today, but progress
+// frames and the final response both write to the same pipe and interleaving
+// them would corrupt the framing.
+var writeMu sync.Mutex
+
+type progressReporter func(current int64, total int64, item string)
+
+func newProgressReporter(requestID string) progressReporter {
+	return func(current int64, total int64, item string) {
+		progress := map[string]any{"item": item}
+		if current > 0 {
+			progress["current"] = current
+		}
+		if total > 0 {
+			progress["total"] = total
+			progress["unit"] = "games"
+		}
+		// The host correlates by request id and ignores ids it does not know,
+		// so an older host simply drops these.
+		out, err := json.Marshal(map[string]any{"id": requestID, "progress": progress})
+		if err != nil {
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		binary.Write(os.Stdout, binary.BigEndian, uint32(len(out)))
+		os.Stdout.Write(out)
+	}
+}
+
+func handleGamesList(params json.RawMessage, report progressReporter) (any, *Error) {
+	if report == nil {
+		report = func(int64, int64, string) {}
+	}
 	var requestConfig xboxConfig
 	if err := json.Unmarshal(params, &requestConfig); err != nil {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
@@ -948,10 +987,14 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 	defer cancel()
 
 	// Re-auth if XSTS is expired.
+	report(0, 0, "Signing in to Xbox…")
 	if err := ensureAuthenticated(ctx); err != nil {
 		return nil, &Error{Code: "AUTH_FAILED", Message: err.Error()}
 	}
 
+	// The provider answers with the whole library at once, so this is the long
+	// wait and nothing can be counted during it. Say what is happening.
+	report(0, 0, "Fetching your Xbox library…")
 	history, err := fetchTitleHistory(ctx)
 	if err != nil {
 		return nil, &Error{Code: "API_ERROR", Message: err.Error()}
@@ -960,12 +1003,16 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 	log.Printf("fetched %d titles from Xbox title history", len(history.Titles))
 
 	var games []gameEntry
-	for _, t := range history.Titles {
+	total := int64(len(history.Titles))
+	for index, t := range history.Titles {
 		entry := titleToGameEntry(t)
 		if entry == nil {
 			continue
 		}
 		games = append(games, *entry)
+		if index%25 == 0 || index == len(history.Titles)-1 {
+			report(int64(index+1), total, "Reading your Xbox library…")
+		}
 	}
 
 	log.Printf("returning %d games (filtered from %d titles)", len(games), len(history.Titles))
@@ -1150,7 +1197,7 @@ func main() {
 			}
 
 		case "source.games.list":
-			result, errObj := handleGamesList(req.Params)
+			result, errObj := handleGamesList(req.Params, newProgressReporter(req.ID))
 			if errObj != nil {
 				resp.Error = errObj
 			} else {
@@ -1170,7 +1217,9 @@ func main() {
 		}
 
 		out, _ := json.Marshal(resp)
+		writeMu.Lock()
 		binary.Write(os.Stdout, binary.BigEndian, uint32(len(out)))
 		os.Stdout.Write(out)
+		writeMu.Unlock()
 	}
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/events"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/plugins"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/scan/scanner"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 )
@@ -720,6 +721,33 @@ func (o *Orchestrator) buildScanReport(
 	}
 }
 
+// listingProgressContext lets a plugin report while it is still listing.
+//
+// A source listing is a single blocking call that can run for minutes — a deep
+// filesystem walk, or a provider fetch — and until now it published nothing
+// between "started" and "complete". Anything the plugin chooses to report is
+// republished as scan_source_list_progress. A plugin that reports nothing
+// behaves exactly as before.
+func (o *Orchestrator) listingProgressContext(ctx context.Context, integrationID, pluginID string) context.Context {
+	return plugins.WithProgress(ctx, func(update plugins.Progress) {
+		payload := map[string]any{
+			"integration_id": integrationID,
+			"plugin_id":      pluginID,
+			"current":        update.Current,
+		}
+		if update.Total > 0 {
+			payload["total"] = update.Total
+		}
+		if update.Unit != "" {
+			payload["unit"] = update.Unit
+		}
+		if update.Item != "" {
+			payload["item"] = update.Item
+		}
+		o.publishEventWithContext(ctx, "scan_source_list_progress", payload)
+	})
+}
+
 // fetchFiles calls source.filesystem.list on the plugin and parses the response.
 func (o *Orchestrator) fetchFiles(ctx context.Context, pluginID string, config map[string]any) ([]core.FileEntry, error) {
 	var result struct {
@@ -875,7 +903,7 @@ func (o *Orchestrator) prepareScanIntegration(
 			"integration_id": integ.ID,
 			"plugin_id":      integ.PluginID,
 		})
-		files, err := o.fetchFiles(ctx, integ.PluginID, item.config)
+		files, err := o.fetchFiles(o.listingProgressContext(ctx, integ.ID, integ.PluginID), integ.PluginID, item.config)
 		if err != nil {
 			o.logger.Warn("orchestrator: source listing failed", "integration_id", integ.ID, "plugin_id", integ.PluginID, "error", err)
 			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
@@ -938,7 +966,7 @@ func (o *Orchestrator) prepareScanIntegration(
 			"integration_id": integ.ID,
 			"plugin_id":      integ.PluginID,
 		})
-		sourceResult, err := o.fetchGames(ctx, integ.ID, integ.PluginID, item.config)
+		sourceResult, err := o.fetchGames(o.listingProgressContext(ctx, integ.ID, integ.PluginID), integ.ID, integ.PluginID, item.config)
 		if err != nil {
 			o.logger.Warn("orchestrator: storefront source listing failed", "integration_id", integ.ID, "plugin_id", integ.PluginID, "error", err)
 			o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{

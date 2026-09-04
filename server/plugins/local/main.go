@@ -64,6 +64,30 @@ type Error struct {
 	Message string `json:"message"`
 }
 
+// progressReporter reports from inside a long call so the console can show
+// movement. A walk knows how much it has seen, never how much remains, so the
+// count is reported without a total and the server renders it accordingly.
+type progressReporter func(current int64, item string)
+
+// noProgress is the reporter used when nobody is listening.
+func noProgress(int64, string) {}
+
+// newProgressReporter writes progress frames for one in-flight request. The
+// host correlates them by request id and ignores ids it does not know, so an
+// older host simply drops them.
+func newProgressReporter(writeMu *sync.Mutex, requestID string) progressReporter {
+	return func(current int64, item string) {
+		writeFrame(writeMu, map[string]any{
+			"id": requestID,
+			"progress": map[string]any{
+				"current": current,
+				"unit":    "items",
+				"item":    item,
+			},
+		})
+	}
+}
+
 type LocalConfig struct {
 	BasePath     string                    `json:"base_path"`
 	IncludePaths []sourcescope.IncludePath `json:"include_paths"`
@@ -291,7 +315,7 @@ type walkFrame struct {
 
 // listFiles returns a flat listing of every file and directory in scope. No
 // filtering or classification — the server's scanner owns that.
-func listFiles(config LocalConfig) ([]map[string]any, error) {
+func listFiles(config LocalConfig, report progressReporter) ([]map[string]any, error) {
 	base, err := resolveBase(config)
 	if err != nil {
 		return nil, err
@@ -301,6 +325,14 @@ func listFiles(config LocalConfig) ([]map[string]any, error) {
 	visited := make(map[string]bool)
 	skippedLinks := 0
 
+	if report == nil {
+		report = noProgress
+	}
+	// Reporting every entry would flood the event bus on a large library, and
+	// reporting only at the end would be no better than silence.
+	const reportEvery = 250
+	lastReported := 0
+
 	for _, include := range normalizedIncludePaths(config) {
 		root, err := resolveWithinBase(base, include.Path, true)
 		if err != nil {
@@ -309,6 +341,7 @@ func listFiles(config LocalConfig) ([]map[string]any, error) {
 			log.Printf("include path %q is unavailable, skipping: %v", include.Path, err)
 			continue
 		}
+		report(int64(len(seen)), includeProgressLabel(include.Path))
 
 		stack := []walkFrame{{realPath: root, logicalPath: include.Path, depth: 0}}
 		for len(stack) > 0 {
@@ -372,9 +405,16 @@ func listFiles(config LocalConfig) ([]map[string]any, error) {
 					continue
 				}
 				recordEntry(seen, logicalPath, name, false, info)
+
+				if len(seen)-lastReported >= reportEvery {
+					lastReported = len(seen)
+					report(int64(len(seen)), includeProgressLabel(frame.logicalPath))
+				}
 			}
 		}
 	}
+
+	report(int64(len(seen)), "")
 
 	if skippedLinks > 0 {
 		log.Printf("skipped %d link or reparse entries; MGA does not scan through them", skippedLinks)
@@ -391,6 +431,14 @@ func listFiles(config LocalConfig) ([]map[string]any, error) {
 		files = append(files, seen[logicalPath])
 	}
 	return files, nil
+}
+
+// includeProgressLabel names the folder being read, in the operator's terms.
+func includeProgressLabel(logicalPath string) string {
+	if logicalPath == "" {
+		return "Reading the base folder…"
+	}
+	return "Reading " + logicalPath + "…"
 }
 
 // recordEntry deduplicates by logical path so overlapping include paths report
@@ -949,11 +997,11 @@ func main() {
 			continue
 		}
 
-		writeResponse(&writeMu, dispatch(req))
+		writeResponse(&writeMu, dispatch(req, newProgressReporter(&writeMu, req.ID)))
 	}
 }
 
-func dispatch(req Request) Response {
+func dispatch(req Request, report progressReporter) Response {
 	resp := Response{ID: req.ID}
 	switch req.Method {
 	case "plugin.init":
@@ -966,7 +1014,7 @@ func dispatch(req Request) Response {
 			resp.Error = &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 			break
 		}
-		files, err := listFiles(config)
+		files, err := listFiles(config, report)
 		if err != nil {
 			resp.Error = &Error{Code: "SCAN_FAILED", Message: err.Error()}
 			break
@@ -1000,9 +1048,13 @@ func dispatch(req Request) Response {
 }
 
 func writeResponse(writeMu *sync.Mutex, resp Response) {
-	encoded, err := json.Marshal(resp)
+	writeFrame(writeMu, resp)
+}
+
+func writeFrame(writeMu *sync.Mutex, payload any) {
+	encoded, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("encode response: %v", err)
+		log.Printf("encode frame: %v", err)
 		return
 	}
 	writeMu.Lock()

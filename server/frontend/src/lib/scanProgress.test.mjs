@@ -187,3 +187,18 @@ test('a failed refresh shows the error rather than a count', () => {
   assert.equal(view.failed, true)
   assert.equal(view.headline, 'provider rejected the request')
 })
+
+test('an unbounded walk still shows how much it has covered', () => {
+  // The count is the clearest evidence a walk is moving; dropping it because
+  // there is no total leaves the operator with a bar that never changes.
+  const view = describeConnection({
+    integration_id: 'g',
+    label: 'Local Folder',
+    status: 'running',
+    phase: 'Reading Roms/Bulk…',
+    source_progress: { current: 1457, unit: 'items', indeterminate: true },
+  })
+  assert.equal(view.bar.value, undefined)
+  assert.match(view.bar.label, /1457 items so far/)
+  assert.match(view.bar.label, /Reading Roms\/Bulk/)
+})

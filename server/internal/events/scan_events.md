@@ -17,6 +17,7 @@ Events are delivered on `GET /api/events` as Server-Sent Events: each message ha
 | `scan_integration_started` | Work starting for one integration. `plugin_id`, `label`. |
 | `scan_integration_skipped` | Integration not processed. `reason`: `plugin_not_found`, `invalid_config`, `no_source_capability`, `no_games`. Optional `error`. |
 | `scan_source_list_started` | About to list files or games from source plugin. `plugin_id`. |
+| `scan_source_list_progress` | Reported by the plugin from inside its listing call. `current`, optional `total`, `unit`, `item`. A listing is one blocking call that can run for minutes; without this it publishes nothing between started and complete. `total` is optional because a walk knows what it has seen, not what remains. |
 | `scan_source_list_complete` | List done. `file_count` (filesystem) or `game_count` (storefront). `plugin_id`. |
 | `scan_scanner_started` | File scanner pipeline starting. `file_count`. |
 | `scan_scanner_progress` | Filesystem scanner progress. `processed_count`, `file_count`, `plugin_id`. Emitted at truthful checkpoints, not for every file. |

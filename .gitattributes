@@ -1,0 +1,5 @@
+# Generated artefacts are compared byte-for-byte against their generator, which
+# always writes LF. Without this, a Windows checkout with core.autocrlf=true
+# rewrites them to CRLF and the freshness guard fails on a file that is not
+# actually stale.
+server/openapi.yaml text eol=lf

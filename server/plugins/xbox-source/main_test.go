@@ -191,7 +191,7 @@ func TestXboxRequestsDoNotReuseAnotherIntegrationTokens(t *testing.T) {
 	tokens = savedTokens{XSTSToken: "another-profile", XSTSExpiresAt: time.Now().Add(time.Hour)}
 	tokenMu.Unlock()
 
-	result, pluginErr := handleGamesList(json.RawMessage(`{}`))
+	result, pluginErr := handleGamesList(json.RawMessage(`{}`), nil)
 	if result != nil || pluginErr == nil || pluginErr.Code != "AUTH_REQUIRED" {
 		t.Fatalf("handleGamesList() = %#v, %+v; want AUTH_REQUIRED", result, pluginErr)
 	}

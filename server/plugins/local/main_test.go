@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -218,7 +219,7 @@ func TestSourceIdentityCaseSensitivityFollowsThePlatform(t *testing.T) {
 
 func listFor(t *testing.T, config LocalConfig) map[string]map[string]any {
 	t.Helper()
-	files, err := listFiles(config)
+	files, err := listFiles(config, nil)
 	if err != nil {
 		t.Fatalf("list files: %v", err)
 	}
@@ -366,7 +367,7 @@ func TestListFilesDeduplicatesOverlappingIncludes(t *testing.T) {
 			{Path: "Games", Recursive: true},
 			{Path: "Games/Chrono", Recursive: true},
 		},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("list files: %v", err)
 	}
@@ -399,7 +400,7 @@ func TestListFilesContinuesWhenOneIncludeIsMissing(t *testing.T) {
 }
 
 func TestListFilesRejectsAnUnusableBase(t *testing.T) {
-	if _, err := listFiles(LocalConfig{BasePath: "relative/path"}); err == nil {
+	if _, err := listFiles(LocalConfig{BasePath: "relative/path"}, nil); err == nil {
 		t.Fatal("expected a relative base to fail the scan")
 	}
 }
@@ -877,7 +878,7 @@ func TestHandleSourceDeleteRemovesFilesAndPrunesEmptyFolders(t *testing.T) {
 // --------------- Dispatch ---------------
 
 func TestDispatchRejectsUnknownMethods(t *testing.T) {
-	resp := dispatch(Request{ID: "1", Method: "source.transfer.begin"})
+	resp := dispatch(Request{ID: "1", Method: "source.transfer.begin"}, nil)
 	if resp.Error == nil || resp.Error.Code != "NOT_SUPPORTED" {
 		t.Fatalf("move support is deliberately not declared; expected NOT_SUPPORTED, got %+v", resp.Error)
 	}
@@ -925,4 +926,49 @@ func keysOf(files map[string]map[string]any) []string {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+func TestListFilesReportsProgressWhileWalking(t *testing.T) {
+	base := t.TempDir()
+	// Enough entries to cross the reporting threshold more than once.
+	for index := 0; index < 600; index++ {
+		writeFile(t, filepath.Join(base, "Games", fmt.Sprintf("game-%03d.sfc", index)), "rom")
+	}
+
+	type report struct {
+		current int64
+		item    string
+	}
+	var reports []report
+	if _, err := listFiles(LocalConfig{BasePath: base}, func(current int64, item string) {
+		reports = append(reports, report{current, item})
+	}); err != nil {
+		t.Fatalf("list files: %v", err)
+	}
+
+	if len(reports) < 3 {
+		t.Fatalf("expected several progress reports during a 600-entry walk, got %d", len(reports))
+	}
+	// A silent walk is indistinguishable from a hung one, which is the whole
+	// reason this exists.
+	if reports[0].item == "" {
+		t.Fatal("the first report should name the folder being read")
+	}
+	last := reports[len(reports)-1]
+	if last.current < 600 {
+		t.Fatalf("the final report should cover every entry, got %d", last.current)
+	}
+	for index := 1; index < len(reports); index++ {
+		if reports[index].current < reports[index-1].current {
+			t.Fatalf("progress went backwards: %d then %d", reports[index-1].current, reports[index].current)
+		}
+	}
+}
+
+func TestListFilesWorksWithoutAProgressReporter(t *testing.T) {
+	base := t.TempDir()
+	writeFile(t, filepath.Join(base, "game.sfc"), "rom")
+	if _, err := listFiles(LocalConfig{BasePath: base}, nil); err != nil {
+		t.Fatalf("a nil reporter must be accepted: %v", err)
+	}
 }

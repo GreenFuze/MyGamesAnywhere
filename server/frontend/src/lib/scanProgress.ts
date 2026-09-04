@@ -96,6 +96,11 @@ function barFor(progress: ScanJobProgress | undefined, fallbackLabel: string): S
   const unit = progress.unit ?? 'items'
   const total = progress.total ?? 0
   if (progress.indeterminate || total <= 0) {
+    // A walk knows what it has seen but not what remains. The running count is
+    // the clearest evidence of movement, so keep it even without a percentage.
+    if (progress.current > 0) {
+      return { label: `${fallbackLabel} ${progress.current} ${unit} so far` }
+    }
     return { label: fallbackLabel }
   }
   return { value: percentage(progress), label: `${progress.current} of ${total} ${unit}` }

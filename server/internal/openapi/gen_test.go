@@ -46,7 +46,11 @@ func TestCommittedOpenAPIIsCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read committed openapi: %v", err)
 	}
-	if string(generated) != string(committed) {
+	// Compare content, not line endings. A Windows checkout may hold CRLF while
+	// the generator writes LF, and failing on that trains people to distrust a
+	// guard whose whole job is to be believed. .gitattributes pins the file to
+	// LF; this keeps the test honest if that is ever bypassed.
+	if normalizeNewlines(generated) != normalizeNewlines(committed) {
 		t.Fatalf("%s is stale; run go run ./cmd/openapi-gen and commit the result", committedPath)
 	}
 }
@@ -83,4 +87,8 @@ func TestCollectRoutes(t *testing.T) {
 	if !hasGetScan {
 		t.Error("expected GET /api/scan route")
 	}
+}
+
+func normalizeNewlines(data []byte) string {
+	return strings.ReplaceAll(string(data), "\r\n", "\n")
 }

@@ -20,10 +20,13 @@ type Request struct {
 	Params any    `json:"params"`
 }
 
+// Response carries either a call's outcome or, when Progress is set, an
+// interim report for a call that is still running.
 type Response struct {
-	ID     string          `json:"id"`
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  *Error          `json:"error,omitempty"`
+	ID       string          `json:"id"`
+	Result   json.RawMessage `json:"result,omitempty"`
+	Error    *Error          `json:"error,omitempty"`
+	Progress *Progress       `json:"progress,omitempty"`
 }
 
 type Error struct {
@@ -43,6 +46,7 @@ type jsonIpcClient struct {
 	process        Process
 	mu             sync.Mutex
 	pending        map[string]chan *Response
+	progress       map[string]ProgressFunc
 	logger         core.Logger
 	pluginID       string
 	onDisconnect   DisconnectFunc
@@ -53,6 +57,7 @@ func NewIpcClient(process Process, logger core.Logger, pluginID string, onDiscon
 	c := &jsonIpcClient{
 		process:      process,
 		pending:      make(map[string]chan *Response),
+		progress:     make(map[string]ProgressFunc),
 		logger:       logger,
 		pluginID:     pluginID,
 		onDisconnect: onDisconnect,
@@ -89,12 +94,26 @@ func (c *jsonIpcClient) listenStdout() {
 			continue
 		}
 
+		// A progress frame reports on a call that is still running, so it must
+		// not complete it. Unknown ids stay ignored, which is what lets an old
+		// host and a new plugin keep working together.
+		if resp.Progress != nil {
+			c.mu.Lock()
+			handler := c.progress[resp.ID]
+			c.mu.Unlock()
+			if handler != nil {
+				handler(*resp.Progress)
+			}
+			continue
+		}
+
 		c.mu.Lock()
 		ch, ok := c.pending[resp.ID]
 		if ok {
 			ch <- &resp
 			delete(c.pending, resp.ID)
 		}
+		delete(c.progress, resp.ID)
 		c.mu.Unlock()
 	}
 }
@@ -126,7 +145,15 @@ func (c *jsonIpcClient) Call(ctx context.Context, method string, params any, res
 	c.mu.Lock()
 	ch := make(chan *Response, 1)
 	c.pending[id] = ch
+	if handler := ProgressFromContext(ctx); handler != nil {
+		c.progress[id] = handler
+	}
 	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		delete(c.progress, id)
+		c.mu.Unlock()
+	}()
 
 	// Write length-prefixed payload
 	c.mu.Lock()

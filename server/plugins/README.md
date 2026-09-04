@@ -33,3 +33,27 @@ plugins/
     game-source-local.plugin.json          # plugin_id: game-source-local
     bin/local.exe                          # exec matches the directory name
 ```
+
+## Reporting progress during a long call
+
+A plugin may report while a call is still running by writing an extra frame
+with the same request id and a `progress` object instead of a `result`:
+
+```json
+{"id": "<request id>", "progress": {"current": 250, "total": 1000, "unit": "items", "item": "Reading Games…"}}
+```
+
+`total` is optional — a filesystem walk knows how many entries it has seen but
+not how many remain, and a provider fetch may only be able to name the step it
+is on. A report with no `total` still distinguishes working from stuck, which is
+the point.
+
+The host correlates these by request id, forwards them to whoever asked for
+progress on that call, and ignores ids it does not recognise. A progress frame
+never completes a call. Reporting is optional in both directions: a plugin that
+reports nothing behaves exactly as before, and a plugin that reports to a caller
+that is not listening is unaffected.
+
+Keep the reports coarse — every few hundred items — and remember they share
+stdout with responses, so guard the write if the plugin has more than one
+goroutine.

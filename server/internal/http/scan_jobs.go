@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -440,6 +441,23 @@ func applyScanEvent(record *scanJobRecord, eventType string, payload map[string]
 				Indeterminate: true,
 			}
 		}
+	case "scan_source_list_progress":
+		// A plugin reporting from inside its listing call. Total is optional:
+		// a walk knows what it has seen, not what remains, and a fetch may
+		// only be able to name the step it is on.
+		if integration != nil {
+			integration.Status = "running"
+			total := readInt(payload["total"])
+			integration.SourceProgress = &core.ScanJobProgress{
+				Current:       readInt(payload["current"]),
+				Total:         total,
+				Unit:          readStringOr(payload["unit"], "items"),
+				Indeterminate: total <= 0,
+			}
+			if item := readStringOr(payload["item"], ""); item != "" {
+				integration.Phase = item
+			}
+		}
 	case "scan_source_list_complete":
 		if integration != nil {
 			integration.Phase = "source listing complete"
@@ -839,6 +857,19 @@ func scanEventMessage(eventType string, payload map[string]any) string {
 		return "Source listing complete: " + itoa(readInt(payload["game_count"])) + " games found."
 	case "scan_scanner_started":
 		return "Scanner started for " + itoa(readInt(payload["file_count"])) + " files."
+	case "scan_source_list_progress":
+		current := readInt(payload["current"])
+		total := readInt(payload["total"])
+		if !shouldLogProgress(current, total, 25) {
+			return ""
+		}
+		if item := readStringOr(payload["item"], ""); item != "" {
+			return item
+		}
+		if total > 0 {
+			return fmt.Sprintf("Listed %d of %d items.", current, total)
+		}
+		return fmt.Sprintf("Listed %d items.", current)
 	case "scan_scanner_progress":
 		current := readInt(payload["processed_count"])
 		total := readInt(payload["file_count"])
@@ -1024,6 +1055,8 @@ func scanPhaseForEvent(eventType string, payload map[string]any) string {
 		return "listing source content"
 	case "scan_source_list_complete":
 		return "source listing complete"
+	case "scan_source_list_progress":
+		return "listing source content"
 	case "scan_scanner_started", "scan_scanner_progress":
 		return "scanning files"
 	case "scan_scanner_complete":
