@@ -18,6 +18,7 @@ import { useSSE } from '@/hooks/useSSE'
 import { parsePluginConfigSchema, type PluginConfigField } from '@/lib/gameUtils'
 import { ProviderCatalog, type ProviderDescriptor } from '@/lib/providerCatalog'
 import { explainConnectionFailure } from '@/lib/connectionErrors'
+import { describeMissingFields, initialConfigValues, missingRequiredFields } from '@/lib/connectionValidation'
 import { cn } from '@/lib/utils'
 
 type Step = 'category' | 'provider' | 'configure'
@@ -36,7 +37,8 @@ export function ConnectionFormDialog({
   plugins: PluginInfo[]
   existing?: Integration
   onClose: () => void
-  onSaved: () => Promise<void>
+  /** Receives the new connection so the caller can read it straight away. */
+  onSaved: (created?: Integration) => Promise<void>
 }) {
   const catalog = new ProviderCatalog(plugins)
   const editingProvider = existing ? catalog.find(existing.plugin_id) : undefined
@@ -89,7 +91,7 @@ export function ConnectionFormDialog({
         setAwaitingConsent(false)
         return
       }
-      await onSaved()
+      await onSaved(existing ? undefined : (result as Integration))
     },
   })
 
@@ -123,7 +125,9 @@ export function ConnectionFormDialog({
     // Suggest the provider's own name so the operator renames rather than types
     // from nothing, and start from a clean configuration for that provider.
     setLabel((current) => current.trim() === '' ? descriptor.name : current)
-    setValues({})
+    setValues(initialConfigValues(parsePluginConfigSchema(
+      descriptor.plugin.config as Record<string, unknown> | undefined,
+    )))
     setConsent(null)
     setConsentError(null)
     setAwaitingConsent(false)
@@ -148,6 +152,11 @@ export function ConnectionFormDialog({
   // rather than showing the raw sentence next to a button that will fail again.
   const failure = explainConnectionFailure(save.error, provider?.name ?? 'This provider')
 
+  // A provider that needs a folder must not be creatable without one. The
+  // server refuses it anyway, but only after a round trip and in its own words.
+  const missing = missingRequiredFields(schema, values, { editing: Boolean(existing) })
+  const missingMessage = describeMissingFields(missing)
+
   return (
     <FormDialog
       open
@@ -156,7 +165,7 @@ export function ConnectionFormDialog({
       submitLabel={existing ? 'Save changes' : 'Create connection'}
       submitting={save.isPending}
       error={failure ? undefined : save.error}
-      disabled={!isFinalStep || !provider || label.trim() === '' || failure?.terminal === true}
+      disabled={!isFinalStep || !provider || label.trim() === '' || missing.length > 0 || failure?.terminal === true}
       onSubmit={() => save.mutate(consent?.state)}
       hideSubmit={!isFinalStep}
       leading={step !== 'category' && !existing ? (
@@ -229,6 +238,10 @@ export function ConnectionFormDialog({
               <p className="text-sm font-semibold text-rose-200">{failure.title}</p>
               <p className="mt-1 text-xs leading-5 text-mga-muted">{failure.detail}</p>
             </div>
+          )}
+
+          {missingMessage && !failure && (
+            <p className="text-xs leading-5 text-amber-300" role="status">{missingMessage}</p>
           )}
 
           {schema.length > 0 && (

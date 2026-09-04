@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CircleCheck, CircleX, ExternalLink, Pencil, PlugZap, Plus, RefreshCw, Trash2,
@@ -7,7 +7,9 @@ import {
   cancelScanJob,
   deleteIntegration,
   getBackgroundScanStatus,
+  getIntegrationRefreshJob,
   getIntegrationStatus,
+  getScanJob,
   isOAuthRequired,
   listIntegrations,
   listPlugins,
@@ -18,6 +20,7 @@ import {
   triggerScan,
   validateIntegrationFiles,
   type Integration,
+  type IntegrationRefreshJobStatus,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,14 +28,16 @@ import {
   ActionError, ConfirmDialog, RestrictedNotice,
 } from '@/components/management/ManagementActions'
 import { ConnectionFormDialog } from '@/components/management/ConnectionFormDialog'
+import { ScanProgressPanel } from '@/components/management/ScanProgressPanel'
+import { ProgressBar } from '@/components/ui/progress-bar'
 import {
   MetricCard, PageIntro, QueryFeedback, SectionCard, StatusPill, formatCount, formatDate,
 } from '@/components/management/ManagementPrimitives'
 import { useProfiles } from '@/hooks/useProfiles'
 import { DESTRUCTIVE_ACTIONS, ManagementPolicy } from '@/lib/managementPolicy'
-
-/** Scan-job states that mean no work is in flight. */
-const SCAN_TERMINAL_STATES = new Set(['completed', 'failed', 'cancelled'])
+import { cn } from '@/lib/utils'
+import { SCAN_TERMINAL_STATES, describeRefreshProgress } from '@/lib/scanProgress'
+import { useSSE } from '@/hooks/useSSE'
 
 export function SourcesPage() {
   const { currentProfile } = useProfiles()
@@ -47,6 +52,9 @@ export function SourcesPage() {
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<Integration | null>(null)
   const [deleting, setDeleting] = useState<Integration | null>(null)
+  // The scan panel follows this id, so a scan started anywhere on the page
+  // stays visible until another one replaces it.
+  const [scanJobId, setScanJobId] = useState<string | null>(null)
 
   const sources = integrations.data ?? []
   const statusByID = new Map((statuses.data ?? []).map((status) => [status.integration_id, status]))
@@ -63,6 +71,17 @@ export function SourcesPage() {
   const remove = useMutation({
     mutationFn: (id: string) => deleteIntegration(id),
     onSuccess: async () => { setDeleting(null); await invalidateSources() },
+  })
+
+  // A connection that has never been read shows an empty library, which looks
+  // like a broken connection. Scan it as soon as it is configured, and let the
+  // scan panel show that happening.
+  const scanNewConnection = useMutation({
+    mutationFn: (integrationId: string) => triggerScan([integrationId]),
+    onSuccess: (result) => {
+      setScanJobId(result.job.job_id)
+      queryClient.invalidateQueries({ queryKey: ['management', 'scan-schedule'] })
+    },
   })
 
   return (
@@ -88,7 +107,7 @@ export function SourcesPage() {
         </RestrictedNotice>
       )}
 
-      <ScanControls isAdmin={isAdmin} sources={sources} />
+      <ScanControls isAdmin={isAdmin} sources={sources} jobId={scanJobId} onJobStarted={setScanJobId} />
 
       <SectionCard title="Connected source inventory" description="Health, authorization, and maintenance for each connection.">
         <QueryFeedback
@@ -119,7 +138,11 @@ export function SourcesPage() {
         <ConnectionFormDialog
           plugins={plugins.data ?? []}
           onClose={() => setCreating(false)}
-          onSaved={async () => { setCreating(false); await invalidateSources() }}
+          onSaved={async (created) => {
+            setCreating(false)
+            await invalidateSources()
+            if (created) scanNewConnection.mutate(created.id)
+          }}
         />
       )}
 
@@ -174,11 +197,25 @@ function SourceCard({
     },
   })
 
+  // Follow the refresh by job id for the same reason the scan panel does:
+  // "Refresh started." followed by silence tells the operator nothing.
+  const [refreshJobId, setRefreshJobId] = useState<string | null>(null)
   const refresh = useMutation({
     mutationFn: () => startIntegrationRefresh(source.id),
     onSuccess: async (result) => {
-      setNotice(result.accepted ? 'Refresh started.' : 'A refresh is already running for this connection.')
+      setRefreshJobId(result.job.job_id)
+      if (!result.accepted) setNotice('A refresh is already running for this connection.')
       await onChanged()
+    },
+  })
+
+  const refreshJob = useQuery({
+    queryKey: ['management', 'integration-refresh', refreshJobId],
+    queryFn: () => getIntegrationRefreshJob(refreshJobId as string),
+    enabled: Boolean(refreshJobId),
+    refetchInterval: (query) => {
+      const current = query.state.data
+      return current && !SCAN_TERMINAL_STATES.has(current.status) ? 1000 : false
     },
   })
 
@@ -214,6 +251,8 @@ function SourceCard({
         {status?.message || 'Provider status has not been reported yet.'}
       </p>
       <p className="mt-1 text-[0.68rem] text-mga-muted">Configuration updated {formatDate(source.updated_at)}</p>
+
+      {refreshJob.data && <RefreshProgress job={refreshJob.data} />}
 
       {canManage && (
         <div className="mt-4 flex flex-wrap gap-2">
@@ -259,25 +298,84 @@ function SourceCard({
   )
 }
 
+/** Compact progress for a single connection's metadata refresh. */
+function RefreshProgress({ job }: { job: IntegrationRefreshJobStatus }) {
+  const view = describeRefreshProgress(job)
+
+  return (
+    <div className="mt-3 rounded-md border border-mga-border/70 bg-mga-elevated/60 p-3" role="status" aria-live="polite">
+      <p className={cn('text-xs font-medium', view.failed ? 'text-rose-300' : 'text-mga-text')}>{view.headline}</p>
+      {!view.finished && <ProgressBar className="mt-2" value={view.bar.value} label={view.bar.label} />}
+      {view.currentItem && (
+        <p className="mt-1 truncate text-xs text-mga-muted" title={view.currentItem}>Working on {view.currentItem}</p>
+      )}
+    </div>
+  )
+}
+
 /** Library scan control: run now, cancel a running scan, and set the schedule. */
-function ScanControls({ isAdmin, sources }: { isAdmin: boolean; sources: Integration[] }) {
+function ScanControls({
+  isAdmin, sources, jobId, onJobStarted,
+}: {
+  isAdmin: boolean
+  sources: Integration[]
+  jobId: string | null
+  onJobStarted: (jobId: string) => void
+}) {
   const queryClient = useQueryClient()
+  const { lastEvent } = useSSE()
   const schedule = useQuery({
     queryKey: ['management', 'scan-schedule'],
     queryFn: getBackgroundScanStatus,
     enabled: isAdmin,
     refetchInterval: (query) => {
       const job = query.state.data?.active_job
-      return job && !SCAN_TERMINAL_STATES.has(job.status) ? 4000 : false
+      return job && !SCAN_TERMINAL_STATES.has(job.status) ? 2000 : false
     },
   })
 
+  // Follow the job by id rather than by the server's "currently active"
+  // pointer. That pointer is cleared the instant a scan ends, so a fast scan
+  // used to finish without the operator ever seeing that it ran.
+  const job = useQuery({
+    queryKey: ['management', 'scan-job', jobId],
+    queryFn: () => getScanJob(jobId as string),
+    enabled: isAdmin && Boolean(jobId),
+    refetchInterval: (query) => {
+      const current = query.state.data
+      return current && !SCAN_TERMINAL_STATES.has(current.status) ? 1000 : false
+    },
+  })
+
+  // The server publishes a scan event for every phase change; refetching on
+  // them makes the panel track the work instead of lagging a poll behind.
+  useEffect(() => {
+    if (!isAdmin || !lastEvent?.type?.startsWith('scan_')) return
+    queryClient.invalidateQueries({ queryKey: ['management', 'scan-schedule'] })
+    if (jobId) queryClient.invalidateQueries({ queryKey: ['management', 'scan-job', jobId] })
+    // A finished scan changes what the rest of the page is reporting.
+    if (lastEvent.type === 'scan_complete') {
+      queryClient.invalidateQueries({ queryKey: ['management', 'integrations'] })
+      queryClient.invalidateQueries({ queryKey: ['management', 'source-status'] })
+    }
+  }, [isAdmin, jobId, lastEvent, queryClient])
+
+  // Adopt a scan someone else started — a schedule, or another window — so it
+  // is just as visible as one started here.
+  const reportedActive = schedule.data?.active_job
+  useEffect(() => {
+    if (reportedActive && reportedActive.job_id !== jobId) onJobStarted(reportedActive.job_id)
+  }, [jobId, onJobStarted, reportedActive])
+
   const start = useMutation({
     mutationFn: () => triggerScan(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['management', 'scan-schedule'] }),
+    onSuccess: (result) => {
+      onJobStarted(result.job.job_id)
+      queryClient.invalidateQueries({ queryKey: ['management', 'scan-schedule'] })
+    },
   })
   const cancel = useMutation({
-    mutationFn: (jobId: string) => cancelScanJob(jobId),
+    mutationFn: (id: string) => cancelScanJob(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['management', 'scan-schedule'] }),
   })
   const configure = useMutation({
@@ -292,9 +390,7 @@ function ScanControls({ isAdmin, sources }: { isAdmin: boolean; sources: Integra
   if (!isAdmin) return null
 
   const status = schedule.data
-  // The server keeps reporting the last job briefly after it ends. Only a job
-  // that is still working may be cancelled or shown as progress.
-  const reported = status?.active_job
+  const reported = job.data ?? reportedActive
   const active = reported && !SCAN_TERMINAL_STATES.has(reported.status) ? reported : undefined
   const interval = intervalDraft ?? String(status?.interval_minutes ?? 360)
 
@@ -310,16 +406,18 @@ function ScanControls({ isAdmin, sources }: { isAdmin: boolean; sources: Integra
           </Button>
         )}
         {sources.length === 0 && <span className="text-xs text-mga-muted">Connect a source before scanning.</span>}
+        {/* After a reload there is no job to follow, so the page would say
+            nothing at all about scanning. Report the last run instead. */}
+        {!reported && sources.length > 0 && status?.last_finished_at && (
+          <span className="text-xs text-mga-muted">
+            Last scan {status.last_status === 'completed' ? 'completed' : status.last_status ?? 'ran'} {formatDate(status.last_finished_at)}
+          </span>
+        )}
       </div>
 
-      {active && (
-        <div className="mt-4 rounded-lg border border-mga-border bg-mga-elevated/40 p-4">
-          <p className="text-sm font-medium text-mga-text">
-            Scanning {active.current_integration_label || 'sources'} · {active.integrations_completed}/{active.integration_count}
-          </p>
-          {active.current_phase && <p className="mt-1 text-xs text-mga-muted">{active.current_phase}</p>}
-        </div>
-      )}
+      {/* Keep the finished job on screen: a scan that vanishes the moment it
+          ends never tells the operator what it found. */}
+      {reported && <ScanProgressPanel job={reported} className="mt-4" />}
 
       <div className="mt-5 flex flex-wrap items-end gap-3 border-t border-mga-border/70 pt-4">
         <Input
