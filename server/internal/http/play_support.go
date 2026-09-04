@@ -2,7 +2,6 @@ package http
 
 import (
 	"encoding/base64"
-	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
@@ -68,10 +67,6 @@ func supportsDirectSourceGame(sourceGame *core.SourceGame) bool {
 	}
 	rootPath := strings.TrimSpace(sourceGame.RootPath)
 	return rootPath != "" && filepath.IsAbs(rootPath)
-}
-
-func supportsBrowserPlaySourceGame(sourceGame *core.SourceGame) bool {
-	return supportsDirectSourceGame(sourceGame)
 }
 
 func supportsScummVMLaunchSource(files []core.GameFile) bool {
@@ -144,25 +139,4 @@ func hasScummVMKnownSignature(names map[string]bool) bool {
 func encodeGameFileID(sourceGameID, path string) string {
 	raw := sourceGameID + "\n" + filepath.ToSlash(path)
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
-}
-
-func decodeGameFileID(fileID string) (string, string, error) {
-	fileID = strings.TrimSpace(fileID)
-	if fileID == "" {
-		return "", "", fmt.Errorf("file_id is required")
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(fileID)
-	if err != nil {
-		return "", "", fmt.Errorf("invalid file_id")
-	}
-	parts := strings.SplitN(string(raw), "\n", 2)
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid file_id")
-	}
-	sourceGameID := strings.TrimSpace(parts[0])
-	path := strings.TrimSpace(parts[1])
-	if sourceGameID == "" || path == "" {
-		return "", "", fmt.Errorf("invalid file_id")
-	}
-	return sourceGameID, filepath.ToSlash(path), nil
 }

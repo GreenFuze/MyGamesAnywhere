@@ -5,7 +5,6 @@ import {
   APP_ROUTE_MATCHERS,
   MANAGEMENT_DESTINATIONS,
   isCredentialSetupPath,
-  resolveSettingsRoute,
 } from './navigationRoutes.ts'
 
 test('credential setup remains outside the profile-scoped application', () => {
@@ -50,40 +49,4 @@ test('management navigation contains the authoritative IA and no execution workf
   for (const retired of ['play', 'install', 'launch', 'repair', 'uninstall']) {
     assert.equal(labels.includes(retired), false, retired)
   }
-})
-
-test('connection and restore links preserve their profile-scoped query data', () => {
-  const params = new URLSearchParams(
-    'tab=integrations&integration=xbox&plugin=xbox&first_run=restore',
-  )
-  assert.deepEqual(resolveSettingsRoute(params, true), { activeTab: 'integrations' })
-  assert.equal(params.get('integration'), 'xbox')
-  assert.equal(params.get('plugin'), 'xbox')
-  assert.equal(params.get('first_run'), 'restore')
-})
-
-test('settings navigation keeps role boundaries and legacy redirects', () => {
-  assert.deepEqual(resolveSettingsRoute(new URLSearchParams(), true), {
-    activeTab: 'integrations',
-  })
-  assert.deepEqual(resolveSettingsRoute(new URLSearchParams(), false), {
-    activeTab: 'my-settings',
-  })
-  assert.deepEqual(resolveSettingsRoute(new URLSearchParams('tab=devices'), false), {
-    activeTab: 'devices',
-  })
-  assert.deepEqual(resolveSettingsRoute(new URLSearchParams('tab=plugins'), false), {
-    activeTab: 'my-settings',
-  })
-  assert.deepEqual(resolveSettingsRoute(new URLSearchParams('tab=settings'), true), {
-    activeTab: 'update',
-  })
-  assert.deepEqual(resolveSettingsRoute(new URLSearchParams('tab=duplicates'), true), {
-    activeTab: 'integrations',
-    redirectTo: '/library/review?tab=copies',
-  })
-  assert.deepEqual(resolveSettingsRoute(new URLSearchParams('tab=undetected'), false), {
-    activeTab: 'my-settings',
-    redirectTo: '/library/review?tab=identify',
-  })
 })

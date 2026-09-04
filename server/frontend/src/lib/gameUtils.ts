@@ -6,7 +6,6 @@ import {
   pluginLabel,
   sourceLabel,
 } from '@/lib/displayText'
-import { getBrowserPlayPreferenceRuntime, listBrowserPlaySelections } from '@/lib/browserPlay'
 import { GameMediaCollection, mediaUrl } from '@/lib/gameMedia'
 
 // ---------------------------------------------------------------------------
@@ -57,24 +56,6 @@ export function selectGamePreviewImageUrl(
   game: Pick<GameDetailResponse, 'media' | 'cover_override' | 'hover_override'>,
 ): string | null {
   return selectPreviewImageUrl(game.media, game.cover_override, game.hover_override)
-}
-
-// ---------------------------------------------------------------------------
-// Browser play
-// ---------------------------------------------------------------------------
-
-export function hasBrowserPlaySupport(game: Pick<GameDetailResponse, 'play' | 'platform' | 'source_games'>): boolean {
-  return getBrowserPlayPreferenceRuntime(game as GameDetailResponse) !== null
-}
-
-export function isPlayable(game: Pick<GameDetailResponse, 'play' | 'platform' | 'source_games'>): boolean {
-  return listBrowserPlaySelections(game as GameDetailResponse).length > 0
-}
-
-export function isActionable(
-  game: Pick<GameDetailResponse, 'play' | 'platform' | 'source_games' | 'xcloud_available'>,
-): boolean {
-  return isPlayable(game) || game.xcloud_available === true
 }
 
 export { PLATFORM_META, platformEmoji, platformLabel, pluginLabel, sourceLabel }

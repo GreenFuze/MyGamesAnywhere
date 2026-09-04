@@ -72,21 +72,16 @@ function ProfileAwareRoutes() {
             <Route path={APP_ROUTES.artifacts} element={<ArtifactsPage />} />
             <Route path={APP_ROUTES.achievements} element={<AchievementsManagementPage />} />
             <Route path={APP_ROUTES.system} element={<SystemPage />} />
-            <Route path={APP_ROUTES.play} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
-            <Route path={APP_ROUTES.playSection} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
+            {/* Paths from the retired player shell that named a management
+                surface still lead to it, so existing bookmarks do not break.
+                Play, game-launch and browser-runtime paths are gone entirely
+                and fall through to the catch-all below. */}
             <Route path={APP_ROUTES.librarySection} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
             <Route path={APP_ROUTES.libraryReview} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
-            <Route path={APP_ROUTES.playableLegacy} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
-            <Route path={APP_ROUTES.xcloudLegacy} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
             <Route path={APP_ROUTES.settings} element={<Navigate to={APP_DESTINATIONS.system} replace />} />
             <Route path={APP_ROUTES.about} element={<Navigate to={APP_DESTINATIONS.system} replace />} />
             <Route path={APP_ROUTES.stats} element={<Navigate to={APP_DESTINATIONS.overview} replace />} />
-            <Route path={APP_ROUTES.statsLibrary} element={<Navigate to={APP_DESTINATIONS.overview} replace />} />
-            <Route path={APP_ROUTES.statsGamer} element={<Navigate to={APP_DESTINATIONS.overview} replace />} />
           </Route>
-          <Route path={APP_ROUTES.gamePlay} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
-          <Route path={APP_ROUTES.gameMedia} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
-          <Route path={APP_ROUTES.gameDetail} element={<Navigate to={APP_DESTINATIONS.library} replace />} />
           <Route path={APP_ROUTES.fallback} element={<Navigate to={APP_DESTINATIONS.overview} replace />} />
         </Routes>
         </Suspense>
