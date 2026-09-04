@@ -119,7 +119,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/about", b.AboutCtrl.GetAbout)
 			api.Get("/about/license", b.AboutCtrl.GetLicense)
 			if b.FrontendAPIClientCtrl != nil && b.FrontendAPIClientSvc != nil {
-				api.With(RequireFrontendAPIClient(b.FrontendAPIClientSvc, b.ProfileRepo)).Get("/frontend/v1/capabilities", b.FrontendAPIClientCtrl.Capabilities)
+				registerFrontendAPIV1(api, b, middlewareTimeout)
 			}
 
 			adminOnly := func(h http.HandlerFunc) http.HandlerFunc {
@@ -315,7 +315,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Get("/scan/reports/{id}", b.DiscoCtrl.GetScanReport)
 			})
 		} else {
-			api.Get("/frontend/v1/capabilities", noopHandler())
+			registerFrontendAPIV1Discovery(api)
 			api.Get("/frontend-clients", noopHandler())
 			api.Post("/frontend-clients", noopHandler())
 			api.Post("/frontend-clients/{client_id}/rotate", noopHandler())

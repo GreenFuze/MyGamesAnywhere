@@ -2095,6 +2095,338 @@ paths:
 
   /api/frontend/v1/capabilities:
     get:
+      summary: Discover what this frontend API client can reach
+      description: Returns the API version, the calling client identity and scopes, and the mounted feature catalog split into what the scopes unlock and what they do not. The unavailable list names the scope each withheld feature needs, so a frontend can request the right permission instead of guessing from a 403. Requires a valid bearer token but no particular scope.
+      responses:
+        200:
+          description: Capability document JSON
+        400:
+          description: Error response
+        401:
+          description: Missing, unknown, revoked, or expired bearer token
+        403:
+          description: Another profile was named in the header or query
+        500:
+          description: Error response
+
+  /api/frontend/v1/catalog/offers:
+    get:
+      summary: List catalog offers with entitlement and availability
+      description: 'Requires scope catalog.read. Entitlement, availability and delivery are independent fields: unknown entitlement is not ownership, and unknown availability is not removal. This is how a frontend distinguishes a title that must be purchased from one that is no longer available.'
+      responses:
+        200:
+          description: Offer list JSON
+        400:
+          description: Error response
+        401:
+          description: Missing or invalid bearer token
+        403:
+          description: Token lacks catalog.read
+        500:
+          description: Error response
+
+  /api/frontend/v1/catalog/offers/{offer_id}:
+    get:
+      summary: Read one catalog offer
+      description: Requires scope catalog.read.
+      parameters:
+        - name: offer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Offer JSON
+        400:
+          description: Error response
+        401:
+          description: Missing or invalid bearer token
+        403:
+          description: Token lacks catalog.read
+        404:
+          description: Offer not found for this profile
+        500:
+          description: Error response
+
+  /api/frontend/v1/catalog/offers/{offer_id}/history:
+    get:
+      summary: Read the observation history for one offer
+      description: 'Requires scope catalog.read. Observations are historical evidence: a provider failure preserves last-good state and marks it stale rather than synthesizing an unavailable transition.'
+      parameters:
+        - name: offer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Observation history JSON
+        400:
+          description: Error response
+        401:
+          description: Missing or invalid bearer token
+        403:
+          description: Token lacks catalog.read
+        404:
+          description: Offer not found for this profile
+        500:
+          description: Error response
+
+  /api/frontend/v1/content/copies/{copy_id}/files/{file_id}:
+    get:
+      summary: Download one file from a concrete copy
+      description: Requires scope content.read. Supports GET, HEAD and single-range requests via http.ServeContent; multiple ranges in one request are refused with 416 so resume behaviour stays predictable. Concurrent streams are limited per profile.
+      parameters:
+        - name: copy_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Binary stream
+        400:
+          description: Invalid copy or file id
+        401:
+          description: Missing or invalid bearer token
+        403:
+          description: Token lacks content.read
+        404:
+          description: File not found for this profile
+        500:
+          description: Error response
+    head:
+      parameters:
+        - name: copy_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/frontend/v1/content/copies/{copy_id}/manifest:
+    get:
+      summary: Read the file manifest for one concrete copy
+      description: Requires scope content.read. Names stable opaque file ids with their sizes and checksums where available. A frontend never names a server path; it names a file id from this manifest and the server resolves the source internally.
+      parameters:
+        - name: copy_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Manifest JSON
+        400:
+          description: Error response
+        401:
+          description: Missing or invalid bearer token
+        403:
+          description: Token lacks content.read
+        404:
+          description: Copy not found for this profile
+        409:
+          description: Source content is not ready; prepare a materialization first
+        500:
+          description: Error response
+
+  /api/frontend/v1/content/copies/{copy_id}/materializations:
+    post:
+      summary: Prepare a remote copy for delivery
+      description: 'Requires scope content.prepare, deliberately separate from content.read: materialization spends server storage, so a read-only frontend cannot trigger it. Direct local sources may return an immediately completed job.'
+      parameters:
+        - name: copy_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: JSON materialization request; an empty object is accepted
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Materialization already complete
+        202:
+          description: Materialization accepted
+        400:
+          description: Error response
+        401:
+          description: Missing or invalid bearer token
+        403:
+          description: Token lacks content.prepare
+        404:
+          description: Copy not found for this profile
+        500:
+          description: Error response
+
+  /api/frontend/v1/content/materializations/{job_id}:
+    get:
+      summary: Check materialization progress
+      description: Requires scope content.prepare.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Materialization job JSON
+        400:
+          description: Error response
+        401:
+          description: Missing or invalid bearer token
+        403:
+          description: Token lacks content.prepare
+        404:
+          description: Job not found for this profile
+        500:
+          description: Error response
+
+  /api/frontend/v1/content/materializations/{job_id}/cancel:
+    post:
+      summary: Cancel a materialization
+      description: Requires scope content.prepare. Cancelling stops further work and never deletes already-delivered content.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Empty JSON object
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Updated materialization job JSON
+        400:
+          description: Error response
+        401:
+          description: Missing or invalid bearer token
+        403:
+          description: Token lacks content.prepare
+        404:
+          description: Job not found for this profile
+        409:
+          description: Job is not cancellable
+        500:
+          description: Error response
+
+  /api/frontend/v1/games:
+    get:
+      summary: List the calling profile library
+      description: Same projection the management console reads, authorized by scope catalog.read. Profile scope comes from the token; naming another profile is refused rather than ignored.
+      responses:
+        200:
+          description: Game list JSON
+        400:
+          description: Error response
+        401:
+          description: Missing or invalid bearer token
+        403:
+          description: Token lacks catalog.read, or named another profile
+        500:
+          description: Error response
+
+  /api/frontend/v1/games/{id}:
+    get:
+      summary: Read one canonical game
+      description: Requires scope catalog.read. The id is the stable canonical game id an external frontend maps its own records onto.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Game JSON
+        400:
+          description: Error response
+        401:
+          description: Missing or invalid bearer token
+        403:
+          description: Token lacks catalog.read
+        404:
+          description: Game not found for this profile
+        500:
+          description: Error response
+
+  /api/frontend/v1/games/{id}/detail:
+    get:
+      summary: Read one game with sources, media and file metadata
+      description: Requires scope catalog.read. Includes the stable file ids the content routes accept, so a frontend can go from a library row to a download without a second discovery step.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Game detail JSON
+        400:
+          description: Error response
+        401:
+          description: Missing or invalid bearer token
+        403:
+          description: Token lacks catalog.read
+        404:
+          description: Game not found for this profile
+        500:
+          description: Error response
+
+  /api/frontend/v1/media/{assetID}:
+    get:
+      summary: Fetch one media asset
+      description: 'Requires scope metadata.read. Served through http.ServeContent, so Range, HEAD and If-None-Match behave as they do for the console. The URL carries no credential: authorization is the bearer token on the request.'
+      parameters:
+        - name: assetID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Binary media stream
+        400:
+          description: Error response
+        401:
+          description: Missing or invalid bearer token
+        403:
+          description: Token lacks metadata.read
+        404:
+          description: Asset not found for this profile
+        500:
+          description: Error response
+    head:
+      parameters:
+        - name: assetID
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         400:
           description: Error response

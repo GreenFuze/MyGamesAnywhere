@@ -25,8 +25,16 @@ type FrontendAPIClientService interface {
 }
 
 type FrontendAPIClientController struct {
-	service FrontendAPIClientService
-	logger  core.Logger
+	service  FrontendAPIClientService
+	logger   core.Logger
+	features []FrontendAPIFeature
+}
+
+// SetFeatureCatalog records what the scoped API actually mounted. The router
+// calls this once it has registered the routes, so capability discovery reports
+// the surface that exists rather than a hand-maintained list of intentions.
+func (c *FrontendAPIClientController) SetFeatureCatalog(features []FrontendAPIFeature) {
+	c.features = features
 }
 
 func NewFrontendAPIClientController(service FrontendAPIClientService, logger core.Logger) (*FrontendAPIClientController, error) {
@@ -96,13 +104,32 @@ func (c *FrontendAPIClientController) Capabilities(w http.ResponseWriter, r *htt
 		writeContentError(w, http.StatusUnauthorized, "unauthenticated", frontendauth.ErrUnauthenticated.Error())
 		return
 	}
+	// Split rather than filter. A client that is missing a scope needs to know
+	// the feature exists and which scope unlocks it, otherwise its only signal
+	// is a 403 from an endpoint it was never told about.
+	available, unavailable := c.partitionFeatures(principal)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"api":              map[string]string{"name": "MGA Frontend API", "version": "v1"},
-		"client":           principal,
-		"supported_scopes": frontendauth.AllScopes(),
-		"features":         []string{"capability-discovery", "catalog-projection", "metadata-media", "content-delivery", "cache-preparation", "runtime-artifacts"},
-		"endpoints":        map[string]string{"capabilities": "/api/frontend/v1/capabilities"},
+		"api":                  map[string]string{"name": "MGA Frontend API", "version": "v1"},
+		"client":               principal,
+		"supported_scopes":     frontendauth.AllScopes(),
+		"features":             available,
+		"unavailable_features": unavailable,
 	})
+}
+
+// partitionFeatures separates what this client's scopes reach from what they do
+// not. A feature with no scope requirement is always reachable.
+func (c *FrontendAPIClientController) partitionFeatures(principal frontendauth.Principal) ([]FrontendAPIFeature, []FrontendAPIFeature) {
+	available := make([]FrontendAPIFeature, 0, len(c.features))
+	unavailable := make([]FrontendAPIFeature, 0)
+	for _, feature := range c.features {
+		if feature.Scope == "" || principal.Has(feature.Scope) {
+			available = append(available, feature)
+			continue
+		}
+		unavailable = append(unavailable, feature)
+	}
+	return available, unavailable
 }
 
 func (c *FrontendAPIClientController) writeError(w http.ResponseWriter, err error) {
