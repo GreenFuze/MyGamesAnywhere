@@ -243,14 +243,18 @@ type Offer struct {
 	EvidenceJSON    json.RawMessage `json:"evidence"`
 	ObservedAt      time.Time       `json:"observed_at"`
 	LastSuccessAt   time.Time       `json:"last_success_at"`
-	StaleAt         time.Time       `json:"stale_at,omitempty"`
-	CurrentVersion  *PackageVersion `json:"current_version,omitempty"`
-	LatestVersion   *PackageVersion `json:"latest_version,omitempty"`
-	CreatedAt       time.Time       `json:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at"`
+	// StaleAt is a pointer so that "not stale" is absent from the JSON rather
+	// than serialized as Go's zero time. A zero time.Time survives omitempty
+	// and reaches a client as "0001-01-01T00:00:00Z", which reads as truthy and
+	// made every freshly observed offer look stale.
+	StaleAt        *time.Time      `json:"stale_at,omitempty"`
+	CurrentVersion *PackageVersion `json:"current_version,omitempty"`
+	LatestVersion  *PackageVersion `json:"latest_version,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
-func (o Offer) Stale() bool { return !o.StaleAt.IsZero() }
+func (o Offer) Stale() bool { return o.StaleAt != nil && !o.StaleAt.IsZero() }
 
 type HistoryEvent struct {
 	ID                       string       `json:"id"`

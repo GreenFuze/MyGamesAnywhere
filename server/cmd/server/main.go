@@ -257,6 +257,10 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	mediaSvc := media.NewService(gameStore, configSvc, logSvc)
 	orchestrator := scan.NewOrchestrator(pluginHost, pluginHost, integrationRepo, gameStore, mediaSvc, logSvc)
 	orchestrator.SetEventBus(eventBus)
+	// The catalog's availability history only exists if something writes to it.
+	// This is that writer: without it, "was this on Game Pass when I played it?"
+	// has no answer.
+	orchestrator.SetCatalogObserver(catalogSvc)
 	manualReviewSvc := scan.NewManualReviewService(pluginHost, pluginHost, integrationRepo, gameStore, mediaSvc, logSvc)
 	integrationRefreshSvc := scan.NewIntegrationRefreshService(integrationRepo, gameStore, pluginHost, mediaSvc, configSvc, logSvc)
 	achievementRefreshSvc := scan.NewAchievementRefreshService(integrationRepo, gameStore, pluginHost, logSvc)

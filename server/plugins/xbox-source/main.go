@@ -595,6 +595,25 @@ type gameEntry struct {
 	XcloudAvailable bool        `json:"xcloud_available,omitempty"`
 	StoreProductID  string      `json:"store_product_id,omitempty"`
 	XcloudURL       string      `json:"xcloud_url,omitempty"`
+
+	// What MGA is allowed to say about this title, in the server's vocabulary.
+	//
+	// Game Pass makes a library several different things at once: a title can
+	// be playable now, playable-but-leaving, or gone and only purchasable. The
+	// plugin is the only thing that knows what its provider's flags mean, so it
+	// reports the conclusion rather than leaving the server to guess per
+	// provider.
+	Entitlement  string `json:"entitlement,omitempty"`
+	Availability string `json:"availability,omitempty"`
+
+	// Engagement. Title Hub already returns all of this; it was being decoded
+	// and thrown away. It is what separates "played it, now it is gone" from
+	// "never touched it".
+	LastPlayedAt         string `json:"last_played_at,omitempty"`
+	AchievementsUnlocked int    `json:"achievements_unlocked,omitempty"`
+	AchievementsTotal    int    `json:"achievements_total,omitempty"`
+	GamerscoreEarned     int    `json:"gamerscore_earned,omitempty"`
+	GamerscoreTotal      int    `json:"gamerscore_total,omitempty"`
 }
 
 // --------------- Fetch title history ---------------
@@ -675,6 +694,50 @@ func buildXcloudPlayURL(locale, slug, productID string) string {
 	return fmt.Sprintf("https://www.xbox.com/%s/play/launch/%s/%s", locale, slug, productID)
 }
 
+// applyEngagement carries across what Title Hub already told us about how the
+// player has actually interacted with this title.
+func applyEngagement(entry *gameEntry, t title) {
+	if t.TitleHistory != nil {
+		if played := strings.TrimSpace(t.TitleHistory.LastTimePlayed); played != "" {
+			// Normalize to RFC3339 so the server does not have to guess.
+			if parsed, err := time.Parse(time.RFC3339, played); err == nil {
+				entry.LastPlayedAt = parsed.UTC().Format(time.RFC3339)
+			} else {
+				entry.LastPlayedAt = played
+			}
+		}
+	}
+	if t.Achievement != nil {
+		entry.AchievementsUnlocked = t.Achievement.CurrentAchievements
+		entry.AchievementsTotal = t.Achievement.TotalAchievements
+		entry.GamerscoreEarned = t.Achievement.CurrentGamerscore
+		entry.GamerscoreTotal = t.Achievement.TotalGamerscore
+	}
+}
+
+// applyEntitlement says what MGA may claim about access to this title.
+//
+// Game Pass membership is reported by the provider, so a title carrying it is
+// a subscription entitlement that is available right now. Everything else is
+// deliberately "unknown", not "owned": this connector queries play history, not
+// entitlements, and a title without the Game Pass flag may equally be a demo, a
+// trial, an expired Game Pass title, or a family-shared play. MGA does not
+// assert ownership it has not observed.
+//
+// A title that leaves Game Pass simply stops carrying the flag on the next
+// scan, and the catalog's availability history turns that into a "removed"
+// event. That transition is only knowable from the moment observations begin;
+// it cannot be recovered retroactively.
+func applyEntitlement(entry *gameEntry) {
+	if entry.IsGamePass {
+		entry.Entitlement = "subscription"
+		entry.Availability = "available"
+		return
+	}
+	entry.Entitlement = "unknown"
+	entry.Availability = "unknown"
+}
+
 func titleToGameEntry(t title) *gameEntry {
 	tid := strings.TrimSpace(string(t.TitleID))
 	if t.Name == "" || tid == "" {
@@ -705,6 +768,9 @@ func titleToGameEntry(t title) *gameEntry {
 	if t.GamePass != nil && t.GamePass.IsGamePass {
 		entry.IsGamePass = true
 	}
+
+	applyEngagement(entry, t)
+	applyEntitlement(entry)
 
 	if t.Detail != nil {
 		if t.Detail.Description != "" {

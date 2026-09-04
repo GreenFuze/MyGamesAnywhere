@@ -583,7 +583,8 @@ func scanCatalogOffer(scanner catalogOfferScanner) (*catalog.Offer, error) {
 	offer.ObservedAt = time.Unix(observedAt, 0).UTC()
 	offer.LastSuccessAt = time.Unix(lastSuccessAt, 0).UTC()
 	if staleAt.Valid {
-		offer.StaleAt = time.Unix(staleAt.Int64, 0).UTC()
+		stale := time.Unix(staleAt.Int64, 0).UTC()
+		offer.StaleAt = &stale
 	}
 	offer.CreatedAt = time.Unix(createdAt, 0).UTC()
 	offer.UpdatedAt = time.Unix(updatedAt, 0).UTC()

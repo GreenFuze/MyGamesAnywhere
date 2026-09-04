@@ -52,6 +52,7 @@ type Orchestrator struct {
 	refreshCoordinator *metadataRefreshCoordinator
 	logger             core.Logger
 	eventBus           *events.EventBus
+	catalogObserver    CatalogObserver
 }
 
 type preparedScanIntegration struct {
@@ -65,6 +66,9 @@ type preparedScanIntegration struct {
 	needsReauth     bool
 	skipped         bool
 	filesystemScope *core.FilesystemScanScope
+	// What each storefront game told us about entitlement and availability,
+	// keyed by external id. Written to the catalog once canonical ids exist.
+	offers map[string]StorefrontOffer
 }
 
 type sourceGamesFetchResult struct {
@@ -72,6 +76,36 @@ type sourceGamesFetchResult struct {
 	Warning       string
 	WarningReason string
 	NeedsReauth   bool
+	Offers        map[string]StorefrontOffer
+}
+
+// StorefrontOffer is what a provider says about one title right now: whether
+// the player may play it, whether it is still there, and what they have done
+// with it.
+//
+// Game Pass is why this exists. A title can be playable today, leaving soon, or
+// gone and purchasable only, and the difference decides what the console may
+// offer. The provider plugin reports the conclusion in the catalog's own
+// vocabulary, because only it knows what its flags mean.
+type StorefrontOffer struct {
+	ExternalID           string
+	SKU                  string
+	Platform             string
+	Entitlement          string
+	Availability         string
+	LastPlayedAt         string
+	AchievementsUnlocked int
+	AchievementsTotal    int
+	GamerscoreEarned     int
+	GamerscoreTotal      int
+	IsGamePass           bool
+	XcloudAvailable      bool
+}
+
+// Played reports whether there is evidence the player has actually engaged with
+// this title, as opposed to it merely appearing in their library.
+func (o StorefrontOffer) Played() bool {
+	return strings.TrimSpace(o.LastPlayedAt) != "" || o.AchievementsUnlocked > 0 || o.GamerscoreEarned > 0
 }
 
 func NewOrchestrator(
@@ -267,9 +301,13 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		return nil, err
 	}
 
+	offersByIntegration := make(map[string]map[string]StorefrontOffer)
 	for _, item := range prepared {
 		if item == nil {
 			continue
+		}
+		if len(item.offers) > 0 {
+			offersByIntegration[item.integration.ID] = item.offers
 		}
 		if item.skipped {
 			integResults = append(integResults, item.result)
@@ -320,6 +358,9 @@ func (o *Orchestrator) RunScan(ctx context.Context, integrationIDs []string) ([]
 		o.publishScanError(ctx, "", err)
 		return nil, fmt.Errorf("get canonical games: %w", err)
 	}
+
+	// Only now do canonical ids exist, which is what an offer belongs to.
+	o.recordCatalogObservations(ctx, result, offersByIntegration)
 
 	// Compute diff and build scan report.
 	postCounts, _ := o.gameStore.GetSourceGameCountsByIntegration(ctx)
@@ -1005,6 +1046,7 @@ func (o *Orchestrator) prepareScanIntegration(
 			"game_count":     len(sourceResult.Games),
 		})
 		item.games = sourceResult.Games
+		item.offers = sourceResult.Offers
 
 	default:
 		o.publishEventWithContext(ctx, "scan_integration_skipped", map[string]any{
@@ -1078,6 +1120,18 @@ func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID s
 			XcloudURL       string     `json:"xcloud_url,omitempty"`
 			Shared          bool       `json:"shared,omitempty"`
 			SharedOwner     string     `json:"shared_owner,omitempty"`
+
+			// Entitlement and availability in the catalog's vocabulary, plus the
+			// engagement evidence behind them. All optional: a provider that
+			// reports none of it is treated as telling us nothing, not as
+			// telling us the title is unavailable.
+			Entitlement          string `json:"entitlement,omitempty"`
+			Availability         string `json:"availability,omitempty"`
+			LastPlayedAt         string `json:"last_played_at,omitempty"`
+			AchievementsUnlocked int    `json:"achievements_unlocked,omitempty"`
+			AchievementsTotal    int    `json:"achievements_total,omitempty"`
+			GamerscoreEarned     int    `json:"gamerscore_earned,omitempty"`
+			GamerscoreTotal      int    `json:"gamerscore_total,omitempty"`
 		} `json:"games"`
 		SharedLibraryError        string `json:"shared_library_error,omitempty"`
 		SharedLibraryTokenExpired bool   `json:"shared_library_token_expired,omitempty"`
@@ -1088,9 +1142,32 @@ func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID s
 
 	now := time.Now()
 	games := make([]*core.Game, 0, len(result.Games))
+	offers := make(map[string]StorefrontOffer, len(result.Games))
 	for _, sg := range result.Games {
 		if sg.Title == "" || sg.ExternalID == "" {
 			continue
+		}
+
+		// A SKU is what the catalog keys an offer on. Prefer the provider's own
+		// product id and fall back to the external id, so an offer is still
+		// tracked for providers that have no separate store identity.
+		sku := strings.TrimSpace(sg.StoreProductID)
+		if sku == "" {
+			sku = strings.TrimSpace(sg.ExternalID)
+		}
+		offers[sg.ExternalID] = StorefrontOffer{
+			ExternalID:           sg.ExternalID,
+			SKU:                  sku,
+			Platform:             sg.Platform,
+			Entitlement:          sg.Entitlement,
+			Availability:         sg.Availability,
+			LastPlayedAt:         sg.LastPlayedAt,
+			AchievementsUnlocked: sg.AchievementsUnlocked,
+			AchievementsTotal:    sg.AchievementsTotal,
+			GamerscoreEarned:     sg.GamerscoreEarned,
+			GamerscoreTotal:      sg.GamerscoreTotal,
+			IsGamePass:           sg.IsGamePass,
+			XcloudAvailable:      sg.XcloudAvailable,
 		}
 
 		gameID := deterministicID(integrationID, pluginID, sg.ExternalID)
@@ -1156,6 +1233,7 @@ func (o *Orchestrator) fetchGames(ctx context.Context, integrationID, pluginID s
 	}
 	fetchResult := &sourceGamesFetchResult{
 		Games:       games,
+		Offers:      offers,
 		Warning:     strings.TrimSpace(result.SharedLibraryError),
 		NeedsReauth: result.SharedLibraryTokenExpired,
 	}

@@ -331,3 +331,69 @@ func pct(n, total int) float64 {
 	}
 	return float64(n) / float64(total) * 100
 }
+
+func TestGameEntryCarriesEngagementInsteadOfDiscardingIt(t *testing.T) {
+	// Title Hub returns all of this already; it used to be decoded and dropped,
+	// which is why MGA could not tell a played game from an untouched one.
+	entry := titleToGameEntry(title{
+		TitleID: titleIDString("123"),
+		Name:    "Hollow Knight",
+		TitleHistory: &titleHistory{
+			LastTimePlayed: "2026-08-14T09:30:00Z",
+			Visible:        true,
+		},
+		Achievement: &achievement{
+			CurrentAchievements: 12,
+			TotalAchievements:   63,
+			CurrentGamerscore:   240,
+			TotalGamerscore:     1000,
+		},
+	})
+	if entry == nil {
+		t.Fatal("expected an entry")
+	}
+	if entry.LastPlayedAt != "2026-08-14T09:30:00Z" {
+		t.Fatalf("last played = %q", entry.LastPlayedAt)
+	}
+	if entry.AchievementsUnlocked != 12 || entry.AchievementsTotal != 63 {
+		t.Fatalf("achievements = %d/%d", entry.AchievementsUnlocked, entry.AchievementsTotal)
+	}
+	if entry.GamerscoreEarned != 240 || entry.GamerscoreTotal != 1000 {
+		t.Fatalf("gamerscore = %d/%d", entry.GamerscoreEarned, entry.GamerscoreTotal)
+	}
+}
+
+func TestGamePassTitleIsASubscriptionThatIsAvailableNow(t *testing.T) {
+	entry := titleToGameEntry(title{
+		TitleID:  titleIDString("456"),
+		Name:     "Forza Horizon 5",
+		GamePass: &gamePass{IsGamePass: true},
+	})
+	if entry.Entitlement != "subscription" || entry.Availability != "available" {
+		t.Fatalf("entitlement/availability = %q/%q", entry.Entitlement, entry.Availability)
+	}
+}
+
+func TestATitleWithoutGamePassIsNotClaimedAsOwned(t *testing.T) {
+	// This connector reads play history, not entitlements. A missing Game Pass
+	// flag equally covers demos, trials, expired Game Pass and family shares,
+	// so claiming ownership here would be a guess presented as fact.
+	entry := titleToGameEntry(title{TitleID: titleIDString("789"), Name: "Some Game"})
+	if entry.Entitlement != "unknown" {
+		t.Fatalf("entitlement = %q, want unknown", entry.Entitlement)
+	}
+	if entry.Availability != "unknown" {
+		t.Fatalf("availability = %q, want unknown", entry.Availability)
+	}
+}
+
+func TestAnUnplayedTitleReportsNoEngagement(t *testing.T) {
+	entry := titleToGameEntry(title{
+		TitleID:  titleIDString("321"),
+		Name:     "Never Launched",
+		GamePass: &gamePass{IsGamePass: true},
+	})
+	if entry.LastPlayedAt != "" || entry.AchievementsUnlocked != 0 || entry.GamerscoreEarned != 0 {
+		t.Fatalf("expected no engagement, got %+v", entry)
+	}
+}
