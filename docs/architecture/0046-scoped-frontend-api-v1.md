@@ -3,7 +3,7 @@
 Status: Accepted for implementation
 Date: 2026-09-04
 Jira: MGA-119
-Canonical decision: Confluence page `ADR-0046 — Scoped Frontend API v1`
+Canonical decision: Confluence page `ADR-0046 — Scoped Frontend API v1` (23199745)
 
 This local mirror records the contract and the reasoning next to the code. Confluence remains authoritative.
 
