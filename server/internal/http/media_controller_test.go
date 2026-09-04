@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
@@ -130,5 +132,122 @@ func TestMediaControllerDoesNotRedirectMissingFileToUnsafeURL(t *testing.T) {
 	}
 	if svc.missingAssetID != 43 {
 		t.Fatalf("missingAssetID = %d, want 43", svc.missingAssetID)
+	}
+}
+
+// serveMediaFixture writes one real file under a temp MEDIA_ROOT and returns a
+// router that serves it, so these assertions come from http.ServeContent rather
+// than from a stub.
+func serveMediaFixture(t *testing.T, asset *core.MediaAsset, body []byte) chi.Router {
+	t.Helper()
+	mediaRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(mediaRoot, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mediaRoot, "assets", "cover.png"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	asset.LocalPath = filepath.ToSlash(filepath.Join("assets", "cover.png"))
+	controller := NewMediaController(
+		&fakeGameStore{mediaAsset: asset},
+		staticConfig{values: map[string]string{"MEDIA_ROOT": mediaRoot}},
+		noopLogger{}, &fakeMediaDownloadService{},
+	)
+	router := chi.NewRouter()
+	router.Get("/api/media/{assetID}", controller.ServeMedia)
+	router.Head("/api/media/{assetID}", controller.ServeMedia)
+	return router
+}
+
+func TestMediaRevalidatesWithAStrongETagAndIsNotPubliclyCacheable(t *testing.T) {
+	// A frontend holds thousands of covers and revalidates them on every
+	// refresh. Without a validator every refresh was a full redownload of
+	// byte-identical files.
+	asset := &core.MediaAsset{ID: 7, MimeType: "image/png", Hash: "e3b0c44298fc1c149afbf4c8996fb924"}
+	router := serveMediaFixture(t, asset, []byte("cover-bytes"))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/media/7", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "cover-bytes" {
+		t.Fatalf("status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+
+	etag := recorder.Header().Get("ETag")
+	if etag != `"e3b0c44298fc1c149afbf4c8996fb924"` {
+		t.Fatalf("ETag = %q, want the stored content hash", etag)
+	}
+	// Serving one profile's artwork out of a shared cache to another profile is
+	// the failure this guards; the asset is only reachable with authorization.
+	if cacheControl := recorder.Header().Get("Cache-Control"); !strings.HasPrefix(cacheControl, "private") {
+		t.Fatalf("Cache-Control = %q, want private", cacheControl)
+	}
+
+	conditional := httptest.NewRequest(http.MethodGet, "/api/media/7", nil)
+	conditional.Header.Set("If-None-Match", etag)
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, conditional)
+	if recorder.Code != http.StatusNotModified || recorder.Body.Len() != 0 {
+		t.Fatalf("conditional GET status=%d body=%d bytes, want 304 and no body", recorder.Code, recorder.Body.Len())
+	}
+
+	stale := httptest.NewRequest(http.MethodGet, "/api/media/7", nil)
+	stale.Header.Set("If-None-Match", `"some-other-revision"`)
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, stale)
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "cover-bytes" {
+		t.Fatalf("a client holding a different revision must be resent the file, got %d", recorder.Code)
+	}
+}
+
+func TestMediaWithoutAStoredHashStillOffersAWeakValidator(t *testing.T) {
+	// Rows whose download never recorded a checksum must not be left with no
+	// validator at all; one missing hash should not cost a client its artwork.
+	asset := &core.MediaAsset{ID: 8, MimeType: "image/png"}
+	router := serveMediaFixture(t, asset, []byte("no-hash-bytes"))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/media/8", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	etag := recorder.Header().Get("ETag")
+	if !strings.HasPrefix(etag, `W/"`) {
+		t.Fatalf("ETag = %q, want a weak validator when no hash is stored", etag)
+	}
+
+	conditional := httptest.NewRequest(http.MethodGet, "/api/media/8", nil)
+	conditional.Header.Set("If-None-Match", etag)
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, conditional)
+	if recorder.Code != http.StatusNotModified {
+		t.Fatalf("weak validator did not revalidate: status=%d", recorder.Code)
+	}
+}
+
+func TestMediaRangeAndHeadStillWorkAlongsideTheValidator(t *testing.T) {
+	// Adding an ETag changes how http.ServeContent evaluates preconditions, so
+	// the partial and metadata paths are re-checked rather than assumed intact.
+	asset := &core.MediaAsset{ID: 9, MimeType: "image/png", Hash: "abc123"}
+	router := serveMediaFixture(t, asset, []byte("abcdefghij"))
+
+	partial := httptest.NewRequest(http.MethodGet, "/api/media/9", nil)
+	partial.Header.Set("Range", "bytes=2-5")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, partial)
+	if recorder.Code != http.StatusPartialContent || recorder.Body.String() != "cdef" {
+		t.Fatalf("range status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Header().Get("Accept-Ranges") != "bytes" {
+		t.Fatalf("Accept-Ranges missing: %v", recorder.Header())
+	}
+
+	head := httptest.NewRequest(http.MethodHead, "/api/media/9", nil)
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, head)
+	if recorder.Code != http.StatusOK || recorder.Body.Len() != 0 {
+		t.Fatalf("head status=%d body=%d bytes", recorder.Code, recorder.Body.Len())
+	}
+	if recorder.Header().Get("ETag") != `"abc123"` {
+		t.Fatalf("HEAD must carry the validator too: %v", recorder.Header())
 	}
 }

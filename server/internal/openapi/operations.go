@@ -447,8 +447,8 @@ func Operations() []OperationDoc {
 			Method:       "GET",
 			Path:         "/api/media/{assetID}",
 			Summary:      "Stream cached media file",
-			Description:  "Serves a file from MEDIA_ROOT using media_assets.id and the row's local_path (must be relative, no '..'). Set MEDIA_ROOT in config (default ./media). Use media[].asset_id from game detail; supports Range requests via http.ServeContent.",
-			ResponseDocs: map[string]string{"200": "Binary stream", "400": "Invalid id", "404": "Unknown asset or missing file", "500": "Internal server error"},
+			Description:  "Serves a file from MEDIA_ROOT using media_assets.id and the row's local_path (must be relative, no '..'). Set MEDIA_ROOT in config (default ./media). Use media[].asset_id from game detail. Supports Range, HEAD and conditional requests via http.ServeContent: the ETag is the stored SHA-256 of the downloaded bytes, or a weak size-and-mtime validator for rows with no recorded checksum. Cached as private, not public, because the asset is only served to an authorized profile.",
+			ResponseDocs: map[string]string{"200": "Binary stream", "206": "Partial content for a Range request", "304": "Not modified; the client's validator still matches", "307": "Local file is missing; redirected to the original http(s) URL while MGA requeues the download", "400": "Invalid id", "404": "Unknown asset or missing file with no safe original URL", "500": "Internal server error"},
 		},
 		{
 			Method:         "PUT",

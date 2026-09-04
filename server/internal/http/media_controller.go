@@ -106,8 +106,30 @@ func (c *MediaController) ServeMedia(w http.ResponseWriter, r *http.Request) {
 	if asset.MimeType != "" {
 		w.Header().Set("Content-Type", asset.MimeType)
 	}
-	w.Header().Set("Cache-Control", "public, max-age=86400")
+	// A frontend caches thousands of covers and revalidates them on every
+	// refresh. Without an ETag the only validator was Last-Modified, so a client
+	// sending If-None-Match got a full redownload of a byte-identical file.
+	// http.ServeContent answers the conditional request itself once the header
+	// is set, and honours it for Range and If-Range too.
+	w.Header().Set("ETag", mediaETag(asset, st))
+	// Private, not public: this asset is served only to an authorized profile,
+	// so a shared cache must not be allowed to hand it to a different one.
+	w.Header().Set("Cache-Control", "private, max-age=86400")
 	http.ServeContent(w, r, st.Name(), st.ModTime(), f)
+}
+
+// mediaETag returns a validator a client can revalidate against.
+//
+// The stored hash is a SHA-256 of the downloaded bytes, written in the same
+// update as the local path, so it is a strong validator: equal hash means equal
+// file. Rows whose download never recorded one fall back to a weak size and
+// modification-time validator rather than to no validator at all — one missing
+// checksum should not cost a client every byte of its artwork again.
+func mediaETag(asset *core.MediaAsset, info os.FileInfo) string {
+	if hash := strings.TrimSpace(asset.Hash); hash != "" {
+		return strconv.Quote(hash)
+	}
+	return fmt.Sprintf("W/%s", strconv.Quote(fmt.Sprintf("%d-%d", info.Size(), info.ModTime().UnixNano())))
 }
 
 // redirectToOriginalMedia keeps artwork usable while MGA repairs a missing
