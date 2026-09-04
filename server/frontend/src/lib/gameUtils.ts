@@ -91,6 +91,7 @@ export const PLUGIN_LUCIDE_ICONS: Record<string, string> = {
   'game-source-epic':           'Zap',
   'game-source-google-drive':   'Cloud',
   'game-source-gdrive':         'Cloud',
+  'game-source-local':          'FolderOpen',
   'metadata-steam':             'Search',
   'metadata-rawg':              'Dice5',
   'metadata-igdb':              'BookOpen',
@@ -126,7 +127,9 @@ export type FilesystemIncludePath = {
 }
 
 export function isFilesystemSourcePlugin(pluginId: string): boolean {
-  return pluginId === 'game-source-smb' || pluginId === 'game-source-google-drive'
+  return pluginId === 'game-source-smb'
+    || pluginId === 'game-source-google-drive'
+    || pluginId === 'game-source-local'
 }
 
 export function normalizeFilesystemIncludePaths(
@@ -272,6 +275,11 @@ export class ConfigSummaryBuilder {
     'metadata-igdb': (c) => ConfigSummaryBuilder.hintSecret(c, 'client_id'),
     'metadata-rawg': (c) => ConfigSummaryBuilder.hintSecret(c, 'api_key'),
     'retroachievements': (c) => (c.username ? `User: ${c.username}` : ''),
+    'game-source-local': (c) => {
+      const base = typeof c.base_path === 'string' ? c.base_path : ''
+      const paths = normalizeFilesystemIncludePaths('game-source-local', c)
+      return `${base || 'No folder selected'}${summarizeIncludePaths(paths, '/')}`
+    },
     'game-source-google-drive': (c) => summarizeDriveIncludePaths(c),
     'game-source-gdrive': (c) => summarizeDriveIncludePaths(c),
     'sync-settings-google-drive': (c) => (c.sync_path ? `Path: ${c.sync_path}` : ''),

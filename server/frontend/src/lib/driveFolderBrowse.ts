@@ -24,18 +24,23 @@ export function buildInitialFolderHistory(
   initialPath: string,
   objectId?: string,
   showDriveLocations = false,
+  rootLabel = 'My Drive',
 ): FolderBrowseLocation[] {
   const myDriveRoot: FolderBrowseLocation = {
-    name: 'My Drive',
+    name: rootLabel,
     browsePath: '',
     displayPath: '',
     selectable: true,
   }
   if (!showDriveLocations) {
+    // A POSIX absolute path loses its leading slash to the filter, which turns
+    // "/mnt/games" into the relative "mnt/games" and browses the wrong place.
+    // Drive paths never start with a slash, so keeping it is safe for them.
+    const absolutePrefix = initialPath.startsWith('/') ? '/' : ''
     const segments = initialPath.split('/').filter(Boolean)
     if (segments.length === 0) return [myDriveRoot]
     return [myDriveRoot, ...segments.map((segment, index) => {
-      const displayPath = segments.slice(0, index + 1).join('/')
+      const displayPath = absolutePrefix + segments.slice(0, index + 1).join('/')
       return {
         name: segment,
         browsePath: displayPath,

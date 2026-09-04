@@ -29,4 +29,7 @@ plugins/
   smb/
     game-source-smb.plugin.json
     bin/smb.exe
+  local/
+    game-source-local.plugin.json          # plugin_id: game-source-local
+    bin/local.exe                          # exec matches the directory name
 ```

@@ -302,6 +302,7 @@ function BrowsableStringField({
         <div className="rounded-mga border border-mga-border bg-mga-surface/70 p-3">
           <FolderBrowser
             pluginId={browsePluginId}
+            rootLabel={browseRootLabel(browsePluginId)}
             initialPath={value}
             onSelect={(selection) => {
               onChange(selection.path)
@@ -384,6 +385,7 @@ function StringPathsField({
               {browserIndex === index && (
                 <FolderBrowser
                   pluginId={browsePluginId}
+                  rootLabel={browseRootLabel(browsePluginId)}
                   initialPath={entry}
                   onSelect={(selection) => {
                     setPath(index, selection.path)
@@ -541,6 +543,7 @@ function IncludePathsField({
               {browserIndex === index && (
                 <FolderBrowser
                   pluginId={browsePluginId}
+                  rootLabel={browseRootLabel(browsePluginId)}
                   initialPath={entry.path}
                   initialObjectId={entry.object_id}
                   allowSharedLocations={browsePluginId === 'game-source-google-drive'}
@@ -600,6 +603,7 @@ function IncludePathsField({
                       {browserOpen && browsePluginId && (
                         <FolderBrowser
                           pluginId={browsePluginId}
+                          rootLabel={browseRootLabel(browsePluginId)}
                           initialPath={entry.object_id ? entry.path : (excludePath || entry.path)}
                           initialObjectId={entry.object_id}
                           onSelect={(selection) => {
@@ -672,6 +676,12 @@ function normalizeStringPathsValue(value: unknown): string[] {
   return value
     .map((entry) => (typeof entry === 'string' ? entry : ''))
     .filter((entry, index, all) => entry !== '' || index === all.length - 1)
+}
+
+/** Names the first breadcrumb. A local connection browses this machine, so
+ *  calling its root "My Drive" would be simply wrong. */
+function browseRootLabel(pluginId: string): string {
+  return pluginId === 'game-source-local' ? 'Computer' : 'My Drive'
 }
 
 function isBrowsablePathField(fieldKey: string): boolean {

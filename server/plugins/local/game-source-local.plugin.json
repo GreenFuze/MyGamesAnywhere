@@ -1,0 +1,39 @@
+{
+  "plugin_id": "game-source-local",
+  "plugin_version": "1.0.0",
+  "api_major": 1,
+  "capabilities": ["source"],
+  "provides": [
+    "source.filesystem.list",
+    "source.filesystem.delete",
+    "source.browse",
+    "plugin.check_config"
+  ],
+  "exec": "local.exe",
+  "default_timeout_ms": 300000,
+  "max_concurrency": 1,
+  "config": {
+    "base_path": {
+      "type": "string",
+      "required": true,
+      "description": "Absolute path to the folder on this server that holds your games. Use one connection per drive or root folder."
+    },
+    "include_paths": {
+      "type": "array",
+      "required": true,
+      "description": "Folders inside the base path to scan. Leave a path empty to scan the whole base.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "required": true },
+          "recursive": { "type": "boolean" },
+          "exclude_paths": {
+            "type": "array",
+            "description": "Folders inside this include path to skip recursively.",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

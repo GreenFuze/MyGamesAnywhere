@@ -182,13 +182,13 @@ func TestSMBDeliveryIsDirectAndPathScopeIsRevalidated(t *testing.T) {
 	}
 
 	include := sourcescope.IncludePath{Path: "Games", Recursive: true, ExcludePaths: []string{"Games/Private"}}
-	if !smbPathAllowed("Games/SNES/game.sfc", []sourcescope.IncludePath{include}) {
+	if !includeScopeAllows("Games/SNES/game.sfc", []sourcescope.IncludePath{include}) {
 		t.Fatal("in-scope SMB path was rejected")
 	}
-	if smbPathAllowed("Games/Private/secret.sfc", []sourcescope.IncludePath{include}) {
+	if includeScopeAllows("Games/Private/secret.sfc", []sourcescope.IncludePath{include}) {
 		t.Fatal("excluded SMB path was accepted")
 	}
-	if smbPathAllowed("Other/game.sfc", []sourcescope.IncludePath{include}) {
+	if includeScopeAllows("Other/game.sfc", []sourcescope.IncludePath{include}) {
 		t.Fatal("out-of-scope SMB path was accepted")
 	}
 	if _, err := resolveSMBPath("../escape.sfc"); err == nil {

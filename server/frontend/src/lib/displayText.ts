@@ -34,6 +34,7 @@ export const PLUGIN_LABELS: Record<string, string> = {
   'game-source-xbox': 'Xbox',
   'game-source-epic': 'Epic Games',
   'game-source-google-drive': 'Google Drive',
+  'game-source-local': 'Local Folder',
   'game-source-gdrive': 'Google Drive',
   'metadata-steam': 'Steam Metadata',
   'metadata-rawg': 'RAWG',

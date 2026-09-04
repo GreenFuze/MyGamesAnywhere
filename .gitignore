@@ -27,6 +27,10 @@ server/cmd/server/rsrc_windows_*.syso
 *.sqlite-wal
 *.sqlite-shm
 
+# Isolated review/verification data directory. Holds a live database, session
+# state and provider config; nothing in it belongs in the repository.
+.codex-review/
+
 # Local config and secrets (track config.json.example, not config.json)
 config.json
 server/plugins/*/config.json

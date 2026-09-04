@@ -208,6 +208,13 @@ func (s *Service) openSourceFile(ctx context.Context, sourceGame *core.SourceGam
 		if sourceGame.PluginID == "game-source-smb" {
 			return s.openSMBFile(ctx, sourceGame, file)
 		}
+		// A local connection resolves against its own configured base, not
+		// against RootPath: the scanner writes RootPath as a relative group
+		// directory that is already a prefix of file.Path, so joining the two
+		// would count the group directory twice.
+		if sourceGame.PluginID == localSourcePluginID {
+			return s.openLocalFile(ctx, sourceGame, file)
+		}
 		resolved, err := resolveLocalFile(sourceGame.RootPath, file.Path)
 		if err != nil {
 			return nil, ErrNotFound
@@ -314,7 +321,7 @@ func (s *Service) openSMBFile(ctx context.Context, sourceGame *core.SourceGame, 
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	if !smbPathAllowed(sharePath, sourcescope.ReadIncludePaths("game-source-smb", rawConfig)) {
+	if !includeScopeAllows(sharePath, sourcescope.ReadIncludePaths("game-source-smb", rawConfig)) {
 		return nil, ErrNotFound
 	}
 	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(config.Host, "445"))
@@ -343,11 +350,92 @@ func (s *Service) openSMBFile(ctx context.Context, sourceGame *core.SourceGame, 
 	return &smbFile{file: opened, share: share, conn: conn, logoff: session.Logoff}, nil
 }
 
+const localSourcePluginID = "game-source-local"
+
+type localConfig struct {
+	BasePath string `json:"base_path"`
+}
+
+// openLocalFile serves a file from a local directory connection.
+//
+// Four separate gates have to agree before a byte is read, and each one refuses
+// rather than guessing: the integration must belong to the requesting profile,
+// the connection must declare an absolute base, the file must sit inside the
+// configured include scope, and it must still resolve inside the base once every
+// symlink on both sides is followed. Errors deliberately carry no filesystem
+// path, so a probe learns nothing about the server's layout.
+func (s *Service) openLocalFile(ctx context.Context, sourceGame *core.SourceGame, file core.GameFile) (ReadSeekCloser, error) {
+	if s.integrationRepo == nil {
+		return nil, ErrUnavailable
+	}
+
+	// The repository is profile-scoped, so a copy belonging to another profile
+	// cannot reach its connection config through this path.
+	integration, err := s.integrationRepo.GetByID(ctx, sourceGame.IntegrationID)
+	if err != nil || integration == nil || integration.ID != sourceGame.IntegrationID {
+		return nil, ErrNotFound
+	}
+
+	var rawConfig map[string]any
+	if err := json.Unmarshal([]byte(integration.ConfigJSON), &rawConfig); err != nil {
+		return nil, ErrUnavailable
+	}
+	if err := sourcescope.ValidateConfig(localSourcePluginID, rawConfig); err != nil {
+		return nil, ErrUnavailable
+	}
+	var config localConfig
+	if err := json.Unmarshal([]byte(integration.ConfigJSON), &config); err != nil {
+		return nil, ErrUnavailable
+	}
+	basePath := strings.TrimSpace(config.BasePath)
+	if basePath == "" || !filepath.IsAbs(basePath) {
+		return nil, ErrUnavailable
+	}
+
+	// Scope first, then containment. Scope answers "was this folder ever
+	// connected"; containment answers "does this path still land inside it".
+	logicalPath, err := NormalizeRelativePath(file.Path)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if !includeScopeAllows(logicalPath, sourcescope.ReadIncludePaths(localSourcePluginID, rawConfig)) {
+		return nil, ErrNotFound
+	}
+	resolved, err := resolveLocalFile(basePath, logicalPath)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+
+	opened, err := os.Open(resolved)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	info, err := opened.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		_ = opened.Close()
+		return nil, ErrNotFound
+	}
+	return opened, nil
+}
+
+// supportsDirectSourceGame reports whether the server can read this source
+// game's bytes itself rather than asking the plugin to materialize a copy.
+//
+// This is not the same question sourcecache and play_support ask. Those want a
+// real file already sitting on this machine that a runtime can open by path, so
+// an SMB share does not qualify there. Here it does, because this package knows
+// how to open one. Keep the three separate.
 func supportsDirectSourceGame(sourceGame *core.SourceGame) bool {
 	if sourceGame == nil {
 		return false
 	}
-	return sourceGame.PluginID == "game-source-smb" || filepath.IsAbs(strings.TrimSpace(sourceGame.RootPath))
+	switch sourceGame.PluginID {
+	case "game-source-smb", localSourcePluginID:
+		// Both resolve each file against the connection's own configured root,
+		// so the scanner's relative RootPath does not disqualify them.
+		return true
+	}
+	return filepath.IsAbs(strings.TrimSpace(sourceGame.RootPath))
 }
 
 func resolveLocalFile(rootPath, relativePath string) (string, error) {
@@ -389,7 +477,10 @@ func resolveSMBPath(relativePath string) (string, error) {
 	return filepath.ToSlash(filepath.FromSlash(normalized)), nil
 }
 
-func smbPathAllowed(logicalPath string, includes []sourcescope.IncludePath) bool {
+// includeScopeAllows reports whether a logical path sits inside the connection's
+// configured include scope and outside every exclude under it. Shared by every
+// filesystem-backed source; nothing about it is SMB-specific.
+func includeScopeAllows(logicalPath string, includes []sourcescope.IncludePath) bool {
 	logicalPath = sourcescope.NormalizeLogicalPath(logicalPath)
 	if logicalPath == "" {
 		return false

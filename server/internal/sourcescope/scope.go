@@ -15,7 +15,7 @@ type IncludePath struct {
 
 func IsFilesystemBackedPlugin(pluginID string) bool {
 	switch pluginID {
-	case "game-source-smb", "game-source-google-drive":
+	case "game-source-smb", "game-source-google-drive", "game-source-local":
 		return true
 	default:
 		return false

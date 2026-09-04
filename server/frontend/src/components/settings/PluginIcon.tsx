@@ -18,6 +18,9 @@ import {
   Trophy,
   RefreshCw,
   Puzzle,
+  FolderOpen,
+  HardDrive,
+  HardDriveUpload,
 } from 'lucide-react'
 
 /** Registry of lucide icon name → component. Only icons we actually use. */
@@ -38,6 +41,12 @@ const ICON_REGISTRY: Record<string, LucideIcon> = {
   Trophy,
   RefreshCw,
   Puzzle,
+  FolderOpen,
+  // HardDrive and HardDriveUpload were mapped in PLUGIN_LUCIDE_ICONS but never
+  // registered here, so both save-sync plugins silently rendered the generic
+  // puzzle icon.
+  HardDrive,
+  HardDriveUpload,
 }
 
 interface PluginIconProps {

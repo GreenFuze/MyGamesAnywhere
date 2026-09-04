@@ -21,6 +21,8 @@ interface FolderBrowserProps {
   onSkip?: () => void
   browse?: (path: string) => Promise<BrowseResponse>
   allowSharedLocations?: boolean
+  /** Name of the first breadcrumb. A local folder is not "My Drive". */
+  rootLabel?: string
 }
 
 export function FolderBrowser({
@@ -31,9 +33,10 @@ export function FolderBrowser({
   onSkip,
   browse,
   allowSharedLocations = false,
+  rootLabel,
 }: FolderBrowserProps) {
   const [history, setHistory] = useState<FolderBrowseLocation[]>(() => (
-    buildInitialFolderHistory(initialPath, initialObjectId, allowSharedLocations)
+    buildInitialFolderHistory(initialPath, initialObjectId, allowSharedLocations, rootLabel)
   ))
   const [folders, setFolders] = useState<BrowseFolder[]>([])
   const [loading, setLoading] = useState(false)

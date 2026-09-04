@@ -88,3 +88,21 @@ test('an unknown capability still appears rather than vanishing', () => {
   const capabilities = new ProviderCatalog([odd, hltb]).categories().map((entry) => entry.capability)
   assert.deepEqual(capabilities, ['metadata', 'experimental'])
 })
+
+test('a local folder connection is a location provider, not a sign-in', () => {
+  const local = {
+    plugin_id: 'game-source-local',
+    plugin_version: '1',
+    provides: ['source.filesystem.list', 'source.filesystem.delete', 'source.browse', 'plugin.check_config'],
+    capabilities: ['source'],
+    config: {
+      base_path: { type: 'string', required: true },
+      include_paths: { type: 'array', required: true, items: { type: 'object' } },
+    },
+  }
+  const described = describeProvider(local)
+  assert.equal(described.setup.kind, 'location')
+  assert.equal(described.integrationType, 'source')
+  assert.equal(described.name, 'Local Folder')
+  assert.ok(described.hasConfig)
+})
