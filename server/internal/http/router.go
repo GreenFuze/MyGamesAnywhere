@@ -111,7 +111,11 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			// The profile picker exposes only safe display identity. Provider
 			// callbacks are authorized by expiring profile/plugin/connection state.
 			api.Get("/profiles", b.ProfileCtrl.ListProfiles)
+			// HEAD as well as GET: a client that caches artwork asks for the size
+			// and validator before spending the bandwidth, and http.ServeContent
+			// already answers it correctly once the method is routed here.
 			api.With(ProfileContextMiddleware(b.ProfileRepo), RequireProfileAccess(b.AuthService)).Get("/media/{assetID}", b.MediaCtrl.ServeMedia)
+			api.With(ProfileContextMiddleware(b.ProfileRepo), RequireProfileAccess(b.AuthService)).Head("/media/{assetID}", b.MediaCtrl.ServeMedia)
 			api.Get("/auth/callback/{plugin_id}", b.OAuthCtrl.Callback)
 			api.Post("/auth/callback/import", b.OAuthCtrl.ImportCallback)
 			api.Put("/media/{assetID}/metadata", ProfileContextMiddleware(b.ProfileRepo)(RequireProfileAccess(b.AuthService)(RequireAdminProfile(http.HandlerFunc(b.MediaCtrl.UpdateMediaMetadata)))).ServeHTTP)
@@ -405,6 +409,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Post("/achievements/refresh", noopHandler())
 			api.Get("/achievements/refresh/jobs/{job_id}", noopHandler())
 			api.Get("/media/{assetID}", noopHandler())
+			api.Head("/media/{assetID}", noopHandler())
 			api.Put("/media/{assetID}/metadata", noopHandler())
 			api.Get("/stats", noopHandler())
 			api.Get("/stats/library", noopHandler())

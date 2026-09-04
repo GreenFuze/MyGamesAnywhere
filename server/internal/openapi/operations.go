@@ -444,6 +444,13 @@ func Operations() []OperationDoc {
 			ResponseDocs:   map[string]string{"200": "SaveSyncPutResult JSON", "400": "Invalid parameters or snapshot payload", "404": "Game or slot target not found", "409": "SaveSyncPutResult with conflict metadata", "500": "Internal server error"},
 		},
 		{
+			Method:       "HEAD",
+			Path:         "/api/media/{assetID}",
+			Summary:      "Read media size and validator without the bytes",
+			Description:  "Same authorization and headers as GET, with no body. A client that caches artwork asks for the length and ETag before spending the bandwidth.",
+			ResponseDocs: map[string]string{"200": "Headers only: Content-Type, Content-Length, ETag, Accept-Ranges", "304": "Not modified; the client's validator still matches", "400": "Invalid id", "404": "Unknown asset or missing file with no safe original URL"},
+		},
+		{
 			Method:       "GET",
 			Path:         "/api/media/{assetID}",
 			Summary:      "Stream cached media file",

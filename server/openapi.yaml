@@ -3354,6 +3354,24 @@ paths:
           description: Unknown asset or missing file with no safe original URL
         500:
           description: Internal server error
+    head:
+      summary: Read media size and validator without the bytes
+      description: Same authorization and headers as GET, with no body. A client that caches artwork asks for the length and ETag before spending the bandwidth.
+      parameters:
+        - name: assetID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: 'Headers only: Content-Type, Content-Length, ETag, Accept-Ranges'
+        400:
+          description: Invalid id
+        404:
+          description: Unknown asset or missing file with no safe original URL
+        500:
+          description: Error response
 
   /api/media/{assetID}/metadata:
     put:

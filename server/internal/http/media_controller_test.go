@@ -251,3 +251,25 @@ func TestMediaRangeAndHeadStillWorkAlongsideTheValidator(t *testing.T) {
 		t.Fatalf("HEAD must carry the validator too: %v", recorder.Header())
 	}
 }
+
+func TestTheConsoleMediaRouteAcceptsHeadAndNotOnlyGet(t *testing.T) {
+	// ServeMedia always handled HEAD correctly; the route simply was not
+	// registered for it, so the real router answered 405 while every
+	// controller-level test passed. Walk the built router instead of a
+	// hand-assembled one, which is the only place that gap was visible.
+	methods := map[string]bool{}
+	err := chi.Walk(BuildRouter(nil, 0, ""), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		if route == "/api/media/{assetID}" {
+			methods[method] = true
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		if !methods[method] {
+			t.Errorf("/api/media/{assetID} does not accept %s: %v", method, methods)
+		}
+	}
+}
