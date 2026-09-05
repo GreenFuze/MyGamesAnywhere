@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input'
 import {
   ActionError, ConfirmDialog, FormDialog, RestrictedNotice, ShowOnceSecret,
 } from '@/components/management/ManagementActions'
+import { ServerUpdatePanel } from '@/components/management/ServerUpdatePanel'
 import {
   MetricCard, PageIntro, QueryFeedback, SectionCard, StatusPill, formatCount, formatDate,
 } from '@/components/management/ManagementPrimitives'
@@ -76,6 +77,8 @@ export function SystemPage() {
           <Button variant="outline" size="sm" className="mt-3" onClick={() => setIssued(null)}>Done</Button>
         </SectionCard>
       )}
+
+      <ServerUpdatePanel admin={admin} />
 
       <div className="grid gap-5 xl:grid-cols-2">
         <SectionCard title="MGA server" description="What this server is running.">
