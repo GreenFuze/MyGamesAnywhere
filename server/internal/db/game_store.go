@@ -826,26 +826,37 @@ func (s *gameStore) canonicalGameVisibleInContext(ctx context.Context, canonical
 // GetVisibleCanonicalIDs returns canonical IDs that have at least one found source game,
 // ordered by canonical_id. limit <= 0 means no upper bound (SQLite: LIMIT -1).
 func (s *gameStore) GetVisibleCanonicalIDs(ctx context.Context, offset, limit int) ([]string, error) {
-	return s.GetVisibleCanonicalIDsSorted(ctx, offset, limit, core.CanonicalGameListOrder{
-		Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending,
+	ids, _, err := s.GetVisibleCanonicalIDsSorted(ctx, offset, limit, core.CanonicalGameListQuery{
+		Order: core.CanonicalGameListOrder{
+			Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending,
+		},
 	})
+	return ids, err
 }
 
 // GetVisibleCanonicalIDsSorted applies a validated, deterministic order before
 // LIMIT/OFFSET so adding a page cannot reshuffle games already shown by the UI.
-func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, limit int, order core.CanonicalGameListOrder) ([]string, error) {
+//
+// It also returns how many games matched before the page was cut, which is the
+// only number a caller can honestly put next to the rows: with a search
+// applied, the size of the whole library answers a question nobody asked.
+func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, limit int, query core.CanonicalGameListQuery) ([]string, int, error) {
 	if offset < 0 {
 		offset = 0
 	}
+	order := query.Order
+	// Matching is done on a lowercased LIKE rather than in Go, so a search over
+	// a large library does not have to load every title to discard most of them.
+	search := strings.ToLower(strings.TrimSpace(query.Search))
 	sortPlan, err := newCanonicalGameSortPlan(order.Field)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	direction := "ASC"
 	if order.Direction == core.SortDirectionDescending {
 		direction = "DESC"
 	} else if order.Direction != "" && order.Direction != core.SortDirectionAscending {
-		return nil, fmt.Errorf("unsupported canonical game sort direction %q", order.Direction)
+		return nil, 0, fmt.Errorf("unsupported canonical game sort direction %q", order.Direction)
 	}
 	db := s.db.GetDB()
 	profilePredicate := ""
@@ -853,6 +864,24 @@ func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, li
 	if profileID := strings.TrimSpace(core.ProfileIDFromContext(ctx)); profileID != "" {
 		profilePredicate = " AND sg.profile_id = ?"
 		args = append(args, profileID)
+	}
+
+	// A game is matched by the title the user sees, which may come from a
+	// metadata provider or from the folder the scanner found it in. Matching
+	// only one of those would hide games from a search that plainly names them.
+	searchPredicate := ""
+	if search != "" {
+		pattern := "%" + escapeLikePattern(search) + "%"
+		searchPredicate = ` AND (
+				LOWER(sg.raw_title) LIKE ? ESCAPE '\'
+				OR EXISTS (
+					SELECT 1 FROM metadata_resolver_matches sm
+					WHERE sm.source_game_id = sg.id
+					  AND sm.outvoted = 0
+					  AND LOWER(IFNULL(sm.title, '')) LIKE ? ESCAPE '\'
+				)
+			)`
+		args = append(args, pattern, pattern)
 	}
 	q := `
 		WITH resolver_stats AS (
@@ -877,7 +906,7 @@ func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, li
 					OR sg.platform = '` + string(core.PlatformUnknown) + `'
 					OR sg.group_kind = '` + string(core.GroupKindUnknown) + `'
 				)
-			  )` + profilePredicate + `
+			  )` + profilePredicate + searchPredicate + `
 		)
 		SELECT vs.canonical_id, vs.source_game_id, CAST(` + sortPlan.sourceValueSQL("vs") + ` AS TEXT),
 			m.id, IFNULL(m.manual_selection, 0), CAST(m.` + sortPlan.resolverColumn + ` AS TEXT),
@@ -890,7 +919,7 @@ func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, li
 
 	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -902,7 +931,7 @@ func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, li
 		var resolverManual int
 		var resolverNumber sql.NullFloat64
 		if err := rows.Scan(&canonicalID, &sourceGameID, &sourceValue, &resolverID, &resolverManual, &resolverText, &resolverNumber); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		candidate := candidates[canonicalID]
 		if candidate == nil {
@@ -923,7 +952,7 @@ func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, li
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	sorted := make([]*canonicalGameSortCandidate, 0, len(candidates))
@@ -940,10 +969,11 @@ func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, li
 		}
 		return comparison < 0
 	})
-	if offset >= len(sorted) {
-		return []string{}, nil
+	matched := len(sorted)
+	if offset >= matched {
+		return []string{}, matched, nil
 	}
-	end := len(sorted)
+	end := matched
 	if limit > 0 && offset+limit < end {
 		end = offset + limit
 	}
@@ -951,7 +981,15 @@ func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, li
 	for _, candidate := range sorted[offset:end] {
 		ids = append(ids, candidate.canonicalID)
 	}
-	return ids, nil
+	return ids, matched, nil
+}
+
+// escapeLikePattern keeps a title containing % or _ from matching everything.
+// A game called "100% Orange Juice" is a real title, and searching for it
+// should find it rather than the whole library.
+func escapeLikePattern(value string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
+	return replacer.Replace(value)
 }
 
 type canonicalGameSortPlan struct {

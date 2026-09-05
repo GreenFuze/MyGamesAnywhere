@@ -27,8 +27,11 @@ import (
 
 const (
 	defaultGamesPageSize = 100
-	maxGamesPageSize     = 2000
-	maxGamesFetchAll     = 20000
+	// Long enough for any real title; short enough that a search cannot be used
+	// to push work into the database.
+	maxGameSearchLength = 200
+	maxGamesPageSize    = 2000
+	maxGamesFetchAll    = 20000
 )
 
 var integrationStatusTimeout = time.Minute
@@ -371,6 +374,14 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A long search is refused rather than truncated: silently matching on
+	// something other than what was typed is worse than saying no.
+	search := strings.TrimSpace(r.URL.Query().Get("search"))
+	if len(search) > maxGameSearchLength {
+		http.Error(w, "search is too long", http.StatusBadRequest)
+		return
+	}
+
 	var offset, sqlLimit int
 	respPageSize := pageSize
 	if fetchAll {
@@ -384,7 +395,10 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 		page = 0
 	} else {
 		offset = page * pageSize
-		if offset >= total {
+		// Paging past the end of an unfiltered library can be answered without
+		// touching the store. With a search running, only the store knows how
+		// many matched, so that case falls through to the query below.
+		if search == "" && offset >= total {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(ListGamesResponse{
 				Total: total, Page: page, PageSize: pageSize, Games: []GameDetailResponse{},
@@ -394,7 +408,10 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 		sqlLimit = pageSize
 	}
 
-	ids, err := c.gameStore.GetVisibleCanonicalIDsSorted(ctx, offset, sqlLimit, sortOrder)
+	ids, matched, err := c.gameStore.GetVisibleCanonicalIDsSorted(ctx, offset, sqlLimit, core.CanonicalGameListQuery{
+		Order:  sortOrder,
+		Search: search,
+	})
 	if err != nil {
 		c.logger.Error("list game ids", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -433,7 +450,10 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	timing.writeHeader(w)
 	json.NewEncoder(w).Encode(ListGamesResponse{
-		Total:    total,
+		// What matched, not how big the library is. With a search running the
+		// second number answers a question nobody asked, and putting it beside
+		// filtered rows reads as "showing 12 of 272" when 12 is all there are.
+		Total:    matched,
 		Page:     page,
 		PageSize: respPageSize,
 		Games:    out,

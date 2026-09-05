@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { Gamepad2, LayoutGrid, Rows3, SearchX } from 'lucide-react'
+import { ArrowDownAZ, Gamepad2, LayoutGrid, Rows3, Search, SearchX, X } from 'lucide-react'
 import {
   getStats, listCatalogOffers, listGames,
   type CatalogOffer, type GameDetailResponse, type LibraryStats,
@@ -17,8 +17,33 @@ import { MetricCard, PageIntro, QueryFeedback, SectionCard, StatusPill, formatCo
  *  which page it was on. */
 const PAGE_STEP = 48
 
+type SortField = 'title' | 'release_date' | 'platform' | 'rating'
+
+const SORTS: { id: SortField; dir: 'asc' | 'desc'; label: string }[] = [
+  { id: 'title', dir: 'asc', label: 'Name (A–Z)' },
+  { id: 'title', dir: 'desc', label: 'Name (Z–A)' },
+  { id: 'release_date', dir: 'desc', label: 'Newest first' },
+  { id: 'release_date', dir: 'asc', label: 'Oldest first' },
+  { id: 'rating', dir: 'desc', label: 'Best rated' },
+  { id: 'platform', dir: 'asc', label: 'Platform' },
+]
+
 export function LibraryManagementPage() {
   const [shown, setShown] = useState(PAGE_STEP)
+  const [typed, setTyped] = useState('')
+  // What is actually asked of the server. Typing sends a request per keystroke
+  // otherwise, and the results flicker between stale pages as they land.
+  const [search, setSearch] = useState('')
+  const [sort, setSort] = useState(0)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(typed.trim()), 250)
+    return () => window.clearTimeout(timer)
+  }, [typed])
+
+  // A new search starts at the top. Keeping the old page size would ask for
+  // 200 rows of a result that has three.
+  useEffect(() => { setShown(PAGE_STEP) }, [search, sort])
   // Detailed is the default. A wall of covers is pleasant and says almost
   // nothing: not the platform, not the source, not whether a game is in a
   // subscription or has gone missing. The covers are the other view.
@@ -33,9 +58,10 @@ export function LibraryManagementPage() {
   // that happen to be loaded. A number that changes as you scroll is worse than
   // no number at all.
   const stats = useQuery({ queryKey: ['management', 'library', 'stats'], queryFn: () => getStats() })
+  const order = SORTS[sort]
   const library = useQuery({
-    queryKey: ['management', 'library', { shown }],
-    queryFn: () => listGames({ page: 0, page_size: shown, sort_by: 'title', sort_dir: 'asc' }),
+    queryKey: ['management', 'library', { shown, search, sort }],
+    queryFn: () => listGames({ page: 0, page_size: shown, sort_by: order.id, sort_dir: order.dir, search: search || undefined }),
     placeholderData: keepPreviousData,
   })
   // Availability is only known once a store or subscription source has been
@@ -43,16 +69,19 @@ export function LibraryManagementPage() {
   const offers = useQuery({ queryKey: ['management', 'catalog-offers'], queryFn: listCatalogOffers })
 
   const games = library.data?.games ?? []
-  const total = library.data?.total ?? stats.data?.canonical_game_count
+  // Two different numbers, and conflating them is how a card starts lying.
+  // libraryTotal is how many games exist; matched is how many this search found.
+  const libraryTotal = stats.data?.canonical_game_count
+  const matched = library.data?.total
   const missing = missingFromSources(stats.data)
-  const hasMore = total !== undefined && games.length < total
+  const hasMore = matched !== undefined && games.length < matched
 
   return (
     <div className="mga-page-enter space-y-7">
       <PageIntro eyebrow="Library" title="Your games" description="Every game MGA has found, and where each one comes from." />
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <MetricCard label="Games" value={formatCount(total)} detail="Across all your connected sources" icon={<Gamepad2 className="h-4 w-4" />} />
+        <MetricCard label="Games" value={formatCount(libraryTotal)} detail="Across all your connected sources" icon={<Gamepad2 className="h-4 w-4" />} />
         {missing !== null && (
           <MetricCard
             label="Missing right now"
@@ -65,19 +94,27 @@ export function LibraryManagementPage() {
       </div>
 
       <SectionCard
-        title="All games"
-        description={total !== undefined && games.length > 0 ? `Showing ${formatCount(games.length)} of ${formatCount(total)}, sorted by name.` : undefined}
+        title={search ? 'Search results' : 'All games'}
+        description={matched !== undefined && games.length > 0
+          ? `Showing ${formatCount(games.length)} of ${formatCount(matched)}${search ? ` matching “${search}”` : ''}.`
+          : undefined}
       >
-        <div className="mb-4 flex justify-end">
-          <ViewToggle view={view} onChange={chooseView} />
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <SearchBox value={typed} onChange={setTyped} busy={library.isFetching && typed !== ''} />
+          <div className="flex items-center gap-2">
+            <SortPicker value={sort} onChange={setSort} />
+            <ViewToggle view={view} onChange={chooseView} />
+          </div>
         </div>
 
         <QueryFeedback
           pending={library.isPending}
           error={library.error}
           empty={!library.isPending && games.length === 0}
-          emptyTitle="No games yet"
-          emptyDescription="Connect a source and scan it, and your games will show up here."
+          emptyTitle={search ? `Nothing matches “${search}”` : 'No games yet'}
+          emptyDescription={search
+            ? 'Searching looks at the game\'s name, including the folder it was found in.'
+            : 'Connect a source and scan it, and your games will show up here.'}
         />
 
         {games.length > 0 && (
@@ -100,7 +137,7 @@ export function LibraryManagementPage() {
                   disabled={library.isFetching}
                   className="rounded-md border border-mga-border bg-mga-elevated/60 px-4 py-2 text-sm text-mga-text transition hover:bg-mga-elevated disabled:opacity-60"
                 >
-                  {library.isFetching ? 'Loading…' : `Show more (${formatCount((total ?? 0) - games.length)} left)`}
+                  {library.isFetching ? 'Loading…' : `Show more (${formatCount((matched ?? 0) - games.length)} left)`}
                 </button>
               </div>
             )}
@@ -108,6 +145,49 @@ export function LibraryManagementPage() {
         )}
       </SectionCard>
     </div>
+  )
+}
+
+function SearchBox({ value, onChange, busy }: { value: string; onChange: (next: string) => void; busy: boolean }) {
+  return (
+    <div className="relative min-w-0 flex-1 sm:max-w-xs">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mga-muted" />
+      <input
+        type="search"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Search your games"
+        aria-label="Search your games"
+        className="w-full rounded-md border border-mga-border bg-mga-elevated/60 py-1.5 pl-8 pr-8 text-xs text-mga-text placeholder:text-mga-muted focus:border-mga-accent/50 focus:outline-none"
+      />
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          aria-label="Clear search"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-mga-muted transition hover:text-mga-text"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {busy && <span className="sr-only" role="status">Searching</span>}
+    </div>
+  )
+}
+
+function SortPicker({ value, onChange }: { value: number; onChange: (next: number) => void }) {
+  return (
+    <label className="inline-flex items-center gap-1.5 text-xs text-mga-muted">
+      <ArrowDownAZ className="h-3.5 w-3.5" />
+      <span className="sr-only">Sort your games</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="rounded-md border border-mga-border bg-mga-elevated/60 px-2 py-1 text-xs text-mga-text focus:border-mga-accent/50 focus:outline-none"
+      >
+        {SORTS.map((option, index) => <option key={option.label} value={index}>{option.label}</option>)}
+      </select>
+    </label>
   )
 }
 

@@ -1177,6 +1177,7 @@ type fakeGameStore struct {
 	mediaStatus                *core.MediaDownloadStatus
 	visibleCanonicalIDs        []string
 	requestedListOrder         core.CanonicalGameListOrder
+	requestedListSearch        string
 	requestedListOffset        int
 	requestedListLimit         int
 }
@@ -1224,18 +1225,20 @@ func (f *fakeGameStore) CountVisibleCanonicalGames(context.Context) (int, error)
 func (f *fakeGameStore) GetVisibleCanonicalIDs(context.Context, int, int) ([]string, error) {
 	panic("unexpected call")
 }
-func (f *fakeGameStore) GetVisibleCanonicalIDsSorted(_ context.Context, offset, limit int, order core.CanonicalGameListOrder) ([]string, error) {
+func (f *fakeGameStore) GetVisibleCanonicalIDsSorted(_ context.Context, offset, limit int, query core.CanonicalGameListQuery) ([]string, int, error) {
 	f.requestedListOffset = offset
 	f.requestedListLimit = limit
-	f.requestedListOrder = order
-	if offset >= len(f.visibleCanonicalIDs) {
-		return []string{}, nil
+	f.requestedListOrder = query.Order
+	f.requestedListSearch = query.Search
+	matched := len(f.visibleCanonicalIDs)
+	if offset >= matched {
+		return []string{}, matched, nil
 	}
-	end := len(f.visibleCanonicalIDs)
+	end := matched
 	if limit > 0 && offset+limit < end {
 		end = offset + limit
 	}
-	return append([]string(nil), f.visibleCanonicalIDs[offset:end]...), nil
+	return append([]string(nil), f.visibleCanonicalIDs[offset:end]...), matched, nil
 }
 func (f *fakeGameStore) GetCanonicalGameByID(context.Context, string) (*core.CanonicalGame, error) {
 	return f.game, nil

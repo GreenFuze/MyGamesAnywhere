@@ -750,6 +750,9 @@ export async function listGames(params?: {
   page_size?: number;
   sort_by?: LibraryPrefs["sortBy"];
   sort_dir?: LibraryPrefs["sortDir"];
+  /** Matches the title the user sees, from metadata or from the folder name.
+   *  The response total counts matches, not the whole library. */
+  search?: string;
 }): Promise<ListGamesResponse> {
   const q = new URLSearchParams();
   if (params?.page !== undefined) q.set("page", String(params.page));
@@ -757,6 +760,7 @@ export async function listGames(params?: {
     q.set("page_size", String(params.page_size));
   if (params?.sort_by) q.set("sort_by", params.sort_by);
   if (params?.sort_dir) q.set("sort_dir", params.sort_dir);
+  if (params?.search) q.set("search", params.search);
   const qs = q.toString();
   return getJson<ListGamesResponse>(qs ? `/api/games?${qs}` : "/api/games");
 }

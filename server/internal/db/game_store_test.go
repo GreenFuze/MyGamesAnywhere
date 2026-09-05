@@ -2053,6 +2053,104 @@ func TestUndetectedCandidatesAreHiddenFromLibraryVisibilityAndBecomeVisibleWhenM
 	}
 }
 
+func TestSearchMatchesTheTitleTheUserSees(t *testing.T) {
+	// A game's displayed title can come from a metadata provider or from the
+	// folder the scanner found it in. Matching only one of those would hide
+	// games from a search that plainly names them, so both are searched.
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+	games := []*core.SourceGame{
+		{
+			ID: "scan:doom-folder", IntegrationID: "integration-1", PluginID: "game-source-local",
+			ExternalID: "doom-folder", RawTitle: "DOOM_1993_shareware", Platform: core.PlatformWindowsPC,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found",
+		},
+		{
+			ID: "scan:quake", IntegrationID: "integration-1", PluginID: "game-source-local",
+			ExternalID: "quake", RawTitle: "q1", Platform: core.PlatformWindowsPC,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found",
+		},
+		{
+			ID: "scan:percent", IntegrationID: "integration-1", PluginID: "game-source-local",
+			ExternalID: "percent", RawTitle: "100% Orange Juice", Platform: core.PlatformWindowsPC,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found",
+		},
+	}
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "integration-1",
+		SourceGames:   games,
+		ResolverMatches: map[string][]core.ResolverMatch{
+			// Every game needs a resolved title to be visible at all — one
+			// without stays in review — so the interesting part is that each
+			// folder name and metadata title carry different words.
+			"scan:doom-folder": {{PluginID: "metadata-igdb", ExternalID: "d", Title: "Doom", Rating: 80}},
+			"scan:quake":       {{PluginID: "metadata-igdb", ExternalID: "q", Title: "Quake", Rating: 90}},
+			"scan:percent":     {{PluginID: "metadata-igdb", ExternalID: "p", Title: "100% Orange Juice", Rating: 70}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	doomID := canonicalIDForSource(t, ctx, db, "scan:doom-folder")
+	quakeID := canonicalIDForSource(t, ctx, db, "scan:quake")
+	percentID := canonicalIDForSource(t, ctx, db, "scan:percent")
+
+	search := func(term string) ([]string, int) {
+		t.Helper()
+		ids, matched, err := store.GetVisibleCanonicalIDsSorted(ctx, 0, 50, core.CanonicalGameListQuery{
+			Order:  core.CanonicalGameListOrder{Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending},
+			Search: term,
+		})
+		if err != nil {
+			t.Fatalf("search %q: %v", term, err)
+		}
+		return ids, matched
+	}
+
+	// Found by a word that appears only in the folder name: the metadata title
+	// is "Doom", so this can match through raw_title and nothing else.
+	if ids, matched := search("shareware"); len(ids) != 1 || ids[0] != doomID || matched != 1 {
+		t.Fatalf("searching the folder name gave %v (matched %d), want [%s]", ids, matched, doomID)
+	}
+
+	// Found by a word that appears only in the metadata title: the folder is
+	// called "q1", so this can match through the resolver and nothing else.
+	if ids, matched := search("quake"); len(ids) != 1 || ids[0] != quakeID || matched != 1 {
+		t.Fatalf("searching the metadata title gave %v (matched %d), want [%s]", ids, matched, quakeID)
+	}
+
+	// Case does not matter; someone typing a search does not hold shift.
+	if ids, _ := search("QUAKE"); len(ids) != 1 || ids[0] != quakeID {
+		t.Fatalf("search is case sensitive: %v", ids)
+	}
+
+	// A percent sign in a title is a real title, not a wildcard. Without
+	// escaping, "100%" would match the whole library.
+	if ids, matched := search("100% Orange"); len(ids) != 1 || ids[0] != percentID || matched != 1 {
+		t.Fatalf("searching a title containing %% gave %v (matched %d), want [%s]", ids, matched, percentID)
+	}
+	if ids, matched := search("%"); matched != 1 || len(ids) != 1 {
+		t.Fatalf("a bare %% matched %d games; it must be a literal, not a wildcard", matched)
+	}
+
+	// An underscore is the other LIKE wildcard.
+	if _, matched := search("_"); matched != 1 {
+		t.Fatalf("a bare _ matched %d games; it must be a literal", matched)
+	}
+
+	// Nothing matching is an empty result, not an error and not everything.
+	if ids, matched := search("no game is called this"); len(ids) != 0 || matched != 0 {
+		t.Fatalf("an unmatched search gave %v (matched %d)", ids, matched)
+	}
+
+	// No search means the whole library, and the count agrees with the rows.
+	ids, matched := search("")
+	if len(ids) != 3 || matched != 3 {
+		t.Fatalf("an empty search gave %d ids and matched %d, want 3 and 3", len(ids), matched)
+	}
+}
+
 func TestVisibleCanonicalIDsSortedBeforePagination(t *testing.T) {
 	ctx := context.Background()
 	db, store := newTestGameStore(t)
@@ -2082,8 +2180,8 @@ func TestVisibleCanonicalIDsSortedBeforePagination(t *testing.T) {
 
 	alphaID := canonicalIDForSource(t, ctx, db, "scan:alpha")
 	zuluID := canonicalIDForSource(t, ctx, db, "scan:zulu")
-	titlePage, err := store.GetVisibleCanonicalIDsSorted(ctx, 0, 1, core.CanonicalGameListOrder{
-		Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending,
+	titlePage, _, err := store.GetVisibleCanonicalIDsSorted(ctx, 0, 1, core.CanonicalGameListQuery{
+		Order: core.CanonicalGameListOrder{Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -2091,8 +2189,8 @@ func TestVisibleCanonicalIDsSortedBeforePagination(t *testing.T) {
 	if len(titlePage) != 1 || titlePage[0] != alphaID {
 		t.Fatalf("title page = %v, want [%s]", titlePage, alphaID)
 	}
-	ratingPage, err := store.GetVisibleCanonicalIDsSorted(ctx, 0, 2, core.CanonicalGameListOrder{
-		Field: core.CanonicalGameSortRating, Direction: core.SortDirectionDescending,
+	ratingPage, _, err := store.GetVisibleCanonicalIDsSorted(ctx, 0, 2, core.CanonicalGameListQuery{
+		Order: core.CanonicalGameListOrder{Field: core.CanonicalGameSortRating, Direction: core.SortDirectionDescending},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -2113,8 +2211,8 @@ func TestVisibleCanonicalIDsSortedKeepsProfilesIsolated(t *testing.T) {
 	persistBatch(t, profileTwo, store, makeTestBatch("integration-two", "scan:profile-two", "two", "Alpha Two", "match-two"))
 	profileOneCanonicalID := canonicalIDForSource(t, profileOne, db, "scan:profile-one")
 
-	ids, err := store.GetVisibleCanonicalIDsSorted(profileOne, 0, 10, core.CanonicalGameListOrder{
-		Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending,
+	ids, _, err := store.GetVisibleCanonicalIDsSorted(profileOne, 0, 10, core.CanonicalGameListQuery{
+		Order: core.CanonicalGameListOrder{Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending},
 	})
 	if err != nil {
 		t.Fatal(err)

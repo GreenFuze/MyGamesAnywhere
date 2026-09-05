@@ -136,7 +136,7 @@ type GameStore interface {
 
 	// GetVisibleCanonicalIDsSorted returns canonical IDs in a requested stable
 	// order before applying pagination.
-	GetVisibleCanonicalIDsSorted(ctx context.Context, offset, limit int, order CanonicalGameListOrder) ([]string, error)
+	GetVisibleCanonicalIDsSorted(ctx context.Context, offset, limit int, query CanonicalGameListQuery) (ids []string, matched int, err error)
 
 	// GetCanonicalGameByID returns one merged game view by stable canonical ID.
 	GetCanonicalGameByID(ctx context.Context, canonicalID string) (*CanonicalGame, error)

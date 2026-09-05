@@ -557,6 +557,15 @@ type CanonicalGameListOrder struct {
 	Direction SortDirection
 }
 
+// CanonicalGameListQuery selects and orders the visible library.
+type CanonicalGameListQuery struct {
+	Order CanonicalGameListOrder
+	// Search matches a game's title, whether that title came from a metadata
+	// provider or from the folder the scanner found it in. Someone looking for
+	// "Doom" should find it either way. Empty means everything.
+	Search string
+}
+
 // ScanBatch holds everything produced by one scan cycle, validated in memory
 // before being written to the DB in a single transaction.
 type ScanBatch struct {
