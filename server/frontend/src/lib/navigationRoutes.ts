@@ -55,14 +55,14 @@ export const APP_ROUTE_MATCHERS: RouteObject[] = [
 ]
 
 export const MANAGEMENT_DESTINATIONS = [
-  { id: 'overview', label: 'Overview', path: APP_DESTINATIONS.overview, description: 'Operational health and attention' },
-  { id: 'profiles', label: 'Profiles', path: '/profiles', description: 'Identity, roles, and policy' },
-  { id: 'library', label: 'Library', path: APP_DESTINATIONS.library, description: 'Managed games and metadata' },
-  { id: 'catalog', label: 'Catalog', path: '/catalog', description: 'Offers, versions, and availability' },
-  { id: 'sources', label: 'Sources', path: '/sources', description: 'Storefront and provider sync' },
-  { id: 'artifacts', label: 'Artifacts', path: '/artifacts', description: 'Emulators and runtime compliance' },
-  { id: 'achievements', label: 'Achievements', path: '/achievements', description: 'Normalized progress and sync' },
-  { id: 'system', label: 'System', path: APP_DESTINATIONS.system, description: 'Server, API clients, and recovery' },
+  { id: 'overview', label: 'Overview', path: APP_DESTINATIONS.overview, description: 'How everything is doing' },
+  { id: 'profiles', label: 'Profiles', path: '/profiles', description: 'Who can use this server' },
+  { id: 'library', label: 'Library', path: APP_DESTINATIONS.library, description: 'Everything MGA has found' },
+  { id: 'catalog', label: 'Catalog', path: '/catalog', description: 'What you can play, and for how long' },
+  { id: 'sources', label: 'Sources', path: '/sources', description: 'Where your games come from' },
+  { id: 'artifacts', label: 'Artifacts', path: '/artifacts', description: 'Emulators and runtimes' },
+  { id: 'achievements', label: 'Achievements', path: '/achievements', description: 'Your progress across sources' },
+  { id: 'system', label: 'System', path: APP_DESTINATIONS.system, description: 'Server details and app access' },
 ] as const
 
 export function isCredentialSetupPath(pathname: string): boolean {

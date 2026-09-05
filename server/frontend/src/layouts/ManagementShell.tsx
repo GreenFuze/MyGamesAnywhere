@@ -90,7 +90,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
       </span>
       <span>
         <span className="block text-sm font-bold tracking-[0.18em] text-mga-text">MGA</span>
-        <span className="block text-[0.62rem] uppercase tracking-[0.2em] text-mga-muted">Control plane</span>
+        <span className="block text-[0.62rem] uppercase tracking-[0.2em] text-mga-muted">My Games Anywhere</span>
       </span>
     </div>
   )

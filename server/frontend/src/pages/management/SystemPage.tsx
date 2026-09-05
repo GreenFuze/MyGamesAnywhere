@@ -54,19 +54,19 @@ export function SystemPage() {
   return (
     <div className="mga-page-enter space-y-7">
       <PageIntro
-        eyebrow="Server administration"
-        title="System and frontend integrations"
-        description="Inspect the Go control plane, issue scoped store-like API clients, and export retirement evidence."
+        eyebrow="Server"
+        title="Server and app access"
+        description="Server details, and the access keys you give to apps that connect to MGA."
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <MetricCard label="Version" value={about.isPending ? '…' : about.data?.version || 'Development'} detail="Current Go server build" icon={<ServerCog className="h-4 w-4" />} />
+        <MetricCard label="Version" value={about.isPending ? '…' : about.data?.version || 'Development'} detail="Version running right now" icon={<ServerCog className="h-4 w-4" />} />
         <MetricCard label="API clients" value={admin ? formatCount(activeClients) : 'Restricted'} detail={admin ? 'Active scoped frontend integrations' : 'Administrator role required'} icon={<KeyRound className="h-4 w-4" />} />
-        <MetricCard label="API scopes" value={admin ? formatCount(clients.data?.supported_scopes.length) : 'Restricted'} detail="Permissions available to frontend clients" icon={<ListChecks className="h-4 w-4" />} />
+        <MetricCard label="API scopes" value={admin ? formatCount(clients.data?.supported_scopes.length) : 'Restricted'} detail="Permissions you can grant to an app" icon={<ListChecks className="h-4 w-4" />} />
       </div>
 
       {issued && (
-        <SectionCard title="New API client credential" description="Give this to the frontend integration now.">
+        <SectionCard title="Your new access key" description="Copy this into the app now. It will not be shown again.">
           <ShowOnceSecret
             label={`Token for ${issued.name}`}
             value={issued.token}
@@ -78,19 +78,18 @@ export function SystemPage() {
       )}
 
       <div className="grid gap-5 xl:grid-cols-2">
-        <SectionCard title="MGA server" description="Build identity and operating boundary.">
+        <SectionCard title="MGA server" description="What this server is running.">
           <QueryFeedback pending={about.isPending} error={about.error} empty={false} emptyTitle="" emptyDescription="" />
           {about.data && (
             <dl className="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-3 text-xs">
               <dt className="text-mga-muted">Version</dt><dd className="font-mono text-mga-text">{about.data.version || 'development'}</dd>
               <dt className="text-mga-muted">Commit</dt><dd className="truncate font-mono text-mga-text">{about.data.commit || 'working tree'}</dd>
               <dt className="text-mga-muted">Build date</dt><dd className="text-mga-text">{about.data.build_date || 'development build'}</dd>
-              <dt className="text-mga-muted">Serving model</dt><dd className="text-mga-text">Headless control plane + scoped frontend APIs</dd>
-            </dl>
+                          </dl>
           )}
         </SectionCard>
 
-        <SectionCard title="Frontend API clients" description="Tokens are profile-bound, scoped, revocable, and shown only once.">
+        <SectionCard title="Connected apps" description="Each key works for one profile only, grants just what you choose, can be revoked at any time, and is shown once.">
           {!admin ? (
             <RestrictedNotice>
               Switch to an administrator profile to issue or revoke external frontend clients.
@@ -106,8 +105,8 @@ export function SystemPage() {
                 pending={clients.isPending}
                 error={clients.error}
                 empty={!clients.isPending && (clients.data?.clients.length ?? 0) === 0}
-                emptyTitle="No frontend clients issued"
-                emptyDescription="Issue a scoped client when connecting Playnite or another approved desktop or mobile frontend."
+                emptyTitle="No apps connected yet"
+                emptyDescription="Create a key when you want to connect an app such as Playnite."
               />
               {(clients.data?.clients.length ?? 0) > 0 && (
                 <div className="space-y-2">
@@ -203,8 +202,8 @@ function IssueClientDialog({
     <FormDialog
       open
       onClose={onClose}
-      title="Issue frontend API client"
-      description="Grant only the permissions the integration needs. The token is displayed once."
+      title="Connect an app"
+      description="Grant only what the app needs. The key is shown once, so copy it now."
       submitLabel="Issue client"
       submitting={create.isPending}
       error={create.error}
@@ -255,8 +254,8 @@ function LegacyRetirementExport() {
 
   return (
     <SectionCard
-      title="Legacy client recovery"
-      description="Read-only compatibility evidence retained during the retirement window. No command payload, token hash, or key material is exported."
+      title="Old MGA client data"
+      description="A record of the old device and install features, kept for reference. No passwords or keys are included."
     >
       <div className="flex flex-col gap-3 rounded-lg border border-mga-border bg-mga-elevated/40 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>

@@ -22,37 +22,37 @@ export function OverviewPage() {
       {!pending && !firstError && (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="Managed games" value={formatCount(stats.data?.canonical_game_count)} detail={`${formatCount(stats.data?.source_game_found_count)} source records currently found`} tone="good" icon={<Gamepad2 className="h-4 w-4" />} />
-            <MetricCard label="Catalog offers" value={formatCount(offers.data?.length)} detail={staleOffers ? `${staleOffers} stale observations need attention` : 'All observations are within their freshness window'} tone={staleOffers ? 'attention' : 'good'} icon={<Database className="h-4 w-4" />} />
-            <MetricCard label="Connected sources" value={formatCount(sources.data?.length)} detail={sourceProblems ? `${sourceProblems} sources require attention` : 'Providers are reporting healthy status'} tone={sourceProblems ? 'attention' : 'good'} icon={<PlugZap className="h-4 w-4" />} />
-            <MetricCard label="Runtime artifacts" value={formatCount(artifacts.data?.length)} detail={blockedArtifacts ? `${blockedArtifacts} blocked or awaiting compliance review` : 'No compliance blockers detected'} tone={blockedArtifacts ? 'attention' : 'good'} icon={<PackageCheck className="h-4 w-4" />} />
+            <MetricCard label="Games" value={formatCount(stats.data?.canonical_game_count)} detail={`Found across ${formatCount(sources.data?.length)} connected sources`} tone="good" icon={<Gamepad2 className="h-4 w-4" />} />
+            <MetricCard label="Ways to play" value={formatCount(offers.data?.length)} detail={staleOffers ? `${staleOffers} not checked recently` : 'All checked recently'} tone={staleOffers ? 'attention' : 'good'} icon={<Database className="h-4 w-4" />} />
+            <MetricCard label="Connected sources" value={formatCount(sources.data?.length)} detail={sourceProblems ? `${sourceProblems} need attention` : 'All working normally'} tone={sourceProblems ? 'attention' : 'good'} icon={<PlugZap className="h-4 w-4" />} />
+            <MetricCard label="Emulators and runtimes" value={formatCount(artifacts.data?.length)} detail={blockedArtifacts ? `${blockedArtifacts} cannot be sent yet` : 'All cleared to send'} tone={blockedArtifacts ? 'attention' : 'good'} icon={<PackageCheck className="h-4 w-4" />} />
           </div>
 
           <div className="grid gap-5 xl:grid-cols-[1.45fr_1fr]">
-            <SectionCard title="Operational attention" description="Freshness and policy signals that can affect connected frontend apps.">
+            <SectionCard title="Needs attention" description="Anything that could stop a connected app from seeing your games.">
               <div className="space-y-3">
                 {sourceProblems + staleOffers + blockedArtifacts === 0 ? (
                   <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 p-4">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-emerald-300"><PackageCheck className="h-4 w-4" /> Control plane is ready</div>
-                    <p className="mt-1 text-xs leading-5 text-mga-muted">No stale catalog evidence, source errors, or runtime compliance blockers are visible for this profile.</p>
+                    <div className="flex items-center gap-2 text-sm font-semibold text-emerald-300"><PackageCheck className="h-4 w-4" /> Nothing needs your attention</div>
+                    <p className="mt-1 text-xs leading-5 text-mga-muted">Your sources are working, and everything has been checked recently.</p>
                   </div>
                 ) : (
-                  <AttentionRow value={sourceProblems + staleOffers + blockedArtifacts} label="items need review" />
+                  <AttentionRow value={sourceProblems + staleOffers + blockedArtifacts} label="things to look at" />
                 )}
                 {offers.data?.filter((offer) => offer.availability === 'leaving_soon').slice(0, 3).map((offer) => (
                   <div key={offer.id} className="flex items-center justify-between gap-4 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
-                    <div><p className="text-sm font-medium text-mga-text">{offer.provider} · {offer.platform}</p><p className="mt-1 text-xs text-mga-muted">SKU {offer.sku} · observed {formatDate(offer.observed_at)}</p></div>
+                    <div><p className="text-sm font-medium text-mga-text">{offer.provider} · {offer.platform}</p><p className="mt-1 text-xs text-mga-muted">Last checked {formatDate(offer.observed_at)}</p></div>
                     <StatusPill label="Leaving soon" tone="attention" />
                   </div>
                 ))}
               </div>
             </SectionCard>
 
-            <SectionCard title="Management shortcuts" description="Open the areas most often used to review library and provider state.">
+            <SectionCard title="Jump to" description="Where you probably want to go next.">
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <QuickLink to="/library" label="Review library" />
-                <QuickLink to="/system" label="Manage API clients" />
-                <QuickLink to="/catalog" label="Inspect availability" />
+                <QuickLink to="/system" label="Manage app access" />
+                <QuickLink to="/catalog" label="See what you can play" />
                 <QuickLink to="/artifacts" label="Check compliance" />
               </div>
             </SectionCard>

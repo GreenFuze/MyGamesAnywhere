@@ -58,7 +58,13 @@ export function SourcesPage() {
 
   const sources = integrations.data ?? []
   const statusByID = new Map((statuses.data ?? []).map((status) => [status.integration_id, status]))
+  // Health is only reportable once the statuses have actually arrived. While
+  // the query is in flight there are no 'ok' rows yet, so counting them says
+  // every source is broken — which is alarming, wrong, and briefly visible on
+  // every page load.
+  const healthKnown = statuses.data !== undefined
   const healthy = (statuses.data ?? []).filter((status) => status.status === 'ok').length
+  const needsAttention = Math.max(sources.length - healthy, 0)
   const error = integrations.error ?? statuses.error
 
   const invalidateSources = async () => {
@@ -88,17 +94,17 @@ export function SourcesPage() {
     <div className="mga-page-enter space-y-7">
       <PageIntro
         eyebrow="Connectors"
-        title="Sources and provider sync"
-        description="Manage the storefronts, subscription catalogs, cloud libraries, and metadata providers that feed the control plane."
+        title="Sources"
+        description="The stores, subscriptions, drives and folders MGA gets your games and their details from."
         actions={isAdmin ? (
           <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Add source</Button>
         ) : undefined}
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <MetricCard label="Configured sources" value={formatCount(sources.length)} detail="Connections visible to this profile" icon={<PlugZap className="h-4 w-4" />} />
-        <MetricCard label="Healthy" value={formatCount(healthy)} detail="Providers reporting an operational connection" tone={healthy === sources.length ? 'good' : 'attention'} icon={<CircleCheck className="h-4 w-4" />} />
-        <MetricCard label="Needs attention" value={formatCount(Math.max(sources.length - healthy, 0))} detail="Authentication, availability, or provider errors" tone={sources.length - healthy > 0 ? 'attention' : 'good'} icon={<CircleX className="h-4 w-4" />} />
+        <MetricCard label="Configured sources" value={formatCount(sources.length)} detail="Connected to this profile" icon={<PlugZap className="h-4 w-4" />} />
+        <MetricCard label="Healthy" value={healthKnown ? formatCount(healthy) : '—'} detail={healthKnown ? 'Working normally' : 'Checking…'} tone={!healthKnown ? 'neutral' : healthy === sources.length ? 'good' : 'attention'} icon={<CircleCheck className="h-4 w-4" />} />
+        <MetricCard label="Needs attention" value={healthKnown ? formatCount(needsAttention) : '—'} detail={healthKnown ? 'Needs you to sign in again, or is unreachable' : 'Checking…'} tone={!healthKnown ? 'neutral' : needsAttention > 0 ? 'attention' : 'good'} icon={<CircleX className="h-4 w-4" />} />
       </div>
 
       {!isAdmin && (
@@ -109,13 +115,13 @@ export function SourcesPage() {
 
       <ScanControls isAdmin={isAdmin} sources={sources} jobId={scanJobId} onJobStarted={setScanJobId} />
 
-      <SectionCard title="Connected source inventory" description="Health, authorization, and maintenance for each connection.">
+      <SectionCard title="Your sources" description="How each connection is doing, and what you can do with it.">
         <QueryFeedback
           pending={integrations.isPending || statuses.isPending}
           error={error}
           empty={!integrations.isPending && sources.length === 0}
           emptyTitle="No sources connected"
-          emptyDescription="Add a supported provider to begin normalizing its games, offers, metadata, and availability history."
+          emptyDescription="Add a store, drive or folder and MGA will start finding your games."
         />
         {sources.length > 0 && (
           <div className="grid gap-3 lg:grid-cols-2">
@@ -395,7 +401,7 @@ function ScanControls({
   const interval = intervalDraft ?? String(status?.interval_minutes ?? 360)
 
   return (
-    <SectionCard title="Library scans" description="Reconcile every connected source into canonical games and copies.">
+    <SectionCard title="Library scans" description="Check every connected source for new, changed and missing games.">
       <div className="flex flex-wrap items-center gap-2">
         <Button disabled={start.isPending || Boolean(active) || sources.length === 0} onClick={() => start.mutate()}>
           <RefreshCw className="h-4 w-4" /> {start.isPending ? 'Starting…' : 'Scan now'}

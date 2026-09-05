@@ -89,8 +89,8 @@ export function ProfilesPage() {
     <div className="mga-page-enter space-y-7">
       <PageIntro
         eyebrow="Access"
-        title="Profiles and policy"
-        description="Profile context controls every private library, source, achievement, and integration request."
+        title="Profiles"
+        description="Each profile has its own games, sources and achievements. Nothing is shared between them."
         actions={isAdmin ? (
           <Button onClick={() => { create.reset(); setCreating(true) }}>
             <Plus className="h-4 w-4" /> Add profile
@@ -107,7 +107,7 @@ export function ProfilesPage() {
 
       <SectionCard
         title="Available profiles"
-        description="Only identity and role are shown here. Provider credentials and private source data never cross profile boundaries."
+        description="Names and roles only. One profile can never see another's accounts or games."
       >
         <div className="grid gap-3 lg:grid-cols-2">
           {profiles.map((profile) => (
@@ -129,9 +129,9 @@ export function ProfilesPage() {
       </SectionCard>
 
       {issuedTicket && (
-        <SectionCard title="Credential setup link" description="Hand this to the profile owner over a trusted channel.">
+        <SectionCard title="Password setup link" description="Send this to whoever owns the profile, somewhere private. It works once.">
           <ShowOnceSecret
-            label="One-time credential ticket"
+            label="One-time setup link"
             value={issuedTicket.setup_url || issuedTicket.token}
             warning={`Expires ${formatDate(issuedTicket.ticket.expires_at)}. Anyone holding this link can set that profile's credential until it expires or is revoked.`}
           />
@@ -145,7 +145,7 @@ export function ProfilesPage() {
       <ProfileFormDialog
         open={creating}
         title="Add profile"
-        description="A new profile starts with no connections and no library until it is set up."
+        description="A new profile starts empty, with no sources and no games."
         submitLabel="Create profile"
         submitting={create.isPending}
         error={create.error}
