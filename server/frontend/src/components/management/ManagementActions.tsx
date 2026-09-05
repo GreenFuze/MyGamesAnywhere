@@ -132,7 +132,10 @@ export function ConfirmDialog({
       </div>
       {preserves && preserves.length > 0 && (
         <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">This will not</p>
+          {/* "This will not" followed by a list of nouns reads as broken
+              English on every dialog in the console. The items are things being
+              kept, so the heading has to be a verb they can follow. */}
+          <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">This will not touch</p>
           <ul className="mt-2 space-y-1 text-xs leading-5 text-mga-muted">
             {preserves.map((item) => <li key={item}>• {item}</li>)}
           </ul>

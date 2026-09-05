@@ -40,6 +40,7 @@ export const PLUGIN_LABELS: Record<string, string> = {
   'metadata-steam': 'Steam Metadata',
   'metadata-rawg': 'RAWG',
   'metadata-igdb': 'IGDB',
+  'metadata-tgdb': 'TheGamesDB',
   'metadata-gog': 'GOG Metadata',
   'metadata-hltb': 'HowLongToBeat',
   'metadata-launchbox': 'LaunchBox',
@@ -76,6 +77,32 @@ export function pluginLabel(pluginId: string): string {
 
 export function sourceLabel(pluginId: string): string {
   return brandLabel(pluginId, pluginLabel(pluginId))
+}
+
+/**
+ * What a plugin asks to be told before it can connect, in words rather than
+ * configuration keys. An unlisted key falls back to a readable form of itself,
+ * so a plugin added later is still legible without an edit here.
+ */
+export const PLUGIN_SETTING_LABELS: Record<string, string> = {
+  include_paths: 'Folders to look in',
+  base_path: 'Where those folders start',
+  root_path: 'Folder for saved games',
+  sync_path: 'Folder for the backup',
+  max_versions: 'How many old copies to keep',
+  authorization_code: 'Sign-in code',
+  refresh_token: 'Remembered sign-in',
+  client_id: 'App ID',
+  client_secret: 'App secret',
+  api_key: 'API key',
+  username: 'Username',
+  password: 'Password',
+  host: 'Server name',
+  share: 'Shared folder',
+}
+
+export function pluginSettingLabel(key: string): string {
+  return PLUGIN_SETTING_LABELS[key] ?? humanizeIdentifier(key)
 }
 
 // ---------------------------------------------------------------------------
