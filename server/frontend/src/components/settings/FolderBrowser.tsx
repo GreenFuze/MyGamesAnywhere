@@ -7,6 +7,7 @@ import {
   filterBrowsableFolders,
   type FolderBrowseLocation,
 } from '@/lib/driveFolderBrowse'
+import { DriveMountHelp } from '@/components/settings/DriveMountHelp'
 
 export type FolderSelection = {
   path: string
@@ -42,6 +43,8 @@ export function FolderBrowser({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const current = history[history.length - 1]
+  // Only at the root: deeper in, an empty folder is just an empty folder.
+  const showDriveMountHelp = pluginId === 'game-source-google-drive-desktop' && history.length === 1
 
   const fetchFolders = useCallback(async (path: string) => {
     setLoading(true)
@@ -116,9 +119,17 @@ export function FolderBrowser({
             </button>
           </div>
         ) : visibleFolders.length === 0 ? (
-          <div className="p-6 text-center text-mga-muted text-sm">
-            No subfolders found
-          </div>
+          // A synced-Drive source with nothing at its root means no Drive is
+          // mounted on this server, which is a different problem from an empty
+          // folder and needs instructions rather than a shrug. On Linux it is
+          // the expected first result, since Google ships no client for it.
+          showDriveMountHelp ? (
+            <DriveMountHelp />
+          ) : (
+            <div className="p-6 text-center text-mga-muted text-sm">
+              No subfolders found
+            </div>
+          )
         ) : (
           visibleFolders.map((folder) => {
             const isSharedLocation = folder.location_kind === 'shared_with_me'

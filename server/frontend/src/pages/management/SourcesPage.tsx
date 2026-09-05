@@ -143,6 +143,7 @@ export function SourcesPage() {
       {creating && (
         <ConnectionFormDialog
           plugins={plugins.data ?? []}
+          connections={sources}
           onClose={() => setCreating(false)}
           onSaved={async (created) => {
             setCreating(false)

@@ -32,16 +32,20 @@ type Step = 'category' | 'provider' | 'configure'
  * provider supplies it, and only then sees fields that apply to that provider.
  */
 export function ConnectionFormDialog({
-  plugins, existing, onClose, onSaved,
+  plugins, existing, onClose, onSaved, connections,
 }: {
   plugins: PluginInfo[]
   existing?: Integration
   onClose: () => void
   /** Receives the new connection so the caller can read it straight away. */
   onSaved: (created?: Integration) => Promise<void>
+  /** Connections already on this profile, so a second Drive source can warn
+   *  about overlapping with the first rather than silently duplicating it. */
+  connections?: Integration[]
 }) {
   const catalog = new ProviderCatalog(plugins)
   const editingProvider = existing ? catalog.find(existing.plugin_id) : undefined
+  const hasDriveApiConnection = (connections ?? []).some((item) => item.plugin_id === 'game-source-google-drive')
 
   // Editing keeps the provider fixed; only a new connection walks the steps.
   const [step, setStep] = useState<Step>(existing ? 'configure' : 'category')
@@ -231,6 +235,10 @@ export function ConnectionFormDialog({
             </div>
           </div>
 
+          {provider.pluginId === 'game-source-google-drive-desktop' && (
+            <SyncedDriveNotes hasDriveApiConnection={hasDriveApiConnection} />
+          )}
+
           <Input label="Label" value={label} onChange={(event) => setLabel(event.target.value)} autoFocus />
 
           {failure && (
@@ -304,5 +312,42 @@ export function ConnectionFormDialog({
         </div>
       )}
     </FormDialog>
+  )
+}
+
+/** Two things worth knowing before pointing MGA at a synced Drive, neither of
+ *  which the server can decide for the user.
+ *
+ *  The overlap warning is deliberately conditional rather than certain. MGA
+ *  cannot tell whether the Drive API connection covers the same folders,
+ *  because that connection stores Drive-side paths and this one stores a local
+ *  mount, and nothing records which Google account either belongs to. Saying
+ *  "if they overlap" is honest; claiming they do would not be.
+ *
+ *  Streaming is not detected at all. Drive for Desktop decides per folder
+ *  whether content is on the disk or fetched on read, and there is no reliable
+ *  way to ask it from here — so the user is told what to check rather than
+ *  shown a guess dressed up as a fact. */
+function SyncedDriveNotes({ hasDriveApiConnection }: { hasDriveApiConnection: boolean }) {
+  return (
+    <div className="space-y-2">
+      {hasDriveApiConnection && (
+        <div className="rounded-lg border border-amber-400/25 bg-amber-400/5 p-3" role="status">
+          <p className="text-xs font-medium text-amber-200">You already have a Google Drive connection</p>
+          <p className="mt-1 text-xs leading-5 text-mga-muted">
+            If this folder holds the same games, each one will appear twice — once from each connection. Point them at
+            different folders, or remove the other connection once this one has scanned.
+          </p>
+        </div>
+      )}
+      <div className="rounded-lg border border-mga-border bg-mga-elevated/40 p-3">
+        <p className="text-xs font-medium text-mga-text">Check these files are on the disk</p>
+        <p className="mt-1 text-xs leading-5 text-mga-muted">
+          Google Drive can keep files online-only and fetch them when something opens them. MGA sends the actual bytes,
+          so a scan or a download will pull anything that is not local yet, which can be slow and can fill the drive.
+          In Drive for Desktop, set this folder to be available offline if you want to avoid that.
+        </p>
+      </div>
+    </div>
   )
 }
