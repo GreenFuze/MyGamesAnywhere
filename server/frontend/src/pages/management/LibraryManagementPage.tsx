@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { ArrowDownAZ, Gamepad2, LayoutGrid, Rows3, Search, SearchX, X } from 'lucide-react'
+import { ArrowDownAZ, Filter, Gamepad2, LayoutGrid, Rows3, Search, SearchX, X } from 'lucide-react'
 import {
-  getStats, listCatalogOffers, listGames,
-  type CatalogOffer, type GameDetailResponse, type LibraryStats,
+  getLibraryFilterOptions, getStats, listCatalogOffers, listGames,
+  type CatalogOffer, type CountStat, type GameDetailResponse, type LibraryStats,
 } from '@/api/client'
 import { effectiveCoverUrl } from '@/lib/gameMedia'
 import { platformLabel, sourceLabel } from '@/lib/displayText'
@@ -35,6 +35,11 @@ export function LibraryManagementPage() {
   // otherwise, and the results flicker between stale pages as they land.
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState(0)
+  // Empty means every connection and every platform. Search answers "I know
+  // its name"; these answer "show me what is on the Drive" and "show me the
+  // Mega Drive games", which is the other half of finding a game.
+  const [source, setSource] = useState('')
+  const [platform, setPlatform] = useState('')
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(typed.trim()), 250)
@@ -43,7 +48,7 @@ export function LibraryManagementPage() {
 
   // A new search starts at the top. Keeping the old page size would ask for
   // 200 rows of a result that has three.
-  useEffect(() => { setShown(PAGE_STEP) }, [search, sort])
+  useEffect(() => { setShown(PAGE_STEP) }, [search, sort, source, platform])
   // Detailed is the default. A wall of covers is pleasant and says almost
   // nothing: not the platform, not the source, not whether a game is in a
   // subscription or has gone missing. The covers are the other view.
@@ -58,10 +63,17 @@ export function LibraryManagementPage() {
   // that happen to be loaded. A number that changes as you scroll is worse than
   // no number at all.
   const stats = useQuery({ queryKey: ['management', 'library', 'stats'], queryFn: () => getStats() })
+  // The choices come from the whole library, with the count of each, so a
+  // connection holding nothing is never offered and a choice never lands on an
+  // empty list.
+  const choices = useQuery({ queryKey: ['management', 'library', 'filters'], queryFn: getLibraryFilterOptions })
   const order = SORTS[sort]
   const library = useQuery({
-    queryKey: ['management', 'library', { shown, search, sort }],
-    queryFn: () => listGames({ page: 0, page_size: shown, sort_by: order.id, sort_dir: order.dir, search: search || undefined }),
+    queryKey: ['management', 'library', { shown, search, sort, source, platform }],
+    queryFn: () => listGames({
+      page: 0, page_size: shown, sort_by: order.id, sort_dir: order.dir,
+      search: search || undefined, source: source || undefined, platform: platform || undefined,
+    }),
     placeholderData: keepPreviousData,
   })
   // Availability is only known once a store or subscription source has been
@@ -75,6 +87,8 @@ export function LibraryManagementPage() {
   const matched = library.data?.total
   const missing = missingFromSources(stats.data)
   const hasMore = matched !== undefined && games.length < matched
+  const narrowed = Boolean(source || platform)
+  const clearFilters = () => { setSource(''); setPlatform('') }
 
   return (
     <div className="mga-page-enter space-y-7">
@@ -94,27 +108,59 @@ export function LibraryManagementPage() {
       </div>
 
       <SectionCard
-        title={search ? 'Search results' : 'All games'}
+        title={search || narrowed ? 'Search results' : 'All games'}
         description={matched !== undefined && games.length > 0
           ? `Showing ${formatCount(games.length)} of ${formatCount(matched)}${search ? ` matching “${search}”` : ''}.`
           : undefined}
       >
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <SearchBox value={typed} onChange={setTyped} busy={library.isFetching && typed !== ''} />
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <ChoicePicker
+              label="Where it came from"
+              placeholder="Every source"
+              value={source}
+              onChange={setSource}
+              options={choices.data?.sources ?? []}
+              labelFor={(option) => option.label || option.key}
+            />
+            <ChoicePicker
+              label="Platform"
+              placeholder="Every platform"
+              value={platform}
+              onChange={setPlatform}
+              options={choices.data?.platforms ?? []}
+              labelFor={(option) => platformLabel(option.key)}
+            />
             <SortPicker value={sort} onChange={setSort} />
             <ViewToggle view={view} onChange={chooseView} />
           </div>
         </div>
 
+        {narrowed && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-mga-muted">
+            <Filter className="h-3.5 w-3.5" />
+            <span>Narrowed to what you chose.</span>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="rounded-md border border-mga-border px-2 py-0.5 text-[0.68rem] transition hover:text-mga-text"
+            >
+              Show everything again
+            </button>
+          </div>
+        )}
+
         <QueryFeedback
           pending={library.isPending}
           error={library.error}
           empty={!library.isPending && games.length === 0}
-          emptyTitle={search ? `Nothing matches “${search}”` : 'No games yet'}
+          emptyTitle={search ? `Nothing matches “${search}”` : narrowed ? 'Nothing here' : 'No games yet'}
           emptyDescription={search
             ? 'Searching looks at the game\'s name, including the folder it was found in.'
-            : 'Connect a source and scan it, and your games will show up here.'}
+            : narrowed
+              ? 'No game matches every choice you made. Widening one of them will bring games back.'
+              : 'Connect a source and scan it, and your games will show up here.'}
         />
 
         {games.length > 0 && (
@@ -172,6 +218,41 @@ function SearchBox({ value, onChange, busy }: { value: string; onChange: (next: 
       )}
       {busy && <span className="sr-only" role="status">Searching</span>}
     </div>
+  )
+}
+
+/**
+ * One narrowing choice, offered only where there is something to choose.
+ *
+ * The options carry counts from the whole library, not from the rows on
+ * screen, so a choice never lands on an empty list and a connection holding
+ * nothing is never offered at all.
+ */
+function ChoicePicker({ label, placeholder, value, onChange, options, labelFor }: {
+  label: string
+  placeholder: string
+  value: string
+  onChange: (next: string) => void
+  options: CountStat[]
+  labelFor: (option: CountStat) => string
+}) {
+  if (options.length === 0) return null
+  return (
+    <label className="inline-flex items-center gap-1.5 text-xs text-mga-muted">
+      <span className="sr-only">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="rounded-md border border-mga-border bg-mga-elevated/60 px-2 py-1 text-xs text-mga-text focus:border-mga-accent/50 focus:outline-none"
+      >
+        <option value="">{placeholder}</option>
+        {options.map((option) => (
+          <option key={option.key} value={option.key}>
+            {labelFor(option)} ({option.count})
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }
 

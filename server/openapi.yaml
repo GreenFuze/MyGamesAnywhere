@@ -3301,6 +3301,14 @@ paths:
         500:
           description: Error response
 
+  /api/library/filters:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/media/cache/clear:
     post:
       summary: Clear downloaded media cache

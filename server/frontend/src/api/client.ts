@@ -103,6 +103,9 @@ export type {
   CoverageStat,
 } from "@/api/generated/contracts";
 
+// The blocks above only re-export; this module also needs the type itself.
+import type { CountStat as CountStatValue } from "@/api/generated/contracts";
+
 /** Same-origin in prod (SPA behind Go); Vite proxy in dev. */
 const base = "";
 export const SELECTED_PROFILE_STORAGE_KEY = "mga.selectedProfileId";
@@ -745,6 +748,21 @@ export type ListGamesResponse = {
   games: GameDetailResponse[];
 };
 
+/**
+ * The ways the library can be narrowed, and how many games are behind each.
+ *
+ * The counts are games rather than source rows, so the number on a control and
+ * the number of rows it produces are the same number.
+ */
+export type LibraryFilterOptions = {
+  platforms: CountStatValue[];
+  sources: CountStatValue[];
+};
+
+export async function getLibraryFilterOptions(): Promise<LibraryFilterOptions> {
+  return getJson<LibraryFilterOptions>("/api/library/filters");
+}
+
 export async function listGames(params?: {
   page?: number;
   page_size?: number;
@@ -753,6 +771,10 @@ export async function listGames(params?: {
   /** Matches the title the user sees, from metadata or from the folder name.
    *  The response total counts matches, not the whole library. */
   search?: string;
+  /** Only games one connection found. The id of a source integration. */
+  source?: string;
+  /** Only games on one platform. */
+  platform?: string;
 }): Promise<ListGamesResponse> {
   const q = new URLSearchParams();
   if (params?.page !== undefined) q.set("page", String(params.page));
@@ -761,6 +783,8 @@ export async function listGames(params?: {
   if (params?.sort_by) q.set("sort_by", params.sort_by);
   if (params?.sort_dir) q.set("sort_dir", params.sort_dir);
   if (params?.search) q.set("search", params.search);
+  if (params?.source) q.set("source", params.source);
+  if (params?.platform) q.set("platform", params.platform);
   const qs = q.toString();
   return getJson<ListGamesResponse>(qs ? `/api/games?${qs}` : "/api/games");
 }

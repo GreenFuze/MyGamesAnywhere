@@ -8,6 +8,9 @@ import {
   type CatalogOffer, type GameDetailResponse, type GameMediaDetailDTO, type SourceGameDetailDTO,
 } from '@/api/client'
 import { effectiveCover, effectiveCoverUrl, mediaUrl } from '@/lib/gameMedia'
+import { SourceGroupingControls } from '@/components/management/SourceGrouping'
+import { ManagementPolicy } from '@/lib/managementPolicy'
+import { useProfiles } from '@/hooks/useProfiles'
 import { GameMediaCollection } from '@/lib/gameMedia'
 import { humanizeIdentifier, platformLabel, sourceLabel } from '@/lib/displayText'
 import { availabilityLabel, describePlayability, entitlementLabel, isStale, offersForGame } from '@/lib/gameAvailability'
@@ -28,6 +31,10 @@ import { PageIntro, QueryFeedback, SectionCard, StatusPill, formatCount, formatD
  */
 export function GameDetailPage() {
   const { id = '' } = useParams()
+  // Regrouping is administrator-only on the server. Checking here explains the
+  // boundary rather than enforcing it; the server refuses either way.
+  const { currentProfile } = useProfiles()
+  const canRegroup = new ManagementPolicy(currentProfile).can('game.regroup')
 
   const game = useQuery({
     queryKey: ['management', 'game', id],
@@ -177,7 +184,15 @@ export function GameDetailPage() {
 
           <SectionCard title="Where it comes from" description="Every source that has this game, and what it found.">
             <div className="space-y-3">
-              {game.data.source_games.map((source) => <SourceRow key={source.id} source={source} />)}
+              {game.data.source_games.map((source) => (
+                <SourceRow
+                  key={source.id}
+                  source={source}
+                  canonicalGameId={id}
+                  canRegroup={canRegroup}
+                  sourceCount={game.data.source_games.length}
+                />
+              ))}
               {game.data.source_games.length === 0 && (
                 <p className="text-xs text-mga-muted">No source currently reports this game.</p>
               )}
@@ -300,10 +315,16 @@ function OfferRow({ offer }: { offer: CatalogOffer }) {
   )
 }
 
-function SourceRow({ source }: { source: SourceGameDetailDTO }) {
+function SourceRow({ source, canonicalGameId, canRegroup, sourceCount }: {
+  source: SourceGameDetailDTO
+  canonicalGameId: string
+  canRegroup: boolean
+  sourceCount: number
+}) {
   const missing = source.status !== 'found'
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-mga-border bg-mga-elevated/40 p-4">
+    <div className="rounded-lg border border-mga-border bg-mga-elevated/40 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
         <p className="text-sm font-medium text-mga-text">
           {source.integration_label?.trim() || sourceLabel(source.plugin_id)}
@@ -321,6 +342,15 @@ function SourceRow({ source }: { source: SourceGameDetailDTO }) {
         tone={missing ? 'attention' : 'good'}
       />
       {source.kind && source.kind !== 'base_game' && <StatusPill label={humanizeIdentifier(source.kind)} />}
+      </div>
+      <SourceGroupingControls
+        canonicalGameId={canonicalGameId}
+        sourceGameId={source.id}
+        sourceName={source.integration_label?.trim() || sourceLabel(source.plugin_id)}
+        pin={source.canonical_pin}
+        canSplit={sourceCount > 1}
+        allowed={canRegroup}
+      />
     </div>
   )
 }

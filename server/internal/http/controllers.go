@@ -409,8 +409,10 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ids, matched, err := c.gameStore.GetVisibleCanonicalIDsSorted(ctx, offset, sqlLimit, core.CanonicalGameListQuery{
-		Order:  sortOrder,
-		Search: search,
+		Order:         sortOrder,
+		Search:        search,
+		IntegrationID: strings.TrimSpace(r.URL.Query().Get("source")),
+		Platform:      strings.TrimSpace(r.URL.Query().Get("platform")),
 	})
 	if err != nil {
 		c.logger.Error("list game ids", err)
@@ -1213,6 +1215,30 @@ func (c *GameController) runSourceMoveAction(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(job)
+}
+
+// libraryFilterStore is the narrow view of the store this endpoint needs, so
+// the capability can be absent without the whole library becoming unavailable.
+type libraryFilterStore interface {
+	GetLibraryFilterOptions(ctx context.Context) (*core.LibraryFilterOptions, error)
+}
+
+// ListLibraryFilters reports the ways the library can be narrowed and how many
+// games are behind each (GET /api/library/filters).
+func (c *GameController) ListLibraryFilters(w http.ResponseWriter, r *http.Request) {
+	store, ok := c.gameStore.(libraryFilterStore)
+	if !ok {
+		http.Error(w, "narrowing is not available on this server", http.StatusNotImplemented)
+		return
+	}
+	options, err := store.GetLibraryFilterOptions(r.Context())
+	if err != nil {
+		c.logger.Error("list library filters", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(options)
 }
 
 func (c *GameController) SearchCanonicalGames(w http.ResponseWriter, r *http.Request) {

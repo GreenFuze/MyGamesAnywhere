@@ -883,6 +883,19 @@ func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, li
 			)`
 		args = append(args, pattern, pattern)
 	}
+	// A game belongs to a connection, and to a platform, through the source
+	// rows behind it. Both are already in this CTE, so narrowing by either
+	// costs a predicate rather than a second query.
+	filterPredicate := ""
+	if integrationID := strings.TrimSpace(query.IntegrationID); integrationID != "" {
+		filterPredicate += " AND sg.integration_id = ?"
+		args = append(args, integrationID)
+	}
+	if platform := strings.TrimSpace(query.Platform); platform != "" {
+		filterPredicate += " AND sg.platform = ?"
+		args = append(args, platform)
+	}
+
 	q := `
 		WITH resolver_stats AS (
 			SELECT source_game_id,
@@ -906,7 +919,7 @@ func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, li
 					OR sg.platform = '` + string(core.PlatformUnknown) + `'
 					OR sg.group_kind = '` + string(core.GroupKindUnknown) + `'
 				)
-			  )` + profilePredicate + searchPredicate + `
+			  )` + profilePredicate + searchPredicate + filterPredicate + `
 		)
 		SELECT vs.canonical_id, vs.source_game_id, CAST(` + sortPlan.sourceValueSQL("vs") + ` AS TEXT),
 			m.id, IFNULL(m.manual_selection, 0), CAST(m.` + sortPlan.resolverColumn + ` AS TEXT),
@@ -2003,6 +2016,62 @@ func (s *gameStore) countVisibleFavoriteGames(ctx context.Context) (int, error) 
 	}
 	err := s.db.GetDB().QueryRowContext(ctx, query, args...).Scan(&count)
 	return count, err
+}
+
+// GetLibraryFilterOptions counts games per platform and per connection, using
+// the same visibility rule as the list itself so the number on a control and
+// the number of rows it produces agree.
+func (s *gameStore) GetLibraryFilterOptions(ctx context.Context) (*core.LibraryFilterOptions, error) {
+	db := s.db.GetDB()
+	byPlatform := map[string]int{}
+	bySource := map[string]int{}
+
+	// COUNT(DISTINCT canonical_id), not COUNT(*): two source rows grouped into
+	// one game are one game on the screen.
+	query := `
+		WITH visible AS (
+			SELECT l.canonical_id, sg.platform, sg.integration_id
+			FROM canonical_source_games_link l
+			JOIN source_games sg ON sg.id = l.source_game_id
+			WHERE ` + visibleSourceGameWhere(ctx, "sg") + `
+		)
+		SELECT 'platform' AS bucket, platform AS key, COUNT(DISTINCT canonical_id) AS games
+		FROM visible GROUP BY platform
+		UNION ALL
+		SELECT 'source', integration_id, COUNT(DISTINCT canonical_id)
+		FROM visible GROUP BY integration_id`
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var bucket, key string
+		var count int
+		if err := rows.Scan(&bucket, &key, &count); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		if bucket == "platform" {
+			byPlatform[key] = count
+		} else {
+			bySource[key] = count
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	labels, err := s.loadStatsIntegrationLabels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &core.LibraryFilterOptions{
+		Platforms: sortedCountStats(byPlatform, nil),
+		Sources:   sortedCountStats(bySource, labels),
+	}, nil
 }
 
 func sortedCountStats(values map[string]int, labels map[string]string) []core.CountStat {

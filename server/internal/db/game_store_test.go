@@ -2053,6 +2053,193 @@ func TestUndetectedCandidatesAreHiddenFromLibraryVisibilityAndBecomeVisibleWhenM
 	}
 }
 
+func TestNarrowingChoicesCountTheGamesTheyWouldShow(t *testing.T) {
+	// The number on the control and the number of rows it produces have to be
+	// the same number. Counting source rows instead of games gets this wrong
+	// the moment two connections carry the same game, which is the normal case
+	// for anyone with a library on more than one service.
+	ctx := context.Background()
+	_, store := newTestGameStore(t)
+
+	sameGame := []core.ResolverMatch{{PluginID: "metadata-igdb", ExternalID: "igdb-doom", Title: "Doom", Rating: 80}}
+	persist := func(integrationID, pluginID string, games []*core.SourceGame, titles map[string][]core.ResolverMatch) {
+		t.Helper()
+		if err := store.PersistScanResults(ctx, &core.ScanBatch{
+			IntegrationID:   integrationID,
+			SourceGames:     games,
+			ResolverMatches: titles,
+			MediaItems:      map[string][]core.MediaRef{},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	persist("drive", "game-source-google-drive", []*core.SourceGame{
+		{
+			ID: "drive:doom", IntegrationID: "drive", PluginID: "game-source-google-drive",
+			ExternalID: "doom", RawTitle: "Doom", Platform: core.PlatformWindowsPC,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found",
+		},
+	}, map[string][]core.ResolverMatch{"drive:doom": sameGame})
+
+	// The same game, found by a second connection. Two source rows, one game.
+	persist("steam", "game-source-steam", []*core.SourceGame{
+		{
+			ID: "steam:doom", IntegrationID: "steam", PluginID: "game-source-steam",
+			ExternalID: "doom", RawTitle: "Doom", Platform: core.PlatformWindowsPC,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found",
+		},
+	}, map[string][]core.ResolverMatch{"steam:doom": sameGame})
+
+	persist("drive2", "game-source-google-drive", []*core.SourceGame{
+		{
+			ID: "drive:sonic", IntegrationID: "drive2", PluginID: "game-source-google-drive",
+			ExternalID: "sonic", RawTitle: "Sonic", Platform: core.PlatformGenesis,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found",
+		},
+	}, map[string][]core.ResolverMatch{
+		"drive:sonic": {{PluginID: "metadata-igdb", ExternalID: "igdb-sonic", Title: "Sonic the Hedgehog", Rating: 85}},
+	})
+
+	options, err := store.GetLibraryFilterOptions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options.Platforms) == 0 || len(options.Sources) == 0 {
+		t.Fatalf("no choices were offered at all: %+v", options)
+	}
+
+	// The property that matters: choosing an option shows exactly as many games
+	// as the option claims.
+	check := func(what string, stats []core.CountStat, query func(key string) core.CanonicalGameListQuery) {
+		t.Helper()
+		for _, stat := range stats {
+			q := query(stat.Key)
+			q.Order = core.CanonicalGameListOrder{Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending}
+			ids, matched, err := store.GetVisibleCanonicalIDsSorted(ctx, 0, 100, q)
+			if err != nil {
+				t.Fatalf("%s %q: %v", what, stat.Key, err)
+			}
+			if matched != stat.Count || len(ids) != stat.Count {
+				t.Errorf("%s %q offers %d games but shows %d (%d ids)", what, stat.Key, stat.Count, matched, len(ids))
+			}
+		}
+	}
+	check("platform", options.Platforms, func(key string) core.CanonicalGameListQuery {
+		return core.CanonicalGameListQuery{Platform: key}
+	})
+	check("source", options.Sources, func(key string) core.CanonicalGameListQuery {
+		return core.CanonicalGameListQuery{IntegrationID: key}
+	})
+
+	// And the case that makes the property non-trivial: two source rows on
+	// Windows, one game. A count of source rows would say two.
+	windows := 0
+	for _, stat := range options.Platforms {
+		if stat.Key == string(core.PlatformWindowsPC) {
+			windows = stat.Count
+		}
+	}
+	if windows != 1 {
+		t.Errorf("Windows offers %d games, want 1: two connections carry the same game", windows)
+	}
+}
+
+func TestLibraryNarrowsByConnectionAndPlatform(t *testing.T) {
+	// Search answers "I know its name". These two answer "show me what is on
+	// the Drive" and "show me the Mega Drive games", which is the question
+	// someone with hundreds of games and four connections actually asks.
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	persist := func(integrationID string, games []*core.SourceGame, titles map[string][]core.ResolverMatch) {
+		t.Helper()
+		if err := store.PersistScanResults(ctx, &core.ScanBatch{
+			IntegrationID:   integrationID,
+			SourceGames:     games,
+			ResolverMatches: titles,
+			MediaItems:      map[string][]core.MediaRef{},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	persist("drive", []*core.SourceGame{
+		{
+			ID: "drive:doom", IntegrationID: "drive", PluginID: "game-source-google-drive",
+			ExternalID: "doom", RawTitle: "Doom", Platform: core.PlatformWindowsPC,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found",
+		},
+		{
+			ID: "drive:sonic", IntegrationID: "drive", PluginID: "game-source-google-drive",
+			ExternalID: "sonic", RawTitle: "Sonic", Platform: core.PlatformGenesis,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found",
+		},
+	}, map[string][]core.ResolverMatch{
+		"drive:doom":  {{PluginID: "metadata-igdb", ExternalID: "d", Title: "Doom", Rating: 80}},
+		"drive:sonic": {{PluginID: "metadata-igdb", ExternalID: "s", Title: "Sonic the Hedgehog", Rating: 85}},
+	})
+
+	persist("steam", []*core.SourceGame{
+		{
+			ID: "steam:portal", IntegrationID: "steam", PluginID: "game-source-steam",
+			ExternalID: "portal", RawTitle: "Portal", Platform: core.PlatformWindowsPC,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found",
+		},
+	}, map[string][]core.ResolverMatch{
+		"steam:portal": {{PluginID: "metadata-igdb", ExternalID: "p", Title: "Portal", Rating: 95}},
+	})
+
+	doomID := canonicalIDForSource(t, ctx, db, "drive:doom")
+	sonicID := canonicalIDForSource(t, ctx, db, "drive:sonic")
+	portalID := canonicalIDForSource(t, ctx, db, "steam:portal")
+
+	list := func(query core.CanonicalGameListQuery) ([]string, int) {
+		t.Helper()
+		query.Order = core.CanonicalGameListOrder{Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending}
+		ids, matched, err := store.GetVisibleCanonicalIDsSorted(ctx, 0, 50, query)
+		if err != nil {
+			t.Fatalf("list %+v: %v", query, err)
+		}
+		return ids, matched
+	}
+
+	// The whole library first, so the narrowed results below mean something.
+	if ids, matched := list(core.CanonicalGameListQuery{}); len(ids) != 3 || matched != 3 {
+		t.Fatalf("the unfiltered library gave %v (matched %d), want three games", ids, matched)
+	}
+
+	if ids, matched := list(core.CanonicalGameListQuery{IntegrationID: "steam"}); len(ids) != 1 || ids[0] != portalID || matched != 1 {
+		t.Fatalf("one connection gave %v (matched %d), want [%s]", ids, matched, portalID)
+	}
+	if _, matched := list(core.CanonicalGameListQuery{IntegrationID: "drive"}); matched != 2 {
+		t.Fatalf("the other connection matched %d, want 2", matched)
+	}
+
+	if ids, matched := list(core.CanonicalGameListQuery{Platform: string(core.PlatformGenesis)}); len(ids) != 1 || ids[0] != sonicID || matched != 1 {
+		t.Fatalf("one platform gave %v (matched %d), want [%s]", ids, matched, sonicID)
+	}
+
+	// Together, and with a search: each narrows the last rather than replacing
+	// it, which is the only behaviour that makes three controls usable at once.
+	if ids, matched := list(core.CanonicalGameListQuery{
+		IntegrationID: "drive", Platform: string(core.PlatformWindowsPC),
+	}); len(ids) != 1 || ids[0] != doomID || matched != 1 {
+		t.Fatalf("connection and platform together gave %v (matched %d), want [%s]", ids, matched, doomID)
+	}
+	if _, matched := list(core.CanonicalGameListQuery{
+		IntegrationID: "drive", Platform: string(core.PlatformWindowsPC), Search: "sonic",
+	}); matched != 0 {
+		t.Fatalf("a search that contradicts the filters matched %d, want none", matched)
+	}
+
+	// A connection nobody has matches nothing, rather than falling back to
+	// everything.
+	if _, matched := list(core.CanonicalGameListQuery{IntegrationID: "no-such-connection"}); matched != 0 {
+		t.Fatalf("an unknown connection matched %d games", matched)
+	}
+}
+
 func TestSearchMatchesTheTitleTheUserSees(t *testing.T) {
 	// A game's displayed title can come from a metadata provider or from the
 	// folder the scanner found it in. Matching only one of those would hide

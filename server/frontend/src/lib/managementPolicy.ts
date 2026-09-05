@@ -12,6 +12,7 @@ export type ManagementCapability =
   | 'source.authorize'
   | 'source.maintain'
   | 'scan.control'
+  | 'game.regroup'
   | 'apiClient.issue'
   | 'apiClient.rotate'
   | 'apiClient.revoke'
@@ -28,6 +29,7 @@ const ADMINISTRATOR_ONLY: ReadonlySet<ManagementCapability> = new Set<Management
   'source.authorize',
   'source.maintain',
   'scan.control',
+  'game.regroup',
   'apiClient.issue',
   'apiClient.rotate',
   'apiClient.revoke',

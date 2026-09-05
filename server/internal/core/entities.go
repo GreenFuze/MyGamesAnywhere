@@ -564,6 +564,11 @@ type CanonicalGameListQuery struct {
 	// provider or from the folder the scanner found it in. Someone looking for
 	// "Doom" should find it either way. Empty means everything.
 	Search string
+	// IntegrationID narrows the library to games one connection found. Empty
+	// means every connection.
+	IntegrationID string
+	// Platform narrows the library to one platform. Empty means every platform.
+	Platform string
 }
 
 // ScanBatch holds everything produced by one scan cycle, validated in memory
@@ -1069,6 +1074,17 @@ type CountStat struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
 	Count int    `json:"count"`
+}
+
+// LibraryFilterOptions lists the ways a library can be narrowed, with the
+// number of games behind each one.
+//
+// The counts are games, not source rows, because that is what the list they
+// narrow returns. A count taken any other way would put one number on the
+// control and a different number on the result.
+type LibraryFilterOptions struct {
+	Platforms []CountStat `json:"platforms"`
+	Sources   []CountStat `json:"sources"`
 }
 
 type CoverageStat struct {

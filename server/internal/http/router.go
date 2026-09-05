@@ -194,6 +194,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				}
 				r.Get("/stats", b.GameCtrl.Stats)
 				r.Get("/stats/library", b.GameCtrl.LibraryStatistics)
+				r.Get("/library/filters", b.GameCtrl.ListLibraryFilters)
 				r.Get("/stats/gamer", b.GameCtrl.GamerStatistics)
 				r.Get("/duplicates/games", adminOnly(b.GameCtrl.DuplicateGames))
 				r.Get("/config/frontend", adminOnly(b.ConfigCtrl.GetFrontend))
@@ -419,6 +420,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Put("/media/{assetID}/metadata", noopHandler())
 			api.Get("/stats", noopHandler())
 			api.Get("/stats/library", noopHandler())
+			api.Get("/library/filters", noopHandler())
 			api.Get("/stats/gamer", noopHandler())
 			api.Get("/duplicates/games", noopHandler())
 			api.Get("/about", noopHandler())
