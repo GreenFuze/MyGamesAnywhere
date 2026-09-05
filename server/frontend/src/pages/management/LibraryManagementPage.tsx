@@ -6,7 +6,7 @@ import {
   getStats, listCatalogOffers, listGames,
   type CatalogOffer, type GameDetailResponse, type LibraryStats,
 } from '@/api/client'
-import { GameMediaCollection } from '@/lib/gameMedia'
+import { effectiveCoverUrl } from '@/lib/gameMedia'
 import { platformLabel, sourceLabel } from '@/lib/displayText'
 import { gameBadges, gameSourceNames, type GameBadge } from '@/lib/gameBadges'
 import { readLibraryView, storeLibraryView, type LibraryView } from '@/lib/libraryView'
@@ -218,8 +218,7 @@ function ViewToggle({ view, onChange }: { view: LibraryView; onChange: (next: Li
 
 /** The detailed row: everything the covers cannot say. */
 function GameRow({ game, offers }: { game: GameDetailResponse; offers?: CatalogOffer[] }) {
-  const media = useMemo(() => new GameMediaCollection(game.media), [game.media])
-  const cover = media.coverUrl()
+  const cover = useMemo(() => effectiveCoverUrl(game), [game])
   const badges = useMemo(() => gameBadges(game, offers), [game, offers])
   const sources = useMemo(() => gameSourceNames(game, sourceLabel), [game])
   const year = game.release_date ? new Date(game.release_date).getFullYear() : undefined
@@ -250,8 +249,7 @@ function GameRow({ game, offers }: { game: GameDetailResponse; offers?: CatalogO
 }
 
 function GameCard({ game, offers }: { game: GameDetailResponse; offers?: CatalogOffer[] }) {
-  const media = useMemo(() => new GameMediaCollection(game.media), [game.media])
-  const cover = media.coverUrl()
+  const cover = useMemo(() => effectiveCoverUrl(game), [game])
   const badges = useMemo(() => gameBadges(game, offers), [game, offers])
 
   return (

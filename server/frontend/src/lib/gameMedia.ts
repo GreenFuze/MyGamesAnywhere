@@ -17,6 +17,29 @@ export function mediaUrl(media: GameMediaDetailDTO): string {
   return media.url
 }
 
+/** The picture to show as a game's cover.
+ *
+ *  An explicit override wins over whatever a metadata provider labelled
+ *  "cover", because the override is the user having said "not that one".
+ *  GameMediaCollection deliberately knows nothing about overrides — it only
+ *  sorts what a provider sent — so every caller that shows a cover has to come
+ *  through here or the setting silently does nothing. */
+export function effectiveCover(game: {
+  cover_override?: GameMediaDetailDTO
+  media?: GameMediaDetailDTO[]
+}): GameMediaDetailDTO | null {
+  if (game.cover_override) return game.cover_override
+  return new GameMediaCollection(game.media).cover()
+}
+
+export function effectiveCoverUrl(game: {
+  cover_override?: GameMediaDetailDTO
+  media?: GameMediaDetailDTO[]
+}): string | null {
+  const cover = effectiveCover(game)
+  return cover ? mediaUrl(cover) : null
+}
+
 export function mediaOriginalUrl(media: GameMediaDetailDTO): string {
   return media.url
 }

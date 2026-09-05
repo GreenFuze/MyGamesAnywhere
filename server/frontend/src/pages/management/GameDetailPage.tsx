@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router'
-import { ArrowLeft, Star } from 'lucide-react'
+import { ArrowLeft, ImageUp, RotateCcw, Star } from 'lucide-react'
 import {
-  clearGameFavorite, getGameDetail, listCatalogOffers, setGameFavorite,
+  clearGameCoverOverride, clearGameFavorite, getGameDetail, listCatalogOffers,
+  setGameCoverOverride, setGameFavorite,
   type CatalogOffer, type GameDetailResponse, type GameMediaDetailDTO, type SourceGameDetailDTO,
 } from '@/api/client'
-import { mediaUrl } from '@/lib/gameMedia'
+import { effectiveCover, effectiveCoverUrl, mediaUrl } from '@/lib/gameMedia'
 import { GameMediaCollection } from '@/lib/gameMedia'
 import { humanizeIdentifier, platformLabel, sourceLabel } from '@/lib/displayText'
 import { availabilityLabel, describePlayability, entitlementLabel, isStale, offersForGame } from '@/lib/gameAvailability'
@@ -37,16 +38,29 @@ export function GameDetailPage() {
 
   const media = useMemo(() => new GameMediaCollection(game.data?.media), [game.data?.media])
   const gameOffers = useMemo(() => offersForGame(offers.data, id), [offers.data, id])
-  const gallery = useMemo(() => media.imageMedia().filter((item) => item.asset_id !== media.cover()?.asset_id), [media])
+  // The gallery is everything that is not currently the cover, so the picture
+  // on show is never also offered as a choice.
+  const shownCover = game.data ? effectiveCover(game.data) : null
+  const shownCoverUrl = game.data ? effectiveCoverUrl(game.data) : null
+  const gallery = useMemo(
+    () => media.imageMedia().filter((item) => item.asset_id !== shownCover?.asset_id),
+    [media, shownCover],
+  )
 
   const queryClient = useQueryClient()
+  const refreshGame = () => {
+    void queryClient.invalidateQueries({ queryKey: ['management', 'game', id] })
+    // The library row shows the same cover and badges, so it hears about this
+    // too. A row that lags behind the page you just changed is its own lie.
+    void queryClient.invalidateQueries({ queryKey: ['management', 'library'] })
+  }
   const favourite = useMutation({
     mutationFn: (next: boolean) => (next ? setGameFavorite(id) : clearGameFavorite(id)),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['management', 'game', id] })
-      // The library row shows the same badge, so it has to hear about this too.
-      void queryClient.invalidateQueries({ queryKey: ['management', 'library'] })
-    },
+    onSuccess: refreshGame,
+  })
+  const cover = useMutation({
+    mutationFn: (assetID: number | null) => (assetID === null ? clearGameCoverOverride(id) : setGameCoverOverride(id, assetID)),
+    onSuccess: refreshGame,
   })
 
   return (
@@ -70,9 +84,9 @@ export function GameDetailPage() {
       {game.data && (
         <>
           <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
-            {media.coverUrl() && (
+            {shownCoverUrl && (
               <img
-                src={media.coverUrl() ?? ''}
+                src={shownCoverUrl}
                 alt=""
                 className="w-40 shrink-0 rounded-lg border border-mga-border object-cover shadow-lg"
               />
@@ -133,8 +147,31 @@ export function GameDetailPage() {
           </SectionCard>
 
           {gallery.length > 0 && (
-            <SectionCard title="Pictures" description={`${gallery.length} beyond the cover.`}>
-              <Gallery items={gallery} />
+            <SectionCard
+              title="Pictures"
+              description={`${gallery.length} beyond the cover. Any of them can become the cover.`}
+            >
+              <Gallery
+                items={gallery}
+                onUseAsCover={(assetID) => cover.mutate(assetID)}
+                busy={cover.isPending}
+              />
+              {game.data.cover_override && (
+                <button
+                  type="button"
+                  onClick={() => cover.mutate(null)}
+                  disabled={cover.isPending}
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-mga-border px-3 py-1.5 text-xs text-mga-muted transition hover:text-mga-text disabled:opacity-60"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Go back to the original cover
+                </button>
+              )}
+              {cover.error && (
+                <p className="mt-2 text-xs text-rose-300" role="alert">
+                  The cover could not be changed: {cover.error instanceof Error ? cover.error.message : 'the server refused it.'}
+                </p>
+              )}
             </SectionCard>
           )}
 
@@ -155,19 +192,36 @@ export function GameDetailPage() {
 /** Screenshots and artwork that were fetched all along and never shown. Almost
  *  every game in a scanned library has at least one, and the detail page was
  *  displaying only the cover. */
-function Gallery({ items }: { items: GameMediaDetailDTO[] }) {
+function Gallery({
+  items, onUseAsCover, busy,
+}: {
+  items: GameMediaDetailDTO[]
+  onUseAsCover: (assetID: number) => void
+  busy: boolean
+}) {
   const [open, setOpen] = useState<GameMediaDetailDTO | null>(null)
   return (
     <>
       <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {items.map((item) => (
-          <li key={item.asset_id}>
+          <li key={item.asset_id} className="group relative overflow-hidden rounded-lg border border-mga-border transition hover:border-mga-accent/40">
             <button
               type="button"
               onClick={() => setOpen(item)}
-              className="block w-full overflow-hidden rounded-lg border border-mga-border transition hover:border-mga-accent/40 focus:outline-none focus:ring-2 focus:ring-mga-accent/50"
+              className="block w-full focus:outline-none focus:ring-2 focus:ring-mga-accent/50"
             >
               <img src={mediaUrl(item)} alt="" loading="lazy" className="aspect-video w-full object-cover" />
+            </button>
+            {/* Revealed on hover and always reachable by keyboard, so the
+                action is not hidden from anyone who does not use a mouse. */}
+            <button
+              type="button"
+              onClick={() => onUseAsCover(item.asset_id)}
+              disabled={busy}
+              className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-1 rounded border border-mga-border bg-mga-surface/90 px-1.5 py-1 text-[0.66rem] text-mga-muted opacity-0 transition hover:text-mga-text focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-mga-accent/50 disabled:opacity-40 group-hover:opacity-100"
+            >
+              <ImageUp className="h-3 w-3" />
+              Use as cover
             </button>
           </li>
         ))}
