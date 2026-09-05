@@ -8,9 +8,10 @@ import {
 } from '@/api/client'
 import { effectiveCoverUrl } from '@/lib/gameMedia'
 import { platformLabel, sourceLabel } from '@/lib/displayText'
-import { gameBadges, gameSourceNames, type GameBadge } from '@/lib/gameBadges'
+import { gameBadges, gameSources } from '@/lib/gameBadges'
+import { GameBadgeRow, PlatformMark, SourcePill } from '@/components/management/GameBadges'
 import { readLibraryView, storeLibraryView, type LibraryView } from '@/lib/libraryView'
-import { MetricCard, PageIntro, QueryFeedback, SectionCard, StatusPill, formatCount } from '@/components/management/ManagementPrimitives'
+import { MetricCard, PageIntro, QueryFeedback, SectionCard, formatCount } from '@/components/management/ManagementPrimitives'
 
 /** How many games arrive at once. "Show more" raises it rather than paging,
  *  because someone looking for one game scrolls; they do not want to remember
@@ -301,7 +302,7 @@ function ViewToggle({ view, onChange }: { view: LibraryView; onChange: (next: Li
 function GameRow({ game, offers }: { game: GameDetailResponse; offers?: CatalogOffer[] }) {
   const cover = useMemo(() => effectiveCoverUrl(game), [game])
   const badges = useMemo(() => gameBadges(game, offers), [game, offers])
-  const sources = useMemo(() => gameSourceNames(game, sourceLabel), [game])
+  const sources = useMemo(() => gameSources(game, sourceLabel), [game])
   const year = game.release_date ? new Date(game.release_date).getFullYear() : undefined
 
   return (
@@ -316,12 +317,13 @@ function GameRow({ game, offers }: { game: GameDetailResponse; offers?: CatalogO
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-mga-text">{game.title}</p>
-          <p className="mt-0.5 truncate text-xs text-mga-muted">
+          <p className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-mga-muted">
+            <PlatformMark platform={game.platform || 'unknown'} />
             {[platformLabel(game.platform || 'unknown'), year, game.developer].filter(Boolean).join(' · ')}
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {sources.map((source) => <StatusPill key={source} label={source} />)}
-            <BadgeRow badges={badges} />
+            {sources.map((source) => <SourcePill key={source.name} source={source} />)}
+            <GameBadgeRow badges={badges} />
           </div>
         </div>
       </Link>
@@ -346,7 +348,7 @@ function GameCard({ game, offers }: { game: GameDetailResponse; offers?: Catalog
           <p className="truncate text-xs text-mga-muted">{platformLabel(game.platform || 'unknown')}</p>
           <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
             {/* Only what changes what you would do. The row view has room for the rest. */}
-            <BadgeRow badges={badges.filter((badge) => badge.tone !== 'neutral').slice(0, 3)} />
+            <GameBadgeRow badges={badges.filter((badge) => badge.tone !== 'neutral').slice(0, 3)} />
           </div>
         </div>
       </Link>
@@ -354,17 +356,6 @@ function GameCard({ game, offers }: { game: GameDetailResponse; offers?: Catalog
   )
 }
 
-function BadgeRow({ badges }: { badges: GameBadge[] }) {
-  return (
-    <>
-      {badges.map((badge) => (
-        <span key={badge.id} title={badge.title}>
-          <StatusPill label={badge.label} tone={badge.tone} />
-        </span>
-      ))}
-    </>
-  )
-}
 
 /** A title-derived tile, so a game with no artwork still reads as a game rather
  *  than as a hole in the list. */

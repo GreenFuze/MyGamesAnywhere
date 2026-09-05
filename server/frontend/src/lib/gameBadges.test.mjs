@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { gameBadges, gameSourceNames } from './gameBadges.ts'
 
@@ -129,5 +130,75 @@ test('every badge carries something to show', () => {
   for (const badge of badges) {
     assert.ok(badge.label.trim().length > 0, `empty label on ${badge.id}`)
     assert.ok(['good', 'attention', 'danger', 'neutral'].includes(badge.tone), `bad tone on ${badge.id}`)
+  }
+})
+
+// --- Icons -----------------------------------------------------------------
+// A badge names its icon and the component resolves the name. Nothing at
+// runtime checks that the name resolves, so a badge added without an entry in
+// the map would render an empty pill and no test would notice. This is that
+// check, and it has to read the component as text because the Node runner
+// cannot load a .tsx.
+
+const BADGES_SOURCE = readFileSync(
+  new URL('../components/management/GameBadges.tsx', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'),
+  'utf8',
+)
+
+/** The keys of the ICONS map, read out of the component. */
+function mappedIconNames(source) {
+  // From the opening brace of the map to the line that closes it: the
+  // declaration itself contains braces, so the first one is not the map.
+  const start = source.indexOf('= {', source.indexOf('const ICONS'))
+  const end = source.indexOf('\n}', start)
+  const block = source.slice(start, end)
+  const names = []
+  for (const match of block.matchAll(/^\s*'?([a-z-]+)'?\s*:/gm)) names.push(match[1])
+  return names
+}
+
+test('the icon map can actually be read out of the component', () => {
+  // Guards the guard: a regex that matched nothing would make the next test
+  // pass on an empty map.
+  const names = mappedIconNames(BADGES_SOURCE)
+  assert.ok(names.length >= 10, `found only ${names.length} icons in the component`)
+  assert.ok(names.includes('favorite'), `the map does not look like the icon map: ${names.join(', ')}`)
+})
+
+test('every badge names an icon the component can draw', () => {
+  const mapped = new Set(mappedIconNames(BADGES_SOURCE))
+  // One game carrying as many badges at once as the code can produce.
+  const loud = gameBadges({
+    id: 'g1',
+    title: 'Everything',
+    kind: 'dlc',
+    favorite: true,
+    is_game_pass: true,
+    xcloud_available: true,
+    media: [],
+    achievement_summary: { total_count: 10, unlocked_count: 3 },
+    source_games: [{ id: 's1', status: 'missing' }],
+  }, [
+    { id: 'o1', canonical_game_id: 'g1', availability: 'leaving_soon', entitlement: 'trial' },
+  ])
+  assert.ok(loud.length >= 6, `expected many badges at once, got ${loud.length}`)
+  const unmapped = loud.filter((badge) => !mapped.has(badge.icon))
+  assert.deepEqual(unmapped.map((badge) => badge.id), [], 'these badges would render without a picture')
+})
+
+test('the other availability and entitlement badges name icons too', () => {
+  const mapped = new Set(mappedIconNames(BADGES_SOURCE))
+  for (const [availability, entitlement] of [
+    ['unavailable', 'owned'],
+    ['available', 'none'],
+    ['available', 'shared'],
+  ]) {
+    const badges = gameBadges(
+      { id: 'g2', title: 'One', media: [{ asset_id: 1, type: 'cover' }], source_games: [{ id: 's', status: 'found' }] },
+      [{ id: 'o', canonical_game_id: 'g2', availability, entitlement }],
+    )
+    for (const badge of badges) {
+      assert.ok(mapped.has(badge.icon), `${badge.id} names "${badge.icon}", which the component cannot draw`)
+    }
   }
 })

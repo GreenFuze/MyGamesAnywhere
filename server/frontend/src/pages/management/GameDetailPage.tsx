@@ -15,6 +15,7 @@ import { GameMediaCollection } from '@/lib/gameMedia'
 import { humanizeIdentifier, platformLabel, sourceLabel } from '@/lib/displayText'
 import { availabilityLabel, describePlayability, entitlementLabel, isStale, offersForGame } from '@/lib/gameAvailability'
 import { gameBadges } from '@/lib/gameBadges'
+import { GameBadgeRow, SourceMark } from '@/components/management/GameBadges'
 import { PageIntro, QueryFeedback, SectionCard, StatusPill, formatCount, formatDate } from '@/components/management/ManagementPrimitives'
 
 /**
@@ -106,13 +107,7 @@ export function GameDetailPage() {
               />
               {/* The same badges as the library row, so what someone scanned a
                   list for is still there when they open it. */}
-              <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                {gameBadges(game.data, offers.data).map((badge) => (
-                  <span key={badge.id} title={badge.title}>
-                    <StatusPill label={badge.label} tone={badge.tone} />
-                  </span>
-                ))}
-              </div>
+              <GameBadgeRow badges={gameBadges(game.data, offers.data)} className="mt-3" />
 
               <button
                 type="button"
@@ -326,7 +321,8 @@ function SourceRow({ source, canonicalGameId, canRegroup, sourceCount }: {
     <div className="rounded-lg border border-mga-border bg-mga-elevated/40 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-mga-text">
+        <p className="flex items-center gap-1.5 text-sm font-medium text-mga-text">
+          <SourceMark pluginId={source.plugin_id} />
           {source.integration_label?.trim() || sourceLabel(source.plugin_id)}
         </p>
         <p className="mt-1 truncate text-xs text-mga-muted">

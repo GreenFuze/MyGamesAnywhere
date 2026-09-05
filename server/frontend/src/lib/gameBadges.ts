@@ -22,10 +22,32 @@ import { offersForGame } from './gameAvailability.ts'
 
 export type BadgeTone = 'good' | 'attention' | 'danger' | 'neutral'
 
+/**
+ * The picture on a badge, named rather than imported.
+ *
+ * This module is loaded by the Node test runner, which will not load a
+ * component, so the name is resolved to an icon where the badge is drawn.
+ */
+export type BadgeIcon =
+  | 'missing'
+  | 'unavailable'
+  | 'leaving'
+  | 'owned'
+  | 'purchase'
+  | 'trial'
+  | 'shared'
+  | 'game-pass'
+  | 'cloud'
+  | 'achievements'
+  | 'kind'
+  | 'no-artwork'
+  | 'favorite'
+
 export type GameBadge = {
   id: string
   label: string
   tone: BadgeTone
+  icon: BadgeIcon
   /** Shown on hover. Present when the label alone would be a bare assertion. */
   title?: string
 }
@@ -42,6 +64,7 @@ export function gameBadges(game: GameDetailResponse, offers?: CatalogOffer[]): G
       id: 'missing',
       label: 'Missing',
       tone: 'attention',
+      icon: 'missing',
       title: 'Found by an earlier scan and not there at the last one. The source may be offline.',
     })
   }
@@ -54,6 +77,7 @@ export function gameBadges(game: GameDetailResponse, offers?: CatalogOffer[]): G
         id: 'unavailable',
         label: 'No longer available',
         tone: 'danger',
+        icon: 'unavailable',
         title: 'The provider has stopped offering this, so it cannot be installed from here.',
       })
     } else if (offer.availability === 'leaving_soon') {
@@ -61,23 +85,25 @@ export function gameBadges(game: GameDetailResponse, offers?: CatalogOffer[]): G
         id: 'leaving',
         label: 'Leaving soon',
         tone: 'attention',
+        icon: 'leaving',
         title: 'Still available for now. After it leaves you would have to buy it.',
       })
     }
 
     if (offer.entitlement === 'owned') {
-      badges.push({ id: 'owned', label: 'Owned', tone: 'good' })
+      badges.push({ id: 'owned', label: 'Owned', tone: 'good', icon: 'owned' })
     } else if (offer.entitlement === 'none') {
       badges.push({
         id: 'purchase',
         label: 'Must be bought',
         tone: 'attention',
+        icon: 'purchase',
         title: 'Available, but not on your account.',
       })
     } else if (offer.entitlement === 'trial') {
-      badges.push({ id: 'trial', label: 'Trial', tone: 'attention' })
+      badges.push({ id: 'trial', label: 'Trial', tone: 'attention', icon: 'trial' })
     } else if (offer.entitlement === 'shared') {
-      badges.push({ id: 'shared', label: 'Shared with you', tone: 'neutral' })
+      badges.push({ id: 'shared', label: 'Shared with you', tone: 'neutral', icon: 'shared' })
     }
   }
 
@@ -88,6 +114,7 @@ export function gameBadges(game: GameDetailResponse, offers?: CatalogOffer[]): G
       id: 'game-pass',
       label: 'Game Pass',
       tone: 'good',
+      icon: 'game-pass',
       title: 'Included in your subscription while it stays in the catalogue.',
     })
   }
@@ -97,6 +124,7 @@ export function gameBadges(game: GameDetailResponse, offers?: CatalogOffer[]): G
       id: 'cloud',
       label: 'Cloud',
       tone: 'neutral',
+      icon: 'cloud',
       title: 'Can be streamed rather than installed.',
     })
   }
@@ -108,6 +136,7 @@ export function gameBadges(game: GameDetailResponse, offers?: CatalogOffer[]): G
       id: 'achievements',
       label: `${achievements.unlocked_count}/${achievements.total_count}`,
       tone: complete ? 'good' : 'neutral',
+      icon: 'achievements',
       title: complete
         ? 'Every achievement unlocked.'
         : `${achievements.unlocked_count} of ${achievements.total_count} achievements unlocked.`,
@@ -116,7 +145,7 @@ export function gameBadges(game: GameDetailResponse, offers?: CatalogOffer[]): G
 
   // Not a base game — a DLC or expansion listed in its own right.
   if (game.kind && game.kind !== 'base_game') {
-    badges.push({ id: 'kind', label: humanizeIdentifier(game.kind), tone: 'neutral' })
+    badges.push({ id: 'kind', label: humanizeIdentifier(game.kind), tone: 'neutral', icon: 'kind' })
   }
 
   if ((game.media?.length ?? 0) === 0) {
@@ -124,12 +153,13 @@ export function gameBadges(game: GameDetailResponse, offers?: CatalogOffer[]): G
       id: 'no-artwork',
       label: 'No artwork',
       tone: 'attention',
+      icon: 'no-artwork',
       title: 'No cover was found. A metadata source may still fill this in.',
     })
   }
 
   if (game.favorite) {
-    badges.push({ id: 'favorite', label: 'Favourite', tone: 'good' })
+    badges.push({ id: 'favorite', label: 'Favourite', tone: 'good', icon: 'favorite' })
   }
 
   return badges
@@ -138,10 +168,22 @@ export function gameBadges(game: GameDetailResponse, offers?: CatalogOffer[]): G
 /** The providers a game came from, named the way the user knows them, with
  *  duplicates collapsed: two entries for one game is our bookkeeping. */
 export function gameSourceNames(game: GameDetailResponse, label: (pluginId: string) => string): string[] {
-  const names = new Set<string>()
+  return gameSources(game, label).map((source) => source.name)
+}
+
+export type GameSource = {
+  /** What the user called this connection, or the provider's name. */
+  name: string
+  /** Kept alongside the name so a provider logo can be looked up: the name may
+   *  be anything the user typed, and "Games PC" identifies no brand. */
+  pluginId: string
+}
+
+export function gameSources(game: GameDetailResponse, label: (pluginId: string) => string): GameSource[] {
+  const byName = new Map<string, GameSource>()
   for (const source of game.source_games ?? []) {
     const name = source.integration_label?.trim() || label(source.plugin_id)
-    if (name) names.add(name)
+    if (name && !byName.has(name)) byName.set(name, { name, pluginId: source.plugin_id })
   }
-  return [...names].sort()
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
