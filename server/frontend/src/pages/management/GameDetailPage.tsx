@@ -6,6 +6,7 @@ import { getGameDetail, listCatalogOffers, type CatalogOffer, type GameDetailRes
 import { GameMediaCollection } from '@/lib/gameMedia'
 import { humanizeIdentifier, platformLabel, sourceLabel } from '@/lib/displayText'
 import { availabilityLabel, describePlayability, entitlementLabel, isStale, offersForGame } from '@/lib/gameAvailability'
+import { gameBadges } from '@/lib/gameBadges'
 import { PageIntro, QueryFeedback, SectionCard, StatusPill, formatCount, formatDate } from '@/components/management/ManagementPrimitives'
 
 /**
@@ -67,6 +68,15 @@ export function GameDetailPage() {
                 title={game.data.title}
                 description={game.data.description || undefined}
               />
+              {/* The same badges as the library row, so what someone scanned a
+                  list for is still there when they open it. */}
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                {gameBadges(game.data, offers.data).map((badge) => (
+                  <span key={badge.id} title={badge.title}>
+                    <StatusPill label={badge.label} tone={badge.tone} />
+                  </span>
+                ))}
+              </div>
               <Facts game={game.data} />
             </div>
           </div>

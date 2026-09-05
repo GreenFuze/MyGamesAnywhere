@@ -1,10 +1,15 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { Gamepad2, SearchX } from 'lucide-react'
-import { getStats, listGames, type GameDetailResponse, type LibraryStats } from '@/api/client'
+import { Gamepad2, LayoutGrid, Rows3, SearchX } from 'lucide-react'
+import {
+  getStats, listCatalogOffers, listGames,
+  type CatalogOffer, type GameDetailResponse, type LibraryStats,
+} from '@/api/client'
 import { GameMediaCollection } from '@/lib/gameMedia'
-import { humanizeIdentifier, platformLabel, sourceLabel } from '@/lib/displayText'
+import { platformLabel, sourceLabel } from '@/lib/displayText'
+import { gameBadges, gameSourceNames, type GameBadge } from '@/lib/gameBadges'
+import { readLibraryView, storeLibraryView, type LibraryView } from '@/lib/libraryView'
 import { MetricCard, PageIntro, QueryFeedback, SectionCard, StatusPill, formatCount } from '@/components/management/ManagementPrimitives'
 
 /** How many games arrive at once. "Show more" raises it rather than paging,
@@ -14,6 +19,15 @@ const PAGE_STEP = 48
 
 export function LibraryManagementPage() {
   const [shown, setShown] = useState(PAGE_STEP)
+  // Detailed is the default. A wall of covers is pleasant and says almost
+  // nothing: not the platform, not the source, not whether a game is in a
+  // subscription or has gone missing. The covers are the other view.
+  const [view, setView] = useState<LibraryView>(readLibraryView)
+
+  const chooseView = (next: LibraryView) => {
+    setView(next)
+    storeLibraryView(next)
+  }
 
   // The counts come from the library-wide stats endpoint, never from the rows
   // that happen to be loaded. A number that changes as you scroll is worse than
@@ -24,6 +38,9 @@ export function LibraryManagementPage() {
     queryFn: () => listGames({ page: 0, page_size: shown, sort_by: 'title', sort_dir: 'asc' }),
     placeholderData: keepPreviousData,
   })
+  // Availability is only known once a store or subscription source has been
+  // scanned. No offers means no badge, never a guessed one.
+  const offers = useQuery({ queryKey: ['management', 'catalog-offers'], queryFn: listCatalogOffers })
 
   const games = library.data?.games ?? []
   const total = library.data?.total ?? stats.data?.canonical_game_count
@@ -51,6 +68,10 @@ export function LibraryManagementPage() {
         title="All games"
         description={total !== undefined && games.length > 0 ? `Showing ${formatCount(games.length)} of ${formatCount(total)}, sorted by name.` : undefined}
       >
+        <div className="mb-4 flex justify-end">
+          <ViewToggle view={view} onChange={chooseView} />
+        </div>
+
         <QueryFeedback
           pending={library.isPending}
           error={library.error}
@@ -61,9 +82,16 @@ export function LibraryManagementPage() {
 
         {games.length > 0 && (
           <>
-            <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-              {games.map((game) => <GameCard key={game.id} game={game} />)}
-            </ul>
+            {view === 'detailed' ? (
+              <ul className="divide-y divide-mga-border/70 overflow-hidden rounded-lg border border-mga-border">
+                {games.map((game) => <GameRow key={game.id} game={game} offers={offers.data} />)}
+              </ul>
+            ) : (
+              <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+                {games.map((game) => <GameCard key={game.id} game={game} offers={offers.data} />)}
+              </ul>
+            )}
+
             {hasMore && (
               <div className="mt-6 flex justify-center">
                 <button
@@ -83,53 +111,111 @@ export function LibraryManagementPage() {
   )
 }
 
-function GameCard({ game }: { game: GameDetailResponse }) {
+function ViewToggle({ view, onChange }: { view: LibraryView; onChange: (next: LibraryView) => void }) {
+  const options: { id: LibraryView; label: string; icon: React.ReactNode }[] = [
+    { id: 'detailed', label: 'Detailed', icon: <Rows3 className="h-3.5 w-3.5" /> },
+    { id: 'grid', label: 'Covers', icon: <LayoutGrid className="h-3.5 w-3.5" /> },
+  ]
+  return (
+    <div className="inline-flex rounded-md border border-mga-border p-0.5" role="group" aria-label="How to show your games">
+      {options.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          onClick={() => onChange(option.id)}
+          aria-pressed={view === option.id}
+          className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition ${
+            view === option.id ? 'bg-mga-elevated text-mga-text' : 'text-mga-muted hover:text-mga-text'
+          }`}
+        >
+          {option.icon}
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** The detailed row: everything the covers cannot say. */
+function GameRow({ game, offers }: { game: GameDetailResponse; offers?: CatalogOffer[] }) {
   const media = useMemo(() => new GameMediaCollection(game.media), [game.media])
   const cover = media.coverUrl()
-  const sources = useMemo(() => sourceNames(game), [game])
+  const badges = useMemo(() => gameBadges(game, offers), [game, offers])
+  const sources = useMemo(() => gameSourceNames(game, sourceLabel), [game])
+  const year = game.release_date ? new Date(game.release_date).getFullYear() : undefined
 
   return (
-    <li className="group overflow-hidden rounded-lg border border-mga-border bg-mga-elevated/35 transition hover:border-mga-accent/40">
-      <Link to={`/library/game/${encodeURIComponent(game.id)}`} className="block focus:outline-none focus:ring-2 focus:ring-mga-accent/50">
-      <div className="relative aspect-[3/4] w-full overflow-hidden bg-mga-elevated">
-        {cover
-          ? <img src={cover} alt="" loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" />
-          : <CoverPlaceholder title={game.title} />}
-      </div>
-      <div className="space-y-1.5 p-3">
-        <p className="truncate text-sm font-medium text-mga-text" title={game.title}>{game.title}</p>
-        <p className="truncate text-xs text-mga-muted">{platformLabel(game.platform || 'unknown')}</p>
-        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-          {sources.map((source) => <StatusPill key={source} label={source} />)}
-          {!cover && <StatusPill label="No artwork" tone="attention" />}
-          {game.kind && game.kind !== 'base_game' && <StatusPill label={humanizeIdentifier(game.kind)} />}
+    <li>
+      <Link
+        to={`/library/game/${encodeURIComponent(game.id)}`}
+        className="flex items-center gap-4 bg-mga-elevated/35 px-4 py-3 transition hover:bg-mga-elevated/70 focus:outline-none focus:ring-2 focus:ring-mga-accent/50"
+      >
+        <div className="h-14 w-11 shrink-0 overflow-hidden rounded border border-mga-border bg-mga-elevated">
+          {cover ? <img src={cover} alt="" loading="lazy" className="h-full w-full object-cover" /> : <CoverPlaceholder title={game.title} compact />}
         </div>
-      </div>
+
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-mga-text">{game.title}</p>
+          <p className="mt-0.5 truncate text-xs text-mga-muted">
+            {[platformLabel(game.platform || 'unknown'), year, game.developer].filter(Boolean).join(' · ')}
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {sources.map((source) => <StatusPill key={source} label={source} />)}
+            <BadgeRow badges={badges} />
+          </div>
+        </div>
       </Link>
     </li>
   )
 }
 
-/** A title-derived tile, so a game with no artwork still reads as a game rather
- *  than as a hole in the grid. */
-function CoverPlaceholder({ title }: { title: string }) {
-  const initials = title.trim().split(/\s+/).slice(0, 2).map((word) => word.charAt(0).toUpperCase()).join('')
+function GameCard({ game, offers }: { game: GameDetailResponse; offers?: CatalogOffer[] }) {
+  const media = useMemo(() => new GameMediaCollection(game.media), [game.media])
+  const cover = media.coverUrl()
+  const badges = useMemo(() => gameBadges(game, offers), [game, offers])
+
   return (
-    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-mga-elevated to-mga-surface">
-      <span className="text-2xl font-semibold text-mga-muted">{initials || '?'}</span>
-    </div>
+    <li className="group overflow-hidden rounded-lg border border-mga-border bg-mga-elevated/35 transition hover:border-mga-accent/40">
+      <Link to={`/library/game/${encodeURIComponent(game.id)}`} className="block focus:outline-none focus:ring-2 focus:ring-mga-accent/50">
+        <div className="relative aspect-[3/4] w-full overflow-hidden bg-mga-elevated">
+          {cover
+            ? <img src={cover} alt="" loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" />
+            : <CoverPlaceholder title={game.title} />}
+        </div>
+        <div className="space-y-1.5 p-3">
+          <p className="truncate text-sm font-medium text-mga-text" title={game.title}>{game.title}</p>
+          <p className="truncate text-xs text-mga-muted">{platformLabel(game.platform || 'unknown')}</p>
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            {/* Only what changes what you would do. The row view has room for the rest. */}
+            <BadgeRow badges={badges.filter((badge) => badge.tone !== 'neutral').slice(0, 3)} />
+          </div>
+        </div>
+      </Link>
+    </li>
   )
 }
 
-/** Which providers this game came from, named the way the user knows them, with
- *  duplicates collapsed: two Xbox entries for one game is our bookkeeping. */
-function sourceNames(game: GameDetailResponse): string[] {
-  const names = new Set<string>()
-  for (const source of game.source_games ?? []) {
-    const label = source.integration_label?.trim() || sourceLabel(source.plugin_id)
-    if (label) names.add(label)
-  }
-  return [...names].sort()
+function BadgeRow({ badges }: { badges: GameBadge[] }) {
+  return (
+    <>
+      {badges.map((badge) => (
+        <span key={badge.id} title={badge.title}>
+          <StatusPill label={badge.label} tone={badge.tone} />
+        </span>
+      ))}
+    </>
+  )
+}
+
+/** A title-derived tile, so a game with no artwork still reads as a game rather
+ *  than as a hole in the list. */
+function CoverPlaceholder({ title, compact = false }: { title: string; compact?: boolean }) {
+  const initials = title.trim().split(/\s+/).slice(0, 2).map((word) => word.charAt(0).toUpperCase()).join('')
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-mga-elevated to-mga-surface">
+      <span className={`font-semibold text-mga-muted ${compact ? 'text-xs' : 'text-2xl'}`}>{initials || '?'}</span>
+    </div>
+  )
 }
 
 /** Entries a scan found before and could not find last time. Reported only when

@@ -1,0 +1,133 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { gameBadges, gameSourceNames } from './gameBadges.ts'
+
+// Badges are the shortest thing on the screen and therefore the easiest place
+// to say something false. The rule inherited from MGA-118 is that absence is
+// never evidence: a game without the Game Pass flag is not thereby owned — it
+// is equally a demo, a trial, an expired subscription, or a family share.
+
+function game(overrides) {
+  return {
+    id: 'game-1',
+    title: 'A Game',
+    favorite: false,
+    platform: 'windows_pc',
+    kind: 'base_game',
+    media: [{ asset_id: 1, type: 'cover', url: 'https://example.test/c.png' }],
+    source_games: [{ id: 's1', integration_id: 'i1', plugin_id: 'game-source-xbox', external_id: 'x', raw_title: 'A Game', platform: 'windows_pc', kind: 'base_game', status: 'found', created_at: '', files: [] }],
+    ...overrides,
+  }
+}
+
+function offer(overrides) {
+  return {
+    id: 'offer-1', canonical_game_id: 'game-1', provider: 'game-source-xbox', sku: 'S',
+    platform: 'windows_pc', region: 'US', entitlement: 'unknown', delivery: 'storefront',
+    availability: 'unknown', observed_at: '2026-09-01T00:00:00Z', last_success_at: '2026-09-01T00:00:00Z',
+    updated_at: '2026-09-01T00:00:00Z', ...overrides,
+  }
+}
+
+const ids = (badges) => badges.map((badge) => badge.id)
+
+test('no Game Pass flag never becomes an ownership claim', () => {
+  // The whole MGA-118 argument in one assertion. A game the provider said
+  // nothing about must carry no entitlement badge at all.
+  const badges = gameBadges(game({ is_game_pass: false }), [])
+  assert.ok(!ids(badges).includes('owned'), `claimed ownership: ${ids(badges)}`)
+  assert.ok(!ids(badges).includes('game-pass'), `claimed a subscription: ${ids(badges)}`)
+})
+
+test('Game Pass is shown only when the provider said so', () => {
+  assert.ok(ids(gameBadges(game({ is_game_pass: true }), [])).includes('game-pass'))
+  assert.ok(!ids(gameBadges(game({}), [])).includes('game-pass'))
+})
+
+test('ownership comes from a recorded offer, not from a flag', () => {
+  const badges = gameBadges(game({}), [offer({ entitlement: 'owned', availability: 'available' })])
+  assert.ok(ids(badges).includes('owned'))
+})
+
+test('unknown entitlement produces no entitlement badge', () => {
+  // Not "owned", not "must be bought" — nothing, because nothing is known.
+  const badges = gameBadges(game({}), [offer({ entitlement: 'unknown', availability: 'available' })])
+  for (const claim of ['owned', 'purchase', 'trial', 'shared']) {
+    assert.ok(!ids(badges).includes(claim), `${claim} was claimed without evidence`)
+  }
+})
+
+test('unknown availability produces no availability badge', () => {
+  const badges = gameBadges(game({}), [offer({ availability: 'unknown' })])
+  assert.ok(!ids(badges).includes('unavailable'))
+  assert.ok(!ids(badges).includes('leaving'))
+})
+
+test('the states the owner asked to tell apart are distinct badges', () => {
+  // "which games to display, can be installed, which needs to be purchased,
+  // and which simply not available anymore".
+  assert.ok(ids(gameBadges(game({}), [offer({ availability: 'unavailable' })])).includes('unavailable'))
+  assert.ok(ids(gameBadges(game({}), [offer({ availability: 'leaving_soon' })])).includes('leaving'))
+  assert.ok(ids(gameBadges(game({}), [offer({ entitlement: 'none', availability: 'available' })])).includes('purchase'))
+  assert.ok(ids(gameBadges(game({ is_game_pass: true }), [])).includes('game-pass'))
+})
+
+test('what you have lost is listed before what you have', () => {
+  // Scanning a row, the first badge should be the one that changes what you do.
+  const badges = gameBadges(
+    game({ is_game_pass: true, xcloud_available: true, source_games: [{ ...game({}).source_games[0], status: 'not_found' }] }),
+    [offer({ availability: 'unavailable' })],
+  )
+  assert.equal(badges[0].id, 'missing')
+  assert.equal(badges[1].id, 'unavailable')
+})
+
+test('achievements show progress and mark completion', () => {
+  const partial = gameBadges(game({ achievement_summary: { source_count: 1, total_count: 10, unlocked_count: 3 } }), [])
+  const badge = partial.find((entry) => entry.id === 'achievements')
+  assert.equal(badge.label, '3/10')
+  assert.equal(badge.tone, 'neutral')
+
+  const done = gameBadges(game({ achievement_summary: { source_count: 1, total_count: 10, unlocked_count: 10 } }), [])
+  assert.equal(done.find((entry) => entry.id === 'achievements').tone, 'good')
+})
+
+test('a game with no achievements gets no achievement badge', () => {
+  assert.ok(!ids(gameBadges(game({ achievement_summary: { source_count: 0, total_count: 0, unlocked_count: 0 } }), [])).includes('achievements'))
+  assert.ok(!ids(gameBadges(game({}), [])).includes('achievements'))
+})
+
+test('missing needs every source to have lost it', () => {
+  // One source losing a game that another still has is not the reader's
+  // problem, and flagging it would cry wolf.
+  const one = game({}).source_games[0]
+  const badges = gameBadges(game({ source_games: [{ ...one, status: 'not_found' }, { ...one, id: 's2', status: 'found' }] }), [])
+  assert.ok(!ids(badges).includes('missing'))
+})
+
+test('sources are named by their connection and deduplicated', () => {
+  const one = game({}).source_games[0]
+  const names = gameSourceNames(
+    game({ source_games: [
+      { ...one, integration_label: 'Xbox' },
+      { ...one, id: 's2', integration_label: 'Xbox' },
+      { ...one, id: 's3', integration_label: 'GF Google Drive' },
+    ] }),
+    (pluginId) => pluginId,
+  )
+  assert.deepEqual(names, ['GF Google Drive', 'Xbox'])
+})
+
+test('every badge carries something to show', () => {
+  // An empty label renders as a blank pill, which reads as "fine" rather than
+  // as a bug.
+  const badges = gameBadges(
+    game({ is_game_pass: true, xcloud_available: true, favorite: true, kind: 'dlc', media: [], achievement_summary: { source_count: 1, total_count: 5, unlocked_count: 5 } }),
+    [offer({ entitlement: 'owned', availability: 'leaving_soon' })],
+  )
+  assert.ok(badges.length >= 6, `expected a full row, got ${ids(badges)}`)
+  for (const badge of badges) {
+    assert.ok(badge.label.trim().length > 0, `empty label on ${badge.id}`)
+    assert.ok(['good', 'attention', 'danger', 'neutral'].includes(badge.tone), `bad tone on ${badge.id}`)
+  }
+})
