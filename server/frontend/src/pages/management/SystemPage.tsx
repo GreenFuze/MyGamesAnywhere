@@ -17,6 +17,7 @@ import {
   ActionError, ConfirmDialog, FormDialog, RestrictedNotice, ShowOnceSecret,
 } from '@/components/management/ManagementActions'
 import { ServerUpdatePanel } from '@/components/management/ServerUpdatePanel'
+import { ArtworkPanel, BackupPanel, InstalledPluginsPanel } from '@/components/management/ServerMaintenancePanels'
 import {
   MetricCard, PageIntro, QueryFeedback, SectionCard, StatusPill, formatCount, formatDate,
 } from '@/components/management/ManagementPrimitives'
@@ -79,6 +80,13 @@ export function SystemPage() {
       )}
 
       <ServerUpdatePanel admin={admin} />
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <ArtworkPanel admin={admin} />
+        <BackupPanel admin={admin} />
+      </div>
+
+      <InstalledPluginsPanel admin={admin} />
 
       <div className="grid gap-5 xl:grid-cols-2">
         <SectionCard title="MGA server" description="What this server is running.">

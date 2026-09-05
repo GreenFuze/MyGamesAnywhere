@@ -16,8 +16,12 @@ import test from 'node:test'
 
 const SRC = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 
+// Extended twice already, each time after copy shipped somewhere the guard was
+// not looking: first the shell, whose wordmark read "Control plane", then the
+// management components, which is where most new panels put their words.
 const SCANNED = [
   { path: 'pages/management', kind: 'dir' },
+  { path: 'components/management', kind: 'dir' },
   { path: 'layouts', kind: 'dir' },
   { path: 'lib/navigationRoutes.ts', kind: 'file' },
 ]
@@ -87,7 +91,7 @@ const files = filesToScan()
 test('there are console files to check', () => {
   // Guards the guard: a glob that silently matches nothing would make every
   // assertion below vacuously true.
-  assert.ok(files.length >= 9, `expected the console sources, found ${files.length}`)
+  assert.ok(files.length >= 14, `expected the console sources, found ${files.length}`)
 })
 
 test('no user-facing copy explains our architecture', () => {
