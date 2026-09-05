@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { Gamepad2, SearchX } from 'lucide-react'
 import { getStats, listGames, type GameDetailResponse, type LibraryStats } from '@/api/client'
@@ -88,7 +89,8 @@ function GameCard({ game }: { game: GameDetailResponse }) {
   const sources = useMemo(() => sourceNames(game), [game])
 
   return (
-    <li className="group overflow-hidden rounded-lg border border-mga-border bg-mga-elevated/35">
+    <li className="group overflow-hidden rounded-lg border border-mga-border bg-mga-elevated/35 transition hover:border-mga-accent/40">
+      <Link to={`/library/game/${encodeURIComponent(game.id)}`} className="block focus:outline-none focus:ring-2 focus:ring-mga-accent/50">
       <div className="relative aspect-[3/4] w-full overflow-hidden bg-mga-elevated">
         {cover
           ? <img src={cover} alt="" loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" />
@@ -103,6 +105,7 @@ function GameCard({ game }: { game: GameDetailResponse }) {
           {game.kind && game.kind !== 'base_game' && <StatusPill label={humanizeIdentifier(game.kind)} />}
         </div>
       </div>
+      </Link>
     </li>
   )
 }

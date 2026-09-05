@@ -19,6 +19,7 @@ const CredentialSetupPage = lazy(() => import('@/pages/CredentialSetupPage').the
 const OverviewPage = lazy(() => import('@/pages/management/OverviewPage').then((module) => ({ default: module.OverviewPage })))
 const ProfilesPage = lazy(() => import('@/pages/management/ProfilesPage').then((module) => ({ default: module.ProfilesPage })))
 const LibraryManagementPage = lazy(() => import('@/pages/management/LibraryManagementPage').then((module) => ({ default: module.LibraryManagementPage })))
+const GameDetailPage = lazy(() => import('@/pages/management/GameDetailPage').then((module) => ({ default: module.GameDetailPage })))
 const CatalogPage = lazy(() => import('@/pages/management/CatalogPage').then((module) => ({ default: module.CatalogPage })))
 const SourcesPage = lazy(() => import('@/pages/management/SourcesPage').then((module) => ({ default: module.SourcesPage })))
 const ArtifactsPage = lazy(() => import('@/pages/management/ArtifactsPage').then((module) => ({ default: module.ArtifactsPage })))
@@ -67,6 +68,7 @@ function ProfileAwareRoutes() {
             <Route path={APP_ROUTES.overview} element={<OverviewPage />} />
             <Route path={APP_ROUTES.profiles} element={<ProfilesPage />} />
             <Route path={APP_ROUTES.library} element={<LibraryManagementPage />} />
+            <Route path={APP_ROUTES.libraryGame} element={<GameDetailPage />} />
             <Route path={APP_ROUTES.catalog} element={<CatalogPage />} />
             <Route path={APP_ROUTES.sources} element={<SourcesPage />} />
             <Route path={APP_ROUTES.artifacts} element={<ArtifactsPage />} />

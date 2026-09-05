@@ -16,6 +16,7 @@ export const APP_ROUTES = {
   // Play, game-launch and browser-runtime paths are gone: they fall through to
   // the catch-all rather than being redirected to somewhere that suggests MGA
   // still runs games.
+  libraryGame: 'library/game/:id',
   librarySection: 'library/section/:sectionId',
   libraryReview: 'library/review',
   stats: 'stats',
