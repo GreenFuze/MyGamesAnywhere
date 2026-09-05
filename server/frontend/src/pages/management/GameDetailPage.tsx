@@ -1,8 +1,12 @@
-import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router'
-import { ArrowLeft } from 'lucide-react'
-import { getGameDetail, listCatalogOffers, type CatalogOffer, type GameDetailResponse, type SourceGameDetailDTO } from '@/api/client'
+import { ArrowLeft, Star } from 'lucide-react'
+import {
+  clearGameFavorite, getGameDetail, listCatalogOffers, setGameFavorite,
+  type CatalogOffer, type GameDetailResponse, type GameMediaDetailDTO, type SourceGameDetailDTO,
+} from '@/api/client'
+import { mediaUrl } from '@/lib/gameMedia'
 import { GameMediaCollection } from '@/lib/gameMedia'
 import { humanizeIdentifier, platformLabel, sourceLabel } from '@/lib/displayText'
 import { availabilityLabel, describePlayability, entitlementLabel, isStale, offersForGame } from '@/lib/gameAvailability'
@@ -33,6 +37,17 @@ export function GameDetailPage() {
 
   const media = useMemo(() => new GameMediaCollection(game.data?.media), [game.data?.media])
   const gameOffers = useMemo(() => offersForGame(offers.data, id), [offers.data, id])
+  const gallery = useMemo(() => media.imageMedia().filter((item) => item.asset_id !== media.cover()?.asset_id), [media])
+
+  const queryClient = useQueryClient()
+  const favourite = useMutation({
+    mutationFn: (next: boolean) => (next ? setGameFavorite(id) : clearGameFavorite(id)),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['management', 'game', id] })
+      // The library row shows the same badge, so it has to hear about this too.
+      void queryClient.invalidateQueries({ queryKey: ['management', 'library'] })
+    },
+  })
 
   return (
     <div className="mga-page-enter space-y-7">
@@ -77,6 +92,26 @@ export function GameDetailPage() {
                   </span>
                 ))}
               </div>
+
+              <button
+                type="button"
+                onClick={() => favourite.mutate(!game.data.favorite)}
+                disabled={favourite.isPending}
+                aria-pressed={game.data.favorite}
+                className={`mt-4 inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs transition disabled:opacity-60 ${
+                  game.data.favorite
+                    ? 'border-amber-400/40 bg-amber-400/10 text-amber-200'
+                    : 'border-mga-border text-mga-muted hover:text-mga-text'
+                }`}
+              >
+                <Star className={`h-3.5 w-3.5 ${game.data.favorite ? 'fill-current' : ''}`} />
+                {game.data.favorite ? 'A favourite' : 'Make a favourite'}
+              </button>
+              {favourite.error && (
+                <p className="mt-2 text-xs text-rose-300" role="alert">
+                  That could not be saved: {favourite.error instanceof Error ? favourite.error.message : 'the server refused it.'}
+                </p>
+              )}
               <Facts game={game.data} />
             </div>
           </div>
@@ -97,6 +132,12 @@ export function GameDetailPage() {
             )}
           </SectionCard>
 
+          {gallery.length > 0 && (
+            <SectionCard title="Pictures" description={`${gallery.length} beyond the cover.`}>
+              <Gallery items={gallery} />
+            </SectionCard>
+          )}
+
           <SectionCard title="Where it comes from" description="Every source that has this game, and what it found.">
             <div className="space-y-3">
               {game.data.source_games.map((source) => <SourceRow key={source.id} source={source} />)}
@@ -108,6 +149,45 @@ export function GameDetailPage() {
         </>
       )}
     </div>
+  )
+}
+
+/** Screenshots and artwork that were fetched all along and never shown. Almost
+ *  every game in a scanned library has at least one, and the detail page was
+ *  displaying only the cover. */
+function Gallery({ items }: { items: GameMediaDetailDTO[] }) {
+  const [open, setOpen] = useState<GameMediaDetailDTO | null>(null)
+  return (
+    <>
+      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {items.map((item) => (
+          <li key={item.asset_id}>
+            <button
+              type="button"
+              onClick={() => setOpen(item)}
+              className="block w-full overflow-hidden rounded-lg border border-mga-border transition hover:border-mga-accent/40 focus:outline-none focus:ring-2 focus:ring-mga-accent/50"
+            >
+              <img src={mediaUrl(item)} alt="" loading="lazy" className="aspect-video w-full object-cover" />
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {open && (
+        // Click anywhere to close. A picture viewer that needs a hunt for the
+        // close button is worse than no viewer.
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Picture"
+          onClick={() => setOpen(null)}
+          onKeyDown={(event) => { if (event.key === 'Escape') setOpen(null) }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+        >
+          <img src={mediaUrl(open)} alt="" className="max-h-full max-w-full rounded-lg" />
+        </div>
+      )}
+    </>
   )
 }
 
