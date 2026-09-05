@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 type Mode string
@@ -161,4 +162,29 @@ func (l *Layout) EnsureConfig() error {
 		return fmt.Errorf("write default config %s: %w", l.ConfigPath, err)
 	}
 	return nil
+}
+
+var (
+	currentMu sync.RWMutex
+	current   *Layout
+)
+
+// SetCurrent records the layout this process resolved at startup.
+//
+// The paths MGA uses are decided here, and a configuration file that predates a
+// key simply does not mention it. Anything that has to report where MGA
+// actually keeps something needs the same answer Resolve gave, not a second
+// guess at it.
+func SetCurrent(layout *Layout) {
+	currentMu.Lock()
+	defer currentMu.Unlock()
+	current = layout
+}
+
+// Current returns the layout resolved at startup, or nil in a process that
+// never resolved one (tests, tools).
+func Current() *Layout {
+	currentMu.RLock()
+	defer currentMu.RUnlock()
+	return current
 }

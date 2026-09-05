@@ -2255,3 +2255,90 @@ export async function retryFailedMediaDownloads(): Promise<MediaDownloadStatus> 
 export async function clearMediaCache(): Promise<MediaDownloadStatus> {
   return postJson<MediaDownloadStatus>(`/api/media/cache/clear`, {}) as Promise<MediaDownloadStatus>;
 }
+
+export type ServerSettingSource = "file" | "runtime" | "unset";
+
+export type ServerSetting = {
+  key: string;
+  value: string;
+  /** Present when the configuration file has changed and MGA has not restarted. */
+  pending_value?: string;
+  /** Whether the file names this value, MGA chose it at startup, or nothing set it. */
+  source: ServerSettingSource;
+  editable: boolean;
+};
+
+export type ServerIdentity = {
+  version: string;
+  commit: string;
+  build_date: string;
+  install_type: string;
+  os: string;
+  arch: string;
+  go_version: string;
+  started_at: string;
+  uptime_seconds: number;
+};
+
+export type ServerLogFile = {
+  path: string;
+  size_bytes: number;
+  modified_at?: string;
+  backups: number;
+  available: boolean;
+};
+
+export type ServerStorageLocation = {
+  key: string;
+  path: string;
+  source: ServerSettingSource;
+  exists: boolean;
+  size_bytes?: number;
+};
+
+export type ServerSettings = {
+  server: ServerIdentity;
+  config_path: string;
+  settings: ServerSetting[];
+  /** Names only. Values of keys this server does not read are never sent. */
+  other_keys: string[];
+  restart_required: boolean;
+  log?: ServerLogFile;
+  storage: ServerStorageLocation[];
+};
+
+export async function getServerSettings(): Promise<ServerSettings> {
+  return getJson<ServerSettings>(`/api/server-settings`);
+}
+
+export async function setServerNetwork(body: {
+  listen_ip: string;
+  port: string;
+}): Promise<ServerSettings> {
+  return postJson<ServerSettings>(`/api/server-settings/network`, body) as Promise<ServerSettings>;
+}
+
+export async function getServerLogTail(lines: number): Promise<string> {
+  return getText(`/api/diagnostics/log?lines=${encodeURIComponent(String(lines))}`);
+}
+
+/**
+ * The whole log, as bytes. It is fetched rather than linked because the request
+ * carries the profile header, which a plain link cannot set.
+ */
+export async function downloadServerLog(): Promise<Blob> {
+  const path = `/api/diagnostics/log?download=1`;
+  const res = await apiFetch(`${base}${path}`, { headers: withProfileHeaders({ Accept: "text/plain" }) });
+  if (!res.ok) {
+    throw await buildApiError(path, res);
+  }
+  return res.blob();
+}
+
+async function getText(path: string): Promise<string> {
+  const res = await apiFetch(`${base}${path}`, { headers: withProfileHeaders({ Accept: "text/plain" }) });
+  if (!res.ok) {
+    throw await buildApiError(path, res);
+  }
+  return res.text();
+}

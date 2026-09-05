@@ -23,7 +23,9 @@ const SCANNED = [
   { path: 'pages/management', kind: 'dir' },
   { path: 'components/management', kind: 'dir' },
   { path: 'layouts', kind: 'dir' },
-  { path: 'lib/navigationRoutes.ts', kind: 'file' },
+  // The whole lib directory, not one file in it: copy keeps migrating into
+  // shared modules, and the guard has already had to chase it three times.
+  { path: 'lib', kind: 'dir' },
 ]
 
 /** Words that describe our implementation rather than the user's situation. */

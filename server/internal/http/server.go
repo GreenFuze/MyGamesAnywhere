@@ -12,6 +12,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/auth"
 	appconfig "github.com/GreenFuze/MyGamesAnywhere/server/internal/config"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	mgaruntime "github.com/GreenFuze/MyGamesAnywhere/server/internal/runtime"
 )
 
 type httpServer struct {
@@ -125,17 +126,21 @@ func (h *httpServer) Start(ctx context.Context) error {
 	}
 
 	r := BuildRouter(&RouteBuilder{
-		GameCtrl:               h.gameCtrl,
-		CatalogCtrl:            h.catalogCtrl,
-		ContentCtrl:            h.contentCtrl,
-		RuntimeArtifactCtrl:    h.runtimeArtifactCtrl,
-		FrontendAPIClientCtrl:  h.frontendAPIClientCtrl,
-		FrontendAPIClientSvc:   h.frontendAPIClientSvc,
-		LegacyRetirementCtrl:   h.legacyRetirementCtrl,
-		MediaCtrl:              h.mediaCtrl,
-		DiscoCtrl:              h.discoCtrl,
-		AboutCtrl:              h.aboutCtrl,
-		ConfigCtrl:             h.configCtrl,
+		GameCtrl:              h.gameCtrl,
+		CatalogCtrl:           h.catalogCtrl,
+		ContentCtrl:           h.contentCtrl,
+		RuntimeArtifactCtrl:   h.runtimeArtifactCtrl,
+		FrontendAPIClientCtrl: h.frontendAPIClientCtrl,
+		FrontendAPIClientSvc:  h.frontendAPIClientSvc,
+		LegacyRetirementCtrl:  h.legacyRetirementCtrl,
+		MediaCtrl:             h.mediaCtrl,
+		DiscoCtrl:             h.discoCtrl,
+		AboutCtrl:             h.aboutCtrl,
+		ConfigCtrl:            h.configCtrl,
+		// Built here rather than passed in: reporting what this process is
+		// running on needs only the configuration and logger the server
+		// already holds, and its uptime is this server's uptime.
+		SystemCtrl:             NewSystemController(h.config, mgaruntime.Current(), h.logger),
 		PluginCtrl:             h.pluginCtrl,
 		IntegrationRefreshCtrl: h.integrationRefreshCtrl,
 		ReviewCtrl:             h.reviewCtrl,

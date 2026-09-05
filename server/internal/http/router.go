@@ -24,6 +24,7 @@ type RouteBuilder struct {
 	DiscoCtrl              *DiscoveryController
 	AboutCtrl              *AboutController
 	ConfigCtrl             *ConfigController
+	SystemCtrl             *SystemController
 	PluginCtrl             *PluginController
 	IntegrationRefreshCtrl *IntegrationRefreshController
 	ReviewCtrl             *ReviewController
@@ -197,6 +198,11 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 				r.Get("/duplicates/games", adminOnly(b.GameCtrl.DuplicateGames))
 				r.Get("/config/frontend", adminOnly(b.ConfigCtrl.GetFrontend))
 				r.Post("/config/frontend", adminOnly(b.ConfigCtrl.SetFrontend))
+				if b.SystemCtrl != nil {
+					r.Get("/server-settings", adminOnly(b.SystemCtrl.GetSettings))
+					r.Post("/server-settings/network", adminOnly(b.SystemCtrl.SetNetwork))
+					r.Get("/diagnostics/log", adminOnly(b.SystemCtrl.GetLog))
+				}
 				r.Get("/plugins", adminOnly(b.PluginCtrl.ListPlugins))
 				r.Get("/plugins/{plugin_id}", adminOnly(b.PluginCtrl.GetPluginByID))
 				r.Post("/config/{key}", adminOnly(b.ConfigCtrl.Set))
@@ -419,6 +425,9 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/about/license", noopHandler())
 			api.Get("/config/frontend", noopHandler())
 			api.Post("/config/frontend", noopHandler())
+			api.Get("/server-settings", noopHandler())
+			api.Post("/server-settings/network", noopHandler())
+			api.Get("/diagnostics/log", noopHandler())
 			api.Get("/scan", noopHandler())
 			api.Post("/scan", noopHandler())
 			api.Get("/scan/jobs/{job_id}", noopHandler())

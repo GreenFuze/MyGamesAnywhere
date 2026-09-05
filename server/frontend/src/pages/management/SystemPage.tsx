@@ -18,6 +18,7 @@ import {
 } from '@/components/management/ManagementActions'
 import { ServerUpdatePanel } from '@/components/management/ServerUpdatePanel'
 import { ArtworkPanel, BackupPanel, InstalledPluginsPanel } from '@/components/management/ServerMaintenancePanels'
+import { ServerLogPanel, ServerSettingsPanel } from '@/components/management/ServerSettingsPanels'
 import {
   MetricCard, PageIntro, QueryFeedback, SectionCard, StatusPill, formatCount, formatDate,
 } from '@/components/management/ManagementPrimitives'
@@ -86,7 +87,11 @@ export function SystemPage() {
         <BackupPanel admin={admin} />
       </div>
 
+      <ServerSettingsPanel admin={admin} />
+
       <InstalledPluginsPanel admin={admin} />
+
+      <ServerLogPanel admin={admin} />
 
       <div className="grid gap-5 xl:grid-cols-2">
         <SectionCard title="MGA server" description="What this server is running.">

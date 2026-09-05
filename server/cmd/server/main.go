@@ -129,6 +129,7 @@ func runServer(ctx context.Context, opts serverOptions) error {
 	if err != nil {
 		return fmt.Errorf("resolve runtime layout: %w", err)
 	}
+	mgaruntime.SetCurrent(layout)
 	if err := layout.EnsureConfig(); err != nil {
 		return fmt.Errorf("prepare runtime config: %w", err)
 	}

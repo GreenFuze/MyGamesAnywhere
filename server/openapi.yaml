@@ -2027,6 +2027,14 @@ paths:
         500:
           description: Internal server error
 
+  /api/diagnostics/log:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/duplicates/games:
     get:
       summary: List duplicate game source records
@@ -4174,6 +4182,22 @@ paths:
           description: Report not found
         500:
           description: Internal server error
+
+  /api/server-settings:
+    get:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
+  /api/server-settings/network:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
 
   /api/setup/restore-sync:
     post:
