@@ -1,6 +1,6 @@
 {
   "plugin_id": "game-source-steam",
-  "plugin_version": "1.3.1",
+  "plugin_version": "1.4.0",
   "api_major": 1,
   "capabilities": ["source", "achievements"],
   "provides": ["source.games.list", "achievements.game.get", "plugin.check_config", "auth.oauth.callback", "auth.qr.begin", "auth.qr.poll"],
@@ -8,19 +8,19 @@
   "default_timeout_ms": 120000,
   "max_concurrency": 1,
   "config": {
-    "api_key": {
-      "type": "string",
-      "required": true,
-      "x-secret": true,
-      "x-help-url": "https://steamcommunity.com/dev/apikey",
-      "description": "Used for Steam profile details and achievements. Your account sign-in still happens securely in the Steam mobile app."
-    },
     "refresh_token": {
       "type": "string",
       "required": false,
       "x-secret": true,
       "x-auth-method": "qr",
-      "description": "Steam sign-in for Steam Family shared games. Obtained by scanning a QR code with the Steam mobile app, not entered by hand — your Steam password and Steam Guard code never reach MGA. Lasts for months and renews automatically."
+      "description": "Sign in by scanning a QR code with the Steam mobile app. This is what MGA uses to read your library, and it is the only way to see Steam Family shared games. Your Steam password and Steam Guard code never reach MGA. Lasts for months and renews automatically."
+    },
+    "api_key": {
+      "type": "string",
+      "required": false,
+      "x-secret": true,
+      "x-help-url": "https://steamcommunity.com/dev/apikey",
+      "description": "Optional. Needed for achievements, and used to read your library only when you have not signed in. A key is a third party asking Steam about your account, so it answers subject to your profile privacy; signing in does not."
     }
   }
 }

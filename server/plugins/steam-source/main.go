@@ -49,10 +49,14 @@ type steamConfig struct {
 }
 
 const (
-	steamAPIBase   = "https://api.steampowered.com"
 	configFile     = "config.json"
 	steamOpenIDURL = "https://steamcommunity.com/openid/login"
 )
+
+// steamAPIBase is a var, like storeAPIBase below, so a test can point the
+// library call at an httptest server. Which credential that call carries is
+// the whole point of this plugin and was previously untestable.
+var steamAPIBase = "https://api.steampowered.com"
 
 // storeAPIBase is a var (not const) so tests can point appdetails enrichment at
 // an httptest server.
@@ -238,9 +242,9 @@ func loadConfig() (*steamConfig, error) {
 		return nil, err
 	}
 
-	if c.APIKey == "" {
-		return nil, fmt.Errorf("config.json must contain api_key")
-	}
+	// No credential requirement here on purpose: the account credential belongs
+	// to the profile connection, which supplies it with every call. A process
+	// starting up has no account of its own.
 
 	return &c, nil
 }
@@ -272,11 +276,57 @@ func configFromDirectParams(params json.RawMessage) (steamConfig, *Error) {
 
 // --- Steam API calls ---
 
-func fetchOwnedGames(apiKey, steamID string) ([]ownedGame, error) {
-	url := fmt.Sprintf(
-		"%s/IPlayerService/GetOwnedGames/v1/?key=%s&steamid=%s&include_appinfo=true&include_played_free_games=true&format=json",
-		steamAPIBase, apiKey, steamID,
-	)
+// libraryCredential is what the owned-games call authenticates with.
+//
+// The two are not equivalent. A publisher API key is a third-party credential
+// and Steam answers it subject to the account's privacy settings; the access
+// token minted from a QR sign-in is the account's own web credential and
+// answers for the account itself. The token is preferred wherever the player
+// has signed in, and the key is the fallback for a connection that has not.
+type libraryCredential struct {
+	// Param is the query parameter Steam expects: "access_token" or "key".
+	Param string
+	Value string
+}
+
+func (c libraryCredential) describe() string {
+	if c.Param == "access_token" {
+		return "Steam sign-in"
+	}
+	return "API key"
+}
+
+// credentialFor prefers the signed-in web token and falls back to the API key.
+func credentialFor(cfg steamConfig) (libraryCredential, error) {
+	if strings.TrimSpace(cfg.RefreshToken) != "" {
+		accessToken, err := newSteamAuthClient().AccessTokenFor(cfg.RefreshToken, cfg.SteamID)
+		if err != nil {
+			// A rejected sign-in falls back to the key rather than failing the
+			// scan, so a connection that has both keeps working while the
+			// player re-signs in.
+			if strings.TrimSpace(cfg.APIKey) == "" {
+				return libraryCredential{}, err
+			}
+			log.Printf("Steam sign-in was rejected (%v); falling back to the API key", err)
+			return libraryCredential{Param: "key", Value: cfg.APIKey}, nil
+		}
+		return libraryCredential{Param: "access_token", Value: accessToken}, nil
+	}
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		return libraryCredential{}, fmt.Errorf("no Steam sign-in and no API key")
+	}
+	return libraryCredential{Param: "key", Value: cfg.APIKey}, nil
+}
+
+func fetchOwnedGames(cred libraryCredential, steamID string) ([]ownedGame, error) {
+	query := url.Values{
+		cred.Param:                  {cred.Value},
+		"steamid":                   {steamID},
+		"include_appinfo":           {"true"},
+		"include_played_free_games": {"true"},
+		"format":                    {"json"},
+	}
+	url := fmt.Sprintf("%s/IPlayerService/GetOwnedGames/v1/?%s", steamAPIBase, query.Encode())
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -284,8 +334,10 @@ func fetchOwnedGames(apiKey, steamID string) ([]ownedGame, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == 401 {
-		return nil, fmt.Errorf("unauthorized (invalid API key?)")
+	if resp.StatusCode == 401 || resp.StatusCode == 403 {
+		// Naming which credential was refused matters: the two are fixed in
+		// completely different places.
+		return nil, fmt.Errorf("steam refused the %s", cred.describe())
 	}
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -524,17 +576,19 @@ func handleGamesList(params json.RawMessage) (any, *Error) {
 	if errObj != nil {
 		return nil, errObj
 	}
-	if effectiveCfg.APIKey == "" {
-		return nil, &Error{Code: "NOT_CONFIGURED", Message: "steam source requires api_key before it can scan games"}
-	}
 	if effectiveCfg.SteamID == "" {
 		return nil, &Error{Code: "AUTH_REQUIRED", Message: "steam source requires Steam login before it can scan games"}
 	}
+	cred, err := credentialFor(effectiveCfg)
+	if err != nil {
+		return nil, &Error{Code: "AUTH_REQUIRED", Message: "sign in with the Steam app, or supply an API key, before scanning games"}
+	}
 
-	owned, err := fetchOwnedGames(effectiveCfg.APIKey, effectiveCfg.SteamID)
+	owned, err := fetchOwnedGames(cred, effectiveCfg.SteamID)
 	if err != nil {
 		return nil, &Error{Code: "API_ERROR", Message: err.Error()}
 	}
+	log.Printf("listed %d owned games using the %s", len(owned), cred.describe())
 
 	log.Printf("fetched %d owned games, enriching with store details...", len(owned))
 
@@ -830,8 +884,15 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id required"}
 	}
 	effectiveCfg := configFromMap(p.Config)
-	if effectiveCfg.APIKey == "" || effectiveCfg.SteamID == "" {
-		return nil, &Error{Code: "NOT_CONFIGURED", Message: "steam source not configured"}
+	// Achievements still need the key. GetSchemaForGame has not been shown to
+	// accept an access token, so a connection that is only a QR sign-in lists
+	// games and has no achievements — and says exactly that rather than
+	// reporting itself unconfigured.
+	if effectiveCfg.SteamID == "" {
+		return nil, &Error{Code: "NOT_CONFIGURED", Message: "steam source requires Steam login"}
+	}
+	if effectiveCfg.APIKey == "" {
+		return nil, &Error{Code: "NOT_CONFIGURED", Message: "steam achievements need an API key; the library does not"}
 	}
 
 	var appID int
@@ -907,17 +968,25 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: err.Error()}
 	}
 
-	// Validate API key is present.
+	// A connection needs one credential or the other, not both.
 	apiKey, _ := p.Config["api_key"].(string)
-	if apiKey == "" {
-		return map[string]any{"status": "error", "message": "api_key required"}, nil
+	refreshToken, _ := p.Config["refresh_token"].(string)
+	if apiKey == "" && strings.TrimSpace(refreshToken) == "" {
+		return map[string]any{
+			"status":  "error",
+			"message": "sign in with the Steam app, or supply an API key",
+		}, nil
 	}
 
 	steamID := configString(p.Config, "steam_id")
 	if steamID != "" && !p.ForceOAuth {
-		// Verify the key works with this steam ID.
-		_, err := fetchOwnedGames(apiKey, steamID)
+		// Checked with the same credential a scan would use, so a connection
+		// that passes here is a connection that can list games.
+		cred, err := credentialFor(configFromMap(p.Config))
 		if err != nil {
+			return map[string]any{"status": "error", "message": err.Error()}, nil
+		}
+		if _, err := fetchOwnedGames(cred, steamID); err != nil {
 			return map[string]any{"status": "error", "message": err.Error()}, nil
 		}
 		return steamAuthOKResponse(steamID), nil

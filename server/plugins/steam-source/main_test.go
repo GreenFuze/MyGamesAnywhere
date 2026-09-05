@@ -9,17 +9,139 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestHandleGamesListRequiresConfiguration(t *testing.T) {
-	if _, errObj := handleGamesList(nil); errObj == nil || errObj.Code != "NOT_CONFIGURED" {
-		t.Fatalf("missing api key: got %+v, want NOT_CONFIGURED", errObj)
+	// A connection with nothing at all cannot scan. Which of the two things is
+	// missing is reported as the sign-in, because that is what a player is
+	// asked for first.
+	if _, errObj := handleGamesList(nil); errObj == nil || errObj.Code != "AUTH_REQUIRED" {
+		t.Fatalf("empty config: got %+v, want AUTH_REQUIRED", errObj)
 	}
 
 	if _, errObj := handleGamesList(json.RawMessage(`{"api_key":"key-only"}`)); errObj == nil || errObj.Code != "AUTH_REQUIRED" {
 		t.Fatalf("profile key without Steam identity: got %+v, want AUTH_REQUIRED", errObj)
+	}
+
+	// A Steam identity with neither credential is refused for the credential,
+	// and the message names both ways out rather than only the key.
+	_, errObj := handleGamesList(json.RawMessage(`{"steam_id":"76561198012345678"}`))
+	if errObj == nil || errObj.Code != "AUTH_REQUIRED" {
+		t.Fatalf("identity without a credential: got %+v, want AUTH_REQUIRED", errObj)
+	}
+	if !strings.Contains(errObj.Message, "Steam app") || !strings.Contains(errObj.Message, "API key") {
+		t.Errorf("message names only one way to fix it: %q", errObj.Message)
+	}
+}
+
+func TestOwnedGamesPrefersTheSignedInTokenOverTheAPIKey(t *testing.T) {
+	// The two credentials are not equivalent: a publisher API key is a third
+	// party asking about an account, and Steam answers it subject to that
+	// account's privacy settings. The token minted from a QR sign-in is the
+	// account's own credential. Wherever a player has signed in, that is what
+	// the library call must carry.
+	var seen []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/IAuthenticationService/GenerateAccessTokenForApp/"):
+			fmt.Fprint(w, `{"response":{"access_token":"minted-access-token"}}`)
+		case strings.HasPrefix(r.URL.Path, "/IPlayerService/GetOwnedGames/"):
+			query := r.URL.Query()
+			switch {
+			case query.Get("access_token") != "":
+				seen = append(seen, "access_token="+query.Get("access_token"))
+			case query.Get("key") != "":
+				seen = append(seen, "key="+query.Get("key"))
+			default:
+				seen = append(seen, "none")
+			}
+			fmt.Fprint(w, `{"response":{"game_count":0,"games":[]}}`)
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	originalAPI, originalAuth := steamAPIBase, steamAuthAPIBase
+	steamAPIBase, steamAuthAPIBase = server.URL, server.URL
+	defer func() { steamAPIBase, steamAuthAPIBase = originalAPI, originalAuth }()
+
+	const steamID = "76561198012345678"
+	signedIn := testSteamRefreshToken(t, steamID)
+	both := steamConfig{APIKey: "publisher-key", RefreshToken: signedIn, SteamID: steamID}
+	cred, err := credentialFor(both)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.Param != "access_token" {
+		t.Fatalf("with both credentials the call used %q, want the sign-in", cred.Param)
+	}
+	if _, err := fetchOwnedGames(cred, both.SteamID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without a sign-in the key is still used, so an existing connection keeps
+	// working.
+	keyOnly := steamConfig{APIKey: "publisher-key", SteamID: steamID}
+	cred, err = credentialFor(keyOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.Param != "key" {
+		t.Fatalf("with only a key the call used %q, want the key", cred.Param)
+	}
+	if _, err := fetchOwnedGames(cred, keyOnly.SteamID); err != nil {
+		t.Fatal(err)
+	}
+
+	// And a sign-in on its own needs no key at all.
+	tokenOnly := steamConfig{RefreshToken: signedIn, SteamID: steamID}
+	cred, err = credentialFor(tokenOnly)
+	if err != nil {
+		t.Fatalf("a signed-in connection was refused for having no API key: %v", err)
+	}
+	if cred.Param != "access_token" {
+		t.Fatalf("signed-in connection used %q", cred.Param)
+	}
+
+	want := []string{"access_token=minted-access-token", "key=publisher-key"}
+	if len(seen) != len(want) {
+		t.Fatalf("owned games was called %v, want %v", seen, want)
+	}
+	for i := range want {
+		if seen[i] != want[i] {
+			t.Errorf("call %d carried %q, want %q", i, seen[i], want[i])
+		}
+	}
+}
+
+func TestARejectedSignInFallsBackToTheKeyRatherThanFailingTheScan(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Steam returns an empty response for a refresh token it will not renew.
+		fmt.Fprint(w, `{"response":{}}`)
+	}))
+	defer server.Close()
+	originalAuth := steamAuthAPIBase
+	steamAuthAPIBase = server.URL
+	defer func() { steamAuthAPIBase = originalAuth }()
+
+	stale := testSteamRefreshToken(t, "76561198012345678")
+	withKey := steamConfig{APIKey: "publisher-key", RefreshToken: stale, SteamID: "76561198012345678"}
+	cred, err := credentialFor(withKey)
+	if err != nil {
+		t.Fatalf("a stale sign-in with a key available should not fail: %v", err)
+	}
+	if cred.Param != "key" {
+		t.Errorf("fell back to %q, want the key", cred.Param)
+	}
+
+	// With nothing to fall back to, it fails rather than pretending.
+	if _, err := credentialFor(steamConfig{RefreshToken: stale, SteamID: "76561198012345678"}); err == nil {
+		t.Error("a stale sign-in with no key was accepted")
 	}
 }
 
