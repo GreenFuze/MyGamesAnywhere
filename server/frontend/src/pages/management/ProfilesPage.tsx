@@ -107,7 +107,7 @@ export function ProfilesPage() {
 
       <SectionCard
         title="Available profiles"
-        description="Names and roles only. One profile can never see another's accounts or games."
+        description="Each one keeps its own sign-ins and games."
       >
         <div className="grid gap-3 lg:grid-cols-2">
           {profiles.map((profile) => (
@@ -216,13 +216,13 @@ function ProfileCard({
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <Button variant="outline" size="sm" onClick={onSelect} disabled={selected}>
-          {selected ? 'Current context' : 'Switch to profile'}
+          {selected ? 'You are using this one' : 'Switch to profile'}
         </Button>
         {canManage && (
           <>
             <Button variant="ghost" size="sm" onClick={onEdit}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
             <Button variant="ghost" size="sm" onClick={onIssueTicket} disabled={issuing}>
-              <KeyRound className="h-3.5 w-3.5" /> {issuing ? 'Issuing…' : 'Credential link'}
+              <KeyRound className="h-3.5 w-3.5" /> {issuing ? 'Issuing…' : 'Password setup link'}
             </Button>
             <Button variant="ghost" size="sm" onClick={onDelete} className="text-rose-300 hover:bg-rose-500/10">
               <Trash2 className="h-3.5 w-3.5" /> Delete

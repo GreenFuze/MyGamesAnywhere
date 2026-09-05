@@ -36,6 +36,18 @@ const BANNED = [
   { term: 'execution authority', why: 'a card that only said what we do not do' },
   { term: 'freshness window', why: 'say when it was last checked instead' },
   { term: 'compliance blocker', why: 'say it cannot be sent yet' },
+  // Added after a screen-by-screen tour found each of these still shipping.
+  { term: 'stale evidence', why: 'say when it was last checked' },
+  { term: 'compliance evidence', why: 'say the licence or checksum is unconfirmed' },
+  { term: 'artifact', why: 'the user has emulators and runtimes, not artifacts' },
+  { term: 'runtime supply', why: 'inventory vocabulary' },
+  { term: 'progress data', why: 'they are achievements' },
+  { term: 'refresh failure', why: 'say it could not update' },
+  { term: 'frontend integration', why: 'it is an app they connected' },
+  { term: 'api scope', why: 'they are permissions' },
+  { term: 'current context', why: 'say which profile is in use' },
+  { term: 'underlying evidence', why: 'name the problem instead of pointing at it' },
+  { term: 'management area', why: 'name the page' },
 ]
 
 const JIRA_KEY = /\bMGA-\d+\b/

@@ -60,7 +60,7 @@ export const MANAGEMENT_DESTINATIONS = [
   { id: 'library', label: 'Library', path: APP_DESTINATIONS.library, description: 'Everything MGA has found' },
   { id: 'catalog', label: 'Catalog', path: '/catalog', description: 'What you can play, and for how long' },
   { id: 'sources', label: 'Sources', path: '/sources', description: 'Where your games come from' },
-  { id: 'artifacts', label: 'Artifacts', path: '/artifacts', description: 'Emulators and runtimes' },
+  { id: 'artifacts', label: 'Emulators', path: '/artifacts', description: 'Emulators and runtimes' },
   { id: 'achievements', label: 'Achievements', path: '/achievements', description: 'Your progress across sources' },
   { id: 'system', label: 'System', path: APP_DESTINATIONS.system, description: 'Server details and app access' },
 ] as const

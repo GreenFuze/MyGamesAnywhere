@@ -61,8 +61,8 @@ export function SystemPage() {
 
       <div className="grid gap-4 sm:grid-cols-3">
         <MetricCard label="Version" value={about.isPending ? '…' : about.data?.version || 'Development'} detail="Version running right now" icon={<ServerCog className="h-4 w-4" />} />
-        <MetricCard label="API clients" value={admin ? formatCount(activeClients) : 'Restricted'} detail={admin ? 'Active scoped frontend integrations' : 'Administrator role required'} icon={<KeyRound className="h-4 w-4" />} />
-        <MetricCard label="API scopes" value={admin ? formatCount(clients.data?.supported_scopes.length) : 'Restricted'} detail="Permissions you can grant to an app" icon={<ListChecks className="h-4 w-4" />} />
+        <MetricCard label="Connected apps" value={admin ? formatCount(activeClients) : 'Restricted'} detail={admin ? 'Holding a key to this profile' : 'Administrator role required'} icon={<KeyRound className="h-4 w-4" />} />
+        <MetricCard label="Permissions" value={admin ? formatCount(clients.data?.supported_scopes.length) : 'Restricted'} detail="Permissions you can grant to an app" icon={<ListChecks className="h-4 w-4" />} />
       </div>
 
       {issued && (

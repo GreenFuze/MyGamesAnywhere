@@ -11,9 +11,9 @@ export function CatalogPage() {
   return <div className="mga-page-enter space-y-7">
     <PageIntro eyebrow="Availability" title="What you can play" description="What you can play right now, what is about to leave, and what changed since last time." />
     <div className="grid gap-4 sm:grid-cols-3">
-      <MetricCard label="Offers" value={formatCount(offers.length)} detail="Everything your sources are offering" icon={<Database className="h-4 w-4" />} />
+      <MetricCard label="Games" value={formatCount(offers.length)} detail="Everything your sources are offering" icon={<Database className="h-4 w-4" />} />
       <MetricCard label="Leaving soon" value={formatCount(leaving)} detail="Leaving soon, or no longer available" tone={leaving ? 'attention' : 'good'} icon={<Clock3 className="h-4 w-4" />} />
-      <MetricCard label="Stale evidence" value={formatCount(stale)} detail="Not checked recently, so this may be out of date" tone={stale ? 'attention' : 'good'} icon={<RefreshCw className="h-4 w-4" />} />
+      <MetricCard label="Not checked lately" value={formatCount(stale)} detail="Not checked recently, so this may be out of date" tone={stale ? 'attention' : 'good'} icon={<RefreshCw className="h-4 w-4" />} />
     </div>
     <SectionCard title="Games and how you can play them" description="Where each game comes from, how you have access to it, and when that was last confirmed.">
       <QueryFeedback pending={catalog.isPending} error={catalog.error} empty={!catalog.isPending && offers.length === 0} emptyTitle="Nothing here yet" emptyDescription="Connect a store or subscription source, and what it offers will be tracked here over time." />
