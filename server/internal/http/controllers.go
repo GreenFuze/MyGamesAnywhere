@@ -2403,6 +2403,8 @@ func duplicateIntegrationMessage(pluginID, label string, sourceIdentityMatch boo
 		return fmt.Sprintf("A Google Drive integration for this account already exists: %q. Edit the existing integration and add include paths there.", existingLabel)
 	case "game-source-local":
 		return fmt.Sprintf("A local folder connection for this folder already exists: %q. Edit the existing connection and add include paths there.", existingLabel)
+	case "game-source-google-drive-desktop":
+		return fmt.Sprintf("A Google Drive connection for this folder already exists: %q. Edit the existing connection and add include paths there.", existingLabel)
 	default:
 		return fmt.Sprintf("An integration for this source already exists: %q.", existingLabel)
 	}

@@ -44,22 +44,43 @@ test('every mapped plugin icon is actually registered', () => {
   }
 })
 
-test('the local folder source is registered everywhere it has to be', () => {
-  assert.match(displayText, /'game-source-local': 'Local Folder'/)
-  assert.match(gameUtils, /'game-source-local':\s*'FolderOpen'/)
-  // Without this the connection gets no include-path normalization in the UI.
-  assert.match(gameUtils, /isFilesystemSourcePlugin[\s\S]{0,220}game-source-local/)
-  // And without this its cards show a blank configuration summary.
-  assert.match(gameUtils, /'game-source-local':\s*\(c\)\s*=>\s*\{/)
+// Both folder-backed sources are checked together. They share one plugin
+// binary and one implementation, so a registration missed for one of them is
+// the likeliest way for the other to keep working while the new one silently
+// does not.
+const FOLDER_SOURCES = [
+  { id: 'game-source-local', label: 'Local Folder', icon: 'FolderOpen' },
+  { id: 'game-source-google-drive-desktop', label: 'Google Drive for Desktop', icon: 'HardDrive' },
+]
+
+test('both folder sources are registered everywhere they have to be', () => {
+  for (const source of FOLDER_SOURCES) {
+    assert.match(displayText, new RegExp(`'${source.id}': '${source.label}'`), `${source.id} has no display name`)
+    assert.match(gameUtils, new RegExp(`'${source.id}':\\s*'${source.icon}'`), `${source.id} has no icon`)
+    // Without this the connection gets no include-path normalization in the UI.
+    assert.match(
+      gameUtils,
+      new RegExp(`isFilesystemSourcePlugin[\\s\\S]{0,400}${source.id}`),
+      `${source.id} is not treated as filesystem-backed`,
+    )
+    // And without this its cards show a blank configuration summary.
+    assert.match(
+      gameUtils,
+      new RegExp(`'${source.id}': \\(c\\) => summarizeBasePathSource\\('${source.id}'`),
+      `${source.id} has no configuration summary`,
+    )
+  }
 })
 
-test('the local folder summary reads from base_path, not root_path', () => {
+test('the folder summary reads from base_path, not root_path', () => {
   // sourcescope deletes root_path for every filesystem-backed plugin, so a
-  // summary built from it would always be empty.
-  const strategy = gameUtils.slice(
-    gameUtils.indexOf("'game-source-local': (c) => {"),
-    gameUtils.indexOf("'game-source-google-drive': (c) => summarizeDriveIncludePaths"),
+  // summary built from it would always be empty. Both sources go through one
+  // helper now, so the helper is what gets checked.
+  const helper = gameUtils.slice(
+    gameUtils.indexOf('function summarizeBasePathSource'),
+    gameUtils.indexOf('export function normalizeFilesystemIncludePaths'),
   )
-  assert.match(strategy, /c\.base_path/)
-  assert.doesNotMatch(strategy, /c\.root_path/)
+  assert.ok(helper.length > 0, 'summarizeBasePathSource was not found; the guard would pass vacuously')
+  assert.match(helper, /config\.base_path/)
+  assert.doesNotMatch(helper, /root_path/)
 })

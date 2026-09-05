@@ -283,7 +283,11 @@ func (h *pluginHost) createPluginClient(pluginID string, plugin *core.Plugin) (I
 	defer cancel()
 
 	var initResult json.RawMessage
-	if err := client.Call(initCtx, "plugin.init", map[string]any{}, &initResult); err != nil {
+	// Tell the plugin which manifest started it. One binary can back several
+	// plugin ids — the Google Drive plugin serves three, and the local source
+	// serves two — and a plugin that must behave differently per id cannot work
+	// that out for itself. Plugins that do not care ignore the field.
+	if err := client.Call(initCtx, "plugin.init", map[string]any{"plugin_id": pluginID}, &initResult); err != nil {
 		h.logger.Warn("plugin.init failed, continuing anyway", "plugin_id", pluginID, "error", err)
 	} else {
 		h.logger.Info("plugin.init completed", "plugin_id", pluginID)

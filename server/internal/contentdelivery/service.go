@@ -212,7 +212,7 @@ func (s *Service) openSourceFile(ctx context.Context, sourceGame *core.SourceGam
 		// against RootPath: the scanner writes RootPath as a relative group
 		// directory that is already a prefix of file.Path, so joining the two
 		// would count the group directory twice.
-		if sourceGame.PluginID == localSourcePluginID {
+		if servesLocalDirectory(sourceGame.PluginID) {
 			return s.openLocalFile(ctx, sourceGame, file)
 		}
 		resolved, err := resolveLocalFile(sourceGame.RootPath, file.Path)
@@ -350,7 +350,19 @@ func (s *Service) openSMBFile(ctx context.Context, sourceGame *core.SourceGame, 
 	return &smbFile{file: opened, share: share, conn: conn, logoff: session.Logoff}, nil
 }
 
-const localSourcePluginID = "game-source-local"
+const (
+	localSourcePluginID = "game-source-local"
+	// A synced Google Drive folder is a directory on this machine. It reaches
+	// bytes exactly the way the local source does, so it shares that path
+	// rather than the Drive API source's network path.
+	googleDriveDesktopPluginID = "game-source-google-drive-desktop"
+)
+
+// servesLocalDirectory reports whether a connection is one of the plugins whose
+// files this package opens directly from disk.
+func servesLocalDirectory(pluginID string) bool {
+	return pluginID == localSourcePluginID || pluginID == googleDriveDesktopPluginID
+}
 
 type localConfig struct {
 	BasePath string `json:"base_path"`
@@ -380,7 +392,7 @@ func (s *Service) openLocalFile(ctx context.Context, sourceGame *core.SourceGame
 	if err := json.Unmarshal([]byte(integration.ConfigJSON), &rawConfig); err != nil {
 		return nil, ErrUnavailable
 	}
-	if err := sourcescope.ValidateConfig(localSourcePluginID, rawConfig); err != nil {
+	if err := sourcescope.ValidateConfig(sourceGame.PluginID, rawConfig); err != nil {
 		return nil, ErrUnavailable
 	}
 	var config localConfig
@@ -398,7 +410,7 @@ func (s *Service) openLocalFile(ctx context.Context, sourceGame *core.SourceGame
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	if !includeScopeAllows(logicalPath, sourcescope.ReadIncludePaths(localSourcePluginID, rawConfig)) {
+	if !includeScopeAllows(logicalPath, sourcescope.ReadIncludePaths(sourceGame.PluginID, rawConfig)) {
 		return nil, ErrNotFound
 	}
 	resolved, err := resolveLocalFile(basePath, logicalPath)
@@ -429,10 +441,14 @@ func supportsDirectSourceGame(sourceGame *core.SourceGame) bool {
 	if sourceGame == nil {
 		return false
 	}
-	switch sourceGame.PluginID {
-	case "game-source-smb", localSourcePluginID:
-		// Both resolve each file against the connection's own configured root,
+	if servesLocalDirectory(sourceGame.PluginID) || sourceGame.PluginID == "game-source-smb" {
+		// These resolve each file against the connection's own configured root,
 		// so the scanner's relative RootPath does not disqualify them.
+		//
+		// This stays a copy of the question rather than a shared helper. The
+		// versions in sourcecache and http/play_support ask something different
+		// — whether a real local file already exists that a runtime could open
+		// by path — and an SMB share answers yes here and no there.
 		return true
 	}
 	return filepath.IsAbs(strings.TrimSpace(sourceGame.RootPath))

@@ -884,6 +884,35 @@ func TestDispatchRejectsUnknownMethods(t *testing.T) {
 	}
 }
 
+// TestBothManifestsDescribeThisBinary covers the second identity as well. One
+// executable now backs two plugin ids, and a manifest that drifts from the
+// binary is invisible until a connection fails to be created.
+func TestBothManifestsDescribeThisBinary(t *testing.T) {
+	original := pluginID
+	t.Cleanup(func() { pluginID = original })
+	for _, manifestFile := range []string{"game-source-local.plugin.json", "game-source-google-drive-desktop.plugin.json"} {
+		raw, err := os.ReadFile(manifestFile)
+		if err != nil {
+			t.Fatalf("read %s: %v", manifestFile, err)
+		}
+		var manifest map[string]any
+		if err := json.Unmarshal(raw, &manifest); err != nil {
+			t.Fatalf("decode %s: %v", manifestFile, err)
+		}
+		adoptPluginIdentity(manifest["plugin_id"].(string))
+		info := pluginInfo()
+		if info["plugin_id"] != manifest["plugin_id"] {
+			t.Errorf("%s: plugin_id drifted: %v vs %v", manifestFile, info["plugin_id"], manifest["plugin_id"])
+		}
+		if info["plugin_version"] != manifest["plugin_version"] {
+			t.Errorf("%s: plugin_version drifted: %v vs %v", manifestFile, info["plugin_version"], manifest["plugin_version"])
+		}
+		if manifest["exec"] != "local.exe" {
+			t.Errorf("%s: exec = %v, want local.exe; both ids share one binary", manifestFile, manifest["exec"])
+		}
+	}
+}
+
 func TestPluginInfoMatchesTheManifest(t *testing.T) {
 	raw, err := os.ReadFile("game-source-local.plugin.json")
 	if err != nil {

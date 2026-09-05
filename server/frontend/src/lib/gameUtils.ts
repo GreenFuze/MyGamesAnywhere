@@ -73,6 +73,7 @@ export const PLUGIN_LUCIDE_ICONS: Record<string, string> = {
   'game-source-google-drive':   'Cloud',
   'game-source-gdrive':         'Cloud',
   'game-source-local':          'FolderOpen',
+  'game-source-google-drive-desktop': 'HardDrive',
   'metadata-steam':             'Search',
   'metadata-rawg':              'Dice5',
   'metadata-igdb':              'BookOpen',
@@ -111,6 +112,18 @@ export function isFilesystemSourcePlugin(pluginId: string): boolean {
   return pluginId === 'game-source-smb'
     || pluginId === 'game-source-google-drive'
     || pluginId === 'game-source-local'
+    // A synced Drive folder is a folder on the server. It shares every path
+    // rule with the local source; only the way its base is chosen differs.
+    || pluginId === 'game-source-google-drive-desktop'
+}
+
+/** Summarises a connection configured as one base folder plus include paths.
+ *  Shared by the local source and the synced-Drive source, which differ in how
+ *  the base is picked and in nothing else. */
+function summarizeBasePathSource(pluginId: string, config: Record<string, unknown>): string {
+  const base = typeof config.base_path === 'string' ? config.base_path : ''
+  const paths = normalizeFilesystemIncludePaths(pluginId, config)
+  return `${base || 'No folder selected'}${summarizeIncludePaths(paths, '/')}`
 }
 
 export function normalizeFilesystemIncludePaths(
@@ -256,11 +269,8 @@ export class ConfigSummaryBuilder {
     'metadata-igdb': (c) => ConfigSummaryBuilder.hintSecret(c, 'client_id'),
     'metadata-rawg': (c) => ConfigSummaryBuilder.hintSecret(c, 'api_key'),
     'retroachievements': (c) => (c.username ? `User: ${c.username}` : ''),
-    'game-source-local': (c) => {
-      const base = typeof c.base_path === 'string' ? c.base_path : ''
-      const paths = normalizeFilesystemIncludePaths('game-source-local', c)
-      return `${base || 'No folder selected'}${summarizeIncludePaths(paths, '/')}`
-    },
+    'game-source-local': (c) => summarizeBasePathSource('game-source-local', c),
+    'game-source-google-drive-desktop': (c) => summarizeBasePathSource('game-source-google-drive-desktop', c),
     'game-source-google-drive': (c) => summarizeDriveIncludePaths(c),
     'game-source-gdrive': (c) => summarizeDriveIncludePaths(c),
     'sync-settings-google-drive': (c) => (c.sync_path ? `Path: ${c.sync_path}` : ''),

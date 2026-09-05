@@ -155,7 +155,7 @@ func opaqueProvider(pluginID string) (string, bool) {
 
 func isLocalContentProvider(pluginID string) bool {
 	switch strings.ToLower(strings.TrimSpace(pluginID)) {
-	case "game-source-google-drive", "game-source-gdrive", "game-source-smb", "game-source-local":
+	case "game-source-google-drive", "game-source-gdrive", "game-source-smb", "game-source-local", "game-source-google-drive-desktop":
 		return true
 	default:
 		return false

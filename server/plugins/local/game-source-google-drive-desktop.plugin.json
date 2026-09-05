@@ -1,5 +1,5 @@
 {
-  "plugin_id": "game-source-local",
+  "plugin_id": "game-source-google-drive-desktop",
   "plugin_version": "1.1.0",
   "api_major": 1,
   "capabilities": ["source"],
@@ -16,12 +16,12 @@
     "base_path": {
       "type": "string",
       "required": true,
-      "description": "Absolute path to the folder on this server that holds your games. Use one connection per drive or root folder."
+      "description": "The synced Google Drive folder on this server. MGA offers the accounts it finds; pick one, or type a path if your Drive is mounted somewhere else."
     },
     "include_paths": {
       "type": "array",
       "required": true,
-      "description": "Folders inside the base path to scan. Leave a path empty to scan the whole base.",
+      "description": "Folders inside your Drive to scan, such as Games. Leave a path empty to scan the whole Drive.",
       "items": {
         "type": "object",
         "properties": {

@@ -681,7 +681,11 @@ function normalizeStringPathsValue(value: unknown): string[] {
 /** Names the first breadcrumb. A local connection browses this machine, so
  *  calling its root "My Drive" would be simply wrong. */
 function browseRootLabel(pluginId: string): string {
-  return pluginId === 'game-source-local' ? 'Computer' : 'My Drive'
+  if (pluginId === 'game-source-local') return 'Computer'
+  // The synced-Drive source lists accounts rather than drives, so its first
+  // breadcrumb is the choice being made, not a place.
+  if (pluginId === 'game-source-google-drive-desktop') return 'Google Drive'
+  return 'My Drive'
 }
 
 function isBrowsablePathField(fieldKey: string): boolean {

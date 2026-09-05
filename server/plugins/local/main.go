@@ -37,7 +37,32 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 )
 
-const pluginID = "game-source-local"
+// This binary backs two plugin ids. They share every behaviour except which
+// folders they offer as a starting point: the local source offers the machine's
+// drives, and the Drive for Desktop source offers the synced Google accounts it
+// can find. The host tells us which one we were started as during plugin.init;
+// until then we answer as the local source, which is the older of the two and
+// the safer default.
+const (
+	localPluginID            = "game-source-local"
+	googleDriveDesktopPlugin = "game-source-google-drive-desktop"
+)
+
+var pluginID = localPluginID
+
+// adoptPluginIdentity records which manifest started this process. An unknown
+// or absent id leaves the default in place rather than failing: a host that
+// does not send one is not broken, it is just older than this plugin.
+func adoptPluginIdentity(raw string) {
+	switch strings.TrimSpace(raw) {
+	case localPluginID:
+		pluginID = localPluginID
+	case googleDriveDesktopPlugin:
+		pluginID = googleDriveDesktopPlugin
+	}
+}
+
+func servingGoogleDriveDesktop() bool { return pluginID == googleDriveDesktopPlugin }
 
 // Walk limits. A refusal an operator can act on beats a scan that never
 // returns, so both are hard stops rather than warnings.
@@ -519,6 +544,9 @@ func isAbsoluteRequest(path string) bool {
 }
 
 func listRoots() []browseFolder {
+	if servingGoogleDriveDesktop() {
+		return listGoogleDriveRoots()
+	}
 	if runtime.GOOS != "windows" {
 		return []browseFolder{{Name: "/", Path: "/", DisplayPath: "/"}}
 	}
@@ -532,6 +560,22 @@ func listRoots() []browseFolder {
 			Name:        string(letter) + ":",
 			Path:        string(letter) + ":/",
 			DisplayPath: string(letter) + ":/",
+		})
+	}
+	return folders
+}
+
+// listGoogleDriveRoots offers the synced accounts, named so that someone with
+// several signed in can tell them apart. An empty result is not an error; the
+// console reads it as "no mount found" and offers instructions instead.
+func listGoogleDriveRoots() []browseFolder {
+	mounts := googleDriveMounts()
+	folders := make([]browseFolder, 0, len(mounts))
+	for _, mount := range mounts {
+		folders = append(folders, browseFolder{
+			Name:        mount.Label,
+			Path:        mount.Path,
+			DisplayPath: mount.Path,
 		})
 	}
 	return folders
@@ -933,7 +977,7 @@ func handleCheckConfig(params json.RawMessage) (any, *Error) {
 func pluginInfo() map[string]any {
 	return map[string]any{
 		"plugin_id":      pluginID,
-		"plugin_version": "1.0.0",
+		"plugin_version": "1.1.0",
 		"capabilities":   []string{"source"},
 		"provides": []string{
 			"source.filesystem.list",
@@ -1005,7 +1049,14 @@ func dispatch(req Request, report progressReporter) Response {
 	resp := Response{ID: req.ID}
 	switch req.Method {
 	case "plugin.init":
-		resp.Result = map[string]any{"status": "ok"}
+		var init struct {
+			PluginID string `json:"plugin_id"`
+		}
+		if len(req.Params) > 0 {
+			_ = json.Unmarshal(req.Params, &init)
+		}
+		adoptPluginIdentity(init.PluginID)
+		resp.Result = map[string]any{"status": "ok", "plugin_id": pluginID}
 	case "plugin.info":
 		resp.Result = pluginInfo()
 	case "source.filesystem.list":

@@ -15,7 +15,12 @@ type IncludePath struct {
 
 func IsFilesystemBackedPlugin(pluginID string) bool {
 	switch pluginID {
-	case "game-source-smb", "game-source-google-drive", "game-source-local":
+	// game-source-google-drive-desktop is a synced folder on this machine, so it
+	// is filesystem-backed like the local source and unlike the Drive API
+	// source, which reaches Google over the network. Omitting it here would let
+	// NormalizeConfig strip base_path before schema validation and fail every
+	// attempt to create the connection.
+	case "game-source-smb", "game-source-google-drive", "game-source-local", "game-source-google-drive-desktop":
 		return true
 	default:
 		return false
