@@ -15,7 +15,9 @@ import { ConfigFieldsRenderer } from '@/components/settings/ConfigFieldsRenderer
 import { PluginIcon } from '@/components/settings/PluginIcon'
 import { FormDialog } from '@/components/management/ManagementActions'
 import { useSSE } from '@/hooks/useSSE'
-import { parsePluginConfigSchema, type PluginConfigField } from '@/lib/gameUtils'
+import { parsePluginConfigSchema, pluginQRSignInField, type PluginConfigField } from '@/lib/gameUtils'
+import { QRSignIn } from '@/components/management/QRSignIn'
+import { providerAppName, qrSignInPurpose } from '@/lib/qrSignInCopy'
 import { ProviderCatalog, type ProviderDescriptor } from '@/lib/providerCatalog'
 import { explainConnectionFailure } from '@/lib/connectionErrors'
 import { describeMissingFields, initialConfigValues, missingRequiredFields } from '@/lib/connectionValidation'
@@ -73,6 +75,12 @@ export function ConnectionFormDialog({
   const schema: Array<{ key: string; field: PluginConfigField }> = provider
     ? parsePluginConfigSchema(provider.plugin.config as Record<string, unknown> | undefined)
     : []
+  // A provider that issues its own credential through an app gets a sign-in
+  // panel rather than a text box. It needs a connection to attach the result
+  // to, so a new connection is created first and signed in afterwards.
+  const qrField = provider
+    ? pluginQRSignInField(provider.plugin.config as Record<string, unknown> | undefined)
+    : null
 
   const save = useMutation({
     mutationFn: async (oauthState?: string) => {
@@ -240,6 +248,21 @@ export function ConnectionFormDialog({
           )}
 
           <Input label="Label" value={label} onChange={(event) => setLabel(event.target.value)} autoFocus />
+
+          {qrField && existing && (
+            <QRSignIn
+              pluginId={provider.pluginId}
+              integrationId={existing.id}
+              providerAppName={providerAppName(provider.pluginId, provider.name)}
+              purposeLabel={qrSignInPurpose(provider.pluginId)}
+            />
+          )}
+          {qrField && !existing && (
+            <p className="rounded-lg border border-sky-400/25 bg-sky-400/5 p-3 text-xs leading-5 text-mga-muted">
+              Create the connection first, then open it again to sign in with the{' '}
+              {providerAppName(provider.pluginId, provider.name)} app.
+            </p>
+          )}
 
           {failure && (
             <div className="rounded-lg border border-rose-400/25 bg-rose-500/5 p-4" role="alert">

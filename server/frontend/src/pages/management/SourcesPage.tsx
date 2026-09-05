@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  CircleCheck, CircleX, ExternalLink, Pencil, PlugZap, Plus, RefreshCw, Trash2,
+  CircleCheck, CircleX, ExternalLink, Pencil, PlugZap, Plus, QrCode, RefreshCw, Trash2,
 } from 'lucide-react'
 import {
   cancelScanJob,
@@ -21,6 +21,7 @@ import {
   validateIntegrationFiles,
   type Integration,
   type IntegrationRefreshJobStatus,
+  type PluginInfo,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +29,9 @@ import {
   ActionError, ConfirmDialog, RestrictedNotice,
 } from '@/components/management/ManagementActions'
 import { ConnectionFormDialog } from '@/components/management/ConnectionFormDialog'
+import { QRSignIn } from '@/components/management/QRSignIn'
+import { pluginQRSignInField } from '@/lib/gameUtils'
+import { providerAppName, qrSignInPurpose, qrSignInReason } from '@/lib/qrSignInCopy'
 import { ScanProgressPanel } from '@/components/management/ScanProgressPanel'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import {
@@ -130,6 +134,7 @@ export function SourcesPage() {
                 key={source.id}
                 source={source}
                 status={statusByID.get(source.id)}
+                plugin={(plugins.data ?? []).find((item) => item.plugin_id === source.plugin_id)}
                 canManage={isAdmin}
                 onEdit={() => setEditing(source)}
                 onDelete={() => { remove.reset(); setDeleting(source) }}
@@ -179,16 +184,23 @@ export function SourcesPage() {
 
 /** One connection with its authorization and maintenance actions. */
 function SourceCard({
-  source, status, canManage, onEdit, onDelete, onChanged,
+  source, status, plugin, canManage, onEdit, onDelete, onChanged,
 }: {
   source: Integration
   status?: { integration_id: string; status: string; message?: string }
+  plugin?: PluginInfo
   canManage: boolean
   onEdit: () => void
   onDelete: () => void
   onChanged: () => Promise<void>
 }) {
   const [notice, setNotice] = useState<string | null>(null)
+  const [signingIn, setSigningIn] = useState(false)
+
+  // A provider that hands out its own credential through its app is signed in
+  // here rather than through a text box. The panel was lost with the old
+  // settings shell; the endpoints behind it never stopped working.
+  const qrField = pluginQRSignInField(plugin?.config as Record<string, unknown> | undefined)
 
   const authorize = useMutation({
     mutationFn: () => startIntegrationAuth(source.id),
@@ -261,11 +273,37 @@ function SourceCard({
 
       {refreshJob.data && <RefreshProgress job={refreshJob.data} />}
 
+      {qrField && signingIn && (
+        <div className="mt-4">
+          {qrSignInReason(source.plugin_id) && (
+            <p className="mb-2 text-xs leading-5 text-mga-muted">{qrSignInReason(source.plugin_id)}</p>
+          )}
+          <QRSignIn
+            pluginId={source.plugin_id}
+            integrationId={source.id}
+            providerAppName={providerAppName(source.plugin_id, source.label)}
+            purposeLabel={qrSignInPurpose(source.plugin_id)}
+            autoStart
+            onSignedIn={() => { setNotice('Signed in. Scan this connection to pick up what it can now see.'); return onChanged() }}
+          />
+        </div>
+      )}
+
       {canManage && (
         <div className="mt-4 flex flex-wrap gap-2">
-          {(status?.status === 'oauth_required' || source.needs_reauth) && (
+          {(status?.status === 'oauth_required' || source.needs_reauth) && !qrField && (
             <Button size="sm" disabled={busy} onClick={() => authorize.mutate()}>
               <ExternalLink className="h-3.5 w-3.5" /> {authorize.isPending ? 'Starting…' : 'Authorize'}
+            </Button>
+          )}
+          {qrField && (
+            <Button
+              size={status?.status === 'ok' ? undefined : 'sm'}
+              variant={status?.status === 'ok' ? 'outline' : undefined}
+              onClick={() => setSigningIn((current) => !current)}
+            >
+              <QrCode className="h-3.5 w-3.5" />
+              {signingIn ? 'Hide sign-in' : qrSignInPurpose(source.plugin_id)}
             </Button>
           )}
           <Button variant="outline" size="sm" disabled={busy} onClick={() => refresh.mutate()}>

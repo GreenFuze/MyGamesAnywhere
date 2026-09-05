@@ -98,7 +98,7 @@ export type { CapabilityMeta } from './displayText'
 // Plugin config schema helpers
 // ---------------------------------------------------------------------------
 
-export { parsePluginConfigSchema } from './pluginConfig'
+export { parsePluginConfigSchema, pluginQRSignInField } from './pluginConfig'
 export type { PluginConfigField } from './pluginConfig'
 
 export type FilesystemIncludePath = {

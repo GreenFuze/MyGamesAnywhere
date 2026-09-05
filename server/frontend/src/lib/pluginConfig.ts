@@ -27,3 +27,22 @@ export function parsePluginConfigSchema(
     }))
     .filter(({ field }) => !field['x-auth-method'])
 }
+
+/**
+ * The credential a provider issues through its own app, if it has one.
+ *
+ * parsePluginConfigSchema hides these from the form on purpose — a QR-issued
+ * token is not something anyone types — which also made them invisible to the
+ * console entirely. This is how a screen finds the one it must offer a sign-in
+ * for instead.
+ */
+export function pluginQRSignInField(
+  config: Record<string, unknown> | undefined,
+): { key: string; field: PluginConfigField } | null {
+  if (!config) return null
+  for (const [key, def] of Object.entries(config)) {
+    const field = (def ?? {}) as PluginConfigField
+    if (field['x-auth-method'] === 'qr') return { key, field }
+  }
+  return null
+}
