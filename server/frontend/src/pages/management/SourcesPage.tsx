@@ -18,6 +18,7 @@ import {
   startIntegrationAuth,
   startIntegrationRefresh,
   triggerScan,
+  importOAuthCallback,
   validateIntegrationFiles,
   type Integration,
   type IntegrationRefreshJobStatus,
@@ -203,16 +204,36 @@ function SourceCard({
   const qrField = pluginQRSignInField(plugin?.config as Record<string, unknown> | undefined)
   const account = signedInAccount(source.config_json)
 
+  // A provider sends the browser back to an address it was registered with,
+  // which for Microsoft and Google is 127.0.0.1. That is this machine — so when
+  // the console is open against a server on another machine, the sign-in
+  // finishes on the wrong computer and the right one never hears about it.
+  // Pasting the address back is the way through, so the field appears as soon
+  // as a sign-in is started rather than only after someone reports a failure.
+  const [awaitingCallback, setAwaitingCallback] = useState(false)
+  const [callbackUrl, setCallbackUrl] = useState('')
+
   const authorize = useMutation({
     mutationFn: () => startIntegrationAuth(source.id),
     onSuccess: async (result) => {
       // A provider that needs consent returns a URL rather than completing here.
       if (isOAuthRequired(result) && result.authorize_url) {
         window.open(result.authorize_url, '_blank', 'noopener,noreferrer')
+        setAwaitingCallback(true)
         setNotice('Finish the provider sign-in in the new tab, then refresh this connection.')
         return
       }
       setNotice('Connection re-authorized.')
+      await onChanged()
+    },
+  })
+
+  const finishSignIn = useMutation({
+    mutationFn: () => importOAuthCallback(source.plugin_id, callbackUrl.trim()),
+    onSuccess: async () => {
+      setAwaitingCallback(false)
+      setCallbackUrl('')
+      setNotice('Sign-in finished. Scan this connection to pick up what it can now see.')
       await onChanged()
     },
   })
@@ -256,7 +277,7 @@ function SourceCard({
 
   const missingIDs = validate.data?.missing?.map((item) => item.id) ?? []
   const tone = status?.status === 'ok' ? 'good' : status?.status === 'oauth_required' ? 'attention' : status ? 'danger' : 'neutral'
-  const busy = authorize.isPending || refresh.isPending || validate.isPending || removeMissing.isPending
+  const busy = authorize.isPending || refresh.isPending || validate.isPending || removeMissing.isPending || finishSignIn.isPending
 
   return (
     <article className="rounded-lg border border-mga-border bg-mga-elevated/40 p-4">
@@ -296,6 +317,39 @@ function SourceCard({
             autoStart={!account}
             onSignedIn={() => { setNotice('Signed in. Scan this connection to pick up what it can now see.'); return onChanged() }}
           />
+        </div>
+      )}
+
+      {canManage && awaitingCallback && (
+        <div className="mt-4 rounded-md border border-mga-border bg-mga-elevated/40 p-3">
+          <p className="text-xs font-semibold text-mga-text">Did the sign-in tab show an error?</p>
+          <p className="mt-1 text-xs leading-5 text-mga-muted">
+            The provider sends your browser back to this machine when the sign-in
+            finishes. If this console is open against a server on another computer, it lands here
+            instead of there and the server never hears about it. Copy the whole address from that
+            tab — even if it shows an error — and paste it below to finish on the right server.
+          </p>
+          <input
+            type="text"
+            value={callbackUrl}
+            onChange={(event) => setCallbackUrl(event.target.value)}
+            placeholder="http://127.0.0.1:8900/api/auth/callback/…"
+            spellCheck={false}
+            className="mt-2 w-full rounded-md border border-mga-border bg-mga-surface px-2 py-1.5 text-xs text-mga-text outline-none focus:border-mga-accent"
+          />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              disabled={busy || callbackUrl.trim() === ''}
+              onClick={() => finishSignIn.mutate()}
+            >
+              {finishSignIn.isPending ? 'Finishing…' : 'Finish sign-in'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { setAwaitingCallback(false); setCallbackUrl('') }}>
+              Hide
+            </Button>
+          </div>
+          <ActionError error={finishSignIn.error} className="mt-2" />
         </div>
       )}
 
