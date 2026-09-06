@@ -159,6 +159,7 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 				status = 'found',
 				review_state = excluded.review_state,
 				manual_review_json = excluded.manual_review_json,
+				missing_scan_count = 0,
 				last_seen_at = excluded.last_seen_at`,
 			persistedID, profileID, sg.IntegrationID, sg.PluginID, sg.ExternalID,
 			sg.RawTitle, string(sg.Platform), string(sg.Kind), string(sg.GroupKind),
@@ -261,7 +262,7 @@ func (s *gameStore) PersistScanResults(ctx context.Context, batch *core.ScanBatc
 
 	// 6. Reconcile source games from this integration not seen in complete scan batches.
 	if !batch.SkipMissingReconcile {
-		if err := s.reconcileMissingSourceGames(ctx, tx, batch.IntegrationID, seenIDs, batch.FilesystemScope); err != nil {
+		if err := s.reconcileMissingSourceGames(ctx, tx, batch.IntegrationID, seenIDs, batch.FilesystemScope, len(batch.SourceGames) > 0); err != nil {
 			return fmt.Errorf("reconcile missing source games: %w", err)
 		}
 	}
@@ -4089,24 +4090,46 @@ func (s *gameStore) loadExistingSourceGames(ctx context.Context, tx *sql.Tx, int
 	return out, nil
 }
 
-func (s *gameStore) reconcileMissingSourceGames(ctx context.Context, tx *sql.Tx, integrationID string, seenIDs map[string]bool, scope *core.FilesystemScanScope) error {
+// missingScanRetirementThreshold is how many consecutive complete scans must
+// agree that a record is gone before it is deleted outright. Three, so a single
+// bad answer from a provider cannot retire a library: soft-deleting on the
+// first miss is what makes the mistake survivable, and a provider that once
+// reported an empty account for a signed-in Xbox profile is not hypothetical.
+const missingScanRetirementThreshold = 3
+
+func (s *gameStore) reconcileMissingSourceGames(
+	ctx context.Context,
+	tx *sql.Tx,
+	integrationID string,
+	seenIDs map[string]bool,
+	scope *core.FilesystemScanScope,
+	returnedAnything bool,
+) error {
 	profileSQL := profileFilterSQL(ctx, "source_games")
 	rows, err := tx.QueryContext(ctx,
-		`SELECT id, COALESCE(root_path,''), status FROM source_games WHERE integration_id=?`+profileSQL, integrationID)
+		`SELECT id, COALESCE(root_path,''), status, missing_scan_count FROM source_games WHERE integration_id=?`+profileSQL, integrationID)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
+	// Only a connection that can prove a file is gone retires records, and only
+	// when it actually returned a library this time. A filesystem connection
+	// answered with an empty listing is far more likely to be broken than to be
+	// a provider whose entire library vanished between two scans.
+	retiring := scope != nil && returnedAnything
+
 	var toSoftDelete []string
+	var toRetire []string
 	var toHardDelete []string
 	for rows.Next() {
 		var (
-			id       string
-			rootPath string
-			status   string
+			id           string
+			rootPath     string
+			status       string
+			missingCount int
 		)
-		if err := rows.Scan(&id, &rootPath, &status); err != nil {
+		if err := rows.Scan(&id, &rootPath, &status, &missingCount); err != nil {
 			return err
 		}
 		if seenIDs[id] {
@@ -4116,9 +4139,22 @@ func (s *gameStore) reconcileMissingSourceGames(ctx context.Context, tx *sql.Tx,
 			toHardDelete = append(toHardDelete, id)
 			continue
 		}
-		if status != "not_found" {
-			toSoftDelete = append(toSoftDelete, id)
+		if status == "replaced" {
+			// The record was superseded by a move, not lost. Its replacement
+			// carries the game now, so leave it out of the count entirely.
+			continue
 		}
+		if !retiring {
+			if status != "not_found" {
+				toSoftDelete = append(toSoftDelete, id)
+			}
+			continue
+		}
+		if missingCount+1 >= missingScanRetirementThreshold {
+			toRetire = append(toRetire, id)
+			continue
+		}
+		toSoftDelete = append(toSoftDelete, id)
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -4131,9 +4167,26 @@ func (s *gameStore) reconcileMissingSourceGames(ctx context.Context, tx *sql.Tx,
 		s.logger.Info("hard-deleted out-of-scope source games", "count", len(toHardDelete), "integration_id", integrationID)
 	}
 	for _, id := range toSoftDelete {
+		// The count only advances for a connection that is allowed to retire
+		// records, so a record cannot accumulate misses while nothing is
+		// watching and then be deleted by the first scan that is.
+		if retiring {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE source_games SET status='not_found', missing_scan_count = missing_scan_count + 1 WHERE id=?`, id); err != nil {
+				return err
+			}
+			continue
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE source_games SET status='not_found' WHERE id=?`, id); err != nil {
 			return err
 		}
+	}
+	if len(toRetire) > 0 {
+		if err := s.deleteSourceGamesByID(ctx, tx, toRetire); err != nil {
+			return err
+		}
+		s.logger.Info("retired source games absent from consecutive scans",
+			"count", len(toRetire), "integration_id", integrationID, "consecutive_scans", missingScanRetirementThreshold)
 	}
 	if len(toSoftDelete) > 0 {
 		s.logger.Info("soft-deleted missing source games", "count", len(toSoftDelete), "integration_id", integrationID)

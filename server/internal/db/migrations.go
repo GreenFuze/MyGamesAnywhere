@@ -15,7 +15,7 @@ import (
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 )
 
-const latestMigrationVersion = 41
+const latestMigrationVersion = 42
 
 var legacyMigrationChecksums = map[int]map[string]bool{
 	// v0.0.9 installs recorded this initial migration checksum before the
@@ -954,6 +954,20 @@ func (s *sqliteDatabase) orderedMigrations() []migration {
 				);`,
 				`CREATE INDEX idx_frontend_api_client_audit_client ON frontend_api_client_audit(client_id, created_at DESC);`,
 				`CREATE INDEX idx_frontend_api_client_audit_profile ON frontend_api_client_audit(profile_id, created_at DESC);`,
+			},
+		},
+		{
+			Version: 42,
+			Name:    "source_game_missing_scan_count",
+			SQL: []string{
+				// How many consecutive complete scans of this connection did not
+				// return the record. A scan that returns it resets the count to
+				// zero; three in a row retire the record for good.
+				//
+				// Existing rows start at zero even when they have been absent for
+				// months, so nothing is deleted on the strength of scans that ran
+				// before the count existed.
+				`ALTER TABLE source_games ADD COLUMN missing_scan_count INTEGER NOT NULL DEFAULT 0;`,
 			},
 		},
 	}

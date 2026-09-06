@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { ArrowDownAZ, Eye, EyeOff, Filter, Gamepad2, LayoutGrid, Rows3, Search, SearchX, X } from 'lucide-react'
+import { ArrowDownAZ, Eye, EyeOff, Filter, Gamepad2, LayoutGrid, Rows3, Search, X } from 'lucide-react'
 import {
   getLibraryFilterOptions, getStats, listCatalogOffers, listGames,
-  type CatalogOffer, type CountStat, type GameDetailResponse, type LibraryStats,
+  type CatalogOffer, type CountStat, type GameDetailResponse,
 } from '@/api/client'
 import { effectiveCoverUrl } from '@/lib/gameMedia'
 import { platformLabel, sourceLabel } from '@/lib/displayText'
@@ -91,7 +91,6 @@ export function LibraryManagementPage() {
   // libraryTotal is how many games exist; matched is how many this search found.
   const libraryTotal = stats.data?.canonical_game_count
   const matched = library.data?.total
-  const missing = missingFromSources(stats.data)
   const hasMore = matched !== undefined && games.length < matched
   const narrowed = Boolean(source || platform)
   const hiddenNotice = scope === 'playable'
@@ -103,17 +102,15 @@ export function LibraryManagementPage() {
     <div className="mga-page-enter space-y-7">
       <PageIntro eyebrow="Library" title="Your games" description="Every game MGA has found, and where each one comes from." />
 
+      {/* One card, because there is only one number worth reading here. The
+          count of records a scan stopped returning used to sit beside it, but
+          it was three unrelated things added together — games deleted at the
+          source, entries marked as not games, and files nothing could identify
+          — under a label that claimed all of them were missing. Records a
+          connection stops returning are now retired on their own, so there is
+          nothing left for a reader to act on. */}
       <div className="grid gap-4 sm:grid-cols-2">
         <MetricCard label="Games" value={formatCount(libraryTotal)} detail="Across all your connected sources" icon={<Gamepad2 className="h-4 w-4" />} />
-        {missing !== null && (
-          <MetricCard
-            label="Missing right now"
-            value={formatCount(missing.count)}
-            detail={missing.count > 0 ? 'Found by an earlier scan, gone at the last one. A source may be offline.' : 'Everything found earlier is still there'}
-            tone={missing.count > 0 ? 'attention' : 'good'}
-            icon={<SearchX className="h-4 w-4" />}
-          />
-        )}
       </div>
 
       <SectionCard
@@ -404,11 +401,3 @@ function CoverPlaceholder({ title, compact = false }: { title: string; compact?:
   )
 }
 
-/** Entries a scan found before and could not find last time. Reported only when
- *  the server gives both totals, so the card never shows a number derived from
- *  whichever rows this page happened to load. */
-function missingFromSources(stats: LibraryStats | undefined) {
-  if (!stats || stats.source_game_total_count === undefined || stats.source_game_found_count === undefined) return null
-  const count = Math.max(stats.source_game_total_count - stats.source_game_found_count, 0)
-  return { count }
-}
