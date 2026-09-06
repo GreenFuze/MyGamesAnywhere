@@ -97,6 +97,9 @@ func TestPollQRSessionPendingThenApproved(t *testing.T) {
 	refreshToken := testSteamRefreshToken(t, "76561198000000001")
 	startAuthTestServer(t, map[string]string{
 		"PollAuthSessionStatus": fmt.Sprintf(`{"response":{"refresh_token":%q,"account_name":"orr"}}`, refreshToken),
+		// An approved poll now also mints an access token, because the profile
+		// lookup that follows asks Steam with the account's own credential.
+		"GenerateAccessTokenForApp": `{"response":{"access_token":"minted-access-token"}}`,
 	})
 	outcome, err := newSteamAuthClient().PollQRSession("c1", "r1")
 	if err != nil {
@@ -190,6 +193,10 @@ func TestHandleQRBeginAndPollIPC(t *testing.T) {
 	refreshToken := testSteamRefreshToken(t, "76561198000000001")
 	startAuthTestServer(t, map[string]string{
 		"PollAuthSessionStatus": fmt.Sprintf(`{"response":{"refresh_token":%q,"account_name":"orr"}}`, refreshToken),
+		// An approved poll now mints an access token too: the profile lookup
+		// that follows asks Steam with the account's own credential rather than
+		// with a publisher key the connection may not have.
+		"GenerateAccessTokenForApp": `{"response":{"access_token":"minted-access-token"}}`,
 	})
 	params := json.RawMessage(`{"client_id":"c1","request_id":"r1"}`)
 	result, errObj = handleQRPoll(params)
@@ -221,7 +228,9 @@ func TestFetchSteamIdentityReturnsPersonaAndAvatar(t *testing.T) {
 		if r.URL.Path != "/ISteamUser/GetPlayerSummaries/v2/" {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
-		if r.URL.Query().Get("key") != "api-key" || r.URL.Query().Get("steamids") != "76561198000000001" {
+		// The account's own token, not a publisher key: the profile lookup is
+		// asked with whatever the connection is signed in as.
+		if r.URL.Query().Get("access_token") != "minted-token" || r.URL.Query().Get("steamids") != "76561198000000001" {
 			t.Fatalf("query = %s", r.URL.RawQuery)
 		}
 		fmt.Fprint(w, `{"response":{"players":[{"steamid":"76561198000000001","personaname":"Orr Player","avatarfull":"https://cdn.example/orr.jpg"}]}}`)
@@ -231,7 +240,7 @@ func TestFetchSteamIdentityReturnsPersonaAndAvatar(t *testing.T) {
 	steamProfileAPIBase = server.URL
 	t.Cleanup(func() { steamProfileAPIBase = original })
 
-	identity := fetchSteamIdentity("api-key", "76561198000000001", "login-name")
+	identity := fetchSteamIdentity(libraryCredential{Param: "access_token", Value: "minted-token"}, "76561198000000001", "login-name")
 	if identity.DisplayName != "Orr Player" || identity.AvatarURL != "https://cdn.example/orr.jpg" {
 		t.Fatalf("identity = %#v", identity)
 	}

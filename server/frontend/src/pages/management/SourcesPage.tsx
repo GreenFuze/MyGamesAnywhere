@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  CircleCheck, CircleX, ExternalLink, Pencil, PlugZap, Plus, QrCode, RefreshCw, Trash2,
+  Check, CircleCheck, CircleX, ExternalLink, Pencil, PlugZap, Plus, QrCode, RefreshCw, Trash2,
 } from 'lucide-react'
 import {
   cancelScanJob,
@@ -31,7 +31,7 @@ import {
 import { ConnectionFormDialog } from '@/components/management/ConnectionFormDialog'
 import { QRSignIn } from '@/components/management/QRSignIn'
 import { pluginQRSignInField } from '@/lib/gameUtils'
-import { providerAppName, qrSignInPurpose, qrSignInReason } from '@/lib/qrSignInCopy'
+import { providerAppName, qrSignInPurpose, qrSignInReason, signedInAccount } from '@/lib/qrSignInCopy'
 import { ScanProgressPanel } from '@/components/management/ScanProgressPanel'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import {
@@ -201,6 +201,7 @@ function SourceCard({
   // here rather than through a text box. The panel was lost with the old
   // settings shell; the endpoints behind it never stopped working.
   const qrField = pluginQRSignInField(plugin?.config as Record<string, unknown> | undefined)
+  const account = signedInAccount(source.config_json)
 
   const authorize = useMutation({
     mutationFn: () => startIntegrationAuth(source.id),
@@ -271,6 +272,15 @@ function SourceCard({
       </p>
       <p className="mt-1 text-[0.68rem] text-mga-muted">Configuration updated {formatDate(source.updated_at)}</p>
 
+      {account && (
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-emerald-300">
+          {account.avatar_url
+            ? <img src={account.avatar_url} alt="" className="h-4 w-4 rounded-full object-cover" />
+            : <Check className="h-3.5 w-3.5" />}
+          Signed in{account.display_name ? ` as ${account.display_name}` : ''}
+        </p>
+      )}
+
       {refreshJob.data && <RefreshProgress job={refreshJob.data} />}
 
       {qrField && signingIn && (
@@ -283,7 +293,7 @@ function SourceCard({
             integrationId={source.id}
             providerAppName={providerAppName(source.plugin_id, source.label)}
             purposeLabel={qrSignInPurpose(source.plugin_id)}
-            autoStart
+            autoStart={!account}
             onSignedIn={() => { setNotice('Signed in. Scan this connection to pick up what it can now see.'); return onChanged() }}
           />
         </div>
@@ -298,12 +308,12 @@ function SourceCard({
           )}
           {qrField && (
             <Button
-              size={status?.status === 'ok' ? undefined : 'sm'}
-              variant={status?.status === 'ok' ? 'outline' : undefined}
+              size={account ? 'sm' : undefined}
+              variant={account ? 'ghost' : undefined}
               onClick={() => setSigningIn((current) => !current)}
             >
               <QrCode className="h-3.5 w-3.5" />
-              {signingIn ? 'Hide sign-in' : qrSignInPurpose(source.plugin_id)}
+              {signingIn ? 'Hide sign-in' : account ? 'Use another account' : qrSignInPurpose(source.plugin_id)}
             </Button>
           )}
           <Button variant="outline" size="sm" disabled={busy} onClick={() => refresh.mutate()}>

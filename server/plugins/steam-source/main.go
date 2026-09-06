@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -351,22 +352,18 @@ func fetchOwnedGames(cred libraryCredential, steamID string) ([]ownedGame, error
 	return result.Response.Games, nil
 }
 
-func fetchSteamIdentity(apiKey, steamID, fallbackName string) providerIdentity {
+func fetchSteamIdentity(cred libraryCredential, steamID, fallbackName string) providerIdentity {
 	identity := providerIdentity{
 		Provider:    "steam",
 		Subject:     steamID,
 		DisplayName: strings.TrimSpace(fallbackName),
 	}
-	if strings.TrimSpace(apiKey) == "" || strings.TrimSpace(steamID) == "" {
+	if strings.TrimSpace(cred.Value) == "" || strings.TrimSpace(steamID) == "" {
 		return identity
 	}
 
-	requestURL := fmt.Sprintf(
-		"%s/ISteamUser/GetPlayerSummaries/v2/?key=%s&steamids=%s",
-		steamProfileAPIBase,
-		url.QueryEscape(apiKey),
-		url.QueryEscape(steamID),
-	)
+	query := url.Values{cred.Param: {cred.Value}, "steamids": {steamID}}
+	requestURL := fmt.Sprintf("%s/ISteamUser/GetPlayerSummaries/v2/?%s", steamProfileAPIBase, query.Encode())
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get(requestURL)
 	if err != nil {
@@ -760,9 +757,14 @@ func enrichEntry(entry gameEntry, appID int) (gameEntry, bool) {
 
 // --- Achievement fetching ---
 
-func fetchPlayerAchievements(apiKey, steamID string, appID int) (*playerAchievementsResponse, error) {
-	url := fmt.Sprintf("%s/ISteamUserStats/GetPlayerAchievements/v1/?key=%s&steamid=%s&appid=%d&l=english",
-		steamAPIBase, apiKey, steamID, appID)
+func fetchPlayerAchievements(cred libraryCredential, steamID string, appID int) (*playerAchievementsResponse, error) {
+	query := url.Values{
+		cred.Param: {cred.Value},
+		"steamid":  {steamID},
+		"appid":    {strconv.Itoa(appID)},
+		"l":        {"english"},
+	}
+	url := fmt.Sprintf("%s/ISteamUserStats/GetPlayerAchievements/v1/?%s", steamAPIBase, query.Encode())
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -772,7 +774,10 @@ func fetchPlayerAchievements(apiKey, steamID string, appID int) (*playerAchievem
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("player achievements: status %d: %s", resp.StatusCode, string(body))
+		// The credential is named because these two are accepted differently by
+		// different Steam endpoints, and a status alone does not say which one
+		// was refused.
+		return nil, fmt.Errorf("player achievements with the %s: status %d: %s", cred.describe(), resp.StatusCode, string(body))
 	}
 
 	var result playerAchievementsResponse
@@ -782,9 +787,13 @@ func fetchPlayerAchievements(apiKey, steamID string, appID int) (*playerAchievem
 	return &result, nil
 }
 
-func fetchAchievementSchema(apiKey string, appID int) (*schemaResponse, error) {
-	url := fmt.Sprintf("%s/ISteamUserStats/GetSchemaForGame/v2/?key=%s&appid=%d&l=english",
-		fetchAchievementSchemaBaseURL, apiKey, appID)
+func fetchAchievementSchema(cred libraryCredential, appID int) (*schemaResponse, error) {
+	query := url.Values{
+		cred.Param: {cred.Value},
+		"appid":    {strconv.Itoa(appID)},
+		"l":        {"english"},
+	}
+	url := fmt.Sprintf("%s/ISteamUserStats/GetSchemaForGame/v2/?%s", fetchAchievementSchemaBaseURL, query.Encode())
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -797,7 +806,7 @@ func fetchAchievementSchema(apiKey string, appID int) (*schemaResponse, error) {
 		if resp.StatusCode == http.StatusBadRequest && strings.TrimSpace(string(body)) == "{}" {
 			return nil, errNoAchievementSchema
 		}
-		return nil, fmt.Errorf("achievement schema: status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("achievement schema with the %s: status %d: %s", cred.describe(), resp.StatusCode, string(body))
 	}
 
 	var result schemaResponse
@@ -884,15 +893,15 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id required"}
 	}
 	effectiveCfg := configFromMap(p.Config)
-	// Achievements still need the key. GetSchemaForGame has not been shown to
-	// accept an access token, so a connection that is only a QR sign-in lists
-	// games and has no achievements — and says exactly that rather than
-	// reporting itself unconfigured.
 	if effectiveCfg.SteamID == "" {
 		return nil, &Error{Code: "NOT_CONFIGURED", Message: "steam source requires Steam login"}
 	}
-	if effectiveCfg.APIKey == "" {
-		return nil, &Error{Code: "NOT_CONFIGURED", Message: "steam achievements need an API key; the library does not"}
+	// The same credential the library uses. Achievements were on the key alone
+	// because nobody had checked whether the account's own token is accepted
+	// here; the log below says which one answered, so it stops being a guess.
+	cred, credErr := credentialFor(effectiveCfg)
+	if credErr != nil {
+		return nil, &Error{Code: "AUTH_REQUIRED", Message: "sign in with the Steam app, or supply an API key, before reading achievements"}
 	}
 
 	var appID int
@@ -900,7 +909,7 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 		return nil, &Error{Code: "INVALID_PARAMS", Message: "external_game_id must be a numeric Steam app ID"}
 	}
 
-	schema, err := fetchAchievementSchema(effectiveCfg.APIKey, appID)
+	schema, err := fetchAchievementSchema(cred, appID)
 	if err != nil {
 		if errors.Is(err, errNoAchievementSchema) {
 			log.Printf("steam achievements unavailable for appid %d: no public achievement schema", appID)
@@ -929,7 +938,7 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 		schemaMap[sa.Name] = sa
 	}
 
-	playerResp, err := fetchPlayerAchievements(effectiveCfg.APIKey, effectiveCfg.SteamID, appID)
+	playerResp, err := fetchPlayerAchievements(cred, effectiveCfg.SteamID, appID)
 	if err != nil {
 		log.Printf("player achievements unavailable for %d: %v", appID, err)
 	}
@@ -1080,7 +1089,18 @@ func handleQRPoll(params json.RawMessage) (any, *Error) {
 	// Bind the connection to the account proven by the approved token. Never
 	// reuse a previously typed SteamID: the player may deliberately approve a
 	// different account while correcting a connection.
-	identity := fetchSteamIdentity(strings.TrimSpace(p.APIKey), outcome.SteamID, outcome.AccountName)
+	// The account has just proved itself, so ask Steam about it with the
+	// credential it just handed over rather than with a publisher key that may
+	// not exist. This is also what fetches the avatar the console shows.
+	identityCred, credErr := credentialFor(steamConfig{
+		APIKey:       strings.TrimSpace(p.APIKey),
+		RefreshToken: outcome.RefreshToken,
+		SteamID:      outcome.SteamID,
+	})
+	if credErr != nil {
+		log.Printf("steam profile lookup skipped: %v", credErr)
+	}
+	identity := fetchSteamIdentity(identityCred, outcome.SteamID, outcome.AccountName)
 	updates := map[string]any{
 		"refresh_token":     outcome.RefreshToken,
 		"steam_id":          outcome.SteamID,

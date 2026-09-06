@@ -1,6 +1,13 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 func TestBuildSteamAchievementEntriesKeepsMixedStates(t *testing.T) {
 	schema := []schemaAchievement{
@@ -32,5 +39,98 @@ func TestBuildSteamAchievementEntriesKeepsMixedStates(t *testing.T) {
 	}
 	if entries[1].UnlockedAt != 0 {
 		t.Fatalf("locked entry should not keep unlock time, got %d", entries[1].UnlockedAt)
+	}
+}
+
+func TestAchievementsCarryTheSameCredentialAsTheLibrary(t *testing.T) {
+	// Achievements went out with the API key while the library used the
+	// account's own token, which meant a connection signed in through the app
+	// still needed a key for this one thing. Whether Steam accepts the token
+	// here is a question for Steam, but MGA has to ask it with the credential
+	// it actually has.
+	var seen []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		record := func() {
+			query := r.URL.Query()
+			switch {
+			case query.Get("access_token") != "":
+				seen = append(seen, r.URL.Path+" access_token")
+			case query.Get("key") != "":
+				seen = append(seen, r.URL.Path+" key")
+			default:
+				seen = append(seen, r.URL.Path+" none")
+			}
+		}
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/IAuthenticationService/GenerateAccessTokenForApp/"):
+			fmt.Fprint(w, `{"response":{"access_token":"minted-access-token"}}`)
+		case strings.HasPrefix(r.URL.Path, "/ISteamUserStats/GetSchemaForGame/"):
+			record()
+			fmt.Fprint(w, `{"game":{"availableGameStats":{"achievements":[{"name":"A","displayName":"First","description":"d"}]}}}`)
+		case strings.HasPrefix(r.URL.Path, "/ISteamUserStats/GetPlayerAchievements/"):
+			record()
+			fmt.Fprint(w, `{"playerstats":{"success":true,"achievements":[{"apiname":"A","achieved":1,"unlocktime":1700000000}]}}`)
+		case strings.HasPrefix(r.URL.Path, "/ISteamUserStats/GetGlobalAchievementPercentagesForApp/"):
+			fmt.Fprint(w, `{"achievementpercentages":{"achievements":[]}}`)
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	originalAPI, originalAuth, originalSchema := steamAPIBase, steamAuthAPIBase, fetchAchievementSchemaBaseURL
+	steamAPIBase, steamAuthAPIBase, fetchAchievementSchemaBaseURL = server.URL, server.URL, server.URL
+	defer func() {
+		steamAPIBase, steamAuthAPIBase, fetchAchievementSchemaBaseURL = originalAPI, originalAuth, originalSchema
+	}()
+
+	const steamID = "76561198012345678"
+	params := fmt.Sprintf(
+		`{"external_game_id":"440","config":{"api_key":"publisher-key","steam_id":%q,"refresh_token":%q}}`,
+		steamID, testSteamRefreshToken(t, steamID),
+	)
+	if _, errObj := handleAchievementsGet(json.RawMessage(params)); errObj != nil {
+		t.Fatalf("achievements failed: %+v", errObj)
+	}
+
+	for _, call := range seen {
+		if !strings.HasSuffix(call, "access_token") {
+			t.Errorf("%s went out with the wrong credential; the connection is signed in", call)
+		}
+	}
+	if len(seen) < 2 {
+		t.Fatalf("expected the schema and the player calls, saw %v", seen)
+	}
+}
+
+func TestAchievementsStillWorkWithOnlyAnAPIKey(t *testing.T) {
+	// The key remains the fallback for a connection that has not signed in.
+	var seen []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/ISteamUserStats/GetSchemaForGame/"):
+			seen = append(seen, r.URL.Query().Encode())
+			fmt.Fprint(w, `{"game":{"availableGameStats":{"achievements":[{"name":"A","displayName":"First"}]}}}`)
+		case strings.HasPrefix(r.URL.Path, "/ISteamUserStats/GetPlayerAchievements/"):
+			fmt.Fprint(w, `{"playerstats":{"success":true,"achievements":[]}}`)
+		case strings.HasPrefix(r.URL.Path, "/ISteamUserStats/GetGlobalAchievementPercentagesForApp/"):
+			fmt.Fprint(w, `{"achievementpercentages":{"achievements":[]}}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	originalAPI, originalSchema := steamAPIBase, fetchAchievementSchemaBaseURL
+	steamAPIBase, fetchAchievementSchemaBaseURL = server.URL, server.URL
+	defer func() { steamAPIBase, fetchAchievementSchemaBaseURL = originalAPI, originalSchema }()
+
+	params := `{"external_game_id":"440","config":{"api_key":"publisher-key","steam_id":"76561198012345678"}}`
+	if _, errObj := handleAchievementsGet(json.RawMessage(params)); errObj != nil {
+		t.Fatalf("achievements with only a key failed: %+v", errObj)
+	}
+	if len(seen) == 0 || !strings.Contains(seen[0], "key=publisher-key") {
+		t.Errorf("the schema call did not use the key: %v", seen)
 	}
 }

@@ -35,3 +35,34 @@ const EXPLANATIONS: Record<string, string> = {
 export function qrSignInReason(pluginId: string): string | null {
   return EXPLANATIONS[pluginId] ?? null
 }
+
+/**
+ * The account a connection is signed in as, if it is.
+ *
+ * The server redacts the refresh token from anything a browser sees but keeps
+ * provider_identity for exactly this: so a person can confirm which account a
+ * connection owns. Nothing was reading it, which is why a signed-in connection
+ * kept offering to sign in.
+ */
+export type SignedInAccount = {
+  provider: string
+  subject: string
+  display_name?: string
+  avatar_url?: string
+}
+
+export function signedInAccount(configJSON: string | undefined): SignedInAccount | null {
+  if (!configJSON) return null
+  try {
+    const parsed = JSON.parse(configJSON) as { provider_identity?: unknown }
+    const identity = parsed.provider_identity
+    if (!identity || typeof identity !== 'object') return null
+    const account = identity as SignedInAccount
+    // A subject is what makes it an account rather than a leftover fragment.
+    return typeof account.subject === 'string' && account.subject.trim() !== '' ? account : null
+  } catch {
+    // A connection whose stored configuration will not parse is not a reason to
+    // break the card it is drawn on.
+    return null
+  }
+}
