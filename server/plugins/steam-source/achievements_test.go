@@ -42,12 +42,12 @@ func TestBuildSteamAchievementEntriesKeepsMixedStates(t *testing.T) {
 	}
 }
 
-func TestAchievementsCarryTheSameCredentialAsTheLibrary(t *testing.T) {
-	// Achievements went out with the API key while the library used the
-	// account's own token, which meant a connection signed in through the app
-	// still needed a key for this one thing. Whether Steam accepts the token
-	// here is a question for Steam, but MGA has to ask it with the credential
-	// it actually has.
+func TestAchievementsUseTheAPIKeyEvenWhenSignedIn(t *testing.T) {
+	// Steam settled this on 2026-09-06. Asking GetSchemaForGame with an access
+	// token returns "400 Bad Request: Required parameter 'key' is missing" for
+	// every game — measured against a real library, where preferring the token
+	// failed all 35 of them. The library is read as the account; achievements
+	// are not, and this test exists so that stops being rediscovered.
 	var seen []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		record := func() {
@@ -94,13 +94,34 @@ func TestAchievementsCarryTheSameCredentialAsTheLibrary(t *testing.T) {
 		t.Fatalf("achievements failed: %+v", errObj)
 	}
 
-	for _, call := range seen {
-		if !strings.HasSuffix(call, "access_token") {
-			t.Errorf("%s went out with the wrong credential; the connection is signed in", call)
-		}
-	}
 	if len(seen) < 2 {
 		t.Fatalf("expected the schema and the player calls, saw %v", seen)
+	}
+	for _, call := range seen {
+		if !strings.HasSuffix(call, " key") {
+			t.Errorf("%s did not use the API key; Steam rejects anything else here", call)
+		}
+	}
+}
+
+func TestAchievementsSayTheyNeedAKeyRatherThanFailing(t *testing.T) {
+	// A connection that is only a QR sign-in reads its whole library. Saying
+	// that achievements are unavailable is the truth; failing 35 times with a
+	// Steam parse error is not.
+	steamID := "76561198012345678"
+	params := fmt.Sprintf(
+		`{"external_game_id":"440","config":{"steam_id":%q,"refresh_token":%q}}`,
+		steamID, testSteamRefreshToken(t, steamID),
+	)
+	_, errObj := handleAchievementsGet(json.RawMessage(params))
+	if errObj == nil {
+		t.Fatal("a connection with no API key reported achievements as available")
+	}
+	if errObj.Code != "NOT_CONFIGURED" {
+		t.Errorf("code = %q, want NOT_CONFIGURED", errObj.Code)
+	}
+	if !strings.Contains(errObj.Message, "API key") {
+		t.Errorf("message does not say what is missing: %q", errObj.Message)
 	}
 }
 

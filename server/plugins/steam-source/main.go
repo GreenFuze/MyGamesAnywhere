@@ -297,6 +297,28 @@ func (c libraryCredential) describe() string {
 	return "API key"
 }
 
+// achievementCredential is the key, and only the key.
+//
+// Measured against Steam on 2026-09-06, not assumed: asking
+// ISteamUserStats/GetSchemaForGame with an access token returns
+//
+//	400 Bad Request: Required parameter 'key' is missing
+//
+// for every game. That endpoint takes a publisher key and nothing else, so a
+// connection signed in through the Steam app can read its whole library and
+// still cannot read achievements. Preferring the token here failed all 35
+// games on a real library before this was put back.
+func achievementCredential(cfg steamConfig) (libraryCredential, error) {
+	if key := strings.TrimSpace(cfg.APIKey); key != "" {
+		return libraryCredential{Param: "key", Value: key}, nil
+	}
+	return libraryCredential{}, errAchievementsNeedAPIKey
+}
+
+// errAchievementsNeedAPIKey is a missing capability, not a failure: the
+// connection works, this one part of it cannot.
+var errAchievementsNeedAPIKey = errors.New("steam achievements need an API key; signing in does not cover them")
+
 // credentialFor prefers the signed-in web token and falls back to the API key.
 func credentialFor(cfg steamConfig) (libraryCredential, error) {
 	if strings.TrimSpace(cfg.RefreshToken) != "" {
@@ -896,12 +918,11 @@ func handleAchievementsGet(params json.RawMessage) (any, *Error) {
 	if effectiveCfg.SteamID == "" {
 		return nil, &Error{Code: "NOT_CONFIGURED", Message: "steam source requires Steam login"}
 	}
-	// The same credential the library uses. Achievements were on the key alone
-	// because nobody had checked whether the account's own token is accepted
-	// here; the log below says which one answered, so it stops being a guess.
-	cred, credErr := credentialFor(effectiveCfg)
+	cred, credErr := achievementCredential(effectiveCfg)
 	if credErr != nil {
-		return nil, &Error{Code: "AUTH_REQUIRED", Message: "sign in with the Steam app, or supply an API key, before reading achievements"}
+		// Reported as "no achievements here" rather than as a broken
+		// connection: everything else about it works.
+		return nil, &Error{Code: "NOT_CONFIGURED", Message: credErr.Error()}
 	}
 
 	var appID int
