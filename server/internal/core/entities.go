@@ -569,6 +569,16 @@ type CanonicalGameListQuery struct {
 	IntegrationID string
 	// Platform narrows the library to one platform. Empty means every platform.
 	Platform string
+	// HideLapsedCatalogue drops games whose only claim to being here is that a
+	// rented catalogue once carried them.
+	//
+	// A subscription source lists what the account has played, not what it
+	// owns, so a title it reports without also reporting a current
+	// subscription may be one nobody can start any more. Those are hidden only
+	// when nothing else vouches for them: an unlocked achievement is taken as
+	// evidence the game mattered, and any source that does not rent a
+	// catalogue is left alone entirely.
+	HideLapsedCatalogue bool
 }
 
 // ScanBatch holds everything produced by one scan cycle, validated in memory
@@ -1085,6 +1095,9 @@ type CountStat struct {
 type LibraryFilterOptions struct {
 	Platforms []CountStat `json:"platforms"`
 	Sources   []CountStat `json:"sources"`
+	// LapsedCatalogueCount is how many games HideLapsedCatalogue would remove,
+	// so a screen can say what a rule took rather than quietly taking it.
+	LapsedCatalogueCount int `json:"lapsed_catalogue_count"`
 }
 
 type CoverageStat struct {

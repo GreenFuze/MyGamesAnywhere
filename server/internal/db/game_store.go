@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/catalog"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/sourcescope"
 	"github.com/GreenFuze/MyGamesAnywhere/server/pkg/titlematch"
@@ -894,6 +895,11 @@ func (s *gameStore) GetVisibleCanonicalIDsSorted(ctx context.Context, offset, li
 	if platform := strings.TrimSpace(query.Platform); platform != "" {
 		filterPredicate += " AND sg.platform = ?"
 		args = append(args, platform)
+	}
+	// Applied to the source row, so a game keeps its place as soon as any one
+	// of its sources vouches for it.
+	if query.HideLapsedCatalogue {
+		filterPredicate += lapsedCatalogueExclusion("sg", "l")
 	}
 
 	q := `
@@ -2018,6 +2024,43 @@ func (s *gameStore) countVisibleFavoriteGames(ctx context.Context) (int, error) 
 	return count, err
 }
 
+// lapsedCatalogueExclusion drops source rows whose only claim to being in the
+// library is a rented catalogue that no longer carries them.
+//
+// A source that rents a catalogue is recognised by its own data rather than by
+// name: it is a provider that reports a current subscription for some titles.
+// That matters because a provider which only ever reports "unknown" is listing
+// what the account owns, not what it has played, and a game of theirs with no
+// achievements is still owned.
+//
+// A row survives if any of these hold, which is why the test for it is written
+// as three separate cases:
+//   - the provider never rents a catalogue (Steam, a folder, a drive);
+//   - this game is in that catalogue right now;
+//   - somebody unlocked an achievement in it.
+func lapsedCatalogueExclusion(sourceAlias, linkAlias string) string {
+	return fmt.Sprintf(` AND NOT (
+		EXISTS (
+			SELECT 1 FROM catalog_offers lapsed
+			WHERE lapsed.source_game_id = %[1]s.id
+			  AND lapsed.entitlement != '%[3]s'
+			  AND lapsed.provider IN (SELECT provider FROM catalog_offers WHERE entitlement = '%[3]s')
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM catalog_offers current_offer
+			WHERE current_offer.canonical_game_id = %[2]s.canonical_id
+			  AND current_offer.entitlement = '%[3]s'
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM achievement_sets earned
+			JOIN canonical_source_games_link earned_link
+			  ON earned_link.source_game_id = earned.source_game_id
+			WHERE earned_link.canonical_id = %[2]s.canonical_id
+			  AND IFNULL(earned.unlocked_count, 0) > 0
+		)
+	)`, sourceAlias, linkAlias, string(catalog.EntitlementSubscription))
+}
+
 // GetLibraryFilterOptions counts games per platform and per connection, using
 // the same visibility rule as the list itself so the number on a control and
 // the number of rows it produces agree.
@@ -2068,9 +2111,33 @@ func (s *gameStore) GetLibraryFilterOptions(ctx context.Context) (*core.LibraryF
 	if err != nil {
 		return nil, err
 	}
+
+	// What the rule would take, counted the same way the list counts, so the
+	// number offered beside it is the number it actually removes.
+	lapsed := 0
+	// Counted as "every visible game" minus "the games that survive the rule",
+	// because that is the definition of what the rule removes. Anything
+	// cleverer risks the count and the list disagreeing, which is the one
+	// thing a number printed beside a rule must never do.
+	visible := `SELECT l.canonical_id
+		FROM canonical_source_games_link l
+		JOIN source_games sg ON sg.id = l.source_game_id
+		WHERE ` + visibleSourceGameWhere(ctx, "sg")
+	lapsedQuery := `
+		SELECT COUNT(*) FROM (
+			SELECT DISTINCT canonical_id FROM (` + visible + `)
+			WHERE canonical_id NOT IN (
+				SELECT canonical_id FROM (` + visible + lapsedCatalogueExclusion("sg", "l") + `)
+			)
+		)`
+	if err := db.QueryRowContext(ctx, lapsedQuery).Scan(&lapsed); err != nil {
+		return nil, err
+	}
+
 	return &core.LibraryFilterOptions{
-		Platforms: sortedCountStats(byPlatform, nil),
-		Sources:   sortedCountStats(bySource, labels),
+		Platforms:            sortedCountStats(byPlatform, nil),
+		Sources:              sortedCountStats(bySource, labels),
+		LapsedCatalogueCount: lapsed,
 	}, nil
 }
 

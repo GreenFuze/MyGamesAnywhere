@@ -757,6 +757,8 @@ export type ListGamesResponse = {
 export type LibraryFilterOptions = {
   platforms: CountStatValue[];
   sources: CountStatValue[];
+  /** How many games hide_lapsed would remove, so a screen can say so. */
+  lapsed_catalogue_count: number;
 };
 
 export async function getLibraryFilterOptions(): Promise<LibraryFilterOptions> {
@@ -775,6 +777,8 @@ export async function listGames(params?: {
   source?: string;
   /** Only games on one platform. */
   platform?: string;
+  /** Drop games a rented catalogue no longer carries and nobody got anywhere in. */
+  hide_lapsed?: boolean;
 }): Promise<ListGamesResponse> {
   const q = new URLSearchParams();
   if (params?.page !== undefined) q.set("page", String(params.page));
@@ -785,6 +789,7 @@ export async function listGames(params?: {
   if (params?.search) q.set("search", params.search);
   if (params?.source) q.set("source", params.source);
   if (params?.platform) q.set("platform", params.platform);
+  if (params?.hide_lapsed) q.set("hide_lapsed", "true");
   const qs = q.toString();
   return getJson<ListGamesResponse>(qs ? `/api/games?${qs}` : "/api/games");
 }

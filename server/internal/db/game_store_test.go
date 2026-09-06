@@ -2053,6 +2053,142 @@ func TestUndetectedCandidatesAreHiddenFromLibraryVisibilityAndBecomeVisibleWhenM
 	}
 }
 
+func TestHidingALapsedCatalogueKeepsWhatStillVouchesForItself(t *testing.T) {
+	// A subscription source lists what an account has played, not what it
+	// owns, so it reports titles nobody can start any more alongside ones they
+	// can. Hiding those is only safe while three things still keep a game:
+	// the catalogue currently carries it, someone unlocked an achievement in
+	// it, or it came from a source that does not rent a catalogue at all.
+	ctx := context.Background()
+	db, store := newTestGameStore(t)
+
+	games := []*core.SourceGame{
+		{ID: "sub:current", IntegrationID: "sub", PluginID: "game-source-xbox", ExternalID: "1",
+			RawTitle: "Still In The Catalogue", Platform: core.PlatformWindowsPC,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found"},
+		{ID: "sub:earned", IntegrationID: "sub", PluginID: "game-source-xbox", ExternalID: "2",
+			RawTitle: "Played And Unlocked", Platform: core.PlatformWindowsPC,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found"},
+		{ID: "sub:lapsed", IntegrationID: "sub", PluginID: "game-source-xbox", ExternalID: "3",
+			RawTitle: "Tried Once And Gone", Platform: core.PlatformWindowsPC,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found"},
+	}
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "sub", SourceGames: games,
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"sub:current": {{PluginID: "metadata-igdb", ExternalID: "a", Title: "Still In The Catalogue", Rating: 80}},
+			"sub:earned":  {{PluginID: "metadata-igdb", ExternalID: "b", Title: "Played And Unlocked", Rating: 80}},
+			"sub:lapsed":  {{PluginID: "metadata-igdb", ExternalID: "c", Title: "Tried Once And Gone", Rating: 80}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A source that owns its library rather than renting it: every offer it
+	// makes is "unknown", and none of its games may be hidden by this rule.
+	owned := []*core.SourceGame{
+		{ID: "own:bought", IntegrationID: "own", PluginID: "game-source-steam", ExternalID: "9",
+			RawTitle: "Bought Outright", Platform: core.PlatformWindowsPC,
+			Kind: core.GameKindBaseGame, GroupKind: core.GroupKindSelfContained, Status: "found"},
+	}
+	if err := store.PersistScanResults(ctx, &core.ScanBatch{
+		IntegrationID: "own", SourceGames: owned,
+		ResolverMatches: map[string][]core.ResolverMatch{
+			"own:bought": {{PluginID: "metadata-igdb", ExternalID: "d", Title: "Bought Outright", Rating: 80}},
+		},
+		MediaItems: map[string][]core.MediaRef{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	currentID := canonicalIDForSource(t, ctx, db, "sub:current")
+	earnedID := canonicalIDForSource(t, ctx, db, "sub:earned")
+	lapsedID := canonicalIDForSource(t, ctx, db, "sub:lapsed")
+	boughtID := canonicalIDForSource(t, ctx, db, "own:bought")
+
+	if _, err := db.GetDB().ExecContext(ctx,
+		`INSERT INTO profiles(id, display_name, role, created_at, updated_at) VALUES ('p-lapsed','Player','player',0,0)`,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	offer := func(id, canonicalID, sourceGameID, provider, entitlement string) {
+		t.Helper()
+		if _, err := db.GetDB().ExecContext(ctx, `
+			INSERT INTO catalog_offers (id, profile_id, offer_key, canonical_game_id, source_game_id,
+				integration_id, provider, sku, platform, region, entitlement, delivery,
+				evidence_source, evidence_json, first_observed_at, last_observed_at, last_success_at,
+				created_at, updated_at)
+			VALUES (?, 'p-lapsed', ?, ?, ?, NULL, ?, ?, 'windows_pc', '', ?, 'storefront', 'scan', '{}', 0, 0, 0, 0, 0)`,
+			id, id, canonicalID, sourceGameID, provider, id, entitlement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	offer("o-current", currentID, "sub:current", "game-source-xbox", "subscription")
+	offer("o-earned", earnedID, "sub:earned", "game-source-xbox", "unknown")
+	offer("o-lapsed", lapsedID, "sub:lapsed", "game-source-xbox", "unknown")
+	offer("o-bought", boughtID, "own:bought", "game-source-steam", "unknown")
+
+	if _, err := db.GetDB().ExecContext(ctx, `
+		INSERT INTO achievement_sets (source_game_id, source, external_game_id, total_count, unlocked_count,
+			total_points, earned_points, fetched_at)
+		VALUES ('sub:earned', 'game-source-xbox', '2', 20, 3, 0, 0, 0)`); err != nil {
+		t.Fatal(err)
+	}
+
+	list := func(hide bool) map[string]bool {
+		t.Helper()
+		ids, matched, err := store.GetVisibleCanonicalIDsSorted(ctx, 0, 100, core.CanonicalGameListQuery{
+			Order:               core.CanonicalGameListOrder{Field: core.CanonicalGameSortTitle, Direction: core.SortDirectionAscending},
+			HideLapsedCatalogue: hide,
+		})
+		if err != nil {
+			t.Fatalf("list(hide=%v): %v", hide, err)
+		}
+		if matched != len(ids) {
+			t.Errorf("matched %d but returned %d ids", matched, len(ids))
+		}
+		out := map[string]bool{}
+		for _, id := range ids {
+			out[id] = true
+		}
+		return out
+	}
+
+	everything := list(false)
+	if len(everything) != 4 {
+		t.Fatalf("unfiltered library has %d games, want 4", len(everything))
+	}
+
+	kept := list(true)
+	for name, id := range map[string]string{
+		"a game still in the catalogue": currentID,
+		"a game with an achievement":    earnedID,
+		"a game bought elsewhere":       boughtID,
+	} {
+		if !kept[id] {
+			t.Errorf("%s was hidden", name)
+		}
+	}
+	if kept[lapsedID] {
+		t.Error("a title the catalogue no longer carries, with nothing unlocked, was kept")
+	}
+	if len(kept) != 3 {
+		t.Errorf("kept %d games, want 3", len(kept))
+	}
+
+	// The number offered beside the rule must be the number it removes.
+	options, err := store.GetLibraryFilterOptions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.LapsedCatalogueCount != len(everything)-len(kept) {
+		t.Errorf("the rule offers %d hidden but removes %d",
+			options.LapsedCatalogueCount, len(everything)-len(kept))
+	}
+}
+
 func TestNarrowingChoicesCountTheGamesTheyWouldShow(t *testing.T) {
 	// The number on the control and the number of rows it produces have to be
 	// the same number. Counting source rows instead of games gets this wrong

@@ -413,6 +413,9 @@ func (c *GameController) ListGames(w http.ResponseWriter, r *http.Request) {
 		Search:        search,
 		IntegrationID: strings.TrimSpace(r.URL.Query().Get("source")),
 		Platform:      strings.TrimSpace(r.URL.Query().Get("platform")),
+		// Opt-in, and the caller says so explicitly: a rule that removes games
+		// is not something a client should get by forgetting a parameter.
+		HideLapsedCatalogue: r.URL.Query().Get("hide_lapsed") == "true",
 	})
 	if err != nil {
 		c.logger.Error("list game ids", err)

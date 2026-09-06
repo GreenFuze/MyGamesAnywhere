@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { ArrowDownAZ, Filter, Gamepad2, LayoutGrid, Rows3, Search, SearchX, X } from 'lucide-react'
+import { ArrowDownAZ, Eye, EyeOff, Filter, Gamepad2, LayoutGrid, Rows3, Search, SearchX, X } from 'lucide-react'
 import {
   getLibraryFilterOptions, getStats, listCatalogOffers, listGames,
   type CatalogOffer, type CountStat, type GameDetailResponse, type LibraryStats,
@@ -11,6 +11,7 @@ import { platformLabel, sourceLabel } from '@/lib/displayText'
 import { gameBadges, gameSources } from '@/lib/gameBadges'
 import { GameBadgeRow, PlatformMark, SourcePill } from '@/components/management/GameBadges'
 import { readLibraryView, storeLibraryView, type LibraryView } from '@/lib/libraryView'
+import { describeHiddenGames, readLibraryScope, storeLibraryScope, type LibraryScope } from '@/lib/libraryScope'
 import { MetricCard, PageIntro, QueryFeedback, SectionCard, formatCount } from '@/components/management/ManagementPrimitives'
 
 /** How many games arrive at once. "Show more" raises it rather than paging,
@@ -41,6 +42,9 @@ export function LibraryManagementPage() {
   // Mega Drive games", which is the other half of finding a game.
   const [source, setSource] = useState('')
   const [platform, setPlatform] = useState('')
+  // Games a subscription no longer carries are out by default; see libraryScope.
+  const [scope, setScope] = useState<LibraryScope>(readLibraryScope)
+  const chooseScope = (next: LibraryScope) => { setScope(next); storeLibraryScope(next) }
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(typed.trim()), 250)
@@ -49,7 +53,7 @@ export function LibraryManagementPage() {
 
   // A new search starts at the top. Keeping the old page size would ask for
   // 200 rows of a result that has three.
-  useEffect(() => { setShown(PAGE_STEP) }, [search, sort, source, platform])
+  useEffect(() => { setShown(PAGE_STEP) }, [search, sort, source, platform, scope])
   // Detailed is the default. A wall of covers is pleasant and says almost
   // nothing: not the platform, not the source, not whether a game is in a
   // subscription or has gone missing. The covers are the other view.
@@ -70,10 +74,11 @@ export function LibraryManagementPage() {
   const choices = useQuery({ queryKey: ['management', 'library', 'filters'], queryFn: getLibraryFilterOptions })
   const order = SORTS[sort]
   const library = useQuery({
-    queryKey: ['management', 'library', { shown, search, sort, source, platform }],
+    queryKey: ['management', 'library', { shown, search, sort, source, platform, scope }],
     queryFn: () => listGames({
       page: 0, page_size: shown, sort_by: order.id, sort_dir: order.dir,
       search: search || undefined, source: source || undefined, platform: platform || undefined,
+      hide_lapsed: scope === 'playable',
     }),
     placeholderData: keepPreviousData,
   })
@@ -89,6 +94,9 @@ export function LibraryManagementPage() {
   const missing = missingFromSources(stats.data)
   const hasMore = matched !== undefined && games.length < matched
   const narrowed = Boolean(source || platform)
+  const hiddenNotice = scope === 'playable'
+    ? describeHiddenGames(choices.data?.lapsed_catalogue_count ?? 0)
+    : null
   const clearFilters = () => { setSource(''); setPlatform('') }
 
   return (
@@ -137,6 +145,34 @@ export function LibraryManagementPage() {
             <ViewToggle view={view} onChange={chooseView} />
           </div>
         </div>
+
+        {hiddenNotice && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-mga-border bg-mga-elevated/40 px-3 py-2 text-xs text-mga-muted">
+            <EyeOff className="h-3.5 w-3.5 shrink-0" />
+            <span>{hiddenNotice}</span>
+            <button
+              type="button"
+              onClick={() => chooseScope('everything')}
+              className="rounded-md border border-mga-border px-2 py-0.5 text-[0.68rem] transition hover:text-mga-text"
+            >
+              Show them
+            </button>
+          </div>
+        )}
+
+        {scope === 'everything' && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-mga-muted">
+            <Eye className="h-3.5 w-3.5 shrink-0" />
+            <span>Showing everything, including games a subscription no longer carries.</span>
+            <button
+              type="button"
+              onClick={() => chooseScope('playable')}
+              className="rounded-md border border-mga-border px-2 py-0.5 text-[0.68rem] transition hover:text-mga-text"
+            >
+              Hide those again
+            </button>
+          </div>
+        )}
 
         {narrowed && (
           <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-mga-muted">
