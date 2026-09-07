@@ -272,6 +272,28 @@ func (c *GameController) canonicalToGameDetailWithIntegrationLabels(ctx context.
 	return out
 }
 
+// selectCardIconMedia picks the small image a frontend shows beside a game in a
+// list.
+//
+// MGA distinguishes an icon from a logo, and most games have only the latter:
+// measured on one library, 119 games carry an icon and 221 a logo, but 239
+// carry one or the other. So a logo stands in when there is no icon — it is the
+// right shape and the right subject.
+//
+// The cover is deliberately not a fallback. A card already carries one, and a
+// frontend reusing tall box art as an icon shows the same picture twice in
+// every row.
+func selectCardIconMedia(media []core.MediaRef) *core.MediaRef {
+	for _, wanted := range []string{"icon", "logo"} {
+		for i := range media {
+			if strings.EqualFold(string(media[i].Type), wanted) {
+				return &media[i]
+			}
+		}
+	}
+	return nil
+}
+
 // canonicalToLibraryGameWithIntegrationLabels deliberately excludes
 // detail-only collections (all files, resolver matches, external IDs,
 // identity evidence, descriptions, and the complete media gallery). It keeps
@@ -326,6 +348,12 @@ func (c *GameController) canonicalToLibraryGameWithIntegrationLabels(ctx context
 	out.CoverOverride = appendSelectedMedia(cg.CoverOverride)
 	out.HoverOverride = appendSelectedMedia(cg.HoverOverride)
 	out.BackgroundOverride = appendSelectedMedia(cg.BackgroundOverride)
+	// A card carries one icon as well. External frontends show a small image
+	// beside a game in list views and have nothing else to draw it from: the
+	// gallery is a detail-only collection, so without this the only way to find
+	// an icon is a second request per game, which turns painting a library into
+	// an N+1. One asset reference per card is a much smaller price.
+	appendSelectedMedia(selectCardIconMedia(cg.Media))
 
 	for _, sg := range cg.SourceGames {
 		if sg == nil {
