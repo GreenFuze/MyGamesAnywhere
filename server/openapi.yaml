@@ -207,6 +207,14 @@ paths:
         500:
           description: Error response
 
+  /api/auth/frontend-clients:
+    post:
+      responses:
+        400:
+          description: Error response
+        500:
+          description: Error response
+
   /api/auth/login:
     post:
       responses:
