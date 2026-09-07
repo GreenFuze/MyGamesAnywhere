@@ -22,6 +22,41 @@ type Options struct {
 	BaseDir    string
 	MaxSizeMB  int
 	MaxBackups int
+	// Console is where lines go for whoever is watching. It defaults to
+	// os.Stdout, and is injectable so a console that cannot be written to can
+	// be tested — see logFanout for why that case matters.
+	Console io.Writer
+}
+
+// logFanout writes every line to the log file, and to the console when there is
+// one to write to.
+//
+// io.MultiWriter cannot do this job. It stops at the first writer that returns
+// an error, so a server whose stdout handle is not valid writes nothing to its
+// log file either. That is not a hypothetical: a server started as a Windows
+// service, or detached without output redirection, is exactly that server. The
+// owner's machine had a log file of zero bytes, last modified months earlier,
+// while the server itself ran normally and the console's log viewer showed an
+// empty page.
+//
+// So the file is the record, and its failures are returned. The console is a
+// convenience for whoever happens to be looking, and losing it is not worth
+// losing the record over.
+type logFanout struct {
+	file    io.Writer
+	console io.Writer
+}
+
+func (w *logFanout) Write(p []byte) (int, error) {
+	written, err := w.file.Write(p)
+	if err != nil {
+		return written, err
+	}
+
+	if w.console != nil {
+		_, _ = w.console.Write(p)
+	}
+	return written, nil
 }
 
 func NewLogService() core.Logger {
@@ -33,14 +68,19 @@ func NewLogServiceWithOptions(options Options) (core.Logger, error) {
 	opts := &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}
-	output := io.Writer(os.Stdout)
+	console := options.Console
+	if console == nil {
+		console = os.Stdout
+	}
+
+	output := console
 	var closer io.Closer
 	if options.FilePath != "" {
 		writer, err := NewRotatingFileWriter(options)
 		if err != nil {
 			return nil, err
 		}
-		output = io.MultiWriter(os.Stdout, writer)
+		output = &logFanout{file: writer, console: console}
 		closer = writer
 	}
 	handler := slog.NewTextHandler(output, opts)
