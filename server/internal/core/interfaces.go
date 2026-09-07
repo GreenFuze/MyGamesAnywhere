@@ -296,6 +296,12 @@ type SyncService interface {
 type UpdateService interface {
 	Status(ctx context.Context) (*UpdateStatus, error)
 	Check(ctx context.Context) (*UpdateStatus, error)
+	// StartDownload begins the transfer and returns once it is under way. An
+	// update asset is far too large to fetch inside a bounded request, so the
+	// caller is answered early and follows progress through Status.
+	StartDownload(ctx context.Context) (*UpdateStatus, error)
+	// Download fetches the asset and waits for it. Used where the caller
+	// genuinely owns the wait, such as a test.
 	Download(ctx context.Context) (*UpdateDownloadResult, error)
 	Apply(ctx context.Context) (*UpdateApplyResult, error)
 }

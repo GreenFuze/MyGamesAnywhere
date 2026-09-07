@@ -36,14 +36,21 @@ func (c *UpdateController) Check(w http.ResponseWriter, r *http.Request) {
 	writeUpdateJSON(w, status)
 }
 
+// Download starts the transfer and answers immediately.
+//
+// It does not wait for the bytes. This request is bounded by the router's
+// timeout and the installer is well over 100 MB, so waiting meant the update
+// only installed when the network was fast enough — on 2026-09-07 a server
+// reached 85.6% and was cut off. Progress is reported by Status, which the
+// console already polls, so the caller loses nothing by being answered early.
 func (c *UpdateController) Download(w http.ResponseWriter, r *http.Request) {
-	result, err := c.updateSvc.Download(r.Context())
+	status, err := c.updateSvc.StartDownload(r.Context())
 	if err != nil {
-		c.logger.Error("update download failed", err)
+		c.logger.Error("update download failed to start", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	writeUpdateJSON(w, result)
+	writeUpdateJSON(w, status)
 }
 
 func (c *UpdateController) Apply(w http.ResponseWriter, r *http.Request) {

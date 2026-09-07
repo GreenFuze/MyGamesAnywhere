@@ -180,24 +180,74 @@ func (s *Service) check(ctx context.Context) (*core.UpdateStatus, error) {
 	return &status, nil
 }
 
+// StartDownload begins fetching the update asset and returns as soon as it is
+// under way, leaving the transfer to finish in the background.
+//
+// It exists because the synchronous Download cannot survive its own caller. An
+// HTTP request carries a deadline — 60 seconds for this server — and the
+// installer is well over 100 MB, so downloading inside the request means the
+// update only installs when the network happens to be fast enough. Measured on
+// 2026-09-07: TV2 fetched 111 MB of a 130 MB installer and was killed at 85.6%
+// with "context deadline exceeded". Earlier releases had succeeded only by
+// being just fast enough, and the margin shrinks every time MGA grows.
+//
+// Progress was always reported through Status, and the console already polls it
+// and draws a progress bar, so the asynchronous shape is the one the rest of
+// the system was already built for.
+func (s *Service) StartDownload(ctx context.Context) (*core.UpdateStatus, error) {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+
+	status, path, err := s.beginDownload(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Detached from the request: the caller is an HTTP handler that is about to
+	// return, and its context is cancelled the moment it does. A generous
+	// ceiling remains so a transfer that stalls forever cannot hold the
+	// in-progress flag for the life of the process.
+	downloadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 6*time.Hour)
+	go func() {
+		defer cancel()
+		if _, err := s.runDownload(downloadCtx, status, path); err != nil {
+			s.logger.Warn("update download failed", "error", err.Error())
+		}
+	}()
+
+	snapshot := *status
+	return &snapshot, nil
+}
+
 func (s *Service) Download(ctx context.Context) (*core.UpdateDownloadResult, error) {
 	s.operationMu.Lock()
 	defer s.operationMu.Unlock()
 
-	status, err := s.check(ctx)
+	status, path, err := s.beginDownload(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return s.runDownload(ctx, status, path)
+}
+
+// beginDownload does the part that must happen before the caller is answered:
+// working out what to fetch, refusing a second concurrent download, and
+// deciding where the bytes will land.
+func (s *Service) beginDownload(ctx context.Context) (*core.UpdateStatus, string, error) {
+	status, err := s.check(ctx)
+	if err != nil {
+		return nil, "", err
+	}
 	if status.SelectedAsset == nil {
-		return nil, errors.New("no update asset selected")
+		return nil, "", errors.New("no update asset selected")
 	}
 	if status.SelectedAsset.URL == "" {
-		return nil, errors.New("selected update asset has no URL")
+		return nil, "", errors.New("selected update asset has no URL")
 	}
 	s.mu.Lock()
 	if s.lastStatus.DownloadInProgress {
 		s.mu.Unlock()
-		return nil, errors.New("update download is already in progress")
+		return nil, "", errors.New("update download is already in progress")
 	}
 	status.DownloadInProgress = true
 	status.DownloadBytes = 0
@@ -211,7 +261,7 @@ func (s *Service) Download(ctx context.Context) (*core.UpdateDownloadResult, err
 	updatesDir := s.updatesDir()
 	if err := os.MkdirAll(updatesDir, 0o755); err != nil {
 		s.finishDownloadWithError(status, err)
-		return nil, fmt.Errorf("create updates directory: %w", err)
+		return nil, "", fmt.Errorf("create updates directory: %w", err)
 	}
 	name := status.SelectedAsset.Name
 	if strings.TrimSpace(name) == "" {
@@ -220,7 +270,13 @@ func (s *Service) Download(ctx context.Context) (*core.UpdateDownloadResult, err
 	if strings.TrimSpace(name) == "." || strings.TrimSpace(name) == string(filepath.Separator) {
 		name = fmt.Sprintf("mga-update-%s", status.LatestVersion)
 	}
-	path := filepath.Join(updatesDir, filepath.Base(name))
+	return status, filepath.Join(updatesDir, filepath.Base(name)), nil
+}
+
+// runDownload fetches and verifies the asset. Its context governs the transfer
+// itself, so a caller that wants the download to outlive it must hand in one
+// that is not about to be cancelled.
+func (s *Service) runDownload(ctx context.Context, status *core.UpdateStatus, path string) (*core.UpdateDownloadResult, error) {
 	hash, size, err := s.downloadAndVerify(ctx, status.SelectedAsset.URL, path, status.SelectedAsset.SHA256, status.SelectedAsset.Size, func(bytes, total int64) {
 		s.recordDownloadProgress(status, bytes, total)
 	})
