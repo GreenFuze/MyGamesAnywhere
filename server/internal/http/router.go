@@ -79,6 +79,11 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			// its own current session/credential contract in AuthController.
 			api.Get("/auth/session", b.AuthCtrl.Session)
 			api.Post("/auth/login", b.AuthCtrl.Login)
+			// Credential-authenticated rather than session-authenticated: an
+			// external frontend proves who it is with the profile's own
+			// password and receives a scoped key, so it never stores the
+			// password and no administrator has to mint one by hand.
+			api.Post("/auth/frontend-clients", b.AuthCtrl.SignInFrontendClient)
 			api.Post("/auth/logout", b.AuthCtrl.Logout)
 			api.Put("/auth/credential", b.AuthCtrl.ChangeCredential)
 			api.With(ProfileContextMiddleware(b.ProfileRepo)).Get("/auth/credential", b.AuthCtrl.CredentialStatus)
@@ -334,6 +339,7 @@ func BuildRouter(b *RouteBuilder, middlewareTimeout time.Duration, spaStaticDir 
 			api.Get("/legacy-client-data/report", noopHandler())
 			api.Get("/auth/session", noopHandler())
 			api.Post("/auth/login", noopHandler())
+			api.Post("/auth/frontend-clients", noopHandler())
 			api.Post("/auth/logout", noopHandler())
 			api.Put("/auth/credential", noopHandler())
 			api.Get("/auth/credential", noopHandler())

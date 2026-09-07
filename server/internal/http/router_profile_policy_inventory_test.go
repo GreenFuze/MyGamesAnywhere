@@ -67,11 +67,17 @@ func TestEveryNonPublicAPIRouteFailsClosedForInvalidProfileSessions(t *testing.T
 	}, 0, "")
 
 	public := map[string]string{
-		"GET /health":                              "liveness contains no user data",
-		"GET /auth/google/callback/{plugin_id}":    "provider redirect validated by expiring opaque OAuth state",
-		"GET /auth/xbox/callback":                  "provider redirect validated by expiring opaque OAuth state",
-		"GET /api/auth/session":                    "session bootstrap",
-		"POST /api/auth/login":                     "credential exchange",
+		"GET /health":                           "liveness contains no user data",
+		"GET /auth/google/callback/{plugin_id}": "provider redirect validated by expiring opaque OAuth state",
+		"GET /auth/xbox/callback":               "provider redirect validated by expiring opaque OAuth state",
+		"GET /api/auth/session":                 "session bootstrap",
+		"POST /api/auth/login":                  "credential exchange",
+		// Same class as login, and gated the same way: it accepts a profile's
+		// own password, is throttled by the same limiter, and issues a key
+		// narrower than the password that bought it. It cannot require a
+		// session because its whole purpose is obtaining credentials for a
+		// client that has none.
+		"POST /api/auth/frontend-clients":          "credential exchange for a scoped frontend key",
 		"POST /api/auth/logout":                    "session teardown",
 		"PUT /api/auth/credential":                 "must-change credential replacement",
 		"GET /api/auth/credential":                 "credential bootstrap status",

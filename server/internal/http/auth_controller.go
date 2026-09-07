@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/auth"
 	"github.com/GreenFuze/MyGamesAnywhere/server/internal/core"
+	"github.com/GreenFuze/MyGamesAnywhere/server/internal/frontendauth"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -28,6 +30,23 @@ type AuthController struct {
 	logger   core.Logger
 	mu       sync.Mutex
 	attempts map[string]loginAttempt
+	// Set when the server was built with the scoped frontend API. Optional so
+	// that a build without it simply has no way to sign a frontend in, rather
+	// than a route that panics.
+	frontendClients frontendClientIssuer
+}
+
+// frontendClientIssuer is the sliver of the frontend API client service this
+// controller needs: turning an authenticated profile into a scoped key.
+type frontendClientIssuer interface {
+	Create(ctx context.Context, profileID, name string, scopes []frontendauth.Scope, expiresAt *time.Time) (*frontendauth.IssuedClient, error)
+}
+
+// SetFrontendClientIssuer wires up the sign-in exchange. Kept separate from the
+// constructor because the frontend API client service is built later and is
+// absent in builds that do not mount the scoped API.
+func (c *AuthController) SetFrontendClientIssuer(issuer frontendClientIssuer) {
+	c.frontendClients = issuer
 }
 
 type authStatusResponse struct {

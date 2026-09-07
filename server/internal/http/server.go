@@ -77,7 +77,7 @@ func NewHttpServer(
 	authCtrl *AuthController,
 	authService *auth.Service,
 ) core.Server {
-	return &httpServer{
+	server := &httpServer{
 		logger:                 logger,
 		config:                 config,
 		gameCtrl:               gameCtrl,
@@ -107,6 +107,15 @@ func NewHttpServer(
 		authCtrl:               authCtrl,
 		authService:            authService,
 	}
+
+	// An external frontend signs in with a profile password and receives a
+	// scoped key. Wired here rather than in the constructor because the
+	// frontend API client service is built later, and a build without it should
+	// simply not offer the exchange.
+	if authCtrl != nil && frontendAPIClientSvc != nil {
+		authCtrl.SetFrontendClientIssuer(frontendAPIClientSvc)
+	}
+	return server
 }
 
 func (h *httpServer) Start(ctx context.Context) error {
