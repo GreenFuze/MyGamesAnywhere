@@ -10,6 +10,9 @@ import { effectiveCoverUrl } from '@/lib/gameMedia'
 import { platformLabel, sourceLabel } from '@/lib/displayText'
 import { gameBadges, gameSources } from '@/lib/gameBadges'
 import { GameBadgeRow, PlatformMark, SourcePill } from '@/components/management/GameBadges'
+import { UnidentifiedGamesPanel } from '@/components/management/UnidentifiedGamesPanel'
+import { useProfiles } from '@/hooks/useProfiles'
+import { ManagementPolicy } from '@/lib/managementPolicy'
 import { readLibraryView, storeLibraryView, type LibraryView } from '@/lib/libraryView'
 import { describeHiddenGames, readLibraryScope, storeLibraryScope, type LibraryScope } from '@/lib/libraryScope'
 import { MetricCard, PageIntro, QueryFeedback, SectionCard, formatCount } from '@/components/management/ManagementPrimitives'
@@ -86,6 +89,9 @@ export function LibraryManagementPage() {
   // scanned. No offers means no badge, never a guessed one.
   const offers = useQuery({ queryKey: ['management', 'catalog-offers'], queryFn: listCatalogOffers })
 
+  const { currentProfile } = useProfiles()
+  const isAdmin = new ManagementPolicy(currentProfile).can('source.create')
+
   const games = library.data?.games ?? []
   // Two different numbers, and conflating them is how a card starts lying.
   // libraryTotal is how many games exist; matched is how many this search found.
@@ -112,6 +118,10 @@ export function LibraryManagementPage() {
       <div className="grid gap-4 sm:grid-cols-2">
         <MetricCard label="Games" value={formatCount(libraryTotal)} detail="Across all your connected sources" icon={<Gamepad2 className="h-4 w-4" />} />
       </div>
+
+      {/* Above the list, because someone who cannot find a game looks at the
+          list first and concludes it is gone. */}
+      <UnidentifiedGamesPanel isAdmin={isAdmin} />
 
       <SectionCard
         title={search || narrowed ? 'Search results' : 'All games'}
