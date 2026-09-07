@@ -323,6 +323,23 @@ func runServer(ctx context.Context, opts serverOptions) error {
 				"attempted", result.Attempted, "matched", result.Matched,
 				"still_unidentified", result.Unidentified, "failed", result.Failed)
 		}
+
+		// Artwork the downloader gave up on is the other thing nothing ever
+		// revisited. Assets no game references are removed rather than counted
+		// at someone; assets a game still wants are handed back to the queue.
+		if reclaimer, ok := gameStore.(interface {
+			ReclaimAbandonedMedia(context.Context) (*db.MediaReclaimResult, error)
+		}); ok {
+			reclaimed, err := reclaimer.ReclaimAbandonedMedia(ctx)
+			if err != nil {
+				logSvc.Warn("periodic artwork reclaim failed", "error", err.Error())
+			} else if reclaimed.OrphansRemoved > 0 || reclaimed.Retried > 0 {
+				logSvc.Info("periodic artwork reclaim",
+					"removed_unreferenced", reclaimed.OrphansRemoved,
+					"handed_back_to_the_queue", reclaimed.Retried,
+					"left_alone", reclaimed.LeftAlone)
+			}
+		}
 	})
 	aboutCtrl := http.NewAboutController(logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
