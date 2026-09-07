@@ -43,6 +43,35 @@ func TestMaintenanceRunsAfterASuccessfulScan(t *testing.T) {
 	}
 }
 
+func TestMaintenanceCarriesTheProfileItIsRepairingFor(t *testing.T) {
+	// Everything the repair touches is profile-scoped. Without the profile in
+	// its context the first query answers "profile is required" and the repair
+	// does nothing at all — which is exactly what happened the first time this
+	// shipped, silently, on a live server.
+	service := newMaintenanceTestService(t)
+	service.profiles = &maintenanceProfileRepo{profiles: []*core.Profile{
+		{ID: "profile-1", DisplayName: "TCs"},
+		{ID: "profile-2", DisplayName: "Someone else"},
+	}}
+
+	var ran sync.WaitGroup
+	ran.Add(1)
+	var seenProfileID string
+	service.SetMaintenance(func(ctx context.Context) {
+		seenProfileID = core.ProfileIDFromContext(ctx)
+		ran.Done()
+	})
+
+	service.finishJob("profile-1", &core.ScanJobStatus{Status: "completed"}, core.LibraryScanScheduleConfig{Enabled: true, IntervalMinutes: 15}, time.Now(), "")
+
+	if !waitFor(&ran, 5*time.Second) {
+		t.Fatal("maintenance never ran")
+	}
+	if seenProfileID != "profile-1" {
+		t.Fatalf("maintenance ran for profile %q, want the one that was scanned", seenProfileID)
+	}
+}
+
 func TestMaintenanceIsSkippedAfterAFailedScan(t *testing.T) {
 	// Repair reads what the scan produced. Running it against a partial
 	// library would be drawing conclusions from an incomplete answer — the
@@ -89,4 +118,13 @@ func waitFor(group *sync.WaitGroup, limit time.Duration) bool {
 	case <-time.After(limit):
 		return false
 	}
+}
+
+type maintenanceProfileRepo struct {
+	core.ProfileRepository
+	profiles []*core.Profile
+}
+
+func (r *maintenanceProfileRepo) List(context.Context) ([]*core.Profile, error) {
+	return r.profiles, nil
 }

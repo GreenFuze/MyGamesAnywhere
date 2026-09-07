@@ -263,7 +263,11 @@ func (s *BackgroundScanService) finishJob(profileID string, job *core.ScanJobSta
 		// many provider lookups, which no request deadline should be allowed to
 		// cut short — that is precisely what made a provider look unavailable
 		// and left the rest of the queue untried.
-		maintenanceCtx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+		// Carries the profile, because everything it touches is profile-scoped:
+		// without it the first query answers "profile is required" and the
+		// repair does nothing, silently, forever.
+		maintenanceCtx, cancel := context.WithTimeout(
+			core.WithProfile(context.Background(), s.profileFor(profileID)), 2*time.Hour)
 		go func() {
 			defer cancel()
 			s.maintenance(maintenanceCtx)
@@ -276,6 +280,26 @@ func (s *BackgroundScanService) finishJob(profileID string, job *core.ScanJobSta
 		"error":       status.LastError,
 		"next_run_at": status.NextRunAt,
 	})
+}
+
+// profileFor resolves the profile a scan belonged to. Returns nil when it
+// cannot be found, which leaves the context without one — the maintenance work
+// then fails loudly rather than running against the wrong library.
+func (s *BackgroundScanService) profileFor(profileID string) *core.Profile {
+	if s.profiles == nil {
+		return nil
+	}
+	profiles, err := s.profiles.List(context.Background())
+	if err != nil {
+		s.logger.Warn("could not resolve the profile for maintenance", "profile_id", profileID, "error", err.Error())
+		return nil
+	}
+	for _, profile := range profiles {
+		if profile != nil && profile.ID == profileID {
+			return profile
+		}
+	}
+	return nil
 }
 
 func (s *BackgroundScanService) recordProfileError(profileID string, err error) {
