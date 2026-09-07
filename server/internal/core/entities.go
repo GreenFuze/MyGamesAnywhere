@@ -1217,9 +1217,15 @@ type ManualReviewRedetectResult struct {
 }
 
 type ManualReviewRedetectBatchResult struct {
-	Attempted         int                          `json:"attempted"`
-	Matched           int                          `json:"matched"`
-	Unidentified      int                          `json:"unidentified"`
+	Attempted    int `json:"attempted"`
+	Matched      int `json:"matched"`
+	Unidentified int `json:"unidentified"`
+	// Failed counts candidates a provider could not answer for. They are not
+	// fatal: one provider timing out says nothing about the next game, and a
+	// run that stopped at the first failure left every remaining candidate
+	// untried — which is how 74 games stayed unidentified while a repair
+	// mechanism existed to fix them.
+	Failed            int                          `json:"failed"`
 	FailedCandidateID string                       `json:"failed_candidate_id,omitempty"`
 	Error             string                       `json:"error,omitempty"`
 	Results           []ManualReviewRedetectResult `json:"results"`

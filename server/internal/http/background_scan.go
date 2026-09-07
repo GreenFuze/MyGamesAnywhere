@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	stdhttp "net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +45,21 @@ type BackgroundScanService struct {
 
 	mu     sync.RWMutex
 	states map[string]*backgroundScanProfileState
+
+	// Work to do after a scan finishes, beyond finding games. Optional so a
+	// server built without it simply scans.
+	maintenance func(context.Context)
+}
+
+// SetMaintenance registers the repair work that follows a successful scan.
+//
+// The periodic run is not only about finding new games. A library accumulates
+// things that need another attempt later — games no metadata provider could
+// identify the first time, artwork a provider refused — and nothing else is
+// going to come back to them. Doing that here means it happens on the same
+// schedule, without anyone remembering to press something.
+func (s *BackgroundScanService) SetMaintenance(maintenance func(context.Context)) {
+	s.maintenance = maintenance
 }
 
 func NewBackgroundScanService(
@@ -238,6 +254,22 @@ func (s *BackgroundScanService) finishJob(profileID string, job *core.ScanJobSta
 	}
 	status := state.status
 	s.mu.Unlock()
+
+	// Only after a scan that actually succeeded: repair work reads what the
+	// scan produced, and running it against the results of a failed scan would
+	// be drawing conclusions from a partial library.
+	if s.maintenance != nil && job != nil && job.Status == "completed" && strings.TrimSpace(job.Error) == "" {
+		// Detached, with a ceiling. Identifying a few hundred games means as
+		// many provider lookups, which no request deadline should be allowed to
+		// cut short — that is precisely what made a provider look unavailable
+		// and left the rest of the queue untried.
+		maintenanceCtx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+		go func() {
+			defer cancel()
+			s.maintenance(maintenanceCtx)
+		}()
+	}
+
 	events.PublishJSON(s.eventBus, "background_scan_finished", map[string]any{
 		"profile_id":  profileID,
 		"status":      status.LastStatus,

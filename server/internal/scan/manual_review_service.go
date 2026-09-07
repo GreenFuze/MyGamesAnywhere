@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -207,12 +208,40 @@ func (s *manualReviewService) RedetectActive(ctx context.Context) (*core.ManualR
 		if candidate == nil || candidate.Status != "found" || candidate.ReviewState != core.ManualReviewStatePending {
 			continue
 		}
+		// A cancelled run stops; a failed candidate does not. Cancellation is
+		// the caller going away, and continuing then is work nobody wants.
+		if ctx.Err() != nil {
+			result.Error = ctx.Err().Error()
+			return result, ctx.Err()
+		}
+
 		result.Attempted++
 		item, err := s.redetectCandidate(ctx, candidate, metaSources)
 		if err != nil {
-			result.FailedCandidateID = candidate.ID
-			result.Error = err.Error()
-			return result, err
+			// Two different failures wearing the same shape.
+			//
+			// Providers being unavailable is systemic: the next candidate will
+			// fail for the same reason, so the batch stops. Asking a dead
+			// provider seventy-five times is not resilience.
+			//
+			// Anything else is about this one game — an odd title, a shape a
+			// provider cannot answer for — and says nothing about the rest. The
+			// batch used to stop on those too, which meant one awkward game
+			// could leave every candidate behind it untried.
+			if errors.Is(err, core.ErrMetadataProvidersUnavailable) {
+				result.FailedCandidateID = candidate.ID
+				result.Error = err.Error()
+				return result, err
+			}
+
+			result.Failed++
+			if result.FailedCandidateID == "" {
+				result.FailedCandidateID = candidate.ID
+				result.Error = err.Error()
+			}
+			s.logger.Warn("redetect candidate failed; continuing with the rest",
+				"candidate_id", candidate.ID, "error", err.Error())
+			continue
 		}
 		result.Results = append(result.Results, *item)
 		switch item.Status {

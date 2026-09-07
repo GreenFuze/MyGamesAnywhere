@@ -308,6 +308,22 @@ func runServer(ctx context.Context, opts serverOptions) error {
 		return fmt.Errorf("configure background library scans: %w", err)
 	}
 	discoCtrl.SetBackgroundScanService(backgroundScanSvc)
+	// The periodic run also repairs. Games that no metadata provider could
+	// identify are retried after every successful scan, on a context with no
+	// request deadline behind it — the deadline is what made a provider look
+	// unavailable and left the rest of the queue untried, so a library could
+	// hold games it had found and never showed.
+	backgroundScanSvc.SetMaintenance(func(ctx context.Context) {
+		result, err := manualReviewSvc.RedetectActive(ctx)
+		if err != nil {
+			logSvc.Warn("periodic redetect of unidentified games stopped early", "error", err.Error())
+		}
+		if result != nil && result.Attempted > 0 {
+			logSvc.Info("periodic redetect of unidentified games",
+				"attempted", result.Attempted, "matched", result.Matched,
+				"still_unidentified", result.Unidentified, "failed", result.Failed)
+		}
+	})
 	aboutCtrl := http.NewAboutController(logSvc)
 	configCtrl := http.NewConfigController(settingRepo, logSvc)
 	pluginCtrl := http.NewPluginController(integrationRepo, pluginHost, gameStore, configSvc, logSvc, eventBus, syncSvc)
